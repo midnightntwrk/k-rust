@@ -3,18 +3,18 @@ source: crates/k-rust/tests/measure_ratchet.rs
 description: kompile of examples/rewrite.k
 ---
 kompile.resolve_calls = 7
-kompile.resolve_updates = 40
-kompile.resolve_update_sentence_visits = 44923
+kompile.resolve_updates = 41
+kompile.resolve_update_sentence_visits = 46766
 kompile.rule_bubbles_parsed = 198
 kompile.sentences_transformed = 1986
-kompile.sentence_equivalence_checks = 173059
-kompile.production_catalogs_built = 618
-kompile.partial_orders_built = 1201
+kompile.sentence_equivalence_checks = 176616
+kompile.production_catalogs_built = 619
+kompile.partial_orders_built = 1203
 kompile.injections_inserted = 53
 kompile.owise_competitor_scans = 66
 provenance.link_dedup_probes = 22703
-kompile.sentence_copies = 18416
-kompile.production_identity_digests = 43701
+kompile.sentence_copies = 18417
+kompile.production_identity_digests = 43816
 parser.parse_attempts = 202
 parser.prediction_analysis_builds = 29
 parser.chart_prediction_attempts = 113787

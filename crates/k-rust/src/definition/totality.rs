@@ -6,21 +6,22 @@
 //! `total` on a function symbol states that every application of it denotes exactly one value.
 //! A pass that generates a function production may claim it only after discharging that
 //! obligation, and [`Attributes::declare_total`] takes the discharge as a [`TotalityWitness`].
-//! Two reasons carry evidence from a judgement; four named reasons state obligations that the
+//! Three reasons carry evidence from a judgement; three named reasons state obligations that the
 //! generating rules or hooks discharge.
 
 use serde_json::Value;
 
 use super::{Attributes, attribute_keys::AttributeKey};
-use crate::kompile::{DefinedBody, SoleGenerator};
+use crate::kompile::{DefinedBody, DefinedInitializer, SoleGenerator};
 
 /// Evidence, or a named reason, that every application of a compiler-generated function
 /// production denotes exactly one value.
 ///
-/// Its field is private, so a witness exists only through the constructors below. Two reasons
+/// Its field is private, so a witness exists only through the constructors below. Three reasons
 /// carry evidence that only the judgement discharging the obligation can mint:
-/// [`TotalityWitness::defined_body`] takes a [`DefinedBody`] and
-/// [`TotalityWitness::sole_generator`] takes a [`SoleGenerator`]. The other four are named
+/// [`TotalityWitness::defined_body`] takes a [`DefinedBody`],
+/// [`TotalityWitness::sole_generator`] takes a [`SoleGenerator`], and
+/// [`TotalityWitness::nullary_initializer`] takes a [`DefinedInitializer`]. The other three are named
 /// reasons without evidence: they compile at any call site, so they force the writer to state
 /// which obligation the generated rules or hook discharge, for review to check, but do not prove
 /// that it is discharged.
@@ -67,8 +68,9 @@ impl TotalityWitness {
         Self(TotalityReason::Hooked)
     }
 
-    /// Reason: a nullary initializer whose single unconditional rule builds its value.
-    pub(crate) fn nullary_initializer() -> Self {
+    /// Evidence: every generated rule of the nullary initializer has a defined right-hand side
+    /// and a trivial postcondition, so its equations preserve definedness.
+    pub(crate) fn nullary_initializer(_: DefinedInitializer) -> Self {
         Self(TotalityReason::NullaryInitializer)
     }
 }
@@ -84,12 +86,13 @@ impl Attributes {
         let TotalityWitness(reason) = witness;
         match reason {
             // Evidence minted by the judgement that discharges the obligation.
-            TotalityReason::DefinedBody | TotalityReason::SoleGenerator => {}
+            TotalityReason::DefinedBody
+            | TotalityReason::SoleGenerator
+            | TotalityReason::NullaryInitializer => {}
             // Named reasons without evidence.
             TotalityReason::CoveringPredicate
             | TotalityReason::KEquality
-            | TotalityReason::Hooked
-            | TotalityReason::NullaryInitializer => {}
+            | TotalityReason::Hooked => {}
         }
         self.insert(AttributeKey::Total.as_str(), Value::String(String::new()));
     }
@@ -107,7 +110,6 @@ mod tests {
             TotalityWitness::covering_predicate(),
             TotalityWitness::k_equality(),
             TotalityWitness::hooked(),
-            TotalityWitness::nullary_initializer(),
         ] {
             let mut attributes = Attributes::default();
             attributes.declare_total(witness);

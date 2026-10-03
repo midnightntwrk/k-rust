@@ -8,7 +8,7 @@ description: "base.k:\n\nmodule BASE\n  syntax Int ::= r\"[0-9]+\" [token]\n  co
         [
             "production Int ::= r\"[0-9]+\" label=- [token=\"\"]",
             "production SharedCell ::= \"<shared>\" Int \"</shared>\" label=<shared> [cell=\"\", cellName=\"shared\", format=\"%1%i%n%2%d%n%3\"]",
-            "production SharedCell ::= \"initSharedCell\" label=initSharedCell [function=\"\", initializer=\"\", total=\"\"]",
+            "production SharedCell ::= \"initSharedCell\" label=initSharedCell [function=\"\", initializer=\"\"]",
             "rule initSharedCell(.KList)=>`<shared>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
         ],
     ),
@@ -16,7 +16,7 @@ description: "base.k:\n\nmodule BASE\n  syntax Int ::= r\"[0-9]+\" [token]\n  co
         "MAIN",
         [
             "production TopCell ::= \"<top>\" SharedCell \"</top>\" label=<top> [cell=\"\", cellName=\"top\", format=\"%1%i%n%2%d%n%3\"]",
-            "production TopCell ::= \"initTopCell\" label=initTopCell [function=\"\", initializer=\"\", total=\"\"]",
+            "production TopCell ::= \"initTopCell\" label=initTopCell [function=\"\", initializer=\"\"]",
             "rule initTopCell(.KList)=>`<top>`(#noDots(.KList),initSharedCell(.KList),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
         ],
     ),

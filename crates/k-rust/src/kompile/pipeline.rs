@@ -400,6 +400,10 @@ stage_adapter!(
 );
 stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
 stage_adapter!(
+    declare_initializer_totality_stage,
+    passes::declare_initializer_totality_pass
+);
+stage_adapter!(
     add_implicit_computation_cell_stage,
     passes::add_implicit_computation_cell_pass
 );
@@ -662,6 +666,13 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         generate_sort_projections_stage,
         Provenance::Driver(GeneratingPass::GenerateSortProjections),
         "generating"
+    ),
+    stage!(
+        "declare initializer totality",
+        "declare_initializer_totality",
+        declare_initializer_totality_stage,
+        Provenance::None,
+        "metadata-only"
     ),
     stage!(
         "check simplification rules",

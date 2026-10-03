@@ -26,6 +26,7 @@ mod expand_macros;
 mod finalize;
 mod generate_sort_helpers;
 mod guard_or_patterns;
+mod initializer_totality;
 mod minimize_term_construction;
 mod number_sentences;
 mod propagate_macro;
@@ -72,6 +73,7 @@ pub use generate_sort_helpers::{
 };
 pub(crate) use guard_or_patterns::guard_or_patterns_pass;
 pub use guard_or_patterns::{GuardOrPatternsError, guard_or_patterns};
+pub(crate) use initializer_totality::{DefinedInitializer, declare_initializer_totality_pass};
 pub use minimize_term_construction::minimize_term_construction;
 pub(crate) use minimize_term_construction::minimize_term_construction_pass;
 pub(crate) use number_sentences::number_sentence;

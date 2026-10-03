@@ -7,7 +7,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
     "production KCell ::= \"<k>\" K \"</k>\" label=<k> [cell=\"\", cellName=\"k\", format=\"%1%i%n%2%d%n%3\", maincell=\"\"]",
     "production KCell ::= \"initKCell\" \"(\" Map \")\" label=initKCell [function=\"\", initializer=\"\"]",
     "rule initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToInt(`project:Int`(#unboxKConfigValue(`Map:lookup`(Init,#token(\"$PGM\",\"KConfigVar\"))))),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
-    "production OptCell ::= \"initOptCell\" label=initOptCell [function=\"\", initializer=\"\", total=\"\"]",
+    "production OptCell ::= \"initOptCell\" label=initOptCell [function=\"\", initializer=\"\"]",
     "rule initOptCell(.KList)=>`<opt>`(#noDots(.KList),#token(\"0\",\"Int\"),#noDots(.KList)) requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") [initializer=\"\"]",
     "production OptCell ::= \".OptCell\" label=.OptCell []",
     "production OptCell ::= \"<opt>\" Int \"</opt>\" label=<opt> [cell=\"\", cellName=\"opt\", format=\"%1%i%n%2%d%n%3\", multiplicity=\"?\", unit=\".OptCell\"]",

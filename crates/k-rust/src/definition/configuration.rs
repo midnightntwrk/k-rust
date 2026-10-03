@@ -1293,13 +1293,10 @@ fn initializer_production(label: &str, sort: Sort, takes_map: bool) -> Sentence 
     } else {
         vec![ProductionItem::Terminal(label.into())]
     };
-    let mut attributes = Attributes::from_pairs([
+    let attributes = Attributes::from_pairs([
         (AttributeKey::Initializer, json!("")),
         (AttributeKey::Function, json!("")),
     ]);
-    if !takes_map {
-        attributes.declare_total(TotalityWitness::nullary_initializer());
-    }
     production(Some(label.into()), sort, items, attributes)
 }
 

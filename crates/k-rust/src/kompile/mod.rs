@@ -57,7 +57,7 @@ pub use passes::{
     resolve_semantic_casts_in_sentence, resolve_semantic_casts_with_predicates_in_sentence,
     resolve_strict, subsort_kitem,
 };
-pub(crate) use passes::{DefinedBody, Injectable, SoleGenerator};
+pub(crate) use passes::{DefinedBody, DefinedInitializer, Injectable, SoleGenerator};
 #[cfg(feature = "cli")]
 pub(crate) use passes::{Placement, PlacementKind};
 pub use search_pattern::{

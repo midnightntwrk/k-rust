@@ -372,6 +372,232 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
     );
 }
 
+fn assert_initializer_totality(source: &str, expected: &[(&str, bool)]) {
+    let expanded = expand_configurations(&parsed(source)).unwrap();
+    for &(name, _) in expected {
+        assert_expanded_initializer_totality(&expanded, &[(name, false)]);
+    }
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+    let loaded = load(
+        ResolvedSource::new("configuration.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let compiled = k_rust::kompile::compile_loaded_definition(
+        &loaded,
+        k_rust::kompile::CompileOptions::default(),
+    )
+    .unwrap();
+    assert_expanded_initializer_totality(&compiled.execution_definition, expected);
+    for &(name, total) in expected {
+        let label = k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new(name));
+        let declaration = compiled
+            .definition_kore
+            .lines()
+            .find(|line| {
+                line.trim_start()
+                    .starts_with(&format!("symbol {}{{}}()", label.name))
+            })
+            .expect("compiled nullary initializer declaration");
+        assert_eq!(declaration.contains("total{}()"), total, "{declaration}");
+        assert_eq!(
+            declaration.contains("functional{}()"),
+            total,
+            "{declaration}"
+        );
+    }
+}
+
+fn assert_expanded_initializer_totality(
+    expanded: &k_rust::definition::Definition,
+    expected: &[(&str, bool)],
+) {
+    for &(name, total) in expected {
+        let attributes = expanded
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    attributes,
+                    ..
+                } if label.name == name => Some(attributes),
+                _ => None,
+            })
+            .expect("generated initializer production");
+        assert!(attributes.get("function").is_some(), "{name} is a function");
+        assert_eq!(attributes.get("total").is_some(), total, "{name} totality");
+    }
+}
+
+#[test]
+fn source_written_initializer_marker_cannot_mint_totality() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Int ::= "fake" [initializer, function, symbol(fake)]
+              rule fake => 0 requires false
+              configuration <n> 0 </n>
+            endmodule
+        "#},
+        &[("fake", false), ("initNCell", true)],
+    );
+}
+
+#[test]
+fn nullary_initializer_defined_token_is_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              configuration <n> 0 </n>
+            endmodule
+        "#},
+        &[("initNCell", true)],
+    );
+}
+
+#[test]
+fn nullary_initializer_defined_children_are_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Map ::= ".Map" [symbol(.Map)]
+              configuration <a> <b> .Map </b> </a>
+            endmodule
+        "#},
+        &[("initBCell", true), ("initACell", true)],
+    );
+}
+
+#[test]
+fn nullary_initializer_optional_and_collection_children_are_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              configuration <a>
+                <b multiplicity="?" initial=""> 0 </b>
+                <c multiplicity="*" type="Set"> 0 </c>
+              </a>
+            endmodule
+        "#},
+        &[
+            ("initBCell", true),
+            ("initCCell", true),
+            ("initACell", true),
+        ],
+    );
+}
+
+#[test]
+fn nullary_initializer_optional_partial_content_is_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Int ::= p(Int) [function, symbol(p)]
+              configuration <a> <b multiplicity="?" initial=""> p(0) </b> </a>
+            endmodule
+        "#},
+        &[("initBCell", false), ("initACell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_partial_content_and_parent_are_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Int ::= p(Int) [function, symbol(p)]
+              syntax Int ::= Int "/Int" Int [function]
+              rule p(X) => X /Int 0
+              configuration <top> <n> p(0) </n> </top>
+            endmodule
+        "#},
+        &[("initNCell", false), ("initTopCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_unresolved_anywhere_rule_is_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax N ::= p(Int) [symbol(p)] | mk(Int) [symbol(mk)]
+          syntax Int ::= Int "/Int" Int [function]
+          rule p(X) => mk(X /Int 0) [anywhere]
+          configuration <n> p(0) </n>
+        endmodule
+    "#},
+        &[("initNCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_nontrivial_ensures_is_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              configuration <n> 0 </n> ensures false
+            endmodule
+        "#},
+        &[("initNCell", false)],
+    );
+}
+
+fn assert_repeated_initializer_totality(
+    syntax: &str,
+    first: &str,
+    second: &str,
+    expected: &[(&str, bool)],
+) {
+    for (first, second) in [(first, second), (second, first)] {
+        let source = format!(
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  {syntax}\n  {first}\n  {second}\nendmodule\n"
+        );
+        assert_initializer_totality(&source, expected);
+    }
+}
+
+#[test]
+fn nullary_initializer_repeated_configuration_partial_rule_is_not_total() {
+    assert_repeated_initializer_totality(
+        "syntax Int ::= p(Int) [function, symbol(p)]",
+        "configuration <top> <n> 0 </n> </top>",
+        "configuration <top> <n> p(0) </n> </top>",
+        &[("initNCell", false), ("initTopCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_repeated_configuration_ensures_is_not_total() {
+    assert_repeated_initializer_totality(
+        "",
+        "configuration <n> 0 </n>",
+        "configuration <n> 0 </n> ensures false",
+        &[("initNCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_repeated_defined_rules_are_total() {
+    assert_repeated_initializer_totality(
+        "",
+        "configuration <a> <n> 0 </n> </a>",
+        "configuration <a> <n> 1 </n> </a>",
+        &[("initNCell", true), ("initACell", true)],
+    );
+}
+
 #[test]
 fn preserves_type_attribute_on_non_collection_cells() {
     let source = indoc! {r#"
