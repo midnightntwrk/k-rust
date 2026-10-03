@@ -66,10 +66,6 @@ class Port:
         return ROOT / "semantics" / self.key / "Cargo.toml"
 
     @property
-    def source(self) -> Path:
-        return ROOT / "semantics" / self.key / "src/lib.rs"
-
-    @property
     def corpus_path(self) -> Path:
         return self.here / "corpus.toml"
 
@@ -185,9 +181,9 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
         environment=fixture_env,
         timeout=900,
     )
-    run(["cargo", "+stable", "fmt", "--all", "--", "--check"])
+    run(["cargo", "+stable", "fmt", "--check", "--manifest-path", port.manifest])
     run(
-        [krs, "fmt", "--check", "--manifest-path", port.manifest, port.source],
+        [krs, "fmt", "--check", "--manifest-path", port.manifest],
         environment=environment,
     )
     run(["cargo", f"+{msrv()}", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
