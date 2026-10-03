@@ -621,11 +621,13 @@ The backend therefore checks sort injections when it loads a definition or an ad
 An axiom that writes an unlicensed closed injection in a rewrite or equation right-hand side, an `ensures` clause, or a `requires` clause outside a membership's pattern operand is refused with `UnlicensedInjection`, naming the source sort, target sort and axiom.
 An unlicensed injection in a matched position makes that alternative dead: rewrite left-hand alternatives, simplification left-hand sides, function argument binder alternatives and ceil arguments containing one are not loaded.
 No licensed value can match such an alternative, and dropping it also prevents unification from binding a variable to an unlicensed value.
-Within an axiom's predicate, membership `\in(X, P)` is false when its pattern operand `P` contains an unlicensed closed injection, because no licensed value belongs to that pattern.
+Within an axiom's condition (outside a predicate simplification's left-hand side, where the axiom is dead), membership `\in(X, P)` is false when its pattern operand `P` contains an unlicensed closed injection, because no licensed value belongs to that pattern.
 A sort-variable pair is accepted inside a definition axiom as a schema, including the injection composition axiom whose licensed instances follow from transitivity.
 
 Requests and claims must contain only licensed injections; krun's initial configuration is checked like a request.
+Requests and claims also refuse injection pairs containing sort variables.
 An unlicensed alternative of a no-junk axiom prevents that axiom from establishing a finite domain.
+A dead axiom remains in the written rule catalog with its executable attribute, but contributes no loaded rule and cannot be selected in an observation allowlist (`UnknownRule`).
 These load checks establish that every closed injection held by the backend is licensed, and rewriting preserves that condition by substituting licensed values and composing licensed embeddings.
 
 ### SMT prelude consistency

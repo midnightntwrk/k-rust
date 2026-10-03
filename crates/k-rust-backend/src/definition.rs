@@ -109,6 +109,8 @@ pub(crate) enum UnlicensedInjection {
     /// Definition axioms also admit sort-variable schemas; closed pairs still require a path.
     /// The axiom loader drops dead matched alternatives and refuses unlicensed written terms.
     InAxiom,
+    /// A matched predicate of a definition axiom (a predicate simplification's left-hand side): sort-variable pairs are licensed as in InAxiom, but a membership whose pattern operand holds an unlicensed injection is refused, so the axiom is dead rather than matching \bottom.
+    InAxiomMatched,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1281,11 +1283,13 @@ impl BackendDefinition {
                 .sort_graph
                 .check_subsort(source, target)
                 .unwrap_or(false),
-            UnlicensedInjection::InAxiom => match self.sort_graph.check_subsort(source, target) {
-                Ok(licensed) => licensed,
-                Err(SortError::FoundSortVariable(_)) => true,
-                Err(_) => false,
-            },
+            UnlicensedInjection::InAxiom | UnlicensedInjection::InAxiomMatched => {
+                match self.sort_graph.check_subsort(source, target) {
+                    Ok(licensed) => licensed,
+                    Err(SortError::FoundSortVariable(_)) => true,
+                    Err(_) => false,
+                }
+            }
         }
     }
 

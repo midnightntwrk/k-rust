@@ -69,6 +69,29 @@ fn rewrite_written_injection_is_refused_with_axiom_label() {
 }
 
 #[test]
+fn written_injection_without_identity_reports_origin_or_unidentified_axiom() {
+    for (attributes, expected) in [
+        (
+            r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
+            "Source(fixture.k)",
+        ),
+        (
+            r#"org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
+            "Location(3,1,7,2)",
+        ),
+        ("", "<unidentified axiom>"),
+    ] {
+        assert_written_refused(
+            &format!(
+                r"axiom{{}} \rewrites{{SortB{{}}}}(\and{{SortB{{}}}}(b{{}}(), \top{{SortB{{}}}}()),
+                    inj{{SortA{{}},SortB{{}}}}(a{{}}())) [{attributes}]",
+            ),
+            expected,
+        );
+    }
+}
+
+#[test]
 fn claim_written_injection_is_refused() {
     let error = load(&source(
         r#"claim{} \implies{SortB{}}(
@@ -141,6 +164,61 @@ fn dead_membership_is_false_only_inside_axioms() {
             target: Sort::simple("SortKItem"),
         }),
     );
+}
+
+#[test]
+fn unlicensed_membership_in_predicate_lhs_makes_axiom_dead() {
+    let definition = load(
+        r#"[]
+module TEST
+  sort SortA{} []
+  sort SortB{} []
+  symbol a{}() : SortA{} [constructor{}(), total{}(), functional{}()]
+  symbol b{}() : SortB{} [constructor{}(), total{}(), functional{}()]
+  symbol c{}() : SortB{} [constructor{}(), total{}(), functional{}()]
+  symbol g{}(SortB{}) : SortB{} [function{}(), total{}()]
+  symbol inj{S,T}(S) : T [sortInjection{}()]
+  axiom{R} \implies{R}(\top{R}(),
+    \equals{R,R}(\in{SortB{},R}(X:SortB{}, inj{SortA{},SortB{}}(Y:SortA{})),
+      \and{R}(\bottom{R}(), \top{R}()))) [simplification{}(), UNIQUE'Unds'ID{}("junk-membership-lemma")]
+  axiom{R} \implies{R}(\and{R}(\equals{SortB{},R}(X0:SortB{}, b{}()), \and{R}(\in{SortB{},R}(X1:SortB{}, X0:SortB{}), \top{R}())),
+    \equals{SortB{},R}(g{}(X1:SortB{}), \and{SortB{}}(c{}(), \top{SortB{}}()))) [UNIQUE'Unds'ID{}("g-b")]
+endmodule []"#,
+    )
+    .expect("dead predicate simplification should not prevent loading");
+    assert!(definition.predicate_simplification_theory().is_empty());
+    let input = term(&definition, "g{}(c{}())");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("refuted function condition should simplify without recursion")
+        .expect("the stuck function application is not bottom");
+    assert_eq!(result.term, input);
+    assert!(result.constraints().is_empty());
+
+    let membership =
+        parse_pattern(r"\in{SortB{},R}(X:SortB{}, inj{SortA{},SortB{}}(Y:SortA{}))").unwrap();
+    assert_eq!(
+        internalize_predicate(
+            &definition,
+            &membership,
+            &[Name::from("R")],
+            UnlicensedInjection::InAxiomMatched,
+        ),
+        Err(DefinitionError::NotSubsort {
+            source: Sort::simple("SortA"),
+            target: Sort::simple("SortB"),
+        }),
+    );
+
+    let schema = parse_pattern(r"\in{T,R}(X:T, inj{S,T}(Y:S))").unwrap();
+    assert!(matches!(
+        internalize_predicate(
+            &definition,
+            &schema,
+            &[Name::from("S"), Name::from("T"), Name::from("R")],
+            UnlicensedInjection::InAxiomMatched,
+        ),
+        Ok(Predicate::In(_, _)),
+    ));
 }
 
 #[test]

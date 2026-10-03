@@ -1291,7 +1291,7 @@ pub fn internalize_axiom(
                     definition,
                     lhs,
                     sort_parameters,
-                    injection_role,
+                    UnlicensedInjection::InAxiomMatched,
                 ))?
                 else {
                     return Ok(vec![]);
@@ -1487,14 +1487,18 @@ pub(crate) fn written_injection_error(
     let DefinitionError::NotSubsort { source, target } = error else {
         return error;
     };
-    let axiom = if !attributes.unique_id.is_empty() {
+    let axiom = if attributes.unique_id != "UNKNOWN" {
         attributes.unique_id.clone()
-    } else if let Some(label) = attributes.label.as_ref().filter(|label| !label.is_empty()) {
-        label.clone()
     } else {
         attributes.origins.first().map_or_else(
-            || "<unknown origin>".to_owned(),
-            |origin| format!("source {:?}, location {:?}", origin.source, origin.location),
+            || "<unidentified axiom>".to_owned(),
+            |origin| {
+                if origin.source.is_none() && origin.location.is_none() {
+                    "<unidentified axiom>".to_owned()
+                } else {
+                    format!("source {:?}, location {:?}", origin.source, origin.location)
+                }
+            },
         )
     };
     DefinitionError::UnlicensedInjection {
