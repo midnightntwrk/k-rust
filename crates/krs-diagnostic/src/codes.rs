@@ -152,10 +152,8 @@ register_codes! {
     }
     /// Diagnostics from semantic analysis and definition lowering.
     analysis {
-        DUPLICATE_ITEM_ID: "krs::analysis::duplicate-item-id" => "Two declarations use the same stable identity.",
         BUILTIN_SORT_NAME_COLLISION: "krs::analysis::builtin-sort-name-collision" => "An authored sort uses a compiler builtin sort name.",
         CONFIGURATION_COUNT: "krs::analysis::configuration-count" => "The selected descriptors do not contain exactly one configuration.",
-        WRONG_ITEM_KIND: "krs::analysis::wrong-item-kind" => "A descriptor payload and its stable item kind disagree.",
         DANGLING_REFERENCE: "krs::analysis::dangling-reference" => "A descriptor reference names no selected declaration.",
         REFERENCE_KIND_MISMATCH: "krs::analysis::reference-kind-mismatch" => "A declaration reference uses the wrong namespace.",
         PARSER_REFERENCE_DISAGREEMENT: "krs::analysis::parser-reference-disagreement" => "Parser-owned origins or references disagree with a descriptor.",
