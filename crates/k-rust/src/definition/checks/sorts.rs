@@ -30,7 +30,18 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
             Sentence::SyntaxSort {
                 parameters, sort, ..
             } => {
-                check_declared_sort(sort, parameters, sorts, sentence, &mut diagnostics);
+                if parameters.contains(sort) {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::UnsupportedParametricSort,
+                        format!(
+                            "syntax {{{}}} {sort} declares no sort: {sort} is a sort parameter of this declaration, so it names every sort, and the declaration's attributes would apply to all of them; declare each sort by name",
+                            parameters.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+                        ),
+                        sentence,
+                    ));
+                } else {
+                    check_declared_sort(sort, parameters, sorts, sentence, &mut diagnostics);
+                }
             }
             Sentence::SortSynonym { new_sort, .. } => match SortShape::of(new_sort, &[]) {
                 SortShape::UnsupportedHead => {
@@ -48,8 +59,16 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                 parameters,
                 sort,
                 items,
+                attributes,
                 ..
             } => {
+                if parameters.contains(sort) && attributes.has(AttributeKey::Token) {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidTokenProduction,
+                        format!("A token production whose sort is its own sort parameter {sort} gives every sort domain values, including every sort that has constructors, and a sort with domain values has no constructors; declare the token production at each sort that has these tokens"),
+                        sentence,
+                    ));
+                }
                 match SubsortDeclaration::of(sentence) {
                     Some(SubsortDeclaration::Parametric) => {
                         let [ProductionItem::NonTerminal { sort: child, .. }] = items.as_slice()

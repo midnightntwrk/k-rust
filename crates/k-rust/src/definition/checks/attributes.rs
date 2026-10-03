@@ -4,6 +4,7 @@
 
 use super::Sentence;
 use crate::definition::AttributeKey;
+use crate::definition::production_kind::ResultSorts;
 use crate::definition::{
     Attributes, LabelHead, OverloadOrder, ProductionCatalog, ProductionItem, ResolvedModule,
     SortCatalog, SortHead,
@@ -289,6 +290,10 @@ fn check_hooked_sort_constructor(
     sorts: &SortCatalog<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    match ResultSorts::of(production) {
+        ResultSorts::Every => return,
+        ResultSorts::Head(_) => {}
+    }
     if sort.name == BuiltinSort::KItem.k_name() {
         return;
     }

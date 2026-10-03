@@ -26,6 +26,7 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
 use super::views::DefinitionViews;
 use crate::definition::AttributeKey;
+use crate::definition::production_kind::ResultSorts;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, SortRole, Term};
 
@@ -148,11 +149,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_holes(&sentences))
         .chain(check_streams(&sentences, subsorts))
         .chain(check_configuration_cells(&sentences, production_catalog))
-        .chain(check_tokens(
-            &sentences,
-            sort_catalog.token_sorts(),
-            &macro_labels,
-        ))
+        .chain(check_tokens(&sentences, sort_catalog, &macro_labels))
         .chain(check_domain_value_tokens(&sentences, sort_catalog))
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
@@ -467,7 +464,7 @@ pub fn check_sort_top_uniqueness(
 /// Java `CheckTokens`.
 pub fn check_tokens(
     sentences: &[&Sentence],
-    token_sorts: &BTreeSet<Sort>,
+    sorts: &SortCatalog<'_>,
     macro_labels: &BTreeSet<LabelHead>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -481,10 +478,15 @@ pub fn check_tokens(
         else {
             continue;
         };
+        let head = match ResultSorts::of(sentence) {
+            // Instances are judged where sort injection forms them.
+            ResultSorts::Every => continue,
+            ResultSorts::Head(head) => head,
+        };
         if matches!(sort.role(), SortRole::Scaffolding | SortRole::RigidVariable)
             || attributes.has_any(&ALLOWED_TOKEN_ATTRIBUTES)
             || IGNORED_TOKEN_SORTS.contains(&sort.name.as_str())
-            || !token_sorts.contains(sort)
+            || !sorts.head_admits_domain_values(&head)
             || label
                 .as_ref()
                 .is_some_and(|label| macro_labels.contains(&LabelHead::from(label)))
@@ -493,10 +495,14 @@ pub fn check_tokens(
         }
         diagnostics.push(Diagnostic::error(
             DiagnosticCode::InvalidTokenProduction,
-            format!(
-                "Sort {} was declared as a token. Productions of this sort can only contain [function] or [token] labels.",
-                sort.name
-            ),
+            if sorts.token_sorts().contains(sort) {
+                format!(
+                    "Sort {} was declared as a token. Productions of this sort can only contain [function] or [token] labels.",
+                    sort.name
+                )
+            } else {
+                format!("Sort {sort} has domain values (its head {head} has a token declaration, or the compiler writes its literals). Productions of this sort can only contain [function] or [token] labels.")
+            },
             sentence,
         ));
     }

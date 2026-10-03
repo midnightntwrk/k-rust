@@ -863,15 +863,28 @@ fn token_sort_productions_allow_only_java_exceptions() {
     );
     let macro_production = production(Some("macro"), "Int", &[], Attributes::default());
     let internal = production(Some("internal"), "#Internal", &[], Attributes::default());
-    let token_sorts = [Sort::new("Int"), Sort::new("#Internal")]
-        .into_iter()
-        .collect();
+
+    // Create sort declarations with token attribute
+    let int_decl = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Int"),
+        attributes: attrs(&[("token", json!(""))]),
+    };
+    let internal_decl = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("#Internal"),
+        attributes: attrs(&[("token", json!(""))]),
+    };
+
+    let sort_catalog =
+        k_rust::definition::SortCatalog::new(vec![&int_decl, &internal_decl], vec![]);
+
     let macro_labels = [k_rust::definition::LabelHead::new("macro")]
         .into_iter()
         .collect();
     let diagnostics = check_tokens(
         &[&illegal, &function, &macro_production, &internal],
-        &token_sorts,
+        &sort_catalog,
         &macro_labels,
     );
 
