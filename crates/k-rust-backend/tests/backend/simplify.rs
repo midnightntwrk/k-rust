@@ -1329,6 +1329,10 @@ fn evaluates_overload_axioms_before_the_overloaded_function() {
                     [function{}(), total{}(), hook{}("INT.add")]
                 symbol gasAdd{}(SortGas{}, SortGas{}) : SortGas{}
                     [function{}(), total{}()]
+                axiom{R} \exists{R}(Val:SortGas{},
+                    \equals{SortGas{}, R}(Val:SortGas{},
+                        inj{SortInt{}, SortGas{}}(From:SortInt{})))
+                    [subsort{SortInt{}, SortGas{}}()]
                 axiom{}
                     \equals{SortGas{}, SortGas{}}(
                         gasAdd{}(
@@ -1343,20 +1347,20 @@ fn evaluates_overload_axioms_before_the_overloaded_function() {
     .expect("definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-    let frontend_term = |source: &str| {
+    let checked_term = |source: &str| {
         let syntax = parse_pattern(source).expect("term should parse");
         definition
             .admit_unverified(&syntax, &[])
-            .internalize_frontend_term()
-            .expect("frontend term should internalize")
+            .internalize_term()
+            .expect("checked term should internalize")
     };
-    let input = frontend_term(
+    let input = checked_term(
         r#"gasAdd{}(
                 inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("2")),
                 inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("3"))
             )"#,
     );
-    let expected = frontend_term(r#"inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("5"))"#);
+    let expected = checked_term(r#"inj{SortInt{}, SortGas{}}(\dv{SortInt{}}("5"))"#);
 
     let result = simplify(&definition, &input, SimplificationOptions::default())
         .expect("overloaded function should simplify");

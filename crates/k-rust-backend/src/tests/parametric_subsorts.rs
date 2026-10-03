@@ -64,10 +64,10 @@ fn mint(argument: &str) -> Sort {
     Sort::application("SortMInt", vec![Sort::simple(argument)])
 }
 
-fn frontend_term(definition: &BackendDefinition, source: &str) -> Term {
+fn checked_term(definition: &BackendDefinition, source: &str) -> Term {
     definition
-        .internalize_frontend_term(&parse_pattern(source).expect("term should parse"), &[])
-        .expect("frontend term should internalize")
+        .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+        .expect("checked term should internalize")
 }
 
 #[test]
@@ -179,11 +179,11 @@ fn f_checked_injections_use_only_the_declared_closed_order() {
 #[test]
 fn g_injection_matching_binds_declared_instances_and_refutes_covariance() {
     let definition = definition();
-    let pattern = frontend_term(
+    let pattern = checked_term(
         &definition,
         "inj{SortKResult{}, SortKItem{}}(V:SortKResult{})",
     );
-    let subject = frontend_term(
+    let subject = checked_term(
         &definition,
         r#"inj{SortMInt{Sort8{}}, SortKItem{}}(\dv{SortMInt{Sort8{}}}("5p8"))"#,
     );
@@ -191,7 +191,7 @@ fn g_injection_matching_binds_declared_instances_and_refutes_covariance() {
     let MatchResult::Success(substitution) = result else {
         panic!("a declared instance must match its supersort: {result:?}");
     };
-    let expected = frontend_term(
+    let expected = checked_term(
         &definition,
         r#"inj{SortMInt{Sort8{}}, SortKResult{}}(\dv{SortMInt{Sort8{}}}("5p8"))"#,
     );
@@ -201,11 +201,11 @@ fn g_injection_matching_binds_declared_instances_and_refutes_covariance() {
         Some(&expected)
     );
 
-    let pattern = frontend_term(
+    let pattern = checked_term(
         &definition,
         "inj{SortMInt{SortBar{}}, SortKItem{}}(X:SortMInt{SortBar{}})",
     );
-    let subject = frontend_term(
+    let subject = checked_term(
         &definition,
         "inj{SortMInt{SortFoo{}}, SortKItem{}}(Y:SortMInt{SortFoo{}})",
     );

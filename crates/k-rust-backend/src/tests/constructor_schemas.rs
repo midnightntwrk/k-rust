@@ -225,9 +225,7 @@ fn internalization_enforces_schema_instances_without_verification() {
                 .admit_unverified(&pattern, &[])
                 .internalize_term()
                 .unwrap_err(),
-            definition
-                .internalize_frontend_term(&pattern, &[])
-                .unwrap_err(),
+            definition.internalize_term(&pattern, &[]).unwrap_err(),
         ] {
             assert!(
                 error
@@ -316,7 +314,7 @@ fn sort_injections_into_hooked_sorts_preserve_subsort_values() {
         verified,
     );
     assert_eq!(
-        definition.internalize_frontend_term(&pattern, &[]).unwrap(),
+        definition.internalize_term(&pattern, &[]).unwrap(),
         verified
     );
 }
@@ -372,7 +370,7 @@ fn sort_injection_attribute_is_distinct_from_constructor_regardless_of_name() {
         verified,
     );
     assert_eq!(
-        definition.internalize_frontend_term(&pattern, &[]).unwrap(),
+        definition.internalize_term(&pattern, &[]).unwrap(),
         verified
     );
 }

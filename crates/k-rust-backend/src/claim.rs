@@ -6,7 +6,7 @@ use k_rust_kore::kore::ast as kore;
 use k_rust_kore::names::KoreAttribute;
 
 use crate::{
-    definition::{BackendDefinition, DefinitionError, PendingAxiom, SubsortValidation},
+    definition::{BackendDefinition, DefinitionError, PendingAxiom, UnlicensedInjection},
     rewrite::Pattern,
     rule::{RuleAttributes, internalize_rule_pattern, term_disjuncts},
     term::Variable,
@@ -82,7 +82,7 @@ pub(crate) fn internalize_reachability_claim(
                 definition,
                 &branch,
                 &claim.parameters,
-                SubsortValidation::Ignore,
+                UnlicensedInjection::Refuse,
             )?;
             Ok(Pattern { term, constraints })
         })
@@ -111,7 +111,7 @@ pub(crate) fn internalize_reachability_claim(
                 definition,
                 &left,
                 &claim.parameters,
-                SubsortValidation::Ignore,
+                UnlicensedInjection::Refuse,
             )?;
             Ok(ReachabilityClaim {
                 lhs: Pattern { term, constraints },

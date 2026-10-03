@@ -614,6 +614,20 @@ A `haskell-logging` value that is not an array of strings fails parameter decodi
 
 ## Definition verification
 
+### Sort injections at load
+
+`inj{A, B}` denotes the embedding of `A` in `B` licensed by a chain of declared subsort axioms; a closed pair outside that order denotes no licensed value.
+The backend therefore checks sort injections when it loads a definition or an added module.
+An axiom that writes an unlicensed closed injection in a rewrite or equation right-hand side, an `ensures` clause, or a `requires` clause outside a membership's pattern operand is refused with `UnlicensedInjection`, naming the source sort, target sort and axiom.
+An unlicensed injection in a matched position makes that alternative dead: rewrite left-hand alternatives, simplification left-hand sides, function argument binder alternatives and ceil arguments containing one are not loaded.
+No licensed value can match such an alternative, and dropping it also prevents unification from binding a variable to an unlicensed value.
+Within an axiom's predicate, membership `\in(X, P)` is false when its pattern operand `P` contains an unlicensed closed injection, because no licensed value belongs to that pattern.
+A sort-variable pair is accepted inside a definition axiom as a schema, including the injection composition axiom whose licensed instances follow from transitivity.
+
+Requests and claims must contain only licensed injections; krun's initial configuration is checked like a request.
+An unlicensed alternative of a no-junk axiom prevents that axiom from establishing a finite domain.
+These load checks establish that every closed injection held by the backend is licensed, and rewriting preserves that condition by substituting licensed values and composing licensed embeddings.
+
 ### SMT prelude consistency
 
 The backend builds the SMT prelude when it selects a definition, but it may defer checking whether that prelude is satisfiable until an SMT answer depends on consistency.

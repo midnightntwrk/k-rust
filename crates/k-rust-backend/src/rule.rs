@@ -64,7 +64,7 @@ use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     condition::Condition,
-    definition::{BackendDefinition, DefinitionError, SubsortValidation},
+    definition::{BackendDefinition, DefinitionError, UnlicensedInjection},
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, Name, Sort, Term, TermKind, Variable,
@@ -1193,6 +1193,10 @@ fn axiom_shape(axiom: &ClassifiedAxiom) -> u64 {
     hasher.finish()
 }
 
+/// Load only alternatives that can match licensed values.
+/// A matched unlicensed injection denotes no value under I-INJ; dropping its alternative
+/// preserves matching on licensed values and prevents unification from binding junk.
+///
 /// ```toml algorithm-site
 /// id = "backend.definition.internalize"
 /// role = "part"
@@ -1202,8 +1206,8 @@ pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
 ) -> Result<Vec<InternalizedRule>, DefinitionError> {
-    let subsort_validation = SubsortValidation::Ignore;
-    match axiom {
+    let injection_role = UnlicensedInjection::InAxiom;
+    let internalize = || match axiom {
         ClassifiedAxiom::Rewrite {
             sort_parameters,
             lhs,
@@ -1212,8 +1216,27 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
+            let lhs_alternatives = term_disjuncts(lhs);
+            let split = lhs_alternatives.len() > 1;
+            let mut live = Vec::new();
+            for (index, lhs) in lhs_alternatives.into_iter().enumerate() {
+                if let Some((lhs, requires)) =
+                    live_matched(internalize_rule_pattern_with_position(
+                        definition,
+                        &lhs,
+                        sort_parameters,
+                        injection_role,
+                        Some(attributes),
+                    ))?
+                {
+                    live.push((index, lhs, requires));
+                }
+            }
+            if live.is_empty() {
+                return Ok(vec![]);
+            }
             let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
+                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
             if matches!(rhs, RuleRhs::Top) {
                 return Err(DefinitionError::RulePattern(RulePatternError::MissingTerm));
             }
@@ -1234,18 +1257,8 @@ pub fn internalize_axiom(
                 .iter()
                 .map(|variable| variable.with_provenance(VariableProvenance::Existential))
                 .collect::<BTreeSet<_>>();
-            let lhs_alternatives = term_disjuncts(lhs);
-            let split = lhs_alternatives.len() > 1;
-            lhs_alternatives
-                .into_iter()
-                .enumerate()
-                .map(|(index, lhs)| {
-                    let (lhs, requires) = internalize_rule_pattern(
-                        definition,
-                        &lhs,
-                        sort_parameters,
-                        subsort_validation,
-                    )?;
+            live.into_iter()
+                .map(|(index, lhs, requires)| {
                     Ok(InternalizedRule::Term(
                         RuleKind::Rewrite,
                         make_rule(
@@ -1274,16 +1287,18 @@ pub fn internalize_axiom(
             ..
         } => {
             if !is_term_pattern(lhs) {
-                let lhs =
-                    internalize_predicate(definition, lhs, sort_parameters, subsort_validation)?;
-                let requires = internalize_predicates(
+                let Some(lhs) = live_matched(internalize_predicate(
                     definition,
-                    requires,
+                    lhs,
                     sort_parameters,
-                    subsort_validation,
-                )?;
-                let rhs =
-                    internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
+                    injection_role,
+                ))?
+                else {
+                    return Ok(vec![]);
+                };
+                let requires =
+                    internalize_predicates(definition, requires, sort_parameters, injection_role)?;
+                let rhs = internalize_predicates(definition, rhs, sort_parameters, injection_role)?;
                 let rename =
                     |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
@@ -1301,15 +1316,18 @@ pub fn internalize_axiom(
                     RulePatternError::TermDisjunction,
                 ));
             }
-            let lhs = definition.internalize_term_with_validation(
+            let Some(lhs) = live_matched(definition.internalize_term_with_validation(
                 lhs,
                 sort_parameters,
-                subsort_validation,
-            )?;
+                injection_role,
+            ))?
+            else {
+                return Ok(vec![]);
+            };
             let requires =
-                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
+                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
             let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
+                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             Ok(vec![InternalizedRule::Term(
@@ -1339,25 +1357,32 @@ pub fn internalize_axiom(
                     RulePatternError::TermDisjunction,
                 ));
             }
-            let lhs = definition.internalize_term_with_validation(
+            let Some(lhs) = live_matched(definition.internalize_term_with_validation(
                 lhs,
                 sort_parameters,
-                subsort_validation,
-            )?;
+                injection_role,
+            ))?
+            else {
+                return Ok(vec![]);
+            };
             let mut binding_alternatives = vec![Substitution::new()];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
                 let alternatives = binder_term_alternatives(&binder.pattern)
                     .into_iter()
-                    .map(|pattern| {
-                        definition.internalize_term_with_validation(
+                    .filter_map(|pattern| {
+                        live_matched(definition.internalize_term_with_validation(
                             pattern,
                             sort_parameters,
-                            subsort_validation,
-                        )
+                            injection_role,
+                        ))
+                        .transpose()
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                if alternatives.is_empty() {
+                    return Ok(vec![]);
+                }
                 for alternative in &alternatives {
                     if variable.sort != alternative.sort() {
                         return Err(DefinitionError::RulePattern(
@@ -1380,9 +1405,9 @@ pub fn internalize_axiom(
                     .collect();
             }
             let requires =
-                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
+                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
             let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
+                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let rhs = rename_rhs(rhs, rename);
@@ -1414,14 +1439,17 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
-            let lhs = definition.internalize_term_with_validation(
+            let Some(lhs) = live_matched(definition.internalize_term_with_validation(
                 lhs,
                 sort_parameters,
-                subsort_validation,
-            )?;
+                injection_role,
+            ))?
+            else {
+                return Ok(vec![]);
+            };
             let requires =
-                internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
-            let rhs = internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
+                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
+            let rhs = internalize_predicates(definition, rhs, sort_parameters, injection_role)?;
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let lhs = rename_term(&lhs, rename);
@@ -1448,6 +1476,40 @@ pub fn internalize_axiom(
                 },
             )])
         }
+    };
+    internalize().map_err(|error| written_injection_error(error, axiom.attributes()))
+}
+
+pub(crate) fn written_injection_error(
+    error: DefinitionError,
+    attributes: &RuleAttributes,
+) -> DefinitionError {
+    let DefinitionError::NotSubsort { source, target } = error else {
+        return error;
+    };
+    let axiom = if !attributes.unique_id.is_empty() {
+        attributes.unique_id.clone()
+    } else if let Some(label) = attributes.label.as_ref().filter(|label| !label.is_empty()) {
+        label.clone()
+    } else {
+        attributes.origins.first().map_or_else(
+            || "<unknown origin>".to_owned(),
+            |origin| format!("source {:?}, location {:?}", origin.source, origin.location),
+        )
+    };
+    DefinitionError::UnlicensedInjection {
+        source,
+        target,
+        axiom,
+    }
+}
+
+/// A matched pattern containing an unlicensed injection has no licensed instances.
+fn live_matched<T>(result: Result<T, DefinitionError>) -> Result<Option<T>, DefinitionError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(DefinitionError::NotSubsort { .. }) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -1870,7 +1932,23 @@ pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    subsort_validation: SubsortValidation,
+    injection_role: UnlicensedInjection,
+) -> Result<(Term, Vec<Predicate>), DefinitionError> {
+    internalize_rule_pattern_with_position(
+        definition,
+        pattern,
+        sort_parameters,
+        injection_role,
+        None,
+    )
+}
+
+fn internalize_rule_pattern_with_position(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjection,
+    written_predicates: Option<&RuleAttributes>,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     if contains_term_or(pattern) {
         return Err(DefinitionError::RulePattern(
@@ -1881,23 +1959,40 @@ pub(crate) fn internalize_rule_pattern(
     flatten_and(pattern, &mut components);
     let mut terms = Vec::new();
     let mut predicates = Vec::new();
+    let mut deferred_predicates = Vec::new();
     for component in components {
         if is_term_pattern(component) {
             terms.push(definition.internalize_term_collecting(
                 component,
                 sort_parameters,
-                subsort_validation,
+                injection_role,
                 &mut predicates,
+                written_predicates.map(|_| &mut deferred_predicates),
             )?);
+        } else if written_predicates.is_some() {
+            deferred_predicates.push(component.clone());
         } else {
             predicates.extend(internalize_predicates(
                 definition,
                 component,
                 sort_parameters,
-                subsort_validation,
+                injection_role,
             )?);
         }
     }
+    // A dead matched term is discarded before any written condition is internalized.
+    for predicate in deferred_predicates {
+        predicates.extend(
+            internalize_predicates(definition, &predicate, sort_parameters, injection_role)
+                .map_err(|error| {
+                    written_injection_error(
+                        error,
+                        written_predicates.expect("written conditions were deferred"),
+                    )
+                })?,
+        );
+    }
+
     let mut terms = terms.into_iter();
     let Some(mut term) = terms.next() else {
         return Err(DefinitionError::RulePattern(RulePatternError::MissingTerm));
@@ -1912,7 +2007,7 @@ fn internalize_term_rhs(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    subsort_validation: SubsortValidation,
+    injection_role: UnlicensedInjection,
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
@@ -1931,7 +2026,7 @@ fn internalize_term_rhs(
         [] => Ok((RuleRhs::Bottom, Vec::new())),
         [single] => {
             let (term, predicates) =
-                internalize_rule_pattern(definition, single, sort_parameters, subsort_validation)?;
+                internalize_rule_pattern(definition, single, sort_parameters, injection_role)?;
             Ok((RuleRhs::Term(term), predicates))
         }
         many => Ok((
@@ -1942,7 +2037,7 @@ fn internalize_term_rhs(
                             definition,
                             alternative,
                             sort_parameters,
-                            subsort_validation,
+                            injection_role,
                         )?;
                         Ok(RhsAlternative {
                             term,
@@ -1972,7 +2067,7 @@ fn internalize_predicates(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    subsort_validation: SubsortValidation,
+    injection_role: UnlicensedInjection,
 ) -> Result<Vec<Predicate>, DefinitionError> {
     match pattern {
         kore::Pattern::Top { .. } => Ok(Vec::new()),
@@ -1980,7 +2075,7 @@ fn internalize_predicates(
         kore::Pattern::And { arguments, .. } => arguments
             .iter()
             .map(|argument| {
-                internalize_predicates(definition, argument, sort_parameters, subsort_validation)
+                internalize_predicates(definition, argument, sort_parameters, injection_role)
             })
             .collect::<Result<Vec<_>, _>>()
             .map(|predicates| predicates.into_iter().flatten().collect()),
@@ -1988,7 +2083,7 @@ fn internalize_predicates(
             arguments
                 .iter()
                 .map(|argument| {
-                    internalize_predicate(definition, argument, sort_parameters, subsort_validation)
+                    internalize_predicate(definition, argument, sort_parameters, injection_role)
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )]),
@@ -1996,7 +2091,7 @@ fn internalize_predicates(
             definition,
             pattern,
             sort_parameters,
-            subsort_validation,
+            injection_role,
         )?]),
     }
 }
@@ -2005,13 +2100,13 @@ pub(crate) fn internalize_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    subsort_validation: SubsortValidation,
+    injection_role: UnlicensedInjection,
 ) -> Result<Predicate, DefinitionError> {
     let term = |pattern: &kore::Pattern| {
-        definition.internalize_term_with_validation(pattern, sort_parameters, subsort_validation)
+        definition.internalize_term_with_validation(pattern, sort_parameters, injection_role)
     };
     let predicate = |pattern: &kore::Pattern| {
-        internalize_predicate(definition, pattern, sort_parameters, subsort_validation)
+        internalize_predicate(definition, pattern, sort_parameters, injection_role)
     };
     match pattern {
         kore::Pattern::Top { .. } => Ok(Predicate::True),
@@ -2027,7 +2122,17 @@ pub(crate) fn internalize_predicate(
         )),
         kore::Pattern::Ceil { argument, .. } => Ok(Predicate::Ceil(term(argument)?)),
         kore::Pattern::Floor { argument, .. } => Ok(Predicate::Floor(term(argument)?)),
-        kore::Pattern::In { left, right, .. } => Ok(Predicate::In(term(left)?, term(right)?)),
+        kore::Pattern::In { left, right, .. } => {
+            let left = term(left)?;
+            match term(right) {
+                Err(DefinitionError::NotSubsort { .. })
+                    if injection_role == UnlicensedInjection::InAxiom =>
+                {
+                    Ok(Predicate::False)
+                }
+                right => Ok(Predicate::In(left, right?)),
+            }
+        }
         kore::Pattern::Not { argument, .. } => Ok(Predicate::Not(Box::new(predicate(argument)?))),
         kore::Pattern::And { arguments, .. } => Ok(Predicate::And(
             arguments
@@ -2082,10 +2187,10 @@ pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    subsort_validation: SubsortValidation,
+    injection_role: UnlicensedInjection,
 ) -> Result<Option<Predicate>, DefinitionError> {
     let recurse = |pattern: &kore::Pattern| {
-        internalize_model_predicate(definition, pattern, sort_parameters, subsort_validation)
+        internalize_model_predicate(definition, pattern, sort_parameters, injection_role)
     };
     Ok(match pattern {
         kore::Pattern::Equals { .. }
@@ -2095,7 +2200,7 @@ pub(crate) fn internalize_model_predicate(
             definition,
             pattern,
             sort_parameters,
-            subsort_validation,
+            injection_role,
         )?),
         kore::Pattern::And { arguments, .. } => {
             let predicates = arguments

@@ -2491,9 +2491,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     )?;
     let function_symbols = backend.function_symbol_names();
     backend.validate_executable_pattern(&initial)?;
-    let initial = backend
-        .admit_unverified(&initial, &[])
-        .internalize_frontend_term()?;
+    let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
     let match_target = match match_target_source {
         Some(MatchTargetSource::Surface(compiled)) => {
             Some(prepare_backend_match_target(&backend, compiled)?)

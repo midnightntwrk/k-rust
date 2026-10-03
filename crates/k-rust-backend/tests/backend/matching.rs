@@ -419,6 +419,18 @@ fn overload_definition() -> BackendDefinition {
                 symbol left{}(SortLeft{}) : SortLeft{} [constructor{}()]
                 symbol right{}(SortRight{}) : SortRight{} [constructor{}()]
                 symbol common{}(SortTop{}) : SortTop{} [constructor{}()]
+                axiom{R} \exists{R}(Val:SortTop{},
+                    \equals{SortTop{}, R}(Val:SortTop{},
+                        inj{SortSub{}, SortTop{}}(From:SortSub{})))
+                    [subsort{SortSub{}, SortTop{}}()]
+                axiom{R} \exists{R}(Val:SortTop{},
+                    \equals{SortTop{}, R}(Val:SortTop{},
+                        inj{SortLeft{}, SortTop{}}(From:SortLeft{})))
+                    [subsort{SortLeft{}, SortTop{}}()]
+                axiom{R} \exists{R}(Val:SortTop{},
+                    \equals{SortTop{}, R}(Val:SortTop{},
+                        inj{SortRight{}, SortTop{}}(From:SortRight{})))
+                    [subsort{SortRight{}, SortTop{}}()]
                 axiom{R} \equals{SortTop{}, R}(
                     upper{}(X:SortTop{}),
                     inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))

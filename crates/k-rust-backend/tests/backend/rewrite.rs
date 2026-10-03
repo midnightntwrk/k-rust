@@ -4520,6 +4520,10 @@ fn overload_rewrite_definition() -> BackendDefinition {
                 symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
                 symbol overloadState{}(SortTop{}) : SortState{} [constructor{}()]
                 symbol overloadResult{}(SortTop{}) : SortState{} [constructor{}()]
+                axiom{R} \exists{R}(Val:SortTop{},
+                    \equals{SortTop{}, R}(Val:SortTop{},
+                        inj{SortSub{}, SortTop{}}(From:SortSub{})))
+                    [subsort{SortSub{}, SortTop{}}()]
                 axiom{R} \equals{SortTop{}, R}(
                     upper{}(X:SortTop{}),
                     inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))

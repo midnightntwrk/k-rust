@@ -38,6 +38,10 @@ fn definition_with(extra_axioms: &str) -> BackendDefinition {
           symbol A{}() : SortKItem{} [constructor{}(), total{}()]
           symbol B{}() : SortKItem{} [constructor{}(), total{}()]
           symbol f{}() : SortKItem{} [function{}(), total{}()]
+          axiom{R} \exists{R}(Val:SortKItem{},
+            \equals{SortKItem{}, R}(Val:SortKItem{},
+              inj{SortToken{}, SortKItem{}}(From:SortToken{})))
+            [subsort{SortToken{}, SortKItem{}}()]
           axiom{} \rewrites{SortGeneratedTopCell{}}(
             \and{SortGeneratedTopCell{}}(
               top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(A{}(), dotk{}()))),
@@ -251,8 +255,8 @@ fn indexes_domain_values_without_losing_bytes() {
     .expect("byte-preserving subject should parse");
     let term = definition
         .admit_unverified(&syntax, &[])
-        .internalize_frontend_term()
-        .expect("frontend-validated injection should internalize");
+        .internalize_term()
+        .expect("licensed injection should internalize");
     assert_eq!(
         rule_index(&definition, &term).cells(),
         &[
