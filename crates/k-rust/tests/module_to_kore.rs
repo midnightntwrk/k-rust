@@ -31,8 +31,10 @@ fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
 }
 
 fn rules(source: &str, main_module: &str) -> k_rust::definition::Definition {
-    k_rust::inner::resolve_rule_bubbles(&lowered(source, main_module))
-        .expect("rule bubbles should resolve")
+    let definition = k_rust::inner::resolve_rule_bubbles(&lowered(source, main_module))
+        .expect("rule bubbles should resolve");
+    k_rust::kompile::resolve_semantic_casts(&definition)
+        .expect("semantic casts should lower to sort metadata before KORE emission")
 }
 
 #[test]

@@ -947,12 +947,7 @@ fn specification_claims<'a>(
 fn checked_theory(module: &Module) -> EmittedTheory {
     k_rust_kore::measure::without_counting(|| {
         let theory = EmittedTheory::of(module);
-        // Invariant: every sentence of `module` before `sentence` satisfies K1-K4 in `theory`.
-        for sentence in &module.sentences {
-            theory.check(sentence, &|| {
-                format!("a declaration or generated axiom of module {}", module.name)
-            });
-        }
+        theory.check_module(module);
         theory
     })
 }

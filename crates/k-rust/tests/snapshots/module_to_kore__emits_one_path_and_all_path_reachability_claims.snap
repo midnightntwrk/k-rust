@@ -60,24 +60,18 @@ module MAIN
     \implies{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
         \equals{SortBool{}, SortGeneratedTopCell{}}(
-          Lbleq{}(
-            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
-          ),
+          Lbleq{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
           \dv{SortBool{}}("true")
         ),
-        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+        Lbltop{}(VarX:SortExp{})
       ),
       weakExistsFinally{SortGeneratedTopCell{}}(
         \exists{SortGeneratedTopCell{}}(
           Var'Ques'Y:SortExp{},
           \and{SortGeneratedTopCell{}}(
-            Lbltop{}(Lbl'Hash'SemanticCastToExp{}(Var'Ques'Y:SortExp{})),
+            Lbltop{}(Var'Ques'Y:SortExp{}),
             \equals{SortBool{}, SortGeneratedTopCell{}}(
-              Lbleq{}(
-                Lbl'Hash'SemanticCastToExp{}(Var'Ques'Y:SortExp{}),
-                Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})
-              ),
+              Lbleq{}(Var'Ques'Y:SortExp{}, VarX:SortExp{}),
               \dv{SortBool{}}("true")
             )
           )
@@ -91,15 +85,9 @@ module MAIN
     ]
   claim{}
     \implies{SortGeneratedTopCell{}}(
-      \and{SortGeneratedTopCell{}}(
-        \top{SortGeneratedTopCell{}}(),
-        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-      ),
+      \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbltop{}(VarX:SortExp{})),
       weakAlwaysFinally{SortGeneratedTopCell{}}(
-        \and{SortGeneratedTopCell{}}(
-          Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-          \top{SortGeneratedTopCell{}}()
-        )
+        \and{SortGeneratedTopCell{}}(Lbltop{}(VarX:SortExp{}), \top{SortGeneratedTopCell{}}())
       )
     )
     [
@@ -109,15 +97,9 @@ module MAIN
     ]
   claim{}
     \implies{SortGeneratedTopCell{}}(
-      \and{SortGeneratedTopCell{}}(
-        \top{SortGeneratedTopCell{}}(),
-        Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-      ),
+      \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbltop{}(VarX:SortExp{})),
       weakAlwaysFinally{SortGeneratedTopCell{}}(
-        \and{SortGeneratedTopCell{}}(
-          Lbltop{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-          \top{SortGeneratedTopCell{}}()
-        )
+        \and{SortGeneratedTopCell{}}(Lbltop{}(VarX:SortExp{}), \top{SortGeneratedTopCell{}}())
       )
     )
     [

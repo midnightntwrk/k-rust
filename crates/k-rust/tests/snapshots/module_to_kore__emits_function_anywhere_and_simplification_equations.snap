@@ -82,19 +82,13 @@ module MAIN
     \implies{R}(
       \and{R}(
         \equals{SortBool{}, R}(
-          Lbleq{}(
-            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
-          ),
+          Lbleq{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))),
           \dv{SortBool{}}("true")
         ),
         \and{R}(
           \in{SortExp{}, R}(
             X0:SortExp{},
-            Lbl'UndsPlusUnds'{}(
-              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
-            )
+            Lbl'UndsPlusUnds'{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0")))
           ),
           \top{R}()
         )
@@ -102,12 +96,9 @@ module MAIN
       \equals{SortExp{}, R}(
         Lblinc{}(X0:SortExp{}),
         \and{SortExp{}}(
-          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+          VarX:SortExp{},
           \equals{SortBool{}, SortExp{}}(
-            Lbleq{}(
-              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))
-            ),
+            Lbleq{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))),
             \dv{SortBool{}}("true")
           )
         )
@@ -122,11 +113,8 @@ module MAIN
     \implies{R}(
       \top{R}(),
       \equals{SortExp{}, R}(
-        Lbl'UndsPlusUnds'{}(
-          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
-        ),
-        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+        Lbl'UndsPlusUnds'{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))),
+        \and{SortExp{}}(VarX:SortExp{}, \top{SortExp{}}())
       )
     )
     [
@@ -142,20 +130,14 @@ module MAIN
         \and{R}(
           \in{SortExp{}, R}(
             X0:SortExp{},
-            Lbl'UndsPlusUnds'{}(
-              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
-            )
+            Lbl'UndsPlusUnds'{}(VarX:SortExp{}, inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0")))
           ),
           \top{R}()
         )
       ),
       \equals{SortExp{}, R}(
         Lbldouble{}(X0:SortExp{}),
-        \and{SortExp{}}(
-          Lbldouble{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-          \top{SortExp{}}()
-        )
+        \and{SortExp{}}(Lbldouble{}(VarX:SortExp{}), \top{SortExp{}}())
       )
     )
     [
@@ -168,8 +150,8 @@ module MAIN
     \implies{R}(
       \top{R}(),
       \equals{SortExp{}, R}(
-        Lblinc{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+        Lblinc{}(VarX:SortExp{}),
+        \and{SortExp{}}(VarX:SortExp{}, \top{SortExp{}}())
       )
     )
     [

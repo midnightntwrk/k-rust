@@ -100,8 +100,8 @@ module MAIN
     \implies{R}(
       \top{R}(),
       \equals{SortExp{}, R}(
-        Lblmacro{}(Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))),
-        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+        Lblmacro{}(Lbldone{}(VarX:SortExp{})),
+        \and{SortExp{}}(VarX:SortExp{}, \top{SortExp{}}())
       )
     )
     [
@@ -216,10 +216,7 @@ endmodule []
 
 // macros
 axiom{R}
-  \equals{SortExp{}, R}(
-    Lblmacro{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
+  \equals{SortExp{}, R}(Lblmacro{}(VarX:SortExp{}), Lbldone{}(VarX:SortExp{}))
   [
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,35)"),
@@ -228,10 +225,7 @@ axiom{R}
   ]
 
 axiom{R}
-  \equals{SortExp{}, R}(
-    LblmacroRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
+  \equals{SortExp{}, R}(LblmacroRec{}(VarX:SortExp{}), Lbldone{}(VarX:SortExp{}))
   [
     macro-rec{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,38)"),
@@ -240,10 +234,7 @@ axiom{R}
   ]
 
 axiom{R}
-  \equals{SortExp{}, R}(
-    Lblalias'Kywd'{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
+  \equals{SortExp{}, R}(Lblalias'Kywd'{}(VarX:SortExp{}), Lbldone{}(VarX:SortExp{}))
   [
     alias'Kywd'{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,35)"),
@@ -252,10 +243,7 @@ axiom{R}
   ]
 
 axiom{R}
-  \equals{SortExp{}, R}(
-    LblaliasRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
+  \equals{SortExp{}, R}(LblaliasRec{}(VarX:SortExp{}), Lbldone{}(VarX:SortExp{}))
   [
     alias-rec{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,38)"),
@@ -265,16 +253,10 @@ axiom{R}
 
 axiom{R}
   \implies{R}(
-    \and{R}(
-      \top{R}(),
-      \and{R}(
-        \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-        \top{R}()
-      )
-    ),
+    \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarX:SortExp{}), \top{R}())),
     \equals{SortExp{}, R}(
       LblfunctionMacro{}(X0:SortExp{}),
-      \and{SortExp{}}(Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})), \top{SortExp{}}())
+      \and{SortExp{}}(Lbldone{}(VarX:SortExp{}), \top{SortExp{}}())
     )
   )
   [
@@ -284,10 +266,7 @@ axiom{R}
   ]
 
 axiom{R}
-  \equals{SortExp{}, R}(
-    Lblplain{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
+  \equals{SortExp{}, R}(Lblplain{}(VarX:SortExp{}), Lbldone{}(VarX:SortExp{}))
   [
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,57)"),

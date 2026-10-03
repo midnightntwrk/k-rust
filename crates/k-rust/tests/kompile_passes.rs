@@ -2025,6 +2025,7 @@ fn rebases_parser_metadata_after_generating_lambda_productions() {
         endmodule
     "##};
     let transformed = resolve_fun(&parsed(source)).unwrap();
+    let transformed = resolve_semantic_casts(&transformed).unwrap();
 
     module_to_kore(&transformed, "MAIN")
         .expect("surviving parser production metadata should use the expanded catalog");

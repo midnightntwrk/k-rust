@@ -168,16 +168,10 @@ module MAIN
     ]
   axiom{R}
     \implies{R}(
-      \and{R}(
-        \top{R}(),
-        \and{R}(
-          \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-          \top{R}()
-        )
-      ),
+      \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarX:SortExp{}), \top{R}())),
       \equals{SortExp{}, R}(
         LblimpureAnywhere{}(X0:SortExp{}),
-        \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+        \and{SortExp{}}(VarX:SortExp{}, \top{SortExp{}}())
       )
     )
     [
@@ -367,16 +361,10 @@ endmodule []
 // macros
 axiom{R}
   \implies{R}(
-    \and{R}(
-      \top{R}(),
-      \and{R}(
-        \in{SortExp{}, R}(X0:SortExp{}, Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-        \top{R}()
-      )
-    ),
+    \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarX:SortExp{}), \top{R}())),
     \equals{SortExp{}, R}(
       LblmacroAnywhere{}(X0:SortExp{}),
-      \and{SortExp{}}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}), \top{SortExp{}}())
+      \and{SortExp{}}(VarX:SortExp{}, \top{SortExp{}}())
     )
   )
   [

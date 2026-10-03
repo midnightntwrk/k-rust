@@ -31,12 +31,21 @@
 //!   satisfy K4 in turn. An axiom or claim binds its `parameters` and mentions every sort of its
 //!   pattern; a symbol or alias declaration binds its sort parameters, each of which must be a
 //!   sort variable, and mentions its argument and result sorts (and an alias its two patterns);
-//!   a sort declaration or import mentions nothing. K4 runs before K1-K3, so a sentence over an
-//!   undeclared sort reports that cause rather than a symptom such as a junk injection.
+//!   a sort declaration binds its parameters. The symbol instances in `element`, `unit`,
+//!   `concat` and `update` attributes also satisfy K4 under the sentence's binder.
+//!   K4 runs before K1-K3, so an undeclared sort reports its cause rather than a junk injection.
+//! - K5 (symbol arity): every symbol or alias application names a declaration in the module or
+//!   embedded prelude and carries exactly as many sort arguments as that declaration binds.
+//!   K5 runs before K1, so missing injection sort arguments report their arity.
+//!   A generated module's pattern applications are checked for K5 before sentence checks, so
+//!   a dropped symbol instance in an axiom is reported before a leaked attribute sort in a
+//!   declaration of the same theory.
 //!
 //! The checks read the sorts and patterns of a sentence (the pattern of an axiom or claim, the
 //! left and right patterns of an alias declaration, the signature of a symbol or alias
-//! declaration), not its attributes. They traverse with the kore crate's own
+//! declaration), and the symbol instances in the four attributes above. Other attributes name
+//! symbols without sort arguments by convention (`priorities`, `left`, `right`, `format`), or
+//! belong to another rule (`subsort` to K1), and are left alone. Pattern checks traverse with the kore crate's own
 //! [`for_each_post_order`] and [`Pattern::for_each_sort`], so a new `Pattern` variant reaches
 //! them through the exhaustive matches of `walk::children` and `for_each_sort` and through the
 //! exhaustive match of `violation`.
@@ -55,7 +64,7 @@ use crate::kore::walk::for_each_post_order;
 use crate::names::{KoreAttribute, WellKnownSymbol};
 use crate::provenance::OriginRecord;
 
-/// The facts of one emitted KORE module that give its injections and domain values meaning.
+/// The declarations and subsort facts of one emitted KORE module.
 #[derive(Debug)]
 pub(crate) struct EmittedTheory {
     /// `lesser -> greater` for every `subsort{lesser, greater}()` attribute on an axiom whose
@@ -69,23 +78,27 @@ pub(crate) struct EmittedTheory {
     /// `name -> number of parameters` for every sort declared in the module or in the embedded
     /// prelude.
     sorts: BTreeMap<String, usize>,
+    /// `name -> number of sort parameters` for every symbol or alias declared in the module or
+    /// in the embedded prelude.
+    symbols: BTreeMap<String, usize>,
     /// Whether a path of one or more subsort axioms leads from the first sort to the second,
     /// for every pair asked so far.
     paths: RefCell<BTreeMap<(KoreSort, KoreSort), bool>>,
 }
 
 impl EmittedTheory {
-    /// Collect the subsort axioms, the domain-value sort heads and the declared sorts of
-    /// `module`.
+    /// Collect the subsort axioms, domain-value sort heads and sort, symbol and alias declarations.
     pub(crate) fn of(module: &Module) -> Self {
         let mut subsorts = BTreeMap::<KoreSort, BTreeSet<KoreSort>>::new();
         let mut schemas = Vec::new();
         let mut domain_heads = BTreeSet::new();
         let mut sorts = prelude_sorts().clone();
+        let mut symbols = prelude_symbols().clone();
         // Invariant: `subsorts` and `schemas` hold one edge per `subsort` attribute of every axiom
         // before `sentence`, `domain_heads` the name of every sort declaration before `sentence`
         // that carries `hasDomainValues`, and `sorts` the prelude's sorts and every sort declared
-        // before `sentence` with its number of parameters.
+        // before `sentence` with its number of parameters; `symbols` holds the prelude's symbols
+        // and every symbol or alias declared before `sentence` with its number of sort parameters.
         for sentence in &module.sentences {
             match sentence {
                 KoreSentence::Axiom { attributes, .. } => {
@@ -113,10 +126,11 @@ impl EmittedTheory {
                         domain_heads.insert(name.clone());
                     }
                 }
-                KoreSentence::Import { .. }
-                | KoreSentence::SymbolDeclaration { .. }
-                | KoreSentence::AliasDeclaration { .. }
-                | KoreSentence::Claim { .. } => {}
+                KoreSentence::SymbolDeclaration { symbol, .. }
+                | KoreSentence::AliasDeclaration { alias: symbol, .. } => {
+                    symbols.insert(symbol.name.clone(), symbol.sort_parameters.len());
+                }
+                KoreSentence::Import { .. } | KoreSentence::Claim { .. } => {}
             }
         }
         Self {
@@ -124,37 +138,55 @@ impl EmittedTheory {
             schemas,
             domain_heads,
             sorts,
+            symbols,
             paths: RefCell::default(),
         }
     }
 
-    /// Check one emitted sentence against K4, then K1, K2 and K3; panics on the first violation.
+    /// Check pattern symbol arities throughout the generated theory before checking sentences.
+    /// A declaration and its axioms can contain different defects of the same symbol instance;
+    /// the missing instance must be reported before interpreting the sorts of that theory.
+    pub(crate) fn check_module(&self, module: &Module) {
+        let source = || format!("a declaration or generated axiom of module {}", module.name);
+        // Invariant: pattern applications in every sentence before `sentence` satisfy K5.
+        for sentence in &module.sentences {
+            for pattern in sentence_patterns(sentence) {
+                for_each_post_order(pattern, |node| {
+                    if let Pattern::Application { symbol, .. }
+                    | Pattern::AssociativeApplication { symbol, .. } = node
+                        && let Some(reason) = self.symbol_arity_violation(symbol)
+                    {
+                        report_violation(sentence, &reason, &source);
+                    }
+                });
+            }
+        }
+        // Invariant: every sentence before `sentence` satisfies K1-K5 in this theory.
+        for sentence in &module.sentences {
+            self.check(sentence, &source);
+        }
+    }
+
+    /// Check attributes first, then signature/pattern sort scope and K5 and K1-K3.
+    /// Panics on the first violation.
     ///
     /// `source` describes what the sentence was emitted from and, for a rule or claim, the pass
     /// of its origin record (see [`emitted_from`]); it is called only to report a violation.
     pub(crate) fn check(&self, sentence: &KoreSentence, source: &dyn Fn() -> String) {
-        let report = |violation: String| -> ! {
-            panic!(
-                "kompile invariant {violation}\n  in the sentence emitted from: {}\n  emitted sentence: {sentence}",
-                source()
-            )
-        };
-        if let Some(reason) = self.scope_violation(sentence) {
-            report(format!("K4 (sort scope) violated: {reason}"));
+        if let Some(reason) = self.attribute_violation(sentence) {
+            report_violation(sentence, &reason, source);
         }
-        let patterns: Vec<&Pattern> = match sentence {
-            KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => {
-                vec![pattern]
-            }
-            KoreSentence::AliasDeclaration { left, right, .. } => vec![left, right],
-            KoreSentence::Import { .. }
-            | KoreSentence::SortDeclaration { .. }
-            | KoreSentence::SymbolDeclaration { .. } => Vec::new(),
-        };
-        for pattern in patterns {
+        if let Some(reason) = self.scope_violation(sentence) {
+            report_violation(
+                sentence,
+                &format!("K4 (sort scope) violated: {reason}"),
+                source,
+            );
+        }
+        for pattern in sentence_patterns(sentence) {
             for_each_post_order(pattern, |node| {
-                if let Some(violation) = self.violation(node) {
-                    report(violation);
+                if let Some(reason) = self.violation(node) {
+                    report_violation(sentence, &reason, source);
                 }
             });
         }
@@ -246,6 +278,85 @@ impl EmittedTheory {
         first
     }
 
+    /// The four instance-valued attributes are interpreted in the declaring sentence's binder.
+    fn attribute_violation(&self, sentence: &KoreSentence) -> Option<String> {
+        let (bound, attributes): (BTreeSet<&str>, _) = match sentence {
+            KoreSentence::SortDeclaration {
+                parameters,
+                attributes,
+                ..
+            }
+            | KoreSentence::Axiom {
+                parameters,
+                attributes,
+                ..
+            }
+            | KoreSentence::Claim {
+                parameters,
+                attributes,
+                ..
+            } => (parameters.iter().map(String::as_str).collect(), attributes),
+            KoreSentence::SymbolDeclaration {
+                symbol, attributes, ..
+            }
+            | KoreSentence::AliasDeclaration {
+                alias: symbol,
+                attributes,
+                ..
+            } => (
+                symbol
+                    .sort_parameters
+                    .iter()
+                    .filter_map(|sort| match sort {
+                        KoreSort::Variable(name) => Some(name.as_str()),
+                        KoreSort::Application { .. } => None,
+                    })
+                    .collect(),
+                attributes,
+            ),
+            KoreSentence::Import { .. } => return None,
+        };
+        for attribute in &attributes.0 {
+            let Pattern::Application {
+                symbol: key,
+                arguments,
+            } = attribute
+            else {
+                continue;
+            };
+            if ![
+                KoreAttribute::Element,
+                KoreAttribute::Unit,
+                KoreAttribute::Concat,
+                KoreAttribute::Update,
+            ]
+            .iter()
+            .any(|key_name| key.name == key_name.as_str())
+            {
+                continue;
+            }
+            for argument in arguments {
+                let (Pattern::Application { symbol, .. }
+                | Pattern::AssociativeApplication { symbol, .. }) = argument
+                else {
+                    continue;
+                };
+                if let Some(reason) = self.symbol_arity_violation(symbol) {
+                    return Some(reason);
+                }
+                for sort in &symbol.sort_parameters {
+                    if let Some(reason) = self.sort_scope_violation(sort, &bound) {
+                        return Some(format!(
+                            "K4 (sort scope) violated in attribute {}: {reason}",
+                            key.name
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// The reason `sort` violates K4 under the bound sort variables `bound`, if it does.
     fn sort_scope_violation(&self, sort: &KoreSort, bound: &BTreeSet<&str>) -> Option<String> {
         let mut work = vec![sort];
@@ -279,11 +390,13 @@ impl EmittedTheory {
         None
     }
 
-    /// The violated rule and its reason, when `node` itself violates K1, K2 or K3.
+    /// The violated rule and its reason, when `node` itself violates K5, K1, K2 or K3.
     fn violation(&self, node: &Pattern) -> Option<String> {
         match node {
             Pattern::Application { symbol, .. }
-            | Pattern::AssociativeApplication { symbol, .. } => self.injection_violation(symbol),
+            | Pattern::AssociativeApplication { symbol, .. } => self
+                .symbol_arity_violation(symbol)
+                .or_else(|| self.injection_violation(symbol)),
             Pattern::DomainValue { sort, .. } => {
                 let declared = match sort {
                     KoreSort::Application { name, .. } => self.domain_heads.contains(name),
@@ -315,6 +428,21 @@ impl EmittedTheory {
             | Pattern::Floor { .. }
             | Pattern::Equals { .. }
             | Pattern::In { .. } => None,
+        }
+    }
+
+    fn symbol_arity_violation(&self, symbol: &Symbol) -> Option<String> {
+        match self.symbols.get(&symbol.name) {
+            None => Some(format!(
+                "K5 (symbol arity) violated: symbol {} is not declared",
+                symbol.name
+            )),
+            Some(&parameters) if parameters != symbol.sort_parameters.len() => Some(format!(
+                "K5 (symbol arity) violated: symbol {} is declared with {parameters} sort parameters but applied to {}",
+                symbol.name,
+                symbol.sort_parameters.len()
+            )),
+            Some(_) => None,
         }
     }
 
@@ -396,6 +524,24 @@ impl EmittedTheory {
     }
 }
 
+/// The sentence's logical patterns; its signature and metadata have separate checks.
+fn sentence_patterns(sentence: &KoreSentence) -> Vec<&Pattern> {
+    match sentence {
+        KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => vec![pattern],
+        KoreSentence::AliasDeclaration { left, right, .. } => vec![left, right],
+        KoreSentence::Import { .. }
+        | KoreSentence::SortDeclaration { .. }
+        | KoreSentence::SymbolDeclaration { .. } => Vec::new(),
+    }
+}
+
+fn report_violation(sentence: &KoreSentence, reason: &str, source: &dyn Fn() -> String) -> ! {
+    panic!(
+        "kompile invariant {reason}\n  in the sentence emitted from: {}\n  emitted sentence: {sentence}",
+        source()
+    )
+}
+
 /// `name -> number of parameters` for every sort the embedded prelude declares, parsed once.
 fn prelude_sorts() -> &'static BTreeMap<String, usize> {
     static SORTS: OnceLock<BTreeMap<String, usize>> = OnceLock::new();
@@ -411,6 +557,28 @@ fn prelude_sorts() -> &'static BTreeMap<String, usize> {
                 KoreSentence::Import { .. }
                 | KoreSentence::SymbolDeclaration { .. }
                 | KoreSentence::AliasDeclaration { .. }
+                | KoreSentence::Axiom { .. }
+                | KoreSentence::Claim { .. } => None,
+            })
+            .collect()
+    })
+}
+
+/// `name -> number of sort parameters` for every symbol or alias the embedded prelude declares.
+fn prelude_symbols() -> &'static BTreeMap<String, usize> {
+    static SYMBOLS: OnceLock<BTreeMap<String, usize>> = OnceLock::new();
+    SYMBOLS.get_or_init(|| {
+        standard_kore_prelude()
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                KoreSentence::SymbolDeclaration { symbol, .. }
+                | KoreSentence::AliasDeclaration { alias: symbol, .. } => {
+                    Some((symbol.name.clone(), symbol.sort_parameters.len()))
+                }
+                KoreSentence::SortDeclaration { .. }
+                | KoreSentence::Import { .. }
                 | KoreSentence::Axiom { .. }
                 | KoreSentence::Claim { .. } => None,
             })
@@ -550,6 +718,9 @@ mod tests {
           sort SortNat{} []
           sort SortCounter{} []
           sort SortFoo{} []
+          symbol increment{}(SortNat{}) : SortNat{} []
+          symbol go{}(SortInt{}) : SortFoo{} []
+          symbol bar{}(SortFoo{}) : SortFoo{} []
           axiom{R} \exists{R}(Val:SortNat{}, \equals{SortNat{}, R}(Val:SortNat{}, inj{SortCounter{}, SortNat{}}(From:SortCounter{}))) [subsort{SortCounter{}, SortNat{}}()]
           axiom{R} \exists{R}(Val:SortNat{}, \equals{SortNat{}, R}(Val:SortNat{}, inj{SortInt{}, SortNat{}}(From:SortInt{}))) [subsort{SortInt{}, SortNat{}}()]
         endmodule []
@@ -804,12 +975,205 @@ mod tests {
             r#"axiom{R} \equals{SortMInt{Sort8{}}, R}(X:SortMInt{Sort8{}}, Y:SortMInt{Sort8{}}) []"#,
         );
         assert_eq!(violation(&scope, &instance), None);
-        // Attributes are not read by K4.
+        // Subsort metadata is read by K1, not K4.
         let attribute = sentence(r#"axiom{R} \top{R}() [subsort{SortW{}, SortFoo{}}()]"#);
         assert_eq!(violation(&scope, &attribute), None);
-        // Sort and import declarations mention nothing.
+        // A sort declaration without instance attributes and an import mention no checked sorts.
         assert_eq!(violation(&scope, &sentence("sort SortBar{S} []")), None);
         assert_eq!(violation(&scope, &sentence("import UNKNOWN []")), None);
+    }
+
+    /// Symbol instances for the unit and collection attributes; `SortS` and `SortW` are absent.
+    const SYMBOLS: &str = r#"
+        module MAIN
+          sort SortFoo{} []
+          symbol Lbleps{S}() : S []
+          symbol Lblsitem{W}(W) : SortFoo{} []
+          symbol Lblcat{}(SortFoo{}, SortFoo{}) : SortFoo{} []
+          alias Lbla{S}() : S where Lbla{S}() := Lbleps{S}() []
+        endmodule []
+    "#;
+
+    #[test]
+    fn fu23_unit_axiom_missing_sort_argument_panics() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(
+                r#"axiom{R} \equals{SortFoo{}, R}(Lblcat{}(K:SortFoo{}, Lbleps{}()), K:SortFoo{}) []"#,
+            ),
+            "K5 (symbol arity) violated: symbol Lbleps is declared with 1 sort parameters but applied to 0",
+        );
+    }
+
+    #[test]
+    fn fu23_undeclared_symbol_panics() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(r#"claim{} Lblmissing{}() []"#),
+            "K5 (symbol arity) violated: symbol Lblmissing is not declared",
+        );
+    }
+
+    #[test]
+    fn fu23_associative_application_checks_symbol_arity() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(r#"axiom{} \left-assoc{}(Lblcat{SortFoo{}}(X:SortFoo{}, Y:SortFoo{})) []"#),
+            "K5 (symbol arity) violated: symbol Lblcat is declared with 0 sort parameters but applied to 1",
+        );
+    }
+
+    #[test]
+    fn fu23_alias_instances_use_the_alias_binder() {
+        let theory = theory(SYMBOLS);
+        assert_eq!(
+            violation(&theory, &sentence(r#"axiom{} Lbla{SortFoo{}}() []"#)),
+            None
+        );
+        theory.check(
+            &sentence(r#"alias Lbla{S}() : S where Lbla{S}() := Lbleps{S}() []"#),
+            &source,
+        );
+        assert_violation(
+            &theory,
+            &sentence(r#"axiom{} Lbla{}() []"#),
+            "K5 (symbol arity) violated: symbol Lbla is declared with 1 sort parameters but applied to 0",
+        );
+    }
+
+    #[test]
+    fn fu23_unit_attribute_leaked_sort_panics() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(
+                r#"symbol Lblcat{}(SortFoo{}, SortFoo{}) : SortFoo{} [unit{}(Lbleps{SortS{}}())]"#,
+            ),
+            "K4 (sort scope) violated in attribute unit: sort SortS is not declared",
+        );
+    }
+
+    #[test]
+    fn fu23_element_attribute_leaked_sort_panics() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(
+                r#"hooked-sort SortSet{} [hook{}("SET.Set"), element{}(Lblsitem{SortW{}}())]"#,
+            ),
+            "K4 (sort scope) violated in attribute element: sort SortW is not declared",
+        );
+    }
+
+    #[test]
+    fn fu23_instance_attributes_check_arity_and_scope_on_each_sentence_kind() {
+        let theory = theory(SYMBOLS);
+        for key in ["element", "unit", "concat", "update"] {
+            for declaration in [
+                "sort SortSet{W}",
+                "symbol Lblf{W}(W) : W",
+                "alias Lbla{W}() : W where Lbla{W}() := Lbleps{W}()",
+                r"axiom{W} \top{W}()",
+                r"claim{W} \top{W}()",
+            ] {
+                let with =
+                    |argument: &str| sentence(&format!("{declaration} [{key}{{}}({argument})]"));
+                assert_eq!(violation(&theory, &with("Lbleps{W}()")), None);
+                assert_violation(
+                    &theory,
+                    &with("Lbleps{}()"),
+                    "K5 (symbol arity) violated: symbol Lbleps",
+                );
+                assert_violation(
+                    &theory,
+                    &with("Lblmissing{}()"),
+                    "K5 (symbol arity) violated: symbol Lblmissing is not declared",
+                );
+                assert_violation(
+                    &theory,
+                    &with("Lbleps{S}()"),
+                    &format!(
+                        "K4 (sort scope) violated in attribute {key}: sort variable S is not bound by the sentence"
+                    ),
+                );
+                assert_violation(
+                    &theory,
+                    &with("Lbleps{SortFoo{SortFoo{}}}()"),
+                    &format!(
+                        "K4 (sort scope) violated in attribute {key}: sort SortFoo is declared with 0 parameters but applied to 1"
+                    ),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fu23_instantiated_unit_and_syntax_metadata_pass() {
+        let theory = theory(SYMBOLS);
+        let unit = sentence(
+            r#"symbol Lblcat{}(SortFoo{}, SortFoo{}) : SortFoo{} [unit{}(Lbleps{SortFoo{}}())]"#,
+        );
+        assert_eq!(violation(&theory, &unit), None);
+        let syntax = sentence(
+            r#"symbol Lblcat{}(SortFoo{}, SortFoo{}) : SortFoo{} [priorities{}(Lbleps{}()), left{}(Lbleps{}()), right{}(Lbleps{}()), format{}(Lbleps{}())]"#,
+        );
+        assert_eq!(violation(&theory, &syntax), None);
+    }
+
+    #[test]
+    fn fu23_prelude_injection_has_two_sort_parameters() {
+        let theory = theory(THEORY);
+        assert_eq!(
+            violation(
+                &theory,
+                &sentence(r#"axiom{} inj{SortCounter{}, SortNat{}}(X:SortCounter{}) []"#)
+            ),
+            None
+        );
+        assert_violation(
+            &theory,
+            &sentence(r#"axiom{} inj{SortCounter{}}(X:SortCounter{}) []"#),
+            "K5 (symbol arity) violated: symbol inj is declared with 2 sort parameters but applied to 1",
+        );
+    }
+
+    #[test]
+    fn fu23_attribute_arity_precedes_signature_and_pattern_sort_scope() {
+        let theory = theory(SYMBOLS);
+        for text in [
+            r#"symbol Lblf{}(SortMissing{}) : SortFoo{} [unit{}(Lbleps{}())]"#,
+            r#"axiom{} \top{SortMissing{}}() [unit{}(Lbleps{}())]"#,
+        ] {
+            assert_violation(
+                &theory,
+                &sentence(text),
+                "K5 (symbol arity) violated: symbol Lbleps is declared with 1 sort parameters but applied to 0",
+            );
+        }
+    }
+
+    #[test]
+    fn fu23_unlowered_semantic_cast_is_not_a_declared_symbol() {
+        assert_violation(
+            &theory(SYMBOLS),
+            &sentence(r#"axiom{} Lbl'Hash'SemanticCastToInt{}(X:SortFoo{}) []"#),
+            "K5 (symbol arity) violated: symbol Lbl'Hash'SemanticCastToInt is not declared",
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "K5 (symbol arity) violated: symbol Lbleps is declared with 1 sort parameters but applied to 0"
+    )]
+    fn fu23_generated_unit_axiom_arity_precedes_declaration_attribute_scope() {
+        let source = r#"
+            module MAIN
+              syntax {S} S ::= "eps" [symbol(eps)]
+              syntax Foo ::= "foo" [symbol(foo)]
+              syntax Foo ::= Foo "++" Foo [symbol(cat), function, assoc, unit(eps)]
+            endmodule
+        "#;
+        let parsed = crate::outer::parse("unit.k", source).unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        crate::kompile::module_to_kore(&definition, "MAIN").unwrap();
     }
 
     #[test]
