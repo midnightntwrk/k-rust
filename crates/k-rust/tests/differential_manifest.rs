@@ -736,13 +736,13 @@ fn every_gate_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     let expected = (1..=28)
         .filter(|id| *id != 2)
-        .chain([30, 31, 32, 33, 34, 35, 37])
+        .chain([30, 31, 32, 33, 34, 35, 36, 37])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, N30 through N35, and N37 (configuration-value transport); N29 is reserved, N36 is pending in FU-22-T2, and global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N37 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()

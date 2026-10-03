@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass"
+//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass, and one main-module equation judgement in O(P + R + sum of right-hand-side sizes + overload elements squared)"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -33,9 +33,12 @@ use std::{
 };
 
 use crate::definition::checks::{FreeVariable, local_function_free_variables};
+use crate::definition::head_totality::{self, EquationTotality};
 use crate::definition::production_kind::{ProductionKind, Totality};
 use crate::definition::totality::TotalityWitness;
-use crate::definition::{AttributeKey, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition};
+use crate::definition::{
+    AttributeKey, DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
+};
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, Sentence},
@@ -95,6 +98,7 @@ pub(crate) fn resolve_fun_pass(
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     let rule_heads = OnceCell::new();
+    let totality = OnceCell::new();
     let mut labels = input
         .definition
         .modules
@@ -135,10 +139,12 @@ pub(crate) fn resolve_fun_pass(
             injector,
             catalog: views.production_catalog(module_id),
             resolved,
+            views: &views,
             module_id,
             defined_by_equation: OnceCell::new(),
             definition: input.definition,
             rule_heads: &rule_heads,
+            totality: &totality,
             total_lambdas: BTreeSet::new(),
             labels: &mut labels,
             productions: Vec::new(),
@@ -180,6 +186,7 @@ struct Resolver<'a, 'view, 'definition> {
     /// The productions visible in the module being transformed, as written.
     catalog: &'view ProductionCatalog<'definition>,
     resolved: &'view ResolvedDefinition,
+    views: &'view DefinitionViews<'definition>,
     module_id: ModuleId,
     /// The partial functions visible in the module that an equation defines on every argument
     /// (`Resolver::functions_defined_by_equation`), computed when a lambda body first needs it.
@@ -189,6 +196,8 @@ struct Resolver<'a, 'view, 'definition> {
     /// The number of rules, lemmas aside, headed by each label anywhere in `definition`
     /// (`rule_heads`), computed once per pass when a lambda body first needs it.
     rule_heads: &'view OnceCell<BTreeMap<String, usize>>,
+    /// The main module’s equation judgement, built lazily once for this pass.
+    totality: &'view OnceCell<Option<EquationTotality>>,
     /// The lambdas generated in this module so far whose production is declared `total`.
     total_lambdas: BTreeSet<String>,
     labels: &'a mut BTreeSet<String>,
@@ -467,7 +476,7 @@ impl Resolver<'_, '_, '_> {
     /// that is undefined for some argument (`10 /Int Y` at `Y = 0`) would make the claim say that
     /// the application both is and is not defined there. This is a sufficient syntactic test: the
     /// body is built from variables, tokens, K sequences and applications of symbols that denote
-    /// one value on defined arguments.
+    /// one value on defined arguments, as shown by the module’s equation judgement.
     ///
     /// This judgement is the only constructor of [`DefinedBody`], the evidence
     /// [`TotalityWitness::defined_body`] requires.
@@ -483,16 +492,21 @@ impl Resolver<'_, '_, '_> {
     }
 
     fn is_defined(&self, term: &Term, knowledge: Knowledge) -> bool {
-        match term.unannotated() {
-            Term::Variable { .. } | Term::Token { .. } | Term::InjectedLabel(_) => true,
-            Term::Sequence(items) => items.iter().all(|item| self.is_defined(item, knowledge)),
-            Term::Apply { label, arguments } => {
-                self.label_is_defined(label, knowledge)
-                    && arguments.iter().all(|a| self.is_defined(a, knowledge))
-            }
-            Term::Rewrite { .. } | Term::As { .. } => false,
-            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
-        }
+        head_totality::term_is_defined(term, &mut |label| self.label_is_defined(label, knowledge))
+    }
+
+    fn totality(&self) -> Option<&EquationTotality> {
+        self.totality
+            .get_or_init(|| {
+                let main = self.resolved.module_id(&self.definition.main_module)?;
+                let overloads = self.views.overloads(main).ok()?;
+                Some(EquationTotality::judge(
+                    self.views.production_catalog(main),
+                    &self.resolved.rule_catalog(main),
+                    overloads,
+                ))
+            })
+            .as_ref()
     }
 
     /// Whether every application of `label` to defined arguments denotes one value in the
@@ -503,12 +517,9 @@ impl Resolver<'_, '_, '_> {
     /// - A lambda generated earlier in this module is defined when it was declared `total`.
     /// - Any other compiler-internal label (the matching-logic connectives, `#Bottom` among
     ///   them) is not known to be defined.
-    /// - A written label is defined when every production that declares it is functional by its
-    ///   kind (`ProductionKind::functional`), which is the claim the compiled symbol carries; a
-    ///   bracket's label is declared in no semantic module, so it is not; a macro-like
-    ///   production is excluded because its application is replaced by the macro's right-hand
-    ///   side after this pass, and a label with no visible production yet (a sort projection or
-    ///   predicate generated later) is not known to be defined.
+    /// - A written label is defined when the main module's equation judgement shows every
+    ///   production declaring it total. Macro productions count when their expansions are
+    ///   defined, or they have no expansion; labels without productions do not count.
     /// - With `Knowledge::Equations`, a partial function is also defined when one of its
     ///   equations defines it on every argument (`functions_defined_by_equation`).
     fn label_is_defined(&self, label: &Label, knowledge: Knowledge) -> bool {
@@ -524,15 +535,7 @@ impl Resolver<'_, '_, '_> {
         if InternalLabel::of(&label.name).is_some() {
             return false;
         }
-        let productions = self.catalog.productions_for(&LabelHead::from(label));
-        let declared = !productions.is_empty()
-            && productions.iter().all(|id| {
-                let production = self.catalog.production(*id);
-                let kind = ProductionKind::of(production);
-                kind.functional()
-                    && !kind.is_macro_like()
-                    && !production.attributes().has(AttributeKey::MlOp)
-            });
+        let declared = self.totality().is_some_and(|t| t.label_is_defined(label));
         declared
             || knowledge == Knowledge::Equations
                 && self
@@ -546,7 +549,7 @@ impl Resolver<'_, '_, '_> {
     ///
     /// When `f`'s only rule is an equation `f(X1, .., Xn) => R` with no condition, pairwise
     /// distinct variables each of the sort `f`'s only production declares at its position, and a
-    /// right-hand side defined by declared attributes alone, the compiled definition has the
+    /// right-hand side total by the main module’s equation judgement, the compiled definition has the
     /// axiom `f(X1, .., Xn) = R` for all values of the `Xi`; since `R` denotes one value, so does
     /// every application of `f`. A second rule headed by `f` anywhere in the definition, lemmas
     /// aside, could take priority over it or restrict it, so `f` then does not count. The right-hand side is judged without
@@ -778,7 +781,7 @@ impl Resolver<'_, '_, '_> {
 /// What `Resolver::is_defined` may use to know that an application is defined.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Knowledge {
-    /// Only the attributes the productions declare.
+    /// Symbols total by the main module’s equation judgement.
     Declared,
     /// Also the total lambdas generated so far and the functions an equation defines everywhere.
     Equations,

@@ -15,6 +15,7 @@ pub mod checks;
 pub mod configuration;
 pub(crate) mod configuration_value;
 pub mod equivalence;
+pub(crate) mod head_totality;
 pub mod json;
 pub mod partial_order;
 pub(crate) mod production_kind;

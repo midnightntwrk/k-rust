@@ -125,6 +125,7 @@ pub(super) fn emit_rule_or_claim(
                 } else {
                     EmittedEquation::Function
                 },
+                right,
             );
         }
         return emit_equation(
@@ -159,7 +160,7 @@ pub(super) fn emit_rule_or_claim(
                 && let Ok(production) =
                     resolve_equation_production_id(application, label, productions)
             {
-                roles.debug_assert_heads_equation(production, label, EmittedEquation::Macro);
+                roles.debug_assert_heads_equation(production, label, EmittedEquation::Macro, right);
             }
         }
         return emit_macro_axiom(

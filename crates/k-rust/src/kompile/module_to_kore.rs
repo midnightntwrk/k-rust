@@ -51,8 +51,8 @@ use crate::definition::{
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
     SortCatalog, SortHead,
     production_kind::{
-        BracketName, ProductionKind, UnitInstance, UnitInstanceError, is_builtin_label,
-        mentions_parameter,
+        BracketName, DeclaredTotality, ProductionKind, UnitInstance, UnitInstanceError,
+        is_builtin_label, mentions_parameter,
     },
 };
 use crate::kast::{
@@ -1518,6 +1518,22 @@ fn symbol_attributes(
             Value::String(String::new()),
         );
     }
+    // Each application of an equation-defined value production denotes at most one value,
+    // possibly none. `function` states that single-valuedness, while `value-production`
+    // preserves the fact that an application no equation reduces is a value of its sort.
+    // Neither attribute asserts totality: only the judgement may establish `functional`.
+    let partial_value_production = !claims.functional()
+        && matches!(
+            kind.declared_totality(),
+            DeclaredTotality::ValuesUnlessEquations
+        )
+        && matches!(claims.declaration(), Declaration::SemanticAndSyntax);
+    if partial_value_production {
+        entries.insert(
+            AttributeKey::Function.as_str().into(),
+            Value::String(String::new()),
+        );
+    }
     if claims.anywhere() {
         entries.insert(
             AttributeKey::Anywhere.as_str().into(),
@@ -1547,6 +1563,9 @@ fn symbol_attributes(
     }
 
     let mut overrides = BTreeMap::new();
+    if partial_value_production {
+        overrides.insert(KoreAttribute::ValueProduction.as_str().into(), Vec::new());
+    }
     if let Some(unit) = entries
         .get(AttributeKey::Unit.as_str())
         .and_then(Value::as_str)
@@ -1584,6 +1603,20 @@ fn symbol_attributes(
     if let Some(syntax) = syntax {
         add_syntax_attributes(source, label, items, syntax, &mut entries, &mut overrides);
     }
+    debug_assert!(
+        syntax.is_some()
+            || [
+                AttributeKey::Constructor,
+                AttributeKey::Functional,
+                AttributeKey::Function,
+                AttributeKey::Anywhere,
+                AttributeKey::Macro,
+            ]
+            .into_iter()
+            .any(|key| entries.contains_key(key.as_str())),
+        "production `{label}` has no backend evaluation marker; F3: a production without a \
+         totality claim must be evaluated by equations the backend can see",
+    );
     Ok(emit_attributes(&entries, valued, &overrides))
 }
 

@@ -1233,6 +1233,376 @@ fn declares_injective_only_where_no_equation_can_identify_applications() {
     }
 }
 
+/// What an emitted declaration states about the totality of an equation head.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HeadClaim {
+    /// `functional{}()` on the declaration and the functional axiom in the semantic module.
+    Functional,
+    /// Neither, and `function{}()`: a partial function evaluated by its equations.
+    PartialFunction,
+    /// Neither, and `function{}(), value-production{}(), anywhere{}()`: normal forms are values.
+    PartialValueProduction,
+    /// Neither, and `function{}(), value-production{}(), macro{}()`: residual expansion head.
+    PartialMacroProduction,
+}
+
+/// Compiles `source` through the normal pipeline, asserts each symbol's declared claims in the
+/// semantic and the syntax definition, and returns the semantic definition loaded by the backend.
+fn assert_equation_head_functional(
+    source: &str,
+    symbols: &[(&str, HeadClaim)],
+) -> k_rust_backend::definition::BackendDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = outer::load_with_options(
+        outer::ResolvedSource::new("equation-totality.k", source),
+        "A",
+        &mut resolver,
+        &outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![
+                k_rust::kompile::CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .into(),
+            ],
+            ..outer::LoadOptions::default()
+        },
+    )
+    .expect("equation-totality probe should load");
+    let artifacts = k_rust::kompile::compile_loaded_definition(
+        &loaded,
+        k_rust::kompile::CompileOptions::default(),
+    )
+    .expect("equation-totality probe should compile");
+    let semantics = parse_definition(&artifacts.definition_kore).unwrap();
+    let syntax = parse_definition(&artifacts.syntax_definition_kore).unwrap();
+    let has_functional = |attributes: &k_rust::kore::ast::Attributes| {
+        attributes.0.iter().any(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == "functional" && arguments.is_empty())
+        })
+    };
+    for &(name, claim) in symbols {
+        for definition in [&semantics, &syntax] {
+            let module = definition
+                .modules
+                .iter()
+                .find(|module| module.name == "A")
+                .expect("probe module A should be emitted in both definitions");
+            let actual = module
+                .sentences
+                .iter()
+                .find_map(|sentence| match sentence {
+                    Sentence::SymbolDeclaration {
+                        symbol, attributes, ..
+                    } if symbol.name == name => Some(attributes),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{name} should be declared in {}", module.name));
+            let has = |attribute_name: &str| {
+                actual.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, arguments }
+                        if symbol.name == attribute_name
+                            && symbol.sort_parameters.is_empty()
+                            && arguments.is_empty())
+                })
+            };
+            assert_eq!(
+                has_functional(actual),
+                claim == HeadClaim::Functional,
+                "{name} functional declaration in {}",
+                module.name
+            );
+            assert_eq!(
+                has("function"),
+                claim != HeadClaim::Functional,
+                "{name} function declaration in {}",
+                module.name
+            );
+            assert_eq!(
+                has("value-production"),
+                matches!(
+                    claim,
+                    HeadClaim::PartialValueProduction | HeadClaim::PartialMacroProduction
+                ),
+                "{name} value-production declaration in {}",
+                module.name
+            );
+            match claim {
+                HeadClaim::PartialValueProduction => assert!(
+                    has("anywhere"),
+                    "{name} partial equation head without anywhere in {}",
+                    module.name
+                ),
+                HeadClaim::PartialMacroProduction => assert!(
+                    has("macro"),
+                    "{name} partial macro head without macro in {}",
+                    module.name
+                ),
+                HeadClaim::Functional | HeadClaim::PartialFunction => {}
+            }
+        }
+        let functional_axiom = semantics.modules.iter().flat_map(|module| &module.sentences).any(|sentence| {
+            let Sentence::Axiom { pattern, attributes, .. } = sentence else {
+                return false;
+            };
+            let Pattern::Exists { variable, body, .. } = pattern.as_ref() else {
+                return false;
+            };
+            let Pattern::Equals { left, right, .. } = body.as_ref() else {
+                return false;
+            };
+            has_functional(attributes)
+                && matches!(left.as_ref(), Pattern::Variable(value) if value == variable.as_ref())
+                && matches!(right.as_ref(), Pattern::Application { symbol, .. } if symbol.name == name)
+        });
+        assert_eq!(
+            functional_axiom,
+            claim == HeadClaim::Functional,
+            "{name} functional axiom"
+        );
+    }
+    k_rust_backend::definition::BackendDefinition::internalize(&semantics, "A")
+        .expect("emitted partial declarations should load in the backend")
+}
+
+#[test]
+fn an_anywhere_equation_with_a_partial_rhs_withholds_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)] | wrap(Int) [symbol(wrap)]
+          rule wrap(X) => mk(X /Int 0) requires X ==Int 0 [anywhere]
+        endmodule
+    "#},
+        &[("Lblwrap", HeadClaim::PartialValueProduction)],
+    );
+}
+
+#[test]
+fn an_anywhere_equation_with_a_defined_rhs_keeps_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)] | wrap(Int) [symbol(wrap)]
+          rule wrap(X) => mk(X +Int 1) requires X ==Int 0 [anywhere]
+        endmodule
+    "#},
+        &[("Lblwrap", HeadClaim::Functional)],
+    );
+}
+
+/// The compile-corpus case `anywhere2`: `foo(a) = foo(b)` reapplies its own head, so the least
+/// fixed point gives no evidence and `foo` stays a partial equation head.
+#[test]
+fn a_self_referential_anywhere_equation_withholds_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Base ::= A | B
+          syntax Foo ::= foo(Base) [symbol(foo)]
+          rule foo(a => b) [anywhere]
+        endmodule
+    "#},
+        &[("Lblfoo", HeadClaim::PartialValueProduction)],
+    );
+}
+
+#[test]
+fn anywhere_equations_with_injected_rhs_preserve_the_arguments_definedness() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax Exp ::= Int
+                       | wrap(Int) [symbol(wrap)]
+                       | partialWrap(Int) [symbol(partialWrap)]
+          rule wrap(X) => X +Int 1 [anywhere]
+          rule partialWrap(X) => X /Int 0 [anywhere]
+        endmodule
+    "#},
+        &[
+            ("Lblwrap", HeadClaim::Functional),
+            ("LblpartialWrap", HeadClaim::PartialValueProduction),
+        ],
+    );
+}
+
+#[test]
+fn an_overload_equation_with_a_partial_lesser_withholds_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax Exp ::= Int
+          syntax Exp ::= fe(Exp) [symbol(fE), overload(f)]
+          syntax Int ::= fi(Int) [symbol(fI), overload(f), function]
+          rule fi(I) => I /Int 0
+        endmodule
+    "#},
+        &[
+            ("LblfE", HeadClaim::PartialValueProduction),
+            ("LblfI", HeadClaim::PartialFunction),
+        ],
+    );
+}
+
+#[test]
+fn a_constructor_only_overload_chain_keeps_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          syntax Digit
+          syntax Small ::= Digit
+          syntax Medium ::= Small
+          syntax Large ::= Medium
+          syntax K ::= Large
+          syntax Small ::= narrow(Small) [overload(project), symbol(narrow)]
+          syntax Medium ::= wide(Medium) [overload(project), symbol(wide)]
+          syntax Large ::= widest(Large) [overload(project), symbol(widest)]
+          syntax Large ::= asSmall(Small) [overload(view), symbol(asSmall)]
+          syntax Large ::= asMedium(Medium) [overload(view), symbol(asMedium)]
+          syntax Small ::= fromSmall(Small) [overload(promote), symbol(fromSmall)]
+          syntax Medium ::= fromMedium(Small) [overload(promote), symbol(fromMedium)]
+        endmodule
+    "#},
+        &[
+            ("Lblwide", HeadClaim::Functional),
+            ("Lblwidest", HeadClaim::Functional),
+            ("LblasMedium", HeadClaim::Functional),
+            ("LblfromMedium", HeadClaim::Functional),
+        ],
+    );
+}
+
+#[test]
+fn a_macro_expansion_with_a_partial_rhs_withholds_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)] | half(Int) [symbol(half), macro]
+          rule half(X) => mk(X /Int 0)
+        endmodule
+    "#},
+        &[("Lblhalf", HeadClaim::PartialMacroProduction)],
+    );
+}
+
+#[test]
+fn an_alias_expansion_with_a_partial_rhs_withholds_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)] | half(Int) [symbol(half), alias]
+          rule half(X) => mk(X /Int 0)
+        endmodule
+    "#},
+        &[("Lblhalf", HeadClaim::PartialMacroProduction)],
+    );
+}
+
+#[test]
+fn a_macro_expansion_with_a_defined_rhs_keeps_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)] | next(Int) [symbol(next), macro]
+          rule next(X) => mk(X +Int 1)
+        endmodule
+    "#},
+        &[("Lblnext", HeadClaim::Functional)],
+    );
+}
+
+/// A head whose `functional` the judgement withholds loads as a partial symbol with the role
+/// the backend gives a declaration that carries only the same equation marker: an anywhere head
+/// (`wrap`, the self-referential `foo`, the overload-greater `fE`) stays an equation head, whose
+/// normal-form applications are values of its sort, and a macro head stays residual.
+#[test]
+fn partial_emitted_heads_load_with_the_roles_of_unclaimed_equation_heads() {
+    use k_rust_backend::term::{FunctionType, HeadRole, SymbolType};
+    let definition = assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax S ::= mk(Int) [symbol(mk)]
+                     | wrap(Int) [symbol(wrap)]
+                     | half(Int) [symbol(half), macro]
+          rule wrap(X) => mk(X /Int 0) [anywhere]
+          rule half(X) => mk(X /Int 0)
+          syntax Exp ::= Int
+          syntax Exp ::= fe(Exp) [symbol(fE), overload(f)]
+          syntax Int ::= fi(Int) [symbol(fI), overload(f), function]
+          rule fi(I) => I /Int 0
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Base ::= A | B
+          syntax Foo ::= foo(Base) [symbol(foo)]
+          rule foo(a => b) [anywhere]
+        endmodule
+        "#},
+        &[
+            ("Lblwrap", HeadClaim::PartialValueProduction),
+            ("Lblhalf", HeadClaim::PartialMacroProduction),
+            ("LblfE", HeadClaim::PartialValueProduction),
+            ("LblfI", HeadClaim::PartialFunction),
+            ("Lblfoo", HeadClaim::PartialValueProduction),
+        ],
+    );
+    // The declarations a definition states for a head with no claim and only its equation
+    // marker, which the backend reads as partial equation heads.
+    let unclaimed = k_rust_backend::definition::BackendDefinition::internalize(
+        &parse_definition(
+            r"[]
+            module MAIN
+              sort SortS{} []
+              symbol anywhereHead{}(SortS{}) : SortS{} [anywhere{}()]
+              symbol macroHead{}(SortS{}) : SortS{} [macro{}()]
+            endmodule []",
+        )
+        .unwrap(),
+        "MAIN",
+    )
+    .expect("unclaimed equation heads should load");
+    let unclaimed_role = |name: &str| {
+        let attributes = &unclaimed.symbols[name].attributes;
+        assert_eq!(
+            attributes.symbol_type,
+            SymbolType::Function(FunctionType::Partial),
+            "{name}"
+        );
+        attributes.head_role()
+    };
+    assert_eq!(unclaimed_role("anywhereHead"), HeadRole::EquationHead);
+    assert_eq!(unclaimed_role("macroHead"), HeadRole::Residual);
+    for (name, unclaimed_head) in [
+        ("Lblwrap", "anywhereHead"),
+        ("Lblfoo", "anywhereHead"),
+        ("LblfE", "anywhereHead"),
+        ("Lblhalf", "macroHead"),
+    ] {
+        let attributes = &definition.symbols[name].attributes;
+        assert_eq!(
+            attributes.symbol_type,
+            SymbolType::Function(FunctionType::Partial),
+            "{name} backend symbol type"
+        );
+        assert_eq!(
+            attributes.head_role(),
+            unclaimed_role(unclaimed_head),
+            "{name} backend head role"
+        );
+    }
+}
+
 /// A macro-like rule on a production without a macro attribute is the emitted equation
 /// `plain(X) = done(X)`, so `plain` is not a free constructor: declaring it `constructor` with
 /// no-confusion axioms against `done` would make the theory inconsistent. The same holds when

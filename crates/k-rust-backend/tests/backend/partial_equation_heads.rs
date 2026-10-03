@@ -69,6 +69,59 @@ fn an_unclaimed_macro_symbol_is_a_partial_residual() {
     assert_eq!(attributes.head_role(), HeadRole::Residual);
 }
 
+/// Single-valuedness does not make a value production a computed function.
+/// Its equation can still make an application undefined, so the marker must not imply totality.
+#[test]
+fn marked_value_productions_keep_the_unclaimed_roles_and_definedness() {
+    let source = SOURCE
+        .replace(
+            "symbol wrap{}(SortInt{}) : SortS{} [anywhere{}()]",
+            "symbol wrap{}(SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]",
+        )
+        .replace(
+            "[macro{}()]",
+            "[macro{}(), function{}(), value-production{}()]",
+        );
+    let definition = internalize(&source).expect("marked value productions should internalize");
+    for (name, role) in [
+        ("wrap", HeadRole::EquationHead),
+        ("half", HeadRole::Residual),
+    ] {
+        let attributes = &definition.symbols[name].attributes;
+        assert_eq!(
+            attributes.symbol_type,
+            SymbolType::Function(FunctionType::Partial)
+        );
+        assert_eq!(attributes.head_role(), role);
+    }
+    for name in ["divInt", "eqInt"] {
+        assert!(
+            matches!(
+                definition.symbols[name].attributes.head_role(),
+                HeadRole::Function { declared: true, .. }
+            ),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        simplified_predicate(&definition, r"\ceil{SortS{}, SortS{}}(wrap{}(X:SortInt{}))"),
+        Predicate::Ceil(internal_term(&definition, "wrap{}(X:SortInt{})")),
+    );
+    assert_eq!(
+        simplified_predicate(
+            &definition,
+            r#"\ceil{SortS{}, SortS{}}(wrap{}(\dv{SortInt{}}("0")))"#
+        ),
+        Predicate::False,
+    );
+    let computed = internalize(&SOURCE.replace("[anywhere{}()]", "[anywhere{}(), function{}()]"))
+        .expect("a declared function should internalize");
+    assert!(matches!(
+        computed.symbols["wrap"].attributes.head_role(),
+        HeadRole::Function { declared: true, .. }
+    ));
+}
+
 #[test]
 fn a_symbol_without_claim_or_equation_marker_is_still_rejected() {
     let source = SOURCE.replace(

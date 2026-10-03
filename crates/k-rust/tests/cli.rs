@@ -5530,8 +5530,12 @@ endmodule
 "#;
 
 /// `wrap(s(X))` equals `wrap(z)` at `X = z`, so neither the `owise` rule nor the `owise`
-/// equation may fire on it for every `X`: the symbolic claims, false at `X = z`, are not proven,
-/// and the ground claims stay disproved.
+/// equation may fire on it for every `X`: the symbolic claims, false at `X = z`, are not proven.
+/// `wrap(s(z)) = wrap(z)` reapplies its own head, so the least fixed point cannot establish
+/// totality for `wrap` (Unshown(Cycle)). Without `functional`, the normal form retains
+/// `ceil(wrap(z))`, preventing certification of the ground counterexample: its verdict is
+/// `failed`. This is a precision loss, not a soundness change; omitting definedness obligations
+/// for certified evaluated EquationHead normal forms would restore `disproved`.
 #[test]
 fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
     for (source, module) in [
@@ -5566,7 +5570,20 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
                 .to_owned()
         };
         assert_ne!(verdict("symbolic"), "proven", "{module}: {stdout}");
-        assert_eq!(verdict("ground"), "disproved", "{module}: {stdout}");
+        assert_eq!(verdict("ground"), "failed", "{module}: {stdout}");
+        let ground_output = stdout
+            .split_once(&format!("claim {module}-SPEC.ground: "))
+            .unwrap()
+            .1
+            .split("\nclaim ")
+            .next()
+            .unwrap();
+        assert!(
+            ground_output.contains("Stuck at depth ")
+                && ground_output
+                    .contains(r"\ceil{SortAddress{}, SortGeneratedTopCell{}}(Lblwrap{}(Lblz{}()))"),
+            "{module}: no ground stuck-state definedness obligation in {ground_output}"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

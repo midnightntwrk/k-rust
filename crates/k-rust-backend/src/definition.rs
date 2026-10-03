@@ -2304,7 +2304,9 @@ fn symbol_attributes(
         symbol_type,
         declared_constructor: attributes.has(KoreAttribute::Constructor),
         anywhere: attributes.has(KoreAttribute::Anywhere),
-        declared_function: function,
+        // A value production is single-valued, but its irreducible applications are values,
+        // rather than stuck computations. `function` alone declares the computed role.
+        declared_function: function && !attributes.has(KoreAttribute::ValueProduction),
         binder: attributes.has(KoreAttribute::Binder),
         injective: attributes.has(KoreAttribute::Injective),
         algebraic,

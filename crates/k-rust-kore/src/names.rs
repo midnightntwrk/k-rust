@@ -189,6 +189,9 @@ pub enum KoreAttribute {
     Terminals,
     UniqueId,
     // Markers the emitter or the prelude writes that are not K keys of a sentence.
+    /// An irreducible application of this value production is a value of its sort.
+    /// This refines `function` without asserting totality or freeness.
+    ValueProduction,
     SortInjection,
     Subsort,
     TopCellInitializer,
@@ -198,7 +201,7 @@ pub enum KoreAttribute {
 }
 
 impl KoreAttribute {
-    pub const ALL: [Self; 60] = [
+    pub const ALL: [Self; 61] = [
         Self::Label,
         Self::Concrete,
         Self::Symbolic,
@@ -255,15 +258,17 @@ impl KoreAttribute {
         Self::SymbolOverload,
         Self::Terminals,
         Self::UniqueId,
+        Self::ValueProduction,
         Self::SortInjection,
         Self::Subsort,
         Self::TopCellInitializer,
         Self::Overload,
     ];
 
-    /// The variants no K attribute key produces: the three markers the emitter or the prelude
+    /// The variants no K attribute key produces: the four markers the emitter or the prelude
     /// writes by hand, and the legacy `overload` the backend only reads.
-    pub const WITHOUT_KEY: [Self; 4] = [
+    pub const WITHOUT_KEY: [Self; 5] = [
+        Self::ValueProduction,
         Self::SortInjection,
         Self::Subsort,
         Self::TopCellInitializer,
@@ -329,6 +334,7 @@ impl KoreAttribute {
             Self::SymbolOverload => "symbol-overload",
             Self::Terminals => "terminals",
             Self::UniqueId => "UNIQUE'Unds'ID",
+            Self::ValueProduction => "value-production",
             Self::SortInjection => "sortInjection",
             Self::Subsort => "subsort",
             Self::TopCellInitializer => "topCellInitializer",

@@ -4,7 +4,7 @@
 //! sites = ["SymbolRoles::classify"]
 //! ```
 //!
-//! Every distinctness, functional and declaration claim KORE emission makes about a symbol,
+//! Every distinctness, definedness and declaration claim KORE emission makes about a symbol,
 //! decided once per emitted module.
 //!
 //! [`SymbolRoles::classify`] reads each production's [`ProductionKind`], the equations the
@@ -20,17 +20,20 @@
 //! of another no-confusion symbol of its sort), which imply `injective` (no equation equates two
 //! of its applications with different arguments). The shape constructors of [`SymbolClaims`] give
 //! a token, a function and a macro production no freeness that has no-confusion axioms.
+//! A value production carries `functional` only when the module's equations preserve its
+//! definedness, as witnessed by [`EquationTotality`].
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::definition::production_kind::{BracketName, ProductionKind};
+use crate::definition::head_totality::{self, EquationTotality, TotalHead};
+use crate::definition::production_kind::{BracketName, DeclaredTotality, ProductionKind, Totality};
 use crate::definition::{
     AttributeKey, LabelHead, OverloadOrder, ProductionCatalog, ProductionId, RuleCatalog, Sentence,
-    SortHead, match_rule_label,
+    SortHead,
 };
-use crate::kast::Label;
+use crate::kast::{Label, Term};
 
 /// The equations other sentences of the module make a production head, read under the label
 /// its declaration is made under: its own label, or the `bracketLabel` of an unlabelled bracket.
@@ -40,9 +43,12 @@ use crate::kast::Label;
 struct EquationHeads {
     /// An `anywhere` rule is headed by the label.
     anywhere_rule: bool,
-    /// A macro-like equation is headed by the label: the label heads a macro-like rule, or a
-    /// macro-like production has it, whose attribute makes every rule headed by the label a
-    /// macro-like rule ([`RuleCatalog::all_macro_labels`]).
+    /// A macro-like equation is headed by the label: a non-lemma rule headed by the label is
+    /// macro-like by its own attribute, or because a macro-like production has the label, whose
+    /// attribute makes every rule headed by it a macro-like rule
+    /// ([`RuleCatalog::all_macro_labels`]). A label that heads no rule heads no equation, so a
+    /// macro-like production's label alone does not make another production with that label an
+    /// equation head.
     macro_rule: bool,
     overload: OverloadPosition,
 }
@@ -85,6 +91,8 @@ struct SymbolRole {
     /// The production has its own label.
     labelled: bool,
     heads: EquationHeads,
+    /// Evidence that this value production's equations preserve definedness.
+    totality: Option<TotalHead>,
 }
 
 /// What the emitted theory states about the distinctness of a symbol's applications.
@@ -173,7 +181,7 @@ impl SymbolClaims {
     /// its symbol is never applied and a domain value is no element of the term algebra, so
     /// `injective` is its only distinctness claim.
     /// An unlabelled one declares no symbol.
-    fn domain_values(labelled: bool, injective: bool, anywhere: bool) -> Self {
+    fn domain_values(labelled: bool, injective: bool, functional: bool, anywhere: bool) -> Self {
         if !labelled {
             return Self::undeclared();
         }
@@ -184,7 +192,7 @@ impl SymbolClaims {
             } else {
                 Freeness::None
             },
-            functional: true,
+            functional,
             anywhere,
         }
     }
@@ -292,19 +300,32 @@ impl SymbolRole {
                 SymbolClaims::syntax_only(name, claims.freeness, claims.functional, claims.anywhere)
             }
             ProductionKind::Function { .. } | ProductionKind::MacroProduction => {
-                SymbolClaims::defined_by_equations(self.labelled, self.kind.functional(), anywhere)
+                SymbolClaims::defined_by_equations(self.labelled, self.functional(), anywhere)
             }
-            ProductionKind::Token { algebraic } => {
-                SymbolClaims::domain_values(self.labelled, !algebraic && self.injective(), anywhere)
-            }
+            ProductionKind::Token { algebraic } => SymbolClaims::domain_values(
+                self.labelled,
+                !algebraic && self.injective(),
+                self.functional(),
+                anywhere,
+            ),
             // Its `assoc`, `comm` or `idem` axioms identify applications with different
             // arguments.
             ProductionKind::Algebraic => {
-                SymbolClaims::generator(Freeness::None, self.kind.functional(), anywhere)
+                SymbolClaims::generator(Freeness::None, self.functional(), anywhere)
             }
             ProductionKind::Base => {
-                SymbolClaims::generator(self.base_freeness(), self.kind.functional(), anywhere)
+                SymbolClaims::generator(self.base_freeness(), self.functional(), anywhere)
             }
+        }
+    }
+
+    /// Every application to defined arguments is defined, by declaration for a function or
+    /// by the module's equation judgement for a value production.
+    fn functional(self) -> bool {
+        match self.kind.declared_totality() {
+            DeclaredTotality::Function(Totality::Total) => true,
+            DeclaredTotality::Function(Totality::Partial) | DeclaredTotality::NoSymbol => false,
+            DeclaredTotality::ValuesUnlessEquations => self.totality.is_some(),
         }
     }
 
@@ -373,38 +394,30 @@ impl SymbolRole {
 struct LabelHeads {
     /// The heads of `anywhere` rules.
     anywhere_rules: BTreeSet<LabelHead>,
-    /// The heads of macro-like equations ([`RuleCatalog::all_macro_labels`]).
+    /// The heads of macro-like equations: the labels that head a non-lemma rule and are among
+    /// [`RuleCatalog::all_macro_labels`], as [`EquationTotality`] indexes them.
     macro_rules: BTreeSet<LabelHead>,
 }
 
 impl LabelHeads {
-    fn of(productions: &ProductionCatalog<'_>, rules: &RuleCatalog<'_>) -> Self {
-        Self {
-            anywhere_rules: rules
-                .rules()
-                .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-                .map(|(_, rule)| LabelHead::from(&match_rule_label(rule)))
-                .collect(),
-            macro_rules: rules.all_macro_labels(productions),
+    fn of(productions: &ProductionCatalog<'_>, totality: &EquationTotality) -> Self {
+        let mut anywhere_rules = BTreeSet::new();
+        let mut macro_rules = BTreeSet::new();
+        for (_, production) in productions.productions() {
+            if let Some(head) =
+                head_totality::declared_under(production, ProductionKind::of(production))
+            {
+                if totality.heads_anywhere(&head) {
+                    anywhere_rules.insert(head.clone());
+                }
+                if totality.heads_macro(&head) {
+                    macro_rules.insert(head);
+                }
+            }
         }
-    }
-
-    /// The label a production's declaration is made under, which its equation heads are read
-    /// under: the `bracketLabel` of an unlabelled bracket, the production's own label otherwise.
-    fn declared_under(production: &Sentence, kind: ProductionKind) -> Option<LabelHead> {
-        let Sentence::Production {
-            label, attributes, ..
-        } = production
-        else {
-            unreachable!("production catalogs contain productions")
-        };
-        if let ProductionKind::Bracket(BracketName::BracketLabel) = kind {
-            attributes
-                .label(AttributeKey::BracketLabel)
-                .as_ref()
-                .map(LabelHead::from)
-        } else {
-            label.as_ref().map(LabelHead::from)
+        Self {
+            anywhere_rules,
+            macro_rules,
         }
     }
 
@@ -416,7 +429,7 @@ impl LabelHeads {
         kind: ProductionKind,
         overload: OverloadPosition,
     ) -> EquationHeads {
-        let declared_under = Self::declared_under(production, kind);
+        let declared_under = head_totality::declared_under(production, kind);
         EquationHeads {
             anywhere_rule: declared_under
                 .as_ref()
@@ -453,7 +466,12 @@ impl LabelHeads {
             && !heads.macro_rule
     }
 
-    fn role(&self, production: &Sentence, overload: OverloadPosition) -> SymbolRole {
+    fn role(
+        &self,
+        production: &Sentence,
+        overload: OverloadPosition,
+        totality: Option<TotalHead>,
+    ) -> SymbolRole {
         let kind = ProductionKind::of(production);
         let Sentence::Production { label, .. } = production else {
             unreachable!("production catalogs contain productions")
@@ -463,6 +481,7 @@ impl LabelHeads {
             unbracketed: ProductionKind::of_unbracketed(production),
             labelled: label.is_some(),
             heads: self.heads(production, kind, overload),
+            totality,
         }
     }
 }
@@ -479,20 +498,27 @@ fn result_sort_head(overloads: &OverloadOrder<'_>, id: ProductionId) -> SortHead
 /// production catalog they were classified from.
 pub(super) struct SymbolRoles {
     claims: Vec<SymbolClaims>,
+    // Keep the assertion inputs in all profiles so debug_assert! expressions remain
+    // type-checked in release too. The judgement is built once to classify claims; release
+    // emission does not run the definedness walks in the assertions.
+    kinds: Vec<ProductionKind>,
+    totality: EquationTotality,
 }
 
 impl SymbolRoles {
     /// Classify every production of `productions`, whose rules are `rules` and whose overload
     /// order `overloads` was computed from the same catalog.
     ///
-    /// O(P + R + O² log O) for P productions, R rules and O elements of the overload order.
+    /// O(P + R + Σ|right-hand sides| + O² log O) for P productions, R rules and O
+    /// elements of the overload order, including the module's equation judgement.
     #[must_use]
     pub(super) fn classify(
         productions: &ProductionCatalog<'_>,
         rules: &RuleCatalog<'_>,
         overloads: &OverloadOrder<'_>,
     ) -> Self {
-        let heads = LabelHeads::of(productions, rules);
+        let totality = EquationTotality::judge(productions, rules, overloads);
+        let heads = LabelHeads::of(productions, &totality);
         // Each greater, mapped to conditions (a) and (b) of `OverloadPosition::Greater`.
         let mut greaters = BTreeMap::<ProductionId, (bool, bool)>::new();
         // Invariant: `greaters` maps every greater of a lesser visited so far to whether every
@@ -520,7 +546,7 @@ impl SymbolRoles {
                 *all_alone = *all_alone && alone;
             }
         }
-        let claims = productions
+        let (claims, kinds) = productions
             .productions()
             .map(|(id, production)| {
                 let overload = greaters.get(&id).map_or(
@@ -530,10 +556,15 @@ impl SymbolRoles {
                         alone_in_sort,
                     },
                 );
-                heads.role(production, overload).claims()
+                let role = heads.role(production, overload, totality.total_value_head(id));
+                (role.claims(), role.kind)
             })
-            .collect();
-        Self { claims }
+            .unzip();
+        Self {
+            claims,
+            kinds,
+            totality,
+        }
     }
 
     /// The claims of production `id`.
@@ -555,12 +586,14 @@ impl SymbolRoles {
     ///
     /// # Panics
     ///
-    /// With `debug_assertions` on, when the claims of `id` are not [`Freeness::None`].
+    /// With `debug_assertions` on, when the claims of `id` are not [`Freeness::None`], or a
+    /// functional value production's emitted right-hand side is not shown defined (F1/F3).
     pub(super) fn debug_assert_heads_equation(
         &self,
         id: ProductionId,
         label: &Label,
         equation: EmittedEquation,
+        right: &Term,
     ) {
         debug_assert!(
             self.claims(id).freeness() == Freeness::None,
@@ -569,6 +602,20 @@ impl SymbolRoles {
              no distinctness claim (Freeness::None)",
             equation.describe(),
             self.claims(id).freeness(),
+        );
+        debug_assert!(
+            !self.claims(id).functional()
+                || !matches!(
+                    self.kinds[id.0].declared_totality(),
+                    DeclaredTotality::ValuesUnlessEquations
+                )
+                || head_totality::term_is_defined(right, &mut |label| self
+                    .totality
+                    .label_is_defined(label)),
+            "production `{label}` ({id:?}) heads an emitted {} with a right-hand side not shown \
+             defined, but its claims state `functional`; F1/F3: a functional value production's \
+             equations must preserve definedness",
+            equation.describe(),
         );
     }
 
@@ -585,6 +632,8 @@ impl SymbolRoles {
     /// - with one result sort head, `greater` and `lesser` do not both have no-confusion
     ///   axioms, because the axiom equates an application of each and their disjointness axiom
     ///   denies it (I2, condition (b));
+    /// - if `greater` is `functional`, `lesser` must be functional or declared total, because
+    ///   an undefined lesser would equate the functional greater with bottom (F1/F3);
     /// - among the greaters of `lesser` with the result sort head of `greater`, at most one has
     ///   no-confusion axioms, because each of their overload axioms equates an application with
     ///   `inj(lesser(x))`, so two of them share a value (I2, condition (b)).
@@ -594,7 +643,7 @@ impl SymbolRoles {
     ///
     /// # Panics
     ///
-    /// With `debug_assertions` on, when one of the three conditions fails.
+    /// With `debug_assertions` on, when one of the four conditions fails.
     pub(super) fn debug_assert_overload_axiom(
         &self,
         overloads: &OverloadOrder<'_>,
@@ -617,6 +666,19 @@ impl SymbolRoles {
         };
         let lesser_claims = self.claims(lesser);
         let greater_claims = self.claims(greater);
+        debug_assert!(
+            !greater_claims.functional()
+                || lesser_claims.functional()
+                || matches!(
+                    ProductionKind::of(overloads.production(lesser)).declared_totality(),
+                    DeclaredTotality::Function(Totality::Total)
+                ),
+            "overload axiom {} > {}: the greater is `functional` but the lesser is not total; \
+             F1/F3: the axiom equates the greater's application with the injected lesser, \
+             so a functional greater needs a defined lesser",
+            name(greater),
+            name(lesser),
+        );
         debug_assert!(
             !greater_claims.freeness().declares_injective()
                 || lesser_claims.freeness().declares_injective(),
@@ -825,13 +887,14 @@ mod tests {
         macro_rule: bool,
         /// Another macro-like production has the same label.
         shared_macro_label: bool,
+        head_totality: bool,
         overload: Overload,
     }
 
     impl HeadFacts {
         fn all() -> Vec<Self> {
             let mut all = Vec::new();
-            for bits in 0..1_u32 << 3 {
+            for bits in 0..1_u32 << 4 {
                 let bit = |index: u32| bits & (1 << index) != 0;
                 for overload in [
                     Overload::NotGreater,
@@ -856,6 +919,7 @@ mod tests {
                         anywhere_rule: bit(0),
                         macro_rule: bit(1),
                         shared_macro_label: bit(2),
+                        head_totality: bit(3),
                         overload,
                     });
                 }
@@ -905,10 +969,11 @@ mod tests {
     /// declaration: none for a subsort, a builtin label or an unlabelled non-bracket; syntax
     ///   only for a bracket, under its own label or else its bracketLabel; both otherwise
     /// heads (under the declaration's label): anywhere = an anywhere rule;
-    ///   macro = a macro-like rule, or a macro-like production with the label (all_macro_labels)
+    ///   macro = a macro-like rule, or an anywhere rule whose label a macro-like production has
+    ///   (a rule headed by one of all_macro_labels; a label no rule heads heads no equation)
     /// equation head = anywhere || macro
     /// anywhere    = equation-head anywhere || greater
-    /// functional  = !function || total
+    /// functional  = if function { total } else { declared && head-totality }
     /// constructor = Base && !equation head && !greater
     /// no-confusion (semantic declarations only)
     ///             = Base && !equation head && (!greater || (a) && (b))
@@ -944,8 +1009,10 @@ mod tests {
             };
         }
         // A declared production is labelled, or a bracket with a `bracketLabel`; a macro-like
-        // production with its own label puts that label among the macro-like labels.
-        let macro_head = heads.macro_rule || p.label && (heads.shared_macro_label || p.macro_like);
+        // production with its own label puts that label among the macro-like labels, which makes
+        // the anywhere rule headed by it a macro-like equation too.
+        let macro_head = heads.macro_rule
+            || heads.anywhere_rule && p.label && (heads.shared_macro_label || p.macro_like);
         let equation_head = heads.anywhere_rule || macro_head;
         let declared = if p.function {
             Declared::Function
@@ -973,7 +1040,11 @@ mod tests {
             declaration,
             constructor: base && !equation_head && !greater,
             injective: injective_kind && !equation_head && (!greater || a),
-            functional: !p.function || p.total,
+            functional: if p.function {
+                p.total
+            } else {
+                heads.head_totality
+            },
             anywhere: heads.anywhere_rule || greater,
             no_confusion: declaration == Declaration::SemanticAndSyntax
                 && base
@@ -1021,9 +1092,17 @@ mod tests {
             });
         }
         let catalog = ProductionCatalog::from_visible(&sentences);
-        // `RuleCatalog::all_macro_labels`: the macro-like rules' heads and the macro-like
-        // productions' labels.
-        macro_rules.extend(catalog.macro_labels().iter().cloned());
+        // The equation index of `EquationTotality::judge`: a rule is a macro-like equation when
+        // its head is among `RuleCatalog::all_macro_labels`, the macro-like rules' heads and the
+        // macro-like productions' labels. Of the rules the facts state, the anywhere rule is the
+        // one a macro-like production's label can make macro-like; a label no rule heads heads
+        // no equation, whatever production has it.
+        if heads.anywhere_rule
+            && let Some(label) = production.heads_label()
+            && catalog.macro_labels().contains(&LabelHead::from(&label))
+        {
+            macro_rules.insert(LabelHead::from(&label));
+        }
         (
             LabelHeads {
                 anywhere_rules,
@@ -1036,7 +1115,11 @@ mod tests {
     /// The role of one production of a module whose other sentences state `heads`.
     fn role(production: ProductionFacts, heads: HeadFacts) -> SymbolRole {
         let (label_heads, sentence) = label_heads(production, heads);
-        label_heads.role(&sentence, heads.position())
+        label_heads.role(
+            &sentence,
+            heads.position(),
+            heads.head_totality.then(TotalHead::assumed_for_test),
+        )
     }
 
     /// The claims table states, on every combination of production and head facts, exactly the
@@ -1063,7 +1146,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 2048 * 40);
+        assert_eq!(checked, 2048 * 80);
         assert_eq!(
             greater_positions.len(),
             4,
@@ -1085,7 +1168,9 @@ mod tests {
                     production.bracket && production.bracket_label && !production.subsort_shape
                 };
                 let macro_head = head.macro_rule
-                    || production.label && (head.shared_macro_label || production.macro_like);
+                    || head.anywhere_rule
+                        && production.label
+                        && (head.shared_macro_label || production.macro_like);
                 let expected = !production.function
                     && production.algebraic.is_none()
                     && !(under && (head.anywhere_rule || macro_head));
@@ -1159,6 +1244,7 @@ mod tests {
             assert!(!claims.no_confusion(), "{heads:?}");
         }
         let plain = HeadFacts {
+            head_totality: true,
             anywhere_rule: false,
             macro_rule: false,
             shared_macro_label: false,
@@ -1211,6 +1297,63 @@ mod tests {
         assert!(claims["done"].no_confusion());
     }
 
+    /// The claims of the productions labelled `label`, by result sort.
+    fn classified_label(source: &str, label: &str) -> BTreeMap<String, SymbolClaims> {
+        let parsed = crate::outer::parse("roles.k", source).expect("definition should parse");
+        let lowered = crate::outer::lower(&parsed, "MAIN").expect("definition should lower");
+        let definition =
+            crate::inner::resolve_rule_bubbles(&lowered).expect("rule bubbles should resolve");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let overloads = resolved.overloads(module).expect("no overload cycle");
+        let roles = SymbolRoles::classify(&productions, &resolved.rule_catalog(module), &overloads);
+        productions
+            .productions()
+            .filter_map(|(id, production)| {
+                let Sentence::Production {
+                    label: Some(own),
+                    sort,
+                    ..
+                } = production
+                else {
+                    return None;
+                };
+                (own.name == label).then(|| (sort.name.clone(), roles.claims(id)))
+            })
+            .collect()
+    }
+
+    /// The equation index reads rules. A macro-like production's label makes every rule headed
+    /// by it a macro-like equation, but a label that heads no rule heads no equation. So a base
+    /// production sharing its label with a macro-like production that no rule is headed by
+    /// keeps its distinctness claims, and loses them once a rule is headed by the label.
+    #[test]
+    fn a_label_shared_with_a_macro_production_heads_an_equation_only_with_a_rule() {
+        let productions = indoc::indoc! {r#"
+            module MAIN
+              syntax Exp ::= "done(" Exp ")" [symbol(done)]
+              syntax Exp ::= "plain(" Exp ")" [symbol(shared)]
+              syntax Other ::= "half(" Exp ")" [symbol(shared), macro]
+            RULES
+            endmodule
+        "#};
+        let without_rule = classified_label(&productions.replace("RULES", ""), "shared");
+        assert_eq!(without_rule["Exp"].freeness(), Freeness::Constructor);
+        assert!(without_rule["Exp"].no_confusion());
+        assert!(without_rule["Exp"].functional());
+        let with_rule = classified_label(
+            &productions.replace("RULES", "  rule plain(X:Exp) => done(X:Exp)"),
+            "shared",
+        );
+        assert_eq!(with_rule["Exp"].freeness(), Freeness::None);
+        assert!(!with_rule["Exp"].no_confusion());
+        assert!(
+            with_rule["Exp"].functional(),
+            "the right-hand side `done(X)` is defined"
+        );
+    }
+
     /// An alias around a rule's left side leaves the head that the classification reads, so
     /// `wrap(X) #as _V => done(X) [anywhere]` makes `wrap` an equation head.
     #[test]
@@ -1248,8 +1391,19 @@ mod tests {
 
     /// The claims of one production, as the check reads them.
     fn roles_with(freeness: Freeness) -> SymbolRoles {
+        let definition = definition("module MAIN endmodule");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let overloads = resolved.overloads(module).expect("no overload cycle");
         SymbolRoles {
             claims: vec![SymbolClaims::generator(freeness, true, false)],
+            kinds: vec![ProductionKind::Base],
+            totality: EquationTotality::judge(
+                &productions,
+                &resolved.rule_catalog(module),
+                &overloads,
+            ),
         }
     }
 
@@ -1262,7 +1416,15 @@ mod tests {
             EmittedEquation::Anywhere,
             EmittedEquation::Macro,
         ] {
-            roles.debug_assert_heads_equation(ProductionId(0), &Label::new("plain"), equation);
+            roles.debug_assert_heads_equation(
+                ProductionId(0),
+                &Label::new("plain"),
+                equation,
+                &Term::Variable {
+                    name: "X".into(),
+                    sort: None,
+                },
+            );
         }
     }
 
@@ -1276,6 +1438,10 @@ mod tests {
             ProductionId(0),
             &Label::new("plain"),
             EmittedEquation::Macro,
+            &Term::Variable {
+                name: "X".into(),
+                sort: None,
+            },
         );
     }
 
@@ -1292,6 +1458,30 @@ mod tests {
             ProductionId(0),
             &Label::new("wrap"),
             EmittedEquation::Anywhere,
+            &Term::Variable {
+                name: "X".into(),
+                sort: None,
+            },
+        );
+    }
+
+    /// Claiming a value head functional cannot make an application of an unknown partial
+    /// symbol on its right-hand side defined.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(
+        expected = "F1/F3: a functional value production's equations must preserve definedness"
+    )]
+    fn a_functional_value_head_with_an_undefined_right_side_fails_the_check() {
+        let right = Term::Apply {
+            label: Label::new("partial"),
+            arguments: Vec::new(),
+        };
+        roles_with(Freeness::None).debug_assert_heads_equation(
+            ProductionId(0),
+            &Label::new("wrap"),
+            EmittedEquation::Anywhere,
+            &right,
         );
     }
 
@@ -1511,7 +1701,11 @@ mod tests {
     /// Runs the overload-axiom check on the axiom `asNumber > asInt` of `SAME_SORT_FAMILY`, with
     /// the classified claims of `asInt` and `asNumber` replaced by `as_int` and `as_number` where
     /// given.
-    fn check_same_sort_family(as_int: Option<Freeness>, as_number: Option<Freeness>) {
+    fn check_same_sort_family(
+        as_int: Option<Freeness>,
+        as_number: Option<Freeness>,
+        functional: Option<(bool, bool)>,
+    ) {
         let definition = definition(SAME_SORT_FAMILY);
         let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
         let module = resolved.module_id("MAIN").unwrap();
@@ -1539,6 +1733,10 @@ mod tests {
                 roles.claims[id.0] = SymbolClaims::generator(freeness, true, true);
             }
         }
+        if let Some((lesser, greater)) = functional {
+            roles.claims[as_int_id.0].functional = lesser;
+            roles.claims[as_number_id.0].functional = greater;
+        }
         roles.debug_assert_overload_axiom(&overloads, as_int_id, as_number_id, true);
     }
 
@@ -1546,8 +1744,8 @@ mod tests {
     /// the check.
     #[test]
     fn a_same_sort_overload_axiom_between_a_constructor_and_an_injective_greater_passes() {
-        check_same_sort_family(None, None);
-        check_same_sort_family(Some(Freeness::Constructor), Some(Freeness::Injective));
+        check_same_sort_family(None, None, None);
+        check_same_sort_family(Some(Freeness::Constructor), Some(Freeness::Injective), None);
     }
 
     /// 62c50639: every overload-greater was given no-confusion axioms (the classifier arm
@@ -1557,7 +1755,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "both have no-confusion axioms but share their result sort head")]
     fn a_same_sort_overload_axiom_between_two_no_confusion_symbols_fails_the_check() {
-        check_same_sort_family(None, Some(Freeness::OverloadConstructor));
+        check_same_sort_family(None, Some(Freeness::OverloadConstructor), None);
     }
 
     /// 1ab34aad (overload half): an overload-greater over a lesser that is not injective was
@@ -1566,7 +1764,16 @@ mod tests {
     #[test]
     #[should_panic(expected = "the greater is `injective` but the lesser is not")]
     fn an_injective_greater_over_a_non_injective_lesser_fails_the_check() {
-        check_same_sort_family(Some(Freeness::None), Some(Freeness::Injective));
+        check_same_sort_family(Some(Freeness::None), Some(Freeness::Injective), None);
+    }
+
+    /// A greater cannot be functional when its overload axiom equates it with a lesser
+    /// carrying no totality claim.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "the greater is `functional` but the lesser is not total")]
+    fn a_functional_overload_greater_over_a_partial_lesser_fails_the_check() {
+        check_same_sort_family(None, None, Some((false, true)));
     }
 
     /// Two greaters of one sort that share a lesser, both with no-confusion axioms.

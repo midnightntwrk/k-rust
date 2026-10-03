@@ -1613,13 +1613,20 @@ fn declares_a_generated_lambda_total_only_when_its_body_is_defined() {
         ],
         attributes,
     };
+    let x = || Term::Variable {
+        name: "X".into(),
+        sort: int(),
+    };
     let div = |term: Term| application("div", vec![term.clone(), term]);
     let cases = [
         ("Add", application("add", vec![y(), y()]), true),
         ("Pair", application("pair", vec![y(), y()]), true),
         ("Div", div(y()), false),
         ("Nested", application("pair", vec![y(), div(y())]), false),
-        ("Macro", application("twice", vec![y(), y()]), false),
+        // A macro production with no expansion equation builds values (a Free head).
+        ("Macro", application("twice", vec![y(), y()]), true),
+        ("Wrapped", application("wrapped", vec![y(), y()]), false),
+        ("Plus", application("plus", vec![y(), y()]), true),
         (
             "Unknown",
             application("pair", vec![y(), application("undeclared", vec![y()])]),
@@ -1650,6 +1657,22 @@ fn declares_a_generated_lambda_total_only_when_its_body_is_defined() {
         int_production("div", attributes(&[("function", json!(""))])),
         int_production("pair", Attributes::default()),
         int_production("twice", attributes(&[("macro", json!(""))])),
+        int_production("wrapped", Attributes::default()),
+        int_production("plus", Attributes::default()),
+        rule(
+            Term::Rewrite {
+                left: Box::new(application("wrapped", vec![x(), y()])),
+                right: Box::new(application("div", vec![x(), y()])),
+            },
+            attributes(&[("anywhere", json!(""))]),
+        ),
+        rule(
+            Term::Rewrite {
+                left: Box::new(application("plus", vec![x(), y()])),
+                right: Box::new(application("add", vec![x(), y()])),
+            },
+            attributes(&[("anywhere", json!(""))]),
+        ),
     ];
     for (hint, body, _) in &cases {
         sentences.push(rule(binder(hint, body.clone()), Attributes::default()));

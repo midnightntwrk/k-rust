@@ -67,6 +67,18 @@ pub(crate) enum Totality {
     Partial,
 }
 
+/// What a production's own declaration says about the totality of its symbol.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DeclaredTotality {
+    /// No symbol of the semantic module: a subsort, builtin, bracket or unlabelled production.
+    NoSymbol,
+    /// A function whose declaration states whether its applications are total.
+    Function(Totality),
+    /// Applications to values are values unless equations evaluate them; those equations must
+    /// preserve definedness before the compiler can claim totality.
+    ValuesUnlessEquations,
+}
+
 /// The name a bracket's syntax-module declaration is made under.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BracketName {
@@ -101,7 +113,7 @@ pub(crate) enum ProductionKind {
     /// Carries `function`: its applications are evaluated by its equations.
     ///
     /// `macro_like` keeps a macro-like attribute, which the declaration still carries as `macro`
-    /// and which keeps the label from counting as defined in the definedness judgement.
+    /// and which makes rules headed by this production macro equations.
     Function {
         totality: Totality,
         macro_like: bool,
@@ -234,16 +246,16 @@ impl ProductionKind {
         Self::Base
     }
 
-    /// Whether the semantic declaration carries `functional` and the functional axiom: every
-    /// application of the symbol denotes exactly one value.
-    ///
-    /// A symbol that is not declared in the semantic module (a subsort, a builtin, a bracket or
-    /// an unlabelled production) has no such claim.
-    pub(crate) fn functional(self) -> bool {
+    /// What the declaration alone states, leaving value heads' equations to the judgement.
+    pub(crate) fn declared_totality(self) -> DeclaredTotality {
         match self {
-            Self::Subsort | Self::Builtin | Self::Bracket(_) | Self::Unlabelled => false,
-            Self::Function { totality, .. } => totality == Totality::Total,
-            Self::MacroProduction | Self::Token { .. } | Self::Algebraic | Self::Base => true,
+            Self::Subsort | Self::Builtin | Self::Bracket(_) | Self::Unlabelled => {
+                DeclaredTotality::NoSymbol
+            }
+            Self::Function { totality, .. } => DeclaredTotality::Function(totality),
+            Self::MacroProduction | Self::Token { .. } | Self::Algebraic | Self::Base => {
+                DeclaredTotality::ValuesUnlessEquations
+            }
         }
     }
 

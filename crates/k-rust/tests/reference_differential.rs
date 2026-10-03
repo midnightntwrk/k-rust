@@ -537,6 +537,19 @@ fn emitted_kore_matches_the_reference_frontend() {
     );
     let withheld = normalize_withheld_injective(&mut reference, &actual);
     println!("injective withheld from equation-headed symbols (N33): {withheld}");
+    let functional = normalize_withheld_functional(&mut reference, &mut actual);
+    println!(
+        "functional withheld from equation-headed symbols (N36): {}",
+        functional.declarations
+    );
+    println!(
+        "value-production attributes removed from k-rust declarations (N36): {}",
+        functional.value_production_attributes
+    );
+    println!(
+        "extra function attributes removed from k-rust declarations (N36): {}",
+        functional.function_attributes
+    );
     let dropped = normalize_withheld_overload_no_confusion(&mut reference, &actual);
     println!(
         "constructor-family axioms of overload-greaters without no-confusion dropped (N34): \
@@ -1168,6 +1181,427 @@ fn withheld_injective_normalizer_applies_only_to_equation_heads_the_port_withhol
     );
     assert_eq!(normalize_withheld_injective(&mut reference, &port), 0);
     assert_eq!(reference, original);
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct WithheldFunctionalCounts {
+    declarations: usize,
+    value_production_attributes: usize,
+    function_attributes: usize,
+}
+
+/// N36: withhold the reference's totality claim only for the same equation head for which
+/// the port withholds both `functional` and its functional axiom. Equations can equate a head
+/// with an undefined right-hand side, and self-reference cannot establish its definedness.
+/// The port's paired `function{}()` and `value-production{}()` preserve the value reading of
+/// irreducible applications while making its equation heads admissible to KORE verifiers.
+/// Remove that pair only opposite a reference value production; a source `function{}()`
+/// remains compared. Every other attribute and axiom stays compared.
+/// Returns counts of changed reference declarations and each removed port attribute.
+fn normalize_withheld_functional(
+    reference: &mut Definition,
+    actual: &mut Definition,
+) -> WithheldFunctionalCounts {
+    const EQUATION_HEAD_ATTRIBUTES: [&str; 6] = [
+        "anywhere",
+        "macro",
+        "macro-rec",
+        "alias",
+        "alias'Kywd'",
+        "alias-rec",
+    ];
+    let is_marker = |attribute: &Pattern, name: &str| {
+        matches!(attribute, Pattern::Application { symbol, arguments }
+            if symbol.name == name && symbol.sort_parameters.is_empty() && arguments.is_empty())
+    };
+    let has = |attributes: &Attributes, name: &str| {
+        attributes
+            .0
+            .iter()
+            .any(|attribute| is_marker(attribute, name))
+    };
+    let mut without_functional = BTreeMap::new();
+    let mut claimed = BTreeSet::new();
+    for sentence in actual.modules.iter().flat_map(|module| &module.sentences) {
+        if let Some(name) = functional_axiom_symbol(sentence) {
+            claimed.insert(name.to_owned());
+        }
+        if let Sentence::SymbolDeclaration {
+            symbol, attributes, ..
+        } = sentence
+        {
+            if has(attributes, "functional") {
+                claimed.insert(symbol.name.clone());
+            } else {
+                without_functional.insert(symbol.name.clone(), attributes.clone());
+            }
+        }
+    }
+    let mut counts = WithheldFunctionalCounts::default();
+    let mut changed_symbols = BTreeSet::new();
+    let mut value_productions = BTreeSet::new();
+    for sentence in reference
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.sentences)
+    {
+        let Sentence::SymbolDeclaration {
+            symbol, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        let Some(port_attributes) = without_functional.get(&symbol.name) else {
+            continue;
+        };
+        if claimed.contains(&symbol.name)
+            || !has(attributes, "functional")
+            || !EQUATION_HEAD_ATTRIBUTES
+                .iter()
+                .any(|name| has(attributes, name) && has(port_attributes, name))
+        {
+            continue;
+        }
+        let value_production = has(port_attributes, "value-production");
+        let reference_function = has(attributes, "function");
+        let port_function = has(port_attributes, "function");
+        if (value_production && (!port_function || reference_function))
+            || (!value_production && !(reference_function && port_function))
+        {
+            continue;
+        }
+        attributes
+            .0
+            .retain(|attribute| !is_marker(attribute, "functional"));
+        changed_symbols.insert(symbol.name.clone());
+        if value_production {
+            value_productions.insert(symbol.name.clone());
+        }
+        counts.declarations += 1;
+    }
+    for module in &mut reference.modules {
+        module.sentences.retain(|sentence| {
+            // An axiom with further attributes has further claims and stays compared.
+            let bare_claim = matches!(sentence, Sentence::Axiom { attributes, .. }
+                if attributes.0.len() == 1 && is_marker(&attributes.0[0], "functional"));
+            !(bare_claim
+                && functional_axiom_symbol(sentence)
+                    .is_some_and(|name| changed_symbols.contains(name)))
+        });
+    }
+    for sentence in actual
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.sentences)
+    {
+        let Sentence::SymbolDeclaration {
+            symbol, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !value_productions.contains(&symbol.name) {
+            continue;
+        }
+        attributes.0.retain(|attribute| {
+            if is_marker(attribute, "value-production") {
+                counts.value_production_attributes += 1;
+                false
+            } else if is_marker(attribute, "function") {
+                counts.function_attributes += 1;
+                false
+            } else {
+                true
+            }
+        });
+    }
+    counts
+}
+
+/// A functional axiom states `exists Val. Val = head(K0, ...)`, for unconstrained, distinct
+/// argument variables. A nested application, constant argument, or constrained value is a
+/// different axiom and must stay compared.
+fn functional_axiom_symbol(sentence: &Sentence) -> Option<&str> {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    if !attributes.0.iter().any(|attribute| {
+        matches!(attribute, Pattern::Application { symbol, arguments }
+            if symbol.name == "functional" && arguments.is_empty())
+    }) {
+        return None;
+    }
+    let Pattern::Exists {
+        sort,
+        variable,
+        body,
+    } = pattern.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::Equals {
+        operand_sort,
+        result_sort,
+        left,
+        right,
+    } = body.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::Application { symbol, arguments } = right.as_ref() else {
+        return None;
+    };
+    if sort != result_sort
+        || **operand_sort != variable.sort
+        || !matches!(left.as_ref(), Pattern::Variable(value) if value == variable.as_ref())
+        || !arguments.iter().all(|argument| {
+            matches!(argument, Pattern::Variable(argument) if argument != variable.as_ref())
+        })
+        || arguments.iter().filter_map(|argument| match argument {
+            Pattern::Variable(variable) => Some(variable),
+            _ => None,
+        }).collect::<BTreeSet<_>>().len() != arguments.len()
+    {
+        return None;
+    }
+    Some(&symbol.name)
+}
+
+/// A value-production head loses its compiler-added verifier pair; an existing source
+/// function retains its function attribute. The reference loses only its totality claim.
+#[test]
+fn withheld_functional_normalizer_removes_only_the_matching_claim() {
+    for marker in ["anywhere", "macro", "macro-rec", "alias'Kywd'", "alias-rec"] {
+        for source_function in [false, true] {
+            let definition = |attributes: &str, axiom: bool| {
+                let axiom = if axiom {
+                    r"axiom{R} \exists{R}(Val:S{}, \equals{S{}, R}(Val:S{}, Lblwrap{}(K0:S{}))) [functional{}()]"
+                } else {
+                    ""
+                };
+                parse_definition(&format!(r"[] module TEST
+                    sort S{{}} []
+                    symbol Lblwrap{{}}(S{{}}) : S{{}} [{marker}{{}}(), injective{{}}(), {attributes}]
+                    symbol Lblplain{{}}(S{{}}) : S{{}} [constructor{{}}(), functional{{}}()]
+                    {axiom}
+                    axiom{{R}} \exists{{R}}(Val:S{{}}, \equals{{S{{}}, R}}(Val:S{{}}, Lblplain{{}}(K0:S{{}}))) [functional{{}}()]
+                    axiom{{}} \equals{{S{{}}, S{{}}}}(Lblwrap{{}}(X:S{{}}), Lblplain{{}}(X:S{{}})) [{marker}{{}}()]
+                    axiom{{R}} \exists{{R}}(Val:S{{}}, \equals{{S{{}}, R}}(Val:S{{}}, Lblwrap{{}}(Lblplain{{}}(K0:S{{}})))) [functional{{}}()]
+                    endmodule []")).unwrap()
+            };
+            let mut port = definition(
+                if source_function {
+                    "function{}()"
+                } else {
+                    "function{}(), value-production{}()"
+                },
+                false,
+            );
+            let mut reference = definition(
+                if source_function {
+                    "function{}(), functional{}()"
+                } else {
+                    "functional{}()"
+                },
+                true,
+            );
+            let removed = usize::from(!source_function);
+            assert_eq!(
+                normalize_withheld_functional(&mut reference, &mut port),
+                WithheldFunctionalCounts {
+                    declarations: 1,
+                    value_production_attributes: removed,
+                    function_attributes: removed,
+                },
+                "{marker}, source function: {source_function}"
+            );
+            assert_eq!(
+                reference, port,
+                "only the claim, its axiom and the verifier pair go"
+            );
+            assert_eq!(
+                normalize_withheld_functional(&mut reference, &mut port),
+                WithheldFunctionalCounts::default(),
+                "idempotent"
+            );
+        }
+    }
+}
+
+#[test]
+fn withheld_functional_normalizer_requires_the_ports_matching_equation_head_and_no_claim() {
+    let definition = |attributes: &str, axiom: bool, declare: bool| {
+        let declaration = if declare {
+            format!("symbol Lblwrap{{}}(S{{}}) : S{{}} [{attributes}]")
+        } else {
+            String::new()
+        };
+        let axiom = if axiom {
+            r"axiom{R} \exists{R}(Val:S{}, \equals{S{}, R}(Val:S{}, Lblwrap{}(K0:S{}))) [functional{}()]"
+        } else {
+            ""
+        };
+        parse_definition(&format!(
+            r"[] module TEST sort S{{}} [] {declaration} {axiom} endmodule []"
+        ))
+        .unwrap()
+    };
+    for mut port in [
+        definition(
+            "anywhere{}(), function{}(), value-production{}(), functional{}()",
+            false,
+            true,
+        ),
+        definition(
+            "anywhere{}(), function{}(), value-production{}()",
+            true,
+            true,
+        ),
+        definition("anywhere{}(), function{}()", false, true),
+        definition("anywhere{}(), value-production{}()", false, true),
+        definition("anywhere{}()", false, true),
+        definition(
+            "anywhere{}(), function{S{}}(), value-production{}()",
+            false,
+            true,
+        ),
+        definition(
+            "anywhere{}(), function{}(), value-production{S{}}()",
+            false,
+            true,
+        ),
+        definition(
+            "alias'Kywd'{}(), function{}(), value-production{}()",
+            false,
+            true,
+        ),
+        definition("function{}(), value-production{}()", false, true),
+        definition("constructor{}()", false, true),
+        definition("", false, false),
+    ] {
+        let mut reference = definition("anywhere{}(), functional{}()", true, true);
+        let original = (reference.clone(), port.clone());
+        assert_eq!(
+            normalize_withheld_functional(&mut reference, &mut port),
+            WithheldFunctionalCounts::default()
+        );
+        assert_eq!((reference, port), original);
+    }
+    for reference_attributes in [
+        "functional{}()",
+        "anywhere{}(), function{}(), functional{}()",
+    ] {
+        let mut port = definition(
+            "anywhere{}(), function{}(), value-production{}()",
+            false,
+            true,
+        );
+        let mut reference = definition(reference_attributes, true, true);
+        let original = (reference.clone(), port.clone());
+        assert_eq!(
+            normalize_withheld_functional(&mut reference, &mut port),
+            WithheldFunctionalCounts::default()
+        );
+        assert_eq!(
+            (reference, port),
+            original,
+            "source function and equation-marker mismatches stay compared"
+        );
+    }
+}
+
+#[test]
+fn withheld_functional_normalizer_preserves_unrelated_declaration_attributes() {
+    let definition = |attributes: &str, axiom_attributes: Option<&str>| {
+        let axiom = axiom_attributes.map_or_else(String::new, |attributes| format!(
+            r"axiom{{R}} \exists{{R}}(Val:S{{}}, \equals{{S{{}}, R}}(Val:S{{}}, Lblwrap{{}}(K0:S{{}}))) [{attributes}]"
+        ));
+        parse_definition(&format!(
+            r"[] module TEST sort S{{}} []
+            symbol Lblwrap{{}}(S{{}}) : S{{}} [{attributes}]
+            {axiom} endmodule []"
+        ))
+        .unwrap()
+    };
+    let pair = "anywhere{}(), function{}(), value-production{}()";
+    for unrelated in [
+        "constructor{}()",
+        "total{}()",
+        "injective{}()",
+        r#"hook{}("TEST.wrap")"#,
+        "function{S{}}()",
+        "function{}(Lblwrap{}(X:S{}))",
+        "value-production{S{}}()",
+        "value-production{}(Lblwrap{}(X:S{}))",
+    ] {
+        for port_has_attribute in [false, true] {
+            let mut port = definition(
+                &format!(
+                    "{pair}{}",
+                    if port_has_attribute {
+                        format!(", {unrelated}")
+                    } else {
+                        String::new()
+                    }
+                ),
+                None,
+            );
+            let mut reference = definition(
+                &format!(
+                    "anywhere{{}}(), functional{{}}(){}",
+                    if !port_has_attribute {
+                        format!(", {unrelated}")
+                    } else {
+                        String::new()
+                    }
+                ),
+                Some("functional{}()"),
+            );
+            assert_eq!(
+                normalize_withheld_functional(&mut reference, &mut port),
+                WithheldFunctionalCounts {
+                    declarations: 1,
+                    value_production_attributes: 1,
+                    function_attributes: 1,
+                }
+            );
+            let expected = definition(
+                &format!(
+                    "anywhere{{}}(){}",
+                    if !port_has_attribute {
+                        format!(", {unrelated}")
+                    } else {
+                        String::new()
+                    }
+                ),
+                None,
+            );
+            assert_eq!(reference, expected, "{unrelated}");
+            assert_ne!(reference, port, "{unrelated} must still cause a difference");
+        }
+    }
+    let mut reference = definition(
+        "anywhere{}(), functional{}()",
+        Some("functional{}(), trusted{}()"),
+    );
+    let mut port = definition(pair, None);
+    assert_eq!(
+        normalize_withheld_functional(&mut reference, &mut port).declarations,
+        1
+    );
+    assert_eq!(
+        reference,
+        definition("anywhere{}()", Some("functional{}(), trusted{}()"))
+    );
+    assert_ne!(
+        reference, port,
+        "an axiom's unrelated attributes stay compared"
+    );
 }
 
 /// N34: on the reference side, drop the `constructor{}()` axioms of the injectivity shape
