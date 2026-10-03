@@ -1,8 +1,7 @@
 use super::CommandError;
-use crate::metadata::cargo_metadata;
 use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
-    GeneratedCollector, diagnostic_envelope,
+    GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
 };
 use krs_diagnostic::{Code, Diagnostic, Location, codes};
 use krs_ir::measure::{
@@ -83,7 +82,7 @@ pub(super) fn run_collector(
     }
     let spawned = sidecar.as_ref().map(|_| unix_seconds());
     let output = measurement.timings.try_span("collector.run", |_| {
-        process("collector execution", &mut command)
+        crate::process::run("collector execution", &mut command)
     });
     if let (Some(sidecar), Some(spawned)) = (sidecar, spawned) {
         let document = fs::read(sidecar.path())
@@ -185,7 +184,7 @@ fn unique_manifest(metadata: &CargoMetadata, name: &str) -> Result<PathBuf, Comm
 }
 
 pub(super) fn rustc_host_target() -> Result<String, CommandError> {
-    let output = process(
+    let output = crate::process::run(
         "rustc host discovery",
         ProcessCommand::new("rustc").arg("-vV"),
     )?;
@@ -397,28 +396,6 @@ fn rust_source_range(
     SourceRange::new(file, span.byte_start, span.byte_end)
         .map(Some)
         .map_err(|error| CommandError::InvalidMetadata(error.to_string()))
-}
-
-pub(crate) fn cargo(
-    stage: &'static str,
-    command: &mut ProcessCommand,
-) -> Result<Output, CommandError> {
-    process(stage, command)
-}
-
-fn process(stage: &'static str, command: &mut ProcessCommand) -> Result<Output, CommandError> {
-    let output = command
-        .output()
-        .map_err(|source| CommandError::ProcessStart { stage, source })?;
-    if output.status.success() {
-        Ok(output)
-    } else {
-        Err(CommandError::ProcessFailed {
-            stage,
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
-    }
 }
 
 #[cfg(test)]

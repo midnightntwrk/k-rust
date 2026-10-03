@@ -1,11 +1,13 @@
 use crate::{
     CollectorPlan, DefinitionRequest, DiagnosticEnvelope, DiagnosticStage, FacetSelector,
     GenerationError, KrsCfg, PlanningError, RegistrationMode, diagnostic_envelope,
+    metadata::cargo_metadata,
 };
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
-    DEFINITION_ARTIFACT, DescriptorLoweringError, EmitError, LoweringError,
-    ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_package_reference_source,
+    DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
+    EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
+    SPEC_ARTIFACT, SYMBOLS_ARTIFACT, emit_k, expand_package_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
@@ -22,11 +24,10 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub(crate) mod collector;
+mod collector;
 mod counters;
 mod output;
 mod result_cache;
-use crate::metadata::cargo_metadata;
 use collector::{
     build_collector_measured, discover_runtime, generate_collector, run_collector,
     rustc_host_target,
@@ -34,11 +35,6 @@ use collector::{
 use counters::{count_bundle, count_definition};
 use output::{prepare_output, write_output};
 use result_cache::ResultCache;
-
-use krs_compiler::{
-    DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
-    SYMBOLS_ARTIFACT,
-};
 
 /// Category of a production KRS command.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

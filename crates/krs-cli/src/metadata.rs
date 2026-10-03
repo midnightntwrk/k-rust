@@ -1,5 +1,4 @@
 use crate::CommandError;
-use crate::command::collector::cargo;
 use serde::Deserialize;
 use serde_json::Value;
 use std::error::Error;
@@ -40,7 +39,7 @@ impl CargoMetadata {
 }
 
 pub(crate) fn cargo_metadata(manifest: &Path) -> Result<CargoMetadata, CommandError> {
-    let output = cargo(
+    let output = crate::process::run(
         "Cargo metadata",
         crate::cargo::command()
             .args(["metadata", "--format-version", "1", "--manifest-path"])

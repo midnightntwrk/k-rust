@@ -17,6 +17,7 @@ mod format;
 mod generate;
 mod metadata;
 mod plan;
+mod process;
 mod render;
 
 pub use command::{
