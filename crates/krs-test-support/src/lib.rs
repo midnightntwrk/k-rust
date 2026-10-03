@@ -114,8 +114,7 @@ pub fn shared_fixture_target() -> SharedFixtureTarget {
 
 /// Set the fixture target and disable the environment or Cargo-configured rustc wrapper.
 ///
-/// Fixture crates live in fresh temporary paths, so a caching wrapper only misses.
-/// A shared wrapper server serializes the parallel test processes.
+/// Nested fixture builds never go through the outer rustc wrapper: generated fixtures live in fresh paths where a caching wrapper only misses, and a shared wrapper server serializes the parallel test processes.
 pub fn fixture_build_env(command: &mut Command, target: &Path) {
     command
         .env("CARGO_TARGET_DIR", target)

@@ -107,7 +107,7 @@ impl Fixture {
     }
 
     fn cache_file_names(&self) -> BTreeSet<String> {
-        let project = self.manifest.parent().unwrap().canonicalize().unwrap();
+        let project = self.manifest.parent().unwrap();
         let dependency_path = format!(
             "path = {}",
             toml_edit::Value::from(project.to_string_lossy().as_ref())
