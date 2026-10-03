@@ -28,8 +28,9 @@
 //! Allocation synthesizes shape from the completed kind and every immediate child: a repeated \
 //! map key or set element anywhere below a term excludes constructor_like and \
 //! concrete_after_normalization; a collision root also excludes structural evaluated. \
-//! with_evaluated_cache rebuilds through the same allocator, recomputing shape and overriding \
-//! only evaluated, with a collision root taking precedence. The Lean ceilFree proofs concern \
+//! with_evaluated_cache rebuilds through the same allocator, deriving kind and unchanged shape \
+//! from its immutable source Application (checked against resynthesis in debug); other kinds \
+//! resynthesize shape. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern \
 //! the separate conservative ceil_free attribute, not this hereditary shape exclusion."""
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs", "crates/k-rust-backend/src/tests/definedness.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
@@ -1046,7 +1047,7 @@ impl Term {
         if self.attributes().evaluated {
             return self.clone();
         }
-        Self::allocate(self.kind().clone(), EvaluatedCache::Marked)
+        Self::allocate(TermAllocation::Marked(self))
     }
 
     /// Whether two handles share the same immutable term allocation.
@@ -1420,12 +1421,41 @@ impl Term {
     }
 
     fn new(kind: TermKind) -> Self {
-        Self::allocate(kind, EvaluatedCache::Structural)
+        Self::allocate(TermAllocation::Structural(kind))
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
-    fn allocate(kind: TermKind, cache: EvaluatedCache) -> Self {
-        let (mut attributes, collision_root) = synthesize_attributes(&kind);
+    fn allocate(allocation: TermAllocation<'_>) -> Self {
+        let (kind, cache, reused) = match allocation {
+            TermAllocation::Structural(kind) => (kind, EvaluatedCache::Structural, None),
+            TermAllocation::Marked(source) => {
+                // Kind and attributes come from the same immutable allocation: marking cannot
+                // change a shape fact or repair an invalid child. Applications have no local
+                // collection collision; inherited exclusions are already in their attributes.
+                let attributes = matches!(source.kind(), TermKind::Application { .. })
+                    .then(|| source.attributes().clone());
+                (source.kind().clone(), EvaluatedCache::Marked, attributes)
+            }
+        };
+        let (mut attributes, collision_root) = match reused {
+            Some(attributes) => {
+                #[cfg(debug_assertions)]
+                {
+                    let (structural, collision_root) = synthesize_attributes(&kind);
+                    assert!(!collision_root);
+                    assert_eq!(attributes.variables, structural.variables);
+                    assert_eq!(attributes.evaluated, structural.evaluated);
+                    assert_eq!(attributes.constructor_like, structural.constructor_like);
+                    assert_eq!(
+                        attributes.concrete_after_normalization,
+                        structural.concrete_after_normalization
+                    );
+                    assert_eq!(attributes.can_be_evaluated, structural.can_be_evaluated);
+                }
+                (attributes, false)
+            }
+            None => synthesize_attributes(&kind),
+        };
         match cache {
             EvaluatedCache::Structural => {}
             EvaluatedCache::Marked => attributes.evaluated = !collision_root,
@@ -1827,6 +1857,13 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
 enum EvaluatedCache {
     Structural,
     Marked,
+}
+
+/// Ordinary construction supplies only a kind. Cache reconstruction supplies an immutable
+/// source, never caller-selected attributes or a kind that could disagree with that source.
+enum TermAllocation<'a> {
+    Structural(TermKind),
+    Marked(&'a Term),
 }
 
 /// Derive shape from the completed kind. Strict children contribute conjunctively; a local

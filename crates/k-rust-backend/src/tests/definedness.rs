@@ -24,7 +24,9 @@ use super::lean_bridge::generators::term_with_ground_keys;
 use crate::{
     definedness::{ceil_term, ceil_term_without_attribute},
     definition::BackendDefinition,
-    term::{CollectionSymbols, ListDefinition, MapDefinition, Sort, Symbol, Term, TermKind},
+    term::{
+        CollectionSymbols, HeadRole, ListDefinition, MapDefinition, Sort, Symbol, Term, TermKind,
+    },
 };
 
 const CASES: usize = 4096;
@@ -155,46 +157,66 @@ impl CollisionCoverage {
     }
 }
 
+struct CollisionShape {
+    collision: bool,
+    ground_constructor_tree: bool,
+}
+
 /// An independent all-pair oracle: structural equality detects collisions regardless of order,
 /// and every child is visited even when the root or an earlier child already has a collision.
-fn check_hereditary_collisions(term: &Term, case: &str, coverage: &mut CollisionCoverage) -> bool {
+/// Ground constructor trees are recognized from kinds and free heads, without reading shape
+/// flags, so clearing either positive flag on a collision-free collection also fails this check.
+fn check_hereditary_collisions(
+    term: &Term,
+    case: &str,
+    coverage: &mut CollisionCoverage,
+) -> CollisionShape {
     let mut root_collision = false;
     let mut child_collision = false;
+    let mut ground_constructor_tree = true;
+    let mut visit = |child: &Term| {
+        let shape = check_hereditary_collisions(child, case, coverage);
+        child_collision |= shape.collision;
+        ground_constructor_tree &= shape.ground_constructor_tree;
+    };
     match term.kind() {
         TermKind::And(left, right) => {
-            child_collision |= check_hereditary_collisions(left, case, coverage);
-            child_collision |= check_hereditary_collisions(right, case, coverage);
+            visit(left);
+            visit(right);
+            ground_constructor_tree = false;
         }
-        TermKind::Application { arguments, .. } => {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
             for child in arguments {
-                child_collision |= check_hereditary_collisions(child, case, coverage);
+                visit(child);
             }
+            ground_constructor_tree &= symbol.attributes.head_role() == HeadRole::FreeConstructor;
         }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
-        TermKind::Injection { term, .. } => {
-            child_collision |= check_hereditary_collisions(term, case, coverage);
-        }
+        TermKind::DomainValue { .. } => {}
+        TermKind::Variable(_) => ground_constructor_tree = false,
+        TermKind::Injection { term, .. } => visit(term),
         TermKind::Map { entries, rest, .. } => {
             for (index, (key, value)) in entries.iter().enumerate() {
                 for (other_key, _) in &entries[index + 1..] {
                     root_collision |= key == other_key;
                 }
-                child_collision |= check_hereditary_collisions(key, case, coverage);
-                child_collision |= check_hereditary_collisions(value, case, coverage);
+                visit(key);
+                visit(value);
             }
             if let Some(rest) = rest {
-                child_collision |= check_hereditary_collisions(rest, case, coverage);
+                visit(rest);
             }
             coverage.root_maps += usize::from(root_collision);
         }
         TermKind::List { heads, rest, .. } => {
             for head in heads {
-                child_collision |= check_hereditary_collisions(head, case, coverage);
+                visit(head);
             }
             if let Some((middle, tails)) = rest {
-                child_collision |= check_hereditary_collisions(middle, case, coverage);
+                visit(middle);
                 for tail in tails {
-                    child_collision |= check_hereditary_collisions(tail, case, coverage);
+                    visit(tail);
                 }
             }
         }
@@ -203,15 +225,16 @@ fn check_hereditary_collisions(term: &Term, case: &str, coverage: &mut Collision
                 for other in &elements[index + 1..] {
                     root_collision |= element == other;
                 }
-                child_collision |= check_hereditary_collisions(element, case, coverage);
+                visit(element);
             }
             if let Some(rest) = rest {
-                child_collision |= check_hereditary_collisions(rest, case, coverage);
+                visit(rest);
             }
             coverage.root_sets += usize::from(root_collision);
         }
     }
     let collision = root_collision || child_collision;
+    ground_constructor_tree &= !collision;
     if collision {
         coverage.inherited += usize::from(!root_collision);
         assert!(
@@ -222,10 +245,23 @@ fn check_hereditary_collisions(term: &Term, case: &str, coverage: &mut Collision
             !term.concrete_after_normalization(),
             "{case}: a syntactic collection collision must exclude concrete shape: {term:?}"
         );
-    } else if matches!(term.kind(), TermKind::Map { .. } | TermKind::Set { .. }) {
-        coverage.concrete_controls += usize::from(term.concrete_after_normalization());
+    } else if ground_constructor_tree
+        && matches!(term.kind(), TermKind::Map { .. } | TermKind::Set { .. })
+    {
+        assert!(
+            term.concrete_after_normalization(),
+            "{case}: a collision-free ground constructor collection must retain concrete shape: {term:?}"
+        );
+        assert!(
+            term.attributes().constructor_like,
+            "{case}: a collision-free ground constructor collection must retain constructor likeness: {term:?}"
+        );
+        coverage.concrete_controls += 1;
     }
-    collision
+    CollisionShape {
+        collision,
+        ground_constructor_tree,
+    }
 }
 
 #[test]
@@ -271,7 +307,7 @@ fn forced_collection_collisions_have_negative_shape_flags() {
         ("inherited repeated set element", wrap(repeated_set)),
         ("inherited repeated map key", wrap(repeated_map)),
     ] {
-        assert!(check_hereditary_collisions(&term, case, &mut coverage));
+        assert!(check_hereditary_collisions(&term, case, &mut coverage).collision);
     }
     for (case, term) in [
         ("empty set", set(vec![])),
@@ -284,7 +320,7 @@ fn forced_collection_collisions_have_negative_shape_flags() {
             map(vec![(int("0"), int("0")), (int("1"), int("0"))]),
         ),
     ] {
-        assert!(!check_hereditary_collisions(&term, case, &mut coverage));
+        assert!(!check_hereditary_collisions(&term, case, &mut coverage).collision);
         assert!(term.concrete_after_normalization(), "{case}: {term:?}");
     }
     assert_eq!(coverage.root_sets, 2);
