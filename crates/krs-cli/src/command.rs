@@ -929,6 +929,13 @@ mod tests {
         let planning = crate::plan::manifest_directory(Path::new("/")).unwrap_err();
         let cases = [
             (
+                CommandError::Facade(
+                    FacadeAliases::from_manifest(Path::new("/nonexistent-krs-facade/Cargo.toml"))
+                        .unwrap_err(),
+                ),
+                codes::collect::HOST_IO,
+            ),
+            (
                 CommandError::Planning(planning),
                 codes::plan::INVALID_METADATA,
             ),
