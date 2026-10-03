@@ -1920,24 +1920,15 @@ impl<'a> Adapter<'a> {
                     sentence_index,
                     SentenceNodeRole::Term(Vec::new()),
                 );
-                NativeTerm::Rewrite {
-                    left: Box::new(self.term(
-                        term.from(),
-                        module,
-                        sentence_index,
-                        vec![0],
-                        TermContext::Normal,
-                        Some(sentence),
-                    )?),
-                    right: Box::new(self.term(
-                        term.to(),
-                        module,
-                        sentence_index,
-                        vec![1],
-                        TermContext::Normal,
-                        Some(sentence),
-                    )?),
-                }
+                self.rewrite(
+                    term.from(),
+                    term.to(),
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::Normal,
+                    Some(sentence),
+                )?
             }
             RuleBodyRef::Configuration { body: rewrite, .. } => {
                 self.configuration_rewrite(rewrite, module, sentence_index, sentence)?
@@ -2379,30 +2370,33 @@ impl<'a> Adapter<'a> {
                 Ok(NativeTerm::apply(format!("<{name}>"), arguments))
             }
             DefinitionTermKind::Rewrite { from, to } => {
-                let mut left_path = path.clone();
-                left_path.push(0);
-                let mut right_path = path;
-                right_path.push(1);
-                Ok(NativeTerm::Rewrite {
-                    left: Box::new(self.term(
-                        from,
-                        module,
-                        sentence_index,
-                        left_path,
-                        context,
-                        rule,
-                    )?),
-                    right: Box::new(self.term(
-                        to,
-                        module,
-                        sentence_index,
-                        right_path,
-                        context,
-                        rule,
-                    )?),
-                })
+                self.rewrite(from, to, module, sentence_index, path, context, rule)
             }
         }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "A rewrite carries both sides plus the traversal state that `term` threads through."
+    )]
+    fn rewrite(
+        &mut self,
+        from: &DefinitionTerm,
+        to: &DefinitionTerm,
+        module: &str,
+        sentence_index: usize,
+        path: Vec<u32>,
+        context: TermContext,
+        rule: Option<&RuleSentence>,
+    ) -> Result<NativeTerm, AdapterError> {
+        let mut left_path = path.clone();
+        left_path.push(0);
+        let mut right_path = path;
+        right_path.push(1);
+        Ok(NativeTerm::Rewrite {
+            left: Box::new(self.term(from, module, sentence_index, left_path, context, rule)?),
+            right: Box::new(self.term(to, module, sentence_index, right_path, context, rule)?),
+        })
     }
 
     fn map_term(
