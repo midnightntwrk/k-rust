@@ -196,7 +196,7 @@ struct Resolver<'a, 'view, 'definition> {
     /// The number of rules, lemmas aside, headed by each label anywhere in `definition`
     /// (`rule_heads`), computed once per pass when a lambda body first needs it.
     rule_heads: &'view OnceCell<BTreeMap<String, usize>>,
-    /// The main module’s equation judgement, built lazily once for this pass.
+    /// The main module's equation judgement, built lazily once for this pass.
     totality: &'view OnceCell<Option<EquationTotality>>,
     /// The lambdas generated in this module so far whose production is declared `total`.
     total_lambdas: BTreeSet<String>,
@@ -476,7 +476,7 @@ impl Resolver<'_, '_, '_> {
     /// that is undefined for some argument (`10 /Int Y` at `Y = 0`) would make the claim say that
     /// the application both is and is not defined there. This is a sufficient syntactic test: the
     /// body is built from variables, tokens, K sequences and applications of symbols that denote
-    /// one value on defined arguments, as shown by the module’s equation judgement.
+    /// one value on defined arguments, as shown by the module's equation judgement.
     ///
     /// This judgement is the only constructor of [`DefinedBody`], the evidence
     /// [`TotalityWitness::defined_body`] requires.
@@ -549,13 +549,14 @@ impl Resolver<'_, '_, '_> {
     ///
     /// When `f`'s only rule is an equation `f(X1, .., Xn) => R` with no condition, pairwise
     /// distinct variables each of the sort `f`'s only production declares at its position, and a
-    /// right-hand side total by the main module’s equation judgement, the compiled definition has the
-    /// axiom `f(X1, .., Xn) = R` for all values of the `Xi`; since `R` denotes one value, so does
-    /// every application of `f`. A second rule headed by `f` anywhere in the definition, lemmas
-    /// aside, could take priority over it or restrict it, so `f` then does not count. The right-hand side is judged without
-    /// this set, so no function's definedness rests on its own or another derived function's
-    /// equations, and recursion needs no termination argument. An equation the backend applies
-    /// only in some cases, or that is not a defining axiom, does not count: `owise`, `priority`,
+    /// right-hand side total by the main module's equation judgement, the compiled definition
+    /// has the axiom `f(X1, .., Xn) = R` for all values of the `Xi`; since `R` denotes one value,
+    /// so does every application of `f`. A second rule headed by `f` anywhere in the definition,
+    /// lemmas aside, could take priority over it or restrict it, so `f` then does not count.
+    /// The right-hand side is judged without this set, so no function's definedness rests on
+    /// its own or another derived function's equations, and recursion needs no termination
+    /// argument. An equation the backend applies only in some cases, or that is not a defining
+    /// axiom, does not count: `owise`, `priority`,
     /// `concrete`, `symbolic`, `simplification`, `anywhere`. An equation that also inspects the
     /// configuration (`[[ .. ]] <c> V </c>`) counts only when that pattern matches every
     /// configuration (`Resolver::cell_covers`).
@@ -781,7 +782,7 @@ impl Resolver<'_, '_, '_> {
 /// What `Resolver::is_defined` may use to know that an application is defined.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Knowledge {
-    /// Symbols total by the main module’s equation judgement.
+    /// Symbols total by the main module's equation judgement.
     Declared,
     /// Also the total lambdas generated so far and the functions an equation defines everywhere.
     Equations,

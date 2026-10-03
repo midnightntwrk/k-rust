@@ -1500,6 +1500,16 @@ fn symbol_attributes(
         entries.remove(key.as_str());
     }
 
+    // A value head's totality is decided by its equations, including the functional axiom.
+    // Discard deprecated source `functional` so it cannot contradict that shared judgement;
+    // a source `function, total` instead states an explicit axiom of the definition.
+    if matches!(
+        kind.declared_totality(),
+        DeclaredTotality::ValuesUnlessEquations
+    ) {
+        entries.remove(AttributeKey::Functional.as_str());
+    }
+
     if is_real_hook(source, hook_namespaces)
         && let Some(hook) = source.value(AttributeKey::Hook)
     {

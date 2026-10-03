@@ -338,6 +338,9 @@ The marker is emitted from the production kind and totality judgement, not read 
 A source function carries no such marker: an application its equations leave unevaluated remains a computed application.
 Any other symbol without one of those claims is rejected (`Invalid type for symbol`).
 A non-function value production carries compiler-added `functional` and its functional axiom exactly when it heads no anywhere, macro-like or overload equation, or every such equation has a trivially true `ensures` and a right-hand side evidently defined by declared-total symbols and heads admitted earlier.
+On a value production, the frontend discards a deprecated source `functional` before emitting the judgement's claims in both the semantic and syntax definitions.
+It restores `functional` only when the judgement establishes totality, keeping the declaration and its functional axiom consistent with the definedness reading used for generated lambdas.
+To state totality as an author axiom instead, use `function, total`; that declaration remains trusted.
 An equation equates the head with its right-hand side wherever its condition holds, so an undefined right-hand side contradicts an unconditional totality claim; conditions and left-hand-side patterns restrict applicability but do not establish definedness.
 The judgement uses a least fixed point: neither a head nor a dependency cycle may establish its own totality.
 A stage that still sees the self-referential equations `foo(a => b)` (whose right-hand side is `foo(b)`) or `(5 => 6) : _` cannot use the head itself as totality evidence.
@@ -478,8 +481,9 @@ The `a_repeated_set_element_or_map_key_is_bottom_where_it_is_built` CLI test, `a
 
 ## A contradicted `total` attribute is named, not repaired
 
-k-rust takes a symbol's `total` (or `functional`) attribute as an axiom: an application of it to defined arguments is defined, so a rule whose right-hand side holds only total applications carries no definedness obligation, and a symbolic claim through such an application can be proven.
-The attribute is the author's claim, and deciding it is undecidable in general, so k-rust neither checks nor derives it, and a false attribute makes the definition inconsistent on the inputs where it is false; any verdict about those inputs then follows from the definition as written.
+k-rust's backend takes an emitted symbol's `total` (or `functional`) attribute as an axiom: an application of it to defined arguments is defined, so a rule whose right-hand side holds only total applications carries no definedness obligation, and a symbolic claim through such an application can be proven.
+The frontend derives value productions' `functional` claims from their equations, including when the source carries deprecated `functional`, as [Anywhere rules](#anywhere-rules) describes.
+For a source `function, total`, the attribute is the author's claim, and deciding it is undecidable in general, so k-rust neither checks nor derives it, and a false attribute makes the definition inconsistent on the inputs where it is false; any verdict about those inputs then follows from the definition as written.
 When evaluation observes the contradiction, an equation of such a symbol whose result, on arguments that were defined when it fired, simplifies to `\bottom` (a builtin's undefined result such as `10 /Int 0`, or a set or map with a repeated element or key), k-rust names it and changes nothing else:
 `krun` follows its no-successor warning with ``warning: the `total` attribute of <K label> is contradicted on this input: its equation <label or id> at <file:line:column> reduces <application> to bottom (undefined at <term>); ...``, `kprove` prints the same line under the failed claim's `Vacuous` or `Trivial` leaf; the symbol is named by the K label its KORE name encodes (`tDiv(_)_M_Int_Int`, or the name a `symbol(...)` attribute gives), while the application and the undefined term are printed as KORE, and the backend's execution leaves carry it as `contradictedTotal` (`ExecutionLeaf.contradicted_total`, `HaltReason::Trivial`/`Vacuous`, `ProofLeaf.contradicted_total`).
 The innermost such equation is named; an argument that is already `\bottom` before the equation fires names none.

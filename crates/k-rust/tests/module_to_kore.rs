@@ -1383,6 +1383,24 @@ fn an_anywhere_equation_with_a_partial_rhs_withholds_functional() {
 }
 
 #[test]
+fn a_deprecated_source_functional_on_a_value_head_follows_the_equation_judgement() {
+    for (right, claim) in [
+        ("X /Int 0", HeadClaim::PartialValueProduction),
+        ("X +Int 1", HeadClaim::Functional),
+    ] {
+        let source = format!(
+            "module A
+               imports INT
+               syntax S ::= mk(Int) [symbol(mk)]
+                          | wrap(Int) [symbol(wrap), functional]
+               rule wrap(X) => mk({right}) [anywhere]
+             endmodule"
+        );
+        assert_equation_head_functional(&source, &[("Lblwrap", claim)]);
+    }
+}
+
+#[test]
 fn an_anywhere_equation_with_a_defined_rhs_keeps_functional() {
     assert_equation_head_functional(
         indoc! {r#"
