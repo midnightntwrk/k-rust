@@ -58,7 +58,7 @@ pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
 pub use sort_injections::{
-    AmbiguousInstance, BranchTyping, GroundCause, GroundInput, PositionTyping,
+    AmbiguousInstance, BranchTyping, GroundCause, GroundInput, InstanceAtFixedSort, PositionTyping,
     SentenceSortVariables, SentenceTyper, SentenceTyping, SentenceTypingError, SortInjectionError,
     SortInjector, SortMismatch, UndeterminedCause, UndeterminedInstance, UndeterminedSite,
     add_sort_injections, add_sort_injections_from_resolved, add_sort_injections_to_definition,

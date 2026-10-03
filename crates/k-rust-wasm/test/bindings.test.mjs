@@ -150,16 +150,34 @@ test('compiles unambiguous parametric applications portably', () => {
   const compiled = compileDefinition({
     definition: `
       module MAIN
-        syntax Int ::= r"[0-9]+" [token]
-        syntax Box ::= "box(" Int ")" [function, symbol(box)]
+        syntax Num ::= "one" [symbol(one)]
+        syntax Box ::= "box(" Num ")" [function, symbol(box)]
         syntax {S} S ::= "same(" S ")" [symbol(same)]
-        rule box(same(1)) => box(1)
+        rule box(same(one)) => box(one)
       endmodule
     `,
     moduleName: 'MAIN',
   })
   assert.match(compiled.definitionKore, /Lblsame/)
   assert.deepEqual(compiled.diagnostics, [])
+})
+
+test('rejects a value-building parametric application at a token sort', () => {
+  assert.throws(
+    () =>
+      compileDefinition({
+        definition: `
+          module MAIN
+            syntax Int ::= r"[0-9]+" [token]
+            syntax Box ::= "box(" Int ")" [function, symbol(box)]
+            syntax {S} S ::= "same(" S ")" [symbol(same)]
+            rule box(same(1)) => box(1)
+          endmodule
+        `,
+        moduleName: 'MAIN',
+      }),
+    /the instance of `same`.*is at sort Int/,
+  )
 })
 
 test('reports both readings of an ambiguous rule', () => {

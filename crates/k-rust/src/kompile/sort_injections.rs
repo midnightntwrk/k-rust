@@ -27,6 +27,7 @@ use std::fmt;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::checks::{LabelParameterError, SentenceLabelParameterError};
+use crate::definition::production_kind::{NoJunk, ProductionKind, ResultSorts};
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
     ProductionCatalog, ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
@@ -365,6 +366,8 @@ pub enum SortInjectionError {
     AmbiguousInstance(Box<AmbiguousInstance>),
     /// An application instance or term sort that no argument, position or cast determined.
     UndeterminedInstance(Box<UndeterminedInstance>),
+    /// A value-building schema instance at a sort whose hook or domain values fix its values.
+    InstanceAtFixedSort(Box<InstanceAtFixedSort>),
     /// A label of a loaded rule-like sentence that carries sort parameters. Sort injection
     /// instantiates every parametric label from its arguments and position, so a written
     /// instance would be re-solved rather than placed; it is rejected instead.
@@ -413,6 +416,17 @@ pub struct AmbiguousInstance {
     /// Declared argument sorts under representative minimal instantiations. When independent
     /// parameter groups are ambiguous, these vary one group while fixing the others.
     pub candidates: Vec<Vec<Sort>>,
+}
+
+/// A value-building schema application that adds its own root to a sort with fixed values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstanceAtFixedSort {
+    /// The offending application, rendered for the diagnostic.
+    pub term: String,
+    /// The label whose result sort is its own sort parameter.
+    pub label: String,
+    /// The fixed sort of the instance.
+    pub sort: Sort,
 }
 
 /// A sort variable left where it must not stay, with where it was found and why nothing fixed it.
@@ -594,6 +608,13 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "semantic cast of {} to sort {} is a downcast from {}, and {} has no sort projection",
                 mismatch.term, mismatch.required, mismatch.found, mismatch.required
+            ),
+            Self::InstanceAtFixedSort(instance) => write!(
+                formatter,
+                "the instance of `{label}` in `{term}` is at sort {sort}, whose values its hook or its domain values fix; the result sort of `{label}` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of {sort}",
+                label = instance.label,
+                term = instance.term,
+                sort = instance.sort,
             ),
             Self::UndeterminedInstance(instance) => {
                 let (input, cause) = match &instance.site {
@@ -1452,6 +1473,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             }
             Term::Apply { label, arguments } => {
                 let signature = self.signature(term, label, arguments, Some(actual), false)?;
+                self.admit_instance(term, &signature)?;
                 let arguments = arguments
                     .iter()
                     .zip(signature.arguments.iter())
@@ -1514,6 +1536,29 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         Ok(copy_metadata(term, rebuilt))
     }
 
+    fn admit_instance(
+        &self,
+        term: &Term,
+        signature: &InstantiatedSignature,
+    ) -> Result<(), SortInjectionError> {
+        if signature.builds_every_sort
+            && !mentions_sort_parameter(&signature.result)
+            && self
+                .sorts
+                .has_fixed_values(&SortHead::from(&signature.result))
+        {
+            return Err(SortInjectionError::InstanceAtFixedSort(Box::new(
+                InstanceAtFixedSort {
+                    term: render_term(term),
+                    label: signature.label.name.clone(),
+                    sort: signature.result.clone(),
+                },
+            )));
+        }
+        Ok(())
+    }
+
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn signature(
         &self,
         term: &Term,
@@ -1617,6 +1662,21 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             .iter()
             .map(|parameter| substitute_sort(parameter, &substitution))
             .collect::<Vec<_>>();
+        let builds_every_sort = if parameters.is_empty() {
+            false
+        } else {
+            match (
+                ResultSorts::of(production),
+                ProductionKind::of(production).no_junk(),
+            ) {
+                (ResultSorts::Every, NoJunk::Generator) => true,
+                (ResultSorts::Head(_), NoJunk::Generator)
+                | (
+                    ResultSorts::Every | ResultSorts::Head(_),
+                    NoJunk::DomainValues | NoJunk::Absent,
+                ) => false,
+            }
+        };
         Ok(InstantiatedSignature {
             label: Label::with_parameters(&label.name, instantiated_parameters),
             arguments: argument_sorts
@@ -1624,6 +1684,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .map(|sort| substitute_sort(sort, &substitution))
                 .collect(),
             result: substitute_sort(sort, &substitution),
+            builds_every_sort,
         })
     }
 
@@ -2187,6 +2248,7 @@ struct InstantiatedSignature {
     label: Label,
     arguments: Vec<Sort>,
     result: Sort,
+    builds_every_sort: bool,
 }
 
 pub fn add_sort_injections(

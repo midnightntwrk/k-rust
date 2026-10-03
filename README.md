@@ -27,6 +27,9 @@ The result should contain an `Int` token below `same`, showing that Z3 inferred 
 box(same(#token("1","Int")))
 ```
 
+This example only parses the term.
+Compiling the same term in a rule with `kcompile` or as a program with `krun` rejects `same{Int}`: its applications build values with their own root, while `Int` has domain values.
+
 Compile and execute a small rewriting definition with the in-process backend:
 
 ```console

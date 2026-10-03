@@ -205,10 +205,10 @@ test('compiles definitions through the full native pipeline', () => {
   const compiled = compileDefinition({
     definition: `
       module MAIN
-        syntax Int ::= r"[0-9]+" [token]
-        syntax Box ::= "box(" Int ")" [function, symbol(box)]
+        syntax Num ::= "one" [symbol(one)]
+        syntax Box ::= "box(" Num ")" [function, symbol(box)]
         syntax {S} S ::= "same(" S ")" [symbol(same)]
-        rule box(same(1)) => box(1)
+        rule box(same(one)) => box(one)
       endmodule
     `,
     moduleName: 'MAIN',
@@ -219,6 +219,25 @@ test('compiles definitions through the full native pipeline', () => {
   assert.match(compiled.definitionKore, /Lblsame/)
   assert.match(compiled.syntaxDefinitionKore, /module MAIN/)
   assert.equal(compiled.macrosKore, '\n')
+})
+
+test('rejects a value-building parametric application at a token sort', () => {
+  assert.throws(
+    () =>
+      compileDefinition({
+        definition: `
+          module MAIN
+            syntax Int ::= r"[0-9]+" [token]
+            syntax Box ::= "box(" Int ")" [function, symbol(box)]
+            syntax {S} S ::= "same(" S ")" [symbol(same)]
+            rule box(same(1)) => box(1)
+          endmodule
+        `,
+        moduleName: 'MAIN',
+        includePrelude: false,
+      }),
+    /the instance of `same`.*is at sort Int/,
+  )
 })
 
 test('round-trips KAST and KORE through typed JSON', () => {

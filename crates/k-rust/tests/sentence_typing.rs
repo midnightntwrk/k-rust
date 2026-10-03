@@ -550,8 +550,9 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
     );
 }
 
-// A nested rewrite is typed per branch, as compilation projects it: `id(z => true)` instantiates
-// `id` at `Nat` in the left branch and at `Bool` in the right one.
+// A nested rewrite is typed per branch, as compilation projects it:
+// `id(z => counter(z, z))` instantiates `id` at `Nat` in the left branch
+// and at `Counter` in the right one.
 #[test]
 fn a_nested_rewrite_is_typed_in_each_branch() {
     let loaded = load();
@@ -560,14 +561,59 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
         "id",
         vec![rewrite(
             Term::apply("z", vec![]),
-            Term::Token {
-                token: "true".into(),
-                sort: Sort::new("Bool"),
-            },
+            Term::apply(
+                "counter",
+                vec![Term::apply("z", vec![]), Term::apply("z", vec![])],
+            ),
         )],
     );
     let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
+    assert_eq!(
+        typing.branches.get(&vec![0]),
+        Some(&BranchTyping {
+            left: sorted(Some("Nat"), Some("KItem")),
+            right: sorted(Some("Counter"), Some("KItem")),
+        })
+    );
+    assert_eq!(
+        typing.branches.get(&vec![0, 0]),
+        Some(&BranchTyping {
+            left: sorted(Some("Nat"), Some("Nat")),
+            right: sorted(Some("Counter"), Some("Counter")),
+        })
+    );
+    assert_eq!(at(&typing, &[0, 0, 0]), &sorted(Some("Nat"), Some("Nat")));
+    assert_eq!(
+        at(&typing, &[0, 0, 1]),
+        &sorted(Some("Counter"), Some("Counter"))
+    );
+    let kore = compiled_kore(&relinked(&loaded, "TYPED", "TYPED.increment", sentence)).unwrap();
+    assert!(kore.contains("Lblid{SortNat{}}"), "{kore}");
+    assert!(kore.contains("Lblid{SortCounter{}}"), "{kore}");
+}
+
+// Typing computes the instance without placing it; compilation rejects the value-building
+// `id{Bool}(true)` because Bool's values are fixed by its hook and domain values.
+#[test]
+fn typing_reports_a_fixed_sort_schema_instance_that_compilation_rejects() {
+    let loaded = load();
+    let sentence = edited(
+        &loaded,
+        "TYPED.increment",
+        &[0],
+        Term::apply(
+            "id",
+            vec![rewrite(
+                Term::apply("z", vec![]),
+                Term::Token {
+                    token: "true".into(),
+                    sort: Sort::new("Bool"),
+                },
+            )],
+        ),
+    );
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
     assert_eq!(
         typing.branches.get(&vec![0]),
         Some(&BranchTyping {
@@ -584,9 +630,11 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
     );
     assert_eq!(at(&typing, &[0, 0, 0]), &sorted(Some("Nat"), Some("Nat")));
     assert_eq!(at(&typing, &[0, 0, 1]), &sorted(Some("Bool"), Some("Bool")));
-    let kore = compiled_kore(&relinked(&loaded, "TYPED", "TYPED.increment", sentence)).unwrap();
-    assert!(kore.contains("Lblid{SortNat{}}"), "{kore}");
-    assert!(kore.contains("Lblid{SortBool{}}"), "{kore}");
+    let error = compiled_kore(&relinked(&loaded, "TYPED", "TYPED.increment", sentence))
+        .expect_err("the right branch must not build a Bool value with its own id root");
+    assert_eq!(error.stage, "add sort injections", "{error}");
+    assert!(error.message.contains("the instance of `id`"), "{error}");
+    assert!(error.message.contains("is at sort Bool"), "{error}");
 }
 
 // The projection copies a rewrite's left side as it is, so a rewrite nested in it stays a rewrite

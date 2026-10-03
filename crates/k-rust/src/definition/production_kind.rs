@@ -591,7 +591,7 @@ impl SortGenerators {
         sort: &Sort,
     ) -> Result<Self, ProductionId> {
         let head = SortHead::from(sort);
-        let closed = sorts.declares_hooked_sort(&head) || sorts.head_admits_domain_values(&head);
+        let closed = sorts.has_fixed_values(&head);
         let mut alternatives = Vec::new();
         let mut schemas = Vec::new();
         let mut schema_unstatable = None;

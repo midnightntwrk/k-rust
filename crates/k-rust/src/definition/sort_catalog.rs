@@ -308,6 +308,14 @@ impl<'a> SortCatalog<'a> {
                 .is_some_and(|attributes| attributes.has(AttributeKey::Hook))
     }
 
+    /// Whether the values of sorts with this head are fixed rather than built by constructors:
+    /// the sort declaration carries `hooked-sort` ([`Self::declares_hooked_sort`]) or
+    /// `hasDomainValues` ([`Self::head_admits_domain_values`]). `K` and `KItem` are not fixed:
+    /// the KORE prelude declares them as ordinary sorts.
+    pub(crate) fn has_fixed_values(&self, head: &SortHead) -> bool {
+        self.declares_hooked_sort(head) || self.head_admits_domain_values(head)
+    }
+
     pub fn list_sorts(&self) -> &BTreeSet<Sort> {
         &self.list_sorts
     }

@@ -1626,14 +1626,133 @@ injection_snapshot!(
     r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
-          syntax Exp ::= Int
+          syntax Num ::= "one" [symbol(one)]
+          syntax Exp ::= Int | Num
           syntax Box ::= "box(" Exp ")" [symbol(box)]
           syntax {S} S ::= "same(" S ")" [symbol(same)]
 
-          rule box(same(1)) => box(1)
+          rule box(same(one)) => box(one)
         endmodule
     "#
 );
+
+#[test]
+fn rejects_value_building_schema_instances_at_token_sorts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int
+          syntax Box ::= "box(" Exp ")" [symbol(box)]
+          syntax {S} S ::= "same(" S ")" [symbol(same)]
+          rule box(same(1)) => box(1)
+        endmodule
+    "#});
+    let error = add_sort_injections_to_definition(&definition).unwrap_err();
+    let SortInjectionError::Sentence {
+        source,
+        line,
+        error,
+        ..
+    } = error
+    else {
+        panic!("expected a located sentence error");
+    };
+    assert_eq!(source.as_deref(), Some("injections.k"));
+    assert_eq!(line, Some(6));
+    let SortInjectionError::InstanceAtFixedSort(instance) = *error else {
+        panic!("expected a fixed-sort instance error");
+    };
+    assert_eq!(instance.label, "same");
+    assert_eq!(instance.sort, Sort::new("Int"));
+    assert!(instance.term.contains("same"));
+}
+
+#[test]
+fn rejects_anywhere_schema_instances_at_fixed_sorts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= "same(" S ")" [symbol(same)]
+          rule same(1) => 1 [anywhere]
+        endmodule
+    "#});
+    let error = add_sort_injections_to_definition(&definition).unwrap_err();
+    assert!(matches!(error,
+        SortInjectionError::Sentence { error, .. }
+            if matches!(*error, SortInjectionError::InstanceAtFixedSort(ref instance)
+                if instance.label == "same" && instance.sort == Sort::new("Int"))
+    ));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let term = Term::apply(
+        "same",
+        vec![Term::Token {
+            token: "2".into(),
+            sort: Sort::new("Int"),
+        }],
+    );
+    assert_eq!(injector.term_sort(&term, None).unwrap(), Sort::new("Int"));
+    assert!(matches!(injector.inject_at_top(&term),
+        Err(SortInjectionError::InstanceAtFixedSort(instance))
+            if instance.label == "same" && instance.sort == Sort::new("Int")
+    ));
+}
+
+#[test]
+fn accepts_function_schema_instances_at_fixed_sorts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token]
+          syntax {S} S ::= sel(Bool, S, S) [function, symbol(sel)]
+          rule sel(true, X, _) => X
+          rule sel(true, 1, 2) => 1
+        endmodule
+    "#});
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+    let mut instances = Vec::new();
+    for sentence in &injected.main_module().unwrap().local_sentences {
+        if let Sentence::Rule { body, .. } = &**sentence {
+            body.visit_preorder(&mut |term| {
+                if let Term::Apply { label, .. } = term.unannotated()
+                    && label.name == "sel"
+                {
+                    instances.push(label.parameters.clone());
+                }
+            });
+        }
+    }
+    assert!(instances.contains(&vec![Sort::new("Int")]));
+}
+
+#[test]
+fn accepts_value_building_schema_instances_at_k_and_free_sorts() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Foo ::= "g" [symbol(g)]
+          syntax {S} S ::= wrap(S) [symbol(wrap)]
+          rule wrap(X:K) => X:K
+          rule wrap(g) => g
+        endmodule
+    "#});
+    let injected = add_sort_injections_to_definition(&definition).unwrap();
+    let mut instances = Vec::new();
+    for sentence in &injected.main_module().unwrap().local_sentences {
+        if let Sentence::Rule { body, .. } = &**sentence {
+            body.visit_preorder(&mut |term| {
+                if let Term::Apply { label, .. } = term.unannotated()
+                    && label.name == "wrap"
+                {
+                    instances.push(label.parameters.clone());
+                }
+            });
+        }
+    }
+    assert_eq!(
+        instances,
+        vec![vec![Sort::new("K")], vec![Sort::new("Foo")]]
+    );
+}
 
 injection_snapshot!(
     preserves_semantic_cast_variable_context,

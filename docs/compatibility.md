@@ -194,6 +194,11 @@ A rule's label instance is always the solver's; an undetermined instance cannot 
 Execution terms are unaffected: their KORE symbols carry every instance explicitly.
 Honouring a present parameter as an assertion is a compatible later extension, since it only accepts terms that are rejected now; it becomes worth its cost when a consumer needs to write a specific instance source text cannot derive.
 
+A value-building production whose result sort is its own sort parameter (`syntax {S} S ::= wrap(S)`) must not be instantiated at a sort whose values its hook or domain values fix (`hooked-sort` or `hasDomainValues` in the emitted declaration), including when an `anywhere` rule heads it: its applications have their own root, which neither the hook nor a literal supplies.
+Sort injection checks the instance where it places it in rules, claims, configurations, programs, `-c` values and search patterns, with the sentence's source location when there is one.
+`K` and `KItem` are not fixed: the KORE prelude declares them as ordinary sorts.
+Function and macro schemas (`ite` included) are unaffected, because their applications denote equation results or expand before rewriting.
+
 A sentence sort variable left by sort injection may occur only as a whole sort argument of a matching-logic connective: the sort of a predicate, which is the whole carrier or empty at every sort alike.
 The emitted rule, claim, equation or macro binds exactly those variables.
 Any other occurrence is rejected at `add sort injections` with a located `UndeterminedInstance` diagnostic naming the application whose instance neither its arguments nor its position determine; add a sort cast that fixes the instance.
