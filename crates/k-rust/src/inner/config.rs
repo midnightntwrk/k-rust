@@ -27,7 +27,7 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, Location, ModuleId,
-    ProductionCatalog, ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortSynonyms,
+    ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortSynonyms,
     kernel_position_cycle, push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
@@ -105,7 +105,6 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
-        let catalog = resolved.production_catalog(module_id);
         let grammar =
             configuration_grammar(&resolved, module_id).map_err(|error| ConfigError::Parse {
                 module: module.name.clone(),
@@ -137,8 +136,13 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 grammar.parse(&Sort::new("#RuleContent"), contents)
             }
             .map_err(|error| bubble_error(&module.name, attributes, Some(contents), error))?;
-            *crate::definition::sentence_mut(sentence) =
-                up_configuration(&module.name, parsed, attributes.clone(), &catalog)?;
+            *crate::definition::sentence_mut(sentence) = up_configuration(
+                &module.name,
+                parsed,
+                attributes.clone(),
+                &resolved,
+                module_id,
+            )?;
         }
     }
 
@@ -201,10 +205,18 @@ fn up_configuration(
     module: &str,
     parsed: Term,
     attributes: Attributes,
-    catalog: &ProductionCatalog<'_>,
+    resolved: &ResolvedDefinition,
+    module_id: ModuleId,
 ) -> Result<Sentence, ConfigError> {
     // Only cell-content leaves determine generated cell sorts; nested applications do not.
-    fn keep_content_instance(term: Term, catalog: &ProductionCatalog<'_>) -> Term {
+    // A production whose result mentions its parameters has at least one parameter, so only an
+    // application carrying an instance can have a schematic result; the module's production
+    // catalog is read (and, on first use, built) only for such a leaf.
+    fn keep_content_instance(
+        term: Term,
+        resolved: &ResolvedDefinition,
+        module_id: ModuleId,
+    ) -> Term {
         // #configCell arguments are [start, properties, contents, end].
         const CONFIG_CELL_CONTENTS_INDEX: usize = 2;
         if let Term::Apply { label, .. } = term.unannotated()
@@ -213,8 +225,12 @@ fn up_configuration(
             && !label.is(InternalLabel::ExternalCell)
             && label.semantic_cast_sort().is_none()
         {
-            if let Some(result @ LabelResultSort::Schematic { .. }) =
-                catalog.result_sort_of(&LabelHead::from(label))
+            if label.parameters.is_empty() {
+                return term;
+            }
+            if let Some(result @ LabelResultSort::Schematic { .. }) = resolved
+                .production_catalog(module_id)
+                .result_sort_of(&LabelHead::from(label))
                 && let Some(sort) = result.of_application(&label.parameters)
             {
                 return Term::Apply {
@@ -226,7 +242,7 @@ fn up_configuration(
         }
         match term {
             Term::Annotated { term, metadata } => Term::Annotated {
-                term: Box::new(keep_content_instance(*term, catalog)),
+                term: Box::new(keep_content_instance(*term, resolved, module_id)),
                 metadata,
             },
             Term::Apply {
@@ -239,7 +255,7 @@ fn up_configuration(
                         .enumerate()
                         .map(|(index, term)| {
                             if index == CONFIG_CELL_CONTENTS_INDEX {
-                                keep_content_instance(term, catalog)
+                                keep_content_instance(term, resolved, module_id)
                             } else {
                                 term
                             }
@@ -248,7 +264,7 @@ fn up_configuration(
                 } else if label.is(InternalLabel::Cells) {
                     arguments = arguments
                         .into_iter()
-                        .map(|term| keep_content_instance(term, catalog))
+                        .map(|term| keep_content_instance(term, resolved, module_id))
                         .collect();
                 }
                 Term::Apply { label, arguments }
@@ -276,7 +292,8 @@ fn up_configuration(
         (Some(InternalLabel::RuleNoConditions), [body]) => Ok(Sentence::Configuration {
             body: super::rules::erase_label_parameters(keep_content_instance(
                 body.clone(),
-                catalog,
+                resolved,
+                module_id,
             )),
             ensures: truth(),
             attributes,
@@ -284,7 +301,8 @@ fn up_configuration(
         (Some(InternalLabel::RuleEnsures), [body, ensures]) => Ok(Sentence::Configuration {
             body: super::rules::erase_label_parameters(keep_content_instance(
                 body.clone(),
-                catalog,
+                resolved,
+                module_id,
             )),
             ensures: super::rules::erase_label_parameters(ensures.clone()),
             attributes,
