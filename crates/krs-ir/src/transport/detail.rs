@@ -203,9 +203,7 @@ details! {
         BareConstructorArguments => "a bare-reference constructor must have no arguments",
         DuplicateNamedField => "named field occurs more than once",
         MixedArgumentForms => "positional and named arguments are mixed",
-        StructuralListApplication => "structural-only List operation used as an application head",
         StructuralMapApplication => "structural-only Map operation used as an application head",
-        StructuralSetApplication => "structural-only Set operation used as an application head",
     }
 }
 

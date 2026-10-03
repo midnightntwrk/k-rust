@@ -433,11 +433,6 @@ impl HostBuiltinRegistry {
             }
         }
         for registration in &self.list_operations {
-            if !ListOperation::TERM_APPLICATIONS.contains(&registration.operation) {
-                return Err(HostBuiltinRegistryError::UnsupportedListOperation(
-                    registration.operation,
-                ));
-            }
             if !list_operation_ids.insert(registration.operation) {
                 return Err(HostBuiltinRegistryError::DuplicateListOperation(
                     registration.operation,
@@ -448,11 +443,6 @@ impl HostBuiltinRegistry {
             }
         }
         for registration in &self.set_operations {
-            if !SetOperation::TERM_APPLICATIONS.contains(&registration.operation) {
-                return Err(HostBuiltinRegistryError::UnsupportedSetOperation(
-                    registration.operation,
-                ));
-            }
             if !set_operation_ids.insert(registration.operation) {
                 return Err(HostBuiltinRegistryError::DuplicateSetOperation(
                     registration.operation,
@@ -543,14 +533,10 @@ pub enum HostBuiltinRegistryError {
     DuplicateListOperation(ListOperation),
     /// A required ordinary List operation was absent.
     MissingListOperation(ListOperation),
-    /// A structural-only List operation was registered as an ordinary term head.
-    UnsupportedListOperation(ListOperation),
     /// A Set operation identity occurred more than once.
     DuplicateSetOperation(SetOperation),
     /// A required ordinary Set operation was absent.
     MissingSetOperation(SetOperation),
-    /// A structural-only Set operation was registered as an ordinary term head.
-    UnsupportedSetOperation(SetOperation),
     /// One Rust marker type was assigned two meanings.
     ReusedRustType,
 }
@@ -573,17 +559,11 @@ impl fmt::Display for HostBuiltinRegistryError {
             Self::MissingListOperation(operation) => {
                 write!(formatter, "missing {operation}")
             }
-            Self::UnsupportedListOperation(operation) => {
-                write!(formatter, "{operation} is not an ordinary term application")
-            }
             Self::DuplicateSetOperation(operation) => {
                 write!(formatter, "duplicate {operation}")
             }
             Self::MissingSetOperation(operation) => {
                 write!(formatter, "missing {operation}")
-            }
-            Self::UnsupportedSetOperation(operation) => {
-                write!(formatter, "{operation} is not an ordinary term application")
             }
             Self::ReusedRustType => {
                 formatter.write_str("one Rust marker type has multiple builtin meanings")
@@ -1672,20 +1652,6 @@ impl DescriptorApplicationRef {
         {
             return Err(GrammarTransportError::ApplicationReferenceKind(
                 id.item_kind(),
-            ));
-        }
-        if let Self::List(operation) = self
-            && !ListOperation::TERM_APPLICATIONS.contains(operation)
-        {
-            return Err(GrammarTransportError::InvalidApplication(
-                GrammarApplicationReason::StructuralListApplication,
-            ));
-        }
-        if let Self::Set(operation) = self
-            && !SetOperation::TERM_APPLICATIONS.contains(operation)
-        {
-            return Err(GrammarTransportError::InvalidApplication(
-                GrammarApplicationReason::StructuralSetApplication,
             ));
         }
         Ok(())
