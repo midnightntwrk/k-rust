@@ -122,7 +122,10 @@ fn declared_sort(role: ProvenanceRole, ordinal: u32, id: StableItemId) -> Descri
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Enumerates the complete descriptor test fixtures."
+)]
 fn expression_descriptors() -> Vec<DescriptorInputs> {
     let expr = item("Expr", ItemKind::Sort);
     let value = item("Value", ItemKind::Sort);
@@ -388,7 +391,10 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Comprehensively tests structured rule configuration with various attribute combinations."
+)]
 fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     let mut descriptors = expression_descriptors();
     let descriptor = &mut descriptors[1];
@@ -896,7 +902,10 @@ fn grammar_descriptor(
     )
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Tests complete token bracket precedence and associativity rules."
+)]
 #[test]
 fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     let id_sort = item("Id", ItemKind::Sort);
@@ -1257,7 +1266,6 @@ type_keys! {
     set_contains_key => (i32, u64),
 }
 
-#[allow(clippy::too_many_lines)] // Enumerates the complete builtin test registry.
 fn registry() -> HostBuiltinRegistry {
     let sorts = [
         HostTypeKey(k_sequence_key),
@@ -1352,7 +1360,10 @@ fn registry() -> HostBuiltinRegistry {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Exhaustively verifies the closed builtin registry.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exhaustively verifies the closed builtin registry."
+)]
 fn builtin_registry_is_complete_exact_and_alias_safe() {
     let registry = registry();
     registry.validate().unwrap();

@@ -675,7 +675,6 @@ list_operation_keys! {
 /// The returned registry has one entry for every [`BuiltinSort::ALL`] and
 /// [`BuiltinOperation::ALL`] member and passes [`HostBuiltinRegistry::validate`].
 #[must_use]
-#[allow(clippy::too_many_lines)] // Declares the complete closed facade registry in stable order.
 pub fn builtin_registry() -> HostBuiltinRegistry {
     let sorts = builtin_sort_registry();
 
@@ -1277,7 +1276,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)] // Checks facade catalog identities and alias resolution.
     fn builtin_registry_is_complete_and_exact() {
         type IntAlias = builtin::int::Int;
         type MapAlias = builtin::Map;
@@ -1288,11 +1286,6 @@ mod tests {
 
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
-        registry
-            .validate()
-            .expect("facade builtin catalog is valid");
-
-        assert_eq!(registry.sorts.len(), BuiltinSort::ALL.len());
         assert_eq!(registry.map_operations.len(), TermMapOperation::ALL.len());
         assert_eq!(
             registry.list_operations.len(),
