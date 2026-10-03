@@ -74,16 +74,16 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
-        RuleKind, RulePatternError, TermIndex, Theory, classify_axiom, collapse_equal_axioms,
-        insert_rewrite_theory, insert_theory, internalize_axiom,
+        RuleKind, RulePatternError, TermIndex, Theory, algebraic_axiom_roots, classify_axiom,
+        collapse_equal_axioms, insert_rewrite_theory, insert_theory, internalize_axiom,
         internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
     },
     smt::{SExpr, SmtType},
     term::{
-        CollectionMetadata, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
-        MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration, SymbolType, Term,
-        TermKind, Variable, names::HookName,
+        AlgebraicAxioms, CollectionMetadata, CollectionSymbols, FunctionType, HeadRole,
+        ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
+        SymbolType, Term, TermKind, Variable, names::HookName,
     },
 };
 
@@ -912,6 +912,27 @@ impl BackendDefinition {
         }
         validate_alias_declarations(&ordered, &sorts)?;
 
+        let mut algebraic_facts = BTreeMap::<Name, AlgebraicAxioms>::new();
+        for module in &ordered {
+            for sentence in &module.sentences {
+                let kore::Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } = sentence
+                else {
+                    continue;
+                };
+                if let Some(facts) = algebraic_axiom_roots(pattern, attributes) {
+                    let (facts, roots) = facts.map_err(DefinitionError::Axiom)?;
+                    for root in roots {
+                        let entry = algebraic_facts.entry(root).or_default();
+                        *entry = entry.union(facts);
+                    }
+                }
+            }
+        }
+
         let mut symbols = BTreeMap::new();
         for module in &ordered {
             for sentence in &module.sentences {
@@ -942,7 +963,16 @@ impl BackendDefinition {
                     .map(|sort| internalize_sort(sort, &sorts, &known))
                     .collect::<Result<Vec<_>, _>>()?;
                 let result_sort = internalize_sort(result_sort, &sorts, &known)?;
-                let attributes = symbol_attributes(attributes)?;
+                let facts = algebraic_facts
+                    .get(symbol.name.as_str())
+                    .copied()
+                    .unwrap_or_default();
+                let attributes = symbol_attributes(attributes, facts).map_err(|mut error| {
+                    if let DefinitionError::MalformedAttribute(message) = &mut error {
+                        *message = format!("symbol {} {message}", symbol.name);
+                    }
+                    error
+                })?;
                 validate_binder_attribute(&attributes, &argument_sorts, &sorts)?;
                 let internal = Arc::new(Symbol {
                     name: symbol.name.as_str().into(),
@@ -2201,7 +2231,10 @@ pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) 
     }
 }
 
-fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, DefinitionError> {
+fn symbol_attributes(
+    attributes: &kore::Attributes,
+    axiom_facts: AlgebraicAxioms,
+) -> Result<SymbolAttributes, DefinitionError> {
     let constructor =
         attributes.has(KoreAttribute::Constructor) || attributes.has(KoreAttribute::SortInjection);
     let total = attributes.has(KoreAttribute::Total) || attributes.has(KoreAttribute::Functional);
@@ -2228,12 +2261,25 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
             "attributes {attributes:?}"
         )));
     };
-    if attributes.has(KoreAttribute::SortInjection)
-        && (attributes.has(KoreAttribute::Assoc) || attributes.has(KoreAttribute::Idem))
-    {
-        return Err(DefinitionError::MalformedAttribute(
-            "sort injections cannot be associative or idempotent".into(),
-        ));
+    let mut algebraic = axiom_facts;
+    for (attribute, fact) in [
+        (KoreAttribute::Assoc, AlgebraicAxioms::assoc()),
+        (KoreAttribute::Comm, AlgebraicAxioms::comm()),
+        (KoreAttribute::Idem, AlgebraicAxioms::idem()),
+    ] {
+        if attributes.has(attribute) {
+            algebraic = algebraic.union(fact);
+        }
+    }
+    if constructor && !algebraic.is_empty() {
+        let claim = if attributes.has(KoreAttribute::SortInjection) {
+            "sortInjection"
+        } else {
+            "constructor"
+        };
+        return Err(DefinitionError::MalformedAttribute(format!(
+            "is declared {claim} but algebraic axioms identify its applications: {algebraic:?}"
+        )));
     }
     let smt_hook = attributes
         .string(KoreAttribute::SmtHook)?
@@ -2255,8 +2301,7 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
         declared_function: function,
         binder: attributes.has(KoreAttribute::Binder),
         injective: attributes.has(KoreAttribute::Injective),
-        associative: attributes.has(KoreAttribute::Assoc),
-        idempotent: attributes.has(KoreAttribute::Idem),
+        algebraic,
         macro_or_alias: attributes.has(KoreAttribute::Macro)
             || attributes.has(KoreAttribute::Alias),
         has_evaluators: !attributes.has(KoreAttribute::NoEvaluators),
@@ -2643,6 +2688,155 @@ mod tests {
     use crate::term::TermKind;
 
     use super::*;
+
+    fn algebraic_symbol_definition(
+        attributes: &str,
+        axiom: &str,
+    ) -> Result<BackendDefinition, DefinitionError> {
+        let symbol_keyword = if attributes.contains("hook{}(") {
+            "hooked-symbol"
+        } else {
+            "symbol"
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol c{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                {symbol_keyword} g{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [{attributes}]
+                {axiom}
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("algebraic definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+    }
+
+    const COMM_AXIOM: &str = r"axiom{R} \equals{SortS{}, R}(
+        g{}(X:SortS{}, Y:SortS{}), g{}(Y:SortS{}, X:SortS{})
+    ) [comm{}()]";
+
+    #[test]
+    fn algebraic_facts_refuse_constructor_and_sort_injection_claims() {
+        for (attributes, axiom, claim, tag) in [
+            (
+                "constructor{}(), functional{}(), assoc{}()",
+                "",
+                "constructor",
+                "assoc: true",
+            ),
+            (
+                "constructor{}(), functional{}()",
+                COMM_AXIOM,
+                "constructor",
+                "comm: true",
+            ),
+            (
+                "sortInjection{}(), comm{}()",
+                "",
+                "sortInjection",
+                "comm: true",
+            ),
+        ] {
+            let error = algebraic_symbol_definition(attributes, axiom)
+                .expect_err("no-confusion claims contradict algebraic application identities");
+            let DefinitionError::MalformedAttribute(message) = error else {
+                panic!("expected a constructor/algebraic contradiction, got {error}");
+            };
+            assert!(message.contains("symbol g"), "{message}");
+            assert!(message.contains(claim), "{message}");
+            assert!(message.contains("algebraic axioms"), "{message}");
+            assert!(message.contains(tag), "{message}");
+        }
+    }
+
+    #[test]
+    fn a_cell_constructor_unit_attribute_states_no_algebraic_axiom() {
+        let definition =
+            algebraic_symbol_definition("constructor{}(), functional{}(), unit{}(c{}())", "")
+                .expect("a unit declaration names the empty cell without identifying applications");
+        let attributes = &definition.symbols[&Name::from("g")].attributes;
+        assert_eq!(attributes.head_role(), HeadRole::FreeConstructor);
+        assert!(attributes.algebraic_axioms().is_empty());
+    }
+
+    #[test]
+    fn loaded_symbol_roles_read_declarations_and_algebraic_axioms_together() {
+        for (attributes, axiom, expected) in [
+            ("functional{}()", COMM_AXIOM, HeadRole::Uninterpreted),
+            (
+                "functional{}(), anywhere{}()",
+                COMM_AXIOM,
+                HeadRole::Uninterpreted,
+            ),
+            ("functional{}(), anywhere{}()", "", HeadRole::EquationHead),
+            (
+                r#"function{}(), total{}(), hook{}("LIST.concat"), assoc{}()"#,
+                "",
+                HeadRole::Function {
+                    declared: true,
+                    injective: false,
+                },
+            ),
+            (
+                "functional{}(), injective{}()",
+                "",
+                HeadRole::Function {
+                    declared: false,
+                    injective: true,
+                },
+            ),
+            ("functional{}()", "", HeadRole::Uninterpreted),
+        ] {
+            let definition = algebraic_symbol_definition(attributes, axiom)
+                .expect("consistent declaration should internalize");
+            assert_eq!(
+                definition.symbols[&Name::from("g")].attributes.head_role(),
+                expected,
+                "attributes {attributes}, axiom {axiom}"
+            );
+        }
+    }
+
+    #[test]
+    fn algebraic_axiom_facts_union_tags_and_both_application_roots() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortS{} []
+                symbol g{}(SortS{}) : SortS{} [functional{}(), anywhere{}(), idem{}()]
+                symbol h{}(SortS{}) : SortS{} [functional{}(), anywhere{}()]
+                axiom{R} \equals{SortS{}, R}(g{}(X:SortS{}), h{}(X:SortS{}))
+                    [assoc{}(), comm{}(), unit{}()]
+            endmodule []
+        "#})
+        .expect("tagged root equation should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("algebraic tags conservatively remove freeness from both roots");
+        let axiom_facts = AlgebraicAxioms::assoc()
+            .union(AlgebraicAxioms::comm())
+            .union(AlgebraicAxioms::unit());
+        for (name, expected) in [
+            ("g", axiom_facts.union(AlgebraicAxioms::idem())),
+            ("h", axiom_facts),
+        ] {
+            let attributes = &definition.symbols[&Name::from(name)].attributes;
+            assert_eq!(attributes.algebraic_axioms(), expected);
+            assert_eq!(attributes.head_role(), HeadRole::Uninterpreted);
+        }
+    }
+
+    #[test]
+    fn an_algebraic_axiom_without_application_roots_is_malformed() {
+        let error = algebraic_symbol_definition(
+            "functional{}()",
+            r"axiom{R} \equals{SortS{}, R}(X:SortS{}, Y:SortS{}) [comm{}()]",
+        )
+        .expect_err("an algebraic fact must identify the applications it constrains");
+        assert!(matches!(
+            error,
+            DefinitionError::Axiom(AxiomError::MalformedEquation)
+        ));
+    }
 
     fn selection_complete_source(guarded: bool, attribute: &str) -> String {
         let attribute = if attribute.is_empty() {
@@ -3045,10 +3239,36 @@ mod tests {
         parse_pattern(source).expect("reference pattern fixture should parse")
     }
 
+    /// These verification fixtures constrain application roots by algebraic axioms.
+    /// Their roots must not claim constructor freeness, so verification reaches the
+    /// original undeclared-symbol and arity defects rather than a declaration contradiction.
+    fn algebraic_verification_fixture(name: &str, roots: &[&str]) -> kore::Definition {
+        let mut definition = reference_definition_fixture(name);
+        for module in &mut definition.modules {
+            for sentence in &mut module.sentences {
+                if let kore::Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } = sentence
+                    && roots.contains(&symbol.name.as_str())
+                {
+                    for attribute in &mut attributes.0 {
+                        if let kore::Pattern::Application { symbol, .. } = attribute
+                            && symbol.name == "constructor"
+                        {
+                            symbol.name = "functional".into();
+                        }
+                    }
+                }
+            }
+        }
+        definition
+    }
+
     #[test]
     fn reference_rejects_undeclared_symbols_in_ignored_axioms() {
-        let error = BackendDefinition::internalize(&reference_definition_fixture("undef"), "M")
-            .expect_err("ignored axioms must be verified");
+        let error =
+            BackendDefinition::internalize(&algebraic_verification_fixture("undef", &["c"]), "M")
+                .expect_err("ignored axioms must be verified");
         assert!(
             format!("{error}").contains("Head 'g' not defined."),
             "{error}"
@@ -3057,8 +3277,11 @@ mod tests {
 
     #[test]
     fn reference_rejects_arity_errors_in_ignored_axioms() {
-        let error = BackendDefinition::internalize(&reference_definition_fixture("arity"), "M")
-            .expect_err("ignored axioms must have their application arity verified");
+        let error = BackendDefinition::internalize(
+            &algebraic_verification_fixture("arity", &["c", "d"]),
+            "M",
+        )
+        .expect_err("ignored axioms must have their application arity verified");
         assert!(
             format!("{error}").contains("Expected 1 operands, but got 0."),
             "{error}"

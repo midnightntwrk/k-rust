@@ -80,9 +80,9 @@ impl InstanceNormal {
                     let reach = no_equation_reaches(&arguments)?;
                     Self::of_equation_head(term, &arguments, reach)
                 }
-                // A function application is rewritten by evaluation, and a macro or alias
-                // application denotes a value the definition does not describe.
-                HeadRole::Function { .. } | HeadRole::Residual => None,
+                // A function application is rewritten by evaluation; an uninterpreted
+                // application or a macro/alias has no structural normal-form guarantee.
+                HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => None,
             },
             Shape::Collection(_) => {
                 let elements = NormalSubterms::of(term, subterm)?;
@@ -129,7 +129,10 @@ impl InstanceNormal {
                 HeadRole::FreeConstructor => arguments
                     .filter(|arguments| arguments.holds_for(term))
                     .map(|_| Self(())),
-                HeadRole::EquationHead | HeadRole::Function { .. } | HeadRole::Residual => None,
+                HeadRole::EquationHead
+                | HeadRole::Function { .. }
+                | HeadRole::Uninterpreted
+                | HeadRole::Residual => None,
             },
             Shape::Variable
             | Shape::And
@@ -152,7 +155,10 @@ impl InstanceNormal {
                 HeadRole::EquationHead => {
                     (arguments.holds_for(term) && reach.subject == term).then_some(Self(()))
                 }
-                HeadRole::FreeConstructor | HeadRole::Function { .. } | HeadRole::Residual => None,
+                HeadRole::FreeConstructor
+                | HeadRole::Function { .. }
+                | HeadRole::Uninterpreted
+                | HeadRole::Residual => None,
             },
             Shape::Variable
             | Shape::And

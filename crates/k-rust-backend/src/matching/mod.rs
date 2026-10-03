@@ -708,7 +708,7 @@ impl SubjectNormalForms<'_> {
                         self.instance_normal.insert(argument.clone(), subterm);
                     }
                 }
-                HeadRole::Function { .. } | HeadRole::Residual => {}
+                HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {}
             },
             TermKind::Injection { term, .. } => {
                 self.instance_normal.insert(term.clone(), subterm);
@@ -799,10 +799,11 @@ impl<'a> Matcher<'a> {
         // by the subject's root, so the subject is classified here as the value it denotes, and
         // not earlier: its oracle may run the instance-normal scan, which the pairs decided above
         // never need. For an equation-head subject application whose root is not fixed, an
-        // equation may give some instance other arguments or another root, so neither is sound;
-        // the pair is left to the caller, unless it is syntactically solved.
+        // equation may give some instance other arguments or another root. An uninterpreted
+        // symbol likewise does not individuate its arguments or separate itself from other
+        // roots. Each pair is left to the caller unless it is syntactically solved.
         let subject_head = classify_value(&subject, &mut self.normal_forms);
-        if let Head::Open(Open::EquationHead) = subject_head {
+        if let Head::Open(Open::EquationHead | Open::Uninterpreted) = subject_head {
             if pattern == subject {
                 return Ok(());
             }
@@ -864,9 +865,9 @@ impl<'a> Matcher<'a> {
             }
             (
                 TermKind::Application {
-                    symbol: pattern_symbol,
                     sort_arguments: pattern_sorts,
                     arguments: pattern_arguments,
+                    ..
                 },
                 TermKind::Application {
                     sort_arguments: subject_sorts,
@@ -879,12 +880,6 @@ impl<'a> Matcher<'a> {
                 }
                 if pattern_sorts != subject_sorts {
                     return Err(FailReason::DifferentSorts(pattern, subject));
-                }
-                if self.mode != MatchMode::Rewrite
-                    && (pattern_symbol.attributes.associative
-                        || pattern_symbol.attributes.idempotent)
-                {
-                    return self.defer(pattern, subject);
                 }
                 self.match_subterms(
                     pattern_arguments,
@@ -1167,6 +1162,12 @@ impl<'a> Matcher<'a> {
             return self.no_lowering(term);
         };
 
+        // A lower production would replace this root with one whose arguments can
+        // be compared. An uninterpreted application supplies no such decomposition.
+        if symbol.attributes.head_role() == HeadRole::Uninterpreted {
+            return OverloadLowering::Indeterminate;
+        }
+
         let candidates = definition.overloads.overloaded_by(&symbol.name);
         let mut lowered = Vec::new();
         let mut indeterminate = Vec::new();
@@ -1280,14 +1281,23 @@ impl<'a> Matcher<'a> {
     /// equation rewrites by construction, is given its head ([`GivenHeads::overload_lift`]).
     fn resolve_overloads(&mut self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
         let definition = self.definition?;
-        let pattern_name = &overload_head(pattern)?.name;
-        let subject_name = &overload_head(subject)?.name;
+        let pattern_symbol = overload_head(pattern)?;
+        let subject_symbol = overload_head(subject)?;
+        let pattern_name = &pattern_symbol.name;
+        let subject_name = &subject_symbol.name;
         // A symbol outside every overload relation neither overloads the other head nor shares
         // an overload with it, so no common production exists: most pairs of distinct heads
         // end here, before a view of either side is built.
         if pattern_name == subject_name
             || !definition.overloads.is_overloaded(pattern_name)
             || !definition.overloads.is_overloaded(subject_name)
+        {
+            return None;
+        }
+        // Lifting to a common free head must not give an uninterpreted application
+        // argument bindings that its own role forbids.
+        if pattern_symbol.attributes.head_role() == HeadRole::Uninterpreted
+            || subject_symbol.attributes.head_role() == HeadRole::Uninterpreted
         {
             return None;
         }
@@ -1332,7 +1342,7 @@ impl<'a> Matcher<'a> {
             return None;
         };
         let subject_application = overload_application(subject)?;
-        if let Head::Open(Open::EquationHead) =
+        if let Head::Open(Open::EquationHead | Open::Uninterpreted) =
             classify_value(subject_application, &mut self.normal_forms)
         {
             return None;
@@ -2006,6 +2016,11 @@ fn compares_applications(
     subject: Head<'_>,
     facts: &impl PairFacts,
 ) -> bool {
+    if matches!(pattern, Head::Open(Open::Uninterpreted))
+        || matches!(subject, Head::Open(Open::Uninterpreted))
+    {
+        return false;
+    }
     // Two free-constructor applications are equal exactly when their symbols and arguments are.
     (is_free_constructor(pattern) && is_free_constructor(subject))
         // An equation-head pattern against an application of its own symbol, whose root is fixed
@@ -2083,7 +2098,6 @@ fn refutation(pattern: Head<'_>, subject: Head<'_>) -> RootPolicy {
                 // Two roots `compare_roots` does not separate are compared by an arm of their own
                 // kind in `Matcher::match_one`, before any refutation.
                 RootComparison::SameApplication(_)
-                | RootComparison::SameAlgebraicSymbol
                 | RootComparison::ArityMismatch
                 | RootComparison::DomainValues
                 | RootComparison::Injections
@@ -2100,7 +2114,8 @@ fn refutation(pattern: Head<'_>, subject: Head<'_>) -> RootPolicy {
     })
 }
 
-/// An application root: a free constructor, an equation head, a function, a macro or an alias.
+/// An application root: a free constructor, an equation head, a function, an uninterpreted
+/// symbol, a macro or an alias.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn is_application(head: Head<'_>) -> bool {
     match head {
@@ -2109,7 +2124,7 @@ fn is_application(head: Head<'_>) -> bool {
             FixedRoot::DomainValue | FixedRoot::Injection | FixedRoot::Collection(_) => false,
         },
         Head::Open(open) => match open {
-            Open::Function { .. } | Open::EquationHead => true,
+            Open::Function { .. } | Open::Uninterpreted | Open::EquationHead => true,
             Open::Variable | Open::And => false,
         },
         Head::Residual => true,
@@ -2170,7 +2185,7 @@ fn is_equation_head(head: Head<'_>) -> bool {
         },
         Head::Open(open) => match open {
             Open::EquationHead => true,
-            Open::Variable | Open::And | Open::Function { .. } => false,
+            Open::Variable | Open::And | Open::Function { .. } | Open::Uninterpreted => false,
         },
         Head::Residual => false,
     }
@@ -2181,7 +2196,7 @@ fn is_injective_function(head: Head<'_>) -> bool {
     match head {
         Head::Open(open) => match open {
             Open::Function { injective } => injective,
-            Open::Variable | Open::And | Open::EquationHead => false,
+            Open::Variable | Open::And | Open::EquationHead | Open::Uninterpreted => false,
         },
         Head::Fixed(_) | Head::Residual => false,
     }
@@ -2478,7 +2493,8 @@ mod tests {
     /// What an arm of `Matcher::match_one` decides about the roots of a pair.
     #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
     enum Arm {
-        /// The subject is an equation-head application without evidence (the gate).
+        /// The subject is an equation-head application without evidence, or an uninterpreted
+        /// application (the gate).
         Gate,
         /// An arm of its own kind: two domain values, two injections, two collections of one
         /// category, or in `Evaluate` an injection against a collection.
@@ -2733,7 +2749,7 @@ mod tests {
         overloaded: &BTreeSet<Name>,
     ) -> Arm {
         let subject_head = classify_value(subject, &mut Evidence(fixed));
-        if let Head::Open(Open::EquationHead) = subject_head {
+        if let Head::Open(Open::EquationHead | Open::Uninterpreted) = subject_head {
             return Arm::Gate;
         }
         let pattern_head = classify_pattern(pattern_reading(mode), pattern);
@@ -2791,11 +2807,13 @@ mod tests {
 
     /// Whether the root of `term` is an application of a symbol whose role CBC-02-T2 changed
     /// (B1: `constructor` and `anywhere`; B2: a macro or alias; B3: `anywhere`, `function` and
-    /// `injective`), so that the declared flags and the role disagree.
+    /// `injective`), or FU-20-T1 changed (B4: uninterpreted), so that the declared flags and the
+    /// role disagree.
     fn changed_role(term: &Term) -> bool {
         symbol(term).is_some_and(|symbol| {
             let declared = symbol.attributes.declaration();
-            declared.macro_or_alias
+            symbol.attributes.head_role() == HeadRole::Uninterpreted
+                || declared.macro_or_alias
                 || (declared.anywhere
                     && !declared.declared_function
                     && declared.symbol_type == SymbolType::Constructor)
@@ -2834,7 +2852,8 @@ mod tests {
     /// with and without evidence for an equation-head subject and with every set of overloaded
     /// names, `matcher_root_policy` selects the arm the guards of `eea634ce` selected, except
     /// for a root symbol whose role CBC-02-T2 changed (B1-B3), and the arm the integration
-    /// base selected for every root symbol.
+    /// base selected except for uninterpreted roots (B4), whose applications never decompose
+    /// and whose subjects always reach the gate.
     #[test]
     fn the_root_policy_selects_the_arms_of_the_guards_it_replaced() {
         let names = [WellKnownSymbol::KCell.as_str(), "LblA", "LblB", "kseq"];
@@ -2873,22 +2892,52 @@ mod tests {
                     }
                     let overloaded = overloaded.into_iter().map(Name::from).collect();
                     let arm = policy_arm(mode, &pattern, &subject, fixed, &overloaded);
-                    let base =
-                        transcribed_arm(Flags::Roles, mode, &pattern, &subject, fixed, &overloaded);
-                    prop_assert_eq!(arm, base, "integration base, {:?}", mode);
-                    let reading = if changed_role(&pattern) || changed_role(&subject) {
-                        "changed role"
+                    let uninterpreted = |term: &Term| {
+                        symbol(term).is_some_and(|symbol| {
+                            symbol.attributes.head_role() == HeadRole::Uninterpreted
+                        })
+                    };
+                    let reading = if uninterpreted(&pattern) || uninterpreted(&subject) {
+                        prop_assert_ne!(arm, Arm::Decompose);
+                        if arm == Arm::Refute {
+                            let pattern_head = classify_pattern(pattern_reading(mode), &pattern);
+                            let subject_head = classify_value(&subject, &mut Evidence(fixed));
+                            prop_assert!(
+                                (head_is_overload_head(&overloaded, &pattern)
+                                    && is_rigid_root(subject_head))
+                                    || (is_rigid_root(pattern_head)
+                                        && head_is_overload_head(&overloaded, &subject)),
+                                "an uninterpreted pair is refuted only by the overload arm (Q2)"
+                            );
+                        }
+                        if uninterpreted(&subject) {
+                            prop_assert_eq!(arm, Arm::Gate);
+                        }
+                        "uninterpreted"
                     } else {
-                        let head = transcribed_arm(
-                            Flags::Declared,
+                        let base = transcribed_arm(
+                            Flags::Roles,
                             mode,
                             &pattern,
                             &subject,
                             fixed,
                             &overloaded,
                         );
-                        prop_assert_eq!(arm, head, "eea634ce, {:?}", mode);
-                        "declared"
+                        prop_assert_eq!(arm, base, "integration base, {:?}", mode);
+                        if changed_role(&pattern) || changed_role(&subject) {
+                            "changed role"
+                        } else {
+                            let head = transcribed_arm(
+                                Flags::Declared,
+                                mode,
+                                &pattern,
+                                &subject,
+                                fixed,
+                                &overloaded,
+                            );
+                            prop_assert_eq!(arm, head, "eea634ce, {:?}", mode);
+                            "declared"
+                        }
                     };
                     *counts
                         .borrow_mut()

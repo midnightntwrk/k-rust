@@ -33,7 +33,7 @@
 //! candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions, macro
-//! and alias applications, associative or idempotent heads, subject-side `anywhere` heads that
+//! and alias applications, uninterpreted heads, subject-side `anywhere` heads that
 //! are not overloaded or whose root is not fixed, and `anywhere` heads in the item after the
 //! head. A fixed overloaded head is `Overloaded`, which covers only `Overloaded`, `Anywhere` and
 //! `Anything`; on the subject side an overloaded `anywhere` head is fixed only with evidence
@@ -67,7 +67,7 @@ use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Name, Sort, Term, TermKind, Variable,
+        AlgebraicAxioms, HeadRole, Name, Sort, Term, TermKind, Variable,
         head::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
@@ -525,6 +525,43 @@ impl From<MalformedAttribute> for AxiomError {
     }
 }
 
+/// Records the application roots of equations whose algebraic tags deny structural freeness.
+/// Both loading and classification use this predicate so dropping an equation preserves its facts.
+pub(crate) fn algebraic_axiom_roots(
+    pattern: &kore::Pattern,
+    attributes: &kore::Attributes,
+) -> Option<Result<(AlgebraicAxioms, Vec<Name>), AxiomError>> {
+    let kore::Pattern::Equals { left, right, .. } = pattern else {
+        return None;
+    };
+    let mut facts = AlgebraicAxioms::default();
+    for (attribute, fact) in [
+        (KoreAttribute::Assoc, AlgebraicAxioms::assoc()),
+        (KoreAttribute::Comm, AlgebraicAxioms::comm()),
+        (KoreAttribute::Idem, AlgebraicAxioms::idem()),
+        (KoreAttribute::Unit, AlgebraicAxioms::unit()),
+    ] {
+        if attributes.has(attribute) {
+            facts = facts.union(fact);
+        }
+    }
+    if facts.is_empty() {
+        return None;
+    }
+    let roots = [left.as_ref(), right.as_ref()]
+        .into_iter()
+        .filter_map(|side| match side {
+            kore::Pattern::Application { symbol, .. } => Some(Name::from(symbol.name.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    Some(if roots.is_empty() {
+        Err(AxiomError::MalformedEquation)
+    } else {
+        Ok((facts, roots))
+    })
+}
+
 /// ```toml algorithm-site
 /// id = "backend.definition.internalize"
 /// role = "part"
@@ -537,6 +574,9 @@ pub fn classify_axiom(
     syntax_attributes: &kore::Attributes,
 ) -> Result<Option<ClassifiedAxiom>, AxiomError> {
     let attributes = RuleAttributes::parse(syntax_attributes)?;
+    if let Some(facts) = algebraic_axiom_roots(pattern, syntax_attributes) {
+        return facts.map(|_| None);
+    }
     match pattern {
         kore::Pattern::Rewrites { left, right, .. } => {
             if !matches!(left.as_ref(), kore::Pattern::And { .. }) {
@@ -650,17 +690,9 @@ pub fn classify_axiom(
             }))
         }
         kore::Pattern::Equals { left, right, .. }
-            if [
-                KoreAttribute::Assoc,
-                KoreAttribute::Comm,
-                KoreAttribute::Idem,
-                KoreAttribute::Unit,
-            ]
-            .into_iter()
-            .any(|attribute| syntax_attributes.has(attribute))
-                || (syntax_attributes.has(KoreAttribute::Simplification)
-                    && is_injection(left)
-                    && is_injection(right)) =>
+            if syntax_attributes.has(KoreAttribute::Simplification)
+                && is_injection(left)
+                && is_injection(right) =>
         {
             Ok(None)
         }
@@ -1664,7 +1696,7 @@ fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> Cel
         }
         TermKind::Variable(_) => CellIndex::Anything,
         TermKind::Application { symbol, .. }
-            if symbol.attributes.associative || symbol.attributes.idempotent =>
+            if symbol.attributes.head_role() == HeadRole::Uninterpreted =>
         {
             CellIndex::Anything
         }
@@ -2296,8 +2328,7 @@ fn computed_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> Compute
     let mut result = ComputedRuleAttributes::default();
     for term in terms {
         term.visit_symbols(&mut |symbol| {
-            result.contains_ac_symbols |=
-                symbol.attributes.associative || symbol.attributes.idempotent;
+            result.contains_ac_symbols |= !symbol.attributes.algebraic_axioms().is_empty();
             if symbol.attributes.symbol_type
                 == crate::term::SymbolType::Function(crate::term::FunctionType::Partial)
             {
@@ -3078,6 +3109,49 @@ mod tests {
             &pattern,
             &attributes,
         )
+    }
+
+    #[test]
+    fn algebraic_classification_uses_the_recorded_roots_and_tags() {
+        for (sides, expected_roots) in [
+            (
+                "g{}(X:SortS{}), h{}(X:SortS{})",
+                vec![Name::from("g"), Name::from("h")],
+            ),
+            ("g{}(X:SortS{}), X:SortS{}", vec![Name::from("g")]),
+            ("X:SortS{}, h{}(X:SortS{})", vec![Name::from("h")]),
+        ] {
+            for (tag, expected_fact) in [
+                ("assoc", AlgebraicAxioms::assoc()),
+                ("comm", AlgebraicAxioms::comm()),
+                ("idem", AlgebraicAxioms::idem()),
+                ("unit", AlgebraicAxioms::unit()),
+            ] {
+                let source = format!(r"axiom{{R}} \equals{{SortS{{}}, R}}({sides}) [{tag}{{}}()]");
+                let sentence = parse_sentence(&source).expect("algebraic axiom should parse");
+                let kore::Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } = sentence
+                else {
+                    panic!("expected axiom");
+                };
+                assert_eq!(
+                    algebraic_axiom_roots(&pattern, &attributes),
+                    Some(Ok((expected_fact, expected_roots.clone())))
+                );
+                assert!(
+                    classify(&source)
+                        .expect("tagged equation should classify")
+                        .is_none()
+                );
+            }
+        }
+        assert!(matches!(
+            classify(r"axiom{R} \equals{SortS{}, R}(X:SortS{}, Y:SortS{}) [comm{}()]"),
+            Err(AxiomError::MalformedEquation)
+        ));
     }
 
     fn top_rhs_definition(axiom: &str) -> Result<BackendDefinition, DefinitionError> {

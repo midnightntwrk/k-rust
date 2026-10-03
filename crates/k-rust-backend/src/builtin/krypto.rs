@@ -186,7 +186,10 @@ fn point_coordinates<'a, const N: usize>(
     // point, or not, by equations or evaluation the reader does not run.
     match symbol.attributes.head_role() {
         HeadRole::FreeConstructor => {}
-        HeadRole::EquationHead | HeadRole::Function { .. } | HeadRole::Residual => {
+        HeadRole::EquationHead
+        | HeadRole::Function { .. }
+        | HeadRole::Uninterpreted
+        | HeadRole::Residual => {
             return Reading::Opaque;
         }
     }

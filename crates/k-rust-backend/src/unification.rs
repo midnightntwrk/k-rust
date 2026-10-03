@@ -368,8 +368,7 @@ impl Unifier<'_> {
                 same.pairs()
                     .map(|(left, right)| (left.clone(), right.clone())),
             ),
-            Decomposition::SameAlgebraicSymbol(left, right)
-            | Decomposition::InjectiveFunction(left, right) => self
+            Decomposition::InjectiveFunction(left, right) => self
                 .pending
                 .extend(left.iter().cloned().zip(right.iter().cloned())),
         }
@@ -441,10 +440,6 @@ enum Decomposition<'t> {
     /// Two fixed roots of one free symbol (`compare_roots`): the values are equal exactly when
     /// the arguments are.
     SameApplication(SameApplication<'t>),
-    /// Two fixed roots of one symbol with `assoc` or `idem` axioms, decomposed as a free
-    /// symbol's are, which is complete only up to those axioms (open question Q6 of the
-    /// classifier's design).
-    SameAlgebraicSymbol(&'t [Term], &'t [Term]),
     /// Two applications of one function declared injective without `anywhere`, a declared axiom
     /// the backend does not check against the function's equations (open question Q5).
     InjectiveFunction(&'t [Term], &'t [Term]),
@@ -467,6 +462,11 @@ fn unification_root_policy<'t>(
     right: Head<'t>,
     arguments: Option<(&'t [Term], &'t [Term])>,
 ) -> UnifierStep<'t> {
+    if matches!(left, Head::Open(Open::Uninterpreted))
+        || matches!(right, Head::Open(Open::Uninterpreted))
+    {
+        return UnifierStep::Keep;
+    }
     if is_collection_root(left) || is_collection_root(right) {
         return UnifierStep::Unsupported;
     }
@@ -483,12 +483,6 @@ fn unification_root_policy<'t>(
                 RootComparison::SameApplication(same) => {
                     UnifierStep::Decompose(Decomposition::SameApplication(same))
                 }
-                RootComparison::SameAlgebraicSymbol => match arguments {
-                    Some((left, right)) => {
-                        UnifierStep::Decompose(Decomposition::SameAlgebraicSymbol(left, right))
-                    }
-                    None => UnifierStep::Keep,
-                },
                 RootComparison::ArityMismatch => UnifierStep::ArgumentLengthsDiffer,
                 // Compared by their own arms in `Unifier::unify_one` before any classification.
                 RootComparison::DomainValues | RootComparison::Injections => UnifierStep::Keep,
@@ -507,7 +501,11 @@ fn unification_root_policy<'t>(
             (Head::Open(_) | Head::Fixed(_) | Head::Residual, _) => UnifierStep::Keep,
         },
         Head::Open(
-            Open::Function { injective: false } | Open::Variable | Open::And | Open::EquationHead,
+            Open::Function { injective: false }
+            | Open::Variable
+            | Open::And
+            | Open::EquationHead
+            | Open::Uninterpreted,
         )
         | Head::Residual => UnifierStep::Keep,
     }
@@ -541,7 +539,7 @@ fn is_equation_head(head: Head<'_>) -> bool {
         },
         Head::Open(open) => match open {
             Open::EquationHead => true,
-            Open::Variable | Open::And | Open::Function { .. } => false,
+            Open::Variable | Open::And | Open::Function { .. } | Open::Uninterpreted => false,
         },
         Head::Residual => false,
     }
@@ -1164,6 +1162,75 @@ mod tests {
         assert_eq!(unified.constraints.len(), 1, "{result:?}");
     }
 
+    fn uninterpreted_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol b{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol c{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol g{}(SortS{}, SortS{}) : SortS{} [functional{}()]
+                axiom{R} \equals{SortS{}, R}(
+                    g{}(X:SortS{}, Y:SortS{}), g{}(Y:SortS{}, X:SortS{})
+                ) [comm{}()]
+            endmodule []"#,
+        )
+        .expect("uninterpreted definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// Without injectivity, an equation between `g` applications does not imply an equation
+    /// between their arguments, even when one argument pair consists of distinct constructors.
+    #[test]
+    fn keeps_an_uninterpreted_pair_without_an_argument_clash() {
+        let definition = uninterpreted_definition();
+        let left = anywhere_term(&definition, "g{}(a{}(), X:SortS{})");
+        let right = anywhere_term(&definition, "g{}(g{}(a{}(), b{}()), c{}())");
+        let result = unify_term_pairs(
+            &definition,
+            Substitution::new(),
+            [(left.clone(), right.clone())],
+        );
+        let UnificationResult::Unified(unified) = result else {
+            panic!("an uninterpreted root cannot justify an argument clash: {result:?}");
+        };
+        assert!(unified.substitution.is_empty());
+        assert_eq!(unified.constraints, vec![Predicate::Equals(left, right)]);
+    }
+
+    #[test]
+    fn an_identical_uninterpreted_pair_needs_no_constraint() {
+        let definition = uninterpreted_definition();
+        let term = anywhere_term(&definition, "g{}(a{}(), X:SortS{})");
+        assert_eq!(
+            unify_term_pairs(&definition, Substitution::new(), [(term.clone(), term)]),
+            UnificationResult::Unified(Unification {
+                substitution: Substitution::new(),
+                constraints: Vec::new(),
+            })
+        );
+    }
+
+    /// An uninterpreted application may identify its argument with the whole application,
+    /// so a variable occurrence through that root cannot certify a rigid cycle.
+    #[test]
+    fn keeps_an_uninterpreted_cycle_as_an_equation() {
+        let definition = uninterpreted_definition();
+        let left = anywhere_term(&definition, "X:SortS{}");
+        let right = anywhere_term(&definition, "g{}(X:SortS{}, a{}())");
+        let result = unify_term_pairs(
+            &definition,
+            Substitution::new(),
+            [(left.clone(), right.clone())],
+        );
+        let UnificationResult::Unified(unified) = result else {
+            panic!("an uninterpreted occurrence is not a rigid cycle: {result:?}");
+        };
+        assert!(unified.substitution.is_empty());
+        assert_eq!(unified.constraints, vec![Predicate::Equals(left, right)]);
+    }
+
     /// The step `Unifier::unify_one` took, after its variable and conjunction arms, at the
     /// integration base (`c11e4adb`): each arm as written there, with its `decomposable` and
     /// `rigid`, over the roles.
@@ -1175,7 +1242,7 @@ mod tests {
                     && definition.instance_normal(right).is_some()
             }
             HeadRole::Function { injective, .. } => injective,
-            HeadRole::Residual => false,
+            HeadRole::Uninterpreted | HeadRole::Residual => false,
         };
         let rigid = |kind: &TermKind| match kind {
             TermKind::DomainValue { .. } | TermKind::Injection { .. } => true,
@@ -1264,6 +1331,7 @@ mod tests {
     /// the integration base took for every pair that reaches it, the arity mismatch of one
     /// symbol now reported as such. The generated symbols are not declared by the definition,
     /// so an equation-head application is instance-normal exactly when its arguments are.
+    /// B4 exempts an uninterpreted root from the transcription and requires its equation to stay.
     #[test]
     fn the_root_policy_takes_the_steps_of_the_arms_it_replaced() {
         use std::{cell::RefCell, collections::BTreeMap};
@@ -1321,7 +1389,20 @@ mod tests {
                         return Ok(());
                     }
                     let step = policy_step(&unifier, &left, &right);
-                    prop_assert_eq!(step, transcribed_step(&definition, &left, &right));
+                    let uninterpreted = |term: &Term| {
+                        matches!(
+                            term.kind(),
+                            TermKind::Application { symbol, .. }
+                                if symbol.attributes.head_role() == HeadRole::Uninterpreted
+                        )
+                    };
+                    if uninterpreted(&left) || uninterpreted(&right) {
+                        // B4: no axiom individuates an uninterpreted root, so it cannot
+                        // justify decomposition or a clash against any other root.
+                        prop_assert_eq!(step, "keep");
+                    } else {
+                        prop_assert_eq!(step, transcribed_step(&definition, &left, &right));
+                    }
                     *counts.borrow_mut().entry(step).or_default() += 1;
                     Ok(())
                 },

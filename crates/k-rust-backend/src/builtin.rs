@@ -934,8 +934,8 @@ pub(super) fn values_differ(sorts: Option<&SortGraph>, left: &Term, right: &Term
 /// wherever the strict hook has a result. Otherwise each operand is classified as the value
 /// it denotes, with no evidence for an equation head (`NoEvidence`), and
 /// the roots decide only when one of them is a free-constructor application and the other is a
-/// fixed root too: different roots are different values, and two applications of one free
-/// symbol without associativity or idempotence are equal exactly when their arguments are.
+/// fixed root too: different roots are different values, and two applications of one
+/// free symbol are equal exactly when their arguments are.
 fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
     if left.attributes().constructor_like && right.attributes().constructor_like {
         return Some(left == right);
@@ -982,30 +982,6 @@ fn evaluate_equality_by_roots(
         return match compare_roots(left_root, right_root) {
             RootComparison::Distinct(_) | RootComparison::ArityMismatch => Some(false),
             RootComparison::SameApplication(same) => arguments_equal(&mut same.pairs()),
-            // Associativity and idempotence can regroup or collapse arguments, so a
-            // differing pair cannot decide equality while another pair is undecided.
-            RootComparison::SameAlgebraicSymbol => {
-                let (
-                    TermKind::Application {
-                        arguments: left_arguments,
-                        ..
-                    },
-                    TermKind::Application {
-                        arguments: right_arguments,
-                        ..
-                    },
-                ) = (left.kind(), right.kind())
-                else {
-                    unreachable!("two applications of one symbol are applications");
-                };
-                let mut equal = true;
-                for (left, right) in left_arguments.iter().zip(right_arguments) {
-                    // Apartness does not descend through algebraic roots, so each
-                    // argument needs its own shared apartness check.
-                    equal &= evaluate_equality(left, right, sort_graph)?;
-                }
-                Some(equal)
-            }
             RootComparison::DomainValues
             | RootComparison::Injections
             | RootComparison::Collections(_) => {
@@ -1133,8 +1109,8 @@ mod tests {
     use crate::{
         stop::{Stop, StopCause},
         term::{
-            CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Symbol,
-            SymbolAttributes, SymbolType, Variable,
+            AlgebraicAxioms, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
+            MapDefinition, Symbol, SymbolAttributes, SymbolType, Variable,
         },
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
@@ -1207,6 +1183,47 @@ mod tests {
         assert_eq!(evaluate_equality(&pair("B", 2), &left, None), Some(false));
     }
 
+    /// Identifying axioms permit different roots or arguments to denote the same value.
+    #[test]
+    fn algebraic_equality_decides_only_syntactic_identity() {
+        let sort = Sort::simple("SortElem");
+        let constant = |name| {
+            Term::application(
+                Arc::new(Symbol::constructor(name, Vec::new(), sort.clone())),
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+        let a = constant("a");
+        let b = constant("b");
+        for axioms in [
+            AlgebraicAxioms::assoc(),
+            AlgebraicAxioms::comm(),
+            AlgebraicAxioms::idem(),
+            AlgebraicAxioms::unit(),
+        ] {
+            let mut g = Symbol::constructor("g", vec![sort.clone(); 2], sort.clone());
+            g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            g.attributes = g.attributes.with_algebraic_axioms(axioms);
+            let g = Arc::new(g);
+            let apply = |x, y| Term::application(g.clone(), Vec::new(), vec![x, y]);
+            let ab = apply(a.clone(), b.clone());
+            assert_eq!(evaluate_equality(&ab, &ab, None), Some(true));
+            for (left, right) in [
+                (
+                    apply(a.clone(), ab.clone()),
+                    apply(apply(a.clone(), a.clone()), b.clone()),
+                ),
+                (ab.clone(), apply(b.clone(), a.clone())),
+                (apply(a.clone(), a.clone()), a.clone()),
+            ] {
+                assert_eq!(evaluate_equality(&left, &right, None), None);
+                assert_eq!(evaluate_equality(&right, &left, None), None);
+                assert!(!left.concrete_after_normalization());
+            }
+        }
+    }
+
     #[test]
     fn fu17_equality_leaves_algebraic_argument_mismatches_undecided() {
         let sort = Sort::simple("SortElem");
@@ -1217,10 +1234,13 @@ mod tests {
         ));
         let constant =
             |value| Term::application(c.clone(), Vec::new(), vec![int_term(BigInt::from(value))]);
-        for (associative, idempotent) in [(true, false), (false, true)] {
+        for (axioms, associative) in [
+            (AlgebraicAxioms::assoc(), true),
+            (AlgebraicAxioms::idem(), false),
+        ] {
             let mut g = Symbol::constructor("g", vec![sort.clone(), sort.clone()], sort.clone());
-            g.attributes.associative = associative;
-            g.attributes.idempotent = idempotent;
+            g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            g.attributes = g.attributes.with_algebraic_axioms(axioms);
             let g = Arc::new(g);
             let apply = |left, right| Term::application(g.clone(), Vec::new(), vec![left, right]);
             let x = Term::variable(Variable::new("X", sort.clone()));
@@ -2129,7 +2149,7 @@ mod tests {
     /// every ordered pair of a set of terms covering each root kind: domain values, free
     /// constructors over values and over function applications (which bypass the
     /// constructor-like shortcut), applications of one symbol with different arities, an
-    /// `assoc` constructor, equation heads with and without the certificate, injections,
+    /// algebraic application, equation heads with and without the certificate, injections,
     /// a list, a function application, a macro, and those
     /// terms under one free constructor.
     #[test]
@@ -2146,7 +2166,12 @@ mod tests {
         let c = symbol("c", 1, &|_| {});
         let d = symbol("d", 1, &|_| {});
         let k = symbol("k", 1, &|_| {});
-        let assoc = symbol("g", 2, &|attributes| attributes.associative = true);
+        let assoc = symbol("g", 2, &|attributes| {
+            attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            *attributes = attributes
+                .clone()
+                .with_algebraic_axioms(AlgebraicAxioms::assoc());
+        });
         let wrap = symbol("wrap", 1, &|attributes| {
             *attributes = attributes.clone().with_anywhere(true);
         });

@@ -218,12 +218,73 @@ pub enum SymbolType {
     Function(FunctionType),
 }
 
-/// What a symbol's declaration makes of the value of its applications, decided once from the
-/// declaration by [`SymbolAttributes::head_role`].
+/// Axioms that identify applications with different arguments.
+/// Freeness is decided only by [`SymbolAttributes::head_role`].
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AlgebraicAxioms {
+    assoc: bool,
+    comm: bool,
+    idem: bool,
+    unit: bool,
+}
+
+impl AlgebraicAxioms {
+    #[must_use]
+    pub const fn assoc() -> Self {
+        Self {
+            assoc: true,
+            comm: false,
+            idem: false,
+            unit: false,
+        }
+    }
+    #[must_use]
+    pub const fn comm() -> Self {
+        Self {
+            assoc: false,
+            comm: true,
+            idem: false,
+            unit: false,
+        }
+    }
+    #[must_use]
+    pub const fn idem() -> Self {
+        Self {
+            assoc: false,
+            comm: false,
+            idem: true,
+            unit: false,
+        }
+    }
+    #[must_use]
+    pub const fn unit() -> Self {
+        Self {
+            assoc: false,
+            comm: false,
+            idem: false,
+            unit: true,
+        }
+    }
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        !self.assoc && !self.comm && !self.idem && !self.unit
+    }
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self {
+            assoc: self.assoc || other.assoc,
+            comm: self.comm || other.comm,
+            idem: self.idem || other.idem,
+            unit: self.unit || other.unit,
+        }
+    }
+}
+
+/// What the declaration and identifying axioms imply about applications, computed by [`SymbolAttributes::head_role`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum HeadRole {
-    /// `constructor` or `sortInjection`, neither `anywhere` without a declared `function` nor a
-    /// macro or alias: applications with different roots or different arguments denote different
+    /// `constructor` or `sortInjection`, with no algebraic facts, neither `anywhere` without
+    /// a declared `function` nor a macro or alias: applications with different roots or different arguments denote different
     /// values.
     FreeConstructor,
     /// `anywhere` and not a declared `function`: an application denotes the value of its normal
@@ -231,14 +292,18 @@ pub enum HeadRole {
     /// application is a normal form. The equations identify applications with different
     /// arguments, so the role carries no injectivity.
     EquationHead,
-    /// Any other symbol. `declared` is the KORE `function` attribute, as distinct from a symbol
+    /// A computed or injective symbol. `declared` is the KORE `function` attribute, as distinct from a symbol
     /// that is total only because it is `functional`; `injective` is the declared attribute,
-    /// dropped when the symbol also carries `anywhere`, whose equations may identify applications
+    /// dropped with `anywhere` or algebraic axioms, which may identify applications
     /// with different arguments.
     Function { declared: bool, injective: bool },
     /// `macro` or `alias`: preprocessing replaces every application, so an application that is
     /// still present denotes a value the backend does not know.
     Residual,
+    /// Neither free nor computed: no individuating declaration distinguishes its applications,
+    /// or an algebraic axiom identifies applications with different arguments.
+    /// Only syntactic identity decides.
+    Uninterpreted,
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -258,10 +323,9 @@ pub struct SymbolAttributes {
     declared_function: bool,
     pub binder: bool,
     /// The source symbol carries the KORE `injective` attribute. Read through
-    /// [`Self::head_role`], which keeps it only for a function without `anywhere`.
+    /// [`Self::head_role`], which keeps it only without `anywhere` or algebraic axioms.
     injective: bool,
-    pub associative: bool,
-    pub idempotent: bool,
+    algebraic: AlgebraicAxioms,
     pub macro_or_alias: bool,
     pub has_evaluators: bool,
     pub smt: Option<SmtType>,
@@ -286,8 +350,7 @@ pub(crate) struct SymbolDeclaration {
     pub(crate) declared_function: bool,
     pub(crate) binder: bool,
     pub(crate) injective: bool,
-    pub(crate) associative: bool,
-    pub(crate) idempotent: bool,
+    pub(crate) algebraic: AlgebraicAxioms,
     pub(crate) macro_or_alias: bool,
     pub(crate) has_evaluators: bool,
     pub(crate) smt: Option<SmtType>,
@@ -304,8 +367,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
             declared_function,
             binder,
             injective,
-            associative,
-            idempotent,
+            algebraic,
             macro_or_alias,
             has_evaluators,
             smt,
@@ -319,8 +381,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
             declared_function,
             binder,
             injective,
-            associative,
-            idempotent,
+            algebraic,
             macro_or_alias,
             has_evaluators,
             smt,
@@ -345,8 +406,7 @@ impl SymbolAttributes {
             declared_function: false,
             binder: false,
             injective: false,
-            associative: false,
-            idempotent: false,
+            algebraic: AlgebraicAxioms::default(),
             macro_or_alias: false,
             has_evaluators: true,
             smt: None,
@@ -374,6 +434,19 @@ impl SymbolAttributes {
         self
     }
 
+    /// These attributes with the identifying axioms supplied by the definition.
+    #[must_use]
+    pub fn with_algebraic_axioms(mut self, algebraic: AlgebraicAxioms) -> Self {
+        self.algebraic = algebraic;
+        self
+    }
+
+    /// The identifying axioms. Freeness is read only through [`Self::head_role`].
+    #[must_use]
+    pub fn algebraic_axioms(&self) -> AlgebraicAxioms {
+        self.algebraic
+    }
+
     /// These attributes with the KORE `function` attribute set to `declared`.
     #[must_use]
     pub fn with_declared_function(mut self, declared: bool) -> Self {
@@ -388,14 +461,17 @@ impl SymbolAttributes {
         self
     }
 
-    /// The role of the symbol, decided from its declaration alone:
+    /// The role of the symbol, decided from its declaration and identifying axioms:
     /// a `macro` or `alias` symbol is [`HeadRole::Residual`];
+    /// otherwise a symbol with algebraic facts that is a constructor or lacks a declared
+    /// function is [`HeadRole::Uninterpreted`];
     /// otherwise an `anywhere` symbol that is not a declared function is an
     /// [`HeadRole::EquationHead`], whatever its `constructor` attribute, because the definition's
     /// own equations identify its applications, which contradicts freeness;
     /// otherwise a `constructor` or `sortInjection` symbol is a [`HeadRole::FreeConstructor`];
-    /// otherwise it is a [`HeadRole::Function`], whose `injective` counts only without
-    /// `anywhere`.
+    /// otherwise a declared function or injective symbol is a [`HeadRole::Function`], whose
+    /// injectivity counts only without `anywhere` or algebraic axioms;
+    /// otherwise it is [`HeadRole::Uninterpreted`].
     ///
     /// No algorithm reads the `anywhere`, `declared_function` or `injective` flags; outside this
     /// module they are private:
@@ -418,8 +494,8 @@ impl SymbolAttributes {
     /// readers that ask whether an application is computed or total rather than free, and a
     /// read of it spelled `symbol_type == SymbolType::Constructor` would bypass this role. The
     /// readers of `symbol_type` that remain:
-    /// - `synthesize_attributes` (the `concrete_after_normalization` shape, which keeps the
-    ///   declared formula of the Lean model's `concrete`) and `ceil_free` (partiality), here;
+    /// - `synthesize_attributes` (the possible normalized shape, excluding uninterpreted roots
+    ///   through this role) and `ceil_free` (partiality), here;
     /// - partiality or totality: `definedness::ceil_term_node`, `smt::symbol_exactness`,
     ///   `simplify` (`is_total_application`, `occurs_under_total_context`),
     ///   `rule::computed_attributes` (undefined symbols), `definition::inhabited_sorts` (value
@@ -439,15 +515,33 @@ impl SymbolAttributes {
         if self.macro_or_alias {
             return HeadRole::Residual;
         }
+        // Loading rejects algebraic constructors. Public builders may combine raw facts,
+        // so even a simultaneous function flag must not make such a constructor free.
+        if !self.algebraic.is_empty()
+            && (!self.declared_function || self.symbol_type == SymbolType::Constructor)
+        {
+            return HeadRole::Uninterpreted;
+        }
         if self.anywhere && !self.declared_function {
             return HeadRole::EquationHead;
         }
         match self.symbol_type {
             SymbolType::Constructor => HeadRole::FreeConstructor,
-            SymbolType::Function(_) => HeadRole::Function {
-                declared: self.declared_function,
-                injective: self.injective && !self.anywhere,
-            },
+            SymbolType::Function(_) => {
+                if self.declared_function {
+                    HeadRole::Function {
+                        declared: true,
+                        injective: self.injective && !self.anywhere && self.algebraic.is_empty(),
+                    }
+                } else if self.injective {
+                    HeadRole::Function {
+                        declared: false,
+                        injective: true,
+                    }
+                } else {
+                    HeadRole::Uninterpreted
+                }
+            }
         }
     }
 
@@ -462,8 +556,7 @@ impl SymbolAttributes {
             declared_function,
             binder,
             injective,
-            associative,
-            idempotent,
+            algebraic,
             macro_or_alias,
             has_evaluators,
             smt,
@@ -477,8 +570,7 @@ impl SymbolAttributes {
             declared_function,
             binder,
             injective,
-            associative,
-            idempotent,
+            algebraic,
             macro_or_alias,
             has_evaluators,
             smt,
@@ -1358,10 +1450,8 @@ impl Term {
                 .pairs()
                 .find_map(|(left, right)| left.apart_with(right, injections))
                 .map(|argument| head::Apart::through_argument(same, argument)),
-            // The `assoc` or `idem` axioms of the symbol reassociate or collapse the arguments of
-            // one value, so distinct arguments do not make distinct values; and two applications
-            // of one symbol with different arities are ill-formed. Neither decides.
-            head::RootComparison::SameAlgebraicSymbol | head::RootComparison::ArityMismatch => None,
+            // Applications of one symbol with different arities are ill-formed.
+            head::RootComparison::ArityMismatch => None,
             head::RootComparison::DomainValues => head::Apart::of_domain_values(left, right),
             head::RootComparison::Injections => {
                 let (
@@ -1919,13 +2009,15 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
         } => {
             let mut attributes = combine_attributes(arguments.iter());
             // Only a free constructor root supplies a structural normal form and freeness.
-            let free = symbol.attributes.head_role() == HeadRole::FreeConstructor;
+            let role = symbol.attributes.head_role();
+            let free = role == HeadRole::FreeConstructor;
             attributes.evaluated &= free;
             attributes.constructor_like &= free;
             // Concreteness describes a possible normalized shape, not a definedness claim.
-            attributes.concrete_after_normalization &= symbol.attributes.symbol_type
+            attributes.concrete_after_normalization &= (symbol.attributes.symbol_type
                 == SymbolType::Constructor
-                || (symbol.attributes.anywhere && !symbol.attributes.declared_function);
+                || (symbol.attributes.anywhere && !symbol.attributes.declared_function))
+                && role != HeadRole::Uninterpreted;
             attributes.can_be_evaluated &= symbol.attributes.has_evaluators;
             attributes
         }
@@ -2617,6 +2709,59 @@ mod tests {
         assert!(!symbol.is(WellKnownSymbol::KSeq));
     }
 
+    /// Builders retain raw facts; every call recomputes the role, including combinations
+    /// that the loader rejects. Neither builder order nor a function flag restores freeness
+    /// while an algebraic constructor's identifying axioms are present.
+    #[test]
+    fn algebraic_constructor_builders_cannot_restore_a_fixed_role() {
+        for axioms in [
+            AlgebraicAxioms::assoc(),
+            AlgebraicAxioms::comm(),
+            AlgebraicAxioms::idem(),
+            AlgebraicAxioms::unit(),
+        ] {
+            for declared in [false, true] {
+                for attributes in [
+                    SymbolAttributes::constructor()
+                        .with_declared_function(declared)
+                        .with_algebraic_axioms(axioms),
+                    SymbolAttributes::constructor()
+                        .with_algebraic_axioms(axioms)
+                        .with_declared_function(declared),
+                ] {
+                    assert_eq!(attributes.head_role(), HeadRole::Uninterpreted);
+                    assert_eq!(
+                        attributes
+                            .clone()
+                            .with_anywhere(true)
+                            .with_injective(true)
+                            .head_role(),
+                        HeadRole::Uninterpreted
+                    );
+                    let mut symbol = Symbol::constructor("g", Vec::new(), Sort::simple("SortS"));
+                    symbol.attributes = attributes.clone();
+                    let term = Term::application(Arc::new(symbol), Vec::new(), Vec::new());
+                    assert!(matches!(
+                        head::classify_pattern(head::PatternReading::AsWritten, &term),
+                        head::Head::Open(head::Open::Uninterpreted)
+                    ));
+                    assert!(matches!(
+                        head::classify_value(&term, &mut head::NoEvidence),
+                        head::Head::Open(head::Open::Uninterpreted)
+                    ));
+                    assert!(!term.concrete_after_normalization());
+                    assert!(!term.attributes().constructor_like);
+                    assert_eq!(
+                        attributes
+                            .with_algebraic_axioms(AlgebraicAxioms::default())
+                            .head_role(),
+                        HeadRole::FreeConstructor
+                    );
+                }
+            }
+        }
+    }
+
     /// The role of each declared flag combination (`SymbolAttributes::head_role`): the
     /// `instance_normal.rs` fixture's `wrap` (`anywhere`, `functional`, `injective`) is an
     /// equation head, and the combinations on which the flags disagreed get one answer each.
@@ -2643,6 +2788,10 @@ mod tests {
                     [function{}(), total{}(), injective{}()]
                 symbol injectiveFunctional{}(SortNat{}) : SortNat{}
                     [functional{}(), injective{}()]
+                symbol functionalOnly{}(SortNat{}) : SortNat{} [functional{}()]
+                symbol algebraic{}(SortNat{}) : SortNat{} [functional{}(), assoc{}()]
+                symbol algebraicFunction{}(SortNat{}) : SortNat{}
+                    [function{}(), total{}(), injective{}(), comm{}()]
             endmodule []"#,
         )
         .expect("role definition should parse");
@@ -2650,6 +2799,15 @@ mod tests {
             .expect("role definition should internalize");
         let role = |name: &str| definition.symbols[name].attributes.head_role();
 
+        assert_eq!(role("functionalOnly"), HeadRole::Uninterpreted);
+        assert_eq!(role("algebraic"), HeadRole::Uninterpreted);
+        assert_eq!(
+            role("algebraicFunction"),
+            HeadRole::Function {
+                declared: true,
+                injective: false
+            }
+        );
         assert_eq!(role("z"), HeadRole::FreeConstructor);
         assert_eq!(role("wrap"), HeadRole::EquationHead);
         // B1: `anywhere` equations identify applications, whatever the `constructor` attribute.

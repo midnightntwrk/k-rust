@@ -5,6 +5,7 @@ use std::sync::Arc;
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::*,
+    simplify::SimplificationOptions,
     substitution::Substitution,
     term::{
         CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Name, Sort,
@@ -13,7 +14,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::{ground_overload_definition, internal_term};
+use crate::support::{ground_overload_definition, internal_term, unstopped::simplify};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Outcome {
@@ -794,6 +795,43 @@ fn rewrite_matching_decides_an_anywhere_head_under_a_widening_injection() {
     ));
 }
 
+/// An overload lift cannot replace an uninterpreted root by a free common head
+/// and then bind arguments that the uninterpreted application's role leaves opaque.
+#[test]
+fn overload_lifting_preserves_uninterpreted_applications() {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol a{}() : SortS{} [constructor{}(), functional{}()]
+            symbol lower{}(SortS{}) : SortS{} [functional{}()]
+            symbol upper{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            axiom{R} \equals{SortS{}, R}(upper{}(X:SortS{}), lower{}(Y:SortS{}))
+                [symbol-overload{}(upper{}(), lower{}())]
+        endmodule []"#,
+    )
+    .expect("overload definition parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("definition loads");
+    let opaque_variable = internal_term(&definition, "lower{}(X:SortS{})");
+    let opaque_value = internal_term(&definition, "lower{}(a{}())");
+    let free_variable = internal_term(&definition, "upper{}(X:SortS{})");
+    let free_value = internal_term(&definition, "upper{}(a{}())");
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        // Q2 may refute an overloaded pattern against a rigid root; it never binds
+        // the uninterpreted pattern's arguments by lifting to a common production.
+        assert!(matches!(
+            match_terms_in_definition(mode, &definition, &opaque_variable, &free_value),
+            MatchResult::Indeterminate { .. }
+                | MatchResult::Failed(FailReason::DifferentSymbols(..))
+        ));
+        // An uninterpreted subject always reaches the identity/defer gate.
+        assert!(matches!(
+            match_terms_in_definition(mode, &definition, &free_variable, &opaque_value),
+            MatchResult::Indeterminate { .. }
+        ));
+    }
+}
+
 #[test]
 fn lifts_a_direct_overload_across_a_sort_injection() {
     let definition = overload_definition();
@@ -884,6 +922,42 @@ fn refutes_sort_membership_when_a_ground_overload_cannot_lower() {
     assert!(matches!(
         match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject),
         MatchResult::Failed(FailReason::DifferentSorts(..))
+    ));
+}
+
+/// Lowering an overload is also argument decomposition. A ground uninterpreted
+/// member must retain the sort-membership condition instead of becoming a lower constructor.
+#[test]
+fn overload_lowering_preserves_an_uninterpreted_subject() {
+    let mut syntax = parse_definition(include_str!("../fixtures/ground-overload.kore"))
+        .expect("overload fixture parses");
+    for module in &mut syntax.modules {
+        for sentence in &mut module.sentences {
+            if let k_rust_kore::kore::ast::Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } = sentence
+                && symbol.name == "exps"
+            {
+                *attributes = k_rust_kore::kore::ast::Attributes(vec![
+                    k_rust_kore::kore::parser::parse_pattern("functional{}()")
+                        .expect("functional attribute parses"),
+                ]);
+            }
+        }
+    }
+    let definition = BackendDefinition::internalize(&syntax, "GROUND-OVERLOAD")
+        .expect("uninterpreted overload definition loads");
+    let pattern = internal_term(
+        &definition,
+        "inj{SortKResult{}, SortKItem{}}(X:SortKResult{})",
+    );
+    let subject = internal_term(
+        &definition,
+        "inj{SortExps{}, SortKItem{}}(exps{}(inj{SortVal{}, SortExp{}}(val{}()), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject),
+        MatchResult::Indeterminate { .. }
     ));
 }
 
@@ -1673,4 +1747,61 @@ fn a_head_clash_holds_the_compared_pattern_and_subject() {
         };
         assert_eq!(clash.into_terms(), (pattern.clone(), subject.clone()));
     }
+}
+
+/// Commutativity identifies the two argument orders, so failure to match as written cannot
+/// justify the owise equation. Syntactically identical arguments still select the first equation.
+#[test]
+fn an_uninterpreted_commutative_argument_blocks_owise() {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            sort SortE{} []
+            sort SortResult{} [hasDomainValues{}()]
+            symbol a{}() : SortE{} [constructor{}(), functional{}()]
+            symbol b{}() : SortE{} [constructor{}(), functional{}()]
+            symbol g{}(SortE{}, SortE{}) : SortE{} [functional{}()]
+            symbol f{}(SortE{}) : SortResult{} [function{}()]
+            axiom{R} \equals{SortE{}, R}(
+                g{}(X:SortE{}, Y:SortE{}),
+                g{}(Y:SortE{}, X:SortE{})
+            ) [comm{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortE{}, R}(X0:SortE{}, g{}(a{}(), b{}())), \top{R}())
+                ),
+                \equals{SortResult{}, R}(
+                    f{}(X0:SortE{}),
+                    \and{SortResult{}}(\dv{SortResult{}}("1"), \top{SortResult{}}())
+                )
+            ) [label{}("hit")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortE{}, R}(X0:SortE{}, X:SortE{}), \top{R}())
+                ),
+                \equals{SortResult{}, R}(
+                    f{}(X0:SortE{}),
+                    \and{SortResult{}}(\dv{SortResult{}}("0"), \top{SortResult{}}())
+                )
+            ) [label{}("fallback"), owise{}()]
+        endmodule []"#,
+    )
+    .expect("commutative generator definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("commutative generator definition should internalize");
+    let input = internal_term(&definition, "f{}(g{}(b{}(), a{}()))");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("unknown matching leaves the function unevaluated");
+    assert_eq!(result.term, input);
+    assert!(result.applied_rules.is_empty());
+
+    let input = internal_term(&definition, "f{}(g{}(a{}(), b{}()))");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("syntactic identity selects the first equation");
+    assert_eq!(
+        result.term,
+        internal_term(&definition, r#"\dv{SortResult{}}("1")"#)
+    );
 }

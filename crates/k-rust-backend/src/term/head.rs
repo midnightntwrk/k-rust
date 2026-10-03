@@ -7,14 +7,15 @@
 //! distinct normal forms are distinct values, so its root is the root of its value only when the
 //! application is a normal form on every instance. A function application denotes whatever its
 //! equations and hook make it, a variable ranges over values, and a macro or alias application
-//! denotes a value preprocessing should have replaced.
+//! denotes a value preprocessing should have replaced. An uninterpreted application has no
+//! individuating declaration or has identifying algebraic axioms; it stays open under every
+//! reading and every normal-form oracle.
 //!
 //! An algorithm may refute two terms because their roots differ, replace an equation between two
 //! terms by equations between their arguments, fail an occurs check, or prune a rule by a
-//! subject's root only when each root involved is fixed. Replacing an equation between two
-//! applications of one symbol by equations between their arguments needs, in addition, that the
-//! symbol carries no `assoc` or `idem` axiom: those axioms reassociate or collapse the arguments
-//! of one value.
+//! subject's root only when each root involved is fixed. The symbol's role excludes algebraic
+//! applications from fixed roots, so comparing two fixed applications of one symbol needs no
+//! additional algebraic flag test. Only syntactic identity decides uninterpreted applications.
 //!
 //! The classifier has two entry points. `classify_pattern` reads a left-hand side under a
 //! `PatternReading` and never consults evidence. `classify_value` reads a subject or operand as
@@ -355,6 +356,8 @@ pub(crate) enum Open {
     },
     /// An equation head read up to equations, or read as a value without evidence.
     EquationHead,
+    /// No declaration or normal-form evidence individuates the application.
+    Uninterpreted,
 }
 
 /// The classification of a root.
@@ -421,6 +424,7 @@ fn classify(term: &Term, equation_head: impl FnOnce() -> Option<NormalEvidence>)
             },
             HeadRole::Function { injective, .. } => Head::Open(Open::Function { injective }),
             HeadRole::Residual => Head::Residual,
+            HeadRole::Uninterpreted => Head::Open(Open::Uninterpreted),
         },
     }
 }
@@ -433,12 +437,9 @@ pub(crate) enum RootComparison<'t> {
     /// domain value, an injection or a collection; a domain value against an injection or a
     /// collection; an injection against a collection; two collections of different kinds.
     Distinct(RootsDiffer<'t>),
-    /// One symbol without `assoc` or `idem`, equal sort arguments, equal arity: the two values
-    /// are equal exactly when the arguments are.
+    /// One free symbol, equal sort arguments, equal arity: the two values are equal exactly
+    /// when the arguments are.
     SameApplication(SameApplication<'t>),
-    /// One symbol with `assoc` or `idem`, equal sort arguments, equal arity: the root decides
-    /// nothing about the arguments, which the symbol's own axioms reassociate or collapse.
-    SameAlgebraicSymbol,
     /// One symbol name and equal sort arguments, different arity: an ill-formed pair.
     ArityMismatch,
     /// Two domain values: compared by sort and value.
@@ -521,8 +522,6 @@ fn compare_applications<'t>(left: &'t Term, right: &'t Term) -> Option<RootCompa
     }
     Some(if left_arguments.len() != right_arguments.len() {
         RootComparison::ArityMismatch
-    } else if left_symbol.attributes.associative || left_symbol.attributes.idempotent {
-        RootComparison::SameAlgebraicSymbol
     } else {
         RootComparison::SameApplication(SameApplication {
             left: left_arguments,
@@ -804,7 +803,10 @@ pub(crate) fn rigid_occurrence(variable: &Variable, term: &Term) -> Option<Rigid
             occurs_rigidly(variable, term)
         }
         Shape::Application(
-            HeadRole::EquationHead | HeadRole::Function { .. } | HeadRole::Residual,
+            HeadRole::EquationHead
+            | HeadRole::Function { .. }
+            | HeadRole::Uninterpreted
+            | HeadRole::Residual,
         )
         | Shape::Variable
         | Shape::And
@@ -833,7 +835,10 @@ fn occurs_rigidly(variable: &Variable, term: &Term) -> bool {
             HeadRole::FreeConstructor => arguments
                 .iter()
                 .any(|argument| occurs_rigidly(variable, argument)),
-            HeadRole::EquationHead | HeadRole::Function { .. } | HeadRole::Residual => false,
+            HeadRole::EquationHead
+            | HeadRole::Function { .. }
+            | HeadRole::Uninterpreted
+            | HeadRole::Residual => false,
         },
         TermKind::And(..)
         | TermKind::DomainValue { .. }
@@ -859,7 +864,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::{FunctionType, Sort, Symbol, SymbolType};
+    use crate::term::{AlgebraicAxioms, FunctionType, Sort, Symbol, SymbolType};
 
     /// The 18415fba definition: `wrap` is an equation head with the equation `wrap(s(z)) =
     /// wrap(z)` (emitted with an `\in` binder, as kompile emits anywhere rules); it also carries
@@ -1067,7 +1072,7 @@ mod tests {
             "Fixed(DomainValue)",
             "Fixed(Injection)",
             "Fixed(FreeConstructor)",
-            "Open(Function { injective: false })",
+            "Open(Uninterpreted)",
             "Open(Function { injective: true })",
             "Residual",
         ];
@@ -1150,12 +1155,23 @@ mod tests {
         assert_eq!(rigid_occurrence(&y, &through_constructor), None);
     }
 
-    /// Acceptance (Q6): one `assoc` or `idem` constructor decides nothing about its arguments;
-    /// a free one pairs them.
+    /// An algebraic application stays open; a free application pairs its arguments.
     #[test]
-    fn an_algebraic_constructor_is_not_the_same_application() {
-        let assoc = symbol("f", 2, |symbol| symbol.attributes.associative = true);
-        let idem = symbol("g", 2, |symbol| symbol.attributes.idempotent = true);
+    fn an_algebraic_application_has_no_fixed_root() {
+        let assoc = symbol("f", 2, |symbol| {
+            symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            symbol.attributes = symbol
+                .attributes
+                .clone()
+                .with_algebraic_axioms(AlgebraicAxioms::assoc());
+        });
+        let idem = symbol("g", 2, |symbol| {
+            symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            symbol.attributes = symbol
+                .attributes
+                .clone()
+                .with_algebraic_axioms(AlgebraicAxioms::idem());
+        });
         let free = symbol("h", 2, |_| {});
         let a = apply(&symbol("a", 0, |_| {}), Vec::new());
         let b = apply(&symbol("b", 0, |_| {}), Vec::new());
@@ -1167,8 +1183,12 @@ mod tests {
                 vec![apply(algebraic, vec![a.clone(), b.clone()]), c.clone()],
             );
             assert!(matches!(
-                compare_roots(value(&left), value(&right)),
-                RootComparison::SameAlgebraicSymbol
+                classify_value(&left, &mut NoEvidence),
+                Head::Open(Open::Uninterpreted)
+            ));
+            assert!(matches!(
+                classify_value(&right, &mut NoEvidence),
+                Head::Open(Open::Uninterpreted)
             ));
         }
         let left = apply(&free, vec![a.clone(), var("X")]);
@@ -1576,19 +1596,29 @@ mod tests {
         assert!(decided > 0 && decided < 3 * terms.len() * terms.len());
     }
 
-    /// The pairs the witness does not decide although the predicate it replaced did: two
-    /// applications of one `assoc` or `idem` symbol whose arguments differ (`f(f(a, b), c)` and
-    /// `f(a, f(b, c))` are one value under associativity), two applications of one symbol with
-    /// different arities (an ill-formed pair), and a certified macro application, whose value is
-    /// an expansion the definition does not describe. No `Distinct` is minted for any of them.
+    /// Algebraic applications have no fixed root or concrete normalized shape. Applications
+    /// with different arities are ill-formed, and a macro denotes an unknown expansion.
+    /// No structural distinction is justified for these pairs.
     #[test]
     fn structural_distinctness_leaves_algebraic_ill_formed_and_residual_pairs_undecided() {
         let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
         let a = apply(&symbol("a", 0, |_| {}), Vec::new());
         let b = apply(&symbol("b", 0, |_| {}), Vec::new());
         let c = apply(&symbol("c", 0, |_| {}), Vec::new());
-        let assoc = symbol("f", 2, |symbol| symbol.attributes.associative = true);
-        let idem = symbol("g", 2, |symbol| symbol.attributes.idempotent = true);
+        let assoc = symbol("f", 2, |symbol| {
+            symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            symbol.attributes = symbol
+                .attributes
+                .clone()
+                .with_algebraic_axioms(AlgebraicAxioms::assoc());
+        });
+        let idem = symbol("g", 2, |symbol| {
+            symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            symbol.attributes = symbol
+                .attributes
+                .clone()
+                .with_algebraic_axioms(AlgebraicAxioms::idem());
+        });
         for algebraic in [&assoc, &idem] {
             let left = apply(
                 algebraic,
@@ -1598,7 +1628,9 @@ mod tests {
                 algebraic,
                 vec![a.clone(), apply(algebraic, vec![b.clone(), c.clone()])],
             );
-            assert!(predicate_structurally_distinct(&left, &right, &undecided));
+            assert!(!left.concrete_after_normalization());
+            assert!(!right.concrete_after_normalization());
+            assert!(!predicate_structurally_distinct(&left, &right, &undecided));
             assert!(
                 left.structurally_distinct_with(&right, &undecided)
                     .is_none()

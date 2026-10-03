@@ -27,8 +27,8 @@
 //! - a conjunction matches when each conjunct does, with one set of bindings.
 //!
 //! Everything else answers "not surely": a collection pattern (the collection axioms let one
-//! value have several representations), a set variable, an application of an `assoc` or `idem`
-//! symbol (the axioms reassociate or collapse its arguments), a subterm whose sort differs from
+//! value have several representations), a set variable, an uninterpreted application
+//! (no declaration individuates its arguments, or identifying axioms relate them), a subterm whose sort differs from
 //! the variable's (whether its values belong to the variable's sort is a question about the sort
 //! graph and injections), and a predicate-simplification left-hand side with a conjunct that is
 //! neither a term nor `\top` (left out of the catalog). In each a match may exist that the checker
@@ -46,7 +46,7 @@ use rustc_hash::FxHashMap;
 use crate::{
     definition::BackendDefinition,
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleAttributes, Theory},
-    term::{Name, Sort, Term, TermKind, Variable, VariableKind},
+    term::{HeadRole, Name, Sort, Term, TermKind, Variable, VariableKind},
 };
 
 /// Which claim about `term` is being checked.
@@ -276,7 +276,7 @@ fn surely_matches<'p, 's>(
             sort_arguments,
             arguments,
         } => {
-            if symbol.attributes.associative || symbol.attributes.idempotent {
+            if symbol.attributes.head_role() == HeadRole::Uninterpreted {
                 return false;
             }
             let TermKind::Application {
@@ -696,7 +696,7 @@ mod tests {
                 symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
                 symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
                 symbol cat{}(SortNat{}, SortNat{}) : SortNat{}
-                    [constructor{}(), functional{}(), assoc{}()]
+                    [functional{}(), assoc{}()]
                 symbol pack{}(SortNat{}) : SortNat{} [anywhere{}(), functional{}()]
                 axiom{R} \implies{R}(
                     \and{R}(

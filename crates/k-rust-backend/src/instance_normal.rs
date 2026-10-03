@@ -434,7 +434,6 @@ fn separated(comparison: RootComparison<'_>) -> bool {
         // Equal names, two domain values and two injections have arms of their own in
         // `unify_one`; the root alone separates none of these pairs.
         RootComparison::SameApplication(_)
-        | RootComparison::SameAlgebraicSymbol
         | RootComparison::ArityMismatch
         | RootComparison::DomainValues
         | RootComparison::Injections
@@ -677,7 +676,9 @@ mod tests {
                 TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
                     HeadRole::FreeConstructor => true,
                     HeadRole::EquationHead => side == Side::Subject,
-                    HeadRole::Function { .. } | HeadRole::Residual => false,
+                    HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {
+                        false
+                    }
                 },
                 TermKind::Injection { .. }
                 | TermKind::Variable(_)
