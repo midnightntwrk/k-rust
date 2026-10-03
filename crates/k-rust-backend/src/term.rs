@@ -10,7 +10,8 @@
 //! id = "representation.backend.term"
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
-//! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes", "Term::map", "Term::set",
+//! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes",
+//!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::set",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
 //!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
 //! invariant = """\
@@ -28,10 +29,12 @@
 //! Allocation synthesizes shape from the completed kind and every immediate child: a repeated \
 //! map key or set element anywhere below a term excludes constructor_like and \
 //! concrete_after_normalization; a collision root also excludes structural evaluated. \
-//! with_evaluated_cache rebuilds through the same allocator, deriving kind and unchanged shape \
-//! from its immutable source Application (checked against resynthesis in debug); other kinds \
-//! resynthesize shape. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern \
-//! the separate conservative ceil_free attribute, not this hereditary shape exclusion."""
+//! with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind \
+//! is the source's, and an Application keeps every other stored attribute of the source, which \
+//! equals the structural and kind-derived value for that kind (checked against recomputation in \
+//! debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking \
+//! precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, \
+//! not this hereditary shape exclusion."""
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs", "crates/k-rust-backend/src/tests/definedness.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
@@ -1420,58 +1423,70 @@ impl Term {
         }
     }
 
-    // Preserve each constructor's known kind through the shared synthesis boundary.
-    #[inline(always)]
     fn new(kind: TermKind) -> Self {
         Self::allocate(TermAllocation::Structural(kind))
     }
 
-    // Each caller selects one allocation mode; specialize away the other mode's setup.
-    #[inline(always)]
     #[deny(clippy::wildcard_enum_match_arm)]
     fn allocate(allocation: TermAllocation<'_>) -> Self {
-        let (kind, cache, reused) = match allocation {
-            TermAllocation::Structural(kind) => (kind, EvaluatedCache::Structural, None),
-            TermAllocation::Marked(source) => {
-                // Kind and attributes come from the same immutable allocation: marking cannot
-                // change a shape fact or repair an invalid child. Applications have no local
-                // collection collision; inherited exclusions are already in their attributes.
-                let attributes = matches!(source.kind(), TermKind::Application { .. })
-                    .then(|| source.attributes().clone());
-                (source.kind().clone(), EvaluatedCache::Marked, attributes)
-            }
-        };
-        let (mut attributes, collision_root) = match reused {
-            Some(attributes) => {
+        let (kind, attributes) = match allocation {
+            TermAllocation::Structural(kind) => {
+                let (mut attributes, _) = synthesize_attributes(&kind);
+                set_kind_attributes(&kind, &mut attributes);
                 #[cfg(debug_assertions)]
-                {
-                    let (structural, collision_root) = synthesize_attributes(&kind);
-                    assert!(!collision_root);
-                    assert_eq!(attributes.variables, structural.variables);
-                    assert_eq!(attributes.evaluated, structural.evaluated);
-                    assert_eq!(attributes.constructor_like, structural.constructor_like);
-                    assert_eq!(
-                        attributes.concrete_after_normalization,
-                        structural.concrete_after_normalization
-                    );
-                    assert_eq!(attributes.can_be_evaluated, structural.can_be_evaluated);
-                }
-                (attributes, false)
+                validate_attributes(&kind, &attributes, EvaluatedCache::Structural);
+                (kind, attributes)
             }
-            None => synthesize_attributes(&kind),
+            TermAllocation::Marked(source) => {
+                let kind = source.kind().clone();
+                let attributes = marked_attributes(source, &kind);
+                #[cfg(debug_assertions)]
+                validate_attributes(&kind, &attributes, EvaluatedCache::Marked);
+                (kind, attributes)
+            }
         };
-        match cache {
-            EvaluatedCache::Structural => {}
-            EvaluatedCache::Marked => attributes.evaluated = !collision_root,
-        }
-        #[cfg(debug_assertions)]
-        validate_attributes(&kind, &attributes, cache);
         measure::bump(Counter::TermConstructed);
-        attributes.ceil_free = ceil_free(&kind);
-        attributes.has_macro_or_alias = has_macro_or_alias(&kind);
-        attributes.k_cells = k_cells(&kind);
-        attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
+    }
+}
+
+/// Every attribute other than shape is a function of the kind alone: it reads the kind and the
+/// immediate children's stored attributes.
+fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
+    attributes.ceil_free = ceil_free(kind);
+    attributes.has_macro_or_alias = has_macro_or_alias(kind);
+    attributes.k_cells = k_cells(kind);
+    attributes.hash = calculate_hash(kind);
+}
+
+/// The attributes of `source`'s kind (a copy of `kind`) with the evaluated cache set.
+///
+/// A source reaching this point was allocated from the identical kind, either structurally or
+/// by an earlier mark, which changes only `evaluated`; so its stored attributes other than
+/// `evaluated` are the structural ones of `kind`. An application is never a collection-collision
+/// root (only a map or set is), and its inherited exclusions are already in those attributes,
+/// so it keeps them and only gains the mark. Other kinds resynthesize their shape, and a
+/// collision root keeps `evaluated` false whatever the mark.
+fn marked_attributes(source: &Term, kind: &TermKind) -> TermAttributes {
+    if matches!(kind, TermKind::Application { .. }) {
+        let mut attributes = source.attributes().clone();
+        #[cfg(debug_assertions)]
+        {
+            let (mut structural, collision_root) = synthesize_attributes(kind);
+            set_kind_attributes(kind, &mut structural);
+            assert!(!collision_root);
+            assert_eq!(
+                attributes, structural,
+                "a marked source carries its kind's attributes"
+            );
+        }
+        attributes.evaluated = true;
+        attributes
+    } else {
+        let (mut attributes, collision_root) = synthesize_attributes(kind);
+        attributes.evaluated = !collision_root;
+        set_kind_attributes(kind, &mut attributes);
+        attributes
     }
 }
 
@@ -1831,30 +1846,45 @@ fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
 }
 
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
-    let mut terms = terms.into_iter();
-    let Some(first) = terms.next() else {
-        // These flags are conjunctions over child terms.  Their identity is true, which is
-        // essential for nullary constructors and empty builtin collections to be recognized as
-        // concrete constructor-like values.
-        return TermAttributes {
+    let mut shape = ChildShape::new();
+    for term in terms {
+        shape.add(term);
+    }
+    shape.0
+}
+
+/// The conjunctive shape of a node's immediate children, accumulated once per child.
+struct ChildShape(TermAttributes);
+
+impl ChildShape {
+    /// The flags are conjunctions over child terms. Their identity is true, which is essential
+    /// for nullary constructors and empty builtin collections to be recognized as concrete
+    /// constructor-like values.
+    fn new() -> Self {
+        Self(TermAttributes {
             constructor_like: true,
             concrete_after_normalization: true,
             ..TermAttributes::default()
-        };
-    };
-    let mut combined = first.attributes().clone();
-    for term in terms {
-        let attributes = term.attributes();
-        combined
-            .variables
-            .extend(attributes.variables.iter().cloned());
-        combined.evaluated &= attributes.evaluated;
-        combined.constructor_like &= attributes.constructor_like;
-        combined.concrete_after_normalization &= attributes.concrete_after_normalization;
-        combined.can_be_evaluated &= attributes.can_be_evaluated;
+        })
     }
-    combined.hash = 0;
-    combined
+
+    #[inline]
+    fn add(&mut self, child: &Term) {
+        let attributes = child.attributes();
+        if !attributes.variables.is_empty() {
+            if self.0.variables.is_empty() {
+                self.0.variables.clone_from(&attributes.variables);
+            } else {
+                self.0
+                    .variables
+                    .extend(attributes.variables.iter().cloned());
+            }
+        }
+        self.0.evaluated &= attributes.evaluated;
+        self.0.constructor_like &= attributes.constructor_like;
+        self.0.concrete_after_normalization &= attributes.concrete_after_normalization;
+        self.0.can_be_evaluated &= attributes.can_be_evaluated;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1873,7 +1903,6 @@ enum TermAllocation<'a> {
 /// Derive shape from the completed kind. Strict children contribute conjunctively; a local
 /// disjoint-collection collision excludes every value shape and requires root simplification.
 /// The second result records that root outcome so a cache mark cannot override it.
-#[inline(always)]
 #[deny(clippy::wildcard_enum_match_arm)]
 fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
     let mut collision_root = false;
@@ -1910,13 +1939,20 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
         },
         TermKind::Injection { term, .. } => term.attributes().clone(),
         TermKind::Map { entries, rest, .. } => {
-            collision_root = entries.windows(2).any(|pair| pair[0].0 == pair[1].0);
-            combine_attributes(
-                entries
-                    .iter()
-                    .flat_map(|(key, value)| [key, value])
-                    .chain(rest.iter()),
-            )
+            // Entries are sorted by key, so a repeated key follows its first binding; the
+            // collision test shares the single pass over the children.
+            let mut shape = ChildShape::new();
+            let mut previous_key = None;
+            for (key, value) in entries {
+                collision_root |= previous_key == Some(key);
+                previous_key = Some(key);
+                shape.add(key);
+                shape.add(value);
+            }
+            if let Some(rest) = rest {
+                shape.add(rest);
+            }
+            shape.0
         }
         TermKind::List { heads, rest, .. } => combine_attributes(
             heads.iter().chain(
@@ -1925,8 +1961,18 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             ),
         ),
         TermKind::Set { elements, rest, .. } => {
-            collision_root = elements.windows(2).any(|pair| pair[0] == pair[1]);
-            combine_attributes(elements.iter().chain(rest.iter()))
+            // Elements are sorted, so a repeated element follows its first occurrence.
+            let mut shape = ChildShape::new();
+            let mut previous = None;
+            for element in elements {
+                collision_root |= previous == Some(element);
+                previous = Some(element);
+                shape.add(element);
+            }
+            if let Some(rest) = rest {
+                shape.add(rest);
+            }
+            shape.0
         }
     };
     if collision_root {
