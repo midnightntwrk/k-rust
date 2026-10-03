@@ -21,7 +21,9 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::definition::{AttributeKey, PartialOrder, ProductionItem, ResolvedDefinition, Sentence};
+use crate::definition::{
+    AttributeKey, Attributes, PartialOrder, ProductionItem, ResolvedDefinition, Sentence,
+};
 use crate::kast::parser::parse_sort_text;
 use crate::kast::{GeneratedLabel, InternalLabel, Sort, Term};
 use crate::kompile::passes::{
@@ -192,6 +194,37 @@ impl<'a> SentenceTyper<'a> {
     }
 
     pub fn typing(&self, sentence: &Sentence) -> Result<SentenceTyping, SentenceTypingError> {
+        self.typing_at(sentence, None)
+    }
+
+    /// Type a ground value at the position from which its emitted instance is inferred.
+    pub(crate) fn ground_typing(
+        &self,
+        term: &Term,
+        position: &Sort,
+    ) -> Result<SentenceTyping, SentenceTypingError> {
+        self.typing_at(
+            &Sentence::Rule {
+                body: term.clone(),
+                requires: Term::Token {
+                    token: "true".into(),
+                    sort: Sort::builtin(BuiltinSort::Bool),
+                },
+                ensures: Term::Token {
+                    token: "true".into(),
+                    sort: Sort::builtin(BuiltinSort::Bool),
+                },
+                attributes: Attributes::default(),
+            },
+            Some(position),
+        )
+    }
+
+    fn typing_at(
+        &self,
+        sentence: &Sentence,
+        top: Option<&Sort>,
+    ) -> Result<SentenceTyping, SentenceTypingError> {
         let (Sentence::Rule {
             body,
             requires,
@@ -244,6 +277,7 @@ impl<'a> SentenceTyper<'a> {
             [body, requires, ensures],
             [resolved_body, resolved_requires, resolved_ensures],
             variables,
+            top,
         )
         .map_err(|error| SentenceTypingError::Sort { location, error })
     }
@@ -253,10 +287,13 @@ impl<'a> SentenceTyper<'a> {
         loaded: [&Term; 3],
         resolved: [&Term; 3],
         variables: BTreeMap<String, Sort>,
+        top: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
-        let top = injector.fresh_sort_parameter();
+        let top = top
+            .cloned()
+            .unwrap_or_else(|| injector.fresh_sort_parameter());
         let boolean = Sort::builtin(BuiltinSort::Bool);
 
         let mut conditions = Walk::new(injector, Branch::Only);
@@ -275,8 +312,8 @@ impl<'a> SentenceTyper<'a> {
             instances,
         };
         // As `inject_rule_body`: a body with a rewrite is the rewrite of its two projections,
-        // typed at their least upper bound below a fresh sort variable, and each projection is
-        // injected at that bound; a body without one is typed below the fresh variable and
+        // typed at their least upper bound below the top hint, and each projection is
+        // injected at that bound; a body without one is typed below the top hint and
         // injected at its own sort. The body's sort comes from a first walk (the injector's
         // `term_sort` cannot type loaded cell fragments), and the second walk types the body at
         // the position injection places it at.

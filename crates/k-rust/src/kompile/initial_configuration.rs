@@ -212,9 +212,9 @@ impl From<TermConversionError> for ConfigurationError {
 ///   literal and the `String` literal grammar is its parser when the cell declares none.
 /// - A `K`-sorted variable is parsed at `KItem`: the configuration map holds `KItem` values, so
 ///   the value is one item, never a sequence.
-/// - Every parsed term is macro-expanded in the main module and instantiated at its parsed
-///   sort, except a program parsed at `K`, whose position is `KItem` because the configuration
-///   map holds items. Its closed sort before the injections below its top is the source sort
+/// - Every value is macro-expanded in the main module and instantiated at its position,
+///   `configuration_position` of its declared or start sort.
+///   Its closed sort before the injections below its top is the source sort
 ///   of the entry's `inj{_, KItem}`.
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
@@ -271,19 +271,12 @@ impl<'g> ConfigurationAssembler<'g> {
         let program = parser
             .parse(start_sort, text)
             .map_err(ConfigurationError::Program)?;
-        let program = self.expand(program)?;
+        let position = configuration_position(start_sort);
+        let program = self.expand(program, &position)?;
         // The program is instantiated independently of the configuration values; no sentence
         // sort variable may survive in either kind of ground value.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
-        // The configuration map holds KItem values, so a program read at K must be
-        // instantiated as an item, just like a K-sorted configuration variable.
-        let position = if start_sort.name == BuiltinSort::K.k_name() {
-            KastSort::builtin(BuiltinSort::KItem)
-        } else {
-            start_sort.clone()
-        };
-        let (value, sort) =
-            self.to_kore(&injector, &self.syntax_module, &program, &position, "$PGM")?;
+        let (value, sort) = self.to_kore(&injector, &self.syntax_module, &program, "$PGM")?;
         self.program = Some(ConfigurationBinding {
             name: "$PGM".to_owned(),
             value,
@@ -339,11 +332,7 @@ impl<'g> ConfigurationAssembler<'g> {
                 ProgramParser::from_resolved(resolved, &parser_module)?,
             );
         }
-        let parse_sort = if sort.name == BuiltinSort::K.k_name() {
-            KastSort::builtin(BuiltinSort::KItem)
-        } else {
-            sort.clone()
-        };
+        let parse_sort = configuration_position(sort);
         let parsed = self.parsers[&parser_module]
             .parse(&parse_sort, text)
             .map_err(|error| ConfigurationError::Parse {
@@ -351,7 +340,7 @@ impl<'g> ConfigurationAssembler<'g> {
                 sort: sort.clone(),
                 error: Box::new(error),
             })?;
-        let expanded = self.expand(parsed)?;
+        let expanded = self.expand(parsed, &parse_sort)?;
         if self.injector.is_none() {
             self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
         }
@@ -359,13 +348,8 @@ impl<'g> ConfigurationAssembler<'g> {
             .injector
             .as_ref()
             .expect("the injector was created above");
-        let (value, sort) = self.to_kore(
-            injector,
-            &parser_module,
-            &expanded,
-            &parse_sort,
-            &format!("${name}"),
-        )?;
+        let (value, sort) =
+            self.to_kore(injector, &parser_module, &expanded, &format!("${name}"))?;
         self.bound.insert(name.to_owned());
         self.bindings.push(ConfigurationBinding {
             name: format!("${name}"),
@@ -447,7 +431,11 @@ impl<'g> ConfigurationAssembler<'g> {
 
     /// Expand the macros of a parsed value in the main module. The expander depends on the
     /// grammar alone, so it is prepared once and serves every value.
-    fn expand(&mut self, program: ParsedProgram) -> Result<ExpandedProgram, ConfigurationError> {
+    fn expand(
+        &mut self,
+        program: ParsedProgram,
+        position: &KastSort,
+    ) -> Result<ExpandedProgram, ConfigurationError> {
         if self.macro_definition.is_none() {
             self.macro_definition = Some(
                 MacroExpansionDefinition::prepare(self.grammar.definition())
@@ -457,7 +445,7 @@ impl<'g> ConfigurationAssembler<'g> {
         self.macro_definition
             .as_ref()
             .expect("the macro definition was prepared above")
-            .expand_program(&self.main_module, program)
+            .expand_program(&self.main_module, program, position)
             .map_err(ConfigurationError::MacroExpansion)
     }
 
@@ -468,13 +456,11 @@ impl<'g> ConfigurationAssembler<'g> {
         injector: &SortInjector<'g, 'g>,
         token_module: &str,
         program: &ExpandedProgram,
-        position: &KastSort,
         variable: &str,
     ) -> Result<(Pattern, Sort), ConfigurationError> {
         // Expansion rebases applications into the executable catalog. Tokens remain
         // self-describing, and conversion retains lexical hooks from the parser module.
-        let term = program.term();
-        let (term, sort) = injector.inject_ground(term, position).map_err(|error| {
+        let (term, sort) = injector.inject_ground(program).map_err(|error| {
             if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
                 ConfigurationError::UndeterminedInstance {
                     variable: variable.into(),
@@ -491,6 +477,15 @@ impl<'g> ConfigurationAssembler<'g> {
             &term,
         )?;
         Ok((pattern, encode_kore_sort(&sort)))
+    }
+}
+
+/// The configuration map holds KItem values, so a K-sorted value is one item.
+fn configuration_position(declared: &KastSort) -> KastSort {
+    if declared.name == BuiltinSort::K.k_name() {
+        KastSort::builtin(BuiltinSort::KItem)
+    } else {
+        declared.clone()
     }
 }
 

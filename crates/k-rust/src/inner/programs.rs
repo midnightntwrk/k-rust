@@ -105,6 +105,9 @@ impl std::error::Error for ProgramParseError {}
 /// A program or configuration value as the program parser produced it: sort inference has
 /// instantiated parametric productions, so labels carry inferred sort arguments, and macro
 /// applications are as parsed.
+/// Macro expansion discards the parser's parametric instances and infers each application's
+/// instance from the current value at its supplied position, which the expanded value carries
+/// into sort injection.
 ///
 /// It is neither user-facing KAST nor an executable input: [`ProgramParser::present`] produces
 /// the first and [`MacroExpansionDefinition::expand_program`] the second. The typed term is

@@ -605,3 +605,106 @@ endmodule
     );
     assert!(!message.contains("add a sort cast"), "{message}");
 }
+
+#[test]
+fn a_program_read_at_k_selects_the_kitem_macro_instance() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= m() [macro, symbol(m)]
+  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)]
+  rule m():KItem => a
+  rule m():K => b
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("K"), "m()").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    assert!(
+        rendered.contains(&entry("PGM", "inj{SortFoo{}, SortKItem{}}(Lbla{}())")),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("Lblb"), "{rendered}");
+}
+
+#[test]
+fn a_program_read_at_k_expands_its_only_kitem_rule() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= m() [macro, symbol(m)]
+  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)]
+  rule m():KItem => a
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("K"), "m()").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    assert!(
+        rendered.contains(&entry("PGM", "inj{SortFoo{}, SortKItem{}}(Lbla{}())")),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("Lblm"), "{rendered}");
+}
+
+#[test]
+fn a_value_takes_the_rule_of_its_emitted_instance() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)]
+  syntax {S} S ::= id(S) [macro, symbol(id)]
+  rule id(_:Foo):Foo => b
+  configuration <k> $PGM:KItem </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("KItem"), "id(a)").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    assert!(
+        rendered.contains(&entry("PGM", "inj{SortFoo{}, SortKItem{}}(Lblb{}())")),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("Lblid"), "{rendered}");
+}
+
+#[test]
+fn a_rewrite_below_does_not_change_the_selected_rule() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)] | c() [macro, symbol(c)]
+  syntax Bar ::= "z" [symbol(z)]
+  syntax {S} S ::= m(Foo) [macro, symbol(m)]
+  rule c() => a
+  rule m(_):Bar => z
+  rule m(X):KItem => X
+  configuration <k> $PGM:KItem </k> <x> $X:KItem </x>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("KItem"), "m(c())").unwrap();
+    assembler.bind("X", "m(c())").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    for name in ["PGM", "X"] {
+        assert!(
+            rendered.contains(&entry(name, "inj{SortFoo{}, SortKItem{}}(Lbla{}())")),
+            "{rendered}"
+        );
+    }
+    assert!(!rendered.contains("Lblz"), "{rendered}");
+}

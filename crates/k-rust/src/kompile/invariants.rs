@@ -28,6 +28,9 @@
 //!   right-hand-side variable of a rule-like sentence stays bound by its left-hand side or
 //!   covered by an exemption once the pipeline input has that property.
 //!
+//! - [`ground`] checks G2-ground: the parametric symbol instances in a ground value's typing
+//!   at its position are exactly the instances that sort injection emits for that value.
+//!
 //! Gating: this module and every call site of a checker are compiled under
 //! `cfg(any(debug_assertions, feature = "kompile-invariant-checks"))`, so every debug build and
 //! `cargo test` run the checkers, a release build with the `kompile-invariant-checks` feature
@@ -39,4 +42,6 @@
 //! only the compile itself, and change no value that kompile returns.
 
 pub(crate) mod emitted;
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+pub(crate) mod ground;
 pub(crate) mod stage;

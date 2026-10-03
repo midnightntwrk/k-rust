@@ -231,6 +231,7 @@ fn check_smt_lemmas(
 /// A program or configuration value after macro expansion in the executable module: every
 /// application the module's macro and alias rules match is rewritten. An application that no
 /// rule matches remains; the backend's executable-pattern check rejects it at execution.
+/// The value carries the position at which expansion types it and injection instantiates it.
 ///
 /// Macro and alias rules are definitional abbreviations that compilation removes from the
 /// executable semantics, so a macro application has no meaning there: execution consumes the
@@ -276,19 +277,28 @@ fn check_smt_lemmas(
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[must_use]
-pub struct ExpandedProgram(Term);
+pub struct ExpandedProgram {
+    term: Term,
+    position: Sort,
+}
 
 impl ExpandedProgram {
     /// The expanded term, for sort injection and KORE conversion.
     #[must_use]
     pub fn term(&self) -> &Term {
-        &self.0
+        &self.term
+    }
+
+    /// The position at which expansion types the value and injection instantiates it.
+    #[must_use]
+    pub fn position(&self) -> &Sort {
+        &self.position
     }
 
     /// The expanded term, by value.
     #[must_use]
     pub fn into_term(self) -> Term {
-        self.0
+        self.term
     }
 }
 
@@ -301,8 +311,9 @@ pub fn expand_macros_in_term(
     definition: &Definition,
     module: &str,
     program: ParsedProgram,
+    position: &Sort,
 ) -> Result<ExpandedProgram, String> {
-    expand_macros_in_term_with_scope(definition, module, module, program)
+    expand_macros_in_term_with_scope(definition, module, module, program, position)
 }
 
 /// Expand a standalone program parsed in one module with another module's executable syntax.
@@ -317,8 +328,9 @@ pub fn expand_macros_in_term_with_scope(
     _term_module: &str,
     macro_module: &str,
     program: ParsedProgram,
+    position: &Sort,
 ) -> Result<ExpandedProgram, String> {
-    MacroExpansionDefinition::prepare(definition)?.expand_program(macro_module, program)
+    MacroExpansionDefinition::prepare(definition)?.expand_program(macro_module, program, position)
 }
 
 /// The definition from which standalone terms, such as a program or a configuration-variable
@@ -408,21 +420,23 @@ impl MacroExpansionDefinition {
         &self,
         macro_module: &str,
         program: ParsedProgram,
+        position: &Sort,
     ) -> Result<ExpandedProgram, String> {
         let views = self.resolved.views();
         let mut expanded = expand_macros_in_terms_from_views_with_scope(
             &views,
             macro_module,
             macro_module,
-            vec![program.into_typed_term()],
+            vec![(program.into_typed_term(), position.clone())],
         )
         .map_err(|diagnostic| diagnostic.message)?;
-        Ok(ExpandedProgram(
-            expanded
+        Ok(ExpandedProgram {
+            term: expanded
                 .terms
                 .pop()
                 .expect("one input term produces one expanded term"),
-        ))
+            position: position.clone(),
+        })
     }
 }
 
@@ -488,7 +502,7 @@ pub(crate) struct ExpandedMacroTerms {
 pub(crate) fn expand_macros_in_terms_from_resolved(
     definition: &ResolvedDefinition,
     module: &str,
-    terms: Vec<Term>,
+    terms: Vec<(Term, Sort)>,
 ) -> Result<ExpandedMacroTerms, String> {
     let views = definition.views();
     expand_macros_in_terms_from_views_with_scope(&views, module, module, terms)
@@ -499,7 +513,7 @@ fn expand_macros_in_terms_from_views_with_scope(
     views: &DefinitionViews<'_>,
     term_module: &str,
     macro_module: &str,
-    terms: Vec<Term>,
+    terms: Vec<(Term, Sort)>,
 ) -> Result<ExpandedMacroTerms, Diagnostic> {
     let definition = views.definition();
     let term_module = definition
@@ -509,10 +523,13 @@ fn expand_macros_in_terms_from_views_with_scope(
         .module_id(macro_module)
         .ok_or_else(|| plain_error(format!("unknown module {macro_module}")))?;
     let mut expander = Expander::new(views, term_module, macro_module)?;
-    expander.fresh = FreshNames::for_terms(terms.iter());
+    expander.fresh = FreshNames::for_terms(terms.iter().map(|(term, _)| term));
     let terms = terms
         .into_iter()
-        .map(|term| expander.expand_standalone(term))
+        .map(|(mut term, position)| {
+            erase_parser_instances(&mut term, expander.productions);
+            expander.expand_standalone(term, &position)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ExpandedMacroTerms {
         terms,
@@ -808,21 +825,28 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     }
 
     /// Expand a term parsed outside the definition. With a parametric macro head it is expanded
-    /// as the body of a rule, so that its positions are typed as compilation types a rule body.
-    fn expand_standalone(&mut self, term: Term) -> Result<Term, Diagnostic> {
+    /// at its position, so selection reads the instance injection emits there.
+    fn expand_standalone(&mut self, term: Term, position: &Sort) -> Result<Term, Diagnostic> {
         if self.typer.is_none() {
             return self.expand_term(term, &BTreeSet::new());
         }
-        let mut site = Site::new(Sentence::Rule {
-            body: term,
-            requires: truth(),
-            ensures: truth(),
-            attributes: Attributes::default(),
-        });
+        let mut site = Site::ground(term, position);
         self.expand_site(&mut site, &[0])?;
         let Sentence::Rule { body, .. } = site.sentence else {
             unreachable!("the site holds the rule it was built from")
         };
+        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+        measure::without_counting(|| {
+            crate::kompile::invariants::ground::assert_ground_instances(
+                self.productions,
+                self.typer
+                    .as_ref()
+                    .expect("ground sites have a typing view"),
+                &self.injector,
+                &body,
+                position,
+            );
+        });
         Ok(body)
     }
 
@@ -849,13 +873,12 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             Term::Rewrite { .. } | Term::As { .. } => 2,
             _ => 0,
         };
-        let rewrites = site.rewrites;
         for index in 0..children {
             let mut child = path.to_vec();
             child.push(u32::try_from(index).expect("a term has fewer than 2^32 children"));
             self.expand_at(site, &child, applied)?;
         }
-        self.try_rules(site, path, applied, site.rewrites == rewrites)
+        self.try_rules(site, path, applied)
     }
 
     /// Expand the given fields of `site`, then retry, until no retry rewrites anything, the
@@ -875,7 +898,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     continue;
                 }
                 let before = site.rewrites;
-                self.try_rules(site, &path, &applied, false)?;
+                self.try_rules(site, &path, &applied)?;
                 if site.rewrites != before {
                     // Its enclosing applications were tried before it was expanded.
                     for length in (1..path.len()).rev() {
@@ -898,13 +921,12 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     }
 
     /// Try the macro rules of the application or token at `path`, whose arguments are already
-    /// expanded; `unchanged` when no rewrite happened below it since it was parsed or built.
+    /// expanded at the current typing of the site.
     fn try_rules(
         &mut self,
         site: &mut Site,
         path: &[u32],
         applied: &BTreeSet<usize>,
-        unchanged: bool,
     ) -> Result<(), Diagnostic> {
         let subject = site.term(path).clone();
         #[expect(
@@ -917,7 +939,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     return Ok(());
                 };
                 let instance = if rules.iter().any(|rule| rule.head_instance.is_some()) {
-                    Some(self.subject_instance(site, path, &subject, unchanged))
+                    Some(self.subject_instance(site, path))
                 } else {
                     None
                 };
@@ -948,21 +970,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         Ok(())
     }
 
-    /// The instance of the application `subject` at `path`: the one it was parsed with while
-    /// nothing below it has been rewritten, else the one the typing of the sentence gives it.
-    fn subject_instance(
-        &self,
-        site: &mut Site,
-        path: &[u32],
-        subject: &Term,
-        unchanged: bool,
-    ) -> Instance {
-        let Term::Apply { label, .. } = subject.unannotated() else {
-            return Instance::Unknown;
-        };
-        if unchanged && !label.parameters.is_empty() {
-            return Instance::Known(label.parameters.iter().cloned().map(Some).collect());
-        }
+    /// The instance of the application at `path` in the current typing of its site.
+    fn subject_instance(&self, site: &mut Site, path: &[u32]) -> Instance {
         let Some(typer) = self.typer.as_ref() else {
             return Instance::Unknown;
         };
@@ -1118,6 +1127,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
 /// A sentence being expanded in place, with its typing cached until a rewrite changes it.
 struct Site {
     sentence: Sentence,
+    position: Option<Sort>,
     typing: Option<Option<SentenceTyping>>,
     /// The number of rewrites made in the sentence so far.
     rewrites: usize,
@@ -1130,10 +1140,22 @@ impl Site {
     fn new(sentence: Sentence) -> Self {
         Self {
             sentence,
+            position: None,
             typing: None,
             rewrites: 0,
             pending: Vec::new(),
         }
+    }
+
+    fn ground(term: Term, position: &Sort) -> Self {
+        let mut site = Self::new(Sentence::Rule {
+            body: term,
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        });
+        site.position = Some(position.clone());
+        site
     }
 
     /// The term at `path`, if the sentence has one there.
@@ -1228,36 +1250,37 @@ impl Site {
         self.rewrites += 1;
     }
 
-    /// The typing of the sentence as it stands; `None` when the typing view rejects it, which
-    /// leaves every instance open. A parsed program's labels carry the parser's instances, which
-    /// the typing view rejects as written parameters; it types a copy without them, and the
-    /// instance of an application whose arguments are unchanged is read from its own label.
+    /// The current typing, cached until a rewrite changes it; a ground value is typed at
+    /// its stored position, and a sentence uses its own typing. A typing failure leaves
+    /// instances unknown until a rewrite makes the site typable.
     fn typing(&mut self, typer: &SentenceTyper<'_>) -> Option<&SentenceTyping> {
         if self.typing.is_none() {
-            let mut sentence = self.sentence.clone();
-            erase_label_parameters(&mut sentence);
-            let typed = match &sentence {
-                Sentence::Context {
-                    body,
-                    requires,
-                    attributes,
-                } => typer.typing(&Sentence::Rule {
-                    body: body.clone(),
-                    requires: requires.clone(),
-                    ensures: truth(),
-                    attributes: attributes.clone(),
-                }),
-                sentence @ Sentence::SyntaxSort { .. }
-                | sentence @ Sentence::SortSynonym { .. }
-                | sentence @ Sentence::SyntaxLexical { .. }
-                | sentence @ Sentence::Production { .. }
-                | sentence @ Sentence::SyntaxAssociativity { .. }
-                | sentence @ Sentence::SyntaxPriority { .. }
-                | sentence @ Sentence::ContextAlias { .. }
-                | sentence @ Sentence::Rule { .. }
-                | sentence @ Sentence::Claim { .. }
-                | sentence @ Sentence::Configuration { .. }
-                | sentence @ Sentence::Bubble { .. } => typer.typing(sentence),
+            let typed = if let Some(position) = &self.position {
+                typer.ground_typing(self.fields()[0], position)
+            } else {
+                match &self.sentence {
+                    Sentence::Context {
+                        body,
+                        requires,
+                        attributes,
+                    } => typer.typing(&Sentence::Rule {
+                        body: body.clone(),
+                        requires: requires.clone(),
+                        ensures: truth(),
+                        attributes: attributes.clone(),
+                    }),
+                    sentence @ Sentence::SyntaxSort { .. }
+                    | sentence @ Sentence::SortSynonym { .. }
+                    | sentence @ Sentence::SyntaxLexical { .. }
+                    | sentence @ Sentence::Production { .. }
+                    | sentence @ Sentence::SyntaxAssociativity { .. }
+                    | sentence @ Sentence::SyntaxPriority { .. }
+                    | sentence @ Sentence::ContextAlias { .. }
+                    | sentence @ Sentence::Rule { .. }
+                    | sentence @ Sentence::Claim { .. }
+                    | sentence @ Sentence::Configuration { .. }
+                    | sentence @ Sentence::Bubble { .. } => typer.typing(sentence),
+                }
             };
             self.typing = Some(typed.ok());
         }
@@ -1265,51 +1288,38 @@ impl Site {
     }
 }
 
-/// Clear the sort parameters of every label in `sentence`'s terms.
-fn erase_label_parameters(sentence: &mut Sentence) {
-    fn erase(term: &mut Term) {
-        match term {
-            Term::Annotated { term, .. } => erase(term),
-            Term::Apply { label, arguments } => {
+/// Parser instances belong to parsing; production instances are inferred anew at the value's
+/// position. Internal labels retain the parameters that give their syntax its meaning.
+fn erase_parser_instances(term: &mut Term, productions: &ProductionCatalog<'_>) {
+    match term {
+        Term::Annotated { term, .. } => erase_parser_instances(term, productions),
+        Term::Apply { label, arguments } => {
+            if production_parameters(productions, label).is_some() {
                 label.parameters.clear();
-                arguments.iter_mut().for_each(erase);
             }
-            Term::InjectedLabel(label) => label.parameters.clear(),
-            Term::Rewrite { left, right } => {
-                erase(left);
-                erase(right);
+            for argument in arguments {
+                erase_parser_instances(argument, productions);
             }
-            Term::As { pattern, alias } => {
-                erase(pattern);
-                erase(alias);
-            }
-            Term::Sequence(items) => items.iter_mut().for_each(erase),
-            Term::Variable { .. } | Term::Token { .. } => {}
         }
-    }
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
+        Term::InjectedLabel(label) => {
+            if production_parameters(productions, label).is_some() {
+                label.parameters.clear();
+            }
         }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => [body, requires, ensures].into_iter().for_each(erase),
-        Sentence::Context { body, requires, .. } => [body, requires].into_iter().for_each(erase),
-        Sentence::SyntaxSort { .. }
-        | Sentence::SortSynonym { .. }
-        | Sentence::SyntaxLexical { .. }
-        | Sentence::Production { .. }
-        | Sentence::SyntaxAssociativity { .. }
-        | Sentence::SyntaxPriority { .. }
-        | Sentence::ContextAlias { .. }
-        | Sentence::Configuration { .. }
-        | Sentence::Bubble { .. } => {}
+        Term::Rewrite { left, right } => {
+            erase_parser_instances(left, productions);
+            erase_parser_instances(right, productions);
+        }
+        Term::As { pattern, alias } => {
+            erase_parser_instances(pattern, productions);
+            erase_parser_instances(alias, productions);
+        }
+        Term::Sequence(items) => {
+            for item in items {
+                erase_parser_instances(item, productions);
+            }
+        }
+        Term::Variable { .. } | Term::Token { .. } => {}
     }
 }
 

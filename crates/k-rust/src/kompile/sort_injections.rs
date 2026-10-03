@@ -37,7 +37,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
-use super::passes::{Injectable, placeable};
+use super::passes::{ExpandedProgram, Injectable, placeable};
 
 mod typing;
 use super::view::View;
@@ -794,14 +794,15 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.inject_with_position(term, &top, false)
     }
 
-    /// Instantiate a parsed value at its supplied position and reject any remaining sentence variable.
+    /// Instantiate an expanded value at its carried position and reject any remaining sentence variable.
     /// The position decides only parameters nothing else fixes: `solve_parameters` accepts
     /// the instance fixed by the arguments whenever it fits the position.
     pub(crate) fn inject_ground(
         &self,
-        term: &Term,
-        position: &Sort,
+        value: &ExpandedProgram,
     ) -> Result<(Term, Sort), SortInjectionError> {
+        let term = value.term();
+        let position = value.position();
         let sort = self.term_sort(term, Some(position))?;
         let injected = self.inject_with_position(term, &sort, false)?;
         self.require_ground(&injected, GroundInput::Value)?;

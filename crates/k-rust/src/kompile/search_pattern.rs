@@ -178,17 +178,20 @@ pub fn compile_search_pattern(
         unreachable!("parse_rule_content always returns a Rule sentence")
     };
     let body = rewrite_projection(&body, false, subsorts);
-    let expanded =
-        expand_macros_in_terms_from_resolved(execution_definition, module, vec![body, requires])
-            .map_err(CompileSearchPatternError::MacroExpansion)?;
+    let top = Sort::builtin(BuiltinSort::GeneratedTopCell);
+    let bool_sort = Sort::builtin(BuiltinSort::Bool);
+    let expanded = expand_macros_in_terms_from_resolved(
+        execution_definition,
+        module,
+        vec![(body, top.clone()), (requires, bool_sort.clone())],
+    )
+    .map_err(CompileSearchPatternError::MacroExpansion)?;
     generated.extend(expanded.generated_variables);
     let [body, requires]: [Term; 2] = expanded
         .terms
         .try_into()
         .expect("two input roots produce two expanded roots");
 
-    let top = Sort::builtin(BuiltinSort::GeneratedTopCell);
-    let bool_sort = Sort::builtin(BuiltinSort::Bool);
     let injector = SortInjector::new(execution_definition, module)?;
     let actual = injector.term_sort(&body, None)?;
     if actual != top {
