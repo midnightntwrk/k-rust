@@ -38,10 +38,12 @@ use crate::{
 
 mod witness {
     use super::{Attributes, Diagnostic, Label, ProductionItem, Sentence, Sort, error_at};
+    use crate::definition::production_kind::ProductionKind;
 
     /// A labelled production that binds no sort parameter, from which strictness lowering builds
     /// every context and hybrid rule: its label carries no formal and its casts are at sorts of
-    /// the definition.
+    /// the definition. Its kind is `Base` or `Algebraic`, whose applications rewrite steps meet
+    /// as terms that heating and cooling rules can match.
     ///
     /// A production with sort parameters declares one symbol per instantiation, and strictness
     /// asks for an evaluation context of each of them. Lowering writes closed rewrite rules that
@@ -59,7 +61,8 @@ mod witness {
 
     impl<'a> StrictProduction<'a> {
         /// Accept a labelled production with no sort parameters; reject an unlabelled production
-        /// or a production whose evaluation contexts would range over its parameter instantiations.
+        /// or a production whose evaluation contexts would range over its parameter instantiations
+        /// or match applications that rewrite steps never meet.
         pub(super) fn of(production: &'a Sentence) -> Result<Self, Diagnostic> {
             let Sentence::Production {
                 label,
@@ -89,6 +92,33 @@ mod witness {
                     ),
                     attributes,
                 ));
+            }
+            let kind = ProductionKind::of(production);
+            if !kind.rewrite_steps_meet_applications() {
+                let message = match kind {
+                    ProductionKind::Function { .. } => {
+                        "Strictness is not supported on a function production: its applications are evaluated by its equations, so no rewrite step meets one to evaluate its arguments first."
+                    }
+                    ProductionKind::MacroProduction => {
+                        "Strictness is not supported on a macro production: its applications are expanded before rewriting, so no rewrite step meets one to evaluate its arguments first."
+                    }
+                    ProductionKind::Bracket(_) => {
+                        "Strictness is not supported on a bracket: every parser erases it, so no term applies it."
+                    }
+                    ProductionKind::Token { .. } => {
+                        "Strictness is not supported on a token production: its terms are domain values, so no term applies its label."
+                    }
+                    ProductionKind::Builtin => {
+                        "Strictness is not supported on a matching-logic connective: it is not a term application that a rewrite step meets."
+                    }
+                    ProductionKind::Subsort | ProductionKind::Unlabelled => {
+                        unreachable!("strict productions have a label")
+                    }
+                    ProductionKind::Base | ProductionKind::Algebraic => {
+                        unreachable!("rewrite steps meet these applications")
+                    }
+                };
+                return Err(error_at(message, attributes));
             }
             let nonterminals = items
                 .iter()

@@ -137,6 +137,25 @@ pub(crate) enum NoJunk {
 }
 
 impl ProductionKind {
+    /// Whether rewrite steps meet applications of this kind as terms, so that a rewrite rule, and in
+    /// particular the heating and cooling rules of an evaluation context, can match one: `Base` and
+    /// `Algebraic`. A function application is evaluated by its equations, a macro-like application
+    /// is expanded before rewriting, a bracket is erased by every parser, a token production's terms
+    /// are domain values, a builtin is a matching-logic connective, and a subsort or unlabelled
+    /// production declares no symbol.
+    pub(crate) fn rewrite_steps_meet_applications(self) -> bool {
+        match self {
+            Self::Base | Self::Algebraic => true,
+            Self::Subsort
+            | Self::Builtin
+            | Self::Bracket(_)
+            | Self::Function { .. }
+            | Self::MacroProduction
+            | Self::Token { .. }
+            | Self::Unlabelled => false,
+        }
+    }
+
     /// The kind of `production`.
     ///
     /// # Panics

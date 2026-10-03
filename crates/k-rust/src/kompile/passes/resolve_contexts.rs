@@ -23,11 +23,12 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 use serde_json::Value;
 
 use crate::definition::AttributeKey;
+use crate::definition::production_kind::ProductionKind;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedLabel, Label, Sort, Term},
+    kast::{GeneratedLabel, InternalLabel, Label, Sort, Term},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
@@ -79,6 +80,7 @@ pub(crate) fn resolve_contexts_pass(
     if contexts.is_empty() {
         return Ok(input.definition.clone());
     }
+    let macro_labels = resolved.rule_catalog(main_id).all_macro_labels(productions);
 
     let mut labels = productions
         .productions()
@@ -114,7 +116,13 @@ pub(crate) fn resolve_contexts_pass(
     let mut diagnostics = Vec::new();
     // Invariant: `generated` holds, without duplicates, the sentences resolved from every context of `contexts` before `context`, `labels` every freezer label taken so far, and `diagnostics` their errors; each iteration consumes one context.
     for context in contexts {
-        match resolve_context(context, productions, &sentence_labels, &mut labels) {
+        match resolve_context(
+            context,
+            productions,
+            &macro_labels,
+            &sentence_labels,
+            &mut labels,
+        ) {
             Ok(sentences) => extend_unique(&mut generated, sentences),
             Err(mut errors) => diagnostics.append(&mut errors),
         }
@@ -152,6 +160,7 @@ pub(crate) fn resolve_contexts_pass(
 fn resolve_context(
     context: &Sentence,
     productions: &ProductionCatalog<'_>,
+    macro_labels: &BTreeSet<LabelHead>,
     sentence_labels: &BTreeMap<String, Attributes>,
     labels: &mut BTreeSet<Label>,
 ) -> Result<Vec<Sentence>, Vec<Diagnostic>> {
@@ -164,6 +173,9 @@ fn resolve_context(
         unreachable!()
     };
     validate_context(body, attributes)?;
+    // The matched root retains its selected production until the admissibility check; stripping
+    // metadata first would lose that identity when several productions share a label.
+    let left = rewrite_left(body);
     let body = strip_metadata(body);
     let requires = strip_metadata(requires);
     let has_main_cell = contains_main_cell(&body, productions);
@@ -183,8 +195,62 @@ fn resolve_context(
         .or(scan.hole)
         .expect("validated contexts contain a hole");
     let variables = scan.variables;
-    let left = rewrite_left(&body);
     let cooled = find_cooled(&left, productions).unwrap_or(left);
+    if let Term::Apply { label, .. } = cooled.unannotated()
+        && label.generated().is_none()
+        && InternalLabel::of(&label.name).is_none()
+    {
+        let head = LabelHead::from(label);
+        let production = cooled
+            .metadata()
+            .and_then(|metadata| metadata.production)
+            .and_then(|identity| productions.lookup(&identity))
+            .map(|id| productions.production(id))
+            .filter(|production| {
+                matches!(production, Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name)
+            })
+            .or_else(|| {
+                let candidates = productions.productions_for(&head);
+                (candidates.len() == 1).then(|| productions.production(candidates[0]))
+            });
+        if let Some(production) = production {
+            let kind = ProductionKind::of(production);
+            let reason = if !kind.rewrite_steps_meet_applications() {
+                Some(match kind {
+                    ProductionKind::Function { .. } => {
+                        "its applications are evaluated by its equations"
+                    }
+                    ProductionKind::MacroProduction => {
+                        "its applications are expanded before rewriting"
+                    }
+                    ProductionKind::Bracket(_) => {
+                        "every parser erases a bracket, so no term applies it"
+                    }
+                    ProductionKind::Token { .. } => "a token production's terms are domain values",
+                    ProductionKind::Builtin => "it is a matching-logic connective",
+                    ProductionKind::Subsort | ProductionKind::Unlabelled => {
+                        "its production declares no symbol"
+                    }
+                    ProductionKind::Base | ProductionKind::Algebraic => {
+                        unreachable!("rewrite steps meet these applications")
+                    }
+                })
+            } else if macro_labels.contains(&head) {
+                Some("its label is macro-like and its applications are expanded before rewriting")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                return Err(vec![error_at(
+                    format!(
+                        "Cannot compile a context rooted at {label}: {reason}; a context lowers to heating and cooling rewrite rules that match its term, and no rewrite step meets an application of {label}"
+                    ),
+                    attributes,
+                )]);
+            }
+        }
+    }
+    let cooled = strip_metadata(&cooled);
     let hint = freezer_hint(&cooled, scan.final_hole_position);
     let freezer_label = unique_freezer_label(labels, &hint);
 

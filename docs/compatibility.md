@@ -169,6 +169,10 @@ Compiled rewrite rules bind no sort.
 The emitted theory embeds a sort in `KItem` only for each declared sort, and a bare parameter also ranges over `K` and `KItem`, whose placement at `K` is no injection, so no finite set of rules states those contexts.
 A `context` written for one instance (`context pick(HOLE:MInt{8}, _)`) is instantiated by the parser and compiles to closed heat and cool rules.
 
+Strictness on a function, macro, bracket or token production is rejected at the strictness stage with `InvalidStrictness` at the production.
+A context rooted at such a production or at a macro-like label is rejected at the contexts stage with `InvalidContext` at the context.
+A context lowers to heating and cooling rewrite rules that match its term: a function application is evaluated by its equations, a macro-like application is expanded before rewriting, a bracket is erased by every parser, and a token production's terms are domain values, so no rewrite step meets an application of these productions.
+
 Every other construct that reads a term through the projection into a sort without one (`KConfigVar` included) is rejected where that term would be built, with the location of the construct that asks for it.
 A configuration variable cast to such a sort is rejected at configuration expansion, at the configuration: its initial value is read through that sort's projection, and no value of a sort without K terms can be supplied.
 A definition's own production labelled `#OuterCast` whose result is such a sort (`syntax #Foo ::= "{" K "}" "asFoo" [symbol(#OuterCast)]`) is a parse error at its use; with a result that has a projection it lowers to that projection like `{T}:>S`.

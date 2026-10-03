@@ -6967,7 +6967,8 @@ fn strictness_bool_import_rebases_existing_production_metadata() {
             module MAIN
               IMPORT
               syntax Exp ::= "a" [symbol(a)]
-                           | "f(" Exp ")" [strict, function, symbol(f)]
+                           | "f(" Exp ")" [function, symbol(f)]
+                           | "g(" Exp ")" [strict, symbol(g)]
               rule f(a) => a
             endmodule
         "#}
@@ -8028,6 +8029,196 @@ fn strictness_on_a_production_with_sort_parameters_is_rejected() {
 }
 
 #[test]
+fn strictness_rejects_function_and_macro_productions_at_the_production() {
+    for (kind, strictness, reason) in [
+        ("function", "strict", "evaluated by its equations"),
+        ("function", "seqstrict", "evaluated by its equations"),
+        ("function", "strict(2)", "evaluated by its equations"),
+        ("macro", "strict", "expanded before rewriting"),
+    ] {
+        let source = format!(
+            "module BOOL\nendmodule\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n  syntax Exp ::= \"f(\" Exp \",\" Exp \")\" [{kind}, {strictness}, symbol(f)]\nendmodule\n"
+        );
+        let definition = parsed(&source);
+        let production = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| {
+                matches!(&***sentence, Sentence::Production { label: Some(label), .. } if label.name == "f")
+            })
+            .unwrap();
+        let diagnostics = resolve_strict(&definition).unwrap_err().diagnostics;
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "{kind}, {strictness}: {diagnostics:?}"
+        );
+        let diagnostic = &diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidStrictness
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("definition.k"));
+        assert_eq!(diagnostic.location, production.attributes().location());
+        assert_eq!(diagnostic.location.unwrap().start_line, 5);
+        assert!(diagnostic.message.contains(reason), "{diagnostic:?}");
+    }
+}
+
+#[test]
+fn strictness_rejects_brackets_tokens_and_matching_logic_connectives() {
+    for (label, kind, items, reason) in [
+        (
+            "group",
+            "bracket",
+            vec![
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Exp"),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            "every parser erases it",
+        ),
+        (
+            "literal",
+            "token",
+            vec![ProductionItem::regex("[a-z]+")],
+            "domain values",
+        ),
+        (
+            "#And",
+            "",
+            vec![
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Exp"),
+                    name: None,
+                },
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Exp"),
+                    name: None,
+                },
+            ],
+            "matching-logic connective",
+        ),
+    ] {
+        let mut production_attributes = attributes(&[
+            ("strict", json!("")),
+            (k_rust::definition::SOURCE_ATTRIBUTE, json!("strict-kind.k")),
+            (k_rust::definition::LOCATION_ATTRIBUTE, json!([7, 3, 7, 40])),
+        ]);
+        if !kind.is_empty() {
+            production_attributes.insert(kind, json!(""));
+        }
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("BOOL", Vec::new()),
+                module(
+                    "MAIN",
+                    vec![Sentence::Production {
+                        label: Some(Label::new(label)),
+                        parameters: Vec::new(),
+                        sort: Sort::new("Exp"),
+                        items,
+                        attributes: production_attributes,
+                    }],
+                ),
+            ],
+            attributes: Attributes::default(),
+        };
+        let diagnostics = resolve_strict(&definition).unwrap_err().diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{label}: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            k_rust::diagnostic::DiagnosticCode::InvalidStrictness
+        );
+        assert_eq!(diagnostics[0].source.as_deref(), Some("strict-kind.k"));
+        assert_eq!(diagnostics[0].location.unwrap().start_line, 7);
+        assert!(diagnostics[0].message.contains(reason), "{diagnostics:?}");
+    }
+}
+
+#[test]
+fn strictness_still_lowers_a_constructor_with_a_domain_value_argument() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Foo ::= "f(" Int ")" [strict, symbol(f)]
+        endmodule
+    "#};
+    let transformed = resolve_strict(&parsed(source)).unwrap();
+    let contexts = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Context { body, .. } => Some(body),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contexts.len(), 1);
+    assert!(matches!(
+        contexts[0].unannotated(),
+        Term::Apply { label, .. } if label.name == "f"
+    ));
+    let lowered = resolve_contexts(&transformed).unwrap();
+    assert_eq!(
+        lowered
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter(|sentence| sentence.attributes().get("heat").is_some()
+                || sentence.attributes().get("cool").is_some())
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn strictness_still_lowers_an_algebraic_constructor() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | Exp "+" Exp [assoc, strict, symbol(_+_)]
+        endmodule
+    "#};
+    let transformed = resolve_strict(&parsed(source)).unwrap();
+    assert_eq!(
+        transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter(|sentence| matches!(&***sentence, Sentence::Context { .. }))
+            .count(),
+        2
+    );
+    let lowered = resolve_contexts(&transformed).unwrap();
+    for attribute in ["heat", "cool"] {
+        assert_eq!(
+            lowered
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .filter(|sentence| sentence.attributes().get(attribute).is_some())
+                .count(),
+            2
+        );
+    }
+}
+
+#[test]
 fn strictness_still_lowers_productions_without_sort_parameters() {
     let definition = Definition {
         main_module: "MAIN".into(),
@@ -8946,6 +9137,141 @@ fn pattern01a_cell_sentence_failure_retains_original_diagnostic_source() {
         Some("bad-pattern.k")
     );
     assert_eq!(error.diagnostics[0].location.unwrap().start_line, 9);
+}
+
+#[test]
+fn contexts_reject_function_and_macro_roots_at_the_context() {
+    for (label, declaration, rule, reason) in [
+        ("f", "function, ", "", "evaluated by its equations"),
+        ("m", "macro, ", "", "expanded before rewriting"),
+        (
+            "m",
+            "",
+            "  rule m(X:Exp) => X:Exp [macro]\n",
+            "expanded before rewriting",
+        ),
+    ] {
+        let source = format!(
+            "module MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n  syntax Exp ::= \"{label}(\" Exp \")\" [{declaration}symbol({label})]\n{rule}  context {label}(HOLE)\nendmodule\n"
+        );
+        let definition = parsed(&source);
+        let context = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| matches!(&***sentence, Sentence::Context { .. }))
+            .unwrap();
+        let diagnostics = resolve_contexts(&definition).unwrap_err().diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidContext
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("definition.k"));
+        assert_eq!(diagnostic.location, context.attributes().location());
+        assert_eq!(
+            diagnostic.location.unwrap().start_line,
+            if rule.is_empty() { 4 } else { 5 }
+        );
+        assert!(
+            diagnostic
+                .message
+                .contains(&format!("Cannot compile a context rooted at {label}:")),
+            "{diagnostic:?}"
+        );
+        assert!(diagnostic.message.contains(reason), "{diagnostic:?}");
+    }
+}
+
+#[test]
+fn contexts_still_lower_a_constructor_root() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "g(" Exp ")" [symbol(g)]
+          context g(HOLE)
+        endmodule
+    "#};
+    let transformed = resolve_contexts(&parsed(source)).unwrap();
+    let main = transformed.main_module().unwrap();
+    assert!(
+        !main
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(&**sentence, Sentence::Context { .. }))
+    );
+    for attribute in ["heat", "cool"] {
+        assert_eq!(
+            main.local_sentences
+                .iter()
+                .filter(|sentence| sentence.attributes().get(attribute).is_some())
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn contexts_use_production_metadata_to_distinguish_function_and_constructor_roots() {
+    for (syntax, is_function) in [("f", true), ("g", false)] {
+        let source = indoc! {r#"
+            module MAIN
+              syntax Exp ::= "a" [symbol(a)]
+                           | "g(" Exp ")" [symbol(shared)]
+                           | "f(" Exp ")" [function, symbol(shared)]
+              context ROOT(HOLE)
+            endmodule
+        "#}
+        .replace("ROOT", syntax);
+        let definition = parsed(&source);
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        assert_eq!(catalog.productions_for(&LabelHead::new("shared")).len(), 2);
+        let body = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Context { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let identity = body.metadata().unwrap().production.unwrap();
+        let selected = catalog.production(catalog.lookup(&identity).unwrap());
+        assert_eq!(selected.attributes().get("function").is_some(), is_function);
+
+        let result = resolve_contexts(&definition);
+        if is_function {
+            let diagnostics = result.unwrap_err().diagnostics;
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(
+                diagnostics[0].code,
+                k_rust::diagnostic::DiagnosticCode::InvalidContext
+            );
+            assert_eq!(diagnostics[0].location.unwrap().start_line, 5);
+        } else {
+            let transformed = result.unwrap();
+            let main = transformed.main_module().unwrap();
+            assert!(
+                !main
+                    .local_sentences
+                    .iter()
+                    .any(|sentence| matches!(&**sentence, Sentence::Context { .. }))
+            );
+            for attribute in ["heat", "cool"] {
+                assert_eq!(
+                    main.local_sentences
+                        .iter()
+                        .filter(|sentence| sentence.attributes().get(attribute).is_some())
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
 }
 
 #[test]
