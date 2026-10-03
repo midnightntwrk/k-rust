@@ -45,10 +45,10 @@
 //! left and right patterns of an alias declaration, the signature of a symbol or alias
 //! declaration), and the symbol instances in the four attributes above. Other attributes name
 //! symbols without sort arguments by convention (`priorities`, `left`, `right`, `format`), or
-//! belong to another rule (`subsort` to K1), and are left alone. Pattern checks traverse with the kore crate's own
-//! [`for_each_post_order`] and [`Pattern::for_each_sort`], so a new `Pattern` variant reaches
-//! them through the exhaustive matches of `walk::children` and `for_each_sort` and through the
-//! exhaustive match of `violation`.
+//! belong to another rule (`subsort` to K1), and are left alone. Pattern checks traverse with the
+//! kore crate's own [`for_each_post_order`] and [`Pattern::for_each_sort`], so a new `Pattern`
+//! variant reaches them through the exhaustive matches of `walk::children` and `for_each_sort`
+//! and through the exhaustive match of `violation`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -342,7 +342,7 @@ impl EmittedTheory {
                     continue;
                 };
                 if let Some(reason) = self.symbol_arity_violation(symbol) {
-                    return Some(reason);
+                    return Some(format!("{reason} in attribute {}", key.name));
                 }
                 for sort in &symbol.sort_parameters {
                     if let Some(reason) = self.sort_scope_violation(sort, &bound) {
@@ -1080,12 +1080,16 @@ mod tests {
                 assert_violation(
                     &theory,
                     &with("Lbleps{}()"),
-                    "K5 (symbol arity) violated: symbol Lbleps",
+                    &format!(
+                        "K5 (symbol arity) violated: symbol Lbleps is declared with 1 sort parameters but applied to 0 in attribute {key}"
+                    ),
                 );
                 assert_violation(
                     &theory,
                     &with("Lblmissing{}()"),
-                    "K5 (symbol arity) violated: symbol Lblmissing is not declared",
+                    &format!(
+                        "K5 (symbol arity) violated: symbol Lblmissing is not declared in attribute {key}"
+                    ),
                 );
                 assert_violation(
                     &theory,
@@ -1164,16 +1168,18 @@ mod tests {
         expected = "K5 (symbol arity) violated: symbol Lbleps is declared with 1 sort parameters but applied to 0"
     )]
     fn fu23_generated_unit_axiom_arity_precedes_declaration_attribute_scope() {
-        let source = r#"
+        let module = parse_module(
+            r#"
             module MAIN
-              syntax {S} S ::= "eps" [symbol(eps)]
-              syntax Foo ::= "foo" [symbol(foo)]
-              syntax Foo ::= Foo "++" Foo [symbol(cat), function, assoc, unit(eps)]
-            endmodule
-        "#;
-        let parsed = crate::outer::parse("unit.k", source).unwrap();
-        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
-        crate::kompile::module_to_kore(&definition, "MAIN").unwrap();
+              sort SortFoo{} []
+              symbol Lbleps{S}() : S []
+              symbol Lblcat{}(SortFoo{}, SortFoo{}) : SortFoo{} [unit{}(Lbleps{SortS{}}())]
+              axiom{R} \equals{SortFoo{}, R}(Lblcat{}(K:SortFoo{}, Lbleps{}()), K:SortFoo{}) []
+            endmodule []
+        "#,
+        )
+        .expect("the test theory parses");
+        EmittedTheory::of(&module).check_module(&module);
     }
 
     #[test]
