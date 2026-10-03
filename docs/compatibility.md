@@ -275,7 +275,8 @@ Expansion discards the parser's parametric instances and reads each application'
 Macro expansion runs before sort injection, so where a macro rule's head is parametric it reads instances from the typing view (`SentenceTyper`, the typing compilation gives each position): a head's instance from the typing of its macro rule, and an application's from the typing of the sentence it stands in or of the ground value at its position, taken after its arguments are expanded and after every earlier rewrite of that sentence or value.
 The instance is the label's own, as injection instantiates it, not the sort a downcast places the application at.
 A macro rule applies only to an application whose instance agrees with its head's on every parameter both fix; a parameter the typing leaves open agrees with every value.
-Where the sentence or ground value does not type yet, the instance is unknown and only a head that fixes no parameter applies; such applications are retried after later rewrites until nothing changes, and one still unknown then is left for injection to reject.
+Where the sentence or ground value does not type yet, the instance is unknown and only a head that fixes no parameter applies; one still unknown at the fixpoint is left for injection to reject.
+Every application to which no rule applied from a rule set with a parametric head fixing a parameter is retried after later rewrites until nothing changes, since a rewrite elsewhere can change even a known instance.
 Every other comparison of a rule's label with a production or term label (the macro table, `anywhere`, and rule-by-label lookups) is by the label's name.
 
 The pinned K frontend also uses the parameter preference to choose between distinct readings, by sending a parameter to `K` where that makes another reading ill-sorted.

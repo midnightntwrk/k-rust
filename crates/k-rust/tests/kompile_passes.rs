@@ -4377,6 +4377,107 @@ fn a_parametric_macro_waits_for_the_sentence_to_type() {
     );
 }
 
+fn sibling_macro_definition() -> Definition {
+    let source = indoc! {r#"
+        module MAIN
+          syntax K
+          syntax Map
+          syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)] | go() [symbol(go)]
+          syntax Top ::= Foo | c() [macro, symbol(c)]
+          syntax {S} P ::= pair2(S, S) [symbol(pair2)]
+          syntax {S} S ::= m() [macro, symbol(m)]
+          rule c() => a
+          rule m():Foo => b
+          rule <k> go() => pair2(m(), c()) ... </k>
+          configuration <k> $PGM:KItem </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    propagate_macro_attributes(&definition).unwrap()
+}
+
+/// The two arguments share `pair2`'s parameter: `m` is initially at `Top`, but rewriting its
+/// sibling `c` to `a` puts it at `Foo`, where its macro rule applies.
+#[test]
+fn a_parametric_macro_is_retried_after_a_sibling_rewrite() {
+    let definition = sibling_macro_definition();
+    let expanded = expand_macros(&definition).unwrap();
+    let mut right_sides = Vec::new();
+    for sentence in &expanded.main_module().unwrap().local_sentences {
+        if let Sentence::Rule { body, .. } = &**sentence {
+            body.visit_preorder(&mut |term| {
+                if let Term::Rewrite { left, right } = term.unannotated()
+                    && let Term::Apply { label, .. } = left.unannotated()
+                    && label.name == "go"
+                {
+                    right_sides.push(Printer::new().print_term(right));
+                }
+            });
+        }
+    }
+    assert_eq!(right_sides, ["pair2(b(.KList),a(.KList))"]);
+}
+
+/// Positioned ground expansion retries `m{Top}` at `Foo` after its sibling rewrites.
+#[test]
+fn a_ground_parametric_macro_is_retried_after_a_sibling_rewrite() {
+    let definition = sibling_macro_definition();
+    let term = application(
+        "pair2",
+        vec![application("m", Vec::new()), application("c", Vec::new())],
+    );
+    let expanded = expand_macros_in_term(
+        &definition,
+        "MAIN",
+        ParsedProgram::from_term(term),
+        &Sort::new("KItem"),
+    )
+    .unwrap();
+    assert_eq!(
+        Printer::new().print_term(expanded.term()),
+        "pair2(b(.KList),a(.KList))"
+    );
+}
+
+/// The inner `w` introduces its own applied-rule set. After its `m` retry rewrites,
+/// the outer `w` must use its own set so that the same non-recursive rule can apply there.
+#[test]
+fn a_macro_ancestor_is_retried_with_its_own_applied_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax K
+          syntax Map
+          syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)] | go() [symbol(go)]
+          syntax Top ::= Foo | c() [macro, symbol(c)]
+          syntax {S} P ::= pair2(S, S) [symbol(pair2)]
+          syntax {S} S ::= m() [macro, symbol(m)]
+          syntax P ::= w(P) [macro, symbol(w)]
+          rule c() => a
+          rule m():Foo => b
+          rule w(pair2(b, a)) => pair2(m(), c())
+          rule <k> go() => w(w(pair2(b, a))) ... </k>
+          configuration <k> $PGM:KItem </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let expanded = expand_macros(&definition).unwrap();
+    let mut right_sides = Vec::new();
+    for sentence in &expanded.main_module().unwrap().local_sentences {
+        if let Sentence::Rule { body, .. } = &**sentence {
+            body.visit_preorder(&mut |term| {
+                if let Term::Rewrite { left, right } = term.unannotated()
+                    && let Term::Apply { label, .. } = left.unannotated()
+                    && label.name == "go"
+                {
+                    right_sides.push(Printer::new().print_term(right));
+                }
+            });
+        }
+    }
+    assert_eq!(right_sides, ["pair2(b(.KList),a(.KList))"]);
+}
+
 /// A structured macro rule `a => a:Int` only adds a downcast to `a`, so the expanded term is
 /// equal to the parsed one, but `f`'s instance then follows the `Int` argument: the parsed
 /// `f{KItem}` no longer holds, and the macro rule about `f{Int}` applies instead of the `KItem`
