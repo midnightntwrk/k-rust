@@ -1,6 +1,6 @@
 use indoc::indoc;
 use k_rust::definition::{
-    Attributes, ProductionItem, Sentence, expand_configurations,
+    Attributes, ConfigurationError, ProductionItem, Sentence, expand_configurations,
     expand_configurations_with_diagnostics,
 };
 use k_rust::diagnostic::DiagnosticCode;
@@ -35,6 +35,128 @@ fn cell_content_sort(definition: &k_rust::definition::Definition, cell: &str) ->
             _ => None,
         })
         .expect("generated cell production")
+}
+
+#[test]
+fn schematic_configuration_content_uses_the_inferred_k_instance() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [function]
+          configuration <foo> wrap(0) </foo>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    // The configuration grammar does not tightly constrain the parameter from the argument
+    // sort, so disambiguation infers K as a safe fallback. The cell must preserve that instance.
+    assert_eq!(cell_content_sort(&expanded, "<foo>"), "K");
+}
+
+#[test]
+fn explicitly_cast_schematic_configuration_content_keeps_its_int_instance() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [function]
+          configuration <foo> (wrap(0)):Int </foo>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    assert_eq!(cell_content_sort(&expanded, "<foo>"), "Int");
+}
+
+#[test]
+fn schematic_configuration_content_keeps_its_parametric_head_instance() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax {W} MInt{W}
+          syntax MInt{8}
+          syntax {W} MInt{W} ::= wrap(MInt{W}) [function]
+          configuration <foo> wrap($PGM:MInt{8}) </foo>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    assert_eq!(cell_content_sort(&expanded, "<foo>"), "MInt{8}");
+}
+
+#[test]
+fn uncast_schematic_configuration_content_is_rejected_at_its_sentence() {
+    let mut definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [function]
+          configuration <foo> 0 </foo>
+        endmodule
+    "#});
+    let expected_label = definition.modules[0]
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                parameters,
+                sort,
+                ..
+            } if parameters.contains(sort) => Some(label.name.clone()),
+            _ => None,
+        })
+        .expect("the schematic wrap production");
+    let configuration = definition.modules[0]
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| matches!(&***sentence, Sentence::Configuration { .. }))
+        .unwrap();
+    let Sentence::Configuration {
+        body,
+        ensures,
+        attributes,
+    } = &**configuration
+    else {
+        unreachable!();
+    };
+    let expected_source = attributes.source().map(str::to_owned);
+    let expected_location = attributes.location();
+    let Term::Apply {
+        label,
+        mut arguments,
+    } = body.clone().into_unannotated()
+    else {
+        panic!("configuration cell");
+    };
+    // A JSON caller can supply an application without the parser's inferred cast.
+    arguments[2] = Term::apply(&expected_label, vec![arguments[2].clone()]);
+    *configuration = std::sync::Arc::new(Sentence::Configuration {
+        body: Term::Apply { label, arguments },
+        ensures: ensures.clone(),
+        attributes: attributes.clone(),
+    });
+
+    let error = expand_configurations(&definition)
+        .expect_err("an uninstantiated schematic result cannot become a cell content sort");
+    let ConfigurationError::Invalid {
+        module,
+        source,
+        location,
+        message,
+    } = error
+    else {
+        panic!("expected the located schematic-result error");
+    };
+    assert_eq!(module, "MAIN");
+    assert!(expected_source.is_some());
+    assert!(expected_location.is_some());
+    assert_eq!(source, expected_source);
+    assert_eq!(location, expected_location);
+    assert!(
+        message.contains(&format!("{expected_label:?}")),
+        "{message}"
+    );
+    assert!(message.contains("sort parameters"), "{message}");
+    assert!(message.contains('S'), "{message}");
+    assert!(
+        message.contains("cast it to the intended instance"),
+        "{message}"
+    );
 }
 
 #[test]

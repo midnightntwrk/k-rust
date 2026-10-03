@@ -10,7 +10,7 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ProductionCatalog, Sentence},
+    definition::{Definition, LabelHead, LabelResultSort, ProductionCatalog, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::GeneratingPass,
@@ -271,9 +271,10 @@ fn is_cell(term: &Term, productions: &ProductionCatalog<'_>, cell_sorts: &BTreeS
     let Term::Apply { label, .. } = term.unannotated() else {
         return false;
     };
-    productions
-        .result_sort_for(&LabelHead::from(label))
-        .is_some_and(|sort| cell_sorts.contains(sort))
+    match productions.result_sort_of(&LabelHead::from(label)) {
+        Some(LabelResultSort::Closed(sort)) => cell_sorts.contains(sort),
+        Some(LabelResultSort::Schematic { .. }) | None => false,
+    }
 }
 
 fn flatten_cells(term: &Term) -> Vec<&Term> {

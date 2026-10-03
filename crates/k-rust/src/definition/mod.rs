@@ -49,7 +49,8 @@ pub fn sentence_mut(sentence: &mut Arc<Sentence>) -> &mut Sentence {
 }
 pub use attribute_keys::AttributeKey;
 pub use catalog::{
-    FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
+    FreshGeneratorError, LabelHead, LabelResultSort, ProductionCatalog, ProductionId,
+    ProductionSignature, SortHead,
 };
 pub(crate) use checks::kernel_position_cycle;
 pub use checks::{

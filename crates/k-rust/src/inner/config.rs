@@ -105,6 +105,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
+        let catalog = resolved.production_catalog(module_id);
         let grammar =
             configuration_grammar(&resolved, module_id).map_err(|error| ConfigError::Parse {
                 module: module.name.clone(),
@@ -137,7 +138,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
             }
             .map_err(|error| bubble_error(&module.name, attributes, Some(contents), error))?;
             *crate::definition::sentence_mut(sentence) =
-                up_configuration(&module.name, parsed, attributes.clone())?;
+                up_configuration(&module.name, parsed, attributes.clone(), &catalog)?;
         }
     }
 
@@ -200,10 +201,69 @@ fn up_configuration(
     module: &str,
     parsed: Term,
     attributes: Attributes,
+    catalog: &crate::definition::ProductionCatalog<'_>,
 ) -> Result<Sentence, ConfigError> {
-    let Term::Apply { label, arguments } =
-        super::rules::erase_label_parameters(parsed).into_unannotated()
-    else {
+    // Only cell-content leaves determine generated cell sorts; nested applications do not.
+    fn keep_content_instance(
+        term: Term,
+        catalog: &crate::definition::ProductionCatalog<'_>,
+    ) -> Term {
+        if let Term::Apply { label, .. } = term.unannotated()
+            && !label.is(InternalLabel::ConfigCell)
+            && !label.is(InternalLabel::Cells)
+            && !label.is(InternalLabel::ExternalCell)
+            && label.semantic_cast_sort().is_none()
+        {
+            if let Some(result @ crate::definition::LabelResultSort::Schematic { .. }) =
+                catalog.result_sort_of(&crate::definition::LabelHead::from(label))
+                && let Some(sort) = result.of_application(&label.parameters)
+            {
+                return Term::Apply {
+                    label: Label::semantic_cast(&sort),
+                    arguments: vec![term],
+                };
+            }
+            return term;
+        }
+        match term {
+            Term::Annotated { term, metadata } => Term::Annotated {
+                term: Box::new(keep_content_instance(*term, catalog)),
+                metadata,
+            },
+            Term::Apply {
+                label,
+                mut arguments,
+            } => {
+                if label.is(InternalLabel::ConfigCell) {
+                    arguments = arguments
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, term)| {
+                            if index == 2 {
+                                keep_content_instance(term, catalog)
+                            } else {
+                                term
+                            }
+                        })
+                        .collect();
+                } else if label.is(InternalLabel::Cells) {
+                    arguments = arguments
+                        .into_iter()
+                        .map(|term| keep_content_instance(term, catalog))
+                        .collect();
+                }
+                Term::Apply { label, arguments }
+            }
+            Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Token { .. } => term,
+        }
+    }
+
+    let Term::Apply { label, arguments } = parsed.into_unannotated() else {
         return Err(bubble_error(
             module,
             &attributes,
@@ -215,13 +275,19 @@ fn up_configuration(
     };
     match (InternalLabel::of(&label.name), arguments.as_slice()) {
         (Some(InternalLabel::RuleNoConditions), [body]) => Ok(Sentence::Configuration {
-            body: body.clone(),
+            body: super::rules::erase_label_parameters(keep_content_instance(
+                body.clone(),
+                catalog,
+            )),
             ensures: truth(),
             attributes,
         }),
         (Some(InternalLabel::RuleEnsures), [body, ensures]) => Ok(Sentence::Configuration {
-            body: body.clone(),
-            ensures: ensures.clone(),
+            body: super::rules::erase_label_parameters(keep_content_instance(
+                body.clone(),
+                catalog,
+            )),
+            ensures: super::rules::erase_label_parameters(ensures.clone()),
             attributes,
         }),
         (Some(InternalLabel::RuleRequires | InternalLabel::RuleRequiresEnsures), _) => {

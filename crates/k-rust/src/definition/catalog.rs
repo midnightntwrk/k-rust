@@ -32,6 +32,7 @@ use k_rust_kore::measure::{self, Counter};
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::attribute_keys::AttributeKey;
 use super::equivalence::{dedup_by_equivalence, production_identity, sentence_equivalent};
+use super::production_kind::mentions_parameter;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, ProductionIdentity, Sort};
 
@@ -42,6 +43,45 @@ pub struct ProductionId(pub usize);
 impl std::fmt::Display for ProductionId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "production #{}", self.0)
+    }
+}
+
+/// A label's first production's result sort, read together with its binder.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LabelResultSort<'a> {
+    /// The result mentions none of the production's parameters.
+    Closed(&'a Sort),
+    /// The result needs an application instance for the production's parameters.
+    Schematic {
+        production: ProductionId,
+        parameters: &'a [Sort],
+        result: &'a Sort,
+    },
+}
+
+impl LabelResultSort<'_> {
+    /// Instantiate the result with one sort per production parameter.
+    pub fn of_application(&self, instance: &[Sort]) -> Option<Sort> {
+        // Substitution is simultaneous: an instance sort is not itself substituted.
+        fn substitute(sort: &Sort, parameters: &[Sort], instance: &[Sort]) -> Sort {
+            if let Some(index) = parameters.iter().position(|parameter| parameter == sort) {
+                return instance[index].clone();
+            }
+            Sort::with_parameters(
+                sort.name.clone(),
+                sort.parameters
+                    .iter()
+                    .map(|sort| substitute(sort, parameters, instance))
+                    .collect(),
+            )
+        }
+        match self {
+            Self::Closed(sort) => Some((*sort).clone()),
+            Self::Schematic {
+                parameters, result, ..
+            } => (instance.len() == parameters.len())
+                .then(|| substitute(result, parameters, instance)),
+        }
     }
 }
 
@@ -230,7 +270,7 @@ pub struct ProductionCatalog<'a> {
     /// Merged attributes of the labels declared by more than one production; a label with one
     /// production reads that production's attributes (see [`Self::attributes_for`]).
     merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
-    result_sort_by_label: BTreeMap<LabelHead, Sort>,
+    result_production_by_label: BTreeMap<LabelHead, ProductionId>,
     macro_labels: BTreeSet<LabelHead>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
     marker: PhantomData<&'a Sentence>,
@@ -260,7 +300,7 @@ struct CatalogIndexes {
     function_labels: BTreeSet<LabelHead>,
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
     merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
-    result_sort_by_label: BTreeMap<LabelHead, Sort>,
+    result_production_by_label: BTreeMap<LabelHead, ProductionId>,
     macro_labels: BTreeSet<LabelHead>,
 }
 
@@ -329,7 +369,7 @@ impl<'a> ProductionCatalog<'a> {
             function_labels: BTreeSet::new(),
             signatures: BTreeMap::new(),
             merged_attributes_by_label: BTreeMap::new(),
-            result_sort_by_label: BTreeMap::new(),
+            result_production_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
             marker: PhantomData,
@@ -367,7 +407,7 @@ impl<'a> ProductionCatalog<'a> {
             function_labels: BTreeSet::new(),
             signatures: BTreeMap::new(),
             merged_attributes_by_label: BTreeMap::new(),
-            result_sort_by_label: BTreeMap::new(),
+            result_production_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
             marker: PhantomData,
@@ -391,7 +431,7 @@ impl<'a> ProductionCatalog<'a> {
         self.function_labels = indexes.function_labels;
         self.signatures = indexes.signatures;
         self.merged_attributes_by_label = indexes.merged_attributes_by_label;
-        self.result_sort_by_label = indexes.result_sort_by_label;
+        self.result_production_by_label = indexes.result_production_by_label;
         self.macro_labels = indexes.macro_labels;
     }
 
@@ -522,13 +562,24 @@ impl<'a> ProductionCatalog<'a> {
         }
     }
 
-    /// Scala's `sortFor`, made deterministic by selecting the first stable ID.
-    pub fn result_sort_by_label(&self) -> &BTreeMap<LabelHead, Sort> {
-        &self.result_sort_by_label
-    }
-
-    pub fn result_sort_for(&self, label: &LabelHead) -> Option<&Sort> {
-        self.result_sort_by_label.get(label)
+    /// The first production's result, with an explicit branch when it mentions its binder.
+    pub fn result_sort_of(&self, label: &LabelHead) -> Option<LabelResultSort<'_>> {
+        let production = *self.result_production_by_label.get(label)?;
+        let Sentence::Production {
+            parameters, sort, ..
+        } = self.production(production)
+        else {
+            unreachable!("production catalogs contain only productions")
+        };
+        Some(if mentions_parameter(sort, parameters) {
+            LabelResultSort::Schematic {
+                production,
+                parameters,
+                result: sort,
+            }
+        } else {
+            LabelResultSort::Closed(sort)
+        })
     }
 
     /// The heads of macro-like productions' labels (the empty head for an unlabelled one).
@@ -584,7 +635,7 @@ fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
         function_labels: BTreeSet::new(),
         signatures: BTreeMap::new(),
         merged_attributes_by_label: BTreeMap::new(),
-        result_sort_by_label: BTreeMap::new(),
+        result_production_by_label: BTreeMap::new(),
         macro_labels: BTreeSet::new(),
     };
     for (index, sentence) in productions.iter().enumerate() {
@@ -665,12 +716,9 @@ fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
                     .unwrap_or_else(|error| error.merged),
             );
         }
-        let Sentence::Production { sort, .. } = productions[ids[0].0].as_ref() else {
-            unreachable!()
-        };
         indexes
-            .result_sort_by_label
-            .insert(head.clone(), sort.clone());
+            .result_production_by_label
+            .insert(head.clone(), ids[0]);
     }
     indexes
 }

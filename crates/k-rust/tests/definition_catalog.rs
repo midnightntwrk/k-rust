@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, FreshGeneratorError, LabelHead, ProductionId,
-    ProductionItem, ProductionSignature, ResolvedDefinition, Sentence, SortHead,
-    sentence_equivalent,
+    Attributes, Definition, FlatImport, FlatModule, FreshGeneratorError, LabelHead,
+    LabelResultSort, ProductionId, ProductionItem, ProductionSignature, ResolvedDefinition,
+    Sentence, SortHead, sentence_equivalent,
 };
 use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
@@ -320,8 +320,8 @@ fn merges_label_attributes_and_selects_result_sort_deterministically() {
     assert_eq!(merged.get_str("agreed"), Some("same"));
     assert_eq!(merged.get("conflict"), None);
     assert_eq!(
-        catalog.result_sort_for(&LabelHead::new("f")),
-        Some(&Sort::new("First"))
+        catalog.result_sort_of(&LabelHead::new("f")),
+        Some(LabelResultSort::Closed(&Sort::new("First")))
     );
 }
 
@@ -519,4 +519,85 @@ fn definition_views_memoise_every_remaining_view_kind() {
         views.associativities(module),
         views.associativities(module)
     ));
+}
+
+#[test]
+fn result_sort_keeps_its_binder_and_requires_a_complete_instance() {
+    let parameter = Sort::new("S");
+    let schematic = production(
+        Some(Label::with_parameters("wrap", vec![parameter.clone()])),
+        vec![parameter.clone()],
+        parameter.clone(),
+        vec![parameter.clone()],
+        Attributes::default(),
+    );
+    let closed = production(
+        Some(Label::new("closed")),
+        vec![parameter.clone()],
+        Sort::new("Bool"),
+        vec![parameter.clone()],
+        Attributes::default(),
+    );
+    let nested_result = Sort::with_parameters(
+        "Box",
+        vec![Sort::with_parameters("Box", vec![parameter.clone()])],
+    );
+    let nested = production(
+        Some(Label::with_parameters(
+            "nested",
+            vec![parameter.clone(), Sort::new("T")],
+        )),
+        vec![parameter.clone(), Sort::new("T")],
+        nested_result.clone(),
+        vec![],
+        Attributes::default(),
+    );
+    let catalog =
+        k_rust::definition::ProductionCatalog::from_visible([&schematic, &closed, &nested]);
+    let result = catalog.result_sort_of(&LabelHead::new("wrap")).unwrap();
+    assert_eq!(
+        result,
+        LabelResultSort::Schematic {
+            production: ProductionId(0),
+            parameters: std::slice::from_ref(&parameter),
+            result: &parameter,
+        }
+    );
+    assert_eq!(
+        result.of_application(&[Sort::new("Int")]),
+        Some(Sort::new("Int"))
+    );
+    assert_eq!(result.of_application(&[]), None);
+    assert_eq!(
+        result.of_application(&[Sort::new("Int"), Sort::new("Bool")]),
+        None
+    );
+    let closed = catalog.result_sort_of(&LabelHead::new("closed")).unwrap();
+    assert_eq!(closed, LabelResultSort::Closed(&Sort::new("Bool")));
+    assert_eq!(closed.of_application(&[]), Some(Sort::new("Bool")));
+    let nested = catalog.result_sort_of(&LabelHead::new("nested")).unwrap();
+    assert!(matches!(
+        nested,
+        LabelResultSort::Schematic {
+            production: ProductionId(2),
+            ..
+        }
+    ));
+    assert_eq!(nested.of_application(&[Sort::new("Int")]), None);
+    assert_eq!(
+        nested.of_application(&[Sort::new("Int"), Sort::new("Bool")]),
+        Some(Sort::with_parameters(
+            "Box",
+            vec![Sort::with_parameters("Box", vec![Sort::new("Int")])]
+        ))
+    );
+    // Replacing S with T must not substitute the T inside that instance again.
+    assert_eq!(
+        nested.of_application(&[Sort::new("T"), Sort::new("Int")]),
+        Some(Sort::with_parameters(
+            "Box",
+            vec![Sort::with_parameters("Box", vec![Sort::new("T")])]
+        ))
+    );
+    assert_eq!(catalog.result_sort_of(&LabelHead::new("unknown")), None);
 }

@@ -27,8 +27,8 @@ use serde_json::{Value, json};
 
 use super::checks::{LabelParameterError, reject_label_parameters};
 use super::{
-    Attributes, Definition, EquivalenceAccumulator, LabelHead, ProductionCatalog, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence,
+    Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, ProductionCatalog,
+    ProductionItem, ResolveError, ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
     dedup_by_equivalence, push_if_inequivalent, sentence_equivalent,
 };
@@ -341,27 +341,37 @@ impl Generator<'_, '_> {
                 })
             }
             Term::Apply { label, arguments } => {
-                let sort = label
-                    .semantic_cast_sort()
-                    .or_else(|| {
-                        self.catalog
-                            .result_sort_for(&LabelHead::new(&label.name))
-                            .cloned()
-                    })
-                    .or_else(|| {
-                        if arguments.len() != 1 || !label.parameters.is_empty() {
-                            return None;
+                let sort = if let Some(sort) = label.semantic_cast_sort() {
+                    Some(sort)
+                } else {
+                    match self.catalog.result_sort_of(&LabelHead::from(label)) {
+                        Some(LabelResultSort::Closed(sort)) => Some(sort.clone()),
+                        Some(LabelResultSort::Schematic { parameters, .. }) => {
+                            return Err(self.error(format!(
+                                "the sort of configuration term {:?} depends on the sort parameters {{{}}} of its production; cast it to the intended instance",
+                                label.name,
+                                parameters.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+                            )));
                         }
-                        // The configuration grammar lowers an outer cast to project:S using
-                        // its selected production's result sort. Its projection production is
-                        // generated later, so there is no source-catalog entry (or stable
-                        // numeric production ID) to consult during configuration expansion.
-                        match label.generated() {
-                            Some(GeneratedLabel::Projection { sort_text }) => Some(sort_text),
-                            _ => None,
+                        None => {
+                            // The configuration grammar lowers an outer cast to project:S using
+                            // its selected production's result sort. Its projection production is
+                            // generated later, so there is no source-catalog entry (or stable
+                            // numeric production ID) to consult during configuration expansion.
+                            if arguments.len() != 1 || !label.parameters.is_empty() {
+                                None
+                            } else {
+                                match label.generated() {
+                                    Some(GeneratedLabel::Projection { sort_text }) => {
+                                        Some(sort_text)
+                                    }
+                                    _ => None,
+                                }
+                                .and_then(|sort| crate::kast::parser::parse_sort_text(sort).ok())
+                            }
                         }
-                        .and_then(|sort| crate::kast::parser::parse_sort_text(sort).ok())
-                    });
+                    }
+                };
                 let Some(sort) = sort else {
                     return Err(self.error(format!(
                         "cannot determine the sort of configuration term {:?}",

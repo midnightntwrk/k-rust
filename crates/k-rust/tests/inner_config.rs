@@ -52,6 +52,113 @@ fn definition(contents: &str) -> Definition {
 }
 
 #[test]
+fn schematic_configuration_leaf_cast_preserves_metadata_and_nested_applications() {
+    use k_rust::kast::Term;
+
+    let source = r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [function]
+          configuration <top><foo> wrap(wrap(0)) </foo><bar> wrap(1) </bar></top>
+        endmodule
+    "#;
+    let parsed = k_rust::outer::parse("schematic-configuration.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let transformed = resolve_configuration_bubbles(&lowered).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Configuration { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+
+    let mut casts = 0;
+    let mut saw_nested_wrap = false;
+    body.visit_preorder(&mut |term| {
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            return;
+        };
+        assert!(
+            label.parameters.is_empty(),
+            "parsed configurations erase inferred label parameters: {label}"
+        );
+        if label.semantic_cast_sort() != Some(Sort::new("K")) {
+            return;
+        }
+        casts += 1;
+        assert_eq!(arguments.len(), 1);
+        let leaf = &arguments[0];
+        let Term::Apply {
+            label: leaf_label,
+            arguments: leaf_arguments,
+        } = leaf.unannotated()
+        else {
+            panic!("the inferred cast encloses the original application");
+        };
+        assert!(leaf_label.name.starts_with("wrap("), "{leaf_label}");
+        let metadata = leaf.metadata().expect("the parsed leaf keeps its metadata");
+        assert!(metadata.production.is_some());
+        let span = metadata
+            .span
+            .expect("the parsed leaf keeps its source span");
+        let text = &source[span.start..span.end];
+        assert!(matches!(text, "wrap(wrap(0))" | "wrap(1)"), "{text}");
+        if text == "wrap(wrap(0))" {
+            assert!(matches!(
+                leaf_arguments[0].unannotated(),
+                Term::Apply { label, .. } if label.name == leaf_label.name
+            ));
+            saw_nested_wrap = true;
+        }
+    });
+    assert_eq!(casts, 2, "only the two cell-content leaves need casts");
+    assert!(
+        saw_nested_wrap,
+        "the nested argument keeps its original application"
+    );
+}
+
+#[test]
+fn explicitly_cast_schematic_configuration_leaf_keeps_one_cast() {
+    use k_rust::kast::Term;
+
+    let source = r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [function]
+          configuration <foo> (wrap(0)):Int </foo>
+        endmodule
+    "#;
+    let parsed = k_rust::outer::parse("schematic-cast.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let transformed = resolve_configuration_bubbles(&lowered).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Configuration { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let mut casts = 0;
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } = term.unannotated() {
+            casts += usize::from(label.semantic_cast_sort() == Some(Sort::new("Int")));
+        }
+    });
+    assert_eq!(
+        casts, 1,
+        "the user-written cast already fixes the content sort"
+    );
+}
+
+#[test]
 fn parses_nested_cells_properties_casts_and_ensures() {
     let source =
         r#"<top multiplicity="1"><k> $PGM:Int </k><counter> 0 </counter></top> ensures true"#;
