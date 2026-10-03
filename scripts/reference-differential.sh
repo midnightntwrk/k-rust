@@ -376,7 +376,7 @@ for fixture in "${cases[@]}"; do
         K_RUST_DEFINITION="$rust/parsed.json" \
         cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
           -p k-rust --test reference_differential -- --ignored --exact \
-          parsed_definition_matches_the_reference_frontend
+          parsed_definition_matches_the_reference_frontend --nocapture
     fi
   done
   if ((pairing_count == 0)); then

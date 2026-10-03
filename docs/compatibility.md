@@ -805,6 +805,11 @@ N36 applies to semantic and syntax KORE compile comparisons: it drops the refere
 For those matching value productions it drops `value-production{}()` and any extra `function{}()` on the k-rust side, accepting both the Rust target's marked function and the LLVM target's marked value declaration and printing separate counts for both attributes and the withheld functional declarations.
 A source function's `function{}()` and every unrelated attribute or axiom stay compared.
 Every other attribute and axiom stays compared, and a declaration without the matching equation-head marker is ineligible.
+N39 applies only to reference parsed definitions: it removes `total` from a generated cell-map key projection identified through the local `MAP.concat` cell collection, its `wrapElement` cell production, the cell's first key field, and the projection's exact generated signature.
+The parsed artifact precedes compilation's `SoleGenerator` judgement, so configuration expansion cannot yet claim that the projection equation covers every generator of the cell sort.
+The normalization requires the corresponding k-rust parsed production to differ only by lacking `total` and the sibling `definition.kore` to declare exactly one matching projection symbol with the same cell/key signature and `total{}()`.
+It refuses if the parsed claim is already present, another parsed difference exists, or the final totality claim is absent; an already present parsed claim requires removing N39.
+It prints the number of removed attributes; every other parsed attribute and production remains compared, and the semantic KORE comparison still compares the final totality claim.
 N38 applies only to reference-tool verification of the k-rust definition in a kore/llvm compile pairing: it adds `function{}()` to exactly the declarations carrying `value-production{}()` in a separate verification copy, counts the changed declarations, and refuses any marked declaration that already carries `function` or `functional`.
 The verifier requires a function or functional equation head; the external LLVM backend must instead receive the original declaration so that an irreducible value-production application remains a value, the per-target contract [Anywhere rules](#anywhere-rules) states.
 The Rust/Haskell pairing verifies the original definition without this normalization.
