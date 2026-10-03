@@ -1924,6 +1924,20 @@ fn synonym_overlap_with_the_injected_counter_body_sort_is_rejected_without_int_i
 }
 
 #[test]
+fn synonym_overlap_with_implicit_configuration_imports_is_rejected_before_configuration_parsing() {
+    for alias in ["Map", "Set", "List"] {
+        let source = format!(
+            "module TEST-IMPLICIT\n  syntax Foo ::= \"foo\" | \"bar\"\n  syntax {alias} = Foo\n  configuration <k> $PGM:K </k>\n  rule <k> foo => bar ...</k>\nendmodule\n"
+        );
+        assert_synonym_overlap_error(
+            load_with_prelude(&source, "TEST-IMPLICIT"),
+            3,
+            &format!("{alias} is declared as a sort by syntax {alias}"),
+        );
+    }
+}
+
+#[test]
 fn synonym_overlap_with_configuration_cell_sorts_is_rejected_before_rule_parsing() {
     for (alias, imports, configuration, referent) in [
         ("ACell", "imports INT", "<k> $PGM:K </k> <a> 0 </a>", "Int"),

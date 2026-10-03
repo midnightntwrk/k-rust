@@ -1146,6 +1146,28 @@ fn finish_load(
         )?;
         Ok::<_, LoadError>((definition, syntax_module))
     })?;
+    // Implicit configuration imports (MAP and DEFAULT-CONFIGURATION) widen module views after
+    // the outer checks. The configuration grammar is built from these widened views, so reject
+    // any new second meaning of a synonym alias before constructing that grammar.
+    if definition.modules.iter().any(|module| {
+        module
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence.as_ref(), Sentence::SortSynonym { .. }))
+    }) {
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+        let synonym_diagnostics = check_sort_synonyms(&resolved);
+        if synonym_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            diagnostics.extend(synonym_diagnostics);
+            return Err(LoadError::SourceDiagnostics(
+                options.diagnostics.apply(diagnostics),
+            ));
+        }
+    }
     let definition = timings.time(load_phase::RESOLVE_CONFIGURATION_BUBBLES, || {
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)
     })?;

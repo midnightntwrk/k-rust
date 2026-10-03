@@ -198,10 +198,11 @@ pub(crate) enum AliasMeaning<'a> {
 
 /// Find each overlap at the first module whose view contains it.
 /// A synonym introduces a new spelling; a spelling with two meanings in a view denotes no one sort.
-/// A production result is a use of an alias when its own module sees that synonym, and otherwise declares a sort head.
-/// This distinction holds before and after synonym application; sort declarations always declare their written head.
-/// Configuration expansion and grammar injections introduce positions independently of synonym application.
-/// Their unbound sorts retain their own meaning even when the module sees a synonym with that spelling.
+/// A production result is a use of an alias when its own module sees that synonym, and otherwise
+/// declares a sort head. This distinction holds before and after synonym application; sort
+/// declarations always declare their written head. Configuration expansion and grammar injections
+/// introduce positions independently of synonym application. Their unbound sorts retain their own
+/// meaning even when the module sees a synonym with that spelling.
 pub(crate) fn synonym_overlaps<'a>(
     definition: &'a ResolvedDefinition,
     synonyms: &BTreeMap<ModuleId, SortSynonyms<'a>>,

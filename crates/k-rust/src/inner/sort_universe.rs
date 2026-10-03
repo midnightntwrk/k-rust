@@ -49,7 +49,9 @@ use crate::kast::{Sort, SortRole};
 /// one alias in a module mean the same sort. An alias with no unique denotation (on a cycle,
 /// ambiguous, or behind such an alias) has no casts;
 /// `check_sort_synonyms` rejects its declarations at load.
-/// A denoted alias has role `Defined` and is never also a member; the load checks before configuration parsing and after expansion reject any second meaning, including injected grammar positions.
+/// A denoted alias has role `Defined` and is never also a member; the load checks before
+/// configuration parsing and after expansion reject any second meaning, including injected
+/// grammar positions.
 pub(in crate::inner) struct SortUniverse {
     members: BTreeMap<Sort, SortRole>,
     /// `(alias, denotation)` once per visible alias whose denotation is a sort of the grammar (a
