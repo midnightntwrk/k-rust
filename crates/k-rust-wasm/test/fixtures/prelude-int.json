@@ -2,7 +2,7 @@
   "definition": "module MAIN\n  imports INT\n  syntax Exp ::= Int | Exp \"+\" Exp [symbol(plus), function]\n  rule A:Int + B:Int => A +Int B\nendmodule\n",
   "moduleName": "MAIN",
   "definitionKoreSha256": {
-    "rust": "20a19db60a938ce0342a9bfe0c41835c267b82ea7f2e5c1091acce77a209bb72",
-    "llvm": "e2d399d18845b7d6e3dbea2d240100672c9008a0a30f4e8bb43f2903d535b1da"
+    "rust": "b32de40a5f6413bbb28918c7bbcd80e7a3595213b37dac19f9696b4f10011ae4",
+    "llvm": "044d92db789dd63e87cd6139469c6ca65f6aff8a6b77e2e0831f24c48cce376d"
   }
 }

@@ -434,6 +434,8 @@ impl<'g> ConfigurationAssembler<'g> {
         });
         // The compiled top initializer is synthesized after the frontend grammar is saved.
         // In that grammar, it takes the map exactly when a visible cell initializer does.
+        // Use the generated arity rather than a decoder search: regular variables and streams
+        // also require Init, including before stream expansion inserts the decoder read.
         let takes_map = top.map_or_else(
             || {
                 sentences.iter().any(|sentence| {
@@ -449,8 +451,13 @@ impl<'g> ConfigurationAssembler<'g> {
             self.clear();
             return Ok(initial);
         }
-        let injector = SortInjector::new(resolved, &self.main_module)?;
-        let key = injector
+        if self.injector.is_none() {
+            self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
+        }
+        let key = self
+            .injector
+            .as_ref()
+            .expect("the injector was created above")
             .injection_witness(
                 &KastSort::builtin(BuiltinSort::KConfigVar),
                 &KastSort::builtin(BuiltinSort::KItem),

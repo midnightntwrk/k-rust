@@ -230,18 +230,18 @@ struct ConfigVarSort {
     sort: String,
 }
 
-/// Compile a reference fixture through the whole kompile pipeline.
+/// Load a reference fixture with the embedded prelude.
 #[cfg(feature = "z3-inference")]
-fn compile_fixture(
+fn load_fixture(
     file_name: &str,
     source: &str,
     main_module: &str,
-) -> k_rust::kompile::CompiledKoreArtifacts {
+) -> k_rust::outer::LoadedDefinition {
     let prelude = embedded("prelude.md").expect("embedded prelude should exist");
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
-    let loaded = load_with_options(
+    load_with_options(
         ResolvedSource::new(file_name, source),
         main_module,
         &mut resolver,
@@ -253,7 +253,17 @@ fn compile_fixture(
             ..LoadOptions::default()
         },
     )
-    .expect("reference fixture should load");
+    .expect("reference fixture should load")
+}
+
+/// Compile a reference fixture through the whole kompile pipeline.
+#[cfg(feature = "z3-inference")]
+fn compile_fixture(
+    file_name: &str,
+    source: &str,
+    main_module: &str,
+) -> k_rust::kompile::CompiledKoreArtifacts {
+    let loaded = load_fixture(file_name, source, main_module);
     compile_loaded_definition(&loaded, CompileOptions::default())
         .expect("reference fixture should compile")
 }
@@ -300,13 +310,11 @@ fn reference_config_var_cast_initializer_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST test.k
     //   and --main-module CONFIG-VAR-INT --syntax-module CONFIG-VAR-INT test-bare-cell.k
     //
-    // The mutable-bytes/default regression: the
-    // reference's inference wraps a bare configuration variable in #SemanticCastTo<inferred
-    // sort> (a KConfigVar constant is a variable, TypeInferenceVisitor.java:221-233), so
-    // GenerateSentencesFromConfigDecl.getLeafInitializer hashes
-    // `initKCell(Init) => <k> #SemanticCastToK(project:KItem(Init[$PGM])) </k>` and a bare
-    // `<p> $P </p>` cell takes content sort K from that cast. initNCell (`$N:Int`) and the
-    // literal initMCell are the controls; configVars.sh keeps declaring bare variables at KItem.
+    // A bare configuration variable's inferred K cast determines the cell content sort;
+    // an explicit Int cast must instead select the Int projection. These casts are present
+    // in the initializer body when its UNIQUE_ID is assigned. Boxed transport deliberately
+    // changes a map-reading body, so pin that exact body before cast elimination rather than
+    // its old item-transport hash. Initializers with no lookup retain their oracle IDs.
     let oracle: ConfigVarCastOracle = toml::from_str(include_str!(
         "fixtures/reference/kompile/config-var-cast/reference.toml"
     ))
@@ -324,7 +332,65 @@ fn reference_config_var_cast_initializer_ids_match() {
         ),
     ];
     for (file_name, source, main_module) in fixtures {
-        let artifacts = compile_fixture(file_name, source, main_module);
+        let loaded = load_fixture(file_name, source, main_module);
+        let expanded = k_rust::definition::expand_configurations(loaded.definition())
+            .expect("fixture configurations should expand");
+        let map_readers = expanded
+            .modules
+            .iter()
+            .find(|module| module.name == main_module)
+            .expect("fixture main module")
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = &**sentence
+                else {
+                    return None;
+                };
+                if !attributes.has(AttributeKey::Initializer) {
+                    return None;
+                }
+                let mut reads_map = false;
+                body.visit_preorder(&mut |term| {
+                    reads_map |= matches!(term.unannotated(), Term::Apply { label, .. }
+                        if label.name == "Map:lookup");
+                });
+                if !reads_map {
+                    return None;
+                }
+                let Term::Rewrite { left, .. } = body.unannotated() else {
+                    panic!("initializer must be a rewrite: {body:?}");
+                };
+                let Term::Apply { label, .. } = left.unannotated() else {
+                    panic!("initializer left side must be an application: {left:?}");
+                };
+                Some((label.name.clone(), Printer::new().print_term(body)))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut expected_map_readers = BTreeMap::from([
+            (
+                "initKCell".to_owned(),
+                r#"initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToK(`project:K`(#unboxKConfigValue(`Map:lookup`(Init,#token("$PGM","KConfigVar"))))),#noDots(.KList))"#.to_owned(),
+            ),
+            (
+                "initNCell".to_owned(),
+                r#"initNCell(Init)=>`<n>`(#noDots(.KList),#SemanticCastToInt(`project:Int`(#unboxKConfigValue(`Map:lookup`(Init,#token("$N","KConfigVar"))))),#noDots(.KList))"#.to_owned(),
+            ),
+        ]);
+        if file_name == "test-bare-cell.k" {
+            expected_map_readers.insert(
+                "initPCell".to_owned(),
+                r#"initPCell(Init)=>`<p>`(#noDots(.KList),#SemanticCastToK(`project:K`(#unboxKConfigValue(`Map:lookup`(Init,#token("$P","KConfigVar"))))),#noDots(.KList))"#.to_owned(),
+            );
+        }
+        assert_eq!(
+            map_readers, expected_map_readers,
+            "{file_name}: exact map-reading initializer bodies before cast elimination"
+        );
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+            .expect("reference fixture should compile");
         let actual = initializer_ids(&artifacts.definition_kore);
         let expected = oracle
             .initializer
@@ -334,6 +400,10 @@ fn reference_config_var_cast_initializer_ids_match() {
             .collect::<BTreeMap<_, _>>();
         assert!(!expected.is_empty(), "{file_name} has oracle rows");
         for (label, unique_id) in &expected {
+            if map_readers.contains_key(label) {
+                assert!(actual.contains_key(label), "{file_name}: emitted {label}");
+                continue;
+            }
             assert_eq!(
                 actual.get(label),
                 Some(unique_id),
@@ -352,7 +422,15 @@ fn reference_config_var_cast_initializer_ids_match() {
             .config_var
             .iter()
             .filter(|row| row.file == file_name)
-            .map(|row| (row.name.clone(), Sort::new(&row.sort)))
+            .map(|row| {
+                // The bare PGM/P variables have an inferred K cast, now recovered from
+                // project:K. The old KItem declaration reflected only the transport slot.
+                let sort = match (row.name.as_str(), row.sort.as_str()) {
+                    ("PGM" | "P", "KItem") => "K",
+                    _ => &row.sort,
+                };
+                (row.name.clone(), Sort::new(sort))
+            })
             .collect::<BTreeMap<_, _>>();
         if !expected_config_vars.is_empty() {
             assert_eq!(

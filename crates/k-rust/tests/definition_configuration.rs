@@ -852,7 +852,19 @@ fn configuration_values_have_one_partial_transport_module_and_declared_projectio
           configuration <top> <k> $PGM:K </k> <value> $X:Val </value> </top>
         endmodule
     "#});
+    let before = k_rust_kore::measure::snapshot();
     let expanded = expand_configurations(&definition).unwrap();
+    let work = k_rust_kore::measure::snapshot().delta(&before);
+    // Both readers' imports are structural prerequisites of one resolution; expanding
+    // their generated sentences must retain the incremental dependency-first updates.
+    assert_eq!(
+        work.get(k_rust_kore::measure::Counter::KompileResolveCalls),
+        1
+    );
+    assert_eq!(
+        work.get(k_rust_kore::measure::Counter::KompileResolveUpdates),
+        2
+    );
     let transport = expanded
         .modules
         .iter()

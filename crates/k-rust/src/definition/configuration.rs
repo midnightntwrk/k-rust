@@ -173,14 +173,45 @@ fn expand_configurations_inner(
     definition: &Definition,
     allow_reserved_cell_names: bool,
 ) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
+    let mut transformed = definition.clone();
+    // Only configuration leaves are decoded; cell names, properties and external-cell
+    // references are not initializer payloads. Install every needed import before resolving
+    // so dependency-first sentence updates never change the module/import structure.
+    let mut needs_transport = false;
+    for module in &mut transformed.modules {
+        let reads = module.local_sentences.iter().any(|sentence| {
+            matches!(&**sentence, Sentence::Configuration { body, .. }
+                if configuration_reads_value(body))
+        });
+        if reads {
+            needs_transport = true;
+            if !module
+                .imports
+                .iter()
+                .any(|import| import.name == configuration_value::MODULE_NAME)
+            {
+                module.imports.push(super::FlatImport {
+                    name: configuration_value::MODULE_NAME.into(),
+                    public: true,
+                });
+            }
+        }
+    }
+    if needs_transport
+        && !transformed
+            .modules
+            .iter()
+            .any(|module| module.name == configuration_value::MODULE_NAME)
+    {
+        transformed.modules.push(configuration_value::module());
+    }
     let mut resolved =
-        ResolvedDefinition::resolve(definition).map_err(ConfigurationError::Definition)?;
+        ResolvedDefinition::resolve(&transformed).map_err(ConfigurationError::Definition)?;
     let module_names = resolved
         .dependency_order()
         .iter()
         .map(|id| resolved.module(*id).name.clone())
         .collect::<Vec<_>>();
-    let mut transformed = definition.clone();
     let mut diagnostics = Vec::new();
 
     // Invariant: `transformed` and `resolved` carry the generated cell sentences of every entry of `module_names` (dependency order) before `module_name`; each iteration consumes one module name and its `position` lookup scans `transformed.modules`, O(|module_names| * |transformed.modules|).
@@ -239,46 +270,40 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
-        let reads_configuration_value = generated.iter().any(|sentence| {
-            let Sentence::Rule { body, .. } = sentence else {
-                return false;
-            };
-            let mut reads = false;
-            body.visit_preorder(&mut |term| {
-                reads |= matches!(term, Term::Apply { label, .. } if label.name == configuration_value::UNBOX_LABEL);
-            });
-            reads
-        });
         output.extend(generated.into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
-        if reads_configuration_value {
-            if !transformed
-                .modules
-                .iter()
-                .any(|module| module.name == configuration_value::MODULE_NAME)
-            {
-                transformed.modules.push(configuration_value::module());
-            }
-            if !transformed.modules[module_index]
-                .imports
-                .iter()
-                .any(|import| import.name == configuration_value::MODULE_NAME)
-            {
-                transformed.modules[module_index]
-                    .imports
-                    .push(super::FlatImport {
-                        name: configuration_value::MODULE_NAME.into(),
-                        public: true,
-                    });
-            }
-        }
         resolved = resolved
             .update(&previous, &transformed)
             .map_err(ConfigurationError::Definition)?;
     }
 
     Ok((transformed, diagnostics))
+}
+
+/// Whether expansion will replace a configuration-variable leaf with a decoded map read.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; non-cell nodes are initializer leaves"
+)]
+fn configuration_reads_value(term: &Term) -> bool {
+    match term.unannotated() {
+        Term::Apply { label, arguments } if label.is(InternalLabel::ConfigCell) => {
+            arguments.get(2).is_some_and(configuration_reads_value)
+        }
+        Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
+            arguments.iter().any(configuration_reads_value)
+        }
+        Term::Apply { label, .. } if label.is(InternalLabel::ExternalCell) => false,
+        _ => {
+            let mut reads = false;
+            term.visit_preorder(&mut |term| {
+                reads |= matches!(term, Term::Token { sort, .. }
+                    if sort.name == BuiltinSort::KConfigVar.k_name());
+            });
+            reads
+        }
+    }
 }
 
 fn has_structured_configuration(definition: &Definition) -> bool {

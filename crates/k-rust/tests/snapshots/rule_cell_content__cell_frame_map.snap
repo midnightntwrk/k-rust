@@ -2,4 +2,4 @@
 source: crates/k-rust/tests/rule_cell_content.rs
 expression: digest
 ---
-166570 bytes, 8040b72496f8833b667ed2af88f100a2c821aaea15cd5802eac53849061ba8b5
+167736 bytes, 36c24f5af1687b4dc2ef4aa0d1581665251b712289e761038042f4271363277a

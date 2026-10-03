@@ -732,6 +732,10 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
+        // Structural sorts describe the emitted variable, kseq, rewrite and conjunction;
+        // metadata can describe an enclosing placement instead. Injector-produced terms
+        // already agree with these structural sorts, preserving their sequence flattening
+        // and common-sort choices while preventing metadata from licensing a retained inj.
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }

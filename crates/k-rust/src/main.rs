@@ -2449,13 +2449,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let config_vars_parse_seconds = started.elapsed().as_secs_f64();
     drop(config_vars_parse_phase);
 
-    let internalize_phase =
-        tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
-    let started = Instant::now();
+    let definition_parse_started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let definition_parse_seconds = definition_parse_started.elapsed().as_secs_f64();
 
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     {
+        // Assembly has erased individual binding origins; this boundary identifies the
+        // initial configuration as a whole. Keep the debug checker outside phase timings.
         k_rust::kompile::assert_frontend_pattern(
             &syntax,
             &compiled.main_module,
@@ -2472,6 +2473,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         }
     }
 
+    let internalize_phase =
+        tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
+    let started = Instant::now();
     let backend = Backend::internalize_source_definition(
         &syntax,
         &compiled.main_module,
@@ -2498,7 +2502,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         }
         None => None,
     };
-    let internalize_seconds = started.elapsed().as_secs_f64();
+    let internalize_seconds = definition_parse_seconds + started.elapsed().as_secs_f64();
     drop(internalize_phase);
     let execute_phase =
         tracing::info_span!("phase", name = tracing::field::display("execute")).entered();
