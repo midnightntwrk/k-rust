@@ -492,14 +492,14 @@ pub(crate) fn first_unapplied_synonym(
                         Spelling::Sort | Spelling::Undenoted => None,
                     })
                     .or_else(|| {
-                        sort_attribute_elements(sentence)
-                            .filter(|(_, sort)| !parameters.contains(sort))
-                            .find_map(|(key, sort)| match synonyms.spelling(&sort) {
+                        sort_attribute_elements(sentence).find_map(|(key, sort)| {
+                            match synonyms.spelling(&sort) {
                                 Spelling::Synonym { denotes } => {
                                     Some((sort.clone(), denotes.clone(), Some(key)))
                                 }
                                 Spelling::Sort | Spelling::Undenoted => None,
-                            })
+                            }
+                        })
                     })
                     .expect(
                         "a changed sentence has an unbound synonym operand or attribute element",
@@ -517,10 +517,10 @@ pub(crate) fn first_unapplied_synonym(
     None
 }
 
-static SORT_VALUED: LazyLock<Vec<AttributeKey>> = LazyLock::new(|| {
+static SORT_VALUED: LazyLock<Vec<(AttributeKey, SortValues)>> = LazyLock::new(|| {
     AttributeKey::ALL
         .into_iter()
-        .filter(|key| key.sort_values().is_some())
+        .filter_map(|key| key.sort_values().map(|values| (key, values)))
         .collect()
 });
 
@@ -534,20 +534,24 @@ fn attribute_elements(value: &str, values: SortValues) -> impl Iterator<Item = &
 }
 
 fn sort_attribute_elements(sentence: &Sentence) -> impl Iterator<Item = (AttributeKey, Sort)> + '_ {
-    SORT_VALUED.iter().flat_map(|&key| {
-        let values = key
-            .sort_values()
-            .expect("the key table selects sort-valued attributes");
+    let parameters = production_parameters(sentence);
+    SORT_VALUED.iter().flat_map(move |&(key, values)| {
         sentence
             .attributes()
             .string(key)
             .into_iter()
             .flat_map(move |value| {
                 attribute_elements(value, values)
-                    .filter_map(|element| crate::kast::parser::parse_sort(element).ok())
+                    .filter_map(move |element| unbound_attribute_sort(element, parameters))
                     .map(move |sort| (key, sort))
             })
     })
+}
+
+fn unbound_attribute_sort(element: &str, parameters: &[Sort]) -> Option<Sort> {
+    crate::kast::parser::parse_sort(element)
+        .ok()
+        .filter(|sort| !parameters.contains(sort))
 }
 
 fn production_parameters(sentence: &Sentence) -> &[Sort] {
@@ -604,20 +608,15 @@ fn apply_to_sentence(sentence: &mut Sentence, synonyms: &SortSynonyms<'_>) {
     if synonyms.is_empty() {
         return;
     }
-    for &key in SORT_VALUED.iter() {
+    for &(key, values) in SORT_VALUED.iter() {
         let Some(value) = sentence.attributes().string(key) else {
             continue;
         };
-        let values = key
-            .sort_values()
-            .expect("the key table selects sort-valued attributes");
         let parameters = production_parameters(sentence);
         let mut changed = false;
         let elements = attribute_elements(value, values)
             .map(|element| {
-                if let Ok(sort) = crate::kast::parser::parse_sort(element)
-                    && !parameters.contains(&sort)
-                {
+                if let Some(sort) = unbound_attribute_sort(element, parameters) {
                     match synonyms.spelling(&sort) {
                         Spelling::Synonym { denotes } => {
                             changed = true;
