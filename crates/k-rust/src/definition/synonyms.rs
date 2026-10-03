@@ -179,13 +179,23 @@ pub(crate) struct SynonymOverlap<'a> {
     pub(crate) alias: Sort,
     /// The first visible synonym declaration of the alias.
     pub(crate) synonym: &'a Sentence,
+    /// The written referent of that declaration.
+    pub(crate) referent: &'a Sort,
     pub(crate) meaning: AliasMeaning<'a>,
+}
+
+/// Sort roles whose meaning is fixed independently of the definition's declarations.
+#[derive(Clone, Copy)]
+pub(crate) enum FixedAliasRole {
+    Kernel,
+    RigidVariable,
+    Scaffolding,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) enum AliasMeaning<'a> {
     /// The spelling fixes the meaning independently of declarations.
-    Role(SortRole),
+    Role(FixedAliasRole),
     /// A sort declaration, or a production declaring its unbound result in its own view.
     Declared(&'a Sentence),
     /// An unbound sort position generated after application or injected into a grammar.
@@ -200,8 +210,10 @@ pub(crate) enum AliasMeaning<'a> {
 /// A synonym introduces a new spelling; a spelling with two meanings in a view denotes no one sort.
 /// A production result is a use of an alias when its own module sees that synonym, and otherwise
 /// declares a sort head. This distinction holds before and after synonym application; sort
-/// declarations always declare their written head. Configuration expansion and grammar injections
-/// introduce positions independently of synonym application. Their unbound sorts retain their own
+/// declarations declare their written head, except for temporary cell-sort parse aids whose own
+/// module sees the alias: those stand for nonterminal uses in that module's productions.
+/// Configuration expansion and grammar injections introduce positions independently of synonym
+/// application. Their unbound sorts retain their own
 /// meaning even when the module sees a synonym with that spelling.
 pub(crate) fn synonym_overlaps<'a>(
     definition: &'a ResolvedDefinition,
@@ -228,6 +240,13 @@ pub(crate) fn synonym_overlaps<'a>(
                     continue;
                 }
                 let sort = match sentence.as_ref() {
+                    Sentence::SyntaxSort {
+                        sort, attributes, ..
+                    } if attributes.has(super::AttributeKey::TemporaryCellSortDecl)
+                        && matches!(synonyms[&id].spelling(sort), Spelling::Synonym { .. }) =>
+                    {
+                        None
+                    }
                     Sentence::SyntaxSort { sort, .. } => Some(sort),
                     Sentence::Production {
                         sort, parameters, ..
@@ -281,7 +300,9 @@ pub(crate) fn synonym_overlaps<'a>(
         let mut seen = BTreeSet::new();
         for sentence in visible {
             let Sentence::SortSynonym {
-                new_sort: alias, ..
+                new_sort: alias,
+                old_sort: referent,
+                ..
             } = sentence
             else {
                 continue;
@@ -292,9 +313,9 @@ pub(crate) fn synonym_overlaps<'a>(
                 continue;
             }
             let meaning = match alias.role() {
-                role @ (SortRole::Kernel(_) | SortRole::RigidVariable | SortRole::Scaffolding) => {
-                    Some(AliasMeaning::Role(role))
-                }
+                SortRole::Kernel(_) => Some(AliasMeaning::Role(FixedAliasRole::Kernel)),
+                SortRole::RigidVariable => Some(AliasMeaning::Role(FixedAliasRole::RigidVariable)),
+                SortRole::Scaffolding => Some(AliasMeaning::Role(FixedAliasRole::Scaffolding)),
                 SortRole::Nat => None,
                 SortRole::Defined => definition
                     .dependency_order()
@@ -340,6 +361,7 @@ pub(crate) fn synonym_overlaps<'a>(
                         SynonymOverlap {
                             alias: alias.clone(),
                             synonym: sentence,
+                            referent,
                             meaning,
                         },
                     ));
@@ -354,6 +376,8 @@ pub(crate) fn synonym_overlaps<'a>(
 /// Chains are followed to their end; spellings bound by the production's parameters stay as written.
 /// Undenoted aliases stay in place for [`super::check_sort_synonyms`] to report their declaration defects.
 /// Sort arguments, parameters and synonym declarations are unchanged.
+/// Temporary cell-sort parse aids for denoted aliases are removed: their nonterminal uses have
+/// been rewritten, so they must not introduce independent members into the configuration grammar.
 pub fn apply_sort_synonyms(definition: &Definition) -> Result<Definition, ResolveError> {
     apply_sort_synonyms_with_resolved(definition).map(|(transformed, _)| transformed)
 }
@@ -374,6 +398,13 @@ pub(crate) fn apply_sort_synonyms_with_resolved(
 
         for sentence in &mut module.local_sentences {
             apply_to_sentence(crate::definition::sentence_mut(sentence), &synonyms);
+        }
+        if !synonyms.is_empty() {
+            module.local_sentences.retain(|sentence| {
+                !matches!(sentence.as_ref(), Sentence::SyntaxSort { sort, attributes, .. }
+                    if attributes.has(super::AttributeKey::TemporaryCellSortDecl)
+                        && matches!(synonyms.spelling(sort), Spelling::Synonym { .. }))
+            });
         }
     }
 
@@ -524,6 +555,30 @@ mod tests {
 
     fn lowered_definition(text: &str) -> Definition {
         crate::outer::lower(&crate::outer::parse("synonyms.k", text).unwrap(), "MAIN").unwrap()
+    }
+
+    #[test]
+    fn temporary_cell_sort_uses_are_not_declarations_before_or_after_application() {
+        let definition = lowered_definition(
+            "module MAIN\nsyntax T ::= \"t\"\nsyntax FooCell = T\nsyntax Bar ::= bar(FooCell)\nendmodule\n",
+        );
+        assert!(
+            definition.modules[0]
+                .local_sentences
+                .iter()
+                .any(|sentence| {
+                    matches!(sentence.as_ref(), Sentence::SyntaxSort { attributes, .. }
+                if attributes.has(super::super::AttributeKey::TemporaryCellSortDecl))
+                })
+        );
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        assert!(crate::definition::check_sort_synonyms(&resolved).is_empty());
+        let (applied, resolved) = apply_sort_synonyms_with_resolved(&definition).unwrap();
+        assert!(crate::definition::check_sort_synonyms(&resolved).is_empty());
+        assert!(applied.modules[0].local_sentences.iter().all(|sentence| {
+            !matches!(sentence.as_ref(), Sentence::SyntaxSort { sort, .. }
+                if sort == &Sort::new("FooCell"))
+        }));
     }
 
     #[test]

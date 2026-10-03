@@ -9,7 +9,7 @@ use super::super::relations::{
     SubsortDeclaration, disambiguation_subsort_pairs, states_disambiguation_subsort,
 };
 use super::super::sort_catalog::SortShape;
-use super::super::synonyms::{AliasMeaning, synonym_overlaps};
+use super::super::synonyms::{AliasMeaning, FixedAliasRole, synonym_overlaps};
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
     SortSynonyms, Spelling, SynonymDefect,
@@ -448,12 +448,7 @@ pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
     }
     for (module_id, overlap) in synonym_overlaps(definition, &synonyms) {
         let alias = &overlap.alias;
-        let Sentence::SortSynonym {
-            old_sort: referent, ..
-        } = overlap.synonym
-        else {
-            unreachable!("an overlap identifies a synonym declaration");
-        };
+        let referent = overlap.referent;
         let meaning = match overlap.meaning {
             AliasMeaning::Declared(sentence) => {
                 synonym_position_meaning(alias, sentence, "declared as a sort")
@@ -468,14 +463,13 @@ pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
                 cell.label()
             ),
             AliasMeaning::Role(role) => match role {
-                SortRole::Kernel(_) => format!("{alias} is a kernel sort, whose meaning K fixes"),
-                SortRole::Scaffolding => {
+                FixedAliasRole::Kernel => {
+                    format!("{alias} is a kernel sort, whose meaning K fixes")
+                }
+                FixedAliasRole::Scaffolding => {
                     format!("{alias} is a parser sort (#), which has no terms")
                 }
-                SortRole::RigidVariable => format!("{alias} is the rigid sort variable"),
-                SortRole::Nat | SortRole::Defined => {
-                    unreachable!("numeral and defined roles are not fixed alias meanings")
-                }
+                FixedAliasRole::RigidVariable => format!("{alias} is the rigid sort variable"),
             },
         };
         diagnostics.push(Diagnostic::error(

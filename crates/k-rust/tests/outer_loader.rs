@@ -1938,6 +1938,78 @@ fn synonym_overlap_with_implicit_configuration_imports_is_rejected_before_config
 }
 
 #[test]
+fn a_cell_named_nonterminal_with_a_visible_synonym_is_a_use() {
+    use k_rust::kast::Sort;
+    for (alias, synonym_module) in [
+        ("FooCell", ""),
+        ("FooCellFragment", ""),
+        (
+            "FooCell",
+            "module ALIASES\n  imports INT\n  syntax FooCell = Int\nendmodule\n",
+        ),
+    ] {
+        let alias_declaration = if synonym_module.is_empty() {
+            format!("syntax {alias} = Int")
+        } else {
+            "imports private ALIASES".to_owned()
+        };
+        let source = format!(
+            "{synonym_module}module C2\n  imports INT\n  {alias_declaration}\n  syntax Bar ::= bar({alias})\n  syntax KItem ::= Bar\n  configuration <k> $PGM:K </k>\n  rule bar(_X:{alias}) => .K\nendmodule\n"
+        );
+        let loaded = load_with_prelude(&source, "C2")
+            .unwrap_or_else(|error| panic!("{alias} must denote Int: {error:?}"));
+        let production = loaded
+            .definition()
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| {
+                matches!(sentence.as_ref(), Sentence::Production { sort, .. }
+                    if sort == &Sort::new("Bar"))
+            })
+            .expect("bar is retained");
+        let Sentence::Production { items, .. } = production.as_ref() else {
+            panic!("expected bar's production")
+        };
+        let operands = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(operands, vec![Sort::new("Int")]);
+        assert!(loaded.definition().modules.iter().all(|module| {
+            module.local_sentences.iter().all(|sentence| {
+                !matches!(sentence.as_ref(), Sentence::SyntaxSort { sort, .. } if sort.name == alias)
+            })
+        }));
+    }
+}
+
+#[test]
+fn a_real_cell_still_gives_a_cell_named_alias_a_second_meaning() {
+    assert_synonym_overlap_error(
+        load_with_prelude(
+            indoc! {r#"
+                module C2
+                  imports INT
+                  syntax FooCell = Int
+                  syntax Bar ::= bar(FooCell)
+                  syntax KItem ::= Bar
+                  configuration <k> $PGM:K </k> <foo> 0 </foo>
+                  rule bar(_X:FooCell) => .K
+                endmodule
+            "#},
+            "C2",
+        ),
+        3,
+        "FooCell is given a sort position in generated or injected grammar syntax by syntax FooCell",
+    );
+}
+
+#[test]
 fn synonym_overlap_with_configuration_cell_sorts_is_rejected_before_rule_parsing() {
     for (alias, imports, configuration, referent) in [
         ("ACell", "imports INT", "<k> $PGM:K </k> <a> 0 </a>", "Int"),

@@ -1155,9 +1155,11 @@ fn finish_load(
             .iter()
             .any(|sentence| matches!(sentence.as_ref(), Sentence::SortSynonym { .. }))
     }) {
-        let resolved =
-            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
-        let synonym_diagnostics = check_sort_synonyms(&resolved);
+        let synonym_diagnostics = timings.time(load_phase::CHECK_OUTER_MODULES, || {
+            let resolved = ResolvedDefinition::resolve(&definition)
+                .map_err(LoadError::DefinitionResolution)?;
+            Ok::<_, LoadError>(check_sort_synonyms(&resolved))
+        })?;
         if synonym_diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
