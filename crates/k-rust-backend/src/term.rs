@@ -1420,6 +1420,8 @@ impl Term {
         }
     }
 
+    // Preserve each constructor's known kind through the shared synthesis boundary.
+    #[inline(always)]
     fn new(kind: TermKind) -> Self {
         Self::allocate(TermAllocation::Structural(kind))
     }
@@ -1871,6 +1873,7 @@ enum TermAllocation<'a> {
 /// Derive shape from the completed kind. Strict children contribute conjunctively; a local
 /// disjoint-collection collision excludes every value shape and requires root simplification.
 /// The second result records that root outcome so a cache mark cannot override it.
+#[inline(always)]
 #[deny(clippy::wildcard_enum_match_arm)]
 fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
     let mut collision_root = false;
