@@ -183,19 +183,19 @@ mod tests {
             "#,
         );
 
-        assert_eq!(definition.claims.len(), 3);
-        assert_eq!(definition.reachability_claims.len(), 2);
+        assert_eq!(definition.claims().len(), 3);
+        assert_eq!(definition.reachability_claims().len(), 2);
         assert_eq!(
-            definition.reachability_claims[0].mode,
+            definition.reachability_claims()[0].mode,
             ReachabilityMode::OnePath
         );
         assert_eq!(
-            definition.reachability_claims[1].mode,
+            definition.reachability_claims()[1].mode,
             ReachabilityMode::AllPath
         );
-        assert!(definition.reachability_claims[0].attributes.trusted);
+        assert!(definition.reachability_claims()[0].attributes.trusted);
         assert_eq!(
-            definition.reachability_claims[0]
+            definition.reachability_claims()[0]
                 .existentials
                 .iter()
                 .map(|variable| variable.name.as_ref())
@@ -220,7 +220,7 @@ mod tests {
             "#,
         );
 
-        assert_eq!(definition.reachability_claims[0].rhs.len(), 2);
+        assert_eq!(definition.reachability_claims()[0].rhs.len(), 2);
     }
 
     #[test]
@@ -241,7 +241,7 @@ mod tests {
             "#,
         );
 
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
         assert_eq!(claim.rhs.len(), 2);
         assert_ne!(claim.rhs[0].term, claim.rhs[1].term);
     }
@@ -265,7 +265,7 @@ mod tests {
             "#,
         );
 
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
         assert_eq!(claim.rhs.len(), 1);
         assert!(matches!(
             claim.rhs[0].constraints.as_slice(),

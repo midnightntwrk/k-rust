@@ -294,8 +294,8 @@ fn sort_injections_into_hooked_sorts_preserve_subsort_values() {
     crate::verify::verify_definition(
         &[&syntax.modules[0]],
         &syntax.modules,
-        &definition.sorts,
-        &definition.symbols,
+        definition.sorts(),
+        definition.symbols(),
         &Default::default(),
     )
     .expect("the subsort axiom's injection must verify");

@@ -1751,7 +1751,7 @@ fn execute_state(
     let (predicates, substitution) = split_constraints(
         &pattern.constraints,
         configuration_variables,
-        &definition.sort_graph,
+        definition.sort_graph(),
     );
     let term = substitute(&pattern.term, &substitution);
     state.insert(
@@ -1827,7 +1827,7 @@ fn execute_applied_state(
     let (_, state_substitution) = split_constraints(
         &applied.pattern.constraints,
         configuration_variables,
-        &definition.sort_graph,
+        definition.sort_graph(),
     );
     let substitution = project_rule_substitution(&applied.rule_substitution, &state_substitution);
     if let Some(value) = encode_substitution_source(
@@ -4644,7 +4644,7 @@ endmodule
         assert_eq!(id.len(), 65);
 
         let definition = service.backend.select_definition(Some("EXTRA")).unwrap();
-        assert_eq!(definition.main_module.as_ref(), id);
+        assert_eq!(definition.main_module().as_ref(), id);
     }
 
     #[test]

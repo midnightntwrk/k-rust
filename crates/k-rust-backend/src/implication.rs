@@ -1941,7 +1941,7 @@ fn eliminate_existential_witnesses(
     // A round that finds no witness exits; one that finds some removes them from `remaining`.
     // Invariant: `remaining` holds the existentials that have no witness yet.
     loop {
-        let (found, rest) = extract_substitution_for(&branch, &remaining, &definition.sort_graph);
+        let (found, rest) = extract_substitution_for(&branch, &remaining, definition.sort_graph());
         if found.is_empty() {
             break;
         }

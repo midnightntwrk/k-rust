@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -18,7 +18,7 @@
 //! bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
 //!
 //! [[cost]]
-//! mode = "one definition (discharge_rewrite_definedness)"
+//! mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
 //! bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
 //! ```
 //!
@@ -27,7 +27,7 @@
 //! true, plus pairwise apartness checks over map keys and set elements, with `FxHashSet`
 //! deduplication; no counter, no worklist loop.
 
-use std::{borrow::Cow, collections::HashSet, sync::Arc};
+use std::{borrow::Cow, collections::HashSet};
 
 use k_rust_kore::measure::{self, Algorithm};
 use rustc_hash::FxHashSet;
@@ -49,44 +49,7 @@ use crate::{
     },
 };
 
-pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) {
-    let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
-    let mut discharged = Vec::new();
-    {
-        let definition: &BackendDefinition = definition;
-        for (index, groups) in &definition.rewrite_theory {
-            for (priority, rules) in groups {
-                for (position, rule) in rules.iter().enumerate() {
-                    discharged.push((
-                        index.clone(),
-                        *priority,
-                        position,
-                        rule_is_defined(definition, &rule.rule),
-                    ));
-                }
-            }
-        }
-    }
-
-    for (index, priority, position, is_defined) in discharged {
-        if !is_defined {
-            continue;
-        }
-        let rule = Arc::make_mut(
-            &mut definition
-                .rewrite_theory
-                .get_mut(&index)
-                .expect("indexed rewrite group should remain present")
-                .get_mut(&priority)
-                .expect("indexed rewrite priority should remain present")[position]
-                .rule,
-        );
-        rule.attributes.preserves_definedness = true;
-        rule.computed_attributes.undefined_symbols.clear();
-    }
-}
-
-fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule) -> bool {
+pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule) -> bool {
     if rule.computed_attributes.undefined_symbols.is_empty() {
         return true;
     }
@@ -267,7 +230,7 @@ pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) 
 /// or an `anywhere` application the simplifier cached as a fixed point). Requiring failure in
 /// both directions keeps the decision independent of matching orientation.
 fn elements_are_apart(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
-    if terms_apart(Some(&definition.sort_graph), left, right).is_some() {
+    if terms_apart(Some(definition.sort_graph()), left, right).is_some() {
         return true;
     }
     certified_ground_normal_form(left)
@@ -317,7 +280,7 @@ fn simplified_ceil_condition(
 fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let indexes = [term_index(term), TermIndex::Variable];
     for index in indexes {
-        let Some(groups) = definition.ceil_theory.get(&index) else {
+        let Some(groups) = definition.ceil_theory().get(&index) else {
             continue;
         };
         for rules in groups.values() {
@@ -686,7 +649,7 @@ fn not_in_collection(
     element: &Term,
     collection: &Term,
 ) -> Predicate {
-    let application = definition.symbols.values().find_map(|symbol| {
+    let application = definition.symbols().values().find_map(|symbol| {
         (symbol.attributes.hook.as_deref() == Some(hook)
             && symbol.argument_sorts.as_slice() == [element.sort(), collection.sort()])
         .then(|| {
@@ -760,9 +723,9 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
-    fn rewrite_rule(definition: &BackendDefinition) -> &Arc<RewriteRule> {
+    fn rewrite_rule(definition: &BackendDefinition) -> &std::sync::Arc<RewriteRule> {
         definition
-            .rewrite_theory
+            .rewrite_theory()
             .values()
             .flat_map(|groups| groups.values())
             .flatten()

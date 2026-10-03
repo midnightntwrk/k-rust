@@ -490,7 +490,7 @@ pub fn match_terms_in_definition(
 ) -> MatchResult {
     match_terms_with_context(
         mode,
-        &definition.sort_graph,
+        definition.sort_graph(),
         Some(definition),
         pattern,
         subject,
@@ -542,7 +542,7 @@ pub(crate) fn match_term_pairs_in_definition(
 
     let matcher = Matcher::new(
         mode,
-        &definition.sort_graph,
+        definition.sort_graph(),
         Some(definition),
         pairs.iter().cloned().collect(),
     );
@@ -1191,11 +1191,11 @@ impl<'a> Matcher<'a> {
             return OverloadLowering::Indeterminate;
         }
 
-        let candidates = definition.overloads.overloaded_by(&symbol.name);
+        let candidates = definition.overloads().overloaded_by(&symbol.name);
         let mut lowered = Vec::new();
         let mut indeterminate = Vec::new();
         for candidate_name in candidates {
-            let Some(candidate) = definition.symbols.get(&candidate_name) else {
+            let Some(candidate) = definition.symbols().get(&candidate_name) else {
                 indeterminate.push(candidate_name);
                 continue;
             };
@@ -1260,7 +1260,7 @@ impl<'a> Matcher<'a> {
             .iter()
             .filter(|(candidate, _)| {
                 !lowered.iter().any(|(lesser, _)| {
-                    candidate != lesser && definition.overloads.is_overloading(candidate, lesser)
+                    candidate != lesser && definition.overloads().is_overloading(candidate, lesser)
                 })
             })
             .collect::<Vec<_>>();
@@ -1269,7 +1269,7 @@ impl<'a> Matcher<'a> {
             && indeterminate.iter().all(|candidate| {
                 minimal
                     .iter()
-                    .any(|(name, _)| definition.overloads.is_overloading(candidate, name))
+                    .any(|(name, _)| definition.overloads().is_overloading(candidate, name))
             })
         {
             return OverloadLowering::Lowered(first.clone());
@@ -1312,8 +1312,8 @@ impl<'a> Matcher<'a> {
         // an overload with it, so no common production exists: most pairs of distinct heads
         // end here, before a view of either side is built.
         if pattern_name == subject_name
-            || !definition.overloads.is_overloaded(pattern_name)
-            || !definition.overloads.is_overloaded(subject_name)
+            || !definition.overloads().is_overloaded(pattern_name)
+            || !definition.overloads().is_overloaded(subject_name)
         {
             return None;
         }
@@ -1327,24 +1327,25 @@ impl<'a> Matcher<'a> {
         let pattern_view = OverloadView::new(pattern)?;
         let subject_view = OverloadView::new(subject)?;
         let common_name = if definition
-            .overloads
+            .overloads()
             .is_overloading(&pattern_view.symbol.name, &subject_view.symbol.name)
         {
             pattern_view.symbol.name.clone()
         } else if definition
-            .overloads
+            .overloads()
             .is_overloading(&subject_view.symbol.name, &pattern_view.symbol.name)
         {
             subject_view.symbol.name.clone()
         } else {
             let common = definition
-                .overloads
+                .overloads()
                 .common_overloads(&pattern_view.symbol.name, &subject_view.symbol.name);
             let minimal = common
                 .iter()
                 .filter(|candidate| {
                     !common.iter().any(|other| {
-                        candidate != &other && definition.overloads.is_overloading(candidate, other)
+                        candidate != &other
+                            && definition.overloads().is_overloading(candidate, other)
                     })
                 })
                 .cloned()
@@ -1354,7 +1355,7 @@ impl<'a> Matcher<'a> {
             };
             common.clone()
         };
-        let common = definition.symbols.get(&common_name)?.clone();
+        let common = definition.symbols().get(&common_name)?.clone();
         let sort_arguments = if pattern_view.symbol.name == common_name {
             pattern_view.sort_arguments.clone()
         } else if subject_view.symbol.name == common_name {
@@ -1392,10 +1393,10 @@ impl<'a> Matcher<'a> {
             return false;
         };
         definition
-            .overloads
+            .overloads()
             .overloaded_by(&pattern.name)
             .into_iter()
-            .filter_map(|name| definition.symbols.get(&name))
+            .filter_map(|name| definition.symbols().get(&name))
             .any(|symbol| {
                 symbol.sort_variables.is_empty()
                     && self
@@ -2444,7 +2445,7 @@ fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> 
     let (Some(definition), TermKind::Application { symbol, .. }) = (definition, kind) else {
         return false;
     };
-    definition.overloads.is_overloaded(&symbol.name)
+    definition.overloads().is_overloaded(&symbol.name)
 }
 
 fn same_collection_category(left: &TermKind, right: &TermKind) -> bool {

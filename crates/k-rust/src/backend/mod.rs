@@ -587,13 +587,13 @@ impl Backend {
             .definition(module_name)
             .map_err(error("could not select backend module"))?;
         let mut identity_counts = BTreeMap::<&str, usize>::new();
-        for axiom in &definition.classified_axioms {
+        for axiom in definition.classified_axioms() {
             *identity_counts
                 .entry(&axiom.attributes().unique_id)
                 .or_default() += 1;
         }
         Ok(definition
-            .classified_axioms
+            .classified_axioms()
             .iter()
             .map(|axiom| {
                 let attributes = axiom.attributes();
@@ -1125,7 +1125,7 @@ impl Backend {
                 circularities
             } else {
                 definition
-                    .reachability_claims
+                    .reachability_claims()
                     .iter()
                     .filter(|candidate| {
                         (std::ptr::eq(*candidate, claim) || candidate.attributes.trusted)
@@ -1213,7 +1213,7 @@ impl Backend {
     where
         E: From<BackendError> + From<StopCause>,
     {
-        let module = definition.main_module.to_string();
+        let module = definition.main_module().to_string();
         if !self.solvers.contains_key(&module) {
             let options = Z3Options {
                 timeout_ms: self.options.smt_timeout_ms,
@@ -3076,7 +3076,7 @@ endmodule
     fn rule_on_line(definition: &BackendDefinition, line: usize) -> (String, Vec<String>) {
         let prefix = format!("Location({line},");
         let rules = definition
-            .rewrite_theory
+            .rewrite_theory()
             .values()
             .flat_map(|priorities| priorities.values())
             .flatten()

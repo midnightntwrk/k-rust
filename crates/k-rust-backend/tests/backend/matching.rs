@@ -419,10 +419,14 @@ fn overload_definition() -> BackendDefinition {
                 symbol left{}(SortLeft{}) : SortLeft{} [constructor{}()]
                 symbol right{}(SortRight{}) : SortRight{} [constructor{}()]
                 symbol common{}(SortTop{}) : SortTop{} [constructor{}()]
-                axiom{R} \exists{R}(Val:SortTop{},
-                    \equals{SortTop{}, R}(Val:SortTop{},
-                        inj{SortSub{}, SortTop{}}(From:SortSub{})))
-                    [subsort{SortSub{}, SortTop{}}()]
+                axiom{R} \exists{R}(Val:SortLeft{},
+                    \equals{SortLeft{}, R}(Val:SortLeft{},
+                        inj{SortSub{}, SortLeft{}}(From:SortSub{})))
+                    [subsort{SortSub{}, SortLeft{}}()]
+                axiom{R} \exists{R}(Val:SortRight{},
+                    \equals{SortRight{}, R}(Val:SortRight{},
+                        inj{SortSub{}, SortRight{}}(From:SortSub{})))
+                    [subsort{SortSub{}, SortRight{}}()]
                 axiom{R} \exists{R}(Val:SortTop{},
                     \equals{SortTop{}, R}(Val:SortTop{},
                         inj{SortLeft{}, SortTop{}}(From:SortLeft{})))
@@ -446,23 +450,7 @@ fn overload_definition() -> BackendDefinition {
             endmodule []"#,
     )
     .expect("overload definition should parse");
-    let mut definition = BackendDefinition::internalize(&syntax, "MAIN")
-        .expect("overload definition should internalize");
-    definition.sort_graph.insert(
-        "SortTop",
-        [
-            Name::from("SortSub"),
-            Name::from("SortLeft"),
-            Name::from("SortRight"),
-        ],
-    );
-    definition
-        .sort_graph
-        .insert("SortLeft", [Name::from("SortSub")]);
-    definition
-        .sort_graph
-        .insert("SortRight", [Name::from("SortSub")]);
-    definition
+    BackendDefinition::internalize(&syntax, "MAIN").expect("overload definition should internalize")
 }
 
 fn expected(mode: MatchMode) -> [[Outcome; 9]; 9] {
@@ -595,15 +583,23 @@ fn anywhere_heads_are_rigid_only_for_rewrite_matching() {
     .expect("anywhere definition should parse");
     let definition = BackendDefinition::internalize(&syntax, "MAIN")
         .expect("anywhere definition should internalize");
-    let value = Term::application(definition.symbols["value"].clone(), Vec::new(), Vec::new());
+    let value = Term::application(
+        definition.symbols()["value"].clone(),
+        Vec::new(),
+        Vec::new(),
+    );
     let variable = Variable::new("X", Sort::simple("SortS"));
     let application = |name: &str, argument: Term| {
-        Term::application(definition.symbols[name].clone(), Vec::new(), vec![argument])
+        Term::application(
+            definition.symbols()[name].clone(),
+            Vec::new(),
+            vec![argument],
+        )
     };
     let pattern = application("anywhereHead", Term::variable(variable.clone()));
 
     assert_eq!(
-        definition.symbols["anywhereHead"].attributes.head_role(),
+        definition.symbols()["anywhereHead"].attributes.head_role(),
         HeadRole::EquationHead
     );
     assert_eq!(
@@ -690,9 +686,13 @@ fn injective_anywhere_function_is_not_decomposed_by_the_matcher() {
     let definition = BackendDefinition::internalize(&syntax, "MAIN")
         .expect("injective anywhere function definition should internalize");
     let constant =
-        |name: &str| Term::application(definition.symbols[name].clone(), Vec::new(), Vec::new());
+        |name: &str| Term::application(definition.symbols()[name].clone(), Vec::new(), Vec::new());
     let application = |name: &str, argument: Term| {
-        Term::application(definition.symbols[name].clone(), Vec::new(), vec![argument])
+        Term::application(
+            definition.symbols()[name].clone(),
+            Vec::new(),
+            vec![argument],
+        )
     };
     let z = constant("z");
     let s_z = application("s", z.clone());
@@ -849,7 +849,7 @@ fn lifts_a_direct_overload_across_a_sort_injection() {
     let definition = overload_definition();
     let variable = Variable::new("X", Sort::simple("SortTop"));
     let pattern = Term::application(
-        definition.symbols["upper"].clone(),
+        definition.symbols()["upper"].clone(),
         Vec::new(),
         vec![Term::variable(variable.clone())],
     );
@@ -858,7 +858,7 @@ fn lifts_a_direct_overload_across_a_sort_injection() {
         Sort::simple("SortSub"),
         Sort::simple("SortTop"),
         Term::application(
-            definition.symbols["lower"].clone(),
+            definition.symbols()["lower"].clone(),
             Vec::new(),
             vec![value.clone()],
         ),
@@ -877,7 +877,7 @@ fn lifts_a_direct_overload_across_a_sort_injection() {
 fn rejects_a_rigid_domain_value_outside_an_overload_family() {
     let definition = overload_definition();
     let pattern = Term::application(
-        definition.symbols["upper"].clone(),
+        definition.symbols()["upper"].clone(),
         Vec::new(),
         vec![Term::variable(Variable::new("X", Sort::simple("SortTop")))],
     );
@@ -1000,14 +1000,14 @@ fn lifts_a_direct_overload_in_the_pattern_orientation() {
         Sort::simple("SortSub"),
         Sort::simple("SortTop"),
         Term::application(
-            definition.symbols["lower"].clone(),
+            definition.symbols()["lower"].clone(),
             Vec::new(),
             vec![Term::variable(variable.clone())],
         ),
     );
     let value = Term::domain_value(Sort::simple("SortSub"), "value");
     let subject = Term::application(
-        definition.symbols["upper"].clone(),
+        definition.symbols()["upper"].clone(),
         Vec::new(),
         vec![Term::injection(
             Sort::simple("SortSub"),
@@ -1080,7 +1080,7 @@ fn lifts_incomparable_symbols_to_their_unique_common_overload() {
         Sort::simple("SortLeft"),
         Sort::simple("SortTop"),
         Term::application(
-            definition.symbols["left"].clone(),
+            definition.symbols()["left"].clone(),
             Vec::new(),
             vec![Term::injection(
                 Sort::simple("SortSub"),
@@ -1094,7 +1094,7 @@ fn lifts_incomparable_symbols_to_their_unique_common_overload() {
         Sort::simple("SortRight"),
         Sort::simple("SortTop"),
         Term::application(
-            definition.symbols["right"].clone(),
+            definition.symbols()["right"].clone(),
             Vec::new(),
             vec![Term::injection(
                 Sort::simple("SortSub"),

@@ -1130,7 +1130,7 @@ impl Term {
                 self.kind(),
                 TermKind::Application { symbol, arguments, .. }
                     if (symbol.attributes.head_role() == HeadRole::EquationHead
-                        || definition.overloads.is_overloaded(&symbol.name))
+                        || definition.overloads().is_overloaded(&symbol.name))
                         && arguments.iter().all(|argument| argument.attributes().evaluated)
             ),
             "the evaluated mark is certified only on an equation-head or overloaded application \
@@ -2496,7 +2496,7 @@ mod tests {
         .unwrap();
         let definition =
             crate::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
-        let ground = Term::application(definition.symbols["tag"].clone(), vec![], vec![value]);
+        let ground = Term::application(definition.symbols()["tag"].clone(), vec![], vec![value]);
         assert!(ground.concrete_after_normalization());
         assert!(!ground.attributes().constructor_like);
         assert!(!ground.attributes().evaluated);
@@ -2805,7 +2805,7 @@ mod tests {
         .expect("role definition should parse");
         let definition = crate::definition::BackendDefinition::internalize(&syntax, "MAIN")
             .expect("role definition should internalize");
-        let role = |name: &str| definition.symbols[name].attributes.head_role();
+        let role = |name: &str| definition.symbols()[name].attributes.head_role();
 
         assert_eq!(role("functionalOnly"), HeadRole::Uninterpreted);
         assert_eq!(role("algebraic"), HeadRole::Uninterpreted);

@@ -68,7 +68,7 @@ pub(super) fn evaluate(
             if facts.tokens.is_empty() {
                 return Ok(BuiltinResult::NotApplicable);
             }
-            subst_one(arguments, facts, &definition.sort_graph)
+            subst_one(arguments, facts, definition.sort_graph())
         }
         "SUBSTITUTION.substMany" => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -104,7 +104,7 @@ impl KVarSorts {
     /// an under-approximation.
     pub(crate) fn of(definition: &BackendDefinition) -> Self {
         let tokens = definition
-            .sorts
+            .sorts()
             .iter()
             .filter(|(_, info)| info.hook.as_deref() == Some("KVAR.KVar"))
             .map(|(name, _)| name.clone())
@@ -112,7 +112,7 @@ impl KVarSorts {
         // `dependents[a]` holds the sorts that contain a `KVar` whenever `a` does.
         let mut dependents = BTreeMap::<Name, BTreeSet<Name>>::new();
         let mut seeds = tokens.iter().cloned().collect::<Vec<_>>();
-        for symbol in definition.symbols.values() {
+        for symbol in definition.symbols().values() {
             // Every symbol declared constructor, whatever its role: an equation head or a macro
             // declared constructor may keep its application, arguments included, in a value, so
             // counting it keeps `kvar_free` an under-approximation.
@@ -141,8 +141,8 @@ impl KVarSorts {
                 }
             }
         }
-        for supersort in definition.sorts.keys() {
-            if let Some(subsorts) = definition.sort_graph.heads_possibly_below(supersort) {
+        for supersort in definition.sorts().keys() {
+            if let Some(subsorts) = definition.sort_graph().heads_possibly_below(supersort) {
                 for subsort in subsorts.iter().filter(|subsort| *subsort != supersort) {
                     dependents
                         .entry(subsort.clone())
@@ -166,7 +166,7 @@ impl KVarSorts {
             }
         }
         let kvar_free = definition
-            .sorts
+            .sorts()
             .keys()
             .filter(|sort| !reaching.contains(*sort))
             .cloned()
@@ -1714,7 +1714,7 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let application = Term::application(
-            definition.symbols["substOne"].clone(),
+            definition.symbols()["substOne"].clone(),
             Vec::new(),
             vec![kvar("x"), kvar("y"), kvar("x")],
         );

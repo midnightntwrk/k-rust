@@ -1166,12 +1166,7 @@ lean = ["KRust.TermAttributes.ceilFree_sound"]
 [node.anchor]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
-symbol = "discharge_rewrite_definedness"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/definedness.rs"
-symbol = "discharge_rewrite_definedness"
+symbol = "rule_is_defined"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1238,6 +1233,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "nested_condition_definedness"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::discharge_rewrite_definedness"
+
 [[node.cost]]
 mode = "one term (ceil_term)"
 bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
@@ -1247,7 +1247,7 @@ mode = "one rule or equation condition (condition_definedness)"
 bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
 
 [[node.cost]]
-mode = "one definition (discharge_rewrite_definedness)"
+mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
 bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
 
 [[node]]

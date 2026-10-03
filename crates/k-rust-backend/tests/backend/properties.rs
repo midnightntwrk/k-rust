@@ -10,7 +10,7 @@ use k_rust_backend::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::Predicate,
     substitution::{Substitution, extract_substitution, substitute},
-    term::{Name, Term, Variable},
+    term::{Term, Variable},
     unification::{UnificationResult, unify_term_pairs},
 };
 use k_rust_kore::kore::parser::parse_definition;
@@ -36,13 +36,13 @@ fn definition() -> BackendDefinition {
                 symbol t0{}() : SortT{} [constructor{}()]
                 symbol t1{}() : SortT{} [constructor{}()]
                 symbol t2{}() : SortT{} [constructor{}()]
+                axiom{R} \exists{R}(Value:SortS{},
+                    \equals{SortS{}, R}(Value:SortS{}, inj{SortT{}, SortS{}}(From:SortT{})))
+                    [subsort{SortT{}, SortS{}}()]
             endmodule []"#,
     )
     .expect("property definition should parse");
-    let mut definition = BackendDefinition::internalize(&syntax, "MAIN")
-        .expect("property definition should internalize");
-    definition.sort_graph.insert("SortS", [Name::from("SortT")]);
-    definition
+    BackendDefinition::internalize(&syntax, "MAIN").expect("property definition should internalize")
 }
 
 /// A generated term, rendered to KORE text and internalized through the definition so that
@@ -208,7 +208,7 @@ proptest! {
                 )
             })
             .collect::<Vec<_>>();
-        let (found, remaining) = extract_substitution(&constraints, &definition.sort_graph);
+        let (found, remaining) = extract_substitution(&constraints, definition.sort_graph());
         prop_assert!(idempotent(&found), "{:?}", found);
         for (variable, value) in &found {
             prop_assert!(

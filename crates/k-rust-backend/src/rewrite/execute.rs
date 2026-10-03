@@ -376,7 +376,7 @@ impl<'a> Execution<'a> {
         mut state: ExecutionState,
     ) -> Phase<(ExecutionState, Option<Pattern>)> {
         let retained_substitution =
-            normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
+            normalize_pattern_substitution(&mut state.pattern, self.definition.sort_graph());
         let pattern_before_constraint_simplification = state.pattern.clone();
         let mut deferred_initial_vacuity = None;
         let (simplified_constraints, diagnostics) = diagnostic::collect(|| {
@@ -399,10 +399,10 @@ impl<'a> Execution<'a> {
                 retain_substitution_predicates(
                     &mut constraints,
                     &retained_substitution,
-                    &self.definition.sort_graph,
+                    self.definition.sort_graph(),
                 );
                 state.pattern.constraints = constraints;
-                normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
+                normalize_pattern_substitution(&mut state.pattern, self.definition.sort_graph());
             }
             Err(error) => {
                 return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
@@ -487,7 +487,7 @@ impl<'a> Execution<'a> {
                 let contradicted_total = simplified.contradicted_total.clone();
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.conditions);
-                normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
+                normalize_pattern_substitution(&mut state.pattern, self.definition.sort_graph());
                 state.observation = self.observation_log.append_simplification(
                     state.observation,
                     self.definition,

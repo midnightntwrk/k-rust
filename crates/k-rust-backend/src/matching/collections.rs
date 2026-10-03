@@ -202,7 +202,7 @@ fn solve_term_pair(
     let subject = substitute(subject, solution.matched.substitution());
     match match_terms_with_context(
         mode,
-        &definition.sort_graph,
+        definition.sort_graph(),
         Some(definition),
         &pattern,
         &subject,
@@ -302,7 +302,7 @@ fn recover_rewrite_candidate(
         let subject = substitute(&subject, matched.substitution());
         match match_terms_with_context(
             MatchMode::Rewrite,
-            &definition.sort_graph,
+            definition.sort_graph(),
             Some(definition),
             &pattern,
             &subject,
@@ -337,7 +337,7 @@ fn solve_list_pair(
     measure::bump(Counter::MatchingCollectionProblems);
     match match_terms_with_context(
         mode,
-        &definition.sort_graph,
+        definition.sort_graph(),
         Some(definition),
         pattern,
         subject,

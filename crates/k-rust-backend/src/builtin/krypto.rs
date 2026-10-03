@@ -25,7 +25,7 @@ pub(super) fn evaluate(
     definition: Option<&BackendDefinition>,
 ) -> HookResult<BuiltinResult> {
     let points = || match definition {
-        Some(definition) => PointConstructors::of(definition.symbols.values().map(AsRef::as_ref)),
+        Some(definition) => PointConstructors::of(definition.symbols().values().map(AsRef::as_ref)),
         None => PointConstructors::UNIDENTIFIED,
     };
     evaluate_with_points(hook, arguments, points)

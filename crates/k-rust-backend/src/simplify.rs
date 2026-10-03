@@ -412,7 +412,7 @@ fn simplify_pattern_details(
 ) -> SimplifyResult<PatternSimplification> {
     let mut pattern = pattern.clone();
     let retained_substitution =
-        normalize_pattern_substitution(&mut pattern, &definition.sort_graph);
+        normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     let simplified = simplify_with_optional_execution(
         definition,
         &pattern.term,
@@ -441,13 +441,13 @@ fn simplify_pattern_details(
     retain_substitution_predicates(
         &mut constraints,
         &retained_substitution,
-        &definition.sort_graph,
+        definition.sort_graph(),
     );
     let mut pattern = Pattern {
         term: simplified.term,
         constraints,
     };
-    normalize_pattern_substitution(&mut pattern, &definition.sort_graph);
+    normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     Ok(PatternSimplification {
         pattern,
         applied_rules: simplified.applied_rules,
@@ -527,7 +527,7 @@ fn discharge_valid_constraints(
     let mut retained = Vec::with_capacity(pending.len());
     // Invariant: `retained` holds, in order, the popped constraints that are substitution bindings or that the solver left undecided, and `pending` holds the unexamined ones; each iteration pops one constraint and pushes none, so the loop runs at most |constraints| times.
     while let Some(constraint) = pending.pop_front() {
-        if substitution_binding(&constraint, &definition.sort_graph).is_some() {
+        if substitution_binding(&constraint, definition.sort_graph()).is_some() {
             retained.push(constraint);
             continue;
         }
@@ -1373,7 +1373,7 @@ fn simplify_predicate_with_budget(
             let equality = match equality {
                 Predicate::Equals(left, right) => {
                     let (equality, resimplify) =
-                        match terms_apart(Some(&definition.sort_graph), &left, &right) {
+                        match terms_apart(Some(definition.sort_graph()), &left, &right) {
                             // R-eq: disjoint denotations are equal exactly where both are empty;
                             // a provably defined side makes that condition false.
                             Some(apart) => {
@@ -1636,7 +1636,7 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
     let Predicate::Equals(left, right) = predicate else {
         return predicate;
     };
-    match match_injection_equality(Some(&definition.sort_graph), &left, &right) {
+    match match_injection_equality(Some(definition.sort_graph()), &left, &right) {
         Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
             normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
         }
@@ -1677,7 +1677,7 @@ fn apply_ceil_theory(
     let Predicate::Ceil(term) = predicate else {
         return Ok(None);
     };
-    let groups = applicable_groups(&definition.ceil_theory, &term_index(term));
+    let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
     for rules in groups.values() {
         match scan_group(rules, |rule| {
             apply_ceil_equation(
@@ -2441,7 +2441,7 @@ fn align_subsort_operands(
         return Some((left.clone(), right.clone()));
     }
     if definition
-        .sort_graph
+        .sort_graph()
         .check_subsort(&left_sort, &right_sort)
         .ok()?
     {
@@ -2451,7 +2451,7 @@ fn align_subsort_operands(
         ));
     }
     if definition
-        .sort_graph
+        .sort_graph()
         .check_subsort(&right_sort, &left_sort)
         .ok()?
     {
@@ -3297,7 +3297,7 @@ fn builtin_effect_result(
 ) -> Result<Term, SimplificationError> {
     match effect {
         BuiltinEffect::UserLog(_) => {
-            let Some(dotk) = definition.symbols.get(WellKnownSymbol::DotK.as_str()) else {
+            let Some(dotk) = definition.symbols().get(WellKnownSymbol::DotK.as_str()) else {
                 return Err(SimplificationError::InvalidBuiltinResultSymbol {
                     hook: "IO.logString",
                     symbol: WellKnownSymbol::DotK.as_str(),
@@ -3334,7 +3334,7 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
             .iter()
             .all(|argument| argument.attributes().evaluated)
         && (symbol.attributes.head_role() == HeadRole::EquationHead
-            || definition.overloads.is_overloaded(&symbol.name))
+            || definition.overloads().is_overloaded(&symbol.name))
 }
 
 fn apply_theory<K: TermTheory>(
@@ -3862,7 +3862,7 @@ mod tests {
         let predicate = Predicate::Ceil(term(&definition, r#"f{}(\dv{SortS{}}("value"))"#));
         assert_eq!(
             definition
-                .ceil_theory
+                .ceil_theory()
                 .values()
                 .flat_map(|groups| groups.values())
                 .flatten()

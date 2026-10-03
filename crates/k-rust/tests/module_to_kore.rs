@@ -1672,7 +1672,7 @@ fn partial_emitted_heads_load_with_the_roles_of_unclaimed_equation_heads() {
     )
     .expect("unclaimed equation heads should load");
     let unclaimed_role = |name: &str| {
-        let attributes = &unclaimed.symbols[name].attributes;
+        let attributes = &unclaimed.symbols()[name].attributes;
         assert_eq!(
             attributes.symbol_type,
             SymbolType::Function(FunctionType::Partial),
@@ -1688,7 +1688,7 @@ fn partial_emitted_heads_load_with_the_roles_of_unclaimed_equation_heads() {
         ("LblfE", "anywhereHead"),
         ("Lblhalf", "macroHead"),
     ] {
-        let attributes = &definition.symbols[name].attributes;
+        let attributes = &definition.symbols()[name].attributes;
         assert_eq!(
             attributes.symbol_type,
             SymbolType::Function(FunctionType::Partial),

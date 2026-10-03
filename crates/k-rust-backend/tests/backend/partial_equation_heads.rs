@@ -50,7 +50,7 @@ fn internalize(source: &str) -> Result<BackendDefinition, DefinitionError> {
 #[test]
 fn an_unclaimed_anywhere_head_is_a_partial_equation_head() {
     let definition = internalize(SOURCE).expect("unclaimed equation heads should internalize");
-    let attributes = &definition.symbols["wrap"].attributes;
+    let attributes = &definition.symbols()["wrap"].attributes;
     assert_eq!(
         attributes.symbol_type,
         SymbolType::Function(FunctionType::Partial)
@@ -61,7 +61,7 @@ fn an_unclaimed_anywhere_head_is_a_partial_equation_head() {
 #[test]
 fn an_unclaimed_macro_symbol_is_a_partial_residual() {
     let definition = internalize(SOURCE).expect("unclaimed equation heads should internalize");
-    let attributes = &definition.symbols["half"].attributes;
+    let attributes = &definition.symbols()["half"].attributes;
     assert_eq!(
         attributes.symbol_type,
         SymbolType::Function(FunctionType::Partial)
@@ -87,7 +87,7 @@ fn marked_value_productions_keep_the_unclaimed_roles_and_definedness() {
         ("wrap", HeadRole::EquationHead),
         ("half", HeadRole::Residual),
     ] {
-        let attributes = &definition.symbols[name].attributes;
+        let attributes = &definition.symbols()[name].attributes;
         assert_eq!(
             attributes.symbol_type,
             SymbolType::Function(FunctionType::Partial)
@@ -97,7 +97,7 @@ fn marked_value_productions_keep_the_unclaimed_roles_and_definedness() {
     for name in ["divInt", "eqInt"] {
         assert!(
             matches!(
-                definition.symbols[name].attributes.head_role(),
+                definition.symbols()[name].attributes.head_role(),
                 HeadRole::Function { declared: true, .. }
             ),
             "{name}"
@@ -117,7 +117,7 @@ fn marked_value_productions_keep_the_unclaimed_roles_and_definedness() {
     let computed = internalize(&SOURCE.replace("[anywhere{}()]", "[anywhere{}(), function{}()]"))
         .expect("a declared function should internalize");
     assert!(matches!(
-        computed.symbols["wrap"].attributes.head_role(),
+        computed.symbols()["wrap"].attributes.head_role(),
         HeadRole::Function { declared: true, .. }
     ));
 }

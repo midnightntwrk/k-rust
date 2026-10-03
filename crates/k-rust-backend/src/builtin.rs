@@ -181,7 +181,7 @@ pub(crate) fn evaluate_in_execution(
 ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
     evaluate_with_context(
         term,
-        Some(&definition.sort_graph),
+        Some(definition.sort_graph()),
         Some(definition),
         Some(execution),
     )
@@ -201,7 +201,7 @@ fn evaluate_with_definition(
 ) -> HookResult<BuiltinResult> {
     evaluate_with_context(
         term,
-        definition.map(|definition| &definition.sort_graph),
+        definition.map(|definition| definition.sort_graph()),
         definition,
         None,
     )
@@ -364,7 +364,7 @@ fn io_getc(
             ));
         };
         const EOF_SYMBOL: &str = "Lbl'Hash'EOF";
-        let Some(symbol) = definition.symbols.get(EOF_SYMBOL) else {
+        let Some(symbol) = definition.symbols().get(EOF_SYMBOL) else {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ArgumentOutOfRange {
                     detail: format!("IO.getc result symbol {EOF_SYMBOL} is absent"),
@@ -490,7 +490,7 @@ fn io_k_unit(
     let (Some(result_sort), Some(definition)) = (result_sort, definition) else {
         return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
     };
-    let Some(dotk) = definition.symbols.get(WellKnownSymbol::DotK.as_str()) else {
+    let Some(dotk) = definition.symbols().get(WellKnownSymbol::DotK.as_str()) else {
         return BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
             detail: format!(
                 "{hook} result symbol {} is absent",

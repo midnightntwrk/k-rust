@@ -473,7 +473,7 @@ fn predicate_as_boolean_term(
         |value| Term::domain_value(boolean_sort.clone(), if value { "true" } else { "false" });
     let hooked = |hook: &str, arguments: Vec<Term>| {
         definition
-            .symbols
+            .symbols()
             .values()
             .find(|symbol| {
                 symbol.attributes.hook.as_deref() == Some(hook)
@@ -517,7 +517,7 @@ fn predicate_as_boolean_term(
                 };
             }
             definition
-                .symbols
+                .symbols()
                 .values()
                 .find(|symbol| {
                     symbol
@@ -713,7 +713,7 @@ fn is_boolean_domain_value(term: &Term) -> bool {
 }
 
 fn declared_boolean_sort(definition: &BackendDefinition) -> Option<Sort> {
-    definition.sorts.iter().find_map(|(name, info)| {
+    definition.sorts().iter().find_map(|(name, info)| {
         (info.hook.as_deref() == Some("BOOL.Bool") && info.parameters.is_empty())
             .then(|| Sort::simple(name.clone()))
     })

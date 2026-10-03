@@ -64,7 +64,7 @@ impl BackendSession {
 
     /// Seed a session with an already internalized definition.
     pub fn with_definition(definition: BackendDefinition) -> Self {
-        let default_module = definition.main_module.to_string();
+        let default_module = definition.main_module().to_string();
         let mut definitions = BTreeMap::new();
         definitions.insert(default_module.clone(), Arc::new(definition));
         Self {
@@ -269,7 +269,7 @@ mod tests {
 
     fn rule_count(definition: &BackendDefinition) -> usize {
         definition
-            .rewrite_theory
+            .rewrite_theory()
             .values()
             .flat_map(BTreeMap::values)
             .map(Vec::len)

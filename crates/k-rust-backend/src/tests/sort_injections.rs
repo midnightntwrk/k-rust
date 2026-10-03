@@ -295,7 +295,7 @@ fn rewrite_keeps_original_live_alternative_index() {
     ))
     .expect("licensed rewrite alternative should remain live");
     let rules = definition
-        .rewrite_theory
+        .rewrite_theory()
         .values()
         .flat_map(|groups| groups.values())
         .flatten()
@@ -324,7 +324,7 @@ fn dead_simplification_and_ceil_patterns_do_not_read_written_positions() {
         let definition = load(&source(axiom)).expect("dead matched pattern should drop its axiom");
         assert!(definition.simplification_theory().is_empty());
         assert!(definition.predicate_simplification_theory().is_empty());
-        assert!(definition.ceil_theory.is_empty());
+        assert!(definition.ceil_theory().is_empty());
     }
 }
 

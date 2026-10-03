@@ -943,7 +943,7 @@ fn exit_code_of(
     finals: &[&ExecutionLeaf],
     max_iterations: usize,
 ) -> Result<u8, Box<dyn Error>> {
-    let Some(symbol) = backend.symbols.get("LblgetExitCode") else {
+    let Some(symbol) = backend.symbols().get("LblgetExitCode") else {
         return Ok(0);
     };
     let mut results = BTreeSet::new();

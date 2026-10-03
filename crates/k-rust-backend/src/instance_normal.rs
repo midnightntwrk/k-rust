@@ -120,7 +120,7 @@ impl BackendDefinition {
     /// test knows what the first does not: the sorts of injections and the productions of an
     /// overload family.
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
-        !may_unify(&self.sort_graph, &rule.lhs, arguments)
+        !may_unify(self.sort_graph(), &rule.lhs, arguments)
             || self.matching_refutes(&rule.lhs, arguments.subject())
     }
 
@@ -763,7 +763,7 @@ mod tests {
                             _ => !(rigid(left) && rigid(right)),
                         };
                         let mut unifier = SyntacticUnifier {
-                            sorts: &definition.sort_graph,
+                            sorts: definition.sort_graph(),
                             subject_values: InheritedFromArguments(arguments),
                             bindings: HashMap::new(),
                             pending: Vec::new(),

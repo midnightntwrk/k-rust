@@ -1066,7 +1066,7 @@ fn empty_computation_instance(
     if computations.is_empty() {
         return None;
     }
-    let dotk = definition.symbols.get(WellKnownSymbol::DotK.as_str())?;
+    let dotk = definition.symbols().get(WellKnownSymbol::DotK.as_str())?;
     if !dotk.sort_variables.is_empty() || !dotk.argument_sorts.is_empty() {
         return None;
     }
@@ -1423,7 +1423,8 @@ fn apply_claim(
         .into_iter()
         .filter(|variable| !substitution.contains_key(variable))
         .collect::<BTreeSet<_>>();
-    let (defined, requires) = extract_substitution_for(&requires, &unbound, &definition.sort_graph);
+    let (defined, requires) =
+        extract_substitution_for(&requires, &unbound, definition.sort_graph());
     substitution = compose(&defined, &substitution);
     // A claim variable bound by an equation of the requires denotes a defined element, so its
     // value's definedness stays among the conditions the claim applies under (I2).
@@ -2144,7 +2145,7 @@ mod tests {
         label: &str,
     ) -> &'a ReachabilityClaim {
         definition
-            .reachability_claims
+            .reachability_claims()
             .iter()
             .find(|claim| claim.attributes.label.as_deref() == Some(label))
             .unwrap_or_else(|| panic!("claim {label:?} should be indexed"))
@@ -2374,7 +2375,7 @@ mod tests {
         options: ProofOptions,
         solver: &dyn SmtSolver,
     ) -> Result<ProofResult, ProofError> {
-        let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
+        let circularities = definition.reachability_claims().iter().collect::<Vec<_>>();
         super::prove_claim(definition, claim, &circularities, options, solver)
     }
 
@@ -2667,7 +2668,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &solver,
         )
@@ -2728,7 +2729,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &solver,
         )
@@ -2788,7 +2789,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &solver,
         )
@@ -3000,7 +3001,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &NoSolver,
         )
@@ -3607,7 +3608,7 @@ mod tests {
         let (result, diagnostics) = diagnostic::collect(|| {
             prove_claim(
                 &definition,
-                &definition.reachability_claims[0],
+                &definition.reachability_claims()[0],
                 ProofOptions {
                     max_simplification_iterations: 1,
                     ..ProofOptions::default()
@@ -3659,7 +3660,7 @@ mod tests {
 
         let result = apply_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             &subject,
             ProofOptions {
                 max_simplification_iterations: 1,
@@ -3723,7 +3724,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &solver,
         )
@@ -3814,7 +3815,7 @@ mod tests {
         // antecedent's map: the claim fails there, and holds on every other instance.
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &solver,
         )
@@ -3830,7 +3831,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions {
                 allow_vacuous: true,
                 ..ProofOptions::default()
@@ -3896,7 +3897,7 @@ mod tests {
             }] if stuck == &term(&definition, "c{}()")
         ));
 
-        let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
+        let circularities = definition.reachability_claims().iter().collect::<Vec<_>>();
         let batch = super::prove_claim(
             &definition,
             claim_with_label(&definition, "ca"),
@@ -3972,7 +3973,7 @@ mod tests {
             validity: Ok(Validity::Contingent),
         };
 
-        for claim in &definition.reachability_claims {
+        for claim in definition.reachability_claims() {
             let result = prove_claim(
                 &definition,
                 claim,
@@ -4087,7 +4088,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions {
                 max_counterexamples: 2,
                 ..ProofOptions::default()
@@ -4144,7 +4145,7 @@ mod tests {
         for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
             let claims = modal_claim(mode, "a", "b", false);
             let definition = definition(A_TO_BOTTOM, &claims);
-            let claim = &definition.reachability_claims[0];
+            let claim = &definition.reachability_claims()[0];
 
             let rejected =
                 prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
@@ -4209,7 +4210,7 @@ mod tests {
         for mode in [ReachabilityMode::AllPath, ReachabilityMode::OnePath] {
             let claims = modal_claim(mode, "a", "c", false);
             let definition = definition(rules, &claims);
-            let claim = &definition.reachability_claims[0];
+            let claim = &definition.reachability_claims()[0];
 
             let proven = prove_claim(
                 &definition,
@@ -4250,7 +4251,7 @@ mod tests {
         for mode in [ReachabilityMode::AllPath, ReachabilityMode::OnePath] {
             let claims = modal_claim(mode, "a", "c", false);
             let definition = definition(rules, &claims);
-            let claim = &definition.reachability_claims[0];
+            let claim = &definition.reachability_claims()[0];
             let failed =
                 prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
             assert_eq!(failed.status, ProofStatus::Failed, "{mode:?}: {failed:#?}");
@@ -4281,7 +4282,7 @@ mod tests {
         "#;
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
         let definition = definition(rules, &claims);
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
 
         let rejected = prove_claim(
             &definition,
@@ -4335,7 +4336,7 @@ mod tests {
             ) [label{}("false-antecedent")]
         "#;
         let syntactic_definition = definition("", claims);
-        let claim = &syntactic_definition.reachability_claims[0];
+        let claim = &syntactic_definition.reachability_claims()[0];
 
         let result = prove_claim(
             &syntactic_definition,
@@ -4577,14 +4578,14 @@ mod tests {
 
         let stuck = prove_claim(
             &stuck_definition,
-            &stuck_definition.reachability_claims[0],
+            &stuck_definition.reachability_claims()[0],
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
         let bounded = prove_claim(
             &bounded_definition,
-            &bounded_definition.reachability_claims[0],
+            &bounded_definition.reachability_claims()[0],
             ProofOptions {
                 max_depth: 0,
                 ..ProofOptions::default()
@@ -5218,7 +5219,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions {
                 step_timeout: Some(Duration::ZERO),
                 ..ProofOptions::default()
@@ -5282,7 +5283,7 @@ mod tests {
         thread::spawn(move || {
             let result = prove_claim(
                 &definition,
-                &definition.reachability_claims[0],
+                &definition.reachability_claims()[0],
                 ProofOptions {
                     max_simplification_iterations: usize::MAX,
                     step_timeout: Some(step_timeout),
@@ -5319,7 +5320,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &NoSolver,
         )
@@ -5394,7 +5395,7 @@ mod tests {
             ]
             .join("\n");
             let definition = definition(A_TO_B, &claims);
-            let goal = &definition.reachability_claims[0];
+            let goal = &definition.reachability_claims()[0];
             let result = prove_claim(&definition, goal, ProofOptions::default(), &NoSolver)
                 .expect("claim should execute");
             let lemma_label = format!(
@@ -5426,7 +5427,7 @@ mod tests {
     fn limits_live_breadth_and_collected_counterexamples() {
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
         let definition = definition(A_TO_B_AND_C, &claims);
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
 
         let breadth_limited = prove_claim(
             &definition,
@@ -5474,7 +5475,7 @@ mod tests {
         assert_eq!(
             prove_claim(
                 &definition,
-                &definition.reachability_claims[0],
+                &definition.reachability_claims()[0],
                 ProofOptions {
                     max_counterexamples: 0,
                     ..ProofOptions::default()
@@ -5504,7 +5505,7 @@ mod tests {
         "#;
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
         let definition = definition(rules, &claims);
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
 
         let breadth_first = prove_claim(
             &definition,
@@ -5536,16 +5537,13 @@ mod tests {
 
     #[test]
     fn condition_stuck_check_can_be_disabled() {
-        let claims = modal_claim(ReachabilityMode::OnePath, "a", "a", false);
-        let mut definition = definition(A_TO_B, &claims);
-        definition
-            .reachability_claims
-            .iter_mut()
-            .find(|claim| claim.attributes.label.as_deref() == Some("one-a-a"))
-            .expect("the target claim should be indexed")
-            .rhs[0]
-            .constraints
-            .push(crate::rule::Predicate::False);
+        let claims = r#"claim{} \implies{SortS{}}(
+            \and{SortS{}}(\top{SortS{}}(), a{}()),
+            weakExistsFinally{SortS{}}(
+                \and{SortS{}}(a{}(), \bottom{SortS{}}())
+            )
+        ) [label{}("one-a-a")]"#;
+        let definition = definition(A_TO_B, claims);
 
         let checked = prove_claim(
             &definition,
@@ -5584,7 +5582,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions {
                 max_depth: 3,
                 ..ProofOptions::default()
@@ -6067,14 +6065,14 @@ mod tests {
         let refuted = RefutesTheObligation;
         let checked = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions::default(),
             &refuted,
         )
         .expect("claim should execute");
         let unchecked = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            &definition.reachability_claims()[0],
             ProofOptions {
                 stuck_check: false,
                 ..ProofOptions::default()
@@ -6129,7 +6127,7 @@ mod tests {
             "#,
             &modal_claim(ReachabilityMode::AllPath, "a", "c", false),
         );
-        let claim = &definition.reachability_claims[0];
+        let claim = &definition.reachability_claims()[0];
 
         let result = prove_claim(
             &definition,

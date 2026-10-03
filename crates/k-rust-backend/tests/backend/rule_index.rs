@@ -90,7 +90,7 @@ fn old_candidates<'a>(
     };
     covered
         .into_iter()
-        .filter_map(|covered| definition.rewrite_theory.get(covered))
+        .filter_map(|covered| definition.rewrite_theory().get(covered))
         .flat_map(|groups| groups.values())
         .flatten()
         .collect()

@@ -290,7 +290,7 @@ impl Unifier<'_> {
                 }
             }
             (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
-                match match_injection_equality(Some(&self.definition.sort_graph), &left, &right) {
+                match match_injection_equality(Some(self.definition.sort_graph()), &left, &right) {
                     Some(InjectionEquality::Direct(left, right))
                     | Some(InjectionEquality::Split(left, right)) => {
                         self.pending.push_back((left, right));
@@ -778,11 +778,21 @@ mod tests {
         let sup = Sort::simple("SortSup");
         let variable = Variable::new("Y", sup.clone());
         let injected = Term::injection(sub.clone(), sup, Term::variable(Variable::new("X", sub)));
-        let mut definition = definition();
-        definition.sort_graph.insert("SortSub", []);
-        definition
-            .sort_graph
-            .insert("SortSup", [crate::term::Name::from("SortSub")]);
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                sort SortSub{} []
+                sort SortSup{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(Value:SortSup{},
+                    \equals{SortSup{}, R}(Value:SortSup{}, inj{SortSub{}, SortSup{}}(From:SortSub{})))
+                    [subsort{SortSub{}, SortSup{}}()]
+            endmodule []"#,
+        )
+        .expect("subsort definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("subsort definition should internalize");
 
         let UnificationResult::Unified(result) = unify_term_pairs(
             &definition,
@@ -805,24 +815,36 @@ mod tests {
         let left_sort = Sort::simple("SortLeft");
         let right_sort = Sort::simple("SortRight");
         let disjoint_sort = Sort::simple("SortDisjoint");
-        let mut definition = definition();
-        definition.sort_graph.insert(
-            "SortItem",
-            [
-                crate::term::Name::from("SortLeft"),
-                crate::term::Name::from("SortRight"),
-                crate::term::Name::from("SortCommon"),
-                crate::term::Name::from("SortDisjoint"),
-            ],
-        );
-        definition
-            .sort_graph
-            .insert("SortLeft", [crate::term::Name::from("SortCommon")]);
-        definition
-            .sort_graph
-            .insert("SortRight", [crate::term::Name::from("SortCommon")]);
-        definition.sort_graph.insert("SortCommon", []);
-        definition.sort_graph.insert("SortDisjoint", []);
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                sort SortItem{} []
+                sort SortLeft{} []
+                sort SortRight{} []
+                sort SortCommon{} []
+                sort SortDisjoint{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(Value:SortItem{},
+                    \equals{SortItem{}, R}(Value:SortItem{}, inj{SortLeft{}, SortItem{}}(From:SortLeft{})))
+                    [subsort{SortLeft{}, SortItem{}}()]
+                axiom{R} \exists{R}(Value:SortItem{},
+                    \equals{SortItem{}, R}(Value:SortItem{}, inj{SortRight{}, SortItem{}}(From:SortRight{})))
+                    [subsort{SortRight{}, SortItem{}}()]
+                axiom{R} \exists{R}(Value:SortItem{},
+                    \equals{SortItem{}, R}(Value:SortItem{}, inj{SortDisjoint{}, SortItem{}}(From:SortDisjoint{})))
+                    [subsort{SortDisjoint{}, SortItem{}}()]
+                axiom{R} \exists{R}(Value:SortLeft{},
+                    \equals{SortLeft{}, R}(Value:SortLeft{}, inj{SortCommon{}, SortLeft{}}(From:SortCommon{})))
+                    [subsort{SortCommon{}, SortLeft{}}()]
+                axiom{R} \exists{R}(Value:SortRight{},
+                    \equals{SortRight{}, R}(Value:SortRight{}, inj{SortCommon{}, SortRight{}}(From:SortCommon{})))
+                    [subsort{SortCommon{}, SortRight{}}()]
+            endmodule []"#,
+        )
+        .expect("overlapping subsort definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("overlapping subsort definition should internalize");
 
         let left = Term::injection(
             left_sort.clone(),

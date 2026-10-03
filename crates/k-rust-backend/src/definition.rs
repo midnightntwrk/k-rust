@@ -353,24 +353,230 @@ pub struct PendingAxiom {
     pub attributes: kore::Attributes,
 }
 
+/// A validated immutable semantic snapshot of a selected KORE module closure.
+///
+/// Its signature, source sentences, executable theories, constructor-domain facts and lazy
+/// caches describe the same input for the lifetime of the value.
+/// Shared getters expose the stored data without granting authority to edit it.
+/// To change semantics, edit the KORE syntax and construct a separate validated value with
+/// [`Self::internalize`] or [`Self::internalize_for_source_execution`].
+/// Rule-only module additions use [`crate::session::BackendSession::add_module`].
+/// Cloning preserves the snapshot and its derived facts.
+///
+/// Each stored component is private, including to other backend modules:
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.main_module = "OTHER".into();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.modules.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.sorts.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.symbols.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.sort_graph = Default::default();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.overloads = Default::default();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.axioms.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.classified_axioms.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.claims.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.reachability_claims.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.rewrite_theory.clear();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &mut BackendDefinition) {
+///     definition.ceil_theory.clear();
+/// }
+/// ```
+///
+/// Shared views also prevent editing the signature, relations, nested symbol or rule handles,
+/// and stored claim consequents:
+///
+/// ```compile_fail
+/// use k_rust_backend::{definition::BackendDefinition, term::Name};
+///
+/// fn edit(definition: &BackendDefinition) {
+///     definition.sorts().get_mut(&Name::from("SortS")).unwrap().has_domain_values = true;
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &BackendDefinition) {
+///     definition.sort_graph().insert("SortS", []);
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use std::sync::Arc;
+/// use k_rust_backend::{definition::BackendDefinition, term::Name};
+///
+/// fn edit(definition: &BackendDefinition) {
+///     Arc::make_mut(definition.symbols().get(&Name::from("a")).unwrap()).name = "other".into();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use std::sync::Arc;
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &BackendDefinition) {
+///     let stored = definition.rewrite_theory().values().next().unwrap()
+///         .values().next().unwrap().first().unwrap();
+///     Arc::make_mut(&mut stored.rule).attributes.preserves_definedness = false;
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use k_rust_backend::definition::BackendDefinition;
+///
+/// fn edit(definition: &BackendDefinition) {
+///     definition.reachability_claims()[0].rhs.clear();
+/// }
+/// ```
+///
+/// Construction, every shared view, cloning and session installation remain available:
+///
+/// ```
+/// use k_rust_backend::{definition::BackendDefinition, session::BackendSession};
+/// use k_rust_kore::kore::parser::parse_definition;
+///
+/// let syntax = parse_definition(r#"[] module MAIN
+///     sort SortS{} []
+///     symbol a{}() : SortS{} [constructor{}()]
+/// endmodule []"#).unwrap();
+/// let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+/// assert_eq!(definition.main_module().to_string(), "MAIN");
+/// assert_eq!(definition.modules().len(), 1);
+/// assert_eq!(definition.sorts().len(), 1);
+/// assert_eq!(definition.symbols().len(), 1);
+/// let _sort_graph = definition.sort_graph();
+/// let _overloads = definition.overloads();
+/// assert!(definition.axioms().is_empty());
+/// assert!(definition.classified_axioms().is_empty());
+/// assert!(definition.claims().is_empty());
+/// assert!(definition.reachability_claims().is_empty());
+/// assert!(definition.rewrite_theory().is_empty());
+/// assert!(definition.ceil_theory().is_empty());
+/// assert!(definition.function_theory().is_empty());
+/// assert!(definition.simplification_theory().is_empty());
+/// assert!(definition.predicate_simplification_theory().is_empty());
+/// let session = BackendSession::with_definition(definition.clone());
+/// assert_eq!(session.default_module(), "MAIN");
+/// assert_eq!(session.definition(None).unwrap().main_module(), definition.main_module());
+/// ```
+///
+/// A cloned symbol handle may be edited as a detached copy.
+/// Its edit leaves the stored signature unchanged, and no API installs the copy into this snapshot:
+///
+/// ```
+/// use std::sync::Arc;
+/// use k_rust_backend::{definition::BackendDefinition, term::{Name, Sort}};
+/// use k_rust_kore::kore::parser::parse_definition;
+///
+/// let syntax = parse_definition(r#"[] module MAIN
+///     sort SortS{} []
+///     symbol a{}() : SortS{} [constructor{}()]
+/// endmodule []"#).unwrap();
+/// let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+/// let stored = definition.symbols().get(&Name::from("a")).unwrap();
+/// let mut detached = Arc::clone(stored);
+/// Arc::make_mut(&mut detached).argument_sorts.push(Sort::simple("SortS"));
+/// assert_eq!(detached.argument_sorts.len(), 1);
+/// assert!(stored.argument_sorts.is_empty());
+/// assert!(definition.symbols()["a"].argument_sorts.is_empty());
+/// ```
 #[derive(Clone, Debug)]
 pub struct BackendDefinition {
-    pub main_module: Name,
-    pub modules: BTreeSet<Name>,
-    pub sorts: BTreeMap<Name, SortInfo>,
-    pub symbols: BTreeMap<Name, Arc<Symbol>>,
+    main_module: Name,
+    modules: BTreeSet<Name>,
+    sorts: BTreeMap<Name, SortInfo>,
+    symbols: BTreeMap<Name, Arc<Symbol>>,
     aliases: BTreeMap<String, AliasDefinition>,
-    pub sort_graph: SortGraph,
-    pub overloads: OverloadGraph,
-    pub axioms: Vec<PendingAxiom>,
-    pub classified_axioms: Vec<ClassifiedAxiom>,
-    pub claims: Vec<PendingAxiom>,
-    pub reachability_claims: Vec<ReachabilityClaim>,
-    pub rewrite_theory: RewriteTheory,
+    sort_graph: SortGraph,
+    overloads: OverloadGraph,
+    axioms: Vec<PendingAxiom>,
+    classified_axioms: Vec<ClassifiedAxiom>,
+    claims: Vec<PendingAxiom>,
+    reachability_claims: Vec<ReachabilityClaim>,
+    rewrite_theory: RewriteTheory,
     function_theory: Theory,
     simplification_theory: Theory,
     predicate_simplification_theory: PredicateTheory,
-    pub ceil_theory: Theory,
+    ceil_theory: Theory,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -800,6 +1006,122 @@ impl From<MalformedAttribute> for DefinitionError {
 }
 
 impl BackendDefinition {
+    /// Discharge rewrite annotations only after the semantic input has been assembled.
+    ///
+    /// ```toml algorithm-site
+    /// id = "backend.definedness.discharge"
+    /// role = "part"
+    /// sites = ["BackendDefinition::discharge_rewrite_definedness"]
+    /// ```
+    fn discharge_rewrite_definedness(&mut self) {
+        let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
+        let mut discharged = Vec::new();
+        {
+            let definition: &BackendDefinition = self;
+            for (index, groups) in &definition.rewrite_theory {
+                for (priority, rules) in groups {
+                    for (position, rule) in rules.iter().enumerate() {
+                        discharged.push((
+                            index.clone(),
+                            *priority,
+                            position,
+                            crate::definedness::rule_is_defined(definition, &rule.rule),
+                        ));
+                    }
+                }
+            }
+        }
+
+        for (index, priority, position, is_defined) in discharged {
+            if !is_defined {
+                continue;
+            }
+            let rule = Arc::make_mut(
+                &mut self
+                    .rewrite_theory
+                    .get_mut(&index)
+                    .expect("indexed rewrite group should remain present")
+                    .get_mut(&priority)
+                    .expect("indexed rewrite priority should remain present")[position]
+                    .rule,
+            );
+            rule.attributes.preserves_definedness = true;
+            rule.computed_attributes.undefined_symbols.clear();
+        }
+    }
+
+    /// The stored main module of this semantic snapshot.
+    #[inline]
+    pub fn main_module(&self) -> &Name {
+        &self.main_module
+    }
+
+    /// The stored modules of this semantic snapshot.
+    #[inline]
+    pub fn modules(&self) -> &BTreeSet<Name> {
+        &self.modules
+    }
+
+    /// The stored sorts of this semantic snapshot.
+    #[inline]
+    pub fn sorts(&self) -> &BTreeMap<Name, SortInfo> {
+        &self.sorts
+    }
+
+    /// The stored symbols of this semantic snapshot.
+    #[inline]
+    pub fn symbols(&self) -> &BTreeMap<Name, Arc<Symbol>> {
+        &self.symbols
+    }
+
+    /// The stored sort graph of this semantic snapshot.
+    #[inline]
+    pub fn sort_graph(&self) -> &SortGraph {
+        &self.sort_graph
+    }
+
+    /// The stored overloads of this semantic snapshot.
+    #[inline]
+    pub fn overloads(&self) -> &OverloadGraph {
+        &self.overloads
+    }
+
+    /// The stored axioms of this semantic snapshot.
+    #[inline]
+    pub fn axioms(&self) -> &[PendingAxiom] {
+        &self.axioms
+    }
+
+    /// The stored classified axioms of this semantic snapshot.
+    #[inline]
+    pub fn classified_axioms(&self) -> &[ClassifiedAxiom] {
+        &self.classified_axioms
+    }
+
+    /// The stored claims of this semantic snapshot.
+    #[inline]
+    pub fn claims(&self) -> &[PendingAxiom] {
+        &self.claims
+    }
+
+    /// The stored reachability claims of this semantic snapshot.
+    #[inline]
+    pub fn reachability_claims(&self) -> &[ReachabilityClaim] {
+        &self.reachability_claims
+    }
+
+    /// The stored rewrite theory of this semantic snapshot.
+    #[inline]
+    pub fn rewrite_theory(&self) -> &RewriteTheory {
+        &self.rewrite_theory
+    }
+
+    /// The stored ceil theory of this semantic snapshot.
+    #[inline]
+    pub fn ceil_theory(&self) -> &Theory {
+        &self.ceil_theory
+    }
+
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function
     /// ([`HeadRole::Function`]); a declared function that is also a macro or alias, or also a
     /// constructor or sort injection, has another role.
@@ -1167,7 +1489,7 @@ impl BackendDefinition {
             .flatten()
             .any(|rule| has_term_component(&rule.lhs));
         result.finite_sort_constructors = collect_finite_sort_constructors(&result);
-        crate::definedness::discharge_rewrite_definedness(&mut result);
+        result.discharge_rewrite_definedness();
         Ok(result)
     }
 

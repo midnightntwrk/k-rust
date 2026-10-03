@@ -111,6 +111,9 @@ The role is one of `"part"`, `"variant"`, or `"fallback"`.
 A variant site may add a scalar `variant_of`; a fallback site may add an ordered `falls_back_to` list.
 The referenced algorithm identity must exist; a card must not create an identity that is absent from `Algorithm::ALL`.
 
+`backend.definedness.discharge` keeps its structural analysis card in `definedness.rs`.
+Its construction-only `BackendDefinition::discharge_rewrite_definedness` site lives in `definition.rs`, where it computes all rule decisions before applying successful annotations to the private rewrite theory.
+
 ## Representations and constraints
 
 An entry in `consumes` or `produces` is either a workspace type path or `{ type = "workspace::Type", role = "meaning" }`.

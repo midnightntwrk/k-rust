@@ -646,7 +646,7 @@ pub struct SmtPrelude {
 impl SmtPrelude {
     pub fn from_definition(definition: &BackendDefinition) -> Result<Self, TranslationError> {
         let mut declarations = definition
-            .sorts
+            .sorts()
             .iter()
             .filter(|(name, _)| {
                 name.as_ref() != BuiltinSort::Int.kore_name()
@@ -654,7 +654,7 @@ impl SmtPrelude {
             })
             .map(|(name, info)| format!("(declare-sort {} {})", quote(name), info.parameters.len()))
             .collect::<Vec<_>>();
-        for symbol in definition.symbols.values() {
+        for symbol in definition.symbols().values() {
             let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
                 continue;
             };

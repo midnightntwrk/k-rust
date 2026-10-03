@@ -509,7 +509,7 @@ fn cell_map_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
         .cloned()
         .reduce(|left, right| {
             Term::application(
-                definition.symbols["mapConcat"].clone(),
+                definition.symbols()["mapConcat"].clone(),
                 Vec::new(),
                 vec![left, right],
             )
@@ -517,7 +517,7 @@ fn cell_map_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
         .expect("a cell-map test state has at least one thread");
     Pattern {
         term: Term::application(
-            definition.symbols["cellState"].clone(),
+            definition.symbols()["cellState"].clone(),
             Vec::new(),
             vec![map],
         ),
@@ -545,7 +545,7 @@ fn cell_set_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
         .cloned()
         .reduce(|left, right| {
             Term::application(
-                definition.symbols["setConcat"].clone(),
+                definition.symbols()["setConcat"].clone(),
                 Vec::new(),
                 vec![left, right],
             )
@@ -553,7 +553,7 @@ fn cell_set_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
         .expect("a cell-set test state has at least one task");
     Pattern {
         term: Term::application(
-            definition.symbols["cellState"].clone(),
+            definition.symbols()["cellState"].clone(),
             Vec::new(),
             vec![set],
         ),
@@ -611,7 +611,7 @@ fn cell_map_heating_selects_the_entry_with_the_literal_anywhere_head() {
     assert_eq!(
         applied.pattern.term,
         Term::application(
-            definition.symbols["heated"].clone(),
+            definition.symbols()["heated"].clone(),
             Vec::new(),
             vec![
                 internal_term(&definition, r#"\dv{SortKey{}}("second")"#),
@@ -659,7 +659,7 @@ fn cell_set_heating_rejects_rigid_heads_and_selects_the_literal_anywhere_head() 
     assert_eq!(
         applied.pattern.term,
         Term::application(
-            definition.symbols["heated"].clone(),
+            definition.symbols()["heated"].clone(),
             Vec::new(),
             vec![
                 internal_term(&definition, "expA{}()"),
@@ -2672,7 +2672,7 @@ fn false_requires_prune_a_rule_even_when_matching_is_indeterminate() {
             "#,
     );
     let rule = definition
-        .rewrite_theory
+        .rewrite_theory()
         .values()
         .flat_map(|groups| groups.values())
         .flatten()
@@ -4538,12 +4538,8 @@ fn overload_rewrite_definition() -> BackendDefinition {
             endmodule []"#,
     )
     .expect("overload rewrite definition should parse");
-    let mut definition = BackendDefinition::internalize(&syntax, "MAIN")
-        .expect("overload rewrite definition should internalize");
-    definition
-        .sort_graph
-        .insert("SortTop", [k_rust_backend::term::Name::from("SortSub")]);
-    definition
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("overload rewrite definition should internalize")
 }
 
 #[cfg(feature = "z3")]
@@ -5752,7 +5748,7 @@ fn simplify_size_of_chain(
     depth: usize,
 ) -> k_rust_backend::simplify::Simplification {
     let size = Term::application(
-        definition.symbols["size"].clone(),
+        definition.symbols()["size"].clone(),
         Vec::new(),
         vec![stack.clone()],
     );
@@ -5836,7 +5832,7 @@ fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
 
     let subject = Pattern {
         term: Term::application(
-            definition.symbols["stackState"].clone(),
+            definition.symbols()["stackState"].clone(),
             Vec::new(),
             vec![stack],
         ),
@@ -5936,7 +5932,7 @@ fn stack_exhaustion_definition() -> BackendDefinition {
 
 fn int_application(definition: &BackendDefinition, symbol: &str, value: i64) -> Term {
     Term::application(
-        definition.symbols[symbol].clone(),
+        definition.symbols()[symbol].clone(),
         Vec::new(),
         vec![Term::domain_value(
             Sort::simple("SortInt"),
@@ -6223,13 +6219,13 @@ fn equation_requires_budget_subject(
 ) -> Pattern {
     let mut stack = match tail {
         ChainTail::Nil => {
-            Term::application(definition.symbols["nil"].clone(), Vec::new(), Vec::new())
+            Term::application(definition.symbols()["nil"].clone(), Vec::new(), Vec::new())
         }
         ChainTail::Symbolic => Term::variable(Variable::new("WS", Sort::simple("SortStack"))),
     };
     for index in 0..depth {
         stack = Term::application(
-            definition.symbols["cons"].clone(),
+            definition.symbols()["cons"].clone(),
             Vec::new(),
             vec![
                 Term::domain_value(Sort::simple("SortInt"), index.to_string()),
@@ -6239,7 +6235,7 @@ fn equation_requires_budget_subject(
     }
     Pattern {
         term: Term::application(
-            definition.symbols["stackState"].clone(),
+            definition.symbols()["stackState"].clone(),
             Vec::new(),
             vec![stack],
         ),
@@ -6706,9 +6702,9 @@ fn execute_tail_equation_loop(
         .name("tail-equation-loop".into())
         .spawn(move || {
             let definition = tail_equation_loop_definition();
-            let a = Term::application(definition.symbols["a"].clone(), Vec::new(), Vec::new());
+            let a = Term::application(definition.symbols()["a"].clone(), Vec::new(), Vec::new());
             let initial = Pattern {
-                term: Term::application(definition.symbols["start"].clone(), Vec::new(), vec![a]),
+                term: Term::application(definition.symbols()["start"].clone(), Vec::new(), vec![a]),
                 constraints: Vec::new(),
             };
             let result = execute(
@@ -8299,7 +8295,7 @@ fn x_to_y_definition(copies: &[(&str, &str)]) -> BackendDefinition {
 
 fn stored_rewrite_origins(definition: &BackendDefinition) -> Vec<Vec<Option<&str>>> {
     definition
-        .rewrite_theory
+        .rewrite_theory()
         .values()
         .flat_map(|priorities| priorities.values())
         .flatten()
@@ -8343,7 +8339,7 @@ fn equal_rewrite_axioms_are_one_rule_that_lists_every_origin() {
             Some("Location(13,3,13,14)")
         ]]
     );
-    assert_eq!(duplicated.classified_axioms.len(), 1);
+    assert_eq!(duplicated.classified_axioms().len(), 1);
 }
 
 #[test]
@@ -8422,7 +8418,7 @@ fn rewrite_rule_applies_to_a_subject_that_mentions_its_variable_names() {
             "#,
     );
     let rules = definition
-        .rewrite_theory
+        .rewrite_theory()
         .values()
         .flat_map(|priorities| priorities.values())
         .flatten()
@@ -9815,7 +9811,7 @@ fn console_write_reproduces_bytes_returned_by_read() {
     };
     let write = Pattern {
         term: Term::application(
-            definition.symbols["write"].clone(),
+            definition.symbols()["write"].clone(),
             Vec::new(),
             vec![
                 Term::domain_value(Sort::builtin(BuiltinSort::Int), "1"),
@@ -11916,7 +11912,7 @@ fn composes_function_and_collection_unification_before_rewriting() {
         let configuration_binding = Predicate::Equals(
             internal_term(&definition, "CONFIG:SortValue{}"),
             Term::application(
-                definition.symbols["select"].clone(),
+                definition.symbols()["select"].clone(),
                 Vec::new(),
                 vec![fresh_rule.clone()],
             ),

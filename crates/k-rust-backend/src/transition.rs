@@ -304,12 +304,12 @@ impl ObservationOptions {
     {
         let mut available = BTreeMap::<(String, Option<usize>), usize>::new();
         let mut identity_counts = BTreeMap::<&str, usize>::new();
-        for axiom in &definition.classified_axioms {
+        for axiom in definition.classified_axioms() {
             *identity_counts
                 .entry(axiom.attributes().unique_id.as_str())
                 .or_default() += 1;
         }
-        for priorities in definition.rewrite_theory.values() {
+        for priorities in definition.rewrite_theory().values() {
             for rules in priorities.values() {
                 for rule in rules {
                     *available
@@ -324,7 +324,7 @@ impl ObservationOptions {
         for theory in [
             definition.function_theory(),
             definition.simplification_theory(),
-            &definition.ceil_theory,
+            definition.ceil_theory(),
         ] {
             for priorities in theory.values() {
                 for rules in priorities.values() {

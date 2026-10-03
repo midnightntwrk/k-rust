@@ -1419,8 +1419,8 @@ mod tests {
 
         let backend = BackendDefinition::internalize(&kore, "MAIN")
             .expect("frontend KORE should internalize into the in-process backend");
-        assert!(!backend.rewrite_theory.is_empty());
-        assert_eq!(backend.reachability_claims.len(), 1);
+        assert!(!backend.rewrite_theory().is_empty());
+        assert_eq!(backend.reachability_claims().len(), 1);
         let input_claim = loaded
             .definition()
             .main_module()

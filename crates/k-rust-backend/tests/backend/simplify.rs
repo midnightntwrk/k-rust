@@ -1638,7 +1638,7 @@ fn applies_conditional_ceil_equations_under_known_predicates() {
         predicate,
     );
     let ceil_rule = definition
-        .ceil_theory
+        .ceil_theory()
         .values()
         .flat_map(|groups| groups.values())
         .flatten()
@@ -1651,14 +1651,14 @@ fn applies_conditional_ceil_equations_under_known_predicates() {
 fn constructor_ceil_distinguishes_element_and_set_variables() {
     let definition = definition("");
     let fresh_constructor = Term::application(
-        definition.symbols["wrap"].clone(),
+        definition.symbols()["wrap"].clone(),
         Vec::new(),
         vec![Term::variable(Variable::new("Ex#X", Sort::simple("SortS")))],
     );
     let ordinary_constructor = term(&definition, "wrap{}(X:SortS{})");
     let set_variable = Term::variable(Variable::set("X", Sort::simple("SortS")));
     let set_constructor = Term::application(
-        definition.symbols["wrap"].clone(),
+        definition.symbols()["wrap"].clone(),
         Vec::new(),
         vec![set_variable.clone()],
     );

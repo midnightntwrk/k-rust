@@ -676,11 +676,11 @@ fn branching_search_deduplication_grows_linearly_with_depth() {
 
 fn prove_counting(definition: &BackendDefinition, label: &str) -> Snapshot {
     let claim = definition
-        .reachability_claims
+        .reachability_claims()
         .iter()
         .find(|claim| claim.attributes.label.as_deref() == Some(label))
         .expect("claim should exist");
-    let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
+    let circularities = definition.reachability_claims().iter().collect::<Vec<_>>();
     let (result, delta) = measured(|| {
         prove_claim(
             definition,

@@ -411,7 +411,7 @@ pub(super) fn recover_functional_symbolic_match(
                 .variables
                 .contains(configuration_variable)
             || !definition
-                .sort_graph
+                .sort_graph()
                 .check_subsort(&rule_term.sort(), &configuration_variable.sort)
                 .ok()?
         {
@@ -435,7 +435,7 @@ pub(super) fn recover_functional_symbolic_match(
         debug_assert!(is_functional_pattern(&rule_term));
         debug_assert!(
             definition
-                .sort_graph
+                .sort_graph()
                 .check_subsort(&rule_term.sort(), &configuration_variable.sort)
                 .unwrap_or(false)
         );
@@ -1264,15 +1264,15 @@ pub(super) fn recover_overload_symbolic_match(
     };
 
     let mut candidates = definition
-        .overloads
+        .overloads()
         .overloaded_by(&rule_symbol.name)
         .into_iter()
-        .filter_map(|name| definition.symbols.get(&name).cloned())
+        .filter_map(|name| definition.symbols().get(&name).cloned())
         .filter(|symbol| {
             symbol.sort_variables.is_empty()
                 && symbol.attributes.head_role() == HeadRole::FreeConstructor
                 && definition
-                    .sort_graph
+                    .sort_graph()
                     .check_subsort(&symbol.result_sort, &configuration_variable.sort)
                     .unwrap_or(false)
         })

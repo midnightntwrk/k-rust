@@ -1772,7 +1772,7 @@ fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> Cel
             CellIndex::Anything
         }
         TermKind::Application { symbol, .. } => {
-            let overloaded = definition.overloads.is_overloaded(&symbol.name);
+            let overloaded = definition.overloads().is_overloaded(&symbol.name);
             let head = match side {
                 KeySide::Rule => classify_pattern(PatternReading::AsWritten, term),
                 // A subject's equation head outside every overload relation keys nothing,
@@ -1915,7 +1915,7 @@ pub fn applicable_rewrite_groups(
     subject: &SubjectKey,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
     let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
-    let theory = &definition.rewrite_theory;
+    let theory = definition.rewrite_theory();
     let mut groups = BTreeMap::new();
     for covered in subject.buckets(theory) {
         if let Some(found) = theory.get(covered) {
@@ -4334,7 +4334,7 @@ mod tests {
     #[test]
     fn a_variable_or_function_subject_is_open_and_offered_every_bucket() {
         let definition = selection_definition();
-        let theory = &definition.rewrite_theory;
+        let theory = definition.rewrite_theory();
         let every: BTreeSet<&TermIndex> = theory.keys().collect();
         assert!(
             every.len() >= 5,
@@ -4394,7 +4394,7 @@ mod tests {
         };
         let redex = "app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}()))";
         let app = selection_term(&definition, redex);
-        assert!(definition.overloads.is_overloaded(&Name::from("app")));
+        assert!(definition.overloads().is_overloaded(&Name::from("app")));
         assert!(!app.attributes().evaluated, "uncertified");
         assert!(
             definition.instance_normal(&app).is_none(),

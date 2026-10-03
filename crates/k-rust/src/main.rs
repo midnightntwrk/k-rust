@@ -3390,7 +3390,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
     let mut proven_ids = saved_proofs.proven_ids(spec_module);
-    if definition.reachability_claims.is_empty() {
+    if definition.reachability_claims().is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
     let smt_prelude = options
@@ -3406,7 +3406,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         })
         .transpose()?;
     let kept = filter_claims(
-        &definition.reachability_claims,
+        definition.reachability_claims(),
         &ClaimFilter {
             selected: options.claims,
             excluded: options.excluded_claims,
@@ -4991,7 +4991,7 @@ mod tests {
         let definition = BackendDefinition::internalize(&syntax, "SPEC").unwrap();
 
         let kept = filter_claims(
-            &definition.reachability_claims,
+            definition.reachability_claims(),
             &ClaimFilter {
                 selected: vec!["x".into()],
                 excluded: vec!["y".into()],
@@ -5019,7 +5019,7 @@ mod tests {
                 ..ClaimFilter::default()
             },
         ] {
-            let error = filter_claims(&definition.reachability_claims, &filter).unwrap_err();
+            let error = filter_claims(definition.reachability_claims(), &filter).unwrap_err();
             assert!(
                 error
                     .to_string()
@@ -5029,7 +5029,7 @@ mod tests {
         }
 
         let error = filter_claims(
-            &definition.reachability_claims,
+            definition.reachability_claims(),
             &ClaimFilter {
                 selected: vec!["x".into()],
                 excluded: vec!["SPEC.x".into()],

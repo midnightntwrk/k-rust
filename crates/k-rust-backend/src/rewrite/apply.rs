@@ -1111,7 +1111,7 @@ fn requires(
         // requires are simplified under the covering substitution before coverage is checked.
         let mut conditions = match_conditions.to_vec();
         extend_unique(&mut conditions, requires.iter().cloned());
-        let (bindings, _) = extract_substitution(&conditions, &context.definition.sort_graph);
+        let (bindings, _) = extract_substitution(&conditions, context.definition.sort_graph());
         let bindings = bindings
             .into_iter()
             .filter(|(variable, _)| {

@@ -335,13 +335,13 @@ pub(super) fn select_claim<'a>(
             .and_then(|value| value.parse().ok())
         {
             return definition
-                .reachability_claims
+                .reachability_claims()
                 .get(index)
                 .map(|claim| (index, claim))
                 .ok_or_else(|| BackendError(format!("no reachability claim at index {index}")));
         }
         return definition
-            .reachability_claims
+            .reachability_claims()
             .iter()
             .enumerate()
             .find(|(_, claim)| {
@@ -350,7 +350,7 @@ pub(super) fn select_claim<'a>(
             })
             .ok_or_else(|| BackendError(format!("no reachability claim named {selector:?}")));
     }
-    match definition.reachability_claims.as_slice() {
+    match definition.reachability_claims() {
         [claim] => Ok((0, claim)),
         [] => Err(BackendError(
             "the selected module contains no reachability claims".into(),

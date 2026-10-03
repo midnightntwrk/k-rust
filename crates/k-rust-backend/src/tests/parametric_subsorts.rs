@@ -78,7 +78,7 @@ fn a_declared_instance_subsorts_hold_across_arities() {
         (mint("Sort8"), Sort::simple("SortKItem")),
         (mint("Sort16"), Sort::simple("SortWide")),
     ] {
-        assert_eq!(definition.sort_graph.check_subsort(&sub, &sup), Ok(true));
+        assert_eq!(definition.sort_graph().check_subsort(&sub, &sup), Ok(true));
     }
 }
 
@@ -91,7 +91,7 @@ fn b_instance_axioms_do_not_relate_other_instances_or_reverse_the_order() {
         (mint("Sort8"), mint("Sort16")),
         (Sort::simple("SortWide"), Sort::simple("SortKResult")),
     ] {
-        assert_eq!(definition.sort_graph.check_subsort(&sub, &sup), Ok(false));
+        assert_eq!(definition.sort_graph().check_subsort(&sub, &sup), Ok(false));
     }
 }
 
@@ -100,11 +100,11 @@ fn c_sort_arguments_do_not_induce_covariance_or_overlap() {
     let definition = definition();
     let (left, right) = (mint("SortFoo"), mint("SortBar"));
     assert_eq!(
-        definition.sort_graph.check_subsort(&left, &right),
+        definition.sort_graph().check_subsort(&left, &right),
         Ok(false)
     );
     assert_eq!(
-        definition.sort_graph.known_overlap(&left, &right),
+        definition.sort_graph().known_overlap(&left, &right),
         Some(false)
     );
 }
@@ -115,18 +115,20 @@ fn d_overlap_requires_a_common_closed_subsort() {
     let result = Sort::simple("SortKResult");
     assert_eq!(
         definition
-            .sort_graph
+            .sort_graph()
             .known_overlap(&result, &Sort::simple("SortWide")),
         Some(false),
     );
     assert_eq!(
         definition
-            .sort_graph
+            .sort_graph()
             .known_overlap(&Sort::simple("SortKItem"), &result),
         Some(true),
     );
     assert_eq!(
-        definition.sort_graph.known_overlap(&mint("Sort8"), &result),
+        definition
+            .sort_graph()
+            .known_overlap(&mint("Sort8"), &result),
         Some(true)
     );
 }
@@ -137,19 +139,19 @@ fn e_schematic_instances_report_variables_unless_every_instance_is_unrelated() {
     let schematic = Sort::application("SortMInt", vec![Sort::Variable("W".into())]);
     assert_eq!(
         definition
-            .sort_graph
+            .sort_graph()
             .check_subsort(&schematic, &Sort::simple("SortKItem")),
         Err(SortError::FoundSortVariable("W".into())),
     );
     assert_eq!(
         definition
-            .sort_graph
+            .sort_graph()
             .check_subsort(&schematic, &Sort::simple("SortFoo")),
         Ok(false),
     );
     assert_eq!(
         definition
-            .sort_graph
+            .sort_graph()
             .check_subsort(&mint("Sort8"), &schematic),
         Err(SortError::FoundSortVariable("W".into())),
     );
@@ -299,7 +301,7 @@ fn i_all_subsets_of_closed_sort_axioms_match_a_naive_closure_oracle() {
         for (left, left_sort) in sorts.iter().enumerate() {
             for (right, right_sort) in sorts.iter().enumerate() {
                 assert_eq!(
-                    definition.sort_graph.check_subsort(left_sort, right_sort),
+                    definition.sort_graph().check_subsort(left_sort, right_sort),
                     Ok(below[left][right]),
                     "subset {subset:#010b}: {} <= {}",
                     names[left],
@@ -307,7 +309,7 @@ fn i_all_subsets_of_closed_sort_axioms_match_a_naive_closure_oracle() {
                 );
                 let overlap = (0..6).any(|sub| below[sub][left] && below[sub][right]);
                 assert_eq!(
-                    definition.sort_graph.known_overlap(left_sort, right_sort),
+                    definition.sort_graph().known_overlap(left_sort, right_sort),
                     Some(overlap),
                     "subset {subset:#010b}: overlap of {} and {}",
                     names[left],
