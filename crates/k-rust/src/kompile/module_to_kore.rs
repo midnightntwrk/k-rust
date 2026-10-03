@@ -68,6 +68,7 @@ use crate::provenance::{
     GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
 };
 
+use super::compile::CompilationBackend;
 use super::fresh_names::FreshNames;
 use super::label_graph::LabelDependencyGraph;
 use super::passes::number_sentence;
@@ -116,6 +117,8 @@ pub struct DeclarationModules {
 /// Backend-specific KORE generation switches.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleToKoreOptions {
+    /// Consumer of the emitted declarations, including its reading of irreducible value heads.
+    pub backend: CompilationBackend,
     /// Generate the hooked-map definedness axioms Java's Haskell backend emits
     /// (`ModuleToKORE.genMapCeilAxioms`), which the symbolic Rust backend also relies on.
     pub generate_map_ceil_axioms: bool,
@@ -136,6 +139,7 @@ impl Default for ModuleToKoreOptions {
     /// Defaults target the in-process Rust backend, so its plugin namespaces are admitted.
     fn default() -> Self {
         Self {
+            backend: CompilationBackend::Rust,
             generate_map_ceil_axioms: false,
             default_claims_to_all_path: false,
             hook_namespaces: rust_backend_hook_namespaces(),
@@ -531,6 +535,7 @@ pub fn declaration_modules_from_resolved_with_options(
         &productions,
         &roles,
         hook_namespaces,
+        CompilationBackend::Rust,
     )
 }
 
@@ -543,6 +548,7 @@ fn declarations_with_roles(
     productions: &ProductionCatalog<'_>,
     roles: &SymbolRoles,
     hook_namespaces: &[String],
+    backend: CompilationBackend,
 ) -> Result<DeclarationModules, DeclarationError> {
     let visible = definition.sentences(module_id);
     let sorts = definition.sort_catalog(module_id);
@@ -601,6 +607,7 @@ fn declarations_with_roles(
                 None,
                 items,
                 hook_namespaces,
+                backend,
             )?)
         } else {
             None
@@ -618,6 +625,7 @@ fn declarations_with_roles(
             Some(SyntaxDeclaration::UnderLabel(&syntax_relations)),
             items,
             hook_namespaces,
+            backend,
         )?;
         let hooked =
             attributes.has(AttributeKey::Function) && is_real_hook(attributes, hook_namespaces);
@@ -680,6 +688,7 @@ fn declarations_with_roles(
             Some(SyntaxDeclaration::UnderBracketLabel),
             items,
             hook_namespaces,
+            backend,
         )?;
         syntax_sentences.push(KoreSentence::SymbolDeclaration {
             hooked: false,
@@ -830,6 +839,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         &productions,
         &roles,
         &options.hook_namespaces,
+        options.backend,
     )?;
     let visible = definition.sentences(module_id);
     let valued = valued_attributes(&visible);
@@ -1484,6 +1494,7 @@ fn symbol_attributes(
     syntax: Option<SyntaxDeclaration<'_>>,
     items: &[ProductionItem],
     hook_namespaces: &[String],
+    backend: CompilationBackend,
 ) -> Result<Attributes, DeclarationError> {
     let mut entries = source.semantic_entries().clone();
     for key in [
@@ -1528,10 +1539,10 @@ fn symbol_attributes(
             Value::String(String::new()),
         );
     }
-    // Each application of an equation-defined value production denotes at most one value,
-    // possibly none. `function` states that single-valuedness, while `value-production`
-    // preserves the fact that an application no equation reduces is a value of its sort.
-    // Neither attribute asserts totality: only the judgement may establish `functional`.
+    // An irreducible application of a value production is a value even when some equations
+    // can make other applications undefined. LLVM preserves that reading without `function`;
+    // the Rust target pairs `function` for equation verification with `value-production`,
+    // which restores the value reading in its backend. Neither spelling asserts totality.
     let partial_value_production = !claims.functional()
         && matches!(
             kind.declared_totality(),
@@ -1539,10 +1550,15 @@ fn symbol_attributes(
         )
         && matches!(claims.declaration(), Declaration::SemanticAndSyntax);
     if partial_value_production {
-        entries.insert(
-            AttributeKey::Function.as_str().into(),
-            Value::String(String::new()),
-        );
+        match backend {
+            CompilationBackend::Llvm => {}
+            CompilationBackend::Rust => {
+                entries.insert(
+                    AttributeKey::Function.as_str().into(),
+                    Value::String(String::new()),
+                );
+            }
+        }
     }
     if claims.anywhere() {
         entries.insert(

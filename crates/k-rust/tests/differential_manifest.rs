@@ -736,13 +736,13 @@ fn every_gate_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     let expected = (1..=28)
         .filter(|id| *id != 2)
-        .chain([30, 31, 32, 33, 34, 35, 36, 37])
+        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, and N30 through N37 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N38 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()
@@ -1485,6 +1485,165 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
 }
 
 #[test]
+fn llvm_verification_normalisation_is_exact_and_refuses_existing_claims() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("llvm-verification-normalisation");
+    let input = fixture.join("input.kore");
+    let copy = fixture.join("verification.kore");
+    let helper = workspace.join("scripts/reference-llvm-verification.py");
+    let source = r#"[]
+module A
+  // symbol fake{}():SortS{} [value-production{}()]
+  /* symbol fake2{}():SortS{} [value-production{}()] */
+  symbol Lblfoo{}(SortS{}):SortS{} [anywhere{}(), value-production{}()]
+  hooked-symbol Lblbar{}():SortS{}
+    [value-production { } ( ), note{}("functional{}(), ] \\\""), nested{}(value-production{}())]
+  symbol Lblfree{}():SortS{} [functional{}()]
+  symbol Lblnested{}():SortS{} [nested{}(value-production{}())]
+  symbol Lblparameter{}():SortS{} [value-production{SortS{}}()]
+  axiom{} Lblfoo{}(X:SortS{}) [value-production{}()]
+  axiom{} symbol:SortS{} [value-production{}()]
+endmodule [value-production{}()]
+"#;
+    fs::write(&input, source).unwrap();
+    let run = || {
+        Command::new("python3")
+            .arg(&helper)
+            .arg(&input)
+            .arg(&copy)
+            .output()
+            .expect("run LLVM verification normalisation")
+    };
+    let output = run();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "N38 LLVM verification value-production declarations: 2\n"
+    );
+    let expected = source
+        .replace(
+            "[anywhere{}(), value-production{}()]",
+            "[anywhere{}(), value-production{}(), function{}()]",
+        )
+        .replace(
+            "nested{}(value-production{}())]\n  symbol Lblfree",
+            "nested{}(value-production{}()), function{}()]\n  symbol Lblfree",
+        );
+    assert_eq!(fs::read_to_string(&copy).unwrap(), expected);
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+
+    for claim in ["function", "functional"] {
+        let invalid = format!(
+            "symbol Lblvalid{{}}():SortS{{}} [value-production{{}}()]\n\
+             symbol Lblinvalid{{}}():SortS{{}} [value-production{{}}(), {claim}{{}}()]\n"
+        );
+        fs::write(&input, &invalid).unwrap();
+        fs::write(&copy, "untouched destination").unwrap();
+        let output = run();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("Lblinvalid already carries function or functional"),
+            "{output:?}"
+        );
+        assert_eq!(fs::read_to_string(&input).unwrap(), invalid);
+        assert_eq!(fs::read_to_string(&copy).unwrap(), "untouched destination");
+    }
+    let output = Command::new("python3")
+        .arg(&helper)
+        .arg(&input)
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("must use a separate copy"));
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn compile_gate_normalises_only_the_llvm_verification_copy() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("llvm-verification-routing");
+    let k_checkout = fake_k_checkout(
+        &fixture,
+        &["k-distribution/tests/regression-new/append/test.k"],
+    );
+    let calls = fixture.join("calls");
+    let fake_kompile = fixture.join("kompile");
+    let fake_kore_parser = fixture.join("kore-parser");
+    let fake_cargo = fixture.join("cargo");
+    write_environment_probe(&fake_kompile, "kompile", "");
+    write_environment_probe(
+        &fake_kore_parser,
+        "parser",
+        r#"
+if [[ "$1" == */rust/* ]]; then
+  if [[ "$TEST_PAIRING" == kore/llvm ]]; then
+    [[ "$1" == */definition.verify.kore ]]
+  else
+    [[ "$1" == */definition.kore ]]
+  fi
+  grep -qF 'value-production{}(), function{}()' "$1"
+fi
+"#,
+    );
+    write_environment_probe(
+        &fake_cargo,
+        "cargo",
+        r#"
+if [[ "$1" == run ]]; then
+  args=("$@")
+  for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[i]}" == --output-directory ]]; then
+      output=${args[i+1]}
+    fi
+  done
+  attributes='value-production{}()'
+  if [[ "$TEST_PAIRING" == haskell/rust ]]; then
+    attributes+=', function{}()'
+  fi
+  printf 'symbol Lblfoo{}():SortS{} [%s]\n' "$attributes" >"$output/definition.kore"
+elif [[ -n "${K_RUST_KORE:-}" ]]; then
+  [[ "$K_RUST_KORE" != */definition.verify.kore ]]
+  if [[ "$K_RUST_KORE" == */definition.kore ]]; then
+    if [[ "$TEST_PAIRING" == kore/llvm ]]; then
+      ! grep -qF 'function{}()' "$K_RUST_KORE"
+    else
+      grep -qF 'function{}()' "$K_RUST_KORE"
+    fi
+  fi
+fi
+"#,
+    );
+    let path = format!("{}:{}", fixture.display(), std::env::var("PATH").unwrap());
+    for pairing in ["kore/llvm", "haskell/rust"] {
+        let output = Command::new("bash")
+            .arg(workspace.join("scripts/reference-differential.sh"))
+            .arg("append")
+            .env("PATH", &path)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("TEST_PAIRING", pairing)
+            .env("K_CHECKOUT", &k_checkout)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KORE_PARSER", &fake_kore_parser)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+            .env("REFERENCE_DIFFERENTIAL_PAIRINGS", pairing)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{pairing}: {output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout.contains("N38 LLVM verification value-production declarations: 1"),
+            pairing == "kore/llvm",
+            "{stdout}"
+        );
+        assert!(stdout.contains("corpus passed"), "{stdout}");
+    }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
 fn manual_certification_protocol_names_required_gates() {
     for command in [
         "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
@@ -1875,6 +2034,15 @@ printf 'parser|%s\n' "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
 set -euo pipefail
 {environment_state}
 printf 'cargo-%s|%s\n' "${{1:-missing}}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
+if [[ "$1" == run ]]; then
+  while (($#)); do
+    if [[ "$1" == --output-directory ]]; then
+      : >"$2/definition.kore"
+      break
+    fi
+    shift
+  done
+fi
 "#
         ),
     )

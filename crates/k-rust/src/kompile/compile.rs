@@ -341,6 +341,7 @@ pub fn compile_loaded_definition_timed(
             &resolved,
             &definition.main_module,
             ModuleToKoreOptions {
+                backend: options.backend,
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
                 hook_namespaces,

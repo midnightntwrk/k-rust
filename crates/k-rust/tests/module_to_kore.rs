@@ -1252,6 +1252,18 @@ fn assert_equation_head_functional(
     source: &str,
     symbols: &[(&str, HeadClaim)],
 ) -> k_rust_backend::definition::BackendDefinition {
+    assert_equation_head_functional_for_backend(
+        source,
+        symbols,
+        k_rust::kompile::CompilationBackend::Rust,
+    )
+}
+
+fn assert_equation_head_functional_for_backend(
+    source: &str,
+    symbols: &[(&str, HeadClaim)],
+    backend: k_rust::kompile::CompilationBackend,
+) -> k_rust_backend::definition::BackendDefinition {
     let mut resolver = |_: &str, required: &str| {
         k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -1261,18 +1273,17 @@ fn assert_equation_head_functional(
         &mut resolver,
         &outer::LoadOptions {
             implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
-            excluded_module_attributes: vec![
-                k_rust::kompile::CompilationBackend::Rust
-                    .excluded_module_attribute()
-                    .into(),
-            ],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
             ..outer::LoadOptions::default()
         },
     )
     .expect("equation-totality probe should load");
     let artifacts = k_rust::kompile::compile_loaded_definition(
         &loaded,
-        k_rust::kompile::CompileOptions::default(),
+        k_rust::kompile::CompileOptions {
+            backend,
+            ..k_rust::kompile::CompileOptions::default()
+        },
     )
     .expect("equation-totality probe should compile");
     let semantics = parse_definition(&artifacts.definition_kore).unwrap();
@@ -1316,8 +1327,17 @@ fn assert_equation_head_functional(
             );
             assert_eq!(
                 has("function"),
-                // A source function declared `total` carries both claims.
-                claim != HeadClaim::Functional || has("total"),
+                match claim {
+                    // A source function declared `total` carries both claims.
+                    HeadClaim::Functional => has("total"),
+                    HeadClaim::PartialFunction => true,
+                    HeadClaim::PartialValueProduction | HeadClaim::PartialMacroProduction => {
+                        match backend {
+                            k_rust::kompile::CompilationBackend::Rust => true,
+                            k_rust::kompile::CompilationBackend::Llvm => false,
+                        }
+                    }
+                },
                 "{name} function declaration in {}",
                 module.name
             );
@@ -1412,6 +1432,46 @@ fn an_anywhere_equation_with_a_defined_rhs_keeps_functional() {
     "#},
         &[("Lblwrap", HeadClaim::Functional)],
     );
+}
+
+/// LLVM treats `function` applications left irreducible as stuck calls. A partial value
+/// production must therefore omit it for LLVM; the Rust consumer restores values via the marker.
+#[test]
+fn partial_value_production_declarations_follow_the_target_consumer() {
+    let source = indoc! {r#"
+        module A
+          imports INT
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Base ::= A | B
+          syntax Foo ::= foo(Base) [symbol(foo)]
+          rule foo(a => b) [anywhere]
+          syntax S ::= mk(Int) [symbol(mk)] | wrap(Int) [symbol(wrap)]
+                     | half(Int) [symbol(half), macro]
+          rule wrap(X) => mk(X /Int 0) [anywhere]
+          rule half(X) => mk(X /Int 0)
+          syntax Exp ::= Int
+          syntax Exp ::= fe(Exp) [symbol(fE), overload(f)]
+          syntax Int ::= fi(Int) [symbol(fI), overload(f), function]
+          rule fi(I) => I /Int 0
+        endmodule
+    "#};
+    for backend in [
+        k_rust::kompile::CompilationBackend::Llvm,
+        k_rust::kompile::CompilationBackend::Rust,
+    ] {
+        assert_equation_head_functional_for_backend(
+            source,
+            &[
+                ("Lblfoo", HeadClaim::PartialValueProduction),
+                ("Lblwrap", HeadClaim::PartialValueProduction),
+                ("LblfE", HeadClaim::PartialValueProduction),
+                ("Lblhalf", HeadClaim::PartialMacroProduction),
+                ("LblfI", HeadClaim::PartialFunction),
+            ],
+            backend,
+        );
+    }
 }
 
 /// The compile-corpus case `anywhere2`: `foo(a) = foo(b)` reapplies its own head, so the least

@@ -96,6 +96,24 @@ run_reference_parser() (
   run_reference_tool "$@"
 )
 
+verify_rust_definition() {
+  local definition="$rust/definition.kore"
+  if [[ "$pairing" == kore/llvm ]]; then
+    definition="$rust/definition.verify.kore"
+    # The verifier needs a function head; LLVM needs irreducible value applications.
+    # N38 changes only the verifier's copy, never the compiled or compared definition.
+    python3 "$workspace/scripts/reference-llvm-verification.py" \
+      "$rust/definition.kore" "$definition"
+  fi
+  echo "[$name:$pairing] verifying k-rust definition.kore"
+  if ! run_reference_parser "$kore_parser" "$definition" \
+    >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
+    cat "$work/$name/$pairing_key/verify-rust.log" >&2
+    echo "error: k-rust definition rejected by kore-parser" >&2
+    exit 1
+  fi
+}
+
 pairing_is_requested() {
   local candidate=$1
   local requested
@@ -284,13 +302,7 @@ for fixture in "${cases[@]}"; do
       if [[ "${REFERENCE_DIFFERENTIAL_VERIFY:-1}" == 0 ]]; then
         echo "[$name:$pairing] warning: definition verification disabled explicitly"
       else
-        echo "[$name:$pairing] verifying k-rust definition.kore"
-        if ! run_reference_parser "$kore_parser" "$rust/definition.kore" \
-          >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
-          cat "$work/$name/$pairing_key/verify-rust.log" >&2
-          echo "error: k-rust definition rejected by kore-parser" >&2
-          exit 1
-        fi
+        verify_rust_definition
       fi
       continue
     fi
@@ -321,13 +333,7 @@ for fixture in "${cases[@]}"; do
         echo "error: reference definition rejected by kore-parser" >&2
         exit 2
       fi
-      echo "[$name:$pairing] verifying k-rust definition.kore"
-      if ! run_reference_parser "$kore_parser" "$rust/definition.kore" \
-        >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
-        cat "$work/$name/$pairing_key/verify-rust.log" >&2
-        echo "error: k-rust definition rejected by kore-parser" >&2
-        exit 1
-      fi
+      verify_rust_definition
     fi
 
     if [[ "$pairing" == haskell/rust ]]; then

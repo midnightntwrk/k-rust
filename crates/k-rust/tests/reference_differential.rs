@@ -1193,10 +1193,10 @@ struct WithheldFunctionalCounts {
 /// N36: withhold the reference's totality claim only for the same equation head for which
 /// the port withholds both `functional` and its functional axiom. Equations can equate a head
 /// with an undefined right-hand side, and self-reference cannot establish its definedness.
-/// The port's paired `function{}()` and `value-production{}()` preserve the value reading of
-/// irreducible applications while making its equation heads admissible to KORE verifiers.
-/// Remove that pair only opposite a reference value production; a source `function{}()`
-/// remains compared. Every other attribute and axiom stays compared.
+/// The port marks a partial value production with `value-production{}()` and adds
+/// `function{}()` only for a consumer that reads the marker to retain irreducible values.
+/// Remove the marker and any extra function only opposite a reference value production;
+/// a source `function{}()` remains compared. Every other attribute and axiom stays compared.
 /// Returns counts of changed reference declarations and each removed port attribute.
 fn normalize_withheld_functional(
     reference: &mut Definition,
@@ -1265,7 +1265,11 @@ fn normalize_withheld_functional(
         let value_production = has(port_attributes, "value-production");
         let reference_function = has(attributes, "function");
         let port_function = has(port_attributes, "function");
-        if (value_production && (!port_function || reference_function))
+        let malformed_function_only = !port_function
+            && port_attributes.0.iter().any(|attribute| {
+                matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "function")
+            });
+        if (value_production && (reference_function || malformed_function_only))
             || (!value_production && !(reference_function && port_function))
         {
             continue;
@@ -1372,8 +1376,9 @@ fn functional_axiom_symbol(sentence: &Sentence) -> Option<&str> {
     Some(&symbol.name)
 }
 
-/// A value-production head loses its compiler-added verifier pair; an existing source
-/// function retains its function attribute. The reference loses only its totality claim.
+/// A value-production head loses its compiler-added marker and optional verifier function;
+/// an existing source function retains its function attribute. The reference loses only its
+/// totality claim.
 #[test]
 fn withheld_functional_normalizer_removes_only_the_matching_claim() {
     for marker in ["anywhere", "macro", "macro-rec", "alias'Kywd'", "alias-rec"] {
@@ -1434,6 +1439,39 @@ fn withheld_functional_normalizer_removes_only_the_matching_claim() {
 }
 
 #[test]
+fn withheld_functional_normalizer_accepts_the_llvm_value_production_without_function() {
+    let definition = |attributes: &str, axiom: bool| {
+        let axiom = if axiom {
+            r"axiom{R} \exists{R}(Val:S{}, \equals{S{}, R}(Val:S{}, Lblwrap{}(K0:S{}))) [functional{}()]"
+        } else {
+            ""
+        };
+        parse_definition(&format!(
+            r"[] module TEST sort S{{}} []
+            symbol Lblwrap{{}}(S{{}}) : S{{}} [{attributes}]
+            {axiom} endmodule []"
+        ))
+        .unwrap()
+    };
+    let mut reference = definition("anywhere{}(), functional{}()", true);
+    let mut port = definition("anywhere{}(), value-production{}()", false);
+    assert_eq!(
+        normalize_withheld_functional(&mut reference, &mut port),
+        WithheldFunctionalCounts {
+            declarations: 1,
+            value_production_attributes: 1,
+            function_attributes: 0,
+        }
+    );
+    assert_eq!(reference, port);
+    assert_eq!(
+        normalize_withheld_functional(&mut reference, &mut port),
+        WithheldFunctionalCounts::default(),
+        "idempotent"
+    );
+}
+
+#[test]
 fn withheld_functional_normalizer_requires_the_ports_matching_equation_head_and_no_claim() {
     let definition = |attributes: &str, axiom: bool, declare: bool| {
         let declaration = if declare {
@@ -1463,7 +1501,6 @@ fn withheld_functional_normalizer_requires_the_ports_matching_equation_head_and_
             true,
         ),
         definition("anywhere{}(), function{}()", false, true),
-        definition("anywhere{}(), value-production{}()", false, true),
         definition("anywhere{}()", false, true),
         definition(
             "anywhere{}(), function{S{}}(), value-production{}()",
