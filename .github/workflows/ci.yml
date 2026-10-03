@@ -72,6 +72,9 @@ jobs:
       - name: Run tests with native Z3 inference
         run: cargo test --workspace --locked --no-fail-fast
 
+      - name: Run native measurement ratchet
+        run: scripts/measure-ratchet.sh --gh-release
+
       - name: Test k-rust under checked sort inference
         run: cargo test -p k-rust --locked --no-fail-fast
         env:
