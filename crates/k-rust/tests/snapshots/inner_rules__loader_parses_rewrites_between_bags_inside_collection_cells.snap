@@ -14,7 +14,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
     },
     SentenceSummary {
         kind: "rule",
-        body: "initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToStmt(`project:Stmt`(`Map:lookup`(Init,#token(\"$PGM\",\"KConfigVar\")))),#noDots(.KList))",
+        body: "initKCell(Init)=>`<k>`(#noDots(.KList),#SemanticCastToStmt(`project:Stmt`(#unboxKConfigValue(`Map:lookup`(Init,#token(\"$PGM\",\"KConfigVar\"))))),#noDots(.KList))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",

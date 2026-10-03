@@ -175,10 +175,11 @@ fn krun_trace_nests_algorithms_under_named_phases() {
     assert!(ids.contains(&"parser.earley.recognize"), "{ids:?}");
     let phases = assert_trace_contract(&events);
     assert_eq!(
-        &phases[phases.len() - 5..],
+        &phases[phases.len() - 6..],
         [
             "program_parse",
             "config_vars_parse",
+            "parse_kore_definition",
             "internalize",
             "execute",
             "output",

@@ -60,7 +60,7 @@ description: "STDIN-STREAM and STDOUT-STREAM rules of the embedded prelude, symb
     },
     SentenceSummary {
         kind: "rule",
-        body: "initStdinCell(Init)=>`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$STDIN\",\"KConfigVar\")))))),`ListItem`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\")))))),`ListItem`(`#istream(_)_K-IO_Stream_Int`(`#stdin_K-IO_Int`(.KList)))),#noDots(.KList))",
+        body: "initStdinCell(Init)=>`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(`project:String`(#unboxKConfigValue(`Map:lookup`(Init,#token(\"$STDIN\",\"KConfigVar\"))))))),`ListItem`(#SemanticCastToString(`project:String`(#unboxKConfigValue(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\"))))))),`ListItem`(`#istream(_)_K-IO_Stream_Int`(`#stdin_K-IO_Int`(.KList)))),#noDots(.KList))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",
@@ -113,7 +113,7 @@ description: "STDIN-STREAM and STDOUT-STREAM rules of the embedded prelude, symb
     },
     SentenceSummary {
         kind: "rule",
-        body: "initStdoutCell(Init)=>`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(`#stdout_K-IO_Int`(.KList))),`ListItem`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\")))))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#token(\"\\\"\\\"\",\"String\")))),#noDots(.KList))",
+        body: "initStdoutCell(Init)=>`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(`#stdout_K-IO_Int`(.KList))),`ListItem`(#SemanticCastToString(`project:String`(#unboxKConfigValue(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\"))))))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#token(\"\\\"\\\"\",\"String\")))),#noDots(.KList))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",
