@@ -624,11 +624,21 @@ fn configuration_initializer_casts_are_lexically_scoped() {
         })
         .collect::<Vec<_>>();
 
-    for token in ["$B", "$C", "$F", "$H", "$J"] {
+    for token in ["$B", "$C", "$H", "$J"] {
         let projection = rule_bodies
             .iter()
             .find_map(|body| projection_for_token(body, token));
         assert_eq!(projection.as_deref(), Some("project:KItem"), "{token}");
+    }
+    for token in ["$F", "$G"] {
+        assert_eq!(
+            rule_bodies
+                .iter()
+                .find_map(|body| projection_for_token(body, token))
+                .as_deref(),
+            Some("project:K"),
+            "{token}"
+        );
     }
     assert!(
         rule_bodies.iter().any(|body| contains_token(body, "1")),
@@ -827,5 +837,261 @@ fn configuration_resolution_is_an_identity_for_definitions_without_bubbles() {
     assert_eq!(
         resolve_configuration_bubbles(&definition).unwrap(),
         definition
+    );
+}
+
+#[test]
+fn configuration_values_have_one_partial_transport_module_and_declared_projections() {
+    let definition = parsed(indoc! {r#"
+        module BASE
+          syntax Val ::= "a"
+          configuration <base> $A:K </base>
+        endmodule
+        module MAIN
+          imports BASE
+          configuration <top> <k> $PGM:K </k> <value> $X:Val </value> </top>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    let transport = expanded
+        .modules
+        .iter()
+        .filter(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
+        .collect::<Vec<_>>();
+    assert_eq!(transport.len(), 1);
+    let transport = transport[0];
+    assert_eq!(transport.local_sentences.len(), 3);
+    for sentence in &transport.local_sentences {
+        assert_eq!(
+            sentence.attributes().origin_record().unwrap().pass,
+            GeneratingPass::ConfigurationExpansion
+        );
+    }
+    for (label, result, argument, function) in [
+        ("#KConfigValue", "KItem", "K", false),
+        ("#unboxKConfigValue", "K", "KItem", true),
+    ] {
+        let production = transport.local_sentences.iter().find(|sentence| {
+            matches!(&***sentence, Sentence::Production {label: Some(found), ..} if found.name == label)
+        }).unwrap();
+        let Sentence::Production {
+            sort,
+            items,
+            attributes,
+            ..
+        } = &**production
+        else {
+            unreachable!()
+        };
+        assert_eq!(sort.name, result);
+        assert_eq!(
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.name.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec![argument]
+        );
+        assert_eq!(
+            attributes.has(k_rust::definition::AttributeKey::Function),
+            function
+        );
+        assert!(!attributes.has(k_rust::definition::AttributeKey::Total));
+        assert!(!attributes.has(k_rust::definition::AttributeKey::Functional));
+    }
+    let Sentence::Rule { body, .. } = &*transport.local_sentences[2] else {
+        panic!("decoder equation")
+    };
+    let payload = Term::Variable {
+        name: "KS".into(),
+        sort: Some(k_rust::kast::Sort::new("K")),
+    };
+    assert!(k_rust::definition::term_equivalent(
+        body,
+        &Term::Rewrite {
+            left: Box::new(Term::apply(
+                "#unboxKConfigValue",
+                vec![Term::apply("#KConfigValue", vec![payload.clone()])]
+            )),
+            right: Box::new(payload)
+        }
+    ));
+    for name in ["BASE", "MAIN"] {
+        let module = expanded
+            .modules
+            .iter()
+            .find(|module| module.name == name)
+            .unwrap();
+        assert_eq!(
+            module
+                .imports
+                .iter()
+                .filter(|import| import.name == transport.name)
+                .count(),
+            1
+        );
+    }
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&expanded).unwrap();
+    let visible = resolved.sentences(resolved.main_module_id());
+    for label in ["#KConfigValue", "#unboxKConfigValue"] {
+        assert_eq!(visible.iter().filter(|sentence| matches!(**sentence, Sentence::Production {label: Some(found), ..} if found.name == label)).count(), 1);
+    }
+    assert_eq!(expand_configurations(&expanded).unwrap(), expanded);
+}
+
+#[test]
+fn transport_names_cannot_be_declared_by_source_modules() {
+    for source in [
+        indoc! {r#"
+            module K-RUST-CONFIGURATION-VALUES
+              syntax KItem ::= #KConfigValue(K) [symbol(#KConfigValue)]
+              syntax K ::= #unboxKConfigValue(KItem) [function, symbol(#unboxKConfigValue)]
+              rule #unboxKConfigValue(#KConfigValue(KS:K)) => KS
+            endmodule
+            module MAIN
+              configuration <k> $PGM:K </k>
+            endmodule
+        "#},
+        indoc! {r#"
+            module K-RUST-CONFIGURATION-VALUES
+            endmodule
+            module MAIN
+              configuration <k> $PGM:K </k>
+            endmodule
+        "#},
+        indoc! {r#"
+            module MAIN
+              syntax KItem ::= custom(K) [symbol(#KConfigValue)]
+              configuration <k> $PGM:K </k>
+            endmodule
+        "#},
+        indoc! {r#"
+            module MAIN
+              syntax K ::= custom(KItem) [function, symbol(#unboxKConfigValue)]
+              configuration <k> $PGM:K </k>
+            endmodule
+        "#},
+    ] {
+        let error =
+            expand_configurations(&parsed(source)).expect_err("reserved source declaration");
+        assert!(
+            error
+                .to_string()
+                .contains("reserved for configuration-value transport"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn later_configuration_expansion_reuses_the_generated_transport_module() {
+    let mut expanded = expand_configurations(&parsed(indoc! {r#"
+        module MAIN
+          configuration <base> $PGM:K </base>
+        endmodule
+    "#}))
+    .unwrap();
+    expanded = k_rust::kompile::number_sentences(&expanded);
+    expanded = k_rust::kompile::generate_sort_predicate_syntax(&expanded).unwrap();
+    expanded = k_rust::kompile::generate_sort_projections(&expanded).unwrap();
+    let later = parsed(indoc! {r#"
+        module MAIN
+          configuration <later> $X:K </later>
+        endmodule
+    "#});
+    expanded.modules.push(k_rust::definition::FlatModule {
+        name: "LATER".into(),
+        imports: vec![k_rust::definition::FlatImport {
+            name: "MAIN".into(),
+            public: true,
+        }],
+        local_sentences: later.main_module().unwrap().local_sentences.clone(),
+        attributes: Attributes::default(),
+    });
+    expanded.main_module = "LATER".into();
+    let expanded = expand_configurations(&expanded).unwrap();
+    assert_eq!(
+        expanded
+            .modules
+            .iter()
+            .filter(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
+            .count(),
+        1
+    );
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&expanded).unwrap();
+    let visible = resolved.sentences(resolved.main_module_id());
+    for label in ["#KConfigValue", "#unboxKConfigValue"] {
+        assert_eq!(visible.iter().filter(|sentence| matches!(**sentence, Sentence::Production { label: Some(found), .. } if found.name == label)).count(), 1);
+    }
+}
+
+#[test]
+fn fresh_cell_expansion_reuses_the_numbered_transport_with_generated_helpers() {
+    let mut definition = expand_configurations(&parsed(indoc! {r#"
+        module MAIN
+          configuration <k> $PGM:K </k>
+        endmodule
+    "#}))
+    .unwrap();
+    definition = k_rust::kompile::number_sentences(&definition);
+    definition = k_rust::kompile::generate_sort_predicate_syntax(&definition).unwrap();
+    definition = k_rust::kompile::generate_sort_projections(&definition).unwrap();
+    let expanded = k_rust::kompile::resolve_fresh_constants(&definition, 0).unwrap();
+    assert_eq!(
+        expanded
+            .modules
+            .iter()
+            .filter(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn reused_transport_rejects_changed_declaration_attributes() {
+    for attribute in [
+        k_rust::definition::AttributeKey::Total,
+        k_rust::definition::AttributeKey::Functional,
+        k_rust::definition::AttributeKey::Hook,
+    ] {
+        let mut expanded = expand_configurations(&parsed(indoc! {r#"
+            module MAIN
+              configuration <k> $PGM:K </k>
+            endmodule
+        "#}))
+        .unwrap();
+        let transport = expanded
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
+            .unwrap();
+        k_rust::definition::sentence_mut(&mut transport.local_sentences[1])
+            .attributes_mut()
+            .insert(attribute.as_str(), serde_json::Value::String(String::new()));
+        let error = expand_configurations(&expanded).expect_err("changed decoder semantics");
+        assert!(
+            error
+                .to_string()
+                .contains("reserved for configuration-value transport"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn nullary_initializers_do_not_generate_configuration_value_transport() {
+    let expanded = expand_configurations(&parsed(indoc! {r#"
+        module MAIN
+          configuration <k> .K </k>
+        endmodule
+    "#}))
+    .unwrap();
+    assert!(
+        !expanded
+            .modules
+            .iter()
+            .any(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
     );
 }

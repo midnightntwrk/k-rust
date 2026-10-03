@@ -21,14 +21,13 @@ use crate::{
     kast::Sort as KastSort,
     kompile::{
         ExpandedProgram, MacroExpansionDefinition, SortInjectionError, SortInjector,
-        TermConversionError, encode_kore_sort, term_to_kore_from_resolved_with_token_module,
+        TermConversionError, term_to_kore_from_resolved_with_token_module,
     },
     kore::ast::{KoreString, Pattern, Sort, Symbol},
-    names::{BuiltinSort, WellKnownSymbol},
+    names::BuiltinSort,
 };
 
-/// One `$X` entry of `initGeneratedTopCell`: the variable's name with its `$`, its KORE value,
-/// and the sort the value had before its injection into `KItem`.
+/// One `$X` entry of `initGeneratedTopCell`: its name and normalized K payload.
 ///
 /// The value is built only from a macro-expanded program or configuration value
 /// ([`ConfigurationAssembler::program`], [`ConfigurationAssembler::bind`]) or a stream default
@@ -36,8 +35,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct ConfigurationBinding {
     name: String,
-    value: Pattern,
-    sort: Sort,
+    value: ConfigurationValue,
 }
 
 /// The grammar that concrete inputs to a compiled definition are parsed and converted against.
@@ -124,6 +122,10 @@ pub enum ConfigurationError {
     SortInjection(SortInjectionError),
     Conversion(TermConversionError),
     Definition(ResolveError),
+    Unplaceable {
+        variable: String,
+        sort: KastSort,
+    },
 }
 
 impl fmt::Display for ConfigurationError {
@@ -175,6 +177,10 @@ impl fmt::Display for ConfigurationError {
             Self::SortInjection(error) => error.fmt(f),
             Self::Conversion(error) => error.fmt(f),
             Self::Definition(error) => error.fmt(f),
+            Self::Unplaceable { variable, sort } => write!(
+                f,
+                "configuration variable `{variable}` has actual sort {sort}, which cannot be placed at K"
+            ),
         }
     }
 }
@@ -210,12 +216,11 @@ impl From<TermConversionError> for ConfigurationError {
 ///   with `STRING-SYNTAX`, and any other variable with the main module. `$IO` and `$STDIN` are the
 ///   stream variables whose `String` values the runner supplies, so their text is a `String`
 ///   literal and the `String` literal grammar is its parser when the cell declares none.
-/// - A `K`-sorted variable is parsed at `KItem`: the configuration map holds `KItem` values, so
-///   the value is one item, never a sequence.
+/// - A `K`-sorted variable prefers an item reading, then tries the visible K grammar only
+///   when there is no item reading or entry sort. Every payload travels as a boxed K value.
 /// - Every value is macro-expanded in the main module and instantiated at its position,
 ///   `configuration_position` of its declared or start sort.
-///   Its closed sort before the injections below its top is the source sort
-///   of the entry's `inj{_, KItem}`.
+///   Outer placement at K preserves that instance and every sequence tail.
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
 ///
@@ -261,8 +266,8 @@ impl<'g> ConfigurationAssembler<'g> {
 
     /// Bind `$PGM` to `text` parsed with the syntax module at `start_sort`.
     ///
-    /// A definition that declares no `$PGM` still accepts a program: the entry is part of the
-    /// configuration map, and no cell reads it.
+    /// A definition that declares no `$PGM` still checks a supplied program. If its initializer
+    /// is nullary, `finish` discards the checked value because no map is read.
     pub fn program(&mut self, start_sort: &KastSort, text: &str) -> Result<(), ConfigurationError> {
         if self.program.is_some() {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
@@ -277,11 +282,10 @@ impl<'g> ConfigurationAssembler<'g> {
         // The program is instantiated independently of the configuration values; no sentence
         // sort variable may survive in either kind of ground value.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
-        let (value, sort) = self.to_kore(&injector, &self.syntax_module, &program, "$PGM")?;
+        let value = self.to_kore(&injector, &self.syntax_module, &program, "$PGM")?;
         self.program = Some(ConfigurationBinding {
             name: "$PGM".to_owned(),
             value,
-            sort,
         });
         Ok(())
     }
@@ -334,13 +338,16 @@ impl<'g> ConfigurationAssembler<'g> {
             );
         }
         let parse_sort = configuration_position(sort);
-        let parsed = self.parsers[&parser_module]
-            .parse(&parse_sort, text)
-            .map_err(|error| ConfigurationError::Parse {
-                variable: name.into(),
-                sort: sort.clone(),
-                error: Box::new(error),
-            })?;
+        let parsed = if sort.is_builtin(BuiltinSort::K) {
+            self.parsers[&parser_module].parse_configuration_k_value(text)
+        } else {
+            self.parsers[&parser_module].parse(&parse_sort, text)
+        }
+        .map_err(|error| ConfigurationError::Parse {
+            variable: name.into(),
+            sort: sort.clone(),
+            error: Box::new(error),
+        })?;
         let expanded = self.expand(parsed, &parse_sort)?;
         if self.injector.is_none() {
             self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
@@ -349,13 +356,11 @@ impl<'g> ConfigurationAssembler<'g> {
             .injector
             .as_ref()
             .expect("the injector was created above");
-        let (value, sort) =
-            self.to_kore(injector, &parser_module, &expanded, &format!("${name}"))?;
+        let value = self.to_kore(injector, &parser_module, &expanded, &format!("${name}"))?;
         self.bound.insert(name.to_owned());
         self.bindings.push(ConfigurationBinding {
             name: format!("${name}"),
             value,
-            sort,
         });
         Ok(())
     }
@@ -374,7 +379,16 @@ impl<'g> ConfigurationAssembler<'g> {
         read_input: impl FnOnce() -> Result<Vec<u8>, E>,
     ) -> Result<(), E> {
         self.parser_modules()?;
+        if self.injector.is_none() {
+            self.injector = Some(
+                SortInjector::new(self.grammar.resolved(), &self.main_module)
+                    .map_err(ConfigurationError::from)?,
+            );
+        }
         let defaults = stream_defaults(
+            self.injector
+                .as_ref()
+                .expect("the injector was created above"),
             self.variables,
             &mut self.bound,
             io,
@@ -400,7 +414,52 @@ impl<'g> ConfigurationAssembler<'g> {
         if !missing.is_empty() {
             return Err(ConfigurationError::Missing { names: missing });
         }
-        let initial = top_cell_initializer(self.program.take(), std::mem::take(&mut self.bindings));
+        let resolved = self.grammar.resolved();
+        let module = resolved.module_id(&self.main_module).ok_or_else(|| {
+            ConfigurationError::ParserModuleNotFound {
+                variable: "configuration initializer".into(),
+                module: self.main_module.clone(),
+            }
+        })?;
+        let sentences = resolved.sentences(module);
+        let initializer_takes_map = |sentence: &Sentence| {
+            matches!(sentence, Sentence::Production { items, .. }
+                if items.iter().any(|item| matches!(item,
+                    crate::definition::ProductionItem::NonTerminal { sort, .. }
+                        if sort.is_builtin(BuiltinSort::Map))))
+        };
+        let top = sentences.iter().find(|sentence| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. }
+                if label.name == crate::kast::GeneratedCell::Top.initializer())
+        });
+        // The compiled top initializer is synthesized after the frontend grammar is saved.
+        // In that grammar, it takes the map exactly when a visible cell initializer does.
+        let takes_map = top.map_or_else(
+            || {
+                sentences.iter().any(|sentence| {
+                    sentence.attributes().has(AttributeKey::Initializer)
+                        && initializer_takes_map(sentence)
+                })
+            },
+            |sentence| initializer_takes_map(sentence),
+        );
+        // A nullary initializer has no map argument; supplied values have already been checked.
+        if !takes_map {
+            let initial = kore_application("LblinitGeneratedTopCell", Vec::new(), Vec::new());
+            self.clear();
+            return Ok(initial);
+        }
+        let injector = SortInjector::new(resolved, &self.main_module)?;
+        let key = injector
+            .injection_witness(
+                &KastSort::builtin(BuiltinSort::KConfigVar),
+                &KastSort::builtin(BuiltinSort::KItem),
+            )
+            .ok_or_else(|| ConfigurationError::Unplaceable {
+                variable: "configuration map key".into(),
+                sort: KastSort::builtin(BuiltinSort::KConfigVar),
+            })?;
+        let initial = top_cell_initializer(self.program.as_ref(), &self.bindings, &key);
         self.clear();
         Ok(initial)
     }
@@ -450,38 +509,102 @@ impl<'g> ConfigurationAssembler<'g> {
             .map_err(ConfigurationError::MacroExpansion)
     }
 
-    /// Inject and convert an expanded value parsed with `token_module`, returning its KORE
-    /// pattern and the sort it had before injection.
+    /// Instantiate once, then place only the typed root at K for transport.
     fn to_kore(
         &self,
         injector: &SortInjector<'g, 'g>,
         token_module: &str,
         program: &ExpandedProgram,
         variable: &str,
-    ) -> Result<(Pattern, Sort), ConfigurationError> {
-        // Expansion rebases applications into the executable catalog. Tokens remain
-        // self-describing, and conversion retains lexical hooks from the parser module.
-        let (term, sort) = injector.inject_ground(program).map_err(|error| {
-            if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
-                ConfigurationError::UndeterminedInstance {
-                    variable: variable.into(),
-                    error: Box::new(error),
-                }
-            } else {
-                ConfigurationError::SortInjection(error)
-            }
-        })?;
-        let pattern = term_to_kore_from_resolved_with_token_module(
+    ) -> Result<ConfigurationValue, ConfigurationError> {
+        ConfigurationValue::from_expanded(
+            injector,
             self.grammar.resolved(),
             &self.main_module,
             token_module,
-            &term,
-        )?;
-        Ok((pattern, encode_kore_sort(&sort)))
+            program,
+            variable,
+        )
     }
 }
 
-/// The configuration map holds KItem values, so a K-sorted value is one item.
+use value::ConfigurationValue;
+
+// Only these builders can create a transport payload; neither takes an arbitrary pattern/sort pair.
+mod value {
+    use super::*;
+
+    #[derive(Debug)]
+    pub(super) struct ConfigurationValue {
+        pattern: Pattern,
+    }
+
+    impl ConfigurationValue {
+        pub(super) fn from_expanded(
+            injector: &SortInjector<'_, '_>,
+            resolved: &ResolvedDefinition,
+            main_module: &str,
+            token_module: &str,
+            program: &ExpandedProgram,
+            variable: &str,
+        ) -> Result<Self, ConfigurationError> {
+            let (term, sort) = injector.inject_ground(program).map_err(|error| {
+                if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
+                    ConfigurationError::UndeterminedInstance {
+                        variable: variable.into(),
+                        error: Box::new(error),
+                    }
+                } else {
+                    ConfigurationError::SortInjection(error)
+                }
+            })?;
+            let placement = injector
+                .placement(&sort, &KastSort::builtin(BuiltinSort::K))
+                .ok_or_else(|| ConfigurationError::Unplaceable {
+                    variable: variable.into(),
+                    sort,
+                })?;
+            let term = placement.apply(term);
+            let pattern = term_to_kore_from_resolved_with_token_module(
+                resolved,
+                main_module,
+                token_module,
+                &term,
+            )?;
+            Ok(Self { pattern })
+        }
+
+        pub(super) fn from_string(
+            injector: &SortInjector<'_, '_>,
+            text: impl Into<KoreString>,
+            variable: &str,
+        ) -> Result<Self, ConfigurationError> {
+            let sort = KastSort::builtin(BuiltinSort::String);
+            let placement = injector
+                .placement(&sort, &KastSort::builtin(BuiltinSort::K))
+                .ok_or_else(|| ConfigurationError::Unplaceable {
+                    variable: variable.into(),
+                    sort,
+                })?;
+            Ok(Self {
+                pattern: placement.apply_kore(string_domain_value(text), &[]),
+            })
+        }
+
+        pub(super) fn boxed(&self) -> Pattern {
+            kore_application(
+                &crate::kompile::encode_kore_label(&crate::kast::Label::new(
+                    crate::definition::configuration_value::BOX_LABEL,
+                ))
+                .name,
+                Vec::new(),
+                vec![self.pattern.clone()],
+            )
+        }
+    }
+}
+
+/// KItem is the instantiation preference for an open result read at K; fixed K values retain K.
 fn configuration_position(declared: &KastSort) -> KastSort {
     if declared.name == BuiltinSort::K.k_name() {
         KastSort::builtin(BuiltinSort::KItem)
@@ -528,7 +651,8 @@ pub fn parser_modules(
 /// Bind each declared `String`-sorted stream variable that is still unbound, `$IO` before
 /// `$STDIN`. Buffered stdin is read only for an unbound `$STDIN` when IO is off and the program
 /// itself does not consume stdin; otherwise `$STDIN` is the empty string.
-pub(crate) fn stream_defaults<E>(
+pub(crate) fn stream_defaults<E: From<ConfigurationError>>(
+    injector: &SortInjector<'_, '_>,
     available: &BTreeMap<String, KastSort>,
     seen: &mut BTreeSet<String>,
     io: bool,
@@ -536,14 +660,14 @@ pub(crate) fn stream_defaults<E>(
     read_buffered_stdin: impl FnOnce() -> Result<Vec<u8>, E>,
 ) -> Result<Vec<ConfigurationBinding>, E> {
     let mut bindings = Vec::new();
+    let mut pending = seen.clone();
     let string_sort = KastSort::builtin(BuiltinSort::String);
     if available.get("IO") == Some(&string_sort) && !seen.contains("IO") {
         bindings.push(ConfigurationBinding {
             name: "$IO".into(),
-            value: string_domain_value(if io { "on" } else { "off" }),
-            sort: kore_sort(BuiltinSort::String.kore_name()),
+            value: ConfigurationValue::from_string(injector, if io { "on" } else { "off" }, "$IO")?,
         });
-        seen.insert("IO".into());
+        pending.insert("IO".into());
     }
     if available.get("STDIN") == Some(&string_sort) && !seen.contains("STDIN") {
         let input = if io || program_uses_stdin {
@@ -553,11 +677,11 @@ pub(crate) fn stream_defaults<E>(
         };
         bindings.push(ConfigurationBinding {
             name: "$STDIN".into(),
-            value: string_domain_value(input),
-            sort: kore_sort(BuiltinSort::String.kore_name()),
+            value: ConfigurationValue::from_string(injector, input, "$STDIN")?,
         });
-        seen.insert("STDIN".into());
+        pending.insert("STDIN".into());
     }
+    *seen = pending;
     Ok(bindings)
 }
 
@@ -577,13 +701,14 @@ pub(crate) fn missing_variables(
 /// Build the `initGeneratedTopCell` application of a configuration map whose entries are the
 /// program binding first, when there is one, then `bindings` in their order.
 pub(crate) fn top_cell_initializer(
-    program: Option<ConfigurationBinding>,
-    bindings: Vec<ConfigurationBinding>,
+    program: Option<&ConfigurationBinding>,
+    bindings: &[ConfigurationBinding],
+    key_witness: &super::passes::Injectable,
 ) -> Pattern {
     let mut entries = program
         .into_iter()
         .chain(bindings)
-        .map(|binding| configuration_map_entry(&binding.name, binding.value, binding.sort));
+        .map(|binding| configuration_map_entry(&binding.name, &binding.value, key_witness));
     let arguments = match entries.next() {
         Some(first) => vec![entries.fold(first, |left, right| {
             kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
@@ -593,27 +718,23 @@ pub(crate) fn top_cell_initializer(
     kore_application("LblinitGeneratedTopCell", Vec::new(), arguments)
 }
 
-fn configuration_map_entry(name: &str, value: Pattern, value_sort: Sort) -> Pattern {
-    let config_var_sort = kore_sort(BuiltinSort::KConfigVar.kore_name());
-    let item_sort = kore_sort(BuiltinSort::KItem.kore_name());
-    let key = kore_application(
-        WellKnownSymbol::Inj.as_str(),
-        vec![config_var_sort.clone(), item_sort.clone()],
-        vec![Pattern::DomainValue {
-            sort: config_var_sort,
+fn configuration_map_entry(
+    name: &str,
+    value: &ConfigurationValue,
+    key_witness: &super::passes::Injectable,
+) -> Pattern {
+    let key = key_witness.clone().apply_kore(
+        Pattern::DomainValue {
+            sort: kore_sort(BuiltinSort::KConfigVar.kore_name()),
             value: name.into(),
-        }],
+        },
+        &[],
     );
-    let value = if value_sort == item_sort {
-        value
-    } else {
-        kore_application(
-            WellKnownSymbol::Inj.as_str(),
-            vec![value_sort, item_sort],
-            vec![value],
-        )
-    };
-    kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
+    kore_application(
+        "Lbl'UndsPipe'-'-GT-Unds'",
+        Vec::new(),
+        vec![key, value.boxed()],
+    )
 }
 
 pub fn kore_application(
@@ -652,35 +773,59 @@ mod tests {
 
     #[test]
     fn top_initializer_combines_program_and_configuration_bindings() {
-        let initial = top_cell_initializer(
-            Some(ConfigurationBinding {
-                name: "$PGM".into(),
-                value: Pattern::DomainValue {
-                    sort: kore_sort("SortExp"),
-                    value: "program".into(),
-                },
-                sort: kore_sort("SortExp"),
-            }),
-            vec![ConfigurationBinding {
-                name: "$ENV".into(),
-                value: kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
-                sort: kore_sort("SortMap"),
-            }],
-        );
+        let frontend = crate::outer::lower(
+            &crate::outer::parse(
+                "test.k",
+                r#"
+module MAIN
+  syntax String [hook(STRING.String)]
+  syntax KConfigVar [hook(KVAR.KVar)]
+  syntax KItem ::= KConfigVar
+endmodule
+"#,
+            )
+            .unwrap(),
+            "MAIN",
+        )
+        .unwrap();
+        let resolved = ResolvedDefinition::resolve(&frontend).unwrap();
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let key = injector
+            .injection_witness(&KastSort::new("KConfigVar"), &KastSort::new("KItem"))
+            .unwrap();
+        let program = ConfigurationBinding {
+            name: "$PGM".into(),
+            value: ConfigurationValue::from_string(&injector, "program", "$PGM").unwrap(),
+        };
+        let bindings = [ConfigurationBinding {
+            name: "$ENV".into(),
+            value: ConfigurationValue::from_string(&injector, "env", "$ENV").unwrap(),
+        }];
+        let initial = top_cell_initializer(Some(&program), &bindings, &key);
         let rendered = Printer::compact().print_pattern(&initial);
 
         assert!(rendered.contains("Lbl'Unds'Map'Unds'"), "{rendered}");
         assert!(rendered.contains("$PGM"), "{rendered}");
         assert!(rendered.contains("$ENV"), "{rendered}");
         assert!(
-            rendered.contains("inj{SortMap{}, SortKItem{}}"),
+            rendered.contains("inj{SortString{}, SortKItem{}}"),
             "{rendered}"
         );
     }
 
     #[test]
     fn top_initializer_without_any_binding_is_nullary() {
-        let initial = top_cell_initializer(None, Vec::new());
+        let key = super::super::passes::Injectable::between(
+            &KastSort::new("KConfigVar"),
+            &KastSort::new("KItem"),
+            &crate::definition::PartialOrder::new([(
+                KastSort::new("KConfigVar"),
+                KastSort::new("KItem"),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+        let initial = top_cell_initializer(None, &[], &key);
         assert_eq!(
             Printer::compact().print_pattern(&initial),
             "LblinitGeneratedTopCell{}()"

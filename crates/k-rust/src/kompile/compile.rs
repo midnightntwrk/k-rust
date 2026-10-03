@@ -582,7 +582,25 @@ pub fn configuration_variables(
     }
 
     fn lookup_name(term: &Term) -> Option<&str> {
-        let Term::Apply { label, arguments } = unwrap_singleton(term) else {
+        let term = unwrap_singleton(term);
+        let term = match term {
+            Term::Apply { label, arguments }
+                if label.name == crate::definition::configuration_value::UNBOX_LABEL
+                    && label.parameters.is_empty()
+                    && arguments.len() == 1 =>
+            {
+                unwrap_singleton(&arguments[0])
+            }
+            Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => term,
+        };
+        let Term::Apply { label, arguments } = term else {
             return None;
         };
         if label.name != "Map:lookup" {
@@ -635,8 +653,8 @@ pub fn configuration_variables(
     fn collect(term: &Term, sorts: &mut BTreeMap<String, Sort>) -> Result<(), String> {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
-                // Java strips the `project:` prefix and names the sort by the rest, so a
-                // field projection keeps naming the sort `label:field` as it always did.
+                // The enclosing projection records the declared sort; the decoder's K result
+                // only describes the transport payload. A field projection names its field sort.
                 let projected = match label.generated() {
                     Some(GeneratedLabel::Projection { sort_text }) => Some(sort_text.to_owned()),
                     Some(GeneratedLabel::FieldProjection { label, field }) => {
@@ -823,6 +841,131 @@ mod tests {
     use std::sync::Arc;
 
     use k_rust_backend::definition::BackendDefinition;
+
+    #[test]
+    fn configuration_variables_recover_declared_sorts_through_the_transport_decoder() {
+        let parsed = crate::outer::parse(
+            "configuration.k",
+            r#"
+            module MAIN
+              syntax Val
+              configuration <top> <k> $PGM:K </k> <value> $X:Val </value>
+                <default> #token("$D", "KConfigVar") </default>
+              </top>
+            endmodule
+        "#,
+        )
+        .unwrap();
+        let lowered = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved_bubbles = crate::inner::resolve_configuration_bubbles(&lowered).unwrap();
+        let expanded = crate::definition::expand_configurations(&resolved_bubbles).unwrap();
+        let resolved = crate::definition::ResolvedDefinition::resolve(&expanded).unwrap();
+        assert_eq!(
+            super::configuration_variables(&resolved).unwrap(),
+            std::collections::BTreeMap::from([
+                ("PGM".into(), crate::kast::Sort::new("K")),
+                ("X".into(), crate::kast::Sort::new("Val")),
+                ("D".into(), crate::kast::Sort::new("KItem")),
+            ])
+        );
+    }
+
+    #[test]
+    fn configuration_transport_preserves_specificity_and_conflicting_declared_sorts() {
+        let variables = |sorts: &[&str]| {
+            let parsed = crate::outer::parse("configuration.k", "module MAIN endmodule").unwrap();
+            let mut definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+            let truth = || Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            };
+            for sort in sorts {
+                let lookup = Term::apply(
+                    "Map:lookup",
+                    vec![
+                        Term::Variable {
+                            name: "Init".into(),
+                            sort: Some(Sort::new("Map")),
+                        },
+                        Term::Token {
+                            token: "$X".into(),
+                            sort: Sort::new("KConfigVar"),
+                        },
+                    ],
+                );
+                definition.modules[0]
+                    .local_sentences
+                    .push(Arc::new(Sentence::Rule {
+                        body: Term::apply(
+                            format!("project:{sort}"),
+                            vec![Term::apply(
+                                crate::definition::configuration_value::UNBOX_LABEL,
+                                vec![lookup],
+                            )],
+                        ),
+                        requires: truth(),
+                        ensures: truth(),
+                        attributes: Attributes::default(),
+                    }));
+            }
+            let resolved = crate::definition::ResolvedDefinition::resolve(&definition).unwrap();
+            super::configuration_variables(&resolved)
+        };
+        // Imported readers may project one key at several sorts; their order must not change
+        // the concrete declaration recovered through the named decoder.
+        for sorts in [["K", "KItem", "Val"], ["Val", "KItem", "K"]] {
+            assert_eq!(
+                variables(&sorts).unwrap(),
+                std::collections::BTreeMap::from([("X".into(), crate::kast::Sort::new("Val"))]),
+            );
+        }
+        let error = variables(&["Val", "Other"]).unwrap_err();
+        assert!(
+            error.contains("configuration variable `$X` is used at both sort"),
+            "{error}"
+        );
+        assert!(error.contains("Val") && error.contains("Other"), "{error}");
+    }
+
+    #[test]
+    fn configuration_variables_only_unwrap_the_named_transport_decoder() {
+        let token = Term::Token {
+            token: "$X".into(),
+            sort: crate::kast::Sort::new("KConfigVar"),
+        };
+        let lookup = Term::apply("Map:lookup", vec![Term::variable("Init"), token]);
+        let read = Term::apply(
+            "project:K",
+            vec![Term::apply("foreignDecoder", vec![lookup])],
+        );
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: vec![],
+                attributes: Attributes::default(),
+                local_sentences: vec![Arc::new(Sentence::Rule {
+                    body: read,
+                    requires: Term::Token {
+                        token: "true".into(),
+                        sort: crate::kast::Sort::new("Bool"),
+                    },
+                    ensures: Term::Token {
+                        token: "true".into(),
+                        sort: crate::kast::Sort::new("Bool"),
+                    },
+                    attributes: Attributes::default(),
+                })],
+            }],
+            attributes: Attributes::default(),
+        };
+        let resolved = crate::definition::ResolvedDefinition::resolve(&definition).unwrap();
+        assert!(
+            super::configuration_variables(&resolved)
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[cfg(feature = "z3-inference")]
     use crate::{
@@ -1034,8 +1177,8 @@ mod tests {
                 artifact_digest(&artifacts.macros_kore),
             ],
             [
-                String::from("da9377e513a73615b828453e0b7659ebfdba52f7750f0358b9816e17d70b6f89",),
-                String::from("cd2e8fdccdcf336dc5a4b52fea6edc000551475551a8ae456b28d014db9e5484",),
+                String::from("87b64f6846b14b122a51ca14dad17337b98dafe78b01bcf83bc63c77e2c4b6a0",),
+                String::from("aee6149a0ece4bad3ea72d9e254b795eb378eed7aa7d304bcd1b7d9b6f76c847",),
                 String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
             ],
         );

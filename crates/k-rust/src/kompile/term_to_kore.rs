@@ -41,6 +41,7 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::encode_kore_label;
+use super::passes::Injectable;
 use super::sort_injections::SentenceSortVariables;
 use super::view::View;
 
@@ -255,6 +256,16 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     pub fn convert_label(&self, label: &Label) -> Result<Symbol, TermConversionError> {
+        if label.is(WellKnownSymbol::Inj) {
+            let witness = self.injection_witness(label)?;
+            return Ok(Symbol {
+                name: WellKnownSymbol::Inj.as_str().into(),
+                sort_parameters: vec![
+                    self.kore_sort(witness.source())?,
+                    self.kore_sort(witness.target())?,
+                ],
+            });
+        }
         let mut symbol = encode_kore_label(label);
         symbol.sort_parameters = label
             .parameters
@@ -310,11 +321,51 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         }
     }
 
+    fn injection_witness(&self, label: &Label) -> Result<Injectable, TermConversionError> {
+        let [source, target] = label.parameters.as_slice() else {
+            return Err(TermConversionError::InvalidBuiltin {
+                label: label.name.clone(),
+                message: format!(
+                    "expected 2 sort parameters, found {}",
+                    label.parameters.len()
+                ),
+            });
+        };
+        Injectable::between(source, target, &self.subsorts).ok_or_else(|| {
+            TermConversionError::InvalidBuiltin {
+                label: label.name.clone(),
+                message: format!("no non-reflexive subsort-axiom path from {source} to {target}"),
+            }
+        })
+    }
+
+    fn retained_injection(
+        &self,
+        label: &Label,
+        arguments: &[Term],
+    ) -> Result<Injectable, TermConversionError> {
+        self.require_arity(label, arguments, 1)?;
+        let witness = self.injection_witness(label)?;
+        let actual = self.term_sort(&arguments[0])?;
+        if actual != *witness.source() {
+            return Err(TermConversionError::InvalidBuiltin {
+                label: label.name.clone(),
+                message: format!("operand has sort {actual}, expected {}", witness.source()),
+            });
+        }
+        Ok(witness)
+    }
+
     fn application(
         &self,
         label: &Label,
         arguments: &[Term],
     ) -> Result<Pattern, TermConversionError> {
+        if label.is(WellKnownSymbol::Inj) {
+            return self
+                .retained_injection(label, arguments)?
+                .try_apply_kore(self.pattern(&arguments[0])?, |sort| self.kore_sort(sort));
+        }
         let patterns = || {
             arguments
                 .iter()
@@ -681,11 +732,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
-        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. })
-            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
-        {
-            return Ok(sort);
-        }
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }
@@ -719,11 +765,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 .and_then(|argument| self.term_sort(argument));
         }
         if label.is(WellKnownSymbol::Inj) {
-            return label
-                .parameters
-                .get(1)
-                .cloned()
-                .ok_or_else(|| invalid_sort(label));
+            return Ok(self.retained_injection(label, arguments)?.target().clone());
         }
         match InternalLabel::of(&label.name) {
             Some(InternalLabel::Ceil | InternalLabel::Floor | InternalLabel::Equals) => {

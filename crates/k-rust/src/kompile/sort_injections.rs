@@ -37,7 +37,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
-use super::passes::{ExpandedProgram, Injectable, placeable};
+use super::passes::{ExpandedProgram, Injectable, Placement, PlacementKind, placeable};
 
 mod typing;
 use super::view::View;
@@ -1027,10 +1027,57 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         Injectable::between(actual, expected, &self.subsorts)
     }
 
-    /// `inj{source, target}(term)` along `witness`, counted as one inserted injection.
-    fn inject_along(&self, witness: Injectable, term: Term) -> Term {
-        measure::bump(Counter::KompileInjectionsInserted);
-        witness.apply(term)
+    fn apply_placement(&self, plan: Placement, term: Term) -> Term {
+        let count = match plan.kind() {
+            PlacementKind::Identity => 0,
+            PlacementKind::Injection(_) => 1,
+            PlacementKind::SingletonK { item } => usize::from(item.is_some()),
+            PlacementKind::SingletonKInjection { item, .. } => 1 + usize::from(item.is_some()),
+        };
+        for _ in 0..count {
+            measure::bump(Counter::KompileInjectionsInserted);
+        }
+        plan.apply(term)
+    }
+
+    /// Select an outer placement without retyping the supplied value's children.
+    pub(crate) fn placement(&self, actual: &Sort, expected: &Sort) -> Option<Placement> {
+        Placement::between(actual, expected, &self.subsorts)
+    }
+
+    pub(crate) fn injection_witness(&self, actual: &Sort, expected: &Sort) -> Option<Injectable> {
+        self.witness(actual, expected)
+    }
+
+    fn retained_injection(
+        &self,
+        term: &Term,
+        label: &Label,
+        arguments: &[Term],
+    ) -> Result<Injectable, SortInjectionError> {
+        let [source, target] = label.parameters.as_slice() else {
+            return Err(SortInjectionError::MissingParameters {
+                label: label.name.clone(),
+                expected: 2,
+                actual: label.parameters.len(),
+            });
+        };
+        let [operand] = arguments else {
+            return Err(SortInjectionError::InvalidArity {
+                label: label.name.clone(),
+                expected: 1,
+                actual: arguments.len(),
+            });
+        };
+        let actual = self.term_sort(operand, Some(source))?;
+        if actual != *source {
+            return Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+                term: render_term(operand),
+                found: actual,
+                required: source.clone(),
+            })));
+        }
+        self.required_witness(term, source, target)
     }
 
     /// The witness for placing `term` of sort `actual` at a position of sort `expected` by one
@@ -1078,13 +1125,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             Term::Token { sort, .. } => Ok(sort.clone()),
             Term::Apply { label, arguments } => {
                 if label.is(WellKnownSymbol::Inj) {
-                    return label.parameters.get(1).cloned().ok_or_else(|| {
-                        SortInjectionError::MissingParameters {
-                            label: label.name.clone(),
-                            expected: 2,
-                            actual: label.parameters.len(),
-                        }
-                    });
+                    return Ok(self
+                        .retained_injection(term, label, arguments)?
+                        .target()
+                        .clone());
                 }
                 if let Some(sort) = label.semantic_cast_sort() {
                     return Ok(sort);
@@ -1196,13 +1240,17 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
 
         let visited = self.visit_children(term, &actual, is_lhs)?;
-        if expected.name == BuiltinSort::K.k_name() {
-            if actual.name == BuiltinSort::KItem.k_name() {
-                return Ok(Term::Sequence(vec![visited]));
-            }
-            let witness =
-                self.required_witness(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
-            return Ok(Term::Sequence(vec![self.inject_along(witness, visited)]));
+        if expected.is_builtin(BuiltinSort::K) {
+            return self
+                .placement(&actual, expected)
+                .map(|plan| self.apply_placement(plan, visited))
+                .ok_or_else(|| {
+                    SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+                        term: render_term(term),
+                        found: actual,
+                        required: expected.clone(),
+                    }))
+                });
         }
         if let Some(wrapped) =
             self.collection_wrapper(term, &actual, expected, visited.clone(), is_lhs)?
@@ -1212,23 +1260,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
             return Ok(wrapped);
         }
-        if let Some(witness) = self.witness(&actual, expected) {
-            return Ok(self.inject_along(witness, visited));
-        }
-        // A position above `K`: the term is a `K` as a one-element sequence, and that `K` is
-        // injected into the position.
-        let k = Sort::builtin(BuiltinSort::K);
-        let k_item = Sort::builtin(BuiltinSort::KItem);
-        if let Some(into_expected) = self.witness(&k, expected) {
-            let item = if actual == k_item {
-                Some(visited)
-            } else {
-                self.witness(&actual, &k_item)
-                    .map(|into_item| self.inject_along(into_item, visited))
-            };
-            if let Some(item) = item {
-                return Ok(self.inject_along(into_expected, Term::Sequence(vec![item])));
-            }
+        if let Some(plan) = self.placement(&actual, expected) {
+            return Ok(self.apply_placement(plan, visited));
         }
         Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
             term: render_term(term),
@@ -1457,7 +1490,11 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
         let rebuilt = match term.unannotated() {
-            Term::Apply { label, .. } if label.is(WellKnownSymbol::Inj) => return Ok(term.clone()),
+            Term::Apply { label, arguments } if label.is(WellKnownSymbol::Inj) => {
+                let witness = self.retained_injection(term, label, arguments)?;
+                let operand = self.inject_with_position(&arguments[0], witness.source(), is_lhs)?;
+                witness.apply(operand)
+            }
             Term::Apply { label, arguments }
                 if label.semantic_cast_sort().is_some() || label.is(InternalLabel::OuterCast) =>
             {

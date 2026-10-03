@@ -2028,7 +2028,7 @@ pub fn encode_kore_sort(sort: &Sort) -> KoreSort {
 }
 
 // Invariant: each call encodes one node of `sort` and recurses only into its `parameters`, so the finite `sort` bounds the calls; `formals` is the same at every depth.
-fn encode_kore_sort_with_formals(sort: &Sort, formals: &[Sort]) -> KoreSort {
+pub(crate) fn encode_kore_sort_with_formals(sort: &Sort, formals: &[Sort]) -> KoreSort {
     let name = identifier::encode_sort_name(&sort.name);
     if formals.contains(sort) {
         KoreSort::Variable(name)

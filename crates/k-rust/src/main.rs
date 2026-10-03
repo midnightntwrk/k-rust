@@ -2454,6 +2454,24 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
 
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    {
+        k_rust::kompile::assert_frontend_pattern(
+            &syntax,
+            &compiled.main_module,
+            &initial,
+            "krun initial configuration ($PGM and configuration bindings)",
+        );
+        if let Some(MatchTargetSource::Surface(surface)) = &match_target_source {
+            k_rust::kompile::assert_frontend_pattern(
+                &syntax,
+                &compiled.main_module,
+                &surface.pattern,
+                "krun surface pattern",
+            );
+        }
+    }
+
     let backend = Backend::internalize_source_definition(
         &syntax,
         &compiled.main_module,

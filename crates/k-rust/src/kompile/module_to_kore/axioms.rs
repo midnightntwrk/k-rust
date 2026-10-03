@@ -21,7 +21,7 @@ use crate::definition::production_kind::{
     mentions_parameter,
 };
 use crate::definition::relations::SubsortDeclaration;
-use crate::kompile::passes::{Injectable, has_subsort_axiom};
+use crate::kompile::passes::{Placement, has_subsort_axiom};
 
 pub(super) struct GeneratedAxioms {
     pub(super) semantics: Vec<KoreSentence>,
@@ -468,7 +468,9 @@ fn no_junk_axioms(
                     Pattern::Exists {
                         sort: result_sort.clone(),
                         variable: Box::new(variable.clone()),
-                        body: Box::new(kore_injection(witness, Pattern::Variable(variable), &[])),
+                        body: Box::new(
+                            witness.clone().apply_kore(Pattern::Variable(variable), &[]),
+                        ),
                     }
                 }
             })
@@ -1148,27 +1150,11 @@ fn overload_production<'a>(
     })
 }
 
-/// `inj{source, target}(pattern)` in KORE, for the pair `witness` certifies: the only KORE
-/// construction of an injection application in the emitted theory apart from the subsort axiom
-/// that defines it. `formals` are the sort parameters of the sentence, encoded as sort variables.
-fn kore_injection(witness: &Injectable, pattern: Pattern, formals: &[Sort]) -> Pattern {
-    Pattern::Application {
-        symbol: Symbol {
-            name: WellKnownSymbol::Inj.as_str().into(),
-            sort_parameters: vec![
-                encode_kore_sort_with_formals(witness.source(), formals),
-                encode_kore_sort_with_formals(witness.target(), formals),
-            ],
-        },
-        arguments: vec![pattern],
-    }
-}
-
 /// `pattern` of sort `actual` placed at a position of sort `expected`, or `None` when no value of
 /// `actual` is a value of `expected` in the emitted theory.
 ///
 /// The pattern is unchanged when the sorts are equal, and injected into `expected` when a chain of
-/// subsort axioms leads there ([`Injectable::between`]). Otherwise a value of `K` is a sequence of
+/// subsort axioms leads there ([`crate::kompile::passes::Injectable::between`]). Otherwise a value of `K` is a sequence of
 /// items, so at `K` the pattern becomes the one-element sequence `kseq{}(item, dotk{}())`, whose
 /// item is the pattern injected into `KItem` unless it already is a `KItem`; above `K`, that
 /// sequence is injected from `K` into `expected`. `formals` are the sort parameters of the
@@ -1180,50 +1166,7 @@ fn kore_place(
     subsorts: &PartialOrder<Sort>,
     formals: &[Sort],
 ) -> Option<Pattern> {
-    if actual == expected {
-        return Some(pattern);
-    }
-    if let Some(witness) = Injectable::between(actual, expected, subsorts) {
-        return Some(kore_injection(&witness, pattern, formals));
-    }
-    let k = Sort::builtin(BuiltinSort::K);
-    let k_item = Sort::builtin(BuiltinSort::KItem);
-    // The witness above `K` is decided first, so that no item witness is minted for a position
-    // the sequence cannot reach.
-    let above_k = if *expected == k {
-        None
-    } else {
-        Some(Injectable::between(&k, expected, subsorts)?)
-    };
-    let item = if *actual == k_item {
-        pattern
-    } else {
-        kore_injection(
-            &Injectable::between(actual, &k_item, subsorts)?,
-            pattern,
-            formals,
-        )
-    };
-    let sequence = Pattern::Application {
-        symbol: Symbol {
-            name: WellKnownSymbol::KSeq.as_str().into(),
-            sort_parameters: Vec::new(),
-        },
-        arguments: vec![
-            item,
-            Pattern::Application {
-                symbol: Symbol {
-                    name: WellKnownSymbol::DotK.as_str().into(),
-                    sort_parameters: Vec::new(),
-                },
-                arguments: Vec::new(),
-            },
-        ],
-    };
-    Some(match above_k {
-        None => sequence,
-        Some(witness) => kore_injection(&witness, sequence, formals),
-    })
+    Some(Placement::between(actual, expected, subsorts)?.apply_kore(pattern, formals))
 }
 
 #[cfg(test)]

@@ -45,3 +45,43 @@ pub(crate) mod emitted;
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 pub(crate) mod ground;
 pub(crate) mod stage;
+
+/// Assert a frontend initial configuration or compiled surface pattern against the emitted
+/// theory before backend admission. Foreign KORE must use ordinary admission diagnostics.
+pub fn assert_frontend_pattern(
+    definition: &crate::kore::ast::Definition,
+    module: &str,
+    pattern: &crate::kore::ast::Pattern,
+    origin: &str,
+) {
+    k_rust_kore::measure::without_counting(|| {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut work = vec![module];
+        let mut sentences = Vec::new();
+        // Every collected sentence is visible through an import from the selected module.
+        while let Some(name) = work.pop() {
+            if !seen.insert(name) {
+                continue;
+            }
+            let declared = definition
+                .modules
+                .iter()
+                .find(|declared| declared.name == name)
+                .unwrap_or_else(|| {
+                    panic!("frontend pattern from {origin}: emitted module {name} is absent")
+                });
+            for sentence in &declared.sentences {
+                if let crate::kore::ast::Sentence::Import { module, .. } = sentence {
+                    work.push(module);
+                }
+                sentences.push(sentence.clone());
+            }
+        }
+        let visible = crate::kore::ast::Module {
+            name: module.to_owned(),
+            sentences,
+            attributes: crate::kore::ast::Attributes::default(),
+        };
+        emitted::EmittedTheory::of(&visible).check_pattern(pattern, origin);
+    });
+}

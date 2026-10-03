@@ -26,6 +26,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::checks::{LabelParameterError, reject_label_parameters};
+use super::configuration_value;
 use super::{
     Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, ProductionCatalog,
     ProductionItem, ResolveError, ResolvedDefinition, Sentence,
@@ -115,6 +116,7 @@ pub fn expand_configurations(definition: &Definition) -> Result<Definition, Conf
 pub fn expand_configurations_with_diagnostics(
     definition: &Definition,
 ) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
+    configuration_value::reject_source_collisions(definition)?;
     if !has_structured_configuration(definition) {
         return Ok((definition.clone(), Vec::new()));
     }
@@ -158,6 +160,7 @@ fn reject_configuration_label_parameters(
 pub(crate) fn expand_configurations_allowing_reserved_cells(
     definition: &Definition,
 ) -> Result<Definition, ConfigurationError> {
+    configuration_value::reject_source_collisions(definition)?;
     if !has_structured_configuration(definition) {
         return Ok(definition.clone());
     }
@@ -236,9 +239,40 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
+        let reads_configuration_value = generated.iter().any(|sentence| {
+            let Sentence::Rule { body, .. } = sentence else {
+                return false;
+            };
+            let mut reads = false;
+            body.visit_preorder(&mut |term| {
+                reads |= matches!(term, Term::Apply { label, .. } if label.name == configuration_value::UNBOX_LABEL);
+            });
+            reads
+        });
         output.extend(generated.into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
+        if reads_configuration_value {
+            if !transformed
+                .modules
+                .iter()
+                .any(|module| module.name == configuration_value::MODULE_NAME)
+            {
+                transformed.modules.push(configuration_value::module());
+            }
+            if !transformed.modules[module_index]
+                .imports
+                .iter()
+                .any(|import| import.name == configuration_value::MODULE_NAME)
+            {
+                transformed.modules[module_index]
+                    .imports
+                    .push(super::FlatImport {
+                        name: configuration_value::MODULE_NAME.into(),
+                        public: true,
+                    });
+            }
+        }
         resolved = resolved
             .update(&previous, &transformed)
             .map_err(ConfigurationError::Definition)?;
@@ -1118,7 +1152,7 @@ struct UnprojectableConfigurationVariable {
 
 /// The initializer of a configuration leaf: every configuration variable is replaced by the
 /// projection of its entry in the initial map into the sort of its nearest enclosing semantic
-/// cast (`KItem` when there is none or the cast is to `K`).
+/// cast (`KItem` when there is none), after decoding its boxed K payload.
 ///
 /// Fails for a variable cast to a sort without a sort projection: no K term has that sort, so
 /// no value of the initial map can supply it.
@@ -1142,7 +1176,6 @@ fn leaf_initializer(term: &Term) -> Result<Term, UnprojectableConfigurationVaria
                 sort: token_sort,
             } if token_sort.name == BuiltinSort::KConfigVar.k_name() => {
                 let project = sort
-                    .filter(|sort| sort.name != BuiltinSort::K.k_name())
                     .cloned()
                     .unwrap_or_else(|| Sort::builtin(BuiltinSort::KItem));
                 let Some(label) = Label::projection(&project) else {
@@ -1154,14 +1187,17 @@ fn leaf_initializer(term: &Term) -> Result<Term, UnprojectableConfigurationVaria
                 Term::Apply {
                     label,
                     arguments: vec![Term::apply(
-                        "Map:lookup",
-                        vec![
-                            init_variable(),
-                            Term::Token {
-                                token: token.clone(),
-                                sort: token_sort.clone(),
-                            },
-                        ],
+                        configuration_value::UNBOX_LABEL,
+                        vec![Term::apply(
+                            "Map:lookup",
+                            vec![
+                                init_variable(),
+                                Term::Token {
+                                    token: token.clone(),
+                                    sort: token_sort.clone(),
+                                },
+                            ],
+                        )],
                     )],
                 }
             }

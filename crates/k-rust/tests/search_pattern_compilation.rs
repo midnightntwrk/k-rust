@@ -631,3 +631,62 @@ fn a_numeral_sorted_search_position_is_rejected_at_load() {
         assert!(diagnostic.message.ends_with(place), "{diagnostic:#?}");
     }
 }
+
+/// A transformed surface search root must reject malformed injection syntax, including syntax
+/// introduced by a macro after the authored pattern has parsed successfully.
+#[test]
+fn search_pattern_compilation_rejects_retained_unlicensed_injections() {
+    use k_rust::definition::Sentence;
+    use k_rust::kast::{Label, Sort, Term};
+    let inj = |source: &str, target: &str, operand: Term| Term::Apply {
+        label: Label::with_parameters("inj", vec![Sort::new(source), Sort::new(target)]),
+        arguments: vec![operand],
+    };
+    for invalid in [
+        inj("K", "KItem", Term::Sequence(vec![])),
+        inj("KItem", "K", inj("Exp", "KItem", Term::apply("a", vec![]))),
+        inj("Exp", "Exp", Term::apply("a", vec![])),
+        inj(
+            "Exp",
+            "KItem",
+            Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+        ),
+    ] {
+        let base = context();
+        let mut execution = base.execution.clone();
+        let mut replaced = false;
+        for module in &mut execution.modules {
+            for sentence in &mut module.local_sentences {
+                let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(sentence) else {
+                    continue;
+                };
+                let Term::Rewrite { left, right: _ } = body.unannotated() else {
+                    continue;
+                };
+                if matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "bodyMacro")
+                {
+                    *body = Term::Rewrite {
+                        left: left.clone(),
+                        right: Box::new(invalid.clone()),
+                    };
+                    replaced = true;
+                }
+            }
+        }
+        assert!(replaced, "the fixture retains its bodyMacro rule");
+        let modified = Context {
+            parsing: base.parsing.clone(),
+            execution,
+            definition_kore: base.definition_kore.clone(),
+        };
+        let error = compile_in(&modified, "MAIN", "<top> <k> bodyMacro </k> </top>")
+            .expect_err("a retained injection must not escape through search compilation");
+        assert!(
+            error.to_string().contains("inj") || error.to_string().contains("sort"),
+            "{invalid}: {error}"
+        );
+    }
+}

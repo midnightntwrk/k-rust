@@ -121,6 +121,7 @@ mod witness {
     use crate::{
         definition::PartialOrder,
         kast::{Label, Sort, Term},
+        kore::ast::{Pattern, Symbol},
         names::WellKnownSymbol,
     };
 
@@ -130,7 +131,7 @@ mod witness {
     ///
     /// The fields are private to this module, so a value exists only after
     /// `Injectable::between` has decided the pair, and the only builders of an injection,
-    /// `Injectable::apply` in KAST and `module_to_kore::axioms::kore_injection` in KORE, take
+    /// `Injectable::apply` in KAST and `Injectable::apply_kore` in KORE, take
     /// one.
     #[must_use]
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,6 +169,31 @@ mod witness {
             &self.target
         }
 
+        /// Encode a licensed injection using the sentence's formal sort scope.
+        pub(crate) fn apply_kore(self, pattern: Pattern, formals: &[Sort]) -> Pattern {
+            self.try_apply_kore(pattern, |sort| {
+                Ok::<_, std::convert::Infallible>(
+                    crate::kompile::module_to_kore::encode_kore_sort_with_formals(sort, formals),
+                )
+            })
+            .expect("the ordinary sort encoder is infallible")
+        }
+
+        /// Encode the witnessed pair with a scope-aware sort encoder.
+        pub(crate) fn try_apply_kore<E>(
+            self,
+            pattern: Pattern,
+            mut encode: impl FnMut(&Sort) -> Result<crate::kore::ast::Sort, E>,
+        ) -> Result<Pattern, E> {
+            Ok(Pattern::Application {
+                symbol: Symbol {
+                    name: WellKnownSymbol::Inj.as_str().into(),
+                    sort_parameters: vec![encode(&self.source)?, encode(&self.target)?],
+                },
+                arguments: vec![pattern],
+            })
+        }
+
         /// `inj{source, target}(term)`: the only KAST construction of an injection application
         /// in kompile's emitted definition.
         pub(crate) fn apply(self, term: Term) -> Term {
@@ -177,6 +203,132 @@ mod witness {
                     vec![self.source, self.target],
                 ),
                 arguments: vec![term],
+            }
+        }
+    }
+}
+
+pub(crate) use placement::{Placement, PlacementKind};
+
+// A separate module keeps even the relation's callers from assembling a plan by hand.
+mod placement {
+    use super::{BuiltinSort, Injectable, PartialOrder, Sort};
+    /// An outer coercion of an already typed term, without revisiting its chosen instances.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) enum PlacementKind {
+        Identity,
+        Injection(Injectable),
+        SingletonK {
+            item: Option<Injectable>,
+        },
+        SingletonKInjection {
+            item: Option<Injectable>,
+            sequence: Injectable,
+        },
+    }
+
+    /// A plan minted only by the semantic placement relation.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) struct Placement {
+        kind: PlacementKind,
+    }
+
+    impl Placement {
+        pub(crate) fn kind(&self) -> &PlacementKind {
+            &self.kind
+        }
+
+        pub(crate) fn between(
+            actual: &Sort,
+            expected: &Sort,
+            subsorts: &PartialOrder<Sort>,
+        ) -> Option<Self> {
+            if actual == expected {
+                return Some(Self {
+                    kind: PlacementKind::Identity,
+                });
+            }
+            if let Some(witness) = Injectable::between(actual, expected, subsorts) {
+                return Some(Self {
+                    kind: PlacementKind::Injection(witness),
+                });
+            }
+            let k = Sort::builtin(BuiltinSort::K);
+            let sequence = if *expected == k {
+                None
+            } else {
+                Some(Injectable::between(&k, expected, subsorts)?)
+            };
+            let kitem = Sort::builtin(BuiltinSort::KItem);
+            let item = if *actual == kitem {
+                None
+            } else {
+                Some(Injectable::between(actual, &kitem, subsorts)?)
+            };
+            Some(Self {
+                kind: match sequence {
+                    None => PlacementKind::SingletonK { item },
+                    Some(sequence) => PlacementKind::SingletonKInjection { item, sequence },
+                },
+            })
+        }
+
+        pub(crate) fn apply(self, term: crate::kast::Term) -> crate::kast::Term {
+            use crate::kast::Term;
+            match self.kind {
+                PlacementKind::Identity => term,
+                PlacementKind::Injection(witness) => witness.apply(term),
+                PlacementKind::SingletonK { item } => Term::Sequence(vec![match item {
+                    None => term,
+                    Some(witness) => witness.apply(term),
+                }]),
+                PlacementKind::SingletonKInjection { item, sequence } => sequence.apply(
+                    Self {
+                        kind: PlacementKind::SingletonK { item },
+                    }
+                    .apply(term),
+                ),
+            }
+        }
+
+        pub(crate) fn apply_kore(
+            self,
+            pattern: crate::kore::ast::Pattern,
+            formals: &[Sort],
+        ) -> crate::kore::ast::Pattern {
+            use crate::{
+                kore::ast::{Pattern, Symbol},
+                names::WellKnownSymbol,
+            };
+            match self.kind {
+                PlacementKind::Identity => pattern,
+                PlacementKind::Injection(witness) => witness.apply_kore(pattern, formals),
+                PlacementKind::SingletonK { item } => Pattern::Application {
+                    symbol: Symbol {
+                        name: WellKnownSymbol::KSeq.as_str().into(),
+                        sort_parameters: Vec::new(),
+                    },
+                    arguments: vec![
+                        match item {
+                            None => pattern,
+                            Some(witness) => witness.apply_kore(pattern, formals),
+                        },
+                        Pattern::Application {
+                            symbol: Symbol {
+                                name: WellKnownSymbol::DotK.as_str().into(),
+                                sort_parameters: Vec::new(),
+                            },
+                            arguments: Vec::new(),
+                        },
+                    ],
+                },
+                PlacementKind::SingletonKInjection { item, sequence } => sequence.apply_kore(
+                    Self {
+                        kind: PlacementKind::SingletonK { item },
+                    }
+                    .apply_kore(pattern, formals),
+                    formals,
+                ),
             }
         }
     }
@@ -267,7 +419,7 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
 #[cfg(test)]
 #[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
-    use super::Injectable;
+    use super::{Injectable, Placement, PlacementKind};
     use crate::definition::{
         AttributeKey, Attributes, PartialOrder, ProductionItem, Sentence,
         compute_disambiguation_subsorts, compute_subsorts,
@@ -380,5 +532,64 @@ mod tests {
         assert_eq!(Injectable::between(&int, &int, &subsorts), None);
         let k = Sort::builtin(BuiltinSort::K);
         assert_eq!(Injectable::between(&k, &k, &subsorts), None);
+    }
+
+    #[test]
+    fn placement_preserves_whole_k_and_uses_singletons_for_items() {
+        let int = Sort::new("Int");
+        let item = Sort::builtin(BuiltinSort::KItem);
+        let k = Sort::builtin(BuiltinSort::K);
+        let list = Sort::builtin(BuiltinSort::List);
+        let subsorts = order(&[
+            (int.clone(), item.clone()),
+            (item.clone(), k.clone()),
+            (k.clone(), list.clone()),
+        ]);
+        let whole_k = Term::Sequence(vec![]);
+        let identity = Placement::between(&k, &k, &subsorts).unwrap();
+        assert!(matches!(identity.kind(), PlacementKind::Identity));
+        assert_eq!(identity.apply(whole_k.clone()), whole_k);
+        assert!(Placement::between(&k, &item, &subsorts).is_none());
+
+        let singleton = Placement::between(&item, &k, &subsorts).unwrap();
+        assert!(matches!(
+            singleton.kind(),
+            PlacementKind::SingletonK { item: None }
+        ));
+        let variable = Term::Variable {
+            name: "X".into(),
+            sort: Some(item.clone()),
+        };
+        assert_eq!(
+            singleton.apply(variable.clone()),
+            Term::Sequence(vec![variable])
+        );
+
+        let into_item = Placement::between(&int, &item, &subsorts).unwrap();
+        assert!(matches!(into_item.kind(), PlacementKind::Injection(_)));
+        let singleton = Placement::between(&int, &k, &subsorts).unwrap();
+        assert!(matches!(
+            singleton.kind(),
+            PlacementKind::SingletonK { item: Some(_) }
+        ));
+        let into_list = Placement::between(&int, &list, &subsorts).unwrap();
+        assert!(matches!(
+            into_list.kind(),
+            PlacementKind::SingletonKInjection { item: Some(_), .. }
+        ));
+        let variable = Term::Variable {
+            name: "X".into(),
+            sort: Some(int.clone()),
+        };
+        assert_eq!(
+            into_list.apply(variable.clone()),
+            Injectable::between(&k, &list, &subsorts)
+                .unwrap()
+                .apply(Term::Sequence(vec![
+                    Injectable::between(&int, &item, &subsorts)
+                        .unwrap()
+                        .apply(variable)
+                ]))
+        );
     }
 }

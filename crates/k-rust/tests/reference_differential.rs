@@ -524,7 +524,10 @@ fn emitted_kore_matches_the_reference_frontend() {
     let reference_source = fs::read_to_string(&reference_path).unwrap();
     let actual_source = fs::read_to_string(&actual_path).unwrap();
     let mut reference = parse_definition(&reference_source).unwrap();
-    let actual = parse_definition(&actual_source).unwrap();
+    let mut actual = parse_definition(&actual_source).unwrap();
+    let transport = normalize_configuration_value_transport(&reference, &mut actual)
+        .expect("N37 requires a reference without configuration-value transport");
+    println!("configuration-value transport normalized (N37): {transport} rewrites");
     let (removed, owise) = normalize_unsupported_sort_predicates(&mut reference);
     println!("unsupported sort-predicate axioms normalized: {removed} true, {owise} owise");
     let withheld_predicates = normalize_withheld_sort_predicates(&mut reference, &actual);
@@ -540,6 +543,531 @@ fn emitted_kore_matches_the_reference_frontend() {
          {dropped}"
     );
     compare_definitions(reference, actual);
+}
+
+const CONFIG_VALUE_BOX: &str = "Lbl'Hash'KConfigValue";
+const CONFIG_VALUE_UNBOX: &str = "Lbl'Hash'unboxKConfigValue";
+
+/// N37 removes only the private map transport from the port's compile artifact.
+/// Initializer reads are translated back to item transport, without changing other uses of
+/// projections or lookup. Declaration-derived axioms and the box's no-junk alternative carry
+/// no information about the source language once its private constructor has been removed.
+fn normalize_configuration_value_transport(
+    reference: &Definition,
+    actual: &mut Definition,
+) -> Result<usize, String> {
+    let private_symbols =
+        BTreeSet::from([CONFIG_VALUE_BOX.to_owned(), CONFIG_VALUE_UNBOX.to_owned()]);
+    if reference
+        .attributes
+        .0
+        .iter()
+        .chain(
+            reference
+                .modules
+                .iter()
+                .flat_map(|module| &module.attributes.0),
+        )
+        .any(|attribute| pattern_mentions_any_symbol(attribute, &private_symbols))
+    {
+        return Err("reference names private configuration-value transport in an attribute".into());
+    }
+    for module in &reference.modules {
+        for sentence in &module.sentences {
+            if [CONFIG_VALUE_BOX, CONFIG_VALUE_UNBOX]
+                .iter()
+                .any(|name| sentence_mentions_symbol(sentence, name))
+            {
+                return Err(
+                    "reference declares or uses private configuration-value transport".into(),
+                );
+            }
+        }
+    }
+    let valid_declaration = |sentence: &Sentence| {
+        matches!(sentence, Sentence::SymbolDeclaration {
+            symbol, argument_sorts, result_sort, attributes, ..
+        } if symbol.sort_parameters.is_empty() && (
+            symbol.name == CONFIG_VALUE_BOX
+                && argument_sorts.as_slice() == [kore_sort("SortK")]
+                && *result_sort == kore_sort("SortKItem")
+            || symbol.name == CONFIG_VALUE_UNBOX
+                && argument_sorts.as_slice() == [kore_sort("SortKItem")]
+                && *result_sort == kore_sort("SortK")
+                && !has_kore_attribute(attributes, "functional")
+                && !has_kore_attribute(attributes, "total")))
+    };
+    let names = actual
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter(|sentence| valid_declaration(sentence))
+        .filter_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration { symbol, .. } => Some(symbol.name.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if !names.contains(CONFIG_VALUE_BOX) || !names.contains(CONFIG_VALUE_UNBOX) {
+        return Ok(0);
+    }
+    let mut count = 0;
+    for module in &mut actual.modules {
+        let reference_module = reference
+            .modules
+            .iter()
+            .find(|other| other.name == module.name);
+        module.sentences.retain(|sentence| {
+            let remove = valid_declaration(sentence)
+                || box_functional_axiom(sentence)
+                || box_no_confusion_axiom(sentence)
+                || configuration_decoder_equation(sentence);
+            count += usize::from(remove);
+            !remove
+        });
+        for sentence in &mut module.sentences {
+            let Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            if has_kore_attribute(attributes, "constructor") {
+                count += remove_box_no_junk(pattern);
+            }
+            if initializer_equation(pattern) {
+                let before = count;
+                **pattern = normalize_configuration_read(pattern, &mut count);
+                if count != before {
+                    count += usize::from(align_configuration_initializer_id(
+                        sentence,
+                        reference_module,
+                    ));
+                }
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// The generated identifier hashes the initializer before transport normalization.
+/// Replace it only after the entire translated sentence, including semantic attributes,
+/// matches a reference initializer under the comparison's existing source-metadata policy.
+fn align_configuration_initializer_id(
+    sentence: &mut Sentence,
+    reference_module: Option<&k_rust::kore::ast::Module>,
+) -> bool {
+    let without_id = |sentence: &Sentence| {
+        let mut sentence = sentence.clone();
+        if let Sentence::Axiom { attributes, .. } = &mut sentence {
+            strip_unique_id_attributes(attributes);
+            strip_attributes(attributes);
+        }
+        canonicalized_sentence(&sentence)
+    };
+    let expected = without_id(sentence);
+    let mut matches = reference_module
+        .into_iter()
+        .flat_map(|module| &module.sentences)
+        .filter(|candidate| without_id(candidate) == expected);
+    let Some(Sentence::Axiom {
+        attributes: reference_attributes,
+        ..
+    }) = matches.next()
+    else {
+        return false;
+    };
+    if matches.next().is_some() {
+        return false;
+    }
+    let identities = |attributes: &Attributes| {
+        attributes
+            .0
+            .iter()
+            .filter(|attribute| {
+                matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == "UNIQUE'Unds'ID" && symbol.sort_parameters.is_empty()
+                    && matches!(arguments.as_slice(), [Pattern::String(_)]))
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let reference_ids = identities(reference_attributes);
+    let [reference_id] = reference_ids.as_slice() else {
+        return false;
+    };
+    let Sentence::Axiom { attributes, .. } = sentence else {
+        return false;
+    };
+    let actual_ids = identities(attributes);
+    let [actual_id] = actual_ids.as_slice() else {
+        return false;
+    };
+    if actual_id == reference_id {
+        return false;
+    }
+    for attribute in &mut attributes.0 {
+        if attribute == actual_id {
+            attribute.clone_from(reference_id);
+        }
+    }
+    true
+}
+
+fn has_kore_attribute(attributes: &Attributes, name: &str) -> bool {
+    attributes.0.iter().any(|attribute| {
+        matches!(attribute,
+        Pattern::Application { symbol, arguments }
+            if symbol.name == name && symbol.sort_parameters.is_empty() && arguments.is_empty())
+    })
+}
+
+fn unary_application<'a>(pattern: &'a Pattern, name: &str) -> Option<&'a Pattern> {
+    match pattern {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == name && symbol.sort_parameters.is_empty() =>
+        {
+            match arguments.as_slice() {
+                [argument] => Some(argument),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn box_functional_axiom(sentence: &Sentence) -> bool {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return false;
+    };
+    if !has_kore_attribute(attributes, "functional") {
+        return false;
+    }
+    let Pattern::Exists { variable, body, .. } = pattern.as_ref() else {
+        return false;
+    };
+    let Pattern::Equals {
+        operand_sort,
+        left,
+        right,
+        ..
+    } = body.as_ref()
+    else {
+        return false;
+    };
+    **operand_sort == kore_sort("SortKItem")
+        && variable.sort == kore_sort("SortKItem")
+        && matches!(left.as_ref(), Pattern::Variable(value) if value == variable.as_ref())
+        && matches!(unary_application(right, CONFIG_VALUE_BOX), Some(Pattern::Variable(argument))
+            if argument.sort == kore_sort("SortK"))
+}
+
+fn box_no_confusion_axiom(sentence: &Sentence) -> bool {
+    if !constructor_family_symbols(sentence).is_some_and(|names| names.contains(&CONFIG_VALUE_BOX))
+    {
+        return false;
+    }
+    let Sentence::Axiom { pattern, .. } = sentence else {
+        return false;
+    };
+    if let Pattern::Implies { sort, left, right } = pattern.as_ref() {
+        let Pattern::And {
+            sort: left_sort,
+            arguments,
+        } = left.as_ref()
+        else {
+            return false;
+        };
+        let [first, second] = arguments.as_slice() else {
+            return false;
+        };
+        let (Some(Pattern::Variable(x)), Some(Pattern::Variable(y))) = (
+            unary_application(first, CONFIG_VALUE_BOX),
+            unary_application(second, CONFIG_VALUE_BOX),
+        ) else {
+            return false;
+        };
+        return *sort == kore_sort("SortKItem")
+            && *left_sort == *sort
+            && x.sort == kore_sort("SortK")
+            && y.sort == x.sort
+            && unary_application(right, CONFIG_VALUE_BOX)
+                == Some(&Pattern::And {
+                    sort: x.sort.clone(),
+                    arguments: vec![Pattern::Variable(x.clone()), Pattern::Variable(y.clone())],
+                });
+    }
+    let mut work = vec![pattern.as_ref()];
+    while let Some(node) = work.pop() {
+        if let Pattern::Application { symbol, .. } = node
+            && symbol.name == CONFIG_VALUE_BOX
+            && !matches!(unary_application(node, CONFIG_VALUE_BOX), Some(Pattern::Variable(argument))
+                if argument.sort == kore_sort("SortK"))
+        {
+            return false;
+        }
+        work.extend(pattern_children(node));
+    }
+    true
+}
+
+fn configuration_decoder_equation(sentence: &Sentence) -> bool {
+    let Sentence::Axiom { pattern, .. } = sentence else {
+        return false;
+    };
+    if !sentence_mentions_symbol(sentence, CONFIG_VALUE_UNBOX) {
+        return false;
+    }
+    // The sole decoder equation has one match against box(KS) and returns that same KS.
+    // Checking the whole generated pattern keeps a changed condition or payload observable.
+    let expected = parse_pattern(r"\implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortKItem{},R}(X0:SortKItem{}, Lbl'Hash'KConfigValue{}(VarKS:SortK{})), \top{R}())), \equals{SortK{},R}(Lbl'Hash'unboxKConfigValue{}(X0:SortKItem{}), \and{SortK{}}(VarKS:SortK{}, \top{SortK{}}())))").unwrap();
+    pattern.as_ref() == &expected
+}
+
+fn remove_box_no_junk(pattern: &mut Pattern) -> usize {
+    let Pattern::Or { sort, arguments } = pattern else {
+        return 0;
+    };
+    if *sort != kore_sort("SortKItem") {
+        return 0;
+    }
+    let before = arguments.len();
+    arguments.retain(|alternative| {
+        !matches!(alternative,
+        Pattern::Exists { sort, variable, body }
+            if *sort == kore_sort("SortKItem") && variable.sort == kore_sort("SortK")
+                && unary_application(body, CONFIG_VALUE_BOX)
+                    == Some(&Pattern::Variable((**variable).clone())))
+    });
+    let removed = before - arguments.len();
+    // The reference emits binary right-associated disjunctions; nested Or nodes preserve them.
+    removed + arguments.iter_mut().map(remove_box_no_junk).sum::<usize>()
+}
+
+fn initializer_equation(pattern: &Pattern) -> bool {
+    let Pattern::Implies { right, .. } = pattern else {
+        return false;
+    };
+    let Pattern::Equals {
+        operand_sort, left, ..
+    } = right.as_ref()
+    else {
+        return false;
+    };
+    matches!(left.as_ref(), Pattern::Application { symbol, arguments }
+        if symbol.name.strip_prefix("Lblinit").is_some_and(|cell|
+            cell.ends_with("Cell") && **operand_sort == kore_sort(&format!("Sort{cell}")))
+            && symbol.sort_parameters.is_empty()
+            && matches!(arguments.as_slice(), [Pattern::Variable(variable)]
+                if variable.sort == kore_sort("SortMap")))
+}
+
+fn normalize_configuration_read(pattern: &Pattern, count: &mut usize) -> Pattern {
+    if let Pattern::Application { symbol, arguments } = pattern
+        && symbol.name.starts_with("Lblproject'Coln'")
+        && symbol.sort_parameters.is_empty()
+        && let [argument] = arguments.as_slice()
+        && let Some(lookup) = unary_application(argument, CONFIG_VALUE_UNBOX)
+        && configuration_lookup(lookup)
+    {
+        *count += 1;
+        let item = kore_application(
+            "kseq",
+            vec![lookup.clone(), kore_application("dotk", vec![])],
+        );
+        let project = kore_application(
+            if symbol.name == "Lblproject'Coln'K" {
+                "Lblproject'Coln'KItem"
+            } else {
+                &symbol.name
+            },
+            vec![item],
+        );
+        return if symbol.name == "Lblproject'Coln'K" {
+            *count += 1;
+            kore_application("kseq", vec![project, kore_application("dotk", vec![])])
+        } else {
+            project
+        };
+    }
+    rebuild_pattern_node(
+        pattern,
+        pattern_children(pattern)
+            .into_iter()
+            .map(|child| normalize_configuration_read(child, count))
+            .collect(),
+    )
+}
+
+fn configuration_lookup(pattern: &Pattern) -> bool {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return false;
+    };
+    let [Pattern::Variable(map), key] = arguments.as_slice() else {
+        return false;
+    };
+    symbol.name == "LblMap'Coln'lookup"
+        && symbol.sort_parameters.is_empty()
+        && map.sort == kore_sort("SortMap")
+        && matches!(key, Pattern::Application { symbol, arguments }
+            if symbol.name == "inj" && symbol.sort_parameters == [kore_sort("SortKConfigVar"), kore_sort("SortKItem")]
+                && matches!(arguments.as_slice(), [Pattern::DomainValue { sort, .. }]
+                    if *sort == kore_sort("SortKConfigVar")))
+}
+
+fn kore_application(name: &str, arguments: Vec<Pattern>) -> Pattern {
+    Pattern::Application {
+        symbol: Symbol {
+            name: name.into(),
+            sort_parameters: vec![],
+        },
+        arguments,
+    }
+}
+
+#[test]
+fn configuration_transport_normalizer_is_rust_only_and_counts_its_scope() {
+    let source = |transport: bool, read: &str, extra: &str| {
+        let private = if transport {
+            r"symbol Lbl'Hash'KConfigValue{}(SortK{}) : SortKItem{} [constructor{}(), functional{}(), injective{}()]
+            symbol Lbl'Hash'unboxKConfigValue{}(SortKItem{}) : SortK{} [function{}()]
+            axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{},R}(Val:SortKItem{}, Lbl'Hash'KConfigValue{}(K0:SortK{}))) [functional{}()]
+            axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortKItem{},R}(X0:SortKItem{}, Lbl'Hash'KConfigValue{}(VarKS:SortK{})), \top{R}())), \equals{SortK{},R}(Lbl'Hash'unboxKConfigValue{}(X0:SortKItem{}), \and{SortK{}}(VarKS:SortK{}, \top{SortK{}}()))) []
+            axiom{} \or{SortKItem{}}(\exists{SortKItem{}}(X0:SortK{}, Lbl'Hash'KConfigValue{}(X0:SortK{})), a{}(), \bottom{SortKItem{}}()) [constructor{}()]"
+        } else {
+            r"axiom{} \or{SortKItem{}}(a{}(), \bottom{SortKItem{}}()) [constructor{}()]"
+        };
+        parse_definition(&format!(r"[] module TEST
+            {private}
+            axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortKCell{{}}, R}}(LblinitKCell{{}}(Init:SortMap{{}}), cell{{}}({read}))) []
+            {extra}
+            endmodule []")).unwrap()
+    };
+    let lookup = r#"LblMap'Coln'lookup{}(Init:SortMap{}, inj{SortKConfigVar{},SortKItem{}}(\dv{SortKConfigVar{}}("$PGM")))"#;
+    let boxed_read = format!("Lblproject'Coln'K{{}}(Lbl'Hash'unboxKConfigValue{{}}({lookup}))");
+    let old_read =
+        format!("kseq{{}}(Lblproject'Coln'KItem{{}}(kseq{{}}({lookup},dotk{{}}())),dotk{{}}())");
+    let reference = source(false, &old_read, "");
+    let mut actual = source(true, &boxed_read, "");
+    assert_eq!(
+        normalize_configuration_value_transport(&reference, &mut actual),
+        Ok(7)
+    );
+    assert_eq!(actual, reference);
+    assert_eq!(
+        normalize_configuration_value_transport(&reference, &mut actual),
+        Ok(0)
+    );
+
+    let with_id = |mut definition: Definition, id: &str| {
+        let Sentence::Axiom { attributes, .. } =
+            definition.modules[0].sentences.last_mut().unwrap()
+        else {
+            unreachable!()
+        };
+        attributes.0.push(kore_application(
+            "UNIQUE'Unds'ID",
+            vec![Pattern::String(id.into())],
+        ));
+        definition
+    };
+    let identified_reference = with_id(reference.clone(), "item-body-id");
+    let mut identified_actual = with_id(source(true, &boxed_read, ""), "boxed-body-id");
+    assert_eq!(
+        normalize_configuration_value_transport(&identified_reference, &mut identified_actual),
+        Ok(8)
+    );
+    assert_eq!(identified_actual, identified_reference);
+
+    // A changed semantic attribute must prevent alignment of the generated identifier.
+    let mut changed_attribute = with_id(source(true, &boxed_read, ""), "boxed-body-id");
+    let Sentence::Axiom { attributes, .. } =
+        changed_attribute.modules[0].sentences.last_mut().unwrap()
+    else {
+        unreachable!()
+    };
+    attributes.0.push(kore_application("owise", vec![]));
+    assert_eq!(
+        normalize_configuration_value_transport(&identified_reference, &mut changed_attribute),
+        Ok(7)
+    );
+    assert_eq!(
+        sentence_identity(changed_attribute.modules[0].sentences.last().unwrap()),
+        Some("boxed-body-id".into())
+    );
+
+    // An untouched initializer's identifier remains part of the comparison.
+    let mut untouched = with_id(reference.clone(), "changed-id");
+    assert_eq!(
+        normalize_configuration_value_transport(&identified_reference, &mut untouched),
+        Ok(0)
+    );
+    assert_ne!(untouched, identified_reference);
+
+    // A changed decoder payload must remain an extra axiom in the comparison.
+    let mut changed = source(true, &boxed_read, "");
+    let Sentence::Axiom { pattern, .. } = &mut changed.modules[0].sentences[3] else {
+        unreachable!()
+    };
+    let Pattern::Implies { right, .. } = pattern.as_mut() else {
+        unreachable!()
+    };
+    let Pattern::Equals { right, .. } = right.as_mut() else {
+        unreachable!()
+    };
+    **right = kore_application("dotk", vec![]);
+    normalize_configuration_value_transport(&reference, &mut changed).unwrap();
+    assert!(
+        changed.modules[0]
+            .sentences
+            .iter()
+            .any(|sentence| sentence_mentions_symbol(sentence, CONFIG_VALUE_UNBOX))
+    );
+
+    let boxed_reference = source(true, &boxed_read, "");
+    let mut unchanged = boxed_reference.clone();
+    assert!(normalize_configuration_value_transport(&boxed_reference, &mut unchanged).is_err());
+    assert_eq!(unchanged, boxed_reference);
+
+    // A projection in a source equation is not an initializer read.
+    let extra = format!("axiom{{R}} \\equals{{SortK{{}},R}}({boxed_read}, dotk{{}}()) []");
+    let mut unrelated = source(true, &boxed_read, &extra);
+    normalize_configuration_value_transport(&reference, &mut unrelated).unwrap();
+    assert!(
+        unrelated.modules[0]
+            .sentences
+            .iter()
+            .any(|sentence| sentence_mentions_symbol(sentence, CONFIG_VALUE_UNBOX))
+    );
+}
+
+#[test]
+fn configuration_transport_read_normalizer_preserves_non_k_projections_and_lookup_keys() {
+    let lookup = r#"LblMap'Coln'lookup{}(Init:SortMap{}, inj{SortKConfigVar{},SortKItem{}}(\dv{SortKConfigVar{}}("$X")))"#;
+    for sort in ["Int", "KItem", "String"] {
+        let read = parse_pattern(&format!(
+            "Lblproject'Coln'{sort}{{}}(Lbl'Hash'unboxKConfigValue{{}}({lookup}))"
+        ))
+        .unwrap();
+        let expected = parse_pattern(&format!(
+            "Lblproject'Coln'{sort}{{}}(kseq{{}}({lookup},dotk{{}}()))"
+        ))
+        .unwrap();
+        let mut count = 0;
+        assert_eq!(normalize_configuration_read(&read, &mut count), expected);
+        assert_eq!(count, 1);
+    }
+    let foreign =
+        parse_pattern("Lblproject'Coln'K{}(Lbl'Hash'unboxKConfigValue{}(ordinary{}()))").unwrap();
+    let mut count = 0;
+    assert_eq!(normalize_configuration_read(&foreign, &mut count), foreign);
+    assert_eq!(count, 0);
 }
 
 /// N33: on the reference side, drop `injective{}()` from a symbol declaration that carries
@@ -1580,6 +2108,9 @@ fn parsed_definition_matches_the_reference_frontend() {
     let mut actual: serde_json::Value = serde_json::from_str(&actual_source).unwrap();
     normalize_definition_json(&mut reference);
     normalize_definition_json(&mut actual);
+    let transport = normalize_configuration_transport_json(&reference, &mut actual)
+        .expect("N37 requires a reference without configuration-value transport");
+    println!("parsed configuration-value transport normalized (N37): {transport} rewrites");
 
     if reference != actual {
         if let Some(directory) = env::var_os("K_DIFFERENTIAL_NORMALIZED_DIRECTORY") {
@@ -1600,6 +2131,263 @@ fn parsed_definition_matches_the_reference_frontend() {
             first_json_difference("$", &reference, &actual)
         );
     }
+}
+
+fn parsed_transport_module() -> serde_json::Value {
+    let sort = |name: &str| serde_json::json!({"node": "KSort", "name": name, "params": []});
+    let production = |label: &str, result: &str, argument: &str, function: bool| {
+        let mut attributes = serde_json::json!({"symbol": label});
+        if function {
+            attributes["function"] = "".into();
+        }
+        serde_json::json!({
+            "node": "KProduction", "klabel": {"node": "KLabel", "name": label, "params": []},
+            "params": [], "sort": sort(result),
+            "productionItems": [
+                {"node": "KTerminal", "value": label}, {"node": "KTerminal", "value": "("},
+                {"node": "KNonTerminal", "sort": sort(argument)},
+                {"node": "KTerminal", "value": ")"}
+            ], "att": {"node": "KAtt", "att": attributes}
+        })
+    };
+    let payload = serde_json::json!({"node": "KVariable", "name": "KS", "sort": sort("K")});
+    let truth = serde_json::json!({"node": "KToken", "sort": sort("Bool"), "token": "true"});
+    let mut sentences = vec![
+        production("#KConfigValue", "KItem", "K", false),
+        production("#unboxKConfigValue", "K", "KItem", true),
+        serde_json::json!({
+            "node": "KRule", "body": parsed_rewrite(
+                parsed_application("#unboxKConfigValue", serde_json::json!([]), vec![
+                    parsed_application("#KConfigValue", serde_json::json!([]), vec![payload.clone()])
+                ]), payload
+            ), "requires": truth, "ensures": truth, "att": {"node": "KAtt", "att": {}}
+        }),
+    ];
+    sentences.sort_by_key(json_sort_key);
+    serde_json::json!({
+        "node": "KFlatModule", "name": "K-RUST-CONFIGURATION-VALUES", "imports": [],
+        "localSentences": sentences, "att": {"node": "KAtt", "att": {}}
+    })
+}
+
+/// The parsed artifact carries the same private module and initializer reads before injection.
+/// Require the exact protocol; any altered declaration or inverse equation stays compared.
+fn normalize_configuration_transport_json(
+    reference: &serde_json::Value,
+    actual: &mut serde_json::Value,
+) -> Result<usize, String> {
+    fn mentions_transport(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::String(name) => matches!(
+                name.as_str(),
+                "#KConfigValue" | "#unboxKConfigValue" | "K-RUST-CONFIGURATION-VALUES"
+            ),
+            serde_json::Value::Array(values) => values.iter().any(mentions_transport),
+            serde_json::Value::Object(object) => object.values().any(mentions_transport),
+            _ => false,
+        }
+    }
+    if mentions_transport(reference) {
+        return Err("reference names private configuration-value transport".into());
+    }
+    let Some(modules) = actual["term"]["modules"].as_array_mut() else {
+        return Ok(0);
+    };
+    let expected = parsed_transport_module();
+    let Some(index) = modules.iter().position(|module| *module == expected) else {
+        return Ok(0);
+    };
+    modules.remove(index);
+    let mut count = 4; // The module and its two declarations and inverse equation.
+    for module in modules {
+        if let Some(imports) = module["imports"].as_array_mut() {
+            let before = imports.len();
+            imports.retain(|import| {
+                *import != serde_json::json!({"node": "KImport", "name": "K-RUST-CONFIGURATION-VALUES", "isPublic": true})
+            });
+            count += before - imports.len();
+        }
+        let sentences = module["localSentences"]
+            .as_array_mut()
+            .expect("normalized module has a sentence array");
+        for sentence in sentences.iter_mut() {
+            let lhs = &sentence["body"]["lhs"];
+            if sentence["node"] == "KRule"
+                && sentence["att"]["att"].get("initializer").is_some()
+                && sentence["body"]["node"] == "KRewrite"
+                && lhs["node"] == "KApply"
+                && lhs["label"]["name"]
+                    .as_str()
+                    .is_some_and(|label| label.starts_with("init") && label.ends_with("Cell"))
+                && lhs["args"].as_array().is_some_and(|args| {
+                    args.len() == 1
+                        && args[0]["node"] == "KVariable"
+                        && args[0]["sort"]
+                            == serde_json::json!({"node": "KSort", "name": "Map", "params": []})
+                })
+            {
+                normalize_parsed_configuration_read(&mut sentence["body"]["rhs"], &mut count);
+            }
+        }
+        // Translating a body changes its key in the existing sentence-set comparison.
+        sentences.sort_by_key(json_sort_key);
+    }
+    Ok(count)
+}
+
+fn normalize_parsed_configuration_read(value: &mut serde_json::Value, count: &mut usize) {
+    let unary = |value: &serde_json::Value, label: &str| {
+        value["node"] == "KApply"
+            && value["label"]["name"] == label
+            && value["label"]["params"] == serde_json::json!([])
+            && value["arity"] == 1
+            && value["args"].as_array().is_some_and(|args| args.len() == 1)
+    };
+    if value["node"] == "KApply"
+        && value["label"]["name"]
+            .as_str()
+            .is_some_and(|label| label.starts_with("project:"))
+        && value["label"]["params"] == serde_json::json!([])
+        && value["arity"] == 1
+        && value["args"].as_array().is_some_and(|args| args.len() == 1)
+        && unary(&value["args"][0], "#unboxKConfigValue")
+    {
+        let lookup = &value["args"][0]["args"][0];
+        if lookup["node"] == "KApply"
+            && lookup["label"]["name"] == "Map:lookup"
+            && lookup["label"]["params"] == serde_json::json!([])
+            && lookup["arity"] == 2
+            && lookup["args"].as_array().is_some_and(|args| {
+                args.len() == 2
+                    && args[0]["node"] == "KVariable"
+                    && args[0]["sort"]
+                        == serde_json::json!({"node": "KSort", "name": "Map", "params": []})
+                    && args[1]["node"] == "KToken"
+                    && args[1]["sort"]
+                        == serde_json::json!({"node": "KSort", "name": "KConfigVar", "params": []})
+            })
+        {
+            value["args"][0] = lookup.clone();
+            *count += 1;
+            if value["label"]["name"] == "project:K" {
+                value["label"]["name"] = "project:KItem".into();
+                *count += 1;
+            }
+            return;
+        }
+    }
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                normalize_parsed_configuration_read(value, count);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            for value in object.values_mut() {
+                normalize_parsed_configuration_read(value, count);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn configuration_transport_json_normalizer_preserves_everything_outside_the_protocol() {
+    let sort = |name: &str| serde_json::json!({"node": "KSort", "name": name, "params": []});
+    let lookup = parsed_application(
+        "Map:lookup",
+        serde_json::json!([]),
+        vec![
+            serde_json::json!({"node": "KVariable", "name": "Init", "sort": sort("Map")}),
+            serde_json::json!({"node": "KToken", "token": "$PGM", "sort": sort("KConfigVar")}),
+        ],
+    );
+    let read = |boxed: bool| {
+        parsed_application(
+            if boxed { "project:K" } else { "project:KItem" },
+            serde_json::json!([]),
+            vec![if boxed {
+                parsed_application(
+                    "#unboxKConfigValue",
+                    serde_json::json!([]),
+                    vec![lookup.clone()],
+                )
+            } else {
+                lookup.clone()
+            }],
+        )
+    };
+    let definition = |boxed: bool| {
+        let mut modules = vec![serde_json::json!({
+            "node": "KFlatModule", "name": "TEST", "att": {"node": "KAtt", "att": {}},
+            "imports": if boxed { vec![serde_json::json!({"node": "KImport", "name": "K-RUST-CONFIGURATION-VALUES", "isPublic": true})] } else { vec![] },
+            "localSentences": [{
+                "node": "KRule", "att": {"node": "KAtt", "att": {"initializer": ""}},
+                "body": parsed_rewrite(parsed_application("initKCell", serde_json::json!([]), vec![
+                    serde_json::json!({"node": "KVariable", "name": "Init", "sort": sort("Map")})
+                ]), read(boxed)),
+            }]
+        })];
+        if boxed {
+            modules.push(parsed_transport_module());
+        }
+        serde_json::json!({"term": {"modules": modules}})
+    };
+    let reference = definition(false);
+    let mut actual = definition(true);
+    assert_eq!(
+        normalize_configuration_transport_json(&reference, &mut actual),
+        Ok(7)
+    );
+    assert_eq!(actual, reference);
+    assert_eq!(
+        normalize_configuration_transport_json(&reference, &mut actual),
+        Ok(0)
+    );
+
+    let boxed_reference = definition(true);
+    let mut unchanged = boxed_reference.clone();
+    assert!(normalize_configuration_transport_json(&boxed_reference, &mut unchanged).is_err());
+    assert_eq!(unchanged, boxed_reference);
+
+    let mut changed_protocol = definition(true);
+    changed_protocol["term"]["modules"][1]["localSentences"][0]["att"]["att"]["total"] = "".into();
+    let before = changed_protocol.clone();
+    assert_eq!(
+        normalize_configuration_transport_json(&reference, &mut changed_protocol),
+        Ok(0)
+    );
+    assert_eq!(changed_protocol, before);
+
+    let mut source_rule = definition(true);
+    source_rule["term"]["modules"][0]["localSentences"][0]["att"]["att"] = serde_json::json!({});
+    normalize_configuration_transport_json(&reference, &mut source_rule).unwrap();
+    assert_eq!(
+        source_rule["term"]["modules"][0]["localSentences"][0]["body"]["rhs"],
+        read(true)
+    );
+
+    for path in [
+        "/label/params",
+        "/args/0/label/params",
+        "/args/0/args/0/label/params",
+    ] {
+        let mut parameterized = read(true);
+        *parameterized.pointer_mut(path).unwrap() = serde_json::json!([sort("K")]);
+        let before = parameterized.clone();
+        let mut count = 0;
+        normalize_parsed_configuration_read(&mut parameterized, &mut count);
+        assert_eq!(count, 0, "{path}");
+        assert_eq!(parameterized, before, "{path}");
+    }
+
+    let mut changed_lookup = read(true);
+    changed_lookup["args"][0]["args"][0]["args"][1]["sort"] = sort("String");
+    let before = changed_lookup.clone();
+    let mut count = 0;
+    normalize_parsed_configuration_read(&mut changed_lookup, &mut count);
+    assert_eq!(count, 0);
+    assert_eq!(changed_lookup, before);
 }
 
 fn json_summary(value: &serde_json::Value) -> String {

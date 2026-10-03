@@ -8147,7 +8147,11 @@ endmodule
     );
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "hello from K\n");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("dotk{}()"), "{stdout}");
+    let compact: String = stdout
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    assert!(compact.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"), "{stdout}");
 
     fs::remove_dir_all(root).unwrap();
 }

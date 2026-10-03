@@ -113,7 +113,8 @@ pub(crate) use resolve_semantic_casts::{
 pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
 pub(crate) use subsort_kitem::{
-    Injectable, has_subsort_axiom, placeable, subsort_kitem_pass, with_kitem_subsorts,
+    Injectable, Placement, PlacementKind, has_subsort_axiom, placeable, subsort_kitem_pass,
+    with_kitem_subsorts,
 };
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 

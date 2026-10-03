@@ -175,6 +175,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
         ProgramError::Parse(k_rust::inner::ProgramParseError {
             module: "MAIN".into(),
             start_sort: Sort::new("Start"),
+            item_attempt: None,
             error: Box::new(ParseError::NoParse {
                 position: 3,
                 expected: vec!["\"done\"".into()],

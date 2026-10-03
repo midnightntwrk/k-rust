@@ -88,10 +88,18 @@ pub struct ProgramParseError {
     pub module: String,
     pub start_sort: Sort,
     pub error: Box<ParseError>,
+    /// The failed item reading when a configuration value subsequently failed at K.
+    pub item_attempt: Option<Box<ProgramParseError>>,
 }
 
 impl fmt::Display for ProgramParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(item_attempt) = &self.item_attempt {
+            write!(
+                formatter,
+                "could not parse configuration value declared K: item attempt: {item_attempt}; K attempt: "
+            )?;
+        }
         write!(
             formatter,
             "could not parse program as {} with module {:?}: {}",
@@ -269,7 +277,27 @@ impl ProgramParser {
                 module: self.module.clone(),
                 start_sort: start_sort.clone(),
                 error: Box::new(error),
+                item_attempt: None,
             })
+    }
+
+    /// Parse a K-declared configuration binding, preferring an existing item reading.
+    /// Only absence of a reading permits trying the grammar's existing K entry;
+    /// ambiguity, inference and validation failures retain their original diagnostics.
+    pub fn parse_configuration_k_value(
+        &self,
+        source: &str,
+    ) -> Result<ParsedProgram, ProgramParseError> {
+        match self.parse(&Sort::new("KItem"), source) {
+            Ok(program) => Ok(program),
+            Err(item_attempt) if matches!(*item_attempt.error, ParseError::NoParse { .. }) => {
+                self.parse(&Sort::new("K"), source).map_err(|mut error| {
+                    error.item_attempt = Some(Box::new(item_attempt));
+                    error
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Parse a program whose byte zero belongs to `source_id`.
@@ -286,6 +314,7 @@ impl ProgramParser {
                 module: self.module.clone(),
                 start_sort: start_sort.clone(),
                 error: Box::new(error),
+                item_attempt: None,
             })
     }
 
@@ -614,6 +643,94 @@ fn strip_inferred_parameters(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parser(source: &str) -> ProgramParser {
+        let parsed = crate::outer::parse("configuration-binding.k", source).unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        ProgramParser::new(&definition, "MAIN").unwrap()
+    }
+
+    #[test]
+    fn configuration_k_binding_prefers_an_item_reading() {
+        let parser = parser(
+            r#"
+module MAIN
+  syntax KItem ::= "same" [symbol(item)]
+  syntax K ::= "same" [symbol(whole)]
+endmodule
+"#,
+        );
+        assert_eq!(
+            parser.parse_configuration_k_value("same").unwrap(),
+            parser.parse(&Sort::new("KItem"), "same").unwrap(),
+        );
+    }
+
+    #[test]
+    fn configuration_k_binding_falls_back_only_after_no_item_reading() {
+        let parser = parser(
+            r#"
+module MAIN
+  syntax KItem ::= "item" [symbol(item)]
+  syntax K ::= "whole" [symbol(whole)]
+endmodule
+"#,
+        );
+        assert_eq!(
+            parser.parse_configuration_k_value("whole").unwrap(),
+            parser.parse(&Sort::new("K"), "whole").unwrap(),
+        );
+        let error = parser.parse_configuration_k_value("missing").unwrap_err();
+        assert_eq!(error.start_sort, Sort::new("K"));
+        assert_eq!(
+            error.item_attempt.as_ref().unwrap().start_sort,
+            Sort::new("KItem")
+        );
+        assert!(error.to_string().contains("declared K"));
+        assert!(error.to_string().contains("item attempt:"));
+        assert!(error.to_string().contains("K attempt:"));
+    }
+
+    #[test]
+    fn configuration_k_binding_retains_item_only_modules_and_missing_item_entry() {
+        let item_only = parser(
+            r#"
+module MAIN
+  syntax KItem ::= "item" [symbol(item)]
+endmodule
+"#,
+        );
+        assert_eq!(
+            item_only.parse_configuration_k_value("item").unwrap(),
+            item_only.parse(&Sort::new("KItem"), "item").unwrap()
+        );
+        let k_only = parser(
+            r#"
+module MAIN
+  syntax K ::= "whole" [symbol(whole)]
+endmodule
+"#,
+        );
+        assert_eq!(
+            k_only.parse_configuration_k_value("whole").unwrap(),
+            k_only.parse(&Sort::new("K"), "whole").unwrap()
+        );
+    }
+
+    #[test]
+    fn configuration_k_binding_retains_ambiguous_item_diagnostic() {
+        let parser = parser(
+            r#"
+module MAIN
+  syntax KItem ::= "same" [symbol(first)] | "same" [symbol(second)]
+  syntax K ::= "same" [symbol(whole)]
+endmodule
+"#,
+        );
+        let item_error = parser.parse(&Sort::new("KItem"), "same").unwrap_err();
+        assert!(matches!(*item_error.error, ParseError::Ambiguous { .. }));
+        assert_eq!(parser.parse_configuration_k_value("same"), Err(item_error));
+    }
 
     #[test]
     fn bison_preparation_excludes_not_lr1_module_sentences_before_concretization() {

@@ -2880,3 +2880,125 @@ mod cast_instances {
         typing.unwrap_or_else(|error| panic!("{error}"));
     }
 }
+
+/// External KAST may contain inj syntax, but every retained pair and its operand must be licensed.
+#[test]
+fn retained_injections_require_licensed_pairs_and_exact_operands() {
+    let definition = lowered(
+        r#"module MAIN
+      syntax A ::= "a" [symbol(a)]
+      syntax B ::= "b" [symbol(b)]
+      syntax KList ::= K
+    endmodule"#,
+    );
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "MAIN").unwrap();
+    let inj = |source: Sort, target: Sort, operand: Term| Term::Apply {
+        label: Label::with_parameters("inj", vec![source, target]),
+        arguments: vec![operand],
+    };
+    let variable = |sort: Sort| Term::Variable {
+        name: "X".into(),
+        sort: Some(sort),
+    };
+    let a = Sort::new("A");
+    let item = Sort::new("KItem");
+    let k = Sort::new("K");
+    for term in [
+        inj(k.clone(), item.clone(), Term::Sequence(vec![])),
+        inj(item.clone(), k.clone(), variable(item.clone())),
+        inj(a.clone(), a.clone(), Term::apply("a", vec![])),
+        inj(a.clone(), item.clone(), Term::apply("b", vec![])),
+        inj(a.clone(), Sort::new("B"), Term::apply("a", vec![])),
+        inj(
+            Sort::with_parameters("MInt", vec![a.clone()]),
+            Sort::with_parameters("MInt", vec![Sort::new("B")]),
+            variable(Sort::with_parameters("MInt", vec![a.clone()])),
+        ),
+    ] {
+        assert!(injector.term_sort(&term, None).is_err(), "{term}");
+        assert!(injector.inject_at_top(&term).is_err(), "{term}");
+        assert!(converter.convert(&term).is_err(), "{term}");
+    }
+    for term in [
+        inj(a.clone(), item.clone(), Term::apply("a", vec![])),
+        inj(k.clone(), Sort::new("KList"), Term::Sequence(vec![])),
+        inj(
+            Sort::with_parameters("MInt", vec![a.clone()]),
+            item.clone(),
+            variable(Sort::with_parameters("MInt", vec![a])),
+        ),
+    ] {
+        let injected = injector.inject_at_top(&term).unwrap();
+        assert_eq!(injected, term);
+        converter.convert(&injected).unwrap();
+    }
+    for label in [
+        Label::with_parameters("inj", vec![k, item]),
+        Label::with_parameters("inj", vec![Sort::new("A"), Sort::new("A")]),
+        Label::with_parameters(
+            "inj",
+            vec![Sort::new("A"), Sort::new("KItem"), Sort::new("B")],
+        ),
+    ] {
+        assert!(converter.convert_label(&label).is_err(), "{label}");
+    }
+}
+
+#[test]
+fn retained_injections_require_exact_builtin_arity() {
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "MAIN").unwrap();
+    for (parameters, arguments) in [
+        (vec![Sort::new("Int"), Sort::new("KItem")], vec![]),
+        (
+            vec![Sort::new("Int"), Sort::new("KItem")],
+            vec![Term::Sequence(vec![]), Term::Sequence(vec![])],
+        ),
+        (
+            vec![Sort::new("Int"), Sort::new("KItem"), Sort::new("K")],
+            vec![Term::Variable {
+                name: "X".into(),
+                sort: Some(Sort::new("Int")),
+            }],
+        ),
+    ] {
+        let term = Term::Apply {
+            label: Label::with_parameters("inj", parameters),
+            arguments,
+        };
+        assert!(injector.inject_at_top(&term).is_err(), "{term}");
+        assert!(converter.convert(&term).is_err(), "{term}");
+    }
+}
+
+/// Conversion must check the operand that it emits, rather than treating a cast annotation
+/// as evidence that an unchanged variable or K sequence already has the cast sort.
+#[test]
+fn retained_injection_operand_validation_ignores_unmaterialized_casts() {
+    let definition = lowered(
+        "module MAIN\n syntax A ::= \"a\" [symbol(a)]\n syntax B ::= \"b\" [symbol(b)]\nendmodule",
+    );
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "MAIN").unwrap();
+    for operand in [
+        Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("B")),
+        },
+        Term::Sequence(vec![]),
+    ] {
+        let operand = operand.with_metadata(TermMetadata {
+            sort: Some(Sort::new("A")),
+            ..TermMetadata::default()
+        });
+        let term = Term::Apply {
+            label: Label::with_parameters("inj", vec![Sort::new("A"), Sort::new("KItem")]),
+            arguments: vec![operand],
+        };
+        assert!(converter.convert(&term).is_err(), "{term}");
+    }
+}

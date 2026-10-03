@@ -192,6 +192,30 @@ impl EmittedTheory {
         }
     }
 
+    /// Check a frontend-produced standalone pattern against emitted declarations and paths.
+    /// Element variables are permitted; no sort variable has a standalone binder.
+    pub(crate) fn check_pattern(&self, pattern: &Pattern, source: &str) {
+        let bound = BTreeSet::new();
+        let mut first = None;
+        pattern.for_each_sort(|sort| {
+            if first.is_none() {
+                first = self.sort_scope_violation(sort, &bound);
+            }
+        });
+        if let Some(reason) = first {
+            panic!(
+                "kompile invariant K4 (sort scope) violated: {reason}\n  in frontend pattern from: {source}\n  emitted pattern: {pattern}"
+            );
+        }
+        for_each_post_order(pattern, |node| {
+            if let Some(reason) = self.violation(node) {
+                panic!(
+                    "kompile invariant {reason}\n  in frontend pattern from: {source}\n  emitted pattern: {pattern}"
+                );
+            }
+        });
+    }
+
     /// The reason `sentence` violates K4, if it does: the first sort it mentions, in signature
     /// then pattern order, that is neither a sort variable it binds nor a declared sort applied
     /// to as many arguments as its declaration has parameters.
@@ -765,6 +789,65 @@ mod tests {
             message.contains("increment-rule (origin: generate-sort-predicate-rules)"),
             "{message}"
         );
+    }
+
+    fn pattern_violation(theory: &EmittedTheory, text: &str) -> Option<String> {
+        let pattern = crate::kore::parser::parse_pattern(text).unwrap();
+        catch_unwind(AssertUnwindSafe(|| {
+            theory.check_pattern(&pattern, "krun initial configuration ($PGM)")
+        }))
+        .err()
+        .map(|payload| payload.downcast_ref::<String>().unwrap().clone())
+    }
+
+    #[test]
+    fn standalone_pattern_checks_emitted_paths_and_reports_frontend_origin() {
+        let theory = theory(THEORY);
+        assert_eq!(
+            pattern_violation(&theory, r#"inj{SortCounter{}, SortNat{}}(X:SortCounter{})"#),
+            None,
+        );
+        let message = pattern_violation(
+            &theory,
+            r#"inj{SortBool{}, SortNat{}}(\dv{SortBool{}}("true"))"#,
+        )
+        .unwrap();
+        assert!(message.contains("K1 (injection)"), "{message}");
+        assert!(
+            message.contains("krun initial configuration ($PGM)"),
+            "{message}"
+        );
+        let message = pattern_violation(&theory, r#"X:S"#).unwrap();
+        assert!(
+            message.contains("sort variable S is not bound"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn standalone_pattern_schema_paths_compare_full_concrete_instances() {
+        let theory = theory(
+            r#"module MAIN
+          sort SortNat{} []
+          sort SortInt{} []
+          sort SortList{S} []
+          sort SortColl{S} []
+          axiom{S,R} \top{R}() [subsort{SortList{S},SortColl{S}}()]
+        endmodule []"#,
+        );
+        assert_eq!(
+            pattern_violation(
+                &theory,
+                r#"inj{SortList{SortNat{}},SortColl{SortNat{}}}(X:SortList{SortNat{}})"#
+            ),
+            None
+        );
+        let message = pattern_violation(
+            &theory,
+            r#"inj{SortList{SortNat{}},SortColl{SortInt{}}}(X:SortList{SortNat{}})"#,
+        )
+        .unwrap();
+        assert!(message.contains("has no path"), "{message}");
     }
 
     #[test]

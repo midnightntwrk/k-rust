@@ -19,6 +19,7 @@ use k_rust::{
 struct Compiled {
     frontend: Definition,
     execution: Definition,
+    kore: String,
     variables: BTreeMap<String, Sort>,
 }
 
@@ -50,6 +51,7 @@ fn compiled(source: &str, main_module: &str) -> Compiled {
     .expect("definition should compile");
     Compiled {
         frontend: loaded.into_definition(),
+        kore: artifacts.definition_kore,
         execution: artifacts.execution_definition,
         variables: artifacts.configuration_variables,
     }
@@ -98,7 +100,7 @@ fn render(pattern: &k_rust::kore::ast::Pattern) -> String {
 
 fn entry(name: &str, value: &str) -> String {
     format!(
-        r#"Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortKConfigVar{{}}, SortKItem{{}}}}(\dv{{SortKConfigVar{{}}}}("${name}")), {value})"#
+        r#"Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortKConfigVar{{}}, SortKItem{{}}}}(\dv{{SortKConfigVar{{}}}}("${name}")), Lbl'Hash'KConfigValue{{}}(kseq{{}}({value}, dotk{{}}())))"#
     )
 }
 
@@ -169,7 +171,7 @@ fn every_input_is_parsed_expanded_injected_and_converted_by_its_own_grammar() {
         "{rendered}"
     );
     assert!(!rendered.contains("LblconfigMacro"), "{rendered}");
-    assert!(!rendered.contains("kseq"), "{rendered}");
+    assert_eq!(rendered.matches("kseq{}(").count(), 6, "{rendered}");
 }
 
 #[test]
@@ -262,10 +264,10 @@ fn names_are_checked_before_the_value_is_parsed() {
 }
 
 #[test]
-fn a_k_sorted_variable_denotes_one_item() {
+fn a_k_sorted_variable_prefers_an_item_reading() {
     let compiled = compiled(DEFINITION, "MAIN");
-    // Compilation records `$ANY:K` at `KItem`; a caller's own map may still say `K`.
-    assert_eq!(compiled.variables["ANY"], Sort::new("KItem"));
+    // The reader retains the declared K sort; item-only grammar still prefers its item reading.
+    assert_eq!(compiled.variables["ANY"], Sort::new("K"));
     let variables = BTreeMap::from([("ANY".to_owned(), Sort::new("K"))]);
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "SYNTAX", &variables);
@@ -357,7 +359,8 @@ endmodule
     );
     assembler.program(&Sort::new("State"), "ready").unwrap();
     let rendered = render(&assembler.finish().unwrap());
-    assert!(rendered.contains("\"$PGM\""), "{rendered}");
+    assert_eq!(rendered, "LblinitGeneratedTopCell{}()");
+    assert!(!compiled.kore.contains("Lbl\'Hash\'KConfigValue"));
 }
 
 #[test]
@@ -729,4 +732,296 @@ fn fu24_program_start_synonym_uses_the_denoted_instantiation_position() {
         assembler.finish().unwrap()
     };
     assert_eq!(assemble("A"), assemble("S"));
+}
+
+#[test]
+fn checked_log_configuration_transports_a_whole_k_value() {
+    use k_rust::kore::{ast::Pattern, parser::parse_definition};
+    use k_rust_backend::{
+        builtin::BuiltinEffect,
+        definition::BackendDefinition,
+        externalize,
+        simplify::{SimplificationOptions, simplify},
+    };
+
+    let compiled = compiled(
+        r#"
+module MAIN
+  imports K-IO
+  imports STRING
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler
+        .program(&Sort::new("K"), r#"#log("hello from K")"#)
+        .unwrap();
+    let initial = assembler.finish().unwrap();
+    let theory = parse_definition(&compiled.kore).unwrap();
+    let backend = BackendDefinition::internalize(&theory, "MAIN").unwrap();
+    // Checked admission requires every injection to follow the emitted theory's subsort paths.
+    let input = backend
+        .admit_unverified(&initial, &[])
+        .internalize_term()
+        .expect("checked initial configuration must have only licensed injections");
+    let evaluated = simplify(&backend, &input, SimplificationOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        evaluated.effects,
+        [BuiltinEffect::UserLog("hello from K".into())]
+    );
+    let result = externalize::term(&evaluated.term);
+    fn k_cell(pattern: &Pattern) -> Option<&Pattern> {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == "Lbl'-LT-'k'-GT-'" {
+                return arguments.first();
+            }
+            return arguments.iter().find_map(k_cell);
+        }
+        None
+    }
+    assert_eq!(
+        render(k_cell(&result).expect("initialized k cell")),
+        "dotk{}()"
+    );
+    println!("checked initial configuration: PASS; k cell = dotk{{}}(); log = hello from K (once)");
+}
+
+#[test]
+fn a_malformed_program_is_rejected_even_when_no_cell_reads_it() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax State ::= "ready" [symbol(ready)]
+  configuration <k> ready </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assert!(matches!(
+        assembler.program(&Sort::new("State"), "malformed"),
+        Err(ConfigurationError::Program(_))
+    ));
+    assert_eq!(
+        render(&assembler.finish().unwrap()),
+        "LblinitGeneratedTopCell{}()"
+    );
+}
+
+#[test]
+fn whole_k_values_and_items_initialize_program_and_other_k_cells() {
+    use k_rust::kore::{ast::Pattern, parser::parse_definition};
+    use k_rust_backend::{
+        builtin::BuiltinEffect,
+        definition::BackendDefinition,
+        externalize,
+        simplify::{SimplificationOptions, simplify},
+    };
+    let compiled = compiled(
+        r#"
+module MAIN
+  imports K-IO
+  imports STRING
+  syntax K ::= KItem | K "~>" K [symbol(#KSequence), assoc]
+  syntax K ::= ".K" [symbol(#EmptyK)]
+  syntax P ::= "a" [symbol(a)] | "b" [symbol(b)]
+  configuration <k> $PGM:K </k> <x> $X:K </x>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let theory = parse_definition(&compiled.kore).unwrap();
+    let backend = BackendDefinition::internalize(&theory, "MAIN").unwrap();
+    let item_a = "kseq{}(inj{SortP{}, SortKItem{}}(Lbla{}()), dotk{}())";
+    let sequence = "kseq{}(inj{SortP{}, SortKItem{}}(Lbla{}()), kseq{}(inj{SortP{}, SortKItem{}}(Lblb{}()), dotk{}()))";
+    fn cell<'p>(pattern: &'p Pattern, label: &str) -> Option<&'p Pattern> {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == label {
+                return arguments.first();
+            }
+            return arguments.iter().find_map(|argument| cell(argument, label));
+        }
+        None
+    }
+    for (start, text, expected, logs) in [
+        ("P", "a", item_a, vec![]),
+        ("K", "a ~> b", sequence, vec![]),
+        ("K", ".K", "dotk{}()", vec![]),
+        (
+            "K",
+            r#"#log("value")"#,
+            "dotk{}()",
+            vec![BuiltinEffect::UserLog("value".into()); 2],
+        ),
+    ] {
+        let mut assembler =
+            ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+        assembler.program(&Sort::new(start), text).unwrap();
+        assembler.bind("X", text).unwrap();
+        let initial = assembler.finish().unwrap();
+        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+        k_rust::kompile::assert_frontend_pattern(&theory, "MAIN", &initial, "PGM and X K payloads");
+        let input = backend
+            .admit_unverified(&initial, &[])
+            .internalize_term()
+            .unwrap();
+        let evaluated = simplify(&backend, &input, SimplificationOptions::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.effects, logs, "{text}");
+        let result = externalize::term(&evaluated.term);
+        for label in ["Lbl'-LT-'k'-GT-'", "Lbl'-LT-'x'-GT-'"] {
+            assert_eq!(
+                render(cell(&result, label).unwrap()),
+                expected,
+                "{text}: {label}"
+            );
+        }
+        assert!(!render(&result).contains("KConfigValue"), "{result}");
+    }
+}
+
+#[test]
+fn boxed_non_k_values_and_stream_defaults_keep_their_declared_cell_contents() {
+    use k_rust::kore::{ast::Pattern, parser::parse_definition};
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        externalize,
+        simplify::{SimplificationOptions, simplify},
+    };
+
+    let compiled = compiled(
+        r#"
+module ENV-PARSER
+  syntax Env ::= "selected" [symbol(selectedEnv)]
+endmodule
+module MAIN
+  imports ENV-PARSER
+  imports STRING
+  syntax P ::= "a" [symbol(a)]
+  configuration <k> $PGM:K </k>
+                <env parser="ENV, ENV-PARSER"> $ENV:Env </env>
+                <io> $IO:String </io>
+                <stdin> $STDIN:String </stdin>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let theory = parse_definition(&compiled.kore).unwrap();
+    let backend = BackendDefinition::internalize(&theory, "MAIN").unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("P"), "a").unwrap();
+    assembler.bind("ENV", "selected").unwrap();
+    assembler
+        .bind_stream_defaults(false, false, || -> Result<Vec<u8>, ConfigurationError> {
+            Ok(b"buffered input".to_vec())
+        })
+        .unwrap();
+    let initial = assembler.finish().unwrap();
+    let input = backend
+        .admit_unverified(&initial, &[])
+        .internalize_term()
+        .unwrap();
+    let evaluated = simplify(&backend, &input, SimplificationOptions::default())
+        .unwrap()
+        .unwrap();
+    assert!(evaluated.effects.is_empty());
+    let result = externalize::term(&evaluated.term);
+    fn cell<'p>(pattern: &'p Pattern, label: &str) -> Option<&'p Pattern> {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == label {
+                return arguments.first();
+            }
+            return arguments.iter().find_map(|argument| cell(argument, label));
+        }
+        None
+    }
+    for (label, expected) in [
+        ("Lbl'-LT-'env'-GT-'", "LblselectedEnv{}()"),
+        ("Lbl'-LT-'io'-GT-'", r#"\dv{SortString{}}("off")"#),
+        (
+            "Lbl'-LT-'stdin'-GT-'",
+            r#"\dv{SortString{}}("buffered input")"#,
+        ),
+    ] {
+        assert_eq!(render(cell(&result, label).unwrap()), expected, "{label}");
+    }
+    assert!(!render(&result).contains("KConfigValue"), "{result}");
+}
+
+#[test]
+fn configuration_values_reject_unlicensed_macro_injections_atomically() {
+    use k_rust::definition::{Sentence, sentence_mut};
+    use k_rust::kast::{Label, Term};
+    let base = compiled(
+        r#"
+module MAIN
+  syntax P ::= "a" [symbol(a)] | "m" [macro, symbol(m)]
+  rule m => a
+  configuration <k> $PGM:K </k> <x> $X:K </x>
+endmodule
+"#,
+        "MAIN",
+    );
+    let inj = |source: &str, target: &str, operand: Term| Term::Apply {
+        label: Label::with_parameters("inj", vec![Sort::new(source), Sort::new(target)]),
+        arguments: vec![operand],
+    };
+    for invalid in [
+        inj("K", "KItem", Term::Sequence(vec![])),
+        inj("KItem", "K", inj("P", "KItem", Term::apply("a", vec![]))),
+        inj("P", "P", Term::apply("a", vec![])),
+        inj(
+            "P",
+            "KItem",
+            Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+        ),
+    ] {
+        let mut frontend = base.frontend.clone();
+        let mut replaced = false;
+        for module in &mut frontend.modules {
+            for sentence in &mut module.local_sentences {
+                let Sentence::Rule { body, .. } = sentence_mut(sentence) else {
+                    continue;
+                };
+                if let Term::Rewrite { left, .. } = body.unannotated()
+                    && matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "m")
+                {
+                    *body = Term::Rewrite {
+                        left: left.clone(),
+                        right: Box::new(invalid.clone()),
+                    };
+                    replaced = true;
+                }
+            }
+        }
+        assert!(replaced);
+        let grammar = ProgramGrammar::new(&frontend).unwrap();
+        let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &base.variables);
+        assert!(
+            assembler.program(&Sort::new("P"), "m").is_err(),
+            "{invalid}"
+        );
+        assert!(assembler.bind("X", "m").is_err(), "{invalid}");
+        assembler.program(&Sort::new("P"), "a").unwrap();
+        assembler.bind("X", "a").unwrap();
+        let rendered = render(&assembler.finish().unwrap());
+        for name in ["PGM", "X"] {
+            assert!(
+                rendered.contains(&entry(name, "inj{SortP{}, SortKItem{}}(Lbla{}())")),
+                "{rendered}"
+            );
+        }
+    }
 }

@@ -216,7 +216,7 @@ A program, configuration value or search pattern binds no sort variable, so its 
 Program and configuration-value syntax has no sort casts, so only a search pattern's diagnostic advises a sort cast.
 
 A program or configuration value is instantiated at the sort it is read at; that position decides only parameters its arguments leave open.
-A value read at `K` is instantiated at `KItem`, because the configuration map holds `KItem` values.
+A value read at `K` is instantiated with a `KItem` preference, which fixes only parameters its arguments leave open; an actual fixed `K` result retains its whole value.
 A program, configuration value or search-pattern root is macro-expanded and instantiated at one position: the configuration position of its declared or start sort (`KItem` for `K`), or `GeneratedTopCell` and `Bool` for a pattern's body and condition.
 Expansion discards the parser's parametric instances and reads each application's instance from the typing of the current value at that position, which is the instance sort injection emits.
 A program, configuration value or search pattern whose label instance nothing determines is rejected before KORE conversion, naming the configuration variable or search pattern and the label.
@@ -230,6 +230,28 @@ The check applies to every rule-like sentence `compile_loaded_definition` emits,
 `kompile::sentence_typing` (or a `SentenceTyper` built once per module) reads the same computation on a loaded rule or claim: it resolves the sentence's semantic casts and projects a body with a rewrite into its left and right branches, as compilation does before injection, and reports for each path (the field, then rewrite sides, as-pattern children, application arguments with casts included, and sequence items) the sort injection places the term at and the sort its position requires, computed by the injector on the resolved and projected term; a path typed differently in the two branches is reported per branch. It returns the compiler's own error for a sentence the checks reject.
 It types in the order injection runs in, where every user sort is declared below `KItem`; it reports no sort for `#cells`, `#dots`, `#noDots`, and variables nothing types, places an authored cell's body at its content sort, and reports a cast operand's requirement as the cast's sort (below a downcast the operand's own sort is above it).
 [Typing-view tests](../crates/k-rust/tests/sentence_typing.rs) check it on hand-picked positions, on every loaded rule of the prelude, and against the injections the compiled definition contains.
+
+## Configuration value transport
+
+Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
+The generated module and these labels are reserved.
+An initializer reads `project:S(#unboxKConfigValue(Map:lookup(Init,key)))`, retaining its declared projection, including `project:K` for a K variable and `project:KItem` for an uncast variable.
+An actual K sequence, empty K or fixed K-returning function remains the whole K payload; a KItem or a value with a licensed embedding into KItem becomes a singleton K sequence.
+The outer placement preserves the instance and macro choice made at the existing KItem preference for a K read.
+KItem-to-K placement uses `kseq(item,dotk)`, never an injection.
+
+For a binding declared at K, the configuration parser prefers a successful KItem reading and tries its selected module's existing K entry only when there is no item reading or no KItem start sort.
+Ambiguity, inference, validation and macro errors are retained.
+Explicit program start-sort parsing and grammar visibility remain unchanged.
+Supplied values are still parsed, expanded and checked when no initializer reads the map, then dropped because the top initializer is nullary.
+
+Serialized maps and depth-zero initializer patterns expose the box, which ordinary simplification removes from initialized cells.
+Already compiled definitions must be recompiled to use this transport format.
+The pinned reference emits an unlicensed K-to-KItem injection for whole K values; k-rust's transport preserves their sequence tails and uses only licensed injections for map keys and item embeddings.
+N37 removes only this private protocol from the k-rust side of compile comparisons and translates initializer reads back to the reference's item representation.
+A translated initializer's body-derived identifier is aligned with the reference only after the complete translated sentence matches, excluding that identifier and the comparison's existing source metadata.
+The parsed-definition comparison removes only the exact private module and its imports and translates the same initializer reads before injection.
+It counts all rewrites, rejects a reference declaring or using either private transport symbol, and retains unrelated equations, lookups, projections and no-junk alternatives.
 
 ## Domain values
 

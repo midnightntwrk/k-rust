@@ -13,6 +13,7 @@ pub(crate) mod attribute_keys;
 pub mod catalog;
 pub mod checks;
 pub mod configuration;
+pub(crate) mod configuration_value;
 pub mod equivalence;
 pub mod json;
 pub mod partial_order;
