@@ -540,19 +540,13 @@ pub(crate) fn match_term_pairs_in_definition(
         };
     }
 
-    let mut matcher = Matcher::new(mode, &definition.sort_graph, Some(definition), pairs.into());
-    if let Err(reason) = matcher.run() {
-        return MatchResult::Failed(reason);
-    }
-    if matcher.indeterminate.is_empty() {
-        MatchResult::Success(matcher.substitution)
-    } else {
-        matcher.indeterminate.reverse();
-        MatchResult::Indeterminate {
-            substitution: matcher.substitution,
-            remainder: matcher.indeterminate,
-        }
-    }
+    let matcher = Matcher::new(
+        mode,
+        &definition.sort_graph,
+        Some(definition),
+        pairs.iter().cloned().collect(),
+    );
+    matcher.finish(|| pairs)
 }
 
 /// `equation_root`: `subject` is the term an equation with left-hand side `pattern` is tried on,
@@ -603,18 +597,7 @@ fn match_terms_with_context(
     if equation_root {
         matcher.normal_forms.given.equation_root(subject.clone());
     }
-    if let Err(reason) = matcher.run() {
-        return MatchResult::Failed(reason);
-    }
-    if matcher.indeterminate.is_empty() {
-        MatchResult::Success(matcher.substitution)
-    } else {
-        matcher.indeterminate.reverse();
-        MatchResult::Indeterminate {
-            substitution: matcher.substitution,
-            remainder: matcher.indeterminate,
-        }
-    }
+    matcher.finish(|| vec![(pattern.clone(), subject.clone())])
 }
 
 struct Matcher<'a> {
@@ -625,6 +608,9 @@ struct Matcher<'a> {
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
+    /// Algebraic function decomposition gives a sufficient instance only. Its bindings must
+    /// not justify refutation elsewhere in this problem or escape an unresolved match.
+    tentative_arguments: bool,
     /// The oracle that classifies subject terms as the values they denote.
     normal_forms: SubjectNormalForms<'a>,
 }
@@ -738,11 +724,34 @@ impl<'a> Matcher<'a> {
             queue,
             map_queue: VecDeque::new(),
             indeterminate: Vec::new(),
+            tentative_arguments: false,
             normal_forms: SubjectNormalForms {
                 definition,
                 given: GivenHeads::default(),
                 instance_normal: FxHashMap::default(),
             },
+        }
+    }
+
+    fn finish(mut self, original: impl FnOnce() -> Vec<(Term, Term)>) -> MatchResult {
+        let result = self.run();
+        if self.tentative_arguments && (result.is_err() || !self.indeterminate.is_empty()) {
+            return MatchResult::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: original(),
+            };
+        }
+        if let Err(reason) = result {
+            return MatchResult::Failed(reason);
+        }
+        if self.indeterminate.is_empty() {
+            MatchResult::Success(self.substitution)
+        } else {
+            self.indeterminate.reverse();
+            MatchResult::Indeterminate {
+                substitution: self.substitution,
+                remainder: self.indeterminate,
+            }
         }
     }
 
@@ -875,6 +884,20 @@ impl<'a> Matcher<'a> {
                     ..
                 },
             ) if matches!(policy, RootPolicy::Decompose) => {
+                // A complete as-written instance suffices to apply an equation, preserving
+                // simplifications over algebraic functions. Failure of this candidate, even
+                // at a later binding conflict, says nothing about other algebraic instances.
+                if self.mode == MatchMode::Evaluate
+                    && matches!(
+                        subject_head,
+                        Head::Open(Open::Function {
+                            refutable_arguments: false,
+                            ..
+                        })
+                    )
+                {
+                    self.tentative_arguments = true;
+                }
                 if pattern_arguments.len() != subject_arguments.len() {
                     return Err(FailReason::ArgumentLengthsDiffer(pattern, subject));
                 }
@@ -2195,7 +2218,7 @@ fn is_equation_head(head: Head<'_>) -> bool {
 fn is_injective_function(head: Head<'_>) -> bool {
     match head {
         Head::Open(open) => match open {
-            Open::Function { injective } => injective,
+            Open::Function { injective, .. } => injective,
             Open::Variable | Open::And | Open::EquationHead | Open::Uninterpreted => false,
         },
         Head::Fixed(_) | Head::Residual => false,

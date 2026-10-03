@@ -296,7 +296,13 @@ pub enum HeadRole {
     /// that is total only because it is `functional`; `injective` is the declared attribute,
     /// dropped with `anywhere` or algebraic axioms, which may identify applications
     /// with different arguments.
-    Function { declared: bool, injective: bool },
+    Function {
+        declared: bool,
+        injective: bool,
+        /// A failed as-written argument match can refute the application match only when no
+        /// algebraic axiom identifies applications with different arguments.
+        refutable_arguments: bool,
+    },
     /// `macro` or `alias`: preprocessing replaces every application, so an application that is
     /// still present denotes a value the backend does not know.
     Residual,
@@ -532,11 +538,13 @@ impl SymbolAttributes {
                     HeadRole::Function {
                         declared: true,
                         injective: self.injective && !self.anywhere && self.algebraic.is_empty(),
+                        refutable_arguments: self.algebraic.is_empty(),
                     }
                 } else if self.injective {
                     HeadRole::Function {
                         declared: false,
                         injective: true,
+                        refutable_arguments: true,
                     }
                 } else {
                     HeadRole::Uninterpreted
@@ -2805,7 +2813,8 @@ mod tests {
             role("algebraicFunction"),
             HeadRole::Function {
                 declared: true,
-                injective: false
+                injective: false,
+                refutable_arguments: false
             }
         );
         assert_eq!(role("z"), HeadRole::FreeConstructor);
@@ -2821,21 +2830,24 @@ mod tests {
             role("anywhereFunction"),
             HeadRole::Function {
                 declared: true,
-                injective: false
+                injective: false,
+                refutable_arguments: true
             }
         );
         assert_eq!(
             role("injectiveFunction"),
             HeadRole::Function {
                 declared: true,
-                injective: true
+                injective: true,
+                refutable_arguments: true
             }
         );
         assert_eq!(
             role("injectiveFunctional"),
             HeadRole::Function {
                 declared: false,
-                injective: true
+                injective: true,
+                refutable_arguments: true
             }
         );
     }

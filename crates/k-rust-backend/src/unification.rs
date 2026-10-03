@@ -490,8 +490,15 @@ fn unification_root_policy<'t>(
             },
             Head::Open(_) | Head::Residual => UnifierStep::Keep,
         },
-        Head::Open(Open::Function { injective: true }) => match (right, arguments) {
-            (Head::Open(Open::Function { injective: true }), Some((left, right))) => {
+        Head::Open(Open::Function {
+            injective: true, ..
+        }) => match (right, arguments) {
+            (
+                Head::Open(Open::Function {
+                    injective: true, ..
+                }),
+                Some((left, right)),
+            ) => {
                 if left.len() == right.len() {
                     UnifierStep::Decompose(Decomposition::InjectiveFunction(left, right))
                 } else {
@@ -501,7 +508,9 @@ fn unification_root_policy<'t>(
             (Head::Open(_) | Head::Fixed(_) | Head::Residual, _) => UnifierStep::Keep,
         },
         Head::Open(
-            Open::Function { injective: false }
+            Open::Function {
+                injective: false, ..
+            }
             | Open::Variable
             | Open::And
             | Open::EquationHead
@@ -746,7 +755,8 @@ mod tests {
             symbol.attributes.head_role(),
             HeadRole::Function {
                 declared: true,
-                injective: true
+                injective: true,
+                refutable_arguments: true
             }
         );
 

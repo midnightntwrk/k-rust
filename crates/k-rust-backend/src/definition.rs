@@ -967,12 +967,7 @@ impl BackendDefinition {
                     .get(symbol.name.as_str())
                     .copied()
                     .unwrap_or_default();
-                let attributes = symbol_attributes(attributes, facts).map_err(|mut error| {
-                    if let DefinitionError::MalformedAttribute(message) = &mut error {
-                        *message = format!("symbol {} {message}", symbol.name);
-                    }
-                    error
-                })?;
+                let attributes = symbol_attributes(symbol.name.as_str(), attributes, facts)?;
                 validate_binder_attribute(&attributes, &argument_sorts, &sorts)?;
                 let internal = Arc::new(Symbol {
                     name: symbol.name.as_str().into(),
@@ -2232,6 +2227,7 @@ pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) 
 }
 
 fn symbol_attributes(
+    symbol_name: &str,
     attributes: &kore::Attributes,
     axiom_facts: AlgebraicAxioms,
 ) -> Result<SymbolAttributes, DefinitionError> {
@@ -2277,8 +2273,18 @@ fn symbol_attributes(
         } else {
             "constructor"
         };
+        let facts = [
+            ("assoc", AlgebraicAxioms::assoc()),
+            ("comm", AlgebraicAxioms::comm()),
+            ("idem", AlgebraicAxioms::idem()),
+            ("unit", AlgebraicAxioms::unit()),
+        ]
+        .into_iter()
+        .filter_map(|(name, fact)| (algebraic.union(fact) == algebraic).then_some(name))
+        .collect::<Vec<_>>()
+        .join(", ");
         return Err(DefinitionError::MalformedAttribute(format!(
-            "is declared {claim} but algebraic axioms identify its applications: {algebraic:?}"
+            "symbol {symbol_name} is declared {claim} but algebraic axioms identify its applications: {facts}"
         )));
     }
     let smt_hook = attributes
@@ -2722,19 +2728,20 @@ mod tests {
                 "constructor{}(), functional{}(), assoc{}()",
                 "",
                 "constructor",
-                "assoc: true",
+                "assoc",
             ),
             (
                 "constructor{}(), functional{}()",
                 COMM_AXIOM,
                 "constructor",
-                "comm: true",
+                "comm",
             ),
+            ("sortInjection{}(), comm{}()", "", "sortInjection", "comm"),
             (
-                "sortInjection{}(), comm{}()",
-                "",
-                "sortInjection",
-                "comm: true",
+                "constructor{}(), functional{}(), assoc{}(), comm{}(), idem{}()",
+                r"axiom{R} \equals{SortS{}, R}(g{}(X:SortS{}, c{}()), X:SortS{}) [unit{}()]",
+                "constructor",
+                "assoc, comm, idem, unit",
             ),
         ] {
             let error = algebraic_symbol_definition(attributes, axiom)
@@ -2742,11 +2749,23 @@ mod tests {
             let DefinitionError::MalformedAttribute(message) = error else {
                 panic!("expected a constructor/algebraic contradiction, got {error}");
             };
-            assert!(message.contains("symbol g"), "{message}");
-            assert!(message.contains(claim), "{message}");
-            assert!(message.contains("algebraic axioms"), "{message}");
-            assert!(message.contains(tag), "{message}");
+            assert_eq!(
+                message,
+                format!(
+                    "symbol g is declared {claim} but algebraic axioms identify its applications: {tag}"
+                )
+            );
         }
+    }
+
+    #[test]
+    fn other_malformed_symbol_attributes_keep_their_diagnostics() {
+        let error = algebraic_symbol_definition(r#"function{}(), smt-hook{}("(")"#, "")
+            .expect_err("an unclosed smt expression is malformed");
+        let DefinitionError::MalformedAttribute(message) = error else {
+            panic!("expected an invalid smt-hook, got {error}");
+        };
+        assert!(message.starts_with("invalid smt-hook"), "{message}");
     }
 
     #[test]
@@ -2775,6 +2794,7 @@ mod tests {
                 HeadRole::Function {
                     declared: true,
                     injective: false,
+                    refutable_arguments: false,
                 },
             ),
             (
@@ -2783,6 +2803,7 @@ mod tests {
                 HeadRole::Function {
                     declared: false,
                     injective: true,
+                    refutable_arguments: true,
                 },
             ),
             ("functional{}()", "", HeadRole::Uninterpreted),
@@ -3820,7 +3841,8 @@ mod tests {
                 .head_role(),
             HeadRole::Function {
                 declared: true,
-                injective: true
+                injective: true,
+                refutable_arguments: true
             }
         );
         // Negative control: a declared function without `injective` stays non-injective.
@@ -3828,7 +3850,8 @@ mod tests {
             definition.symbols["item"].attributes.head_role(),
             HeadRole::Function {
                 declared: true,
-                injective: false
+                injective: false,
+                refutable_arguments: true
             }
         );
         assert_eq!(

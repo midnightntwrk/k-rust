@@ -1753,8 +1753,29 @@ fn a_head_clash_holds_the_compared_pattern_and_subject() {
 /// justify the owise equation. Syntactically identical arguments still select the first equation.
 #[test]
 fn an_uninterpreted_commutative_argument_blocks_owise() {
-    let syntax = parse_definition(
-        r#"[]
+    let definition = algebraic_argument_definition("functional{}()", COMMUTATIVITY);
+    let input = internal_term(&definition, "f{}(g{}(b{}(), a{}()))");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("unknown matching leaves the function unevaluated");
+    assert_eq!(result.term, input);
+    assert!(result.applied_rules.is_empty());
+
+    let input = internal_term(&definition, "f{}(g{}(a{}(), b{}()))");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("syntactic identity selects the first equation");
+    assert_eq!(
+        result.term,
+        internal_term(&definition, r#"\dv{SortResult{}}("1")"#)
+    );
+}
+
+const COMMUTATIVITY: &str = r"axiom{R} \equals{SortE{}, R}(
+                g{}(X:SortE{}, Y:SortE{}),
+                g{}(Y:SortE{}, X:SortE{})
+            ) [comm{}()]";
+
+fn algebraic_argument_definition(attributes: &str, axiom: &str) -> BackendDefinition {
+    let source = r#"[]
         module MAIN
             sort SortE{} []
             sort SortResult{} [hasDomainValues{}()]
@@ -1786,22 +1807,96 @@ fn an_uninterpreted_commutative_argument_blocks_owise() {
                     \and{SortResult{}}(\dv{SortResult{}}("0"), \top{SortResult{}}())
                 )
             ) [label{}("fallback"), owise{}()]
-        endmodule []"#,
-    )
-    .expect("commutative generator definition should parse");
-    let definition = BackendDefinition::internalize(&syntax, "MAIN")
-        .expect("commutative generator definition should internalize");
-    let input = internal_term(&definition, "f{}(g{}(b{}(), a{}()))");
-    let result = simplify(&definition, &input, SimplificationOptions::default())
-        .expect("unknown matching leaves the function unevaluated");
-    assert_eq!(result.term, input);
-    assert!(result.applied_rules.is_empty());
+        endmodule []"#;
+    let source = source
+        .replace("[functional{}()]", &format!("[{attributes}]"))
+        .replace(
+            r"axiom{R} \equals{SortE{}, R}(
+                g{}(X:SortE{}, Y:SortE{}),
+                g{}(Y:SortE{}, X:SortE{})
+            ) [comm{}()]",
+            axiom,
+        );
+    let syntax = parse_definition(&source).expect("algebraic definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("algebraic definition should internalize")
+}
 
-    let input = internal_term(&definition, "f{}(g{}(a{}(), b{}()))");
-    let result = simplify(&definition, &input, SimplificationOptions::default())
-        .expect("syntactic identity selects the first equation");
-    assert_eq!(
-        result.term,
-        internal_term(&definition, r#"\dv{SortResult{}}("1")"#)
+/// Decomposition of a declared algebraic function can find an equation instance, but a
+/// mismatching argument must not justify owise. Cover declaration facts and axiom-only facts.
+#[test]
+fn declared_algebraic_function_arguments_never_refute_owise() {
+    for (attributes, axiom) in [
+        ("function{}(), total{}(), assoc{}()", ""),
+        ("function{}(), total{}(), idem{}()", ""),
+        ("function{}(), total{}()", COMMUTATIVITY),
+        (
+            "function{}(), total{}()",
+            r"axiom{R} \equals{SortE{}, R}(
+            g{}(X:SortE{}, a{}()), X:SortE{}
+        ) [unit{}()]",
+        ),
+    ] {
+        let definition = algebraic_argument_definition(attributes, axiom);
+        let pattern = internal_term(&definition, "g{}(a{}(), b{}())");
+        let subject = internal_term(&definition, "g{}(b{}(), a{}())");
+        let matched =
+            match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject);
+        assert!(matched.refutation().is_none(), "{attributes}: {matched:?}");
+        assert!(matches!(matched, MatchResult::Indeterminate { .. }));
+        let input = internal_term(&definition, "f{}(g{}(b{}(), a{}()))");
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+        assert_eq!(result.term, input, "{attributes}");
+        assert!(result.applied_rules.is_empty());
+
+        let input = internal_term(&definition, "f{}(g{}(a{}(), b{}()))");
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+        assert_eq!(
+            result.term,
+            internal_term(&definition, r#"\dv{SortResult{}}("1")"#)
+        );
+    }
+}
+
+/// Bindings from one algebraic argument order are only a candidate. A later conflict must
+/// discard those bindings and defer the original problem; a complete candidate still succeeds.
+#[test]
+fn algebraic_function_candidate_bindings_cannot_feed_a_later_refutation() {
+    let definition = algebraic_argument_definition("function{}(), total{}()", COMMUTATIVITY);
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![Sort::simple("SortE"); 2],
+        Sort::simple("SortE"),
+    ));
+    let pattern = Term::application(
+        pair.clone(),
+        Vec::new(),
+        vec![
+            internal_term(&definition, "g{}(X:SortE{}, Y:SortE{})"),
+            var("X", Sort::simple("SortE")),
+        ],
     );
+    for (last, succeeds) in [("b{}()", false), ("a{}()", true), ("Z:SortE{}", false)] {
+        let subject = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                internal_term(&definition, "g{}(a{}(), b{}())"),
+                internal_term(&definition, last),
+            ],
+        );
+        let matched =
+            match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject);
+        if succeeds {
+            assert!(matches!(matched, MatchResult::Success(_)), "{matched:?}");
+        } else {
+            assert_eq!(
+                matched,
+                MatchResult::Indeterminate {
+                    substitution: Substitution::new(),
+                    remainder: vec![(pattern.clone(), subject)],
+                }
+            );
+        }
+    }
 }

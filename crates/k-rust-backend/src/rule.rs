@@ -534,6 +534,11 @@ pub(crate) fn algebraic_axiom_roots(
     let kore::Pattern::Equals { left, right, .. } = pattern else {
         return None;
     };
+    // Overload equations are executable, even when they carry an algebraic tag. Preserve
+    // their classification priority and record facts only for equations we actually drop.
+    if attributes.has(KoreAttribute::SymbolOverload) || attributes.has(KoreAttribute::Overload) {
+        return None;
+    }
     let mut facts = AlgebraicAxioms::default();
     for (attribute, fact) in [
         (KoreAttribute::Assoc, AlgebraicAxioms::assoc()),
@@ -3109,6 +3114,28 @@ mod tests {
             &pattern,
             &attributes,
         )
+    }
+
+    #[test]
+    fn overload_classification_precedes_algebraic_tags() {
+        for overload in ["overload", "symbol-overload"] {
+            let source = format!(
+                r"axiom{{R}} \equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), h{{}}(X:SortS{{}})) [{overload}{{}}(), idem{{}}()]"
+            );
+            let kore::Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = parse_sentence(&source).expect("overload axiom should parse")
+            else {
+                panic!("expected axiom");
+            };
+            assert_eq!(algebraic_axiom_roots(&pattern, &attributes), None);
+            assert!(matches!(
+                classify(&source),
+                Ok(Some(ClassifiedAxiom::Function { .. }))
+            ));
+        }
     }
 
     #[test]

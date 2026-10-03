@@ -353,6 +353,7 @@ pub(crate) enum Open {
     /// symbol with `anywhere` equations).
     Function {
         injective: bool,
+        refutable_arguments: bool,
     },
     /// An equation head read up to equations, or read as a value without evidence.
     EquationHead,
@@ -422,7 +423,14 @@ fn classify(term: &Term, equation_head: impl FnOnce() -> Option<NormalEvidence>)
                 Some(evidence) => fixed(FixedRoot::EquationHead(evidence)),
                 None => Head::Open(Open::EquationHead),
             },
-            HeadRole::Function { injective, .. } => Head::Open(Open::Function { injective }),
+            HeadRole::Function {
+                injective,
+                refutable_arguments,
+                ..
+            } => Head::Open(Open::Function {
+                injective,
+                refutable_arguments,
+            }),
             HeadRole::Residual => Head::Residual,
             HeadRole::Uninterpreted => Head::Open(Open::Uninterpreted),
         },
@@ -1073,7 +1081,7 @@ mod tests {
             "Fixed(Injection)",
             "Fixed(FreeConstructor)",
             "Open(Uninterpreted)",
-            "Open(Function { injective: true })",
+            "Open(Function { injective: true, refutable_arguments: true })",
             "Residual",
         ];
         let describe = |head: Head<'_>| match head {

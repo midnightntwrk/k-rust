@@ -1233,7 +1233,7 @@ fn simplify_and_decide_predicate(
 }
 
 /// Decompose equality of two applications of one free constructor, or one equation head
-/// whose applications are certified normal forms, without `assoc` or `idem`, with equal
+/// whose applications are certified normal forms and whose role excludes algebraic facts, with equal
 /// sort arguments and arity, when unary or one side is provably defined.
 /// With one side defined, the images are equal exactly when their argument patterns are;
 /// a unary image also preserves emptiness. For an n-ary symbol with both sides possibly
