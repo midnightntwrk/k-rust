@@ -190,7 +190,9 @@ pub(crate) enum AliasMeaning<'a> {
     Declared(&'a Sentence),
     /// An unbound sort position generated after application or injected into a grammar.
     Positioned(&'a Sentence),
-    /// The configuration wrapper and fresh-counter cells synthesized during compilation.
+    /// The fixed `GeneratedTopCell` and `GeneratedCounterCell` sort names of the configuration
+    /// wrapper and fresh-counter cells; excludes neither fragments nor optional-child sorts
+    /// introduced later during compilation.
     GeneratedCell(GeneratedCell),
 }
 

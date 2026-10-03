@@ -455,50 +455,14 @@ pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
             unreachable!("an overlap identifies a synonym declaration");
         };
         let meaning = match overlap.meaning {
-            AliasMeaning::Declared(sentence) | AliasMeaning::Positioned(sentence) => {
-                let summary = match sentence {
-                    Sentence::SyntaxSort { sort, .. } => format!("syntax {sort}"),
-                    Sentence::Production { sort, items, .. } => {
-                        let items = items
-                            .iter()
-                            .map(|item| match item {
-                                ProductionItem::NonTerminal { sort, .. } => sort.to_string(),
-                                ProductionItem::Terminal(text) => format!("{text:?}"),
-                                ProductionItem::RegexTerminal { regex, .. } => {
-                                    format!("r{regex:?}")
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        format!("syntax {sort} ::= {items}")
-                    }
-                    Sentence::SortSynonym { .. }
-                    | Sentence::SyntaxLexical { .. }
-                    | Sentence::SyntaxAssociativity { .. }
-                    | Sentence::SyntaxPriority { .. }
-                    | Sentence::ContextAlias { .. }
-                    | Sentence::Context { .. }
-                    | Sentence::Rule { .. }
-                    | Sentence::Claim { .. }
-                    | Sentence::Configuration { .. }
-                    | Sentence::Bubble { .. } => {
-                        unreachable!("only sort declarations and productions declare sort heads")
-                    }
-                };
-                let position = match overlap.meaning {
-                    AliasMeaning::Declared(_) => "declared as a sort",
-                    AliasMeaning::Positioned(_) => {
-                        "given a sort position in generated or injected grammar syntax"
-                    }
-                    AliasMeaning::Role(_) | AliasMeaning::GeneratedCell(_) => {
-                        unreachable!("a declaration names a sentence")
-                    }
-                };
-                format!(
-                    "{alias} is {position} by {summary}{}",
-                    synonym_location(sentence)
-                )
+            AliasMeaning::Declared(sentence) => {
+                synonym_position_meaning(alias, sentence, "declared as a sort")
             }
+            AliasMeaning::Positioned(sentence) => synonym_position_meaning(
+                alias,
+                sentence,
+                "given a sort position in generated or injected grammar syntax",
+            ),
             AliasMeaning::GeneratedCell(cell) => format!(
                 "{alias} names the compiler-generated {} configuration cell",
                 cell.label()
@@ -521,6 +485,42 @@ pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
         ));
     }
     diagnostics
+}
+
+fn synonym_position_meaning(alias: &Sort, sentence: &Sentence, position: &str) -> String {
+    let summary = match sentence {
+        Sentence::SyntaxSort { sort, .. } => format!("syntax {sort}"),
+        Sentence::Production { sort, items, .. } => {
+            let items = items
+                .iter()
+                .map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => sort.to_string(),
+                    ProductionItem::Terminal(text) => format!("{text:?}"),
+                    ProductionItem::RegexTerminal { regex, .. } => {
+                        format!("r{regex:?}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("syntax {sort} ::= {items}")
+        }
+        Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => {
+            unreachable!("only sort declarations and productions declare sort heads")
+        }
+    };
+    format!(
+        "{alias} is {position} by {summary}{}",
+        synonym_location(sentence)
+    )
 }
 
 fn synonym_location(sentence: &Sentence) -> String {
