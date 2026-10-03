@@ -16,12 +16,12 @@ pub use parser::{
 };
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions};
-#[cfg(feature = "cli")]
-pub(crate) use programs::prepared_bison_program_sentences;
 pub use programs::{
     ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
     definition_with_named_projections, parse_program,
 };
+#[cfg(feature = "cli")]
+pub(crate) use programs::{prepared_bison_program_sentences, program_start_sort};
 pub use rules::{RuleError, RuleParseError, parse_rule_content, resolve_rule_bubbles};
 pub(crate) use rules::{grammar_injected_sentences, resolve_rule_bubbles_with_resolved};
 pub(crate) use sort_universe::unbound_sorts;

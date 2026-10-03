@@ -47,7 +47,7 @@ use crate::definition::ast::TransientWireValue;
 use crate::definition::production_kind::FieldProjectionSource;
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
-    Sentence, SortHead, compute_associativities, compute_disambiguation_subsorts,
+    Sentence, SortDenotations, SortHead, compute_associativities, compute_disambiguation_subsorts,
     compute_overloads, compute_priorities, compute_subsorts, parse_regex,
 };
 use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
@@ -66,6 +66,7 @@ impl Grammar {
     pub(in crate::inner) fn from_program_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         source_catalog: &ProductionCatalog<'_>,
+        sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let mut sentences = sentences.into_iter().cloned().collect::<Vec<_>>();
         // Program grammars parse the empty list as the empty string rather than the
@@ -104,6 +105,7 @@ impl Grammar {
             ParserRole::Program,
             false,
             None,
+            sort_denotations,
         )
     }
 
@@ -111,20 +113,36 @@ impl Grammar {
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule, false, None)
+        Self::from_collected_sentences(
+            sentences,
+            None,
+            ParserRole::Rule,
+            false,
+            None,
+            SortDenotations::default(),
+        )
     }
 
     pub(in crate::inner) fn from_configuration_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
+        sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true, None)
+        Self::from_collected_sentences(
+            sentences,
+            None,
+            ParserRole::Rule,
+            true,
+            None,
+            sort_denotations,
+        )
     }
 
     pub(in crate::inner) fn from_rule_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         source_catalog: &ProductionCatalog<'_>,
         scanner_seed: Option<&Scanner>,
+        sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
         Self::from_collected_sentences(
@@ -133,6 +151,7 @@ impl Grammar {
             ParserRole::Rule,
             true,
             scanner_seed,
+            sort_denotations,
         )
     }
 
@@ -142,6 +161,7 @@ impl Grammar {
         role: ParserRole,
         include_default_layout: bool,
         scanner_seed: Option<&Scanner>,
+        sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserGrammarBuild);
         let lexical = sentences
@@ -264,6 +284,7 @@ impl Grammar {
             })?
         };
         let mut grammar = Self {
+            sort_denotations,
             scanner: scanner_seed.cloned().unwrap_or_default(),
             source_production_texts,
             layout: if include_default_layout {
@@ -1626,8 +1647,13 @@ mod tests {
                 if attributes.has(AttributeKey::Cell))
             })
             .collect::<Vec<_>>();
-        let grammar =
-            Grammar::from_rule_sentences(parsing_sentences, &source_catalog, None).unwrap();
+        let grammar = Grammar::from_rule_sentences(
+            parsing_sentences,
+            &source_catalog,
+            None,
+            SortDenotations::default(),
+        )
+        .unwrap();
         let source_id = |sort: &str| {
             source_catalog
                 .productions()

@@ -821,7 +821,7 @@ fn list_error(message: impl Into<String>) -> ParseError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::definition::{Attributes, Sentence};
+    use crate::definition::{Attributes, Sentence, SortDenotations};
     use crate::kast::{Label, TermMetadata};
     use serde_json::json;
 
@@ -1128,7 +1128,9 @@ mod tests {
         );
 
         let source_catalog = crate::definition::ProductionCatalog::from_visible(&base);
-        let program = Grammar::from_program_sentences(&base, &source_catalog).unwrap();
+        let program =
+            Grammar::from_program_sentences(&base, &source_catalog, SortDenotations::default())
+                .unwrap();
         let completed = program
             .add_empty_lists(held_atom(&program), &Sort::new("Holder"))
             .unwrap();

@@ -123,7 +123,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use crate::definition::Sentence;
 use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes, PartialOrder, PartialOrderCycle,
-    ProductionItem, Regex as KRegex, RegexBody,
+    ProductionItem, Regex as KRegex, RegexBody, SortDenotations,
 };
 use crate::kast::sort_role::{NumeralSpelling, numeral_spelling};
 use crate::kast::{
@@ -803,6 +803,7 @@ impl std::ops::DerefMut for SubsortRelations {
 #[derive(Clone, Debug)]
 pub struct Grammar {
     generation: u64,
+    sort_denotations: SortDenotations,
     productions: Vec<Production>,
     sorts: Vec<Sort>,
     sort_ids: BTreeMap<Sort, usize>,
@@ -843,6 +844,7 @@ impl Default for Grammar {
     fn default() -> Self {
         Self {
             generation: next_grammar_generation(),
+            sort_denotations: SortDenotations::default(),
             productions: Vec::new(),
             sorts: Vec::new(),
             sort_ids: BTreeMap::new(),
@@ -928,6 +930,11 @@ impl Grammar {
         changed
     }
 
+    /// The sort that a spelling denotes in this grammar's module.
+    pub fn start_sort<'s>(&'s self, spelling: &'s Sort) -> &'s Sort {
+        self.sort_denotations.denote(spelling)
+    }
+
     pub fn parse(&self, start: &Sort, input: &str) -> Result<Term, ParseError> {
         self.parse_with_context_and_diagnostic_provenance(
             start,
@@ -1000,6 +1007,7 @@ impl Grammar {
         base_offset: usize,
         diagnostic_provenance: bool,
     ) -> Result<Term, ParseError> {
+        let start = self.sort_denotations.denote(start);
         let provenance = ParseProvenance {
             source,
             base_offset,
@@ -1788,6 +1796,7 @@ fn lower_term(
     production: &Production,
     children: &[Term],
     span: Option<TermSpan>,
+    denotations: &SortDenotations,
 ) -> Result<Term, ParseError> {
     if production.transparent || production.label.is_none() && children.len() == 1 {
         return Ok(children[0].clone());
@@ -1817,7 +1826,10 @@ fn lower_term(
         )
         && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort)
     {
-        return Ok(Term::Token { token: value, sort });
+        return Ok(Term::Token {
+            token: value,
+            sort: denotations.denote(&sort).clone(),
+        });
     }
     Ok(match (InternalLabel::of(&label.name), children) {
         (Some(InternalLabel::EmptyK), []) => Term::Sequence(Vec::new()),

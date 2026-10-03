@@ -636,12 +636,9 @@ fn rule_grammar(
         RuleGrammarScope::GlobalScanner => None,
         RuleGrammarScope::Module { scanner_seed } => scanner_seed,
     };
-    // Casts exist only for aliases this grammar's view declares, so the module's full view is read
-    // only when the view declares one; without one, the universe consults no denotation.
-    let synonyms = if visible
-        .iter()
-        .any(|sentence| matches!(sentence, Sentence::SortSynonym { .. }))
-    {
+    // Start sorts and #token sort strings denote in the module's full view. SortUniverse
+    // still restricts generated casts to aliases declared in this grammar's own view.
+    let synonyms = if resolved.declares_sort_synonyms() {
         SortSynonyms::of_module(resolved, module)
     } else {
         SortSynonyms::default()
@@ -736,8 +733,12 @@ fn rule_grammar(
     let source_catalog = resolved.production_catalog(module);
     // The reference rule grammar imports DEFAULT-LAYOUT explicitly, independently
     // of the layout used to parse programs in the language being compiled.
-    let mut grammar =
-        Grammar::from_rule_sentences(parsing_sentences.iter(), &source_catalog, scanner_seed)?;
+    let mut grammar = Grammar::from_rule_sentences(
+        parsing_sentences.iter(),
+        &source_catalog,
+        scanner_seed,
+        synonyms.denotations().clone(),
+    )?;
     // Multiplicity-cell collection concatenations have no separator, so retaining every
     // binary association expands a short sequence into a Catalan-sized parse forest. Their
     // generated productions are explicitly associative; choosing one association here is

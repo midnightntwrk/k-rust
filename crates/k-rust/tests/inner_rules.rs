@@ -5775,3 +5775,74 @@ fn a_named_result_parameter_production_is_typed_at_the_declared_instance() {
     "#};
     load_with_prelude(source, "named-result-parameter", "TEST").unwrap();
 }
+
+#[test]
+fn fu24_token_sort_synonyms_denote_in_rules() {
+    for aliases in ["syntax A = Int", "syntax B = Int syntax A = B"] {
+        let source = format!(
+            r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              {aliases}
+              syntax Int ::= "f(" Int ")" [symbol(f)]
+              rule f(_) => #token("1", "A")
+            endmodule
+            "#,
+        );
+        let definition = k_rust::definition::apply_sort_synonyms(&lowered(&source)).unwrap();
+        let resolved = resolve_rule_bubbles(&definition).unwrap();
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let Term::Rewrite { right, .. } = body.unannotated() else {
+            panic!("expected a rewrite: {body}");
+        };
+        assert!(
+            matches!(right.unannotated(), Term::Token { token, sort }
+            if token == "1" && sort == &Sort::new("Int")),
+            "{aliases}: {right}"
+        );
+    }
+}
+
+#[test]
+fn fu24_token_sort_uses_privately_imported_synonyms_in_rules() {
+    let source = indoc! {r#"
+        module HIDDEN
+          syntax P = Int
+        endmodule
+        module MAIN
+          imports private HIDDEN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "f(" Int ")" [symbol(f)]
+          rule f(_) => #token("1", "P")
+        endmodule
+    "#};
+    let definition = k_rust::definition::apply_sort_synonyms(&lowered(source)).unwrap();
+    let resolved = resolve_rule_bubbles(&definition).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        panic!("expected a rewrite: {body}");
+    };
+    assert!(
+        matches!(right.unannotated(), Term::Token { token, sort }
+        if token == "1" && sort == &Sort::new("Int")),
+        "{right}"
+    );
+}

@@ -48,9 +48,41 @@ pub enum SynonymDefect<'a> {
 /// Cycles, ambiguity and their dependent aliases are undenoted; a dangling referent
 /// still denotes that undeclared sort, whose uses the sort checks reject.
 #[derive(Clone, Debug, Default)]
-pub struct SortSynonyms<'a> {
+pub struct SortDenotations {
     denotations: BTreeMap<Sort, Sort>,
     undenoted: BTreeSet<Sort>,
+}
+
+impl SortDenotations {
+    /// Decide the denotation of one whole spelling; sort arguments are not rewritten.
+    pub fn spelling(&self, sort: &Sort) -> Spelling<'_> {
+        if let Some(denotes) = self.denotations.get(sort) {
+            Spelling::Synonym { denotes }
+        } else if self.undenoted.contains(sort) {
+            Spelling::Undenoted
+        } else {
+            Spelling::Sort
+        }
+    }
+
+    /// Denote a whole sort spelling, retaining sorts and undenoted aliases as written.
+    pub fn denote<'s>(&'s self, spelling: &'s Sort) -> &'s Sort {
+        match self.spelling(spelling) {
+            Spelling::Synonym { denotes } => denotes,
+            Spelling::Sort | Spelling::Undenoted => spelling,
+        }
+    }
+
+    /// Whether this view contains no synonym aliases, denoted or undenoted.
+    pub fn is_empty(&self) -> bool {
+        self.denotations.is_empty() && self.undenoted.is_empty()
+    }
+}
+
+/// Closed synonym denotations and their root defects in one view.
+#[derive(Clone, Debug, Default)]
+pub struct SortSynonyms<'a> {
+    denotations: SortDenotations,
     defects: Vec<SynonymDefect<'a>>,
 }
 
@@ -97,7 +129,7 @@ impl<'a> SortSynonyms<'a> {
                         .collect::<BTreeSet<_>>();
                     let mut cycle = Vec::new();
                     for &alias in &members {
-                        closed.undenoted.insert(alias.clone());
+                        closed.denotations.undenoted.insert(alias.clone());
                         cycle.extend(
                             declarations[alias]
                                 .iter()
@@ -124,12 +156,12 @@ impl<'a> SortSynonyms<'a> {
                     }
                 }
                 if undenoted {
-                    closed.undenoted.insert(alias.clone());
+                    closed.denotations.undenoted.insert(alias.clone());
                 } else if denotations
                     .iter()
                     .any(|(_, denotes)| denotes != &denotations[0].1)
                 {
-                    closed.undenoted.insert(alias.clone());
+                    closed.denotations.undenoted.insert(alias.clone());
                     closed.defects.push(SynonymDefect::Ambiguous {
                         alias: alias.clone(),
                         declarations: denotations,
@@ -137,17 +169,15 @@ impl<'a> SortSynonyms<'a> {
                 } else {
                     closed
                         .denotations
+                        .denotations
                         .insert(alias.clone(), denotations[0].1.clone());
                 }
             }
         }
-        debug_assert!(
-            closed
-                .denotations
-                .values()
-                .all(|denotes| !closed.denotations.contains_key(denotes)
-                    && !closed.undenoted.contains(denotes))
-        );
+        debug_assert!(closed.denotations.denotations.values().all(|denotes| {
+            !closed.denotations.denotations.contains_key(denotes)
+                && !closed.denotations.undenoted.contains(denotes)
+        }));
         closed
     }
 
@@ -158,13 +188,12 @@ impl<'a> SortSynonyms<'a> {
 
     /// Decide the denotation of one whole spelling; sort arguments are not rewritten.
     pub fn spelling(&self, sort: &Sort) -> Spelling<'_> {
-        if let Some(denotes) = self.denotations.get(sort) {
-            Spelling::Synonym { denotes }
-        } else if self.undenoted.contains(sort) {
-            Spelling::Undenoted
-        } else {
-            Spelling::Sort
-        }
+        self.denotations.spelling(sort)
+    }
+
+    /// The owned denotation table for this view, independent of declaration lifetimes.
+    pub fn denotations(&self) -> &SortDenotations {
+        &self.denotations
     }
 
     /// Root cycle and ambiguity defects; dependent aliases introduce no additional defect.
@@ -174,7 +203,7 @@ impl<'a> SortSynonyms<'a> {
 
     /// Whether this view contains no synonym aliases, denoted or undenoted.
     pub fn is_empty(&self) -> bool {
-        self.denotations.is_empty() && self.undenoted.is_empty()
+        self.denotations.is_empty()
     }
 }
 

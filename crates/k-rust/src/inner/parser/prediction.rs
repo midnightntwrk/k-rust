@@ -347,7 +347,9 @@ mod tests {
         ScanWinner, SourceId, Term, TermMetadata,
     };
     use super::*;
-    use crate::definition::{Attributes, ProductionCatalog, ProductionItem, Sentence};
+    use crate::definition::{
+        Attributes, ProductionCatalog, ProductionItem, Sentence, SortDenotations,
+    };
     use crate::kast::Label;
     fn nt(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
@@ -860,7 +862,9 @@ mod tests {
         }
         let sentences = vec![production("Element", vec![terminal("a")], "a"), list, empty];
         let catalog = ProductionCatalog::from_visible(&sentences);
-        let grammar = Grammar::from_program_sentences(&sentences, &catalog).unwrap();
+        let grammar =
+            Grammar::from_program_sentences(&sentences, &catalog, SortDenotations::default())
+                .unwrap();
         assert!(
             grammar
                 .productions

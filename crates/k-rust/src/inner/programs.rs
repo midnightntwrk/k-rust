@@ -42,7 +42,7 @@ use std::sync::Arc;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionItem, ResolveError,
-    ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
+    ResolvedDefinition, Sentence, SortCatalog, SortSynonyms, push_if_inequivalent,
 };
 use crate::kast::json as kast_json;
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
@@ -216,13 +216,17 @@ impl ProgramParser {
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
         let sentences = prepared_program_sentences(definition, module_id);
         let source_catalog = definition.production_catalog(module_id);
-        let grammar =
-            Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
-                ProgramError::Grammar {
-                    module: module.to_owned(),
-                    error: Box::new(error),
-                }
-            })?;
+        let grammar = Grammar::from_program_sentences(
+            &sentences,
+            &source_catalog,
+            SortSynonyms::of_module(definition, module_id)
+                .denotations()
+                .clone(),
+        )
+        .map_err(|error| ProgramError::Grammar {
+            module: module.to_owned(),
+            error: Box::new(error),
+        })?;
         let parametric_productions = source_catalog
             .productions()
             .filter(|(_, production)| {
@@ -242,6 +246,11 @@ impl ProgramParser {
 
     pub fn module(&self) -> &str {
         &self.module
+    }
+
+    /// The sort a start spelling denotes in this parser's module's full view.
+    pub fn start_sort<'s>(&'s self, spelling: &'s Sort) -> &'s Sort {
+        self.grammar.start_sort(spelling)
     }
 
     /// Parse a program without claiming that it belongs to a known logical source.
@@ -298,6 +307,18 @@ impl ProgramParser {
         self.parse(start_sort, source)
             .map(|program| self.present(program))
     }
+}
+
+#[cfg(feature = "cli")]
+pub(crate) fn program_start_sort(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    spelling: &Sort,
+) -> Sort {
+    SortSynonyms::of_module(definition, module)
+        .denotations()
+        .denote(spelling)
+        .clone()
 }
 
 /// Build the program grammar sentence set shared by the in-process parser and generated parsers.

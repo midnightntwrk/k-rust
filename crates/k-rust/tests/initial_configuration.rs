@@ -708,3 +708,25 @@ endmodule
     }
     assert!(!rendered.contains("Lblz"), "{rendered}");
 }
+
+#[test]
+fn fu24_program_start_synonym_uses_the_denoted_instantiation_position() {
+    let compiled = compiled(
+        r#"
+        module MAIN
+          syntax S ::= "a" [symbol(a)]
+          syntax A = S
+          configuration <k> $PGM:S </k>
+        endmodule
+        "#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let assemble = |sort: &str| {
+        let mut assembler =
+            ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+        assembler.program(&Sort::new(sort), "a").unwrap();
+        assembler.finish().unwrap()
+    };
+    assert_eq!(assemble("A"), assemble("S"));
+}

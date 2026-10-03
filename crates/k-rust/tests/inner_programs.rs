@@ -1051,3 +1051,73 @@ fn reference_named_field_projections_parse_in_programs() {
         "{error:?}"
     );
 }
+
+#[test]
+fn fu24_program_start_synonyms_denote_through_chains() {
+    let definition = lowered(
+        indoc! {r#"
+            module M
+              syntax S ::= "a"
+              syntax B = S
+              syntax A = B
+            endmodule
+        "#},
+        "M",
+    );
+    let parser = ProgramParser::new(&definition, "M").unwrap();
+    let canonical = parser.parse(&Sort::new("S"), "a").unwrap();
+    for spelling in ["A", "B"] {
+        let parsed = parser.parse(&Sort::new(spelling), "a").unwrap();
+        assert_eq!(parsed.typed_term(), canonical.typed_term(), "{spelling}");
+    }
+    assert_eq!(
+        parser
+            .parse_for_presentation(&Sort::new("A"), "a")
+            .unwrap()
+            .term(),
+        parser
+            .parse_for_presentation(&Sort::new("S"), "a")
+            .unwrap()
+            .term(),
+    );
+    let error = parser.parse(&Sort::new("A"), "b").unwrap_err();
+    assert_eq!(error.start_sort, Sort::new("A"));
+}
+
+#[test]
+fn fu24_program_start_uses_privately_imported_synonyms() {
+    let definition = lowered(
+        indoc! {r#"
+            module HIDDEN
+              syntax S ::= "a"
+              syntax P = S
+            endmodule
+            module M
+              imports private HIDDEN
+              syntax T ::= S
+            endmodule
+        "#},
+        "M",
+    );
+    let parser = ProgramParser::new(&definition, "M").unwrap();
+    assert_eq!(
+        parser.parse(&Sort::new("P"), "a").unwrap().typed_term(),
+        parser.parse(&Sort::new("S"), "a").unwrap().typed_term(),
+    );
+}
+
+#[test]
+fn fu24_program_start_sort_reports_the_denotation() {
+    let definition = lowered(
+        indoc! {r#"
+            module M
+              syntax S ::= "a"
+              syntax B = S
+              syntax A = B
+            endmodule
+        "#},
+        "M",
+    );
+    let parser = ProgramParser::new(&definition, "M").unwrap();
+    assert_eq!(parser.start_sort(&Sort::new("A")), &Sort::new("S"));
+}

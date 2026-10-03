@@ -80,6 +80,10 @@ pub fn generate_program_parser(
     output_directory: &Path,
     options: Options,
 ) -> Result<PathBuf, Error> {
+    let module_id = definition
+        .module_id(module)
+        .ok_or_else(|| Error::render(format!("program syntax module {module:?} was not found")))?;
+    let start_sort = &crate::inner::program_start_sort(definition, module_id, start_sort);
     fs::create_dir_all(output_directory)
         .map_err(|error| Error::io("could not create parser output directory", error))?;
     let output_directory = fs::canonicalize(output_directory)
@@ -105,6 +109,7 @@ pub fn generate_parser(
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| Error::render(format!("program syntax module {module:?} was not found")))?;
+    let start_sort = &crate::inner::program_start_sort(definition, module_id, start_sort);
     let sentences =
         concrete_program_sentences(prepared_bison_program_sentences(definition, module_id));
     let grammar = grammar::prepare(&sentences)?;

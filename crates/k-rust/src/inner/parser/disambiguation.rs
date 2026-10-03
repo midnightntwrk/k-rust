@@ -1080,9 +1080,9 @@ impl Grammar {
             if let Some(label) = &mut instantiated.label {
                 label.parameters = parameters.to_vec();
             }
-            lower_term(&instantiated, &children, span)?
+            lower_term(&instantiated, &children, span, &self.sort_denotations)?
         } else {
-            lower_term(production, &children, span)?
+            lower_term(production, &children, span, &self.sort_denotations)?
         };
         Ok(term.with_metadata(metadata))
     }

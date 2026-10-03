@@ -123,6 +123,7 @@ Write the subsort of each declared instance instead, for example `syntax Foo ::=
 This is a recorded divergence from the pinned K frontend: it accepts such a declaration and writes a definition that its own backend validation refuses.
 
 A sort synonym is a spelling of the sort at the end of its chain in the module's full view, including private imports.
+Sorts are named in production positions, casts, sort-valued attributes, and data given to a parser (start sorts and `#token` sort strings); all use that denotation.
 An alias must have no second meaning in the grammar views built at load, including views widened by implicit MAP and DEFAULT-CONFIGURATION imports.
 Other meanings include visible sort declarations, configuration-expansion cell sorts, injected grammar positions, fixed-role sorts (kernel sorts, `#` sorts and the rigid sort variable), and the fixed `GeneratedTopCell` and `GeneratedCounterCell` names.
 A production written with the alias where the synonym is visible is a use of it, as is a temporary cell-sort declaration added for that production's nonterminal.
@@ -132,7 +133,9 @@ The `result` and `hybrid` attribute values use the same denotation for each whol
 The loaded definition shows the denotation in these attributes.
 A cycle, or one alias with two denotations in a view, is rejected at load with `InvalidSortSynonym`, whether used or not: those equations name no unique sort.
 A synonym inside a sort argument is rejected, because application rewrites whole production sorts and the alias itself declares no sort.
-Rule and configuration casts use the denotation of aliases declared in their grammar's view.
+Only rule and configuration casts restrict written aliases to those declared in their grammar's view.
+A parser's start sort and `#token` sort strings may name privately imported aliases; a parse error retains the written start spelling.
+Generated program parsers use the denoted start sort in their grammar and output name.
 The pinned frontend applies one step, so a chain fails backend validation with `Sort 'SortB' not defined`, and rewrites a sort that a production parameter binds; these are recorded divergences.
 
 ## Variable sort annotations

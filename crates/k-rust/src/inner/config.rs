@@ -332,24 +332,24 @@ fn configuration_grammar(
     let mut visible = resolved.signature_sentences(module);
     add_implicit_ml_syntax(resolved, &mut visible);
     reject_kernel_position_contradiction(&visible)?;
+    // Start sorts and #token sort strings denote in the module's full view. SortUniverse
+    // still restricts generated casts to aliases declared in this grammar's own view.
+    let synonyms = if resolved.declares_sort_synonyms() {
+        SortSynonyms::of_module(resolved, module)
+    } else {
+        SortSynonyms::default()
+    };
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
-    let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
+    let mut grammar = Grammar::from_configuration_sentences(
+        visible.iter().copied(),
+        synonyms.denotations().clone(),
+    )?;
     // The sorts the per-sort productions range over: the rule grammar's universe over this
     // grammar's visible sentences. A visible production gives each of its operand sorts a
     // position whether or not that sort's declaration is visible here (a private import hides
     // it), and a configuration variable standing at that position needs the sort's variable
     // subsorts, so an operand sort is a member even when no visible sentence declares it.
-    // Casts exist only for aliases this grammar's view declares, so the module's full view is read
-    // only when the view declares one; without one, the universe consults no denotation.
-    let synonyms = if visible
-        .iter()
-        .any(|sentence| matches!(sentence, Sentence::SortSynonym { .. }))
-    {
-        SortSynonyms::of_module(resolved, module)
-    } else {
-        SortSynonyms::default()
-    };
     let universe = SortUniverse::new(&visible, &synonyms);
 
     add_config_cells(&mut grammar)?;

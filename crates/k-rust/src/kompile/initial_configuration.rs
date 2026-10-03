@@ -268,10 +268,11 @@ impl<'g> ConfigurationAssembler<'g> {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
         }
         let parser = ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?;
+        let denoted = parser.start_sort(start_sort).clone();
         let program = parser
             .parse(start_sort, text)
             .map_err(ConfigurationError::Program)?;
-        let position = configuration_position(start_sort);
+        let position = configuration_position(&denoted);
         let program = self.expand(program, &position)?;
         // The program is instantiated independently of the configuration values; no sentence
         // sort variable may survive in either kind of ground value.

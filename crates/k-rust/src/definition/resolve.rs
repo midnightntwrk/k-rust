@@ -340,6 +340,7 @@ pub struct ResolvedDefinition {
     // The equivalence class of every local sentence of this graph, per module node, built on the
     // first visible-sentence selection and shared by the selections of every module.
     sentence_classes: OnceLock<Box<[Box<[u32]>]>>,
+    declares_sort_synonyms: OnceLock<bool>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
 }
 
@@ -429,7 +430,21 @@ impl ResolvedDefinition {
             dependency_order,
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
+        })
+    }
+
+    /// Whether any module declares a synonym, including modules outside the main view.
+    /// Without a declaration, every module's denotation table is empty.
+    pub(crate) fn declares_sort_synonyms(&self) -> bool {
+        *self.declares_sort_synonyms.get_or_init(|| {
+            self.modules().any(|(_, module)| {
+                module
+                    .local_sentences
+                    .iter()
+                    .any(|sentence| matches!(sentence.as_ref(), Sentence::SortSynonym { .. }))
+            })
         })
     }
 
@@ -535,6 +550,7 @@ impl ResolvedDefinition {
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
         })
     }
@@ -1209,6 +1225,38 @@ mod tests {
             sort: Sort::new(name),
             attributes: Attributes::default(),
         }
+    }
+
+    #[test]
+    fn synonym_declaration_fact_covers_all_modules_and_refreshes_on_update() {
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("MAIN", sort_sentence("K")),
+                module("OTHER", sort_sentence("A")),
+            ],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        assert!(!base.declares_sort_synonyms());
+        assert_eq!(base.declares_sort_synonyms.get(), Some(&false));
+        assert!(base.sentence_classes.get().is_none());
+
+        let mut next = initial.clone();
+        next.modules[1].local_sentences[0] = Arc::new(Sentence::SortSynonym {
+            new_sort: Sort::new("A"),
+            old_sort: Sort::new("Int"),
+            attributes: Attributes::default(),
+        });
+        let updated = base.clone().update(&initial, &next).unwrap();
+        assert!(updated.declares_sort_synonyms());
+        assert_eq!(updated.declares_sort_synonyms.get(), Some(&true));
+        assert!(updated.sentence_classes.get().is_none());
+        assert!(!base.declares_sort_synonyms());
+
+        let removed = updated.clone().update(&next, &initial).unwrap();
+        assert!(!removed.declares_sort_synonyms());
+        assert!(updated.declares_sort_synonyms());
     }
 
     #[test]

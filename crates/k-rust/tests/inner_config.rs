@@ -644,3 +644,44 @@ fn integer_configuration_sequence(body: &k_rust::kast::Term) -> Vec<&str> {
         })
         .collect()
 }
+
+#[test]
+fn fu24_token_sort_synonym_denotes_in_configurations() {
+    use k_rust::kast::Term;
+
+    let source = r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax A = Int
+          configuration <k> #token("1", "A") </k>
+        endmodule
+    "#;
+    let parsed = k_rust::outer::parse("token-synonym.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let applied = k_rust::definition::apply_sort_synonyms(&lowered).unwrap();
+    let resolved = resolve_configuration_bubbles(&applied).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Configuration { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let mut tokens = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Token { token, sort } = term.unannotated() {
+            tokens.push((token.clone(), sort.clone()));
+        }
+    });
+    assert_eq!(
+        tokens,
+        vec![
+            ("k".into(), Sort::new("#CellName")),
+            ("1".into(), Sort::new("Int")),
+            ("k".into(), Sort::new("#CellName")),
+        ]
+    );
+}

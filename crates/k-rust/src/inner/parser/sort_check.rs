@@ -255,7 +255,7 @@ fn term_sort_below_wrapper<'o>(order: &'o PartialOrder<Sort>, sort: &Sort) -> Op
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::definition::{Attributes, ProductionItem, Sentence, SortSynonyms};
+    use crate::definition::{Attributes, ProductionItem, Sentence, SortDenotations, SortSynonyms};
     use crate::inner::sort_universe::SortUniverse;
     use crate::kast::{Label, Sort};
 
@@ -310,8 +310,11 @@ mod tests {
     fn grammar_and_universe() -> (Grammar, SortUniverse) {
         let sentences = module();
         let visible = sentences.iter().collect::<Vec<_>>();
-        let grammar = Grammar::from_configuration_sentences(visible.iter().copied())
-            .expect("the module's grammar builds");
+        let grammar = Grammar::from_configuration_sentences(
+            visible.iter().copied(),
+            SortDenotations::default(),
+        )
+        .expect("the module's grammar builds");
         (
             grammar,
             SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
@@ -370,8 +373,11 @@ mod tests {
         let mut sentences = module();
         sentences.push(syntax_sort(Vec::new(), Sort::new("Int")));
         let visible = sentences.iter().collect::<Vec<_>>();
-        let grammar = Grammar::from_configuration_sentences(visible.iter().copied())
-            .expect("the module's grammar builds");
+        let grammar = Grammar::from_configuration_sentences(
+            visible.iter().copied(),
+            SortDenotations::default(),
+        )
+        .expect("the module's grammar builds");
         (
             grammar,
             SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
@@ -505,8 +511,11 @@ mod tests {
         let visible = sentences.iter().collect::<Vec<_>>();
         let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
         assert!(universe.admits(&Sort::new("8")));
-        let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())
-            .expect("the module's grammar builds");
+        let mut grammar = Grammar::from_configuration_sentences(
+            visible.iter().copied(),
+            SortDenotations::default(),
+        )
+        .expect("the module's grammar builds");
         add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("8"));
 
         grammar.assert_generated_sort_roles(&universe);
@@ -531,6 +540,7 @@ mod tests {
                 .iter()
                 .copied()
                 .filter(|sentence| !matches!(sentence, Sentence::SyntaxSort { sort, .. } if *sort == mint("64"))),
+            SortDenotations::default(),
         )
         .expect("the module's grammar builds");
         assert!(grammar.placeholders.is_empty());
@@ -628,8 +638,11 @@ mod tests {
         ));
         let visible = sentences.iter().collect::<Vec<_>>();
         let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
-        let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())
-            .expect("the module's grammar builds");
+        let mut grammar = Grammar::from_configuration_sentences(
+            visible.iter().copied(),
+            SortDenotations::default(),
+        )
+        .expect("the module's grammar builds");
         add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Exp"));
 
         grammar.assert_generated_sort_roles(&universe);
