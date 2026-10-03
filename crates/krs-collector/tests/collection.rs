@@ -128,14 +128,14 @@ fn intake_reports_the_same_first_error_in_either_registration_order() {
 
 #[test]
 fn factory_failures_report_the_same_unlocated_error_in_either_registration_order() {
-    let first = HostProvenanceError::SourceOutsidePackage {
+    let first = HostProvenanceError {
         invocation_file: "src/lib.rs".to_owned(),
         invocation_start: HostSourcePosition::new(3, 7).unwrap(),
         display_file: "/target/build/semantics/out/generated.rs".to_owned(),
         manifest_dir: "/workspace/semantics".to_owned(),
         path_error: None,
     };
-    let second = HostProvenanceError::SourceOutsidePackage {
+    let second = HostProvenanceError {
         invocation_file: "src/lib.rs".to_owned(),
         invocation_start: HostSourcePosition::new(5, 1).unwrap(),
         display_file: "/target/build/semantics/out/another.rs".to_owned(),

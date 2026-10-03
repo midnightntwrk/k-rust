@@ -21,7 +21,7 @@ pub struct __KrsRawAnchor {
 ///
 /// # Errors
 ///
-/// Returns [`HostProvenanceError::SourceOutsidePackage`] when a display filename cannot be validated relative to the Cargo manifest directory.
+/// Returns [`HostProvenanceError`] when a display filename cannot be validated relative to the Cargo manifest directory.
 #[doc(hidden)]
 #[inline(never)]
 #[track_caller]
@@ -38,7 +38,7 @@ pub fn __krs_host_provenance(
     macro_rules! source_anchor {
         ($raw:expr) => {{
             let raw: __KrsRawAnchor = $raw;
-            let outside_package = |path_error| HostProvenanceError::SourceOutsidePackage {
+            let outside_package = |path_error| HostProvenanceError {
                 invocation_file: invocation_file.to_owned(),
                 invocation_start,
                 display_file: files[raw.file].to_owned(),

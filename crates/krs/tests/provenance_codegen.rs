@@ -75,7 +75,7 @@ fn compact_provenance_rejects_outside_manifest() {
         .unwrap_err();
         assert_eq!(
             error,
-            HostProvenanceError::SourceOutsidePackage {
+            HostProvenanceError {
                 invocation_file: display_file.to_owned(),
                 invocation_start: HostSourcePosition::new(3, 7).unwrap(),
                 display_file: display_file.to_owned(),
@@ -128,7 +128,7 @@ fn compact_provenance_rejects_non_normalized_package_relative_path() {
     .unwrap_err();
     assert!(matches!(
         error,
-        HostProvenanceError::SourceOutsidePackage {
+        HostProvenanceError {
             path_error: Some(ref error),
             ..
         } if **error == krs_ir::DisplayPathError::NotNormalized("src/../lib.rs".to_owned())

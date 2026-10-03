@@ -284,12 +284,12 @@ impl HostSourcePosition {
     ///
     /// # Errors
     ///
-    /// Returns [`HostProvenanceError`] if either coordinate is zero.
-    pub const fn new(line: u32, scalar_column: u32) -> Result<Self, HostProvenanceError> {
+    /// Returns [`HostProvenanceShapeError`] if either coordinate is zero.
+    pub const fn new(line: u32, scalar_column: u32) -> Result<Self, HostProvenanceShapeError> {
         match crate::Position::new(line, scalar_column) {
             Ok(position) => Ok(Self { position }),
-            Err(crate::CoordinateError::ZeroLine) => Err(HostProvenanceError::ZeroLine),
-            Err(crate::CoordinateError::ZeroColumn) => Err(HostProvenanceError::ZeroColumn),
+            Err(crate::CoordinateError::ZeroLine) => Err(HostProvenanceShapeError::ZeroLine),
+            Err(crate::CoordinateError::ZeroColumn) => Err(HostProvenanceShapeError::ZeroColumn),
             Err(_) => unreachable!(),
         }
     }
@@ -340,26 +340,26 @@ impl HostSourceAnchor {
     ///
     /// # Errors
     ///
-    /// Returns [`HostProvenanceError`] if the display filename is empty or
+    /// Returns [`HostProvenanceShapeError`] if the display filename is empty or
     /// absolute, or if `end` does not follow `start`.
     pub fn new(
         display_file: impl Into<String>,
         start: HostSourcePosition,
         end: HostSourcePosition,
         precision: AnchorPrecision,
-    ) -> Result<Self, HostProvenanceError> {
+    ) -> Result<Self, HostProvenanceShapeError> {
         let display_file = display_file.into();
         if display_file.trim().is_empty() {
-            return Err(HostProvenanceError::EmptyDisplayFile);
+            return Err(HostProvenanceShapeError::EmptyDisplayFile);
         }
         if DisplayPath::is_absolute_spelling(&display_file) {
-            return Err(HostProvenanceError::AbsoluteDisplayFile(display_file));
+            return Err(HostProvenanceShapeError::AbsoluteDisplayFile(display_file));
         }
         if end == start {
-            return Err(HostProvenanceError::EmptyEndpointRange);
+            return Err(HostProvenanceShapeError::EmptyEndpointRange);
         }
         if end < start {
-            return Err(HostProvenanceError::ReversedEndpoints { start, end });
+            return Err(HostProvenanceShapeError::ReversedEndpoints { start, end });
         }
         Ok(Self {
             display_file,
@@ -493,22 +493,22 @@ impl HostProvenance {
     ///
     /// # Errors
     ///
-    /// Returns [`HostProvenanceError::MissingAuthoredAnchor`] when no semantic
-    /// anchor is supplied, or [`HostProvenanceError::DuplicateKey`] when two
+    /// Returns [`HostProvenanceShapeError::MissingAuthoredAnchor`] when no semantic
+    /// anchor is supplied, or [`HostProvenanceShapeError::DuplicateKey`] when two
     /// anchors would compete for the same shared-parser match. A synthesized
     /// node uses an [`AnchorPrecision::InvocationFallback`] authored anchor
     /// rather than leaving this collection empty.
     pub fn new(
         invocation: HostSourceAnchor,
         authored: Vec<HostAuthoredAnchor>,
-    ) -> Result<Self, HostProvenanceError> {
+    ) -> Result<Self, HostProvenanceShapeError> {
         if authored.is_empty() {
-            return Err(HostProvenanceError::MissingAuthoredAnchor);
+            return Err(HostProvenanceShapeError::MissingAuthoredAnchor);
         }
         let mut keys = HashSet::with_capacity(authored.len());
         for authored_anchor in &authored {
             if !keys.insert(authored_anchor.key.clone()) {
-                return Err(HostProvenanceError::DuplicateKey(
+                return Err(HostProvenanceShapeError::DuplicateKey(
                     authored_anchor.key.clone(),
                 ));
             }
@@ -537,18 +537,60 @@ impl HostProvenance {
     ///
     /// # Errors
     ///
-    /// Returns [`HostProvenanceError::DuplicateKey`] when both fragments claim
+    /// Returns [`HostProvenanceShapeError::DuplicateKey`] when both fragments claim
     /// the same parser-owned key.
-    pub fn merge(self, other: Self) -> Result<Self, HostProvenanceError> {
+    pub fn merge(self, other: Self) -> Result<Self, HostProvenanceShapeError> {
         let mut authored = self.authored;
         authored.extend(other.authored);
         Self::new(self.invocation, authored)
     }
 }
 
+/// A descriptor factory's display filename could not be validated within its Cargo package.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct HostProvenanceError {
+    /// Display filename of the containing macro invocation.
+    pub invocation_file: String,
+    /// One-based start position of the containing macro invocation.
+    pub invocation_start: HostSourcePosition,
+    /// Display filename that could not be resolved within the package.
+    pub display_file: String,
+    /// Cargo manifest directory captured by the generated factory.
+    pub manifest_dir: String,
+    /// Validation failure after resolving the package-relative spelling.
+    pub path_error: Option<Box<DisplayPathError>>,
+}
+
+impl fmt::Display for HostProvenanceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            invocation_file,
+            invocation_start,
+            display_file,
+            manifest_dir,
+            path_error,
+        } = self;
+        let location = if path_error.is_some() {
+            "not a normalized path inside"
+        } else {
+            "outside"
+        };
+        write!(
+            formatter,
+            "display file `{display_file}` is {location} Cargo package `{manifest_dir}` (invocation at {invocation_file}:{invocation_start})"
+        )?;
+        if let Some(error) = path_error {
+            write!(formatter, ": {error}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Error for HostProvenanceError {}
+
 /// Invalid pre-materialization provenance data.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum HostProvenanceError {
+pub enum HostProvenanceShapeError {
     /// Stable span line was zero instead of one-based.
     ZeroLine,
     /// Stable span Unicode-scalar column was zero instead of one-based.
@@ -557,19 +599,6 @@ pub enum HostProvenanceError {
     EmptyDisplayFile,
     /// A local absolute path was presented as a display filename.
     AbsoluteDisplayFile(String),
-    /// A display filename could not be validated relative to its Cargo package.
-    SourceOutsidePackage {
-        /// Display filename of the containing macro invocation.
-        invocation_file: String,
-        /// One-based start position of the containing macro invocation.
-        invocation_start: HostSourcePosition,
-        /// Display filename that could not be resolved within the package.
-        display_file: String,
-        /// Cargo manifest directory captured by the generated factory.
-        manifest_dir: String,
-        /// Validation failure after resolving the package-relative spelling.
-        path_error: Option<Box<DisplayPathError>>,
-    },
     /// Start and end referred to the same position.
     EmptyEndpointRange,
     /// The endpoint preceded the start point.
@@ -585,7 +614,7 @@ pub enum HostProvenanceError {
     DuplicateKey(ProvenanceKey),
 }
 
-impl fmt::Display for HostProvenanceError {
+impl fmt::Display for HostProvenanceShapeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroLine => formatter.write_str("host source line must be one-based"),
@@ -596,27 +625,6 @@ impl fmt::Display for HostProvenanceError {
                     formatter,
                     "display filename `{file}` must not be an absolute path"
                 )
-            }
-            Self::SourceOutsidePackage {
-                invocation_file,
-                invocation_start,
-                display_file,
-                manifest_dir,
-                path_error,
-            } => {
-                let location = if path_error.is_some() {
-                    "not a normalized path inside"
-                } else {
-                    "outside"
-                };
-                write!(
-                    formatter,
-                    "display file `{display_file}` is {location} Cargo package `{manifest_dir}` (invocation at {invocation_file}:{invocation_start})"
-                )?;
-                if let Some(error) = path_error {
-                    write!(formatter, ": {error}")?;
-                }
-                Ok(())
             }
             Self::EmptyEndpointRange => formatter.write_str("host source anchor must not be empty"),
             Self::ReversedEndpoints { start, end } => {
@@ -638,7 +646,7 @@ impl fmt::Display for HostProvenanceError {
     }
 }
 
-impl Error for HostProvenanceError {}
+impl Error for HostProvenanceShapeError {}
 
 /// A rustc-resolved type reference awaiting collector resolution.
 #[derive(Clone, Debug)]
@@ -859,11 +867,11 @@ mod tests {
     fn positions_are_one_based() {
         assert_eq!(
             HostSourcePosition::new(0, 1),
-            Err(HostProvenanceError::ZeroLine)
+            Err(HostProvenanceShapeError::ZeroLine)
         );
         assert_eq!(
             HostSourcePosition::new(1, 0),
-            Err(HostProvenanceError::ZeroColumn)
+            Err(HostProvenanceShapeError::ZeroColumn)
         );
     }
 
@@ -873,41 +881,41 @@ mod tests {
         let end = position(3, 2);
         assert_eq!(
             HostSourceAnchor::new("src/lib.rs", start, start, AnchorPrecision::Exact),
-            Err(HostProvenanceError::EmptyEndpointRange)
+            Err(HostProvenanceShapeError::EmptyEndpointRange)
         );
         assert!(matches!(
             HostSourceAnchor::new("src/lib.rs", start, end, AnchorPrecision::Exact),
-            Err(HostProvenanceError::ReversedEndpoints { .. })
+            Err(HostProvenanceShapeError::ReversedEndpoints { .. })
         ));
         for (filename, expected_kind) in [
-            ("", HostProvenanceError::EmptyDisplayFile),
+            ("", HostProvenanceShapeError::EmptyDisplayFile),
             (
                 "/tmp/lib.rs",
-                HostProvenanceError::AbsoluteDisplayFile("/tmp/lib.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile("/tmp/lib.rs".to_owned()),
             ),
             (
                 r"C:\checkout\lib.rs",
-                HostProvenanceError::AbsoluteDisplayFile(r"C:\checkout\lib.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile(r"C:\checkout\lib.rs".to_owned()),
             ),
             (
                 r"\\server\lib.rs",
-                HostProvenanceError::AbsoluteDisplayFile(r"\\server\lib.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile(r"\\server\lib.rs".to_owned()),
             ),
             (
                 r"\lib.rs",
-                HostProvenanceError::AbsoluteDisplayFile(r"\lib.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile(r"\lib.rs".to_owned()),
             ),
             (
                 "file:relative.rs",
-                HostProvenanceError::AbsoluteDisplayFile("file:relative.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile("file:relative.rs".to_owned()),
             ),
             (
                 "file:/lib.rs",
-                HostProvenanceError::AbsoluteDisplayFile("file:/lib.rs".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile("file:/lib.rs".to_owned()),
             ),
             (
                 "file:",
-                HostProvenanceError::AbsoluteDisplayFile("file:".to_owned()),
+                HostProvenanceShapeError::AbsoluteDisplayFile("file:".to_owned()),
             ),
         ] {
             let error = HostSourceAnchor::new(
@@ -939,7 +947,7 @@ mod tests {
         ];
         assert_eq!(
             HostProvenance::new(anchor(AnchorPrecision::Exact), authored),
-            Err(HostProvenanceError::DuplicateKey(key))
+            Err(HostProvenanceShapeError::DuplicateKey(key))
         );
     }
 
@@ -947,7 +955,7 @@ mod tests {
     fn provenance_requires_an_authored_anchor() {
         assert_eq!(
             HostProvenance::new(anchor(AnchorPrecision::Exact), Vec::new()),
-            Err(HostProvenanceError::MissingAuthoredAnchor)
+            Err(HostProvenanceShapeError::MissingAuthoredAnchor)
         );
     }
 
@@ -1034,7 +1042,7 @@ mod tests {
 
         assert_eq!(
             fragment().merge(fragment()),
-            Err(HostProvenanceError::DuplicateKey(duplicate))
+            Err(HostProvenanceShapeError::DuplicateKey(duplicate))
         );
     }
 

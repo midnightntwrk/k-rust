@@ -1148,8 +1148,12 @@ mod tests {
     mod nested {
         use super::*;
 
+        #[expect(
+            clippy::unnecessary_wraps,
+            reason = "Host-descriptor registration requires the fallible factory signature."
+        )]
         pub(super) fn descriptor() -> Result<HostDescriptor, HostProvenanceError> {
-            test_descriptor(module_path!(), "NestedSort")
+            Ok(test_descriptor(module_path!(), "NestedSort"))
         }
 
         crate::__register_host_descriptor!(descriptor);
@@ -1161,10 +1165,7 @@ mod tests {
         TypeId::of::<dyn ParentSort>()
     }
 
-    fn test_descriptor(
-        rust_module_path: &str,
-        item: &str,
-    ) -> Result<HostDescriptor, HostProvenanceError> {
+    fn test_descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
         let position = |column| HostSourcePosition::new(1, column).expect("valid position");
         let anchor = HostSourceAnchor::new(
             "src/lib.rs",
@@ -1179,9 +1180,10 @@ mod tests {
                 ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
                 anchor,
             )],
-        )?;
+        )
+        .expect("valid provenance");
 
-        Ok(HostDescriptor {
+        HostDescriptor {
             protocol_version: SchemaVersion::CURRENT,
             id: HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -1202,7 +1204,7 @@ mod tests {
             }),
             cfg: BTreeMap::new(),
             provenance,
-        })
+        }
     }
 
     #[test]

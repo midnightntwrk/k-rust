@@ -87,8 +87,8 @@ pub use grammar::{
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId, HostPackageKey,
-    HostProvenance, HostProvenanceError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
-    HostTypeKey, HostTypeReference, ProvenanceKey,
+    HostProvenance, HostProvenanceError, HostProvenanceShapeError, HostSortDescriptor,
+    HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference, ProvenanceKey,
 };
 pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
