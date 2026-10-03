@@ -2586,11 +2586,11 @@ fn parsed_definition_matches_the_reference_frontend() {
     let compiled_source = fs::read_to_string(&compiled_path)
         .unwrap_or_else(|error| panic!("{}: {error}", compiled_path.display()));
     let compiled = parse_definition(&compiled_source).unwrap();
-    let projections = normalize_cell_map_key_totality_json(&mut reference, &actual, &compiled)
+    let key_totality = normalize_cell_map_key_totality_json(&mut reference, &actual, &compiled)
         .expect(
             "N39 requires deferred parsed totality and a total compiled cell-map key projection",
         );
-    println!("parsed cell-map key totality normalized (N39): {projections} rewrites");
+    println!("parsed cell-map key totality normalized (N39): {key_totality} rewrites");
 
     if reference != actual {
         if let Some(directory) = env::var_os("K_DIFFERENTIAL_NORMALIZED_DIRECTORY") {
@@ -2833,6 +2833,10 @@ fn cell_map_key_totality_json_normalizer_requires_collection_cell_and_signature(
             vec!["att", "att", "wrapElement"],
             serde_json::json!("<other>"),
         ),
+        (
+            vec!["sort", "params"],
+            serde_json::json!([{"node": "KSort", "name": "K", "params": []}]),
+        ),
     ] {
         let (mut reference, actual, compiled) = cell_map_key_totality_fixture();
         let mut value = &mut reference["term"]["modules"][0]["localSentences"][1];
@@ -2850,9 +2854,16 @@ fn cell_map_key_totality_json_normalizer_requires_collection_cell_and_signature(
         normalize_definition_json(&mut unchanged);
         assert_eq!(reference, unchanged);
     }
-    for index in [0, 2] {
+    for (index, path, replacement) in [
+        (0, "/sort/name", serde_json::json!("Wrong")),
+        (2, "/sort/name", serde_json::json!("Wrong")),
+        (0, "/att/att", serde_json::json!({"total": ""})),
+        (0, "/productionItems/1/value", serde_json::json!("[")),
+    ] {
         let (mut reference, actual, compiled) = cell_map_key_totality_fixture();
-        reference["term"]["modules"][0]["localSentences"][index]["sort"]["name"] = "Wrong".into();
+        *reference["term"]["modules"][0]["localSentences"][index]
+            .pointer_mut(path)
+            .unwrap() = replacement;
         assert_eq!(
             normalize_cell_map_key_totality_json(&mut reference, &actual, &compiled),
             Ok(0)
