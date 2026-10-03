@@ -1887,6 +1887,7 @@ impl ChildShape {
     }
 }
 
+#[cfg(debug_assertions)]
 #[derive(Clone, Copy)]
 enum EvaluatedCache {
     Structural,
