@@ -251,6 +251,8 @@ These corrections change previously malformed parser output such as `inj{KItem,K
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
 The generated module and these labels are reserved.
 A nullary cell initializer is declared `total` only when every generated rule has evidently defined configuration content and a trivial `ensures`; initializer dependencies are judged by a least fixed point, so cycles remain unproven.
+At least one unconditional equation must cover its only argument tuple.
+Local-function resolution precedes this judgement, so a `#fun` body applying a generated nullary initializer cannot use its later totality evidence; the lambda remains partial even when compilation subsequently proves the initializer total.
 An initializer reads `project:S(#unboxKConfigValue(Map:lookup(Init,key)))`, retaining its declared projection, including `project:K` for a K variable and `project:KItem` for an uncast variable.
 An actual K sequence, empty K or fixed K-returning function remains the whole K payload; a KItem or a value with a licensed embedding into KItem becomes a singleton K sequence.
 The outer placement preserves the instance and macro choice made at the existing KItem preference for a K read.
@@ -834,6 +836,7 @@ A nullary initializer is identified through its `initializer` marker, `function`
 The parsed artifact precedes compilation's `SoleGenerator` judgement for projections and its judgement of all initializer equations with the complete main-module equations and a least fixed point over child initializers.
 The normalization requires each corresponding k-rust parsed production to differ only by lacking `total` and the sibling `definition.kore` to declare exactly one matching symbol with the same argument/result signature and `total{}()`.
 It refuses per symbol if the parsed claim is already present, another parsed difference exists, or the final totality claim is absent; a genuinely partial initializer therefore refuses normalization, and an already present parsed claim requires removing N39.
+A source-written nullary `[initializer, function, total]` production also matches the reference-side signature check and refuses normalization when the k-rust parsed side retains its source claim; that refusal does not indicate that generated initializer evidence moved back to parsing.
 It prints the number of removed attributes; every other parsed attribute and production remains compared, and the semantic KORE comparison still compares the final totality claim.
 The conformance driver's surface-text comparison (`scripts/conformance/run.py` `execution_text_diff`) applies the same N4 reading to kprint's `?Name:Sort` tokens as C7: the rule existentials both engines instantiate through a fresh counter are compared modulo a bijective, sort-preserving renaming by first occurrence per disjunct, applied before the C1 sort.
 Every other variable, including the search pattern's own variables and any `?` variable the recipe's `--pattern` text names, and every string literal are compared literally, so lost sharing, a changed sort, or a renamed pattern variable remains a mismatch.

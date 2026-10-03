@@ -69,7 +69,7 @@ impl TotalityWitness {
     }
 
     /// Evidence: every generated rule of the nullary initializer has a defined right-hand side
-    /// and a trivial postcondition, so its equations preserve definedness.
+    /// and a trivial postcondition, and an unconditional equation covers its only argument tuple.
     pub(crate) fn nullary_initializer(_: DefinedInitializer) -> Self {
         Self(TotalityReason::NullaryInitializer)
     }

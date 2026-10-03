@@ -471,7 +471,7 @@ impl EquationTotality {
     }
 }
 
-fn is_true(term: &Term) -> bool {
+pub(crate) fn is_true(term: &Term) -> bool {
     matches!(term.unannotated(), Term::Token { token, sort }
         if token == "true" && *sort == Sort::builtin(BuiltinSort::Bool))
 }

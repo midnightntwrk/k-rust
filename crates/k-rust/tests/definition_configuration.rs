@@ -593,7 +593,7 @@ fn nullary_initializer_repeated_defined_rules_are_total() {
     assert_repeated_initializer_totality(
         "",
         "configuration <a> <n> 0 </n> </a>",
-        "configuration <a> <n> 1 </n> </a>",
+        "configuration <a> <n> 0 </n> </a>",
         &[("initNCell", true), ("initACell", true)],
     );
 }

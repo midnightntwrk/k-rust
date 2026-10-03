@@ -1,9 +1,10 @@
 //! Initializer totality is decided after written equations and macro expansions are available.
 //! For I initializer labels and T RHS nodes, the least fixed point takes at most I changing
 //! rounds, O(I x (I + T) x log P) plus the main-module EquationTotality judgement and resolution.
+//! RHS frame erasure allocates O(T) once; fixed-point rounds only traverse the prepared terms.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use crate::definition::head_totality::{EquationTotality, term_is_defined};
+use crate::definition::head_totality::{EquationTotality, is_true, term_is_defined};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     AttributeKey, Definition, ProductionItem, ResolveError, Sentence, match_rule_label,
@@ -60,28 +61,36 @@ pub(crate) fn declare_initializer_totality_pass(
         }
     }
     for (_, rule) in rules.rules() {
-        let Sentence::Rule { body, ensures, .. } = rule else {
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } = rule
+        else {
             unreachable!("rule catalogs contain rules")
         };
         let label = match_rule_label(rule);
         if let Some(equations) = initializer_rules.get_mut(&label.name) {
             let rule_right = match body.unannotated() {
-                Term::Rewrite { right, .. } => (**right).clone(),
+                Term::Rewrite { right, .. } => &**right,
                 Term::As { .. }
                 | Term::Apply { .. }
                 | Term::Sequence(_)
                 | Term::Variable { .. }
                 | Term::Token { .. }
-                | Term::InjectedLabel(_) => body.clone(),
+                | Term::InjectedLabel(_) => body,
                 Term::Annotated { .. } => unreachable!("unannotated terms carry no annotation"),
             };
             equations.push(InitializerRule {
-                rule_right,
+                // Boundary syntax is independent of the proven-label set; erase it once.
+                rule_right: without_initializer_frames(rule_right, &cells),
+                requires: requires.clone(),
                 ensures: ensures.clone(),
             });
         }
     }
-    let proven = proven_initializers(&initializer_rules, &cells, &defined, totality.as_ref());
+    let proven = proven_initializers(&initializer_rules, &defined, totality.as_ref());
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
@@ -104,17 +113,16 @@ pub(crate) fn declare_initializer_totality_pass(
                 continue;
             }
             // Only the complete all-equations judgement can mint evidence, after its fixed point.
-            let evidence =
-                defined_initializer(&initializer_rules[&label.name], &cells, &mut |label| {
-                    initializer_label_is_defined(
-                        label,
-                        &initializer_rules,
-                        &proven,
-                        &defined,
-                        totality.as_ref(),
-                    )
-                })
-                .expect("the fixed point established every initializer equation");
+            let evidence = defined_initializer(&initializer_rules[&label.name], &mut |label| {
+                initializer_label_is_defined(
+                    label,
+                    &initializer_rules,
+                    &proven,
+                    &defined,
+                    totality.as_ref(),
+                )
+            })
+            .expect("the fixed point established every initializer equation");
             crate::definition::sentence_mut(sentence)
                 .attributes_mut()
                 .declare_total(TotalityWitness::nullary_initializer(evidence));
@@ -134,36 +142,34 @@ fn configuration_generated(sentence: &Sentence) -> bool {
     })
 }
 
-/// Evidence that every generated equation of a nullary initializer builds a defined value.
+/// Evidence that an unconditional equation covers the nullary initializer's only argument tuple
+/// and every equation builds a defined value with a trivial postcondition.
 pub(crate) struct DefinedInitializer(());
 
 struct InitializerRule {
+    // Collected with generated-cell boundary frames already removed.
     rule_right: Term,
+    requires: Term,
     ensures: Term,
 }
 
 fn initializer_rules_are_defined(
     rules: &[InitializerRule],
-    generated_cells: &BTreeSet<String>,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
-    !rules.is_empty()
-        && rules.iter().all(|rule| {
-            matches!(rule.ensures.unannotated(), Term::Token { token, sort }
-                    if token == "true" && *sort == crate::kast::Sort::builtin(crate::names::BuiltinSort::Bool))
-                && term_is_defined(
-                    &without_initializer_frames(&rule.rule_right, generated_cells),
-                    defined,
-                )
-        })
+    // A partial function needs an applicable equation, not only defined possible results.
+    // Nullary signatures have one argument tuple, covered by any unconditional equation.
+    rules.iter().any(|rule| is_true(&rule.requires))
+        && rules
+            .iter()
+            .all(|rule| is_true(&rule.ensures) && term_is_defined(&rule.rule_right, defined))
 }
 
 fn defined_initializer(
     rules: &[InitializerRule],
-    generated_cells: &BTreeSet<String>,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> Option<DefinedInitializer> {
-    if initializer_rules_are_defined(rules, generated_cells, defined) {
+    if initializer_rules_are_defined(rules, defined) {
         Some(DefinedInitializer(()))
     } else {
         None
@@ -206,7 +212,6 @@ fn without_initializer_frames(term: &Term, generated_cells: &BTreeSet<String>) -
 
 fn proven_initializers(
     rules: &BTreeMap<String, Vec<InitializerRule>>,
-    generated_cells: &BTreeSet<String>,
     generated_defined_labels: &BTreeSet<String>,
     totality: Option<&EquationTotality>,
 ) -> BTreeSet<String> {
@@ -217,7 +222,7 @@ fn proven_initializers(
         let before = proven.len();
         for (label, equations) in rules {
             if !proven.contains(label)
-                && initializer_rules_are_defined(equations, generated_cells, &mut |label| {
+                && initializer_rules_are_defined(equations, &mut |label| {
                     initializer_label_is_defined(
                         label,
                         rules,
@@ -276,10 +281,11 @@ mod tests {
         let value = truth();
         let judge = |term: &Term| {
             let rule = InitializerRule {
-                rule_right: term.clone(),
+                rule_right: without_initializer_frames(term, &cells),
+                requires: truth(),
                 ensures: truth(),
             };
-            defined_initializer(&[rule], &cells, &mut |label| {
+            defined_initializer(&[rule], &mut |label| {
                 cells.contains(&label.name) || label.name == "content"
             })
             .is_some()
@@ -309,7 +315,8 @@ mod tests {
     fn initializer_cycles_cannot_prove_themselves_even_with_a_defined_alternative() {
         let cells = BTreeSet::from(["<x>".to_owned(), "<y>".to_owned()]);
         let rule = |cell, child: Term| InitializerRule {
-            rule_right: incomplete_cell(cell, child),
+            rule_right: without_initializer_frames(&incomplete_cell(cell, child), &cells),
+            requires: truth(),
             ensures: truth(),
         };
         let rules = BTreeMap::from([
@@ -325,6 +332,40 @@ mod tests {
                 vec![rule("<y>", Term::apply("initXCell", vec![]))],
             ),
         ]);
-        assert!(proven_initializers(&rules, &cells, &cells, None).is_empty());
+        assert!(proven_initializers(&rules, &cells, None).is_empty());
+    }
+
+    #[test]
+    fn nullary_initializer_needs_unconditional_coverage_and_every_result_defined() {
+        let conditional = || InitializerRule {
+            rule_right: truth(),
+            requires: Term::variable("Condition"),
+            ensures: truth(),
+        };
+        let unconditional = || InitializerRule {
+            requires: truth(),
+            ..conditional()
+        };
+        let judge =
+            |rules: &[InitializerRule]| defined_initializer(rules, &mut |_| false).is_some();
+        assert!(!judge(&[]));
+        assert!(!judge(&[conditional()]));
+        assert!(judge(&[unconditional()]));
+        assert!(judge(&[conditional(), unconditional()]));
+        assert!(judge(&[unconditional(), conditional()]));
+        assert!(!judge(&[
+            unconditional(),
+            InitializerRule {
+                rule_right: Term::apply("partial", vec![]),
+                ..conditional()
+            },
+        ]));
+        assert!(!judge(&[
+            unconditional(),
+            InitializerRule {
+                ensures: Term::variable("Postcondition"),
+                ..conditional()
+            },
+        ]));
     }
 }
