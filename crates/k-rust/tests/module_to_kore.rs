@@ -1316,7 +1316,8 @@ fn assert_equation_head_functional(
             );
             assert_eq!(
                 has("function"),
-                claim != HeadClaim::Functional,
+                // A source function declared `total` carries both claims.
+                claim != HeadClaim::Functional || has("total"),
                 "{name} function declaration in {}",
                 module.name
             );
@@ -1447,6 +1448,26 @@ fn an_overload_equation_with_a_partial_lesser_withholds_functional() {
     "#},
         &[
             ("LblfE", HeadClaim::PartialValueProduction),
+            ("LblfI", HeadClaim::PartialFunction),
+        ],
+    );
+}
+
+#[test]
+fn a_declared_total_overload_greater_over_a_partial_lesser_keeps_functional() {
+    assert_equation_head_functional(
+        indoc! {r#"
+        module A
+          imports INT
+          syntax Exp ::= Int
+          syntax Exp ::= fe(Exp) [symbol(fE), overload(f), function, total]
+          syntax Int ::= fi(Int) [symbol(fI), overload(f), function]
+          rule fi(I) => I /Int 0
+          rule fe(E) => E
+        endmodule
+    "#},
+        &[
+            ("LblfE", HeadClaim::Functional),
             ("LblfI", HeadClaim::PartialFunction),
         ],
     );

@@ -632,8 +632,9 @@ impl SymbolRoles {
     /// - with one result sort head, `greater` and `lesser` do not both have no-confusion
     ///   axioms, because the axiom equates an application of each and their disjointness axiom
     ///   denies it (I2, condition (b));
-    /// - if `greater` is `functional`, `lesser` must be functional or declared total, because
-    ///   an undefined lesser would equate the functional greater with bottom (F1/F3);
+    /// - if `greater` is a value production whose `functional` claim the equation judgement
+    ///   established, `lesser` must be functional or declared total (F1/F3); a source function's
+    ///   declared `total` is its own claim;
     /// - among the greaters of `lesser` with the result sort head of `greater`, at most one has
     ///   no-confusion axioms, because each of their overload axioms equates an application with
     ///   `inj(lesser(x))`, so two of them share a value (I2, condition (b)).
@@ -668,6 +669,10 @@ impl SymbolRoles {
         let greater_claims = self.claims(greater);
         debug_assert!(
             !greater_claims.functional()
+                || !matches!(
+                    ProductionKind::of(overloads.production(greater)).declared_totality(),
+                    DeclaredTotality::ValuesUnlessEquations
+                )
                 || lesser_claims.functional()
                 || matches!(
                     ProductionKind::of(overloads.production(lesser)).declared_totality(),
