@@ -125,10 +125,52 @@ impl fmt::Display for GrammarError {
                 production,
                 child,
                 target,
-            } => write!(
-                formatter,
-                "unlicensed parser placement {child} -> {target} in production {production:?}"
-            ),
+            } => {
+                let Sentence::Production {
+                    sort,
+                    items,
+                    attributes,
+                    ..
+                } = production.as_ref()
+                else {
+                    unreachable!("placement errors retain a production sentence")
+                };
+                write!(
+                    formatter,
+                    "unlicensed parser placement {child} -> {target} in production syntax {sort} ::="
+                )?;
+                for item in items {
+                    match item {
+                        ProductionItem::NonTerminal { sort, name } => {
+                            if let Some(name) = name {
+                                write!(formatter, " {name}:{sort}")?;
+                            } else {
+                                write!(formatter, " {sort}")?;
+                            }
+                        }
+                        ProductionItem::Terminal(value) => write!(formatter, " {value:?}")?,
+                        ProductionItem::RegexTerminal { regex, .. } => {
+                            write!(formatter, " r{regex:?}")?;
+                        }
+                    }
+                }
+                if let Some(source) = attributes.source() {
+                    write!(formatter, " at {source}")?;
+                }
+                if let Some(location) = attributes.location() {
+                    write!(
+                        formatter,
+                        " ({},{},{},{})",
+                        location.start_line,
+                        location.start_column,
+                        location.end_line,
+                        location.end_column
+                    )?;
+                } else if let Some(location) = attributes.string(AttributeKey::Location) {
+                    write!(formatter, " {location}")?;
+                }
+                Ok(())
+            }
             Self::InvalidUserListMetadata { sort } => write!(
                 formatter,
                 "user-list terminator bridge for {sort} requires string userList and userListTerminator labels"
@@ -231,9 +273,7 @@ fn render_inner(
     let semantic_sentences = || {
         sentences.iter().filter(|sentence| {
             !matches!(sentence, Sentence::Production { attributes, .. }
-                if attributes.has(AttributeKey::BisonParsingOnlySubsort)
-                    || attributes.has(AttributeKey::NotInjection)
-                    || attributes.has(AttributeKey::UserListTerminator))
+                if attributes.has(AttributeKey::BisonParsingOnlySubsort))
         })
     };
     let subsorts = compute_subsorts(semantic_sentences(), false)
@@ -786,11 +826,17 @@ fn write_production(
     } else if !attributes.has(AttributeKey::Token)
         && is_subsort
         && !attributes.has(AttributeKey::NotInjection)
+        && !attributes.has(AttributeKey::BisonParsingOnlySubsort)
     {
         write_subsort_action(output, &production.source, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
         write_token_subsort_action(output, sort, has_location);
-    } else if is_subsort && attributes.has(AttributeKey::NotInjection) {
+    } else if is_subsort
+        && (attributes.has(AttributeKey::NotInjection)
+            || attributes.has(AttributeKey::BisonParsingOnlySubsort))
+    {
+        // A recognition bridge only lets a declared instance be recognized at its
+        // placeholder slot. It states no subsort, so return the value unchanged.
         let [child] = nonterminals.as_slice() else {
             return Err(GrammarError::InvalidSubsort { sort: sort.clone() });
         };
@@ -1616,7 +1662,7 @@ mod tests {
         assert!(output.contains("n->sort = \"SortKItem{}\""));
         assert!(output.contains("placed_kseq->location = @$"));
         assert!(output.contains("placed_kseq->hasLocation = 1"));
-        assert!(output.contains("placed_dotk->hasLocation = 1"));
+        assert!(output.contains("placed_dotk->hasLocation = 0"));
         assert!(!output.contains("inj{SortKItem{}, SortK{}}"));
         println!("SingletonK: returned kseq(a,dotk()); head sort KItem, sequence/tail sort K");
     }
@@ -2189,23 +2235,46 @@ mod tests {
     }
 
     #[test]
-    fn parsing_only_order_cannot_license_an_injection() {
-        let sentences = vec![production(
-            "Target",
-            vec![nonterminal("Source")],
+    fn parsing_only_bridge_returns_the_recognized_value_unchanged() {
+        let sentences = vec![
+            production(
+                "Target",
+                vec![nonterminal("Source")],
+                None,
+                &[("#bisonParsingOnlySubsort", "")],
+            ),
+            production(
+                "Source",
+                vec![ProductionItem::Terminal("x".into())],
+                Some("x"),
+                &[],
+            ),
+        ];
+        let output = rendered(&sentences, "Target", Mode::Lr).unwrap();
+        let target = output.split("SortTarget__:\n").nth(1).unwrap();
+        let alternative = target.split("\n;\n").next().unwrap();
+        assert!(alternative.contains("SortSource__ {\n  $$ = $1;\n}"));
+        assert!(!output.contains("inj{SortSource{}, SortTarget{}}"));
+    }
+
+    #[test]
+    fn unlicensed_subsort_reports_the_production_and_location() {
+        let mut sentence = production(
+            "K",
+            vec![nonterminal("KLabel")],
             None,
-            &[
-                ("#bisonParsingOnlySubsort", ""),
-                ("source", "bad.k"),
-                ("location", "(2,1,2,10)"),
-            ],
-        )];
-        let error = rendered(&sentences, "Target", Mode::Lr)
+            &[(AttributeKey::Source.as_str(), "bad.k")],
+        );
+        sentence
+            .attributes_mut()
+            .insert(AttributeKey::Location.as_str(), json!([2, 1, 2, 10]));
+        let error = rendered(&[sentence], "K", Mode::Lr)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("Source -> Target"), "{error}");
-        assert!(error.contains("bad.k"), "{error}");
-        assert!(error.contains("(2,1,2,10)"), "{error}");
+        assert_eq!(
+            error,
+            "unlicensed parser placement KLabel -> K in production syntax K ::= KLabel at bad.k (2,1,2,10)"
+        );
     }
 
     #[test]

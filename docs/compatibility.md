@@ -239,6 +239,7 @@ A whole K value retains its tail, including when embedded into a declared supers
 Only witnessed injection pairs may flatten; sequence construction is never an injection edge.
 An unplaceable grammar coercion fails generation with its production, source location and sort pair.
 User-list bridges construct their cons/nil value directly.
+Parsing-only recognition bridges for parametric placeholders return the recognized value unchanged and state no injection.
 
 Overload actions return equal-result applications directly and recover narrower arguments only through concrete licensed placements.
 A K argument can narrow to an item only when it is a canonical singleton with a dotk tail; empty K, multiple items and arbitrary K-returning applications retain the greater overload.

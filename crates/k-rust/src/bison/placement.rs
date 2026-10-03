@@ -31,7 +31,11 @@ impl CPlacement<'_> {
                 self.write_singleton(output, item.as_ref(), child)
             }
             PlacementKind::SingletonKInjection { item, sequence } => {
-                let singleton = self.write_singleton(output, item.as_ref(), child);
+                let intermediate = CPlacement {
+                    has_location: "0",
+                    ..*self
+                };
+                let singleton = intermediate.write_singleton(output, item.as_ref(), child);
                 self.write_injection(output, sequence, &singleton, "sequence")
             }
         }
@@ -43,13 +47,19 @@ impl CPlacement<'_> {
         item: Option<&Injectable>,
         child: &str,
     ) -> String {
+        // Only the returned placement node represents the production's located
+        // result; structural children must not acquire that sort's annotation.
+        let intermediate = CPlacement {
+            has_location: "0",
+            ..*self
+        };
         let item = match item {
             None => child.into(),
-            Some(witness) => self.write_injection(output, witness, child, "item"),
+            Some(witness) => intermediate.write_injection(output, witness, child, "item"),
         };
         let k = Sort::builtin(BuiltinSort::K);
         let dotk = format!("{}_dotk", self.prefix);
-        self.write_node(output, &dotk, "dotk{}", &k, &[]);
+        intermediate.write_node(output, &dotk, "dotk{}", &k, &[]);
         let sequence = format!("{}_kseq", self.prefix);
         self.write_node(output, &sequence, "kseq{}", &k, &[&item, &dotk]);
         sequence
@@ -193,8 +203,9 @@ mod tests {
             assert!(output.contains(&format!("{node}->sort = \"SortK{{}}\"")));
             assert!(output.contains(&format!("{node}->str = false")));
             assert!(output.contains(&format!("{node}->location = @$")));
-            assert!(output.contains(&format!("{node}->hasLocation = 1")));
         }
+        assert!(output.contains("placed_dotk->hasLocation = 0"));
+        assert!(output.contains("placed_kseq->hasLocation = 1"));
         assert!(output.contains("placed_dotk->nchildren = 0"));
         assert!(output.contains("placed_kseq->nchildren = 2"));
         assert!(output.contains("placed_kseq->children[0] = child"));
@@ -242,6 +253,10 @@ mod tests {
         assert!(output.contains("placed_kseq->children[0] = placed_item"));
         assert!(output.contains("placed_sequence->symbol = \"inj{SortK{}, SortKList{}}\""));
         assert!(output.contains("placed_sequence->children[0] = placed_kseq"));
+        for node in ["placed_item", "placed_dotk", "placed_kseq"] {
+            assert!(output.contains(&format!("{node}->hasLocation = 0")));
+        }
+        assert!(output.contains("placed_sequence->hasLocation = 1"));
         assert!(!output.contains("inj{SortA{}, SortKList{}}"));
         assert!(!output.contains("injSymbol"));
     }
