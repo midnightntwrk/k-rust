@@ -859,70 +859,69 @@ fn emit_rule(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let sentence_start = writer.source.len();
-    if let RuleBodyRef::Configuration { body, .. } = sentence.relational_body() {
-        if sentence.kind() == SentenceKind::Claim {
-            let claim_start = writer.source.len();
-            writer.push("claim");
-            if let Some(claim) = sentence.claim()
-                && claim.modality() == ClaimModality::AllPaths
-            {
-                writer.record(
-                    claim.modality_origin().key(),
-                    claim_start,
-                    writer.source.len(),
-                )?;
+    match sentence.relational_body() {
+        RuleBodyRef::Configuration { body, .. } => {
+            if sentence.kind() == SentenceKind::Claim {
+                let claim_start = writer.source.len();
+                writer.push("claim");
+                if let Some(claim) = sentence.claim()
+                    && claim.modality() == ClaimModality::AllPaths
+                {
+                    writer.record(
+                        claim.modality_origin().key(),
+                        claim_start,
+                        writer.source.len(),
+                    )?;
+                }
+                writer.push(" [");
+            } else {
+                writer.push("rule [");
             }
-            writer.push(" [");
-        } else {
-            writer.push("rule [");
+            emit_label(sentence.label(), writer);
+            writer.push("]:");
+            let mut emitted_repeated = BTreeSet::new();
+            for clause in body.clauses() {
+                let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
+                    writer.push("\n");
+                    emit_cell_clause(clause, sentence, context, 4, writer)?;
+                    continue;
+                };
+                if !emitted_repeated.insert(ancestor.clone()) {
+                    continue;
+                }
+                writer.push("\n    <");
+                writer.push(context.cell_name(ancestor)?);
+                writer.push(">");
+                for nested in body.clauses().iter().filter(|candidate| {
+                    context.repeated_ancestor(candidate.cell()) == Some(ancestor)
+                }) {
+                    writer.push("\n");
+                    emit_cell_clause(nested, sentence, context, 8, writer)?;
+                }
+                writer.push("\n        ...\n    </");
+                writer.push(context.cell_name(ancestor)?);
+                writer.push(">");
+            }
+            emit_requires(sentence, context, writer)?;
+            emit_ensures(sentence, context, writer)?;
+            emit_rule_attributes(sentence, writer)?;
+            record_claim_binders(sentence, context, sentence_start, writer)?;
+            Ok(())
         }
-        emit_label(sentence.label(), writer);
-        writer.push("]:");
-        let mut emitted_repeated = BTreeSet::new();
-        for clause in body.clauses() {
-            let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
-                writer.push("\n");
-                emit_cell_clause(clause, sentence, context, 4, writer)?;
-                continue;
-            };
-            if !emitted_repeated.insert(ancestor.clone()) {
-                continue;
-            }
-            writer.push("\n    <");
-            writer.push(context.cell_name(ancestor)?);
-            writer.push(">");
-            for nested in body
-                .clauses()
-                .iter()
-                .filter(|candidate| context.repeated_ancestor(candidate.cell()) == Some(ancestor))
-            {
-                writer.push("\n");
-                emit_cell_clause(nested, sentence, context, 8, writer)?;
-            }
-            writer.push("\n        ...\n    </");
-            writer.push(context.cell_name(ancestor)?);
-            writer.push(">");
+        RuleBodyRef::Term(body) => {
+            writer.push("rule ");
+            let existentials = sentence
+                .claim()
+                .map_or(&[][..], |claim| claim.existentials());
+            writer.append_rendered(
+                render_rewrite(body.from(), body.to(), context, true, existentials)?
+                    .finish(body.origin().key(), 0),
+            )?;
+            emit_requires(sentence, context, writer)?;
+            emit_term_rule_attributes(sentence, writer)?;
+            Ok(())
         }
-        emit_requires(sentence, context, writer)?;
-        emit_ensures(sentence, context, writer)?;
-        emit_rule_attributes(sentence, writer)?;
-        record_claim_binders(sentence, context, sentence_start, writer)?;
-        return Ok(());
     }
-    let RuleBodyRef::Term(body) = sentence.relational_body() else {
-        unreachable!()
-    };
-    writer.push("rule ");
-    let existentials = sentence
-        .claim()
-        .map_or(&[][..], |claim| claim.existentials());
-    writer.append_rendered(
-        render_rewrite(body.from(), body.to(), context, true, existentials)?
-            .finish(body.origin().key(), 0),
-    )?;
-    emit_requires(sentence, context, writer)?;
-    emit_term_rule_attributes(sentence, writer)?;
-    Ok(())
 }
 
 fn emit_term_rule_attributes(
@@ -1392,8 +1391,8 @@ fn render_term_with_binders(
         DefinitionTermKind::Application {
             application,
             arguments,
-        } => {
-            if let ApplicationRef::Builtin(operation) = application {
+        } => match application {
+            ApplicationRef::Builtin(operation) => {
                 render_builtin_application(
                     *operation,
                     arguments,
@@ -1401,56 +1400,54 @@ fn render_term_with_binders(
                     existentials,
                     &mut output,
                 )?;
-                return Ok(output.finish(term.origin().key(), start));
             }
-            let ApplicationRef::Declared(symbol) = application else {
-                unreachable!()
-            };
-            let production = context.production(symbol)?;
-            let mut arguments = arguments.iter();
-            for (index, item) in production.items().iter().enumerate() {
-                if index != 0 {
-                    output.push(" ");
-                }
-                match item.kind() {
-                    GrammarProductionItemKind::Terminal { text } => output.push(text),
-                    GrammarProductionItemKind::NonTerminal { .. } => {
-                        let Some(argument) = arguments.next() else {
-                            return Err(EmitError::InvalidReference(format!(
-                                "production {:?} has fewer application arguments than nonterminals",
-                                symbol.as_str()
-                            )));
-                        };
-                        let parenthesize =
-                            parenthesize_declared_child(production, argument, context)?;
-                        if parenthesize {
-                            output.push("(");
+            ApplicationRef::Declared(symbol) => {
+                let production = context.production(symbol)?;
+                let mut arguments = arguments.iter();
+                for (index, item) in production.items().iter().enumerate() {
+                    if index != 0 {
+                        output.push(" ");
+                    }
+                    match item.kind() {
+                        GrammarProductionItemKind::Terminal { text } => output.push(text),
+                        GrammarProductionItemKind::NonTerminal { .. } => {
+                            let Some(argument) = arguments.next() else {
+                                return Err(EmitError::InvalidReference(format!(
+                                    "production {:?} has fewer application arguments than nonterminals",
+                                    symbol.as_str()
+                                )));
+                            };
+                            let parenthesize =
+                                parenthesize_declared_child(production, argument, context)?;
+                            if parenthesize {
+                                output.push("(");
+                            }
+                            output.append(render_term_with_binders(
+                                argument,
+                                context,
+                                false,
+                                existentials,
+                            )?);
+                            if parenthesize {
+                                output.push(")");
+                            }
                         }
-                        output.append(render_term_with_binders(
-                            argument,
-                            context,
-                            false,
-                            existentials,
-                        )?);
-                        if parenthesize {
-                            output.push(")");
+                        GrammarProductionItemKind::RegexTerminal { .. } => {
+                            return Err(EmitError::UnsupportedShape {
+                                node: "regex application",
+                                detail: "regex productions are not term constructors".to_owned(),
+                            });
                         }
                     }
-                    GrammarProductionItemKind::RegexTerminal { .. } => {
-                        return Err(EmitError::UnsupportedShape {
-                            node: "regex application",
-                            detail: "regex productions are not term constructors".to_owned(),
-                        });
-                    }
+                }
+                if arguments.next().is_some() {
+                    return Err(EmitError::InvalidReference(format!(
+                        "production {:?} has more application arguments than nonterminals",
+                        symbol.as_str()
+                    )));
                 }
             }
-            if arguments.next().is_some() {
-                return Err(EmitError::InvalidReference(format!(
-                    "production {:?} has more application arguments than nonterminals",
-                    symbol.as_str()
-                )));
-            }
-        }
+        },
         DefinitionTermKind::Token { value } => {
             if matches!(term.sort(), DefinitionSortRef::Builtin(_)) {
                 output.push(value);
