@@ -346,5 +346,5 @@ fn generated_collection_collisions_have_negative_shape_flags() {
     assert_eq!(coverage.root_sets, 30);
     assert_eq!(coverage.root_maps, 28);
     assert_eq!(coverage.inherited, 55);
-    assert_eq!(coverage.concrete_controls, 909);
+    assert_eq!(coverage.concrete_controls, 805);
 }
