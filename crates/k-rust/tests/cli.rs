@@ -7,8 +7,6 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
-    thread,
-    time::{Duration, Instant},
 };
 
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
@@ -56,24 +54,222 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
-fn output_with_watchdog(mut command: Command) -> Output {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        if child.try_wait().unwrap().is_some() {
-            return child.wait_with_output().unwrap();
+mod watchdog {
+    use std::{
+        path::Path,
+        process::{Command, Output, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    pub(super) enum Input<'a> {
+        Source(&'a Path),
+        Compiled(&'a Path),
+    }
+
+    pub(super) enum Compilation<'a> {
+        Run { syntax_module: &'a str },
+        Proof { definition_module: &'a str },
+    }
+
+    pub(super) enum Request<'a> {
+        Compile {
+            source: &'a Path,
+            main_module: &'a str,
+            output: &'a Path,
+            kind: Compilation<'a>,
+        },
+        Krun {
+            input: Input<'a>,
+            main_module: &'a str,
+            syntax_module: &'a str,
+            sort: &'a str,
+            expression: &'a str,
+        },
+        Kprove {
+            input: Input<'a>,
+            main_module: &'a str,
+            definition_module: &'a str,
+            claim: &'a str,
+            smt_prelude: &'a Path,
+        },
+        KoreExec {
+            definition: &'a Path,
+            module: &'a str,
+            pattern: &'a Path,
+            search_final: bool,
+        },
+        KoreImplies {
+            definition: &'a Path,
+            module: &'a str,
+            antecedent: &'a Path,
+            consequent: &'a Path,
+        },
+    }
+
+    const COMPILATION_BUDGET: Duration = Duration::from_secs(120);
+    const BACKEND_BUDGET: Duration = Duration::from_secs(20);
+
+    enum Scope {
+        Compilation,
+        SourceAndBackend,
+        Backend,
+    }
+
+    impl Scope {
+        fn policy(&self) -> (&'static str, Duration) {
+            match self {
+                Self::Compilation => ("compilation", COMPILATION_BUDGET),
+                Self::SourceAndBackend => ("source-plus-backend", COMPILATION_BUDGET),
+                Self::Backend => ("backend", BACKEND_BUDGET),
+            }
         }
-        if Instant::now() >= deadline {
-            child.kill().unwrap();
-            let output = child.wait_with_output().unwrap();
-            panic!("backend operation exceeded the watchdog: {output:?}");
+    }
+
+    pub(super) fn output(request: Request<'_>) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        let scope = match request {
+            Request::Compile {
+                source,
+                main_module,
+                output,
+                kind,
+            } => {
+                command
+                    .arg("kcompile")
+                    .arg(source)
+                    .args(["--main-module", main_module]);
+                match kind {
+                    Compilation::Run { syntax_module } => {
+                        command.args(["--syntax-module", syntax_module]);
+                    }
+                    Compilation::Proof { definition_module } => {
+                        command.args(["--definition-module", definition_module, "--for-proving"]);
+                    }
+                }
+                command.arg("--output-directory").arg(output);
+                Scope::Compilation
+            }
+            Request::Krun {
+                input,
+                main_module,
+                syntax_module,
+                sort,
+                expression,
+            } => {
+                command.arg("krun");
+                let scope = match input {
+                    Input::Source(source) => {
+                        command.arg(source);
+                        Scope::SourceAndBackend
+                    }
+                    Input::Compiled(definition) => {
+                        command.arg("--definition").arg(definition);
+                        Scope::Backend
+                    }
+                };
+                command.args([
+                    "--main-module",
+                    main_module,
+                    "--syntax-module",
+                    syntax_module,
+                    "--sort",
+                    sort,
+                    "--expression",
+                    expression,
+                    "--strategy",
+                    "all",
+                    "--io",
+                    "off",
+                ]);
+                scope
+            }
+            Request::Kprove {
+                input,
+                main_module,
+                definition_module,
+                claim,
+                smt_prelude,
+            } => {
+                command.arg("kprove");
+                let scope = match input {
+                    Input::Source(source) => {
+                        command.arg(source);
+                        Scope::SourceAndBackend
+                    }
+                    Input::Compiled(definition) => {
+                        command.arg("--compiled-definition").arg(definition);
+                        Scope::Backend
+                    }
+                };
+                command
+                    .args([
+                        "--main-module",
+                        main_module,
+                        "--definition-module",
+                        definition_module,
+                        "--claim",
+                        claim,
+                        "--smt-prelude",
+                    ])
+                    .arg(smt_prelude);
+                scope
+            }
+            Request::KoreExec {
+                definition,
+                module,
+                pattern,
+                search_final,
+            } => {
+                command
+                    .arg("kore-exec")
+                    .arg(definition)
+                    .args(["--module", module, "--pattern"])
+                    .arg(pattern);
+                if search_final {
+                    command.arg("--search-final");
+                }
+                Scope::Backend
+            }
+            Request::KoreImplies {
+                definition,
+                module,
+                antecedent,
+                consequent,
+            } => {
+                command
+                    .arg("kore-implies")
+                    .arg(definition)
+                    .args(["--module", module, "--antecedent"])
+                    .arg(antecedent)
+                    .arg("--consequent")
+                    .arg(consequent);
+                Scope::Backend
+            }
+        };
+        run(command, scope)
+    }
+
+    fn run(mut command: Command, scope: Scope) -> Output {
+        let (class, duration) = scope.policy();
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + duration;
+        loop {
+            if child.try_wait().unwrap().is_some() {
+                return child.wait_with_output().unwrap();
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                let output = child.wait_with_output().unwrap();
+                panic!("{class} operation exceeded the watchdog ({duration:?}): {output:?}");
+            }
+            thread::sleep(Duration::from_millis(10));
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -119,16 +315,12 @@ fn kore_exec_stops_after_a_prelude_failure_before_an_unbounded_sibling() {
         r#"\or{SortInt{}}(probe{}(X:SortInt{}), wrap{}(\dv{SortInt{}}("0")))"#,
     )
     .unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-    command.args([
-        "kore-exec",
-        definition.to_str().unwrap(),
-        "--module",
-        "MAIN",
-        "--pattern",
-        initial.to_str().unwrap(),
-    ]);
-    let output = output_with_watchdog(command);
+    let output = watchdog::output(watchdog::Request::KoreExec {
+        definition: &definition,
+        module: "MAIN",
+        pattern: &initial,
+        search_final: false,
+    });
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert_eq!(output.stdout, b"");
     assert_eq!(
@@ -146,30 +338,38 @@ fn krun_reports_a_prelude_failure_with_an_unbounded_rewrite_rule() {
         include_str!("fixtures/inconsistent-smt-prelude-loop.k"),
     )
     .unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-    command.args([
-        "krun",
-        definition.to_str().unwrap(),
-        "--main-module",
-        "LIVENESS-KRUN",
-        "--syntax-module",
-        "LIVENESS-KRUN",
-        "--sort",
-        "State",
-        "--expression",
-        "start(f(0))",
-        "--strategy",
-        "all",
-        "--io",
-        "off",
-    ]);
-    let output = output_with_watchdog(command);
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert_eq!(output.stdout, b"");
-    assert_eq!(
-        output.stderr,
-        b"error: could not initialize Z3: InconsistentPrelude\n"
+    let compiled = root.join("compiled");
+    let preparation = watchdog::output(watchdog::Request::Compile {
+        source: &definition,
+        main_module: "LIVENESS-KRUN",
+        output: &compiled,
+        kind: watchdog::Compilation::Run {
+            syntax_module: "LIVENESS-KRUN",
+        },
+    });
+    assert!(
+        preparation.status.success(),
+        "run preparation failed: {}",
+        String::from_utf8_lossy(&preparation.stderr)
     );
+    for (context, input) in [
+        ("compiled krun", watchdog::Input::Compiled(&compiled)),
+        ("source krun", watchdog::Input::Source(&definition)),
+    ] {
+        let output = watchdog::output(watchdog::Request::Krun {
+            input,
+            main_module: "LIVENESS-KRUN",
+            syntax_module: "LIVENESS-KRUN",
+            sort: "State",
+            expression: "start(f(0))",
+        });
+        assert_eq!(output.status.code(), Some(1), "{context}: {output:?}");
+        assert_eq!(output.stdout, b"", "{context}: {output:?}");
+        assert_eq!(
+            output.stderr, b"error: could not initialize Z3: InconsistentPrelude\n",
+            "{context}: {output:?}"
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -4773,15 +4973,12 @@ endmodule []"#,
     let check = |left: &str, right: &str| {
         fs::write(&antecedent, left).unwrap();
         fs::write(&consequent, right).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-        command
-            .arg("kore-implies")
-            .arg(&definition)
-            .args(["--module", "MAIN", "--antecedent"])
-            .arg(&antecedent)
-            .arg("--consequent")
-            .arg(&consequent);
-        let output = output_with_watchdog(command);
+        let output = watchdog::output(watchdog::Request::KoreImplies {
+            definition: &definition,
+            module: "MAIN",
+            antecedent: &antecedent,
+            consequent: &consequent,
+        });
         assert!(
             output.status.success(),
             "{left} => {right}: {}",
@@ -10787,26 +10984,38 @@ endmodule
     .unwrap();
     let prelude = root.join("inconsistent.smt2");
     fs::write(&prelude, "(assert false)\n").unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-    command.args([
-        "kprove",
-        specification.to_str().unwrap(),
-        "--main-module",
-        "PROBE-SPEC",
-        "--definition-module",
-        "PROBE",
-        "--claim",
-        "probe",
-        "--smt-prelude",
-        prelude.to_str().unwrap(),
-    ]);
-    let output = output_with_watchdog(command);
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert_eq!(output.stdout, b"");
-    assert_eq!(
-        output.stderr,
-        b"error: the definitions sent to the solver are inconsistent\n"
+    let compiled = root.join("compiled");
+    let preparation = watchdog::output(watchdog::Request::Compile {
+        source: &specification,
+        main_module: "PROBE-SPEC",
+        output: &compiled,
+        kind: watchdog::Compilation::Proof {
+            definition_module: "PROBE",
+        },
+    });
+    assert!(
+        preparation.status.success(),
+        "proof preparation failed: {}",
+        String::from_utf8_lossy(&preparation.stderr)
     );
+    for (context, input) in [
+        ("compiled kprove", watchdog::Input::Compiled(&compiled)),
+        ("source kprove", watchdog::Input::Source(&specification)),
+    ] {
+        let output = watchdog::output(watchdog::Request::Kprove {
+            input,
+            main_module: "PROBE-SPEC",
+            definition_module: "PROBE",
+            claim: "probe",
+            smt_prelude: &prelude,
+        });
+        assert_eq!(output.status.code(), Some(1), "{context}: {output:?}");
+        assert_eq!(output.stdout, b"", "{context}: {output:?}");
+        assert_eq!(
+            output.stderr, b"error: the definitions sent to the solver are inconsistent\n",
+            "{context}: {output:?}"
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -11145,18 +11354,11 @@ endmodule []
         "W:SortW{}",
     ] {
         fs::write(&initial, state).unwrap();
-        let output = output_with_watchdog({
-            let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-            command.args([
-                "kore-exec",
-                definition.to_str().unwrap(),
-                "--module",
-                "MAIN",
-                "--pattern",
-                initial.to_str().unwrap(),
-                "--search-final",
-            ]);
-            command
+        let output = watchdog::output(watchdog::Request::KoreExec {
+            definition: &definition,
+            module: "MAIN",
+            pattern: &initial,
+            search_final: true,
         });
         assert!(output.status.success(), "{state}: {output:?}");
         let final_states = String::from_utf8(output.stdout).unwrap();
