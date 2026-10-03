@@ -7,7 +7,7 @@ use std::process::Output;
 use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{DefinitionIr, DescriptorBundle, SemanticTheory};
-use krs_test_support::{fixture_target, krs_command, temp_dir};
+use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 use sha2::{Digest, Sha256};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
@@ -15,15 +15,15 @@ const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pat
 
 #[test]
 fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
-    let temporary = temp_dir();
+    let target = shared_fixture_target();
     for (name, source) in [
         ("foo-bar", FOO_BAR),
         ("nested-function-pattern", NESTED_FUNCTION_PATTERN),
     ] {
+        let temporary = temp_dir();
         let manifest = materialize_fixture(temporary.path(), source);
-        let target = fixture_target(&manifest, Some(temporary.path()));
         let emitted = temporary.path().join(format!("emitted-{name}"));
-        let result = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
+        let result = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
         assert_success(&result);
 
         let bundle: DescriptorBundle =
@@ -43,6 +43,7 @@ fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
 
 #[test]
 fn build_accepts_rule_terms_nested_64_constructors_deep() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let term = format!("{}Tick(0){}", "Wrap(".repeat(64), ")".repeat(64));
     let source = format!(
@@ -83,8 +84,8 @@ krs::rules! {{
 "#
     );
     let manifest = materialize_fixture(temporary.path(), &source);
-    let target = fixture_target(&manifest, Some(temporary.path()));
     let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
     let output = process
         .args(["build", "--manifest-path"])
         .arg(manifest)
@@ -96,7 +97,6 @@ krs::rules! {{
             "--output",
         ])
         .arg(temporary.path().join("built"))
-        .env("CARGO_TARGET_DIR", target)
         .output()
         .unwrap();
     assert_success(&output);
@@ -105,12 +105,12 @@ krs::rules! {{
 
 #[test]
 fn commands_share_the_production_collection_and_definition_pipeline() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let emitted = temporary.path().join("emitted");
     let manifest = materialize_fixture(temporary.path(), FOO_BAR);
-    let target = fixture_target(&manifest, Some(temporary.path()));
 
-    let expand = command(&target, &manifest, "expand", None, &[]);
+    let expand = command(target.path(), &manifest, "expand", None, &[]);
     assert_success(&expand);
     let expanded = String::from_utf8(expand.stdout).unwrap();
     assert!(
@@ -123,16 +123,16 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(!expanded.contains("\"protocol_version\""));
     assert!(!expanded.contains("inventory"));
 
-    let check = command(&target, &manifest, "check", None, &[]);
+    let check = command(target.path(), &manifest, "check", None, &[]);
     assert_success(&check);
     assert_eq!(
         check.stdout,
         b"KRS check passed: 9 descriptors, 1 semantic modules\n"
     );
 
-    assert_check_measurement(temporary.path(), &target, &manifest, &check.stdout);
+    assert_check_measurement(temporary.path(), target.path(), &manifest, &check.stdout);
 
-    let emit = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
+    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
     assert_success(&emit);
     assert_eq!(
         emit.stdout,
@@ -181,7 +181,13 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     let unsafe_output = temporary.path().join("user-owned");
     fs::create_dir_all(&unsafe_output).unwrap();
     fs::write(unsafe_output.join("definition.k"), "user contents\n").unwrap();
-    let unsafe_emit = command(&target, &manifest, "emit-k", Some(&unsafe_output), &[]);
+    let unsafe_emit = command(
+        target.path(),
+        &manifest,
+        "emit-k",
+        Some(&unsafe_output),
+        &[],
+    );
     assert!(!unsafe_emit.status.success());
     assert!(
         String::from_utf8(unsafe_emit.stderr)
@@ -194,7 +200,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     );
 
     let native = temporary.path().join("native");
-    assert_build_measurement(temporary.path(), &target, &manifest, &native);
+    assert_build_measurement(temporary.path(), target.path(), &manifest, &native);
     assert!(native.join("definition.kore").is_file());
     assert!(native.join("syntaxDefinition.kore").is_file());
     assert!(native.join("macros.kore").is_file());
@@ -203,17 +209,18 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
 
 #[test]
 fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let source = FOO_BAR.replace(
         "pub trait Obj: KResult {}",
         "pub trait Obj: KResult + Send {}",
     );
     let manifest = materialize_fixture(temporary.path(), &source);
-    let target = fixture_target(&manifest, Some(temporary.path()));
     let scratch = temporary.path().join("scratch");
     fs::create_dir(&scratch).unwrap();
     let timings_path = temporary.path().join("timings.json");
     let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
     let output = process
         .args(["check", "--message-format=json", "--manifest-path"])
         .arg(&manifest)
@@ -225,7 +232,6 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
             "--timings",
         ])
         .arg(&timings_path)
-        .env("CARGO_TARGET_DIR", target)
         .env("CARGO_NET_OFFLINE", "true")
         .env("RUSTUP_TOOLCHAIN", "stable")
         .env("TMPDIR", &scratch)
@@ -272,6 +278,7 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
 
 #[test]
 fn generated_source_outside_package_reports_collection_failure_and_removes_scratch_files() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let source = format!("{FOO_BAR}\ninclude!(concat!(env!(\"OUT_DIR\"), \"/generated.rs\"));\n");
     let manifest = materialize_fixture(temporary.path(), &source);
@@ -284,11 +291,11 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
         ),
     )
     .unwrap();
-    let target = fixture_target(&manifest, Some(temporary.path()));
     let scratch = temporary.path().join("scratch");
     fs::create_dir(&scratch).unwrap();
     let timings_path = temporary.path().join("timings.json");
     let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
     let output = process
         .args(["check", "--message-format=json", "--manifest-path"])
         .arg(&manifest)
@@ -300,7 +307,6 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
             "--timings",
         ])
         .arg(&timings_path)
-        .env("CARGO_TARGET_DIR", &target)
         .env("CARGO_NET_OFFLINE", "true")
         .env("RUSTUP_TOOLCHAIN", "stable")
         .env("TMPDIR", &scratch)
@@ -317,7 +323,7 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
         .and_then(|detail| detail.split('`').next())
         .unwrap_or_else(|| panic!("unexpected collector failure: {stderr}"));
     let generated_path = Path::new(generated_file);
-    assert!(generated_path.starts_with(&target), "{stderr}");
+    assert!(generated_path.starts_with(target.path()), "{stderr}");
     assert!(generated_path.ends_with("out/generated.rs"), "{stderr}");
     assert!(!generated_path.starts_with(package), "{stderr}");
     assert_eq!(
@@ -539,6 +545,7 @@ fn command(
     arguments: &[&str],
 ) -> Output {
     let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
     process
         .arg(command)
         .arg("--message-format=json")
@@ -550,8 +557,7 @@ fn command(
             "krs-cli-foo-bar-fixture",
             "--definition",
             "main",
-        ])
-        .env("CARGO_TARGET_DIR", target);
+        ]);
     if let Some(output) = output {
         process.arg("--output").arg(output);
     }
@@ -584,6 +590,7 @@ fn assert_success(output: &Output) {
 
 #[test]
 fn successful_build_forwards_native_warnings_and_replays_them_from_cache() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let source = format!(
         r##"{FOO_BAR}
@@ -599,12 +606,11 @@ pub struct Sha256Digest {{
 "##
     );
     let manifest = materialize_fixture(temporary.path(), &source);
-    let target = fixture_target(&manifest, Some(temporary.path()));
     let native = temporary.path().join("native");
     let timings = temporary.path().join("timings.json");
     let run = || {
         command(
-            &target,
+            target.path(),
             &manifest,
             "build",
             Some(&native),
@@ -646,9 +652,9 @@ pub struct Sha256Digest {{
 
 #[test]
 fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
+    let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = materialize_fixture(temporary.path(), NESTED_FUNCTION_PATTERN);
-    let target = fixture_target(&manifest, Some(temporary.path()));
     let item = "twist_twice";
     let start = NESTED_FUNCTION_PATTERN.find("fn twist_twice(").unwrap() + "fn ".len();
 
@@ -656,7 +662,7 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         let native = temporary.path().join(backend);
         let timings_path = temporary.path().join(format!("{backend}-timings.json"));
         let build = command(
-            &target,
+            target.path(),
             &manifest,
             "build",
             Some(&native),

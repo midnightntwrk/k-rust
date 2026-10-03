@@ -1,13 +1,14 @@
 //! Shared assertions and fixture support for KRS tests.
 //!
-//! Fixture builds must set `CARGO_TARGET_DIR` through [`fixture_target`].
-//! Generated fixtures use a target inside their guarded scratch directory.
-//! Checked-in fixtures use a stable directory in the system temporary root, keyed by the absolute manifest path; this preserves incremental builds across test runs without writing into fixture sources.
+//! Checked-in fixtures must use [`fixture_target`], a stable directory keyed by the absolute manifest path.
+//! Generated fixtures must use [`shared_fixture_target`], a guarded per-process target shared by overlapping tests.
+//! A test of fresh-target behavior must use its own guarded scratch target.
+//! Fixture builds must apply [`fixture_build_env`] unless the test observes rustc invocations through its own wrapper.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 mod compile_fixtures;
 pub use compile_fixtures::{Expectation, check_compile_fixtures};
@@ -76,19 +77,60 @@ pub fn temp_dir() -> TempDir {
         .expect("test temporary directory is created")
 }
 
-/// Select the target directory for a fixture manifest.
+/// A generated-fixture target removed when its last guard is dropped.
+pub struct SharedFixtureTarget {
+    directory: Arc<TempDir>,
+}
+
+impl SharedFixtureTarget {
+    /// Return the target directory held by this guard.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.directory.path()
+    }
+}
+
+/// Share a target directory among overlapping generated-fixture tests in this process.
 ///
-/// `scratch` must be the guarded root for a generated fixture.
-/// Pass `None` for a checked-in fixture to retain incremental artifacts across runs.
+/// Tests must hold the guard for their whole duration.
+/// Cargo's build-directory lock serializes concurrent nested builds.
+/// Each generated fixture must still live in its own fresh directory: its manifest path keys the collector directory and result cache, so fixtures must not share collector or cache state.
+/// Tests that do not overlap, including `--test-threads=1`, receive new directories and must rebuild.
+///
+/// # Panics
+///
+/// Panics if the target mutex is poisoned or the temporary directory cannot be created.
+#[must_use]
+pub fn shared_fixture_target() -> SharedFixtureTarget {
+    static TARGET: Mutex<Weak<TempDir>> = Mutex::new(Weak::new());
+    let mut target = TARGET.lock().expect("fixture target mutex is not poisoned");
+    let directory = target.upgrade().unwrap_or_else(|| {
+        let directory = Arc::new(temp_dir());
+        *target = Arc::downgrade(&directory);
+        directory
+    });
+    SharedFixtureTarget { directory }
+}
+
+/// Set the fixture target and disable the environment or Cargo-configured rustc wrapper.
+///
+/// Fixture crates live in fresh temporary paths, so a caching wrapper only misses.
+/// A shared wrapper server serializes the parallel test processes.
+pub fn fixture_build_env(command: &mut Command, target: &Path) {
+    command
+        .env("CARGO_TARGET_DIR", target)
+        .env("RUSTC_WRAPPER", "");
+}
+
+/// Select the stable target directory for a checked-in fixture manifest.
+///
+/// The directory must retain incremental artifacts across runs without writing into fixture sources.
 ///
 /// # Panics
 ///
 /// Panics if a checked-in fixture manifest cannot be resolved.
 #[must_use]
-pub fn fixture_target(manifest: &Path, scratch: Option<&Path>) -> PathBuf {
-    if let Some(scratch) = scratch {
-        return scratch.join("target");
-    }
+pub fn fixture_target(manifest: &Path) -> PathBuf {
     let absolute = manifest
         .canonicalize()
         .expect("checked-in fixture manifest exists");
@@ -150,14 +192,15 @@ impl CargoFixture {
     }
 
     fn execute(self, subcommand: &str) -> Output {
-        Command::new(env!("CARGO"))
+        let mut command = Command::new(env!("CARGO"));
+        fixture_build_env(&mut command, &fixture_target(&self.manifest));
+        command
             .arg(subcommand)
             .args(&self.args)
             .arg("--manifest-path")
             .arg(&self.manifest)
             .arg("--offline")
             .env("CARGO_TERM_COLOR", "never")
-            .env("CARGO_TARGET_DIR", fixture_target(&self.manifest, None))
             .output()
             .expect("fixture Cargo process starts")
     }

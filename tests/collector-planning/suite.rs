@@ -2,6 +2,7 @@ use krs_cli::{
     CargoMetadata, CollectorEntrypoint, CollectorPlan, CollectorRequest, FacetSelector,
     GeneratedCollector, KrsCfg, PackageSelector, PlanningErrorKind, RegistrationMode,
 };
+use krs_test_support::{fixture_build_env, shared_fixture_target};
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -245,11 +246,14 @@ fn missing_and_ambiguous_selections_are_rejected() {
 
 #[test]
 fn generated_fixture_collector_compiles_and_reserves_stdout_for_protocol() {
+    let target = shared_fixture_target();
     let output_directory = temporary_directory();
     let generated = GeneratedCollector::from_plan(&plan_for_current_host()).unwrap();
     generated.write_to(&output_directory).unwrap();
 
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    fixture_build_env(&mut command, target.path());
+    let output = command
         .args(["run", "--quiet", "--offline"])
         .current_dir(&output_directory)
         .output()

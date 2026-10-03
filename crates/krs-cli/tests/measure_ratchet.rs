@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
 
-use krs_test_support::{fixture_target, krs_command, temp_dir};
+use krs_test_support::{krs_command, temp_dir};
 
 // Baselines: many-small-rules n=24 from tests/perf/synth.py. Bundle byte
 // headroom is 10%, rounded up to the next hundred bytes; zero pins the
@@ -79,7 +79,8 @@ fn medium_definition_counters_and_second_check_are_stable() {
         .canonicalize()
         .unwrap();
     let scratch = temp_dir();
-    let target = fixture_target(&fixture, Some(scratch.path()));
+    // The first check must invoke rustc for both the fixture and collector.
+    let target = scratch.path().join("target");
     let wrapper = scratch.path().join("rustc-wrapper");
     let log = scratch.path().join("rustc.log");
     let counters = scratch.path().join("counters.json");

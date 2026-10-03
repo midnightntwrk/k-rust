@@ -7,7 +7,9 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 
-use krs_test_support::{TempDir, fixture_target, krs_command, temp_dir};
+use krs_test_support::{
+    SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const INVALID_NATIVE: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
@@ -15,13 +17,14 @@ const INVALID_NATIVE: &str = include_str!("fixtures/nested-function-pattern/src/
 struct Fixture {
     root: TempDir,
     manifest: PathBuf,
-    target: PathBuf,
+    target: SharedFixtureTarget,
     executable: PathBuf,
     next: AtomicU64,
 }
 
 impl Fixture {
     fn new(source: &str) -> Self {
+        let target = shared_fixture_target();
         let root = temp_dir();
         let project = root.path().join("language");
         fs::create_dir_all(project.join("src")).unwrap();
@@ -42,7 +45,7 @@ impl Fixture {
         let executable = root.path().join("krs");
         copy_executable(Path::new(env!("CARGO_BIN_EXE_krs")), &executable);
         Self {
-            target: fixture_target(&manifest, Some(root.path())),
+            target,
             root,
             manifest,
             executable,
@@ -62,6 +65,7 @@ impl Fixture {
         let counters_path = self.root.path().join(format!("counters-{sequence}.json"));
         let timings_path = self.root.path().join(format!("timings-{sequence}.json"));
         let mut command = krs_command!(&self.executable);
+        fixture_build_env(&mut command, self.target.path());
         command
             .arg(kind)
             .args(options)
@@ -79,7 +83,6 @@ impl Fixture {
             .arg(&counters_path)
             .arg("--timings")
             .arg(&timings_path)
-            .env("CARGO_TARGET_DIR", &self.target)
             .env("CARGO_NET_OFFLINE", "true")
             .env("RUSTUP_TOOLCHAIN", "stable")
             .env_remove("KRS_NO_REUSE");
@@ -104,9 +107,26 @@ impl Fixture {
     }
 
     fn cache_file_names(&self) -> BTreeSet<String> {
-        fs::read_dir(self.target.join("krs/collectors"))
+        let project = self.manifest.parent().unwrap().canonicalize().unwrap();
+        let dependency_path = format!(
+            "path = {}",
+            toml_edit::Value::from(project.to_string_lossy().as_ref())
+        );
+        let collectors = fs::read_dir(self.target.path().join("krs/collectors"))
             .unwrap()
-            .flat_map(|entry| fs::read_dir(entry.unwrap().path()).unwrap())
+            .map(|entry| entry.unwrap().path())
+            .filter(
+                |directory| match fs::read_to_string(directory.join("Cargo.toml")) {
+                    Ok(manifest) => manifest.contains(&dependency_path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => panic!("{}: {error}", directory.display()),
+                },
+            )
+            .collect::<Vec<_>>();
+        assert!(!collectors.is_empty(), "fixture collector must exist");
+        collectors
+            .iter()
+            .flat_map(|directory| fs::read_dir(directory).unwrap())
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .filter(|name| name.starts_with("krs-result-"))
             .collect()
