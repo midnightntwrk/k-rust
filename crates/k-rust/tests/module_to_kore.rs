@@ -3219,3 +3219,68 @@ fn owise_or_a_priority_alone_compiles_and_loads() {
         );
     }
 }
+
+/// Every sort of K items is below `KItem` and `K` in the order the rule grammar admits terms by,
+/// so a term of the result sort stands at a `K` argument and an associativity attribute on such a
+/// production decides the nesting: the generated-input reproducer compiles and loads.
+#[test]
+fn associativity_attributes_on_a_k_argument_compile_and_load() {
+    for (production, attribute) in [
+        (r#"Ty "~" K"#, "left"),
+        (r#"K "~" Ty"#, "right"),
+        (r#"Ty "~" K"#, "non-assoc"),
+        (r#"Ty "~" KItem"#, "left"),
+    ] {
+        assert_compiles_and_loads(
+            &format!(
+                "module MAIN\n  imports BYTES\n  syntax Ty ::= Cmd \"|\" Cmd\n      | {production} [symbol(s8), {attribute}]\n  syntax Cmd ::= pair25(Cmd, Bytes)\nendmodule\n"
+            ),
+            "MAIN",
+        );
+    }
+}
+
+/// The attribute has an effect: without it `t ~ t ~ t` has both nestings and the rule is
+/// ambiguous; with `left` it parses as `(t ~ t) ~ t`.
+#[test]
+fn a_left_attribute_on_a_k_argument_resolves_the_nesting() {
+    let source = |attributes: &str| {
+        format!(
+            "module MAIN\n  imports BASIC-K\n  syntax Ty ::= \"t\" [symbol(t)]\n      | Ty \"~\" K [symbol(s8){attributes}]\n  rule t ~ t ~ t => t\nendmodule\n"
+        )
+    };
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let error = outer::load_with_options(
+        outer::ResolvedSource::new("backend-admission.k", source("")),
+        "MAIN",
+        &mut resolver,
+        &outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            ..outer::LoadOptions::default()
+        },
+    )
+    .expect_err("without an associativity attribute the rule is ambiguous");
+    assert!(format!("{error:?}").contains("Ambiguous"), "{error:?}");
+
+    let artifacts = compile_for_backend(&source(", left"), "MAIN")
+        .unwrap_or_else(|error| panic!("the left-associative rule should compile: {error:?}"));
+    let kore = artifacts
+        .definition_kore
+        .split_whitespace()
+        .collect::<String>();
+    assert!(kore.contains("Lbls8{}(Lbls8{}(Lblt{}(),"), "{kore}");
+    assert_compiles_and_loads(&source(", left"), "MAIN");
+}
+
+/// A result sort that is not below the argument sort still makes the attribute ineffective.
+#[test]
+fn an_associativity_attribute_on_an_unrelated_argument_is_a_located_error() {
+    let (start_line, message) = compile_error(
+        "module MAIN\n  imports INT\n  syntax Ty ::= \"t\"\n      | Ty \"~\" Int [symbol(s8), left]\nendmodule\n",
+        "MAIN",
+    );
+    assert_eq!(start_line, 4, "{message}");
+    assert!(message.contains("Ty <= Int"), "{message}");
+}

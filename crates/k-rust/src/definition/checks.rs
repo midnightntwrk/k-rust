@@ -73,6 +73,7 @@ pub use rhs_variables::{
 pub(crate) use rhs_variables::{CheckedRoot, right_hand_side_binding};
 pub(crate) use rhs_variables::{FreeVariable, local_function_free_variables};
 pub(crate) use sorts::kernel_position_cycle;
+use sorts::rule_grammar_subsorts;
 pub use sorts::{check_outer_modules, check_sort_synonyms, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
@@ -141,11 +142,19 @@ fn check_module_with_options_and_catalog(
     let overloads = views.overloads(module).ok();
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(production_catalog);
+    // Associativity is judged by the order the module's rule grammar admits terms by. When that
+    // order is cyclic the definition's subsort checks reject it, and the declared order stands in.
+    let rule_order = local_associativity(&sentences)
+        .then(|| rule_grammar_subsorts(&definition.sentences(module)).ok())
+        .flatten();
     let mut diagnostics = check_attributes(definition.module(module))
         .into_iter()
         .chain(check_duplicate_labels(&sentences))
         .chain(check_syntax_groups(&sentences, priorities))
-        .chain(check_associativity(&sentences, subsorts))
+        .chain(check_associativity(
+            &sentences,
+            rule_order.as_ref().unwrap_or(subsorts),
+        ))
         .chain(check_sort_top_uniqueness(&sentences, subsorts))
         .chain(check_holes(&sentences))
         .chain(check_streams(&sentences, subsorts))
@@ -418,10 +427,25 @@ pub fn check_syntax_groups(
     diagnostics
 }
 
-/// Java `CheckAssoc`.
+/// Whether a local sentence is a production with an associativity attribute.
+fn local_associativity(sentences: &[&Sentence]) -> bool {
+    sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Production { attributes, .. }
+            if attributes.has_any(&[AttributeKey::Left, AttributeKey::Right, AttributeKey::NonAssoc]))
+    })
+}
+
+/// Reject an associativity attribute on a binary production that it cannot affect.
+///
+/// `left` on a production `p` forbids a `p` term as the right argument of a `p` term, `right` as
+/// the left argument, and `non-assoc` as either. Such a nesting can be parsed only when a term of
+/// the result sort of `p` is admitted at that argument, so the attribute has an effect exactly when
+/// the result sort is below the argument sort in `admission`: the order the grammar the production
+/// is parsed in admits terms by, which for a module is its rule grammar's order
+/// ([`sorts::rule_grammar_subsorts`]), where every sort of K items is below `KItem` and `K`.
 pub fn check_associativity(
     sentences: &[&Sentence],
-    subsorts: &PartialOrder<Sort>,
+    admission: &PartialOrder<Sort>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -444,8 +468,8 @@ pub fn check_associativity(
         let [left, right] = arguments.as_slice() else {
             continue;
         };
-        let leq_left = subsorts.less_than_eq(sort, left);
-        let leq_right = subsorts.less_than_eq(sort, right);
+        let leq_left = admission.less_than_eq(sort, left);
+        let leq_right = admission.less_than_eq(sort, right);
         if attributes.has(AttributeKey::Left) && !leq_right {
             diagnostics.push(invalid_assoc(
                 AttributeKey::Left.as_str(),

@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::super::partial_order::{Cycle, first_cycle};
+use super::super::partial_order::{Cycle, PartialOrder, first_cycle};
 use super::super::relations::{
     SubsortDeclaration, disambiguation_subsort_pairs, states_disambiguation_subsort,
 };
@@ -681,16 +681,15 @@ struct KernelPositionSearch {
     cycle: Cycle<Sort>,
 }
 
-/// Search `visible`'s declared subsorts, less the pairs of `excluded`, completed with the kernel
-/// positions of its sorts for a cycle; `None` when the declared subsorts alone are cyclic.
-fn kernel_position_search(
-    visible: &[&Sentence],
-    excluded: &BTreeSet<(Sort, Sort)>,
-) -> Option<KernelPositionSearch> {
+/// The declared pairs a view's rule grammar starts from, [`disambiguation_subsort_pairs`], and
+/// their kernel completion over the sorts they mention and the sorts the view declares.
+struct RuleGrammarRelation {
+    declared: BTreeSet<(Sort, Sort)>,
+    completion: BTreeMap<(Sort, Sort), String>,
+}
+
+fn rule_grammar_relation(visible: &[&Sentence]) -> RuleGrammarRelation {
     let declared = disambiguation_subsort_pairs(visible);
-    if first_cycle(declared.iter().cloned()).is_some() {
-        return None;
-    }
     let mut sorts = declared
         .iter()
         .flat_map(|(lesser, greater)| [lesser.clone(), greater.clone()])
@@ -722,6 +721,43 @@ fn kernel_position_search(
         }
     }
     let completion = kernel_completion(&sorts);
+    RuleGrammarRelation {
+        declared,
+        completion,
+    }
+}
+
+/// The order of a module view's rule grammar: the declared pairs it starts from completed with
+/// the kernel positions of its sorts ([`kernel_completion`]).
+///
+/// It is the order in which that grammar admits a term at an argument position: a term of sort
+/// `S` stands at a nonterminal of sort `T` exactly when `S <= T` in it. Every sort of K items lies
+/// below `KItem` and `K` in it, though the definition's declared subsort order does not state
+/// those pairs. An error is a cycle of the declared pairs or a kernel position contradiction,
+/// which the definition's own checks report.
+pub(crate) fn rule_grammar_subsorts(
+    visible: &[&Sentence],
+) -> Result<PartialOrder<Sort>, Cycle<Sort>> {
+    let RuleGrammarRelation {
+        declared,
+        completion,
+    } = rule_grammar_relation(visible);
+    PartialOrder::new(declared.into_iter().chain(completion.into_keys()))
+}
+
+/// Search `visible`'s declared subsorts, less the pairs of `excluded`, completed with the kernel
+/// positions of its sorts for a cycle; `None` when the declared subsorts alone are cyclic.
+fn kernel_position_search(
+    visible: &[&Sentence],
+    excluded: &BTreeSet<(Sort, Sort)>,
+) -> Option<KernelPositionSearch> {
+    let RuleGrammarRelation {
+        declared,
+        completion,
+    } = rule_grammar_relation(visible);
+    if first_cycle(declared.iter().cloned()).is_some() {
+        return None;
+    }
     let cycle = first_cycle(
         declared
             .iter()
