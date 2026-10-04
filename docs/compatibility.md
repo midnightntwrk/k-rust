@@ -368,6 +368,7 @@ A label heads a rule equation only through a rule that is not a simplification l
 On a value production, the frontend discards a deprecated source `functional` before emitting the judgement's claims in both the semantic and syntax definitions.
 It restores `functional` only when the judgement establishes totality, keeping the declaration and its functional axiom consistent with the definedness reading used for generated lambdas.
 To state totality as an author axiom instead, use `function, total`; that declaration remains trusted.
+A deprecated `functional` on a `function` production states the same claim and is read exactly as `function, total`: the declaration carries `functional` and its functional axiom.
 An equation equates the head with its right-hand side wherever its condition holds, so an undefined right-hand side contradicts an unconditional totality claim; conditions and left-hand-side patterns restrict applicability but do not establish definedness.
 The judgement uses a least fixed point: neither a head nor a dependency cycle may establish its own totality.
 A stage that still sees the self-referential equations `foo(a => b)` (whose right-hand side is `foo(b)`) or `(5 => 6) : _` cannot use the head itself as totality evidence.

@@ -1631,7 +1631,8 @@ fn symbol_attributes(
     }
     debug_assert!(
         syntax.is_some()
-            || (partial_value_production && backend == CompilationBackend::Llvm)
+            || (backend == CompilationBackend::Llvm
+                && overrides.contains_key(KoreAttribute::ValueProduction.as_str()))
             || [
                 AttributeKey::Constructor,
                 AttributeKey::Functional,
