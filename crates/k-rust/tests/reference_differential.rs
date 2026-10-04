@@ -2640,14 +2640,12 @@ fn normalize_configuration_deferred_totality_json(
             let Some(cell_name) = attributes["cellName"].as_str() else {
                 continue;
             };
-            let cell_sort = k_rust::definition::configuration::cell_sort_name(cell_name);
             let cell_label = format!("<{cell_name}>");
             let Some(items) = cell["productionItems"].as_array() else {
                 continue;
             };
             if cell["node"] != "KProduction"
                 || attributes.get("cell").is_none()
-                || cell["sort"]["name"] != cell_sort
                 || cell["sort"]["params"] != serde_json::json!([])
                 || cell["klabel"]["name"] != cell_label
                 || items
@@ -2658,6 +2656,25 @@ fn normalize_configuration_deferred_totality_json(
                 })
             {
                 continue;
+            }
+            let cell_sort = cell["sort"]["name"]
+                .as_str()
+                .ok_or_else(|| format!("{cell_label}: reference cell sort has no name"))?;
+            // The reference sort names the initializer; the cell name only checks consistency.
+            let expected_cell_sort = cell_name
+                .split('-')
+                .map(|part| {
+                    let mut characters = part.chars();
+                    characters.next().map_or_else(String::new, |first| {
+                        first.to_uppercase().chain(characters).collect()
+                    })
+                })
+                .collect::<String>()
+                + "Cell";
+            if cell_sort != expected_cell_sort {
+                return Err(format!(
+                    "{cell_label}: reference cell sort {cell_sort} disagrees with cellName {cell_name} (expected {expected_cell_sort})"
+                ));
             }
             let mut result_sort = cell["sort"].clone();
             match attributes["multiplicity"].as_str() {
@@ -3037,6 +3054,7 @@ fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Val
         "att": {"node": "KAtt", "att": {"initializer": "", "function": "", "total": ""}}
     });
     let mut unrelated = initializer.clone();
+    unrelated["sort"] = sort("OtherCell");
     unrelated["klabel"]["name"] = "initOtherCell".into();
     unrelated["productionItems"][0]["value"] = "initOtherCell".into();
     unrelated["att"]["att"]
@@ -3044,6 +3062,7 @@ fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Val
         .unwrap()
         .remove("initializer");
     let mut with_map = initializer.clone();
+    with_map["sort"] = sort("MappedCell");
     with_map["klabel"]["name"] = "initMappedCell".into();
     with_map["productionItems"] = serde_json::json!([
         {"node": "KTerminal", "value": "initMappedCell"},
@@ -3051,18 +3070,24 @@ fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Val
         {"node": "KNonTerminal", "sort": sort("Map")},
         {"node": "KTerminal", "value": ")"}
     ]);
+    let cell = |name: &str, cell_sort: &str| {
+        serde_json::json!({
+            "node": "KProduction", "klabel": {"node": "KLabel", "name": format!("<{name}>"), "params": []},
+            "sort": sort(cell_sort), "params": [],
+            "productionItems": [
+                {"node": "KTerminal", "value": format!("<{name}>")},
+                {"node": "KNonTerminal", "sort": sort("Int")},
+                {"node": "KTerminal", "value": format!("</{name}>")}
+            ],
+            "att": {"node": "KAtt", "att": {"cell": "", "cellName": name, "multiplicity": "1"}}
+        })
+    };
     let reference = serde_json::json!({"term": {"modules": [{
         "node": "KFlatModule", "name": "TEST", "imports": [], "att": {"node": "KAtt", "att": {}},
-        "localSentences": [initializer, unrelated, with_map, {
-            "node": "KProduction", "klabel": {"node": "KLabel", "name": "<n>", "params": []},
-            "sort": sort("NCell"), "params": [],
-            "productionItems": [
-                {"node": "KTerminal", "value": "<n>"},
-                {"node": "KNonTerminal", "sort": sort("Int")},
-                {"node": "KTerminal", "value": "</n>"}
-            ],
-            "att": {"node": "KAtt", "att": {"cell": "", "cellName": "n", "multiplicity": "1"}}
-        }]
+        "localSentences": [
+            initializer, unrelated, with_map,
+            cell("n", "NCell"), cell("other", "OtherCell"), cell("mapped", "MappedCell")
+        ]
     }]}});
     let mut actual = reference.clone();
     actual["term"]["modules"][0]["localSentences"][0]["att"]["att"]
@@ -3083,7 +3108,6 @@ fn nullary_initializer_totality_json_normalizer_requires_the_generating_cell() {
         ("/att/att", serde_json::json!({"cell": ""})),
         ("/att/att/cellName", serde_json::json!("other")),
         ("/klabel/name", serde_json::json!("<other>")),
-        ("/sort/name", serde_json::json!("OtherCell")),
         ("/productionItems/0/value", serde_json::json!("<other>")),
         ("/productionItems/2/value", serde_json::json!("</other>")),
         ("/att/att/multiplicity", serde_json::json!("*")),
@@ -3097,6 +3121,39 @@ fn nullary_initializer_totality_json_normalizer_requires_the_generating_cell() {
         assert_eq!(
             normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
             Ok(0),
+            "{path}"
+        );
+        assert_eq!(reference, unchanged);
+    }
+}
+
+#[test]
+fn nullary_initializer_totality_json_normalizer_refuses_inconsistent_cell_sort() {
+    for (path, replacement, message) in [
+        (
+            "/sort/name",
+            serde_json::json!("OtherCell"),
+            "<n>: reference cell sort OtherCell disagrees with cellName n (expected NCell)",
+        ),
+        (
+            "/att/att/cellName",
+            serde_json::json!("other"),
+            "<other>: reference cell sort NCell disagrees with cellName other (expected OtherCell)",
+        ),
+    ] {
+        let (mut reference, actual, compiled) = nullary_initializer_totality_fixture();
+        let cell = &mut reference["term"]["modules"][0]["localSentences"][3];
+        *cell.pointer_mut(path).unwrap() = replacement;
+        if path == "/att/att/cellName" {
+            cell["klabel"]["name"] = "<other>".into();
+            cell["productionItems"][0]["value"] = "<other>".into();
+            cell["productionItems"][2]["value"] = "</other>".into();
+        }
+        normalize_definition_json(&mut reference);
+        let unchanged = reference.clone();
+        assert_eq!(
+            normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
+            Err(message.into()),
             "{path}"
         );
         assert_eq!(reference, unchanged);
