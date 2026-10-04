@@ -48,12 +48,42 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-/// Evidence that the right-hand side of a generated lambda's only equation is defined wherever
-/// the equation applies, so every application of the lambda denotes exactly one value.
+/// Evidence that a generated covering lambda's equation results are defined wherever they
+/// apply, so every application of the lambda denotes exactly one value.
 ///
-/// Its field is private, which makes `Resolver::equation_right_is_defined` its only constructor:
-/// the one judgement that inspects the equation's right-hand side mints it.
+/// Its field is private; the early body judgement and the deferred covering-lambda judgement
+/// mint it only after inspecting the equation results.
 pub(crate) struct DefinedBody(());
+
+/// A generated lambda's variable pattern covers its parameter sort: every semantic cast on the
+/// path to the variable, and any inferred sort recorded on it, equal the computed parameter sort.
+/// A narrower sort anywhere on that path restricts the equation and cannot receive this receipt.
+/// Only local-function lowering can construct it; later stages still check equation conditions and results.
+pub(crate) struct CoveringLambda {
+    label: String,
+}
+
+impl CoveringLambda {
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// Callers must supply exactly this label's equations from the main-module rule catalog.
+    pub(crate) fn defined_body<'a>(
+        &self,
+        equations: impl IntoIterator<Item = (&'a Term, &'a Term, &'a Term)>,
+        defined: &mut dyn FnMut(&Label) -> bool,
+    ) -> Option<DefinedBody> {
+        let mut count = 0;
+        let all_defined = equations.into_iter().all(|(right, requires, ensures)| {
+            count += 1;
+            head_totality::is_true(requires)
+                && head_totality::is_true(ensures)
+                && head_totality::term_is_defined(right, defined)
+        });
+        (count > 0 && all_defined).then_some(DefinedBody(()))
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFunError {
@@ -89,7 +119,7 @@ pub fn resolve_fun(definition: &Definition) -> Result<Definition, ResolveFunErro
 
 pub(crate) fn resolve_fun_pass(
     input: &super::super::pipeline::PassInput<'_>,
-    _: &mut super::super::pipeline::PipelineState,
+    state: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveFunError> {
     let resolved = input.resolved_raw().map_err(|error| ResolveFunError {
         diagnostics: vec![plain_error(error.to_string())],
@@ -146,6 +176,7 @@ pub(crate) fn resolve_fun_pass(
             rule_heads: &rule_heads,
             totality: &totality,
             total_lambdas: BTreeSet::new(),
+            covering_lambdas: &mut state.covering_lambdas,
             labels: &mut labels,
             productions: Vec::new(),
             rules: Vec::new(),
@@ -200,6 +231,7 @@ struct Resolver<'a, 'view, 'definition> {
     totality: &'view OnceCell<Option<EquationTotality>>,
     /// The lambdas generated in this module so far whose production is declared `total`.
     total_lambdas: BTreeSet<String>,
+    covering_lambdas: &'a mut Vec<CoveringLambda>,
     labels: &'a mut BTreeSet<String>,
     productions: Vec<Sentence>,
     rules: Vec<Sentence>,
@@ -343,7 +375,6 @@ impl Resolver<'_, '_, '_> {
         let argument_sort = self.term_sort(&argument, &attributes);
         // Java treats an uncast variable pattern as the unknown `K` sort in this LUB, regardless
         // of the concrete argument sort.
-        let variable_pattern = underlying_variable(&left).is_some();
         let parameter_sort = match (lhs_sort, argument_sort) {
             _ if matches!(left.unannotated(), Term::Variable { .. }) => {
                 Sort::builtin(BuiltinSort::K)
@@ -359,13 +390,15 @@ impl Resolver<'_, '_, '_> {
             .iter()
             .any(|internal| source_label.is(*internal));
 
-        // A lambda has no value on an argument its pattern does not match, so only a `#fun` or
-        // `#let` whose pattern is a variable can be total; whether the value it binds to every
-        // argument is defined is decided from the generated equation's right-hand side below.
+        // A lambda has no value on an argument its pattern does not match.
+        // A variable pattern covers every argument only when every semantic cast on the path
+        // to the variable, and any inferred sort recorded on it, equal the parameter sort.
+        // A narrower sort anywhere on that path restricts the generated equation.
+        // The generated equation's right-hand side must also denote a defined value.
         let covering = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
             .iter()
             .any(|internal| source_label.is(*internal))
-            && variable_pattern;
+            && pattern_covers(&left, &parameter_sort);
         let result_sort = if predicate {
             Sort::builtin(BuiltinSort::Bool)
         } else {
@@ -413,6 +446,11 @@ impl Resolver<'_, '_, '_> {
                 attributes,
                 LambdaResult::PatternRight,
             );
+            if covering {
+                self.covering_lambdas.push(CoveringLambda {
+                    label: lambda.name.clone(),
+                });
+            }
             if covering && let Some(defined) = self.equation_right_is_defined(&rule) {
                 self.productions[production]
                     .attributes_mut()
@@ -478,7 +516,7 @@ impl Resolver<'_, '_, '_> {
     /// body is built from variables, tokens, K sequences and applications of symbols that denote
     /// one value on defined arguments, as shown by the module's equation judgement.
     ///
-    /// This judgement is the only constructor of [`DefinedBody`], the evidence
+    /// This early judgement mints [`DefinedBody`], the evidence
     /// [`TotalityWitness::defined_body`] requires.
     fn equation_right_is_defined(&self, rule: &Sentence) -> Option<DefinedBody> {
         let Sentence::Rule { body, .. } = rule else {
@@ -899,6 +937,27 @@ fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     }
 }
 
+/// Whether the variable pattern `pattern` matches every value of `parameter`: every semantic
+/// cast on the path to the variable, and the sort inference recorded on the variable itself,
+/// must be exactly `parameter`. A narrower sort anywhere on that path restricts the generated
+/// equation to that sort's values, so the lambda has no value elsewhere.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
+fn pattern_covers(pattern: &Term, parameter: &Sort) -> bool {
+    match pattern.unannotated() {
+        Term::Variable { sort, .. } => sort.as_ref().is_none_or(|sort| sort == parameter),
+        Term::Apply { label, arguments } if arguments.len() == 1 => {
+            label
+                .semantic_cast_sort()
+                .is_some_and(|sort| &sort == parameter)
+                && pattern_covers(&arguments[0], parameter)
+        }
+        _ => false,
+    }
+}
+
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
@@ -1121,5 +1180,32 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         source: None,
         location: None,
         input_addresses: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_lambda_evidence_requires_unconditional_equations() {
+        let lambda = CoveringLambda {
+            label: "lambda".to_owned(),
+        };
+        let right = Term::variable("X");
+        let truth = bool_token(true);
+        let falsehood = bool_token(false);
+        let unconditional = (&right, &truth, &truth);
+        let conditional = (&right, &falsehood, &truth);
+        let mut defined = |_: &Label| false;
+
+        assert!(lambda.defined_body([unconditional], &mut defined).is_some());
+        assert!(lambda.defined_body([conditional], &mut defined).is_none());
+        assert!(
+            lambda
+                .defined_body([unconditional, conditional], &mut defined)
+                .is_none()
+        );
+        assert!(lambda.defined_body([], &mut defined).is_none());
     }
 }

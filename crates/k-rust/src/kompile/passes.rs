@@ -93,7 +93,7 @@ pub use resolve_fresh_config_constants::{
 };
 pub(crate) use resolve_fresh_constants::resolve_fresh_constants_pass;
 pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
-pub(crate) use resolve_fun::{DefinedBody, resolve_fun_pass};
+pub(crate) use resolve_fun::{CoveringLambda, DefinedBody, resolve_fun_pass};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

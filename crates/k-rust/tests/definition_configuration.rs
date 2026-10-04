@@ -602,6 +602,25 @@ fn nullary_initializer_anywhere_collection_unit_is_not_total() {
 }
 
 #[test]
+fn hooked_collection_unit_loses_hook_evidence_under_any_equation() {
+    for (equation, total) in [
+        ("", true),
+        ("rule .NCellSet => bad()", false),
+        ("rule .NCellSet => bad() [simplification]", true),
+    ] {
+        let source = format!(
+            r#"module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax NCellSet ::= bad() [function, symbol(bad)]
+              {equation}
+              configuration <top> <n multiplicity="*" type="Set"> 0 </n> </top>
+            endmodule"#,
+        );
+        assert_initializer_totality(&source, &[("initNCell", true), ("initTopCell", total)]);
+    }
+}
+
+#[test]
 fn nullary_initializer_nontrivial_ensures_is_not_total() {
     assert_initializer_totality(
         indoc! {r#"

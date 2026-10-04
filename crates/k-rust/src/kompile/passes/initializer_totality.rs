@@ -1,13 +1,12 @@
-//! Initializer totality is decided after written equations and macro expansions are available.
-//! For I initializer labels, T RHS nodes and U child-unit obligations, the least fixed point
-//! takes at most I changing rounds, O(I x (I + T + U) x log P) plus the main-module
-//! EquationTotality judgement and resolution. RHS preparation allocates O(T + U) once.
+//! Initializer and covering-lambda totality is decided after written equations and macro expansions are available.
+//! For I initializer and deferred lambda labels, T RHS nodes and U child-unit obligations, the least fixed point takes at most I changing rounds, O(I x (I + T + U) x log P) plus the main-module EquationTotality judgement and resolution.
+//! RHS preparation allocates O(T + U) once.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::definition::head_totality::{EquationTotality, is_true, term_is_defined};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
-    AttributeKey, Definition, LabelHead, ProductionItem, ResolveError, Sentence, match_rule_label,
+    AttributeKey, Definition, ProductionItem, ResolveError, Sentence, match_rule_label,
 };
 use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::provenance::GeneratingPass;
@@ -15,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn declare_initializer_totality_pass(
     input: &super::super::pipeline::PassInput<'_>,
-    _: &mut super::super::pipeline::PipelineState,
+    state: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveError> {
     let resolved = input.resolved_raw().map_err(Clone::clone)?;
     let main = resolved.main_module_id();
@@ -25,7 +24,18 @@ pub(crate) fn declare_initializer_totality_pass(
         .overloads(main)
         .ok()
         .map(|overloads| EquationTotality::judge(&productions, &rules, &overloads));
-    let mut initializer_rules = BTreeMap::<String, Vec<InitializerRule>>::new();
+    let lambdas = state
+        .covering_lambdas
+        .iter()
+        .map(|lambda| (lambda.label().to_owned(), lambda))
+        .collect::<BTreeMap<_, _>>();
+    let mut headed = BTreeSet::new();
+    for (_, rule) in rules.rules() {
+        if !rule.attributes().has(AttributeKey::Simplification) {
+            headed.insert(match_rule_label(rule).name);
+        }
+    }
+    let mut deferred_rules = BTreeMap::<String, Vec<DeferredRule>>::new();
     let mut cells = BTreeSet::new();
     let mut defined = BTreeSet::new();
     let mut units = BTreeMap::<Sort, BTreeSet<String>>::new();
@@ -45,7 +55,7 @@ pub(crate) fn declare_initializer_totality_pass(
     let mut child_units = BTreeMap::<String, BTreeSet<String>>::new();
     // Generation receipts separate configuration products from source-written markers.
     // Signatures separate nullary initializers from configuration-map readers.
-    // Collect cell boundaries and evidently defined hooked units before initializer dependencies.
+    // Collect cell boundaries and evidently defined hooked units before deferred dependencies.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
@@ -56,6 +66,16 @@ pub(crate) fn declare_initializer_totality_pass(
         else {
             continue;
         };
+        if production
+            .attributes()
+            .origin_record()
+            .is_some_and(|origin| origin.pass == GeneratingPass::ResolveFun)
+            && attributes.has(AttributeKey::Function)
+            && !attributes.has(AttributeKey::Total)
+            && lambdas.contains_key(&label.name)
+        {
+            deferred_rules.entry(label.name.clone()).or_default();
+        }
         if !configuration_generated(production) {
             continue;
         }
@@ -73,18 +93,16 @@ pub(crate) fn declare_initializer_totality_pass(
         // Ordinary cell constructors and optional units use EquationTotality below: source
         // equations or a merged function property can make a generated label partial.
         // Hooked collection units build the empty collection despite lacking a total marker,
-        // but an anywhere or macro equation can change that meaning. The unit's own receipt
-        // supplies its origin; a cell's source-written unit property cannot supply evidence.
+        // but any non-simplification rule headed by the unit can change that meaning.
+        // The unit's own receipt supplies its origin; a cell's source-written unit property
+        // cannot supply evidence.
         if matches!(items.as_slice(), [ProductionItem::Terminal(_)])
             && attributes.has(AttributeKey::Function)
             && matches!(
                 attributes.string(AttributeKey::Hook),
                 Some("BAG.unit" | "SET.unit" | "MAP.unit" | "LIST.unit")
             )
-            && totality.as_ref().is_some_and(|t| {
-                let head = LabelHead::from(label);
-                !t.heads_anywhere(&head) && !t.heads_macro(&head)
-            })
+            && !headed.contains(&label.name)
         {
             defined.insert(label.name.clone());
         }
@@ -92,7 +110,7 @@ pub(crate) fn declare_initializer_totality_pass(
             && attributes.has(AttributeKey::Function)
             && matches!(items.as_slice(), [ProductionItem::Terminal(_)])
         {
-            initializer_rules.entry(label.name.clone()).or_default();
+            deferred_rules.entry(label.name.clone()).or_default();
         }
     }
     for (_, rule) in rules.rules() {
@@ -106,7 +124,7 @@ pub(crate) fn declare_initializer_totality_pass(
             unreachable!("rule catalogs contain rules")
         };
         let label = match_rule_label(rule);
-        if let Some(equations) = initializer_rules.get_mut(&label.name) {
+        if let Some(equations) = deferred_rules.get_mut(&label.name) {
             let rule_right = match body.unannotated() {
                 Term::Rewrite { right, .. } => &**right,
                 Term::As { .. }
@@ -117,7 +135,7 @@ pub(crate) fn declare_initializer_totality_pass(
                 | Term::InjectedLabel(_) => body,
                 Term::Annotated { .. } => unreachable!("unannotated terms carry no annotation"),
             };
-            equations.push(InitializerRule {
+            equations.push(DeferredRule {
                 // Boundary syntax is independent of the proven-label set; erase it once.
                 rule_right: without_initializer_frames(rule_right, &cells),
                 requires: requires.clone(),
@@ -129,7 +147,8 @@ pub(crate) fn declare_initializer_totality_pass(
             });
         }
     }
-    let proven = proven_initializers(&initializer_rules, &defined, totality.as_ref());
+    let proven = proven_deferred_labels(&deferred_rules, &lambdas, &defined, totality.as_ref());
+    let mut changed = false;
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
@@ -142,31 +161,51 @@ pub(crate) fn declare_initializer_totality_pass(
             else {
                 continue;
             };
-            if !configuration_generated(sentence)
+            let initializer = configuration_generated(sentence)
+                && attributes.has(AttributeKey::Initializer)
+                && matches!(items.as_slice(), [ProductionItem::Terminal(_)]);
+            let lambda = lambdas.get(&label.name).filter(|_| {
+                attributes
+                    .origin_record()
+                    .is_some_and(|origin| origin.pass == GeneratingPass::ResolveFun)
+            });
+            if (!initializer && lambda.is_none())
+                || attributes.has(AttributeKey::Total)
                 || productions.find_equivalent(sentence).is_none()
-                || !attributes.has(AttributeKey::Initializer)
                 || !attributes.has(AttributeKey::Function)
-                || !matches!(items.as_slice(), [ProductionItem::Terminal(_)])
                 || !proven.contains(&label.name)
             {
                 continue;
             }
             // Only the complete all-equations judgement can mint evidence, after its fixed point.
-            let evidence = defined_initializer(&initializer_rules[&label.name], &mut |label| {
-                initializer_label_is_defined(
+            let equations = &deferred_rules[&label.name];
+            let mut label_is_defined = |label: &Label| {
+                deferred_label_is_defined(
                     label,
-                    &initializer_rules,
+                    &deferred_rules,
                     &proven,
                     &defined,
                     totality.as_ref(),
                 )
-            })
-            .expect("the fixed point established every initializer equation");
+            };
+            let witness = if let Some(lambda) = lambda {
+                TotalityWitness::defined_body(
+                    defined_lambda(lambda, equations, &mut label_is_defined)
+                        .expect("the fixed point established every lambda equation"),
+                )
+            } else {
+                TotalityWitness::nullary_initializer(
+                    defined_initializer(equations, &mut label_is_defined)
+                        .expect("the fixed point established every initializer equation"),
+                )
+            };
             crate::definition::sentence_mut(sentence)
                 .attributes_mut()
-                .declare_total(TotalityWitness::nullary_initializer(evidence));
+                .declare_total(witness);
+            changed = true;
         }
     }
+    state.record_initializer_totality_change(changed);
     Ok(output)
 }
 
@@ -185,7 +224,7 @@ fn configuration_generated(sentence: &Sentence) -> bool {
 /// and every equation builds a defined value with a trivial postcondition.
 pub(crate) struct DefinedInitializer(());
 
-struct InitializerRule {
+struct DeferredRule {
     // Collected with generated-cell boundary frames already removed.
     rule_right: Term,
     requires: Term,
@@ -209,7 +248,7 @@ fn initializer_child_units(
 }
 
 fn initializer_rules_are_defined(
-    rules: &[InitializerRule],
+    rules: &[DeferredRule],
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
     // A partial function needs an applicable equation, not only defined possible results.
@@ -225,8 +264,41 @@ fn initializer_rules_are_defined(
         })
 }
 
+fn defined_lambda(
+    lambda: &super::resolve_fun::CoveringLambda,
+    rules: &[DeferredRule],
+    defined: &mut dyn FnMut(&Label) -> bool,
+) -> Option<super::resolve_fun::DefinedBody> {
+    if !rules.iter().all(|rule| {
+        rule.child_units
+            .iter()
+            .all(|unit| defined(&Label::new(unit)))
+    }) {
+        return None;
+    }
+    lambda.defined_body(
+        rules
+            .iter()
+            .map(|rule| (&rule.rule_right, &rule.requires, &rule.ensures)),
+        defined,
+    )
+}
+
+fn deferred_rules_are_defined(
+    label: &str,
+    rules: &[DeferredRule],
+    lambdas: &BTreeMap<String, &super::resolve_fun::CoveringLambda>,
+    defined: &mut dyn FnMut(&Label) -> bool,
+) -> bool {
+    if let Some(lambda) = lambdas.get(label) {
+        defined_lambda(lambda, rules, defined).is_some()
+    } else {
+        initializer_rules_are_defined(rules, defined)
+    }
+}
+
 fn defined_initializer(
-    rules: &[InitializerRule],
+    rules: &[DeferredRule],
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> Option<DefinedInitializer> {
     if initializer_rules_are_defined(rules, defined) {
@@ -270,8 +342,9 @@ fn without_initializer_frames(term: &Term, generated_cells: &BTreeSet<String>) -
     }
 }
 
-fn proven_initializers(
-    rules: &BTreeMap<String, Vec<InitializerRule>>,
+fn proven_deferred_labels(
+    rules: &BTreeMap<String, Vec<DeferredRule>>,
+    lambdas: &BTreeMap<String, &super::resolve_fun::CoveringLambda>,
     generated_defined_labels: &BTreeSet<String>,
     totality: Option<&EquationTotality>,
 ) -> BTreeSet<String> {
@@ -282,8 +355,8 @@ fn proven_initializers(
         let before = proven.len();
         for (label, equations) in rules {
             if !proven.contains(label)
-                && initializer_rules_are_defined(equations, &mut |label| {
-                    initializer_label_is_defined(
+                && deferred_rules_are_defined(label, equations, lambdas, &mut |label| {
+                    deferred_label_is_defined(
                         label,
                         rules,
                         &proven,
@@ -301,14 +374,14 @@ fn proven_initializers(
     }
 }
 
-fn initializer_label_is_defined(
+fn deferred_label_is_defined(
     label: &Label,
-    rules: &BTreeMap<String, Vec<InitializerRule>>,
+    rules: &BTreeMap<String, Vec<DeferredRule>>,
     proven: &BTreeSet<String>,
     generated_defined_labels: &BTreeSet<String>,
     totality: Option<&EquationTotality>,
 ) -> bool {
-    // Expansion's equations decide generated initializer labels, even if a source declaration
+    // Collected equations decide deferred generated labels, even if a source declaration
     // already names one; an earlier declaration cannot bypass the all-equations judgement.
     if rules.contains_key(&label.name) {
         proven.contains(&label.name)
@@ -339,7 +412,7 @@ mod tests {
         let marker = Term::apply(InternalLabel::NoDots.as_str(), vec![]);
         let value = truth();
         let judge = |term: &Term| {
-            let rule = InitializerRule {
+            let rule = DeferredRule {
                 rule_right: without_initializer_frames(term, &cells),
                 requires: truth(),
                 ensures: truth(),
@@ -374,7 +447,7 @@ mod tests {
     #[test]
     fn initializer_cycles_cannot_prove_themselves_even_with_a_defined_alternative() {
         let cells = BTreeSet::from(["<x>".to_owned(), "<y>".to_owned()]);
-        let rule = |cell, child: Term| InitializerRule {
+        let rule = |cell, child: Term| DeferredRule {
             rule_right: without_initializer_frames(&incomplete_cell(cell, child), &cells),
             requires: truth(),
             ensures: truth(),
@@ -393,23 +466,22 @@ mod tests {
                 vec![rule("<y>", Term::apply("initXCell", vec![]))],
             ),
         ]);
-        assert!(proven_initializers(&rules, &cells, None).is_empty());
+        assert!(proven_deferred_labels(&rules, &BTreeMap::new(), &cells, None).is_empty());
     }
 
     #[test]
     fn nullary_initializer_needs_unconditional_coverage_and_every_result_defined() {
-        let conditional = || InitializerRule {
+        let conditional = || DeferredRule {
             rule_right: truth(),
             requires: Term::variable("Condition"),
             ensures: truth(),
             child_units: BTreeSet::new(),
         };
-        let unconditional = || InitializerRule {
+        let unconditional = || DeferredRule {
             requires: truth(),
             ..conditional()
         };
-        let judge =
-            |rules: &[InitializerRule]| defined_initializer(rules, &mut |_| false).is_some();
+        let judge = |rules: &[DeferredRule]| defined_initializer(rules, &mut |_| false).is_some();
         assert!(!judge(&[]));
         assert!(!judge(&[conditional()]));
         assert!(judge(&[unconditional()]));
@@ -417,14 +489,14 @@ mod tests {
         assert!(judge(&[unconditional(), conditional()]));
         assert!(!judge(&[
             unconditional(),
-            InitializerRule {
+            DeferredRule {
                 rule_right: Term::apply("partial", vec![]),
                 ..conditional()
             },
         ]));
         assert!(!judge(&[
             unconditional(),
-            InitializerRule {
+            DeferredRule {
                 ensures: Term::variable("Postcondition"),
                 ..conditional()
             },

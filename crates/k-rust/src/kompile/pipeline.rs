@@ -200,9 +200,18 @@ display_error!(
 #[derive(Default)]
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
+    pub(super) covering_lambdas: Vec<passes::CoveringLambda>,
+    /// The metadata stage sets this only when it writes no totality claim.
+    initializer_totality_unchanged: bool,
     /// The stage-boundary invariant checks, which span the transform and emission runs.
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     pub checks: StageChecks,
+}
+
+impl PipelineState {
+    pub(super) fn record_initializer_totality_change(&mut self, changed: bool) {
+        self.initializer_totality_unchanged = !changed;
+    }
 }
 
 struct Current {
@@ -903,6 +912,7 @@ fn run_stages_seeded_current(
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     measure::without_counting(|| state.checks.start(&current.definition, options));
     for stage in stages {
+        state.initializer_totality_unchanged = false;
         let (output, next_resolved) = timings.time(stage.name, || {
             let input = PassInput::new(&current);
             let output = (stage.run)(&input, state).map_err(|error| CompileError {
@@ -918,18 +928,30 @@ fn run_stages_seeded_current(
             };
             #[cfg(debug_assertions)]
             assert_no_dangling_application_identities(&output);
+            if state.initializer_totality_unchanged {
+                debug_assert!(output == current.definition);
+                return Ok((None, None));
+            }
             let next_resolved = match current.resolved.get() {
                 Some(Ok(previous)) => Some(previous.update(&current.definition, &output)),
                 Some(Err(error)) => Some(Err(error.clone())),
                 None => None,
             };
-            Ok((output, next_resolved))
+            Ok((Some(output), next_resolved))
         })?;
         #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-        measure::without_counting(|| state.checks.after(stage, &output, options));
-        current = Current::new(output);
-        if let Some(resolved) = next_resolved {
-            let _ = current.resolved.set(resolved);
+        measure::without_counting(|| {
+            state.checks.after(
+                stage,
+                output.as_ref().unwrap_or(&current.definition),
+                options,
+            )
+        });
+        if let Some(output) = output {
+            current = Current::new(output);
+            if let Some(resolved) = next_resolved {
+                let _ = current.resolved.set(resolved);
+            }
         }
     }
     Ok(current)
@@ -1036,6 +1058,37 @@ mod tests {
             }],
             attributes: Default::default(),
         }
+    }
+
+    #[test]
+    fn initializer_totality_without_new_claims_retains_resolution() {
+        let definition = definition();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let before = k_rust_kore::measure::snapshot();
+        let mut state = PipelineState::default();
+        let stages = [stage!(
+            "declare initializer totality",
+            "declare_initializer_totality",
+            declare_initializer_totality_stage,
+            Provenance::None,
+            "metadata-only"
+        )];
+        let (output, _) = run_stages_seeded_with_resolved(
+            &stages,
+            definition.clone(),
+            &mut state,
+            &CompileOptions::default(),
+            &mut PhaseTimings::default(),
+            resolved,
+        )
+        .unwrap();
+        assert_eq!(output, definition);
+        assert_eq!(
+            k_rust_kore::measure::snapshot()
+                .delta(&before)
+                .get(k_rust_kore::measure::Counter::KompileResolveUpdates),
+            0
+        );
     }
 
     #[test]

@@ -39,8 +39,8 @@ enum TotalityReason {
 }
 
 impl TotalityWitness {
-    /// Evidence: the right-hand side of the lambda's only equation is defined wherever it
-    /// applies, so the equation gives each application exactly one value.
+    /// Evidence: the generated lambda covers every argument tuple and each equation builds
+    /// a defined result with a trivial postcondition, so every application denotes one value.
     pub(crate) fn defined_body(_: DefinedBody) -> Self {
         Self(TotalityReason::DefinedBody)
     }

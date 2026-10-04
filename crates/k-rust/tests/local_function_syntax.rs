@@ -256,3 +256,237 @@ endmodule
 "#;
     insta::assert_snapshot!(lambda_kore(&load("FUN-CONFIG", source)));
 }
+
+fn lambda_declarations(loaded: &LoadedDefinition) -> Vec<String> {
+    let compiled = compile_loaded_definition(loaded, CompileOptions::default()).unwrap();
+    let definition = k_rust::kore::parser::parse_definition(&compiled.definition_kore).unwrap();
+    definition
+        .modules
+        .into_iter()
+        .flat_map(|module| module.sentences)
+        .filter(|sentence| {
+            matches!(sentence, k_rust::kore::ast::Sentence::SymbolDeclaration { symbol, .. }
+            if symbol.name.starts_with("Lbl'Hash'lambda"))
+        })
+        .map(|sentence| k_rust::kore::printer::Printer::pretty(1000).print_sentence(&sentence))
+        .collect()
+}
+
+#[test]
+fn lambda_over_total_initializer_is_total() {
+    let loaded = load(
+        "MN5",
+        r#"
+module MN5
+  imports INT
+  syntax KItem ::= use(Int) [function, symbol(use)] | wrap(NCell) [symbol(wrap)]
+  configuration <n> 0 </n>
+  rule use(A) => wrap(#fun(X:Int => initNCell)(A))
+endmodule
+"#,
+    );
+    let sentences = lambda_declarations(&loaded);
+    let declaration = sentences
+        .iter()
+        .find(|sentence| sentence.trim_start().starts_with("symbol "))
+        .unwrap();
+    assert!(declaration.contains("total{}()"), "{declaration}");
+}
+
+#[test]
+fn nested_lambdas_share_initializer_evidence() {
+    let loaded = load(
+        "MN5",
+        r#"
+module MN5
+  imports INT
+  syntax KItem ::= use(Int) [function, symbol(use)] | wrap(NCell) [symbol(wrap)]
+  configuration <n> 0 </n>
+  rule use(A) => wrap(#fun(X:Int => #fun(Y:Int => initNCell)(X))(A))
+endmodule
+"#,
+    );
+    let sentences = lambda_declarations(&loaded);
+    let declarations = sentences
+        .iter()
+        .filter(|sentence| sentence.trim_start().starts_with("symbol "))
+        .collect::<Vec<_>>();
+    assert_eq!(declarations.len(), 2, "{sentences:?}");
+    for declaration in declarations {
+        assert!(declaration.contains("total{}()"), "{declaration}");
+    }
+}
+
+#[test]
+fn deferred_lambdas_require_defined_content_and_covering_patterns() {
+    for (content, pattern) in [("bad(0)", "X:Int"), ("0", "0")] {
+        let loaded = load(
+            "MN5",
+            &format!(
+                r#"
+module MN5
+  imports INT
+  syntax Int ::= bad(Int) [function, symbol(bad)]
+  syntax KItem ::= use(Int) [function, symbol(use)] | wrap(NCell) [symbol(wrap)]
+  configuration <n> {content} </n>
+  rule bad(I) => I /Int 0
+  rule use(A) => wrap(#fun({pattern} => initNCell)(A))
+endmodule
+"#
+            ),
+        );
+        let sentences = lambda_declarations(&loaded);
+        let declaration = sentences
+            .iter()
+            .find(|sentence| sentence.trim_start().starts_with("symbol "))
+            .unwrap();
+        assert!(!declaration.contains("total{}()"), "{declaration}");
+    }
+}
+
+#[test]
+fn lambda_over_initializer_with_narrower_pattern_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(K) [function, symbol(use)] | wrap(NCell) [symbol(wrap)]
+  configuration <n> 0 </n>
+  rule use(A) => wrap(#fun(X:Int => initNCell)(A))
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(declarations[0].contains("(SortK{})"), "{declarations:?}");
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}
+
+#[test]
+fn lambda_with_constant_body_and_narrower_pattern_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(K) [function, symbol(use)] | wrap(Int) [symbol(wrap)]
+  rule use(A) => wrap(#fun(X:Int => 0)(A))
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(declarations[0].contains("(SortK{})"), "{declarations:?}");
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}
+
+#[test]
+fn lambda_over_initializer_with_nested_cast_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(KItem) [function, symbol(use)] | wrap(NCell) [symbol(wrap)]
+  configuration <n> 0 </n>
+  rule use(A) => wrap(#fun((X:Int):KItem => initNCell)(A))
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(
+        declarations[0].contains("(SortKItem{})"),
+        "{declarations:?}"
+    );
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}
+
+#[test]
+fn lambda_with_constant_body_and_nested_cast_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(KItem) [function, symbol(use)] | wrap(Int) [symbol(wrap)]
+  rule use(A) => wrap(#fun((X:Int):KItem => 0)(A))
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(
+        declarations[0].contains("(SortKItem{})"),
+        "{declarations:?}"
+    );
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}
+
+#[test]
+fn lambda_with_inferred_narrower_variable_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(KItem) [function, symbol(use)] | wrap(Int) [symbol(wrap)]
+  rule use(A) => wrap(#fun(X:KItem => X +Int 1)(A))
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(
+        declarations[0].contains("(SortKItem{})"),
+        "{declarations:?}"
+    );
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}
+
+#[test]
+fn lambda_over_initializer_with_inferred_narrower_variable_is_not_total() {
+    let loaded = load(
+        "NARROW",
+        r#"
+module NARROW
+  imports INT
+  syntax KItem ::= use(KItem) [function, symbol(use)] | p(Int, NCell) [symbol(p)]
+  configuration <n> 0 </n>
+  rule use(A) => #fun(X:KItem => p(X, initNCell))(A)
+endmodule
+"#,
+    );
+    let declarations = lambda_declarations(&loaded);
+    assert_eq!(declarations.len(), 1, "{declarations:?}");
+    assert!(
+        declarations[0].contains("(SortKItem{})"),
+        "{declarations:?}"
+    );
+    assert!(
+        !declarations[0].contains("total{}()"),
+        "{}",
+        declarations[0]
+    );
+}

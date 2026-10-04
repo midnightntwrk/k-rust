@@ -252,9 +252,11 @@ Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ord
 The generated module and these labels are reserved.
 A nullary cell initializer is declared `total` only when every generated rule has evidently defined configuration content and a trivial `ensures`; initializer dependencies are judged by a least fixed point, so cycles remain unproven.
 At least one unconditional equation must cover its only argument tuple.
-Generated cell constructors and optional-cell units use the same equation totality judgement as written labels; hooked collection units count as defined only when their own production is configuration-generated and they head no anywhere or macro equation.
+Generated cell constructors and optional-cell units use the same equation totality judgement as written labels; hooked collection units count as defined only when their own production is configuration-generated and they head no non-simplification rule, including ordinary, anywhere and macro equations.
 Before cell closing, the evidence also checks every child unit that closing could insert, conservatively withholding parent totality even when a child with a partial absence unit is already present.
-Local-function resolution precedes this judgement, so a `#fun` body applying a generated nullary initializer cannot use its later totality evidence; the lambda remains partial even when compilation subsequently proves the initializer total.
+Local-function resolution precedes this judgement and records which generated lambdas cover every argument tuple.
+Both early and deferred lambda totality require a variable pattern whose every semantic cast and recorded inferred sort equal the generated parameter sort; a nested cast or inferred sort narrower than the parameter sort loses `total`, even when its body is defined.
+The deferred judgement admits those lambdas and nullary initializers in one least fixed point, so a lambda can use a proven initializer while cycles cannot prove themselves; lambdas already proved total retain their declarations.
 An initializer reads `project:S(#unboxKConfigValue(Map:lookup(Init,key)))`, retaining its declared projection, including `project:K` for a K variable and `project:KItem` for an uncast variable.
 An actual K sequence, empty K or fixed K-returning function remains the whole K payload; a KItem or a value with a licensed embedding into KItem becomes a singleton K sequence.
 The outer placement preserves the instance and macro choice made at the existing KItem preference for a K read.
