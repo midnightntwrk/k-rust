@@ -2785,7 +2785,7 @@ fn normalize_configuration_deferred_totality_json(
             if counterpart["att"]["att"].get("total").is_some() {
                 return Err(if initializers.contains_key(label) {
                     format!(
-                        "{label}: parsed initializer already carries total and may be source-written"
+                        "{label}: parsed initializer already carries total; it may be source-written, or N39 is obsolete for initializers"
                     )
                 } else {
                     format!(
@@ -3139,6 +3139,26 @@ fn nullary_initializer_totality_json_normalizer_recognizes_collection_result_sor
             "[] module TEST symbol LblinitNCell{{}}() : Sort{result_sort}{{}} [function{{}}(), total{{}}()] endmodule []"
         ))
         .unwrap();
+        let mut wrong_result_sort = reference.clone();
+        let initializer = wrong_result_sort["term"]["modules"][0]["localSentences"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|sentence| sentence["klabel"]["name"] == "initNCell")
+            .unwrap();
+        initializer["sort"]["name"] = "NCell".into();
+        normalize_definition_json(&mut wrong_result_sort);
+        let unchanged = wrong_result_sort.clone();
+        assert_eq!(
+            normalize_configuration_deferred_totality_json(
+                &mut wrong_result_sort,
+                &actual,
+                &compiled
+            ),
+            Ok(0),
+            "{collection_type}: the element sort is not the initializer's collection result sort"
+        );
+        assert_eq!(wrong_result_sort, unchanged);
         assert_eq!(
             normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
             Ok(1),
@@ -3195,16 +3215,20 @@ fn nullary_initializer_totality_json_normalizer_requires_cell_marker_and_nullary
             "/sort/params",
             serde_json::json!([{"node": "KSort", "name": "S", "params": []}]),
         ),
+        ("/sort/name", serde_json::json!("OtherCell")),
     ] {
         let (mut reference, actual, compiled) = nullary_initializer_totality_fixture();
         *reference["term"]["modules"][0]["localSentences"][0]
             .pointer_mut(path)
             .unwrap() = replacement;
+        normalize_definition_json(&mut reference);
+        let unchanged = reference.clone();
         assert_eq!(
             normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
             Ok(0),
             "{path}"
         );
+        assert_eq!(reference, unchanged);
     }
 }
 
@@ -3232,7 +3256,11 @@ fn nullary_initializer_totality_json_normalizer_refuses_missing_or_changed_final
 #[test]
 fn nullary_initializer_totality_json_normalizer_refuses_stale_or_changed_parsed_claim() {
     for (attribute, value, message) in [
-        ("total", "", "may be source-written"),
+        (
+            "total",
+            "",
+            "may be source-written, or N39 is obsolete for initializers",
+        ),
         ("symbol", "changed", "differ beyond deferred totality"),
     ] {
         let (mut reference, mut actual, compiled) = nullary_initializer_totality_fixture();
