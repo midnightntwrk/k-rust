@@ -11,22 +11,22 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::ir::validated_id;
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
     collect_configuration_nodes, insert_node, require_kind, require_sort, validate_context_alias,
     validate_context_alias_frames, validate_fixed_configuration, validate_precedence_order,
     validate_production_shape, validate_rule, validate_subsort_order,
 };
-use crate::sorted::{SortKey, SortedByKey};
-use crate::{
+use krs_ir::ir::validated_id;
+use krs_ir::sorted::{SortKey, SortedByKey};
+use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, GrammarProductionItem,
     GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
     ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
     ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
     SourceMapKey, StableItemId,
 };
-use crate::{FixedConfiguration, FixedConfigurationRewrite};
+use krs_ir::{FixedConfiguration, FixedConfigurationRewrite};
 
 impl SortKey for DefinitionModule {
     type Key = ModuleId;
@@ -70,7 +70,7 @@ impl SymbolId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id(crate::IrIdentityKind::SymbolId, value.into()).map(Self)
+        validated_id(krs_ir::IrIdentityKind::SymbolId, value.into()).map(Self)
     }
     /// Returns the identity.
     #[must_use]
@@ -103,7 +103,7 @@ impl LabelId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id(crate::IrIdentityKind::LabelId, value.into()).map(Self)
+        validated_id(krs_ir::IrIdentityKind::LabelId, value.into()).map(Self)
     }
     /// Returns the identity.
     #[must_use]
@@ -164,12 +164,12 @@ impl SymbolIdentity {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
             return Err(DefinitionValidationError::EmptyText(
-                crate::IrField::SymbolName,
+                krs_ir::IrField::SymbolName,
             ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                crate::IrField::SymbolName,
+                krs_ir::IrField::SymbolName,
             ));
         }
         Ok(Self {
@@ -230,12 +230,12 @@ impl LabelIdentity {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
             return Err(DefinitionValidationError::EmptyText(
-                crate::IrField::LabelName,
+                krs_ir::IrField::LabelName,
             ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                crate::IrField::LabelName,
+                krs_ir::IrField::LabelName,
             ));
         }
         Ok(Self { id, emitted_name })
@@ -319,7 +319,7 @@ impl DefinitionIr {
             .iter()
             .map(|module| module.permute_sets(seed))
             .collect::<Vec<_>>();
-        crate::testing::permute(&mut modules, seed);
+        krs_ir::testing::permute(&mut modules, seed);
         Self::new(self.main_module.clone(), modules).unwrap_or_else(|error| {
             panic!("DefinitionIr seed {seed}: permuted rebuild failed: {error}")
         })
@@ -486,7 +486,7 @@ impl DefinitionIr {
                             || !context_aliases.insert(sentence.id.clone())
                         {
                             return Err(DefinitionValidationError::AdapterSpecificValue(
-                                crate::IrField::ContextAliasIdentity,
+                                krs_ir::IrField::ContextAliasIdentity,
                             ));
                         }
                         insert_node::<DefinitionLevel>(&mut nodes, sentence.name_origin.key())?;
@@ -611,6 +611,17 @@ impl DefinitionIr {
     }
 }
 
+#[cfg(feature = "test-support")]
+impl krs_ir::testing::CanonicalContract for DefinitionIr {
+    fn permute_sets(&self, seed: u64) -> Self {
+        Self::permute_sets(self, seed)
+    }
+
+    fn to_canonical_json(&self) -> serde_json::Result<String> {
+        Self::to_canonical_json(self)
+    }
+}
+
 /// One generated K module.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -648,9 +659,9 @@ impl DefinitionModule {
         let mut imports = self.imports.iter().cloned().collect::<Vec<_>>();
         let mut production_groups = self.production_groups.iter().cloned().collect::<Vec<_>>();
         let mut sentences = self.sentences.iter().cloned().collect::<Vec<_>>();
-        crate::testing::permute(&mut imports, seed);
-        crate::testing::permute(&mut production_groups, seed);
-        crate::testing::permute(&mut sentences, seed);
+        krs_ir::testing::permute(&mut imports, seed);
+        krs_ir::testing::permute(&mut production_groups, seed);
+        krs_ir::testing::permute(&mut sentences, seed);
         Self::new(
             self.origin.clone(),
             self.id.clone(),
@@ -755,12 +766,12 @@ impl ProductionGroupIdentity {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
             return Err(DefinitionValidationError::EmptyText(
-                crate::IrField::ProductionGroupName,
+                krs_ir::IrField::ProductionGroupName,
             ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                crate::IrField::ProductionGroupName,
+                krs_ir::IrField::ProductionGroupName,
             ));
         }
         Ok(Self {
@@ -1034,7 +1045,7 @@ impl RuleSentence {
     pub fn new_configuration(
         origin: NodeOrigin,
         label: LabelIdentity,
-        kind: crate::ConfigurationSentenceKind,
+        kind: krs_ir::ConfigurationSentenceKind,
         variables: Vec<DefinitionVariable>,
         body: FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     ) -> Self {
@@ -1171,9 +1182,9 @@ pub enum DefinitionValidationError {
     /// No module exists.
     EmptyDefinition,
     /// Blank text is not representable.
-    EmptyText(crate::IrField),
+    EmptyText(krs_ir::IrField),
     /// A path-shaped or adapter-shaped value attempted to cross the boundary.
-    AdapterSpecificValue(crate::IrField),
+    AdapterSpecificValue(krs_ir::IrField),
     /// A module ID was duplicated.
     DuplicateModule(ModuleId),
     /// A source-map key was duplicated.
@@ -1210,7 +1221,7 @@ pub enum DefinitionValidationError {
     /// A production has no terminal/nonterminal items.
     EmptyProduction(SymbolId),
     /// The same classified attribute family occurred more than once.
-    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
+    DuplicateProductionAttribute(krs_ir::ProductionAttributeFamily),
     /// Token metadata was attached to a non-regex production.
     InvalidTokenProduction,
     /// A regex terminal lacked token metadata.
@@ -1232,7 +1243,7 @@ pub enum DefinitionValidationError {
         /// The declared sort used by the hook, if any.
         sort: String,
         /// The point signature required by the backend.
-        expected_signature: crate::Bn128PointSignature,
+        expected_signature: krs_ir::Bn128PointSignature,
         /// Constructors matching that signature in the definition.
         matching_constructors: usize,
     },
@@ -1551,12 +1562,12 @@ fn declare_symbol(
 fn validate_symbol_text(symbol: &SymbolIdentity) -> Result<(), DefinitionValidationError> {
     if symbol.emitted_name.trim().is_empty() {
         return Err(DefinitionValidationError::EmptyText(
-            crate::IrField::SymbolName,
+            krs_ir::IrField::SymbolName,
         ));
     }
     if symbol.emitted_name.contains(['/', '\\']) {
         return Err(DefinitionValidationError::AdapterSpecificValue(
-            crate::IrField::SymbolName,
+            krs_ir::IrField::SymbolName,
         ));
     }
     Ok(())
@@ -1565,12 +1576,12 @@ fn validate_symbol_text(symbol: &SymbolIdentity) -> Result<(), DefinitionValidat
 fn validate_label_text(label: &LabelIdentity) -> Result<(), DefinitionValidationError> {
     if label.emitted_name.trim().is_empty() {
         return Err(DefinitionValidationError::EmptyText(
-            crate::IrField::LabelName,
+            krs_ir::IrField::LabelName,
         ));
     }
     if label.emitted_name.contains(['/', '\\']) {
         return Err(DefinitionValidationError::AdapterSpecificValue(
-            crate::IrField::LabelName,
+            krs_ir::IrField::LabelName,
         ));
     }
     Ok(())
@@ -1608,7 +1619,7 @@ fn validate_production(
                     .is_some_and(|alias| !context_aliases.contains(alias.alias()))
                 {
                     return Err(DefinitionValidationError::AdapterSpecificValue(
-                        crate::IrField::StrictnessContextAliasReference,
+                        krs_ir::IrField::StrictnessContextAliasReference,
                     ));
                 }
             }
@@ -1677,10 +1688,10 @@ fn validate_hook_point_constructors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CellContentFrame;
-    use crate::ClaimModality;
     use crate::ir_validation::{validate_claim, variable_scope};
-    use crate::{CellPost, FixedCellClause};
+    use krs_ir::CellContentFrame;
+    use krs_ir::ClaimModality;
+    use krs_ir::{CellPost, FixedCellClause};
 
     #[test]
     fn fallback_label_recognition_preserves_prefix_predicate() {
@@ -1701,11 +1712,11 @@ mod tests {
     }
 
     fn node(key: &str) -> NodeOrigin {
-        crate::testing::origin_in(
+        krs_ir::testing::origin_in(
             key,
-            crate::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
+            krs_ir::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
             "src/lib.rs",
-            crate::testing::digest_with("b".repeat(64)),
+            krs_ir::testing::digest_with("b".repeat(64)),
             0,
             1,
         )
@@ -1772,7 +1783,7 @@ mod tests {
                 None,
             )),
             content: crate::ir_level::RuleContent::Configuration {
-                kind: crate::ConfigurationSentenceKind::Claim,
+                kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
             },
         }
@@ -1781,9 +1792,9 @@ mod tests {
     #[test]
     fn configuration_rule_round_trip_retains_refined_sentence_kind() {
         for expected in [
-            crate::ConfigurationSentenceKind::Transition,
-            crate::ConfigurationSentenceKind::Equation,
-            crate::ConfigurationSentenceKind::Claim,
+            krs_ir::ConfigurationSentenceKind::Transition,
+            krs_ir::ConfigurationSentenceKind::Equation,
+            krs_ir::ConfigurationSentenceKind::Claim,
         ] {
             let mut sentence = claim_sentence(int_token("before"), int_token("after"));
             let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut sentence.content
@@ -1895,7 +1906,7 @@ mod tests {
     fn definition_claim_metadata_is_exclusive_to_claim_sentences() {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
         if let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut sentence.content {
-            *kind = crate::ConfigurationSentenceKind::Transition;
+            *kind = krs_ir::ConfigurationSentenceKind::Transition;
         }
         assert!(matches!(
             validate_rule::<DefinitionLevel>(

@@ -3,10 +3,10 @@
 use super::{QueryResult, accepts, encoded, enum_name, read};
 use krs_compiler::{SourceMap, SymbolMap, definition_module_imports, definition_sentence_source};
 use krs_ir::{
-    CellContentFrame, CellPost, DefinitionIr, DefinitionSentence, DescriptorBundle,
-    DescriptorHeadRuleResult, DescriptorPayload, DescriptorTerm, GrammarDescriptor, RuleBodyRef,
-    RustVisibility, SentenceKind, TermArgumentRef,
+    CellContentFrame, CellPost, DescriptorBundle, DescriptorHeadRuleResult, DescriptorPayload,
+    DescriptorTerm, GrammarDescriptor, RustVisibility, SentenceKind, TermArgumentRef,
 };
+use krs_ir_levels::{DefinitionIr, DefinitionSentence, RuleBodyRef};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

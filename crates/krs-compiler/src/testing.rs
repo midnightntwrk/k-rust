@@ -1,7 +1,8 @@
 //! Contract assertions for semantic lowering and canonical K emission.
 
 use krs_ir::testing::assert_canonical_contract;
-use krs_ir::{OriginFrame, RangedOriginKind, SemanticTheory, TransformationOriginKind};
+use krs_ir::{OriginFrame, RangedOriginKind, TransformationOriginKind};
+use krs_ir_levels::SemanticTheory;
 
 use crate::{EmittedK, LoweredDefinition, SourceMap, emit_k, lower_semantic_theory};
 

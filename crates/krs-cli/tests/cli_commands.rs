@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use krs_compiler::testing::assert_lowering_contract;
+use krs_ir::DescriptorBundle;
 use krs_ir::testing::assert_canonical_contract;
-use krs_ir::{DefinitionIr, DescriptorBundle, SemanticTheory};
+use krs_ir_levels::{DefinitionIr, SemanticTheory};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 use sha2::{Digest, Sha256};
 

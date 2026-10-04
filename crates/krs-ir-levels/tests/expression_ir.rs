@@ -2,16 +2,18 @@
 
 use krs_ir::testing;
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, ConfigurationRoot, DefinitionIr, DefinitionModule,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
-    DefinitionVariable, FixedCell, FixedConfiguration, FixedConfigurationVariable,
-    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, LabelId,
-    LabelIdentity, ModuleId, NodeOrigin, PrecedenceRelation, ProductionAttribute,
-    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
-    ProductionItem, ProductionResultSort, ProductionSentence, SemanticId, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, SourceMapKey, StableItemId,
-    StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ApplicationRef, BuiltinOperation, ConfigurationRoot, FixedCell, FixedConfiguration,
+    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
+    GroupAssociativitySentence, ModuleId, NodeOrigin, PrecedenceRelation, ProductionAttribute,
+    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
+    SemanticId, SentenceKind, SourceMapKey, StableItemId, StrictnessKind,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity, ProductionGroupIdentity,
+    ProductionItem, ProductionSentence, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 use krs_test_support::assert_rejects_with_message;
 
@@ -367,7 +369,7 @@ fn expression_definition() -> Result<DefinitionIr, DefinitionValidationError> {
             variable("term.neg.x.rhs", "x", DefinitionSortRef::int()),
         ],
     );
-    let neg_rule = DefinitionSentence::Rule(krs_ir::RuleSentence::new(
+    let neg_rule = DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new(
         node("rule.neg"),
         LabelIdentity::new(LabelId::new("rule.neg").unwrap(), "expr.neg")?,
         SentenceKind::Transition,
@@ -393,7 +395,7 @@ fn expression_definition() -> Result<DefinitionIr, DefinitionValidationError> {
             variable("term.add.y.rhs", "y", DefinitionSortRef::int()),
         ],
     );
-    let addition_rule = DefinitionSentence::Rule(krs_ir::RuleSentence::new(
+    let addition_rule = DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new(
         node("rule.add"),
         LabelIdentity::new(LabelId::new("rule.add").unwrap(), "expr.add")?,
         SentenceKind::Transition,
@@ -414,7 +416,7 @@ fn expression_definition() -> Result<DefinitionIr, DefinitionValidationError> {
         ],
     );
     let and_rhs = variable("term.and.b.rhs", "b", DefinitionSortRef::bool());
-    let conjunction_rule = DefinitionSentence::Rule(krs_ir::RuleSentence::new(
+    let conjunction_rule = DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new(
         node("rule.and-true"),
         LabelIdentity::new(LabelId::new("rule.and-true").unwrap(), "expr.and-true")?,
         SentenceKind::Transition,
@@ -687,8 +689,8 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         rule_id,
         SentenceKind::Transition,
         vec![
-            krs_ir::SemanticVariable::new(x_id, SemanticSortRef::int()),
-            krs_ir::SemanticVariable::new(y_id, SemanticSortRef::int()),
+            krs_ir_levels::SemanticVariable::new(x_id, SemanticSortRef::int()),
+            krs_ir_levels::SemanticVariable::new(y_id, SemanticSortRef::int()),
         ],
         SemanticTerm::rewrite(
             node("sem.term.add.rewrite"),

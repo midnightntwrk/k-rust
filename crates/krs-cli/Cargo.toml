@@ -23,6 +23,7 @@ krs-compiler = { path = "../krs-compiler" }
 krs-diagnostic = { path = "../krs-diagnostic" }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
+krs-ir-levels = { path = "../krs-ir-levels" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
 krs-syntax = { path = "../krs-syntax" }
 lexopt = "0.3.2"
@@ -38,6 +39,7 @@ toml_edit = { workspace = true, features = ["display", "parse"] }
 expect-test.workspace = true
 krs-compiler = { path = "../krs-compiler", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-ir-levels = { path = "../krs-ir-levels", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }
 
 [lints]

@@ -2,14 +2,16 @@
 
 use krs_ir::testing::{assert_canonical_contract, item, origin as node};
 use krs_ir::{
-    ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration,
-    FixedInitializerCell, IrIdentityError, ItemKind, LabelId, LabelIdentity, ModuleId,
-    OriginStackError, ProductionItem, ProductionSentence, RuleSentence, SchemaVersion, SemanticId,
-    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SentenceKind, SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence,
+    ApplicationRef, ConfigurationRoot, FixedCell, FixedConfiguration, FixedInitializerCell,
+    IrIdentityError, ItemKind, ModuleId, OriginStackError, SchemaVersion, SemanticId, SentenceKind,
+    SourceMapKey, StableItemId,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, LabelId, LabelIdentity, ProductionItem, ProductionSentence,
+    RuleSentence, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SemanticValidationError, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 use krs_test_support::{assert_rejects, assert_rejects_with_message};
 

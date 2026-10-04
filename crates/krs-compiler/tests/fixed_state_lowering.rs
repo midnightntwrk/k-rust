@@ -11,9 +11,11 @@ use krs_ir::{
     FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, ItemKind,
     MapOperation, ModuleId, NodeOrigin, PackageId, PrecedenceRelation, ProductionAttribute,
     ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
-    RuleBodyRef, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
-    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
-    SemanticVariable, SentenceKind, StableItemId, StrictnessKind,
+    SemanticId, SentenceKind, StableItemId, StrictnessKind,
+};
+use krs_ir_levels::{
+    RuleBodyRef, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
 };
 use krs_test_support::kompile_reference;
 
@@ -637,7 +639,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         .sentences()
         .iter()
         .find_map(|sentence| match sentence {
-            krs_ir::DefinitionSentence::Configuration(sentence) => Some(sentence),
+            krs_ir_levels::DefinitionSentence::Configuration(sentence) => Some(sentence),
             _ => None,
         })
         .unwrap();
@@ -664,7 +666,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         .sentences()
         .iter()
         .filter_map(|sentence| match sentence {
-            krs_ir::DefinitionSentence::Rule(rule) => Some(rule),
+            krs_ir_levels::DefinitionSentence::Rule(rule) => Some(rule),
             _ => None,
         })
         .map(|rule| (rule.label().emitted_name(), rule))
@@ -680,14 +682,14 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     assert_eq!(step.omitted_siblings().len(), 1);
     assert!(matches!(
         step.clauses()[0].before().kind(),
-        krs_ir::DefinitionTermKind::KSequence { items, .. }
+        krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
             if matches!(items.as_slice(), [item]
-                if matches!(item.kind(), krs_ir::DefinitionTermKind::Application { .. }))
+                if matches!(item.kind(), krs_ir_levels::DefinitionTermKind::Application { .. }))
     ));
     assert!(matches!(
         step.clauses()[0].after(),
         CellPost::Replace { term }
-            if matches!(term.kind(), krs_ir::DefinitionTermKind::KSequence { items, .. }
+            if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
                 if items.len() == 2)
     ));
     let RuleBodyRef::Configuration { body: var_rule, .. } = rules["var"].relational_body() else {
@@ -695,7 +697,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     };
     assert!(matches!(
         var_rule.clauses()[1].before().kind(),
-        krs_ir::DefinitionTermKind::Map {
+        krs_ir_levels::DefinitionTermKind::Map {
             operation: MapOperation::Item,
             arguments,
         } if arguments.len() == 2
@@ -713,14 +715,14 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     };
     assert!(matches!(
         assign_rule.clauses()[0].before().kind(),
-        krs_ir::DefinitionTermKind::KSequence { items, .. }
+        krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
             if matches!(items.as_slice(), [item]
-                if matches!(item.kind(), krs_ir::DefinitionTermKind::Application { .. }))
+                if matches!(item.kind(), krs_ir_levels::DefinitionTermKind::Application { .. }))
     ));
     assert!(matches!(
         assign_rule.clauses()[1].after(),
         CellPost::Replace { term }
-            if matches!(term.kind(), krs_ir::DefinitionTermKind::Map {
+            if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::Map {
                 operation: MapOperation::Update,
                 arguments,
             } if arguments.len() == 3)

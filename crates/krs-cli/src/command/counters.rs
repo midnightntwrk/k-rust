@@ -1,5 +1,6 @@
 use krs_ir::measure::Counters;
-use krs_ir::{DefinitionSentence, DescriptorBundle, StableText};
+use krs_ir::{DescriptorBundle, StableText};
+use krs_ir_levels::DefinitionSentence;
 
 pub(super) fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, bytes: usize) {
     if !counters.is_enabled() {

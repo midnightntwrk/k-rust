@@ -2,9 +2,8 @@ use std::error::Error;
 use std::fmt;
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
-use krs_ir::{
-    BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, SourceRange, StableItemId,
-};
+use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SourceRange, StableItemId};
+use krs_ir_levels::SemanticValidationError;
 
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]

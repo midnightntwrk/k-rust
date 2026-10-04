@@ -6,10 +6,10 @@ use super::{
 };
 use crate::{
     DefinitionLevel, DefinitionModule, DefinitionSentence, DefinitionSortRef,
-    DefinitionValidationError, FixedCell, ItemKind, LabelId, PrecedenceRelation, RuleSentence,
-    SemanticId, SemanticLevel, SemanticModule, SemanticRule, SemanticSortRef,
-    SemanticValidationError, SourceMapKey, StableItemId, SymbolKind,
+    DefinitionValidationError, LabelId, RuleSentence, SemanticLevel, SemanticModule, SemanticRule,
+    SemanticSortRef, SemanticValidationError, SymbolKind,
 };
+use krs_ir::{FixedCell, ItemKind, PrecedenceRelation, SemanticId, SourceMapKey, StableItemId};
 
 macro_rules! validation_error {
     ($error:expr, $public:ident, $identity:path) => {
@@ -217,7 +217,7 @@ impl Validation for SemanticLevel {
             Ok(())
         } else {
             Err(SemanticValidationError::DuplicateId {
-                kind: crate::SemanticIdentityKind::Cell,
+                kind: krs_ir::SemanticIdentityKind::Cell,
                 id: cell.id().as_str().into(),
             })
         }

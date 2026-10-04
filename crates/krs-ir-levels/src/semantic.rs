@@ -20,8 +20,8 @@ use crate::ir_validation::{
     validate_rule, validate_rule_cell_references, validate_subsort_order,
     validate_term_cell_references,
 };
-use crate::sorted::{SortKey, SortedByKey};
-use crate::{
+use krs_ir::sorted::{SortKey, SortedByKey};
+use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FixedConfiguration, FixedConfigurationRewrite,
     GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, HookOperation,
     ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
@@ -53,20 +53,6 @@ semantic_id_key!(
 );
 
 impl SortKey for SemanticSubsort {
-    type Key = Self;
-    fn sort_key(&self) -> &Self::Key {
-        self
-    }
-}
-
-impl SortKey for PrecedenceRelation {
-    type Key = Self;
-    fn sort_key(&self) -> &Self::Key {
-        self
-    }
-}
-
-impl SortKey for GroupAssociativitySentence {
     type Key = Self;
     fn sort_key(&self) -> &Self::Key {
         self
@@ -145,7 +131,7 @@ impl SemanticTheory {
             .iter()
             .map(|module| module.permute_sets(seed))
             .collect::<Vec<_>>();
-        crate::testing::permute(&mut modules, seed);
+        krs_ir::testing::permute(&mut modules, seed);
         Self::new(modules).unwrap_or_else(|error| {
             panic!("SemanticTheory seed {seed}: permuted rebuild failed: {error}")
         })
@@ -196,7 +182,7 @@ impl SemanticTheory {
             insert_unique(
                 &mut module_ids,
                 module.id.clone(),
-                crate::SemanticIdentityKind::Module,
+                krs_ir::SemanticIdentityKind::Module,
                 module.id.as_str(),
             )?;
             insert_node::<SemanticLevel>(&mut node_keys, module.origin.key())?;
@@ -302,12 +288,12 @@ impl SemanticTheory {
                 insert_semantic_id(
                     &mut semantic_ids,
                     configuration.id(),
-                    crate::SemanticIdentityKind::Configuration,
+                    krs_ir::SemanticIdentityKind::Configuration,
                 )?;
                 insert_semantic_id(
                     &mut semantic_ids,
                     configuration.initializer_id(),
-                    crate::SemanticIdentityKind::Initializer,
+                    krs_ir::SemanticIdentityKind::Initializer,
                 )?;
                 insert_node::<SemanticLevel>(&mut node_keys, configuration.origin().key())?;
                 insert_node::<SemanticLevel>(
@@ -448,7 +434,7 @@ impl SemanticTheory {
             .map(|sort| {
                 let name = sort.explicit_symbol.as_ref().map_or_else(
                     || sort.id.item_name(),
-                    crate::ExplicitSymbol::final_component,
+                    krs_ir::ExplicitSymbol::final_component,
                 );
                 (&sort.id, name)
             })
@@ -467,6 +453,17 @@ impl SemanticTheory {
             productions,
         )?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl krs_ir::testing::CanonicalContract for SemanticTheory {
+    fn permute_sets(&self, seed: u64) -> Self {
+        Self::permute_sets(self, seed)
+    }
+
+    fn to_canonical_json(&self) -> serde_json::Result<String> {
+        Self::to_canonical_json(self)
     }
 }
 
@@ -564,14 +561,14 @@ impl SemanticModule {
         let mut associativities = self.associativities.iter().cloned().collect::<Vec<_>>();
         let mut context_aliases = self.context_aliases.iter().cloned().collect::<Vec<_>>();
         let mut rules = self.rules.iter().cloned().collect::<Vec<_>>();
-        crate::testing::permute(&mut imports, seed);
-        crate::testing::permute(&mut sorts, seed);
-        crate::testing::permute(&mut subsorts, seed);
-        crate::testing::permute(&mut productions, seed);
-        crate::testing::permute(&mut precedences, seed);
-        crate::testing::permute(&mut associativities, seed);
-        crate::testing::permute(&mut context_aliases, seed);
-        crate::testing::permute(&mut rules, seed);
+        krs_ir::testing::permute(&mut imports, seed);
+        krs_ir::testing::permute(&mut sorts, seed);
+        krs_ir::testing::permute(&mut subsorts, seed);
+        krs_ir::testing::permute(&mut productions, seed);
+        krs_ir::testing::permute(&mut precedences, seed);
+        krs_ir::testing::permute(&mut associativities, seed);
+        krs_ir::testing::permute(&mut context_aliases, seed);
+        krs_ir::testing::permute(&mut rules, seed);
         Self::new_with_context_aliases(
             self.origin.clone(),
             self.id.clone(),
@@ -650,10 +647,10 @@ impl SemanticModule {
 pub struct SemanticSort {
     origin: NodeOrigin,
     id: StableItemId,
-    #[serde(default, skip_serializing_if = "crate::RustVisibility::is_inherited")]
-    visibility: crate::RustVisibility,
+    #[serde(default, skip_serializing_if = "krs_ir::RustVisibility::is_inherited")]
+    visibility: krs_ir::RustVisibility,
     #[serde(skip_serializing_if = "Option::is_none")]
-    explicit_symbol: Option<crate::ExplicitSymbol>,
+    explicit_symbol: Option<krs_ir::ExplicitSymbol>,
 }
 
 impl SemanticSort {
@@ -663,7 +660,7 @@ impl SemanticSort {
         Self {
             origin,
             id,
-            visibility: crate::RustVisibility::Inherited,
+            visibility: krs_ir::RustVisibility::Inherited,
             explicit_symbol: None,
         }
     }
@@ -672,8 +669,8 @@ impl SemanticSort {
     pub const fn with_api(
         origin: NodeOrigin,
         id: StableItemId,
-        visibility: crate::RustVisibility,
-        explicit_symbol: Option<crate::ExplicitSymbol>,
+        visibility: krs_ir::RustVisibility,
+        explicit_symbol: Option<krs_ir::ExplicitSymbol>,
     ) -> Self {
         Self {
             origin,
@@ -694,12 +691,12 @@ impl SemanticSort {
     }
     /// Returns exact authored Rust visibility.
     #[must_use]
-    pub const fn visibility(&self) -> &crate::RustVisibility {
+    pub const fn visibility(&self) -> &krs_ir::RustVisibility {
         &self.visibility
     }
     /// Returns the optional explicit stable public identity.
     #[must_use]
-    pub const fn explicit_symbol(&self) -> Option<&crate::ExplicitSymbol> {
+    pub const fn explicit_symbol(&self) -> Option<&krs_ir::ExplicitSymbol> {
         self.explicit_symbol.as_ref()
     }
 }
@@ -717,10 +714,10 @@ pub struct SemanticProduction {
     result_sort: SemanticSortRef,
     items: Vec<SemanticProductionItem>,
     attributes: Vec<SemanticProductionAttribute>,
-    #[serde(default, skip_serializing_if = "crate::RustVisibility::is_inherited")]
-    visibility: crate::RustVisibility,
+    #[serde(default, skip_serializing_if = "krs_ir::RustVisibility::is_inherited")]
+    visibility: krs_ir::RustVisibility,
     #[serde(skip_serializing_if = "Option::is_none")]
-    explicit_symbol: Option<crate::ExplicitSymbol>,
+    explicit_symbol: Option<krs_ir::ExplicitSymbol>,
 }
 
 impl SemanticProduction {
@@ -743,7 +740,7 @@ impl SemanticProduction {
             result_sort,
             items,
             attributes,
-            visibility: crate::RustVisibility::Inherited,
+            visibility: krs_ir::RustVisibility::Inherited,
             explicit_symbol: None,
         })
     }
@@ -758,8 +755,8 @@ impl SemanticProduction {
         result_sort: SemanticSortRef,
         items: Vec<SemanticProductionItem>,
         attributes: Vec<SemanticProductionAttribute>,
-        visibility: crate::RustVisibility,
-        explicit_symbol: Option<crate::ExplicitSymbol>,
+        visibility: krs_ir::RustVisibility,
+        explicit_symbol: Option<krs_ir::ExplicitSymbol>,
     ) -> Result<Self, SemanticValidationError> {
         validate_production_shape::<SemanticLevel>(&id, &result_sort, &items, &attributes)?;
         Ok(Self {
@@ -799,12 +796,12 @@ impl SemanticProduction {
     }
     /// Returns exact authored Rust visibility.
     #[must_use]
-    pub const fn visibility(&self) -> &crate::RustVisibility {
+    pub const fn visibility(&self) -> &krs_ir::RustVisibility {
         &self.visibility
     }
     /// Returns the optional explicit stable public identity.
     #[must_use]
-    pub const fn explicit_symbol(&self) -> Option<&crate::ExplicitSymbol> {
+    pub const fn explicit_symbol(&self) -> Option<&krs_ir::ExplicitSymbol> {
         self.explicit_symbol.as_ref()
     }
 }
@@ -852,7 +849,7 @@ impl SemanticRuleLabel {
         name: impl Into<String>,
     ) -> Result<Self, SemanticValidationError> {
         let name = name.into();
-        if !crate::transport::grammar::valid_rule_label_name(&name) {
+        if !krs_ir::transport::grammar::valid_rule_label_name(&name) {
             return Err(SemanticValidationError::InvalidRuleLabel(name));
         }
         Ok(Self { origin, name })
@@ -1010,7 +1007,7 @@ impl SemanticRule {
         variables: Vec<SemanticVariable>,
         body: FixedConfigurationRewrite<SemanticId, SemanticTerm>,
     ) -> Result<Self, SemanticValidationError> {
-        let kind = crate::ConfigurationSentenceKind::try_from(kind).map_err(|_| {
+        let kind = krs_ir::ConfigurationSentenceKind::try_from(kind).map_err(|_| {
             if kind == SentenceKind::Alias {
                 SemanticValidationError::InvalidAliasRoot(Box::new(id.clone()))
             } else {
@@ -1169,11 +1166,11 @@ pub enum SemanticValidationError {
     /// No module was supplied.
     EmptyTheory,
     /// A textual field was blank.
-    EmptyText(crate::IrField),
+    EmptyText(krs_ir::IrField),
     /// A set-like identity was repeated.
     DuplicateId {
         /// Identity namespace.
-        kind: crate::SemanticIdentityKind,
+        kind: krs_ir::SemanticIdentityKind,
         /// Debug-stable identity text.
         id: String,
     },
@@ -1197,7 +1194,7 @@ pub enum SemanticValidationError {
     /// A grammar production contained no items.
     EmptyProduction(Box<StableItemId>),
     /// The same classified attribute family occurred more than once.
-    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
+    DuplicateProductionAttribute(krs_ir::ProductionAttributeFamily),
     /// Token metadata was attached to a non-regex production.
     InvalidTokenProduction,
     /// A regex terminal lacked token metadata.
@@ -1219,7 +1216,7 @@ pub enum SemanticValidationError {
         /// The declared sort used by the hook, if any.
         sort: String,
         /// The point signature required by the backend.
-        expected_signature: crate::Bn128PointSignature,
+        expected_signature: krs_ir::Bn128PointSignature,
         /// Constructors matching that signature in the theory.
         matching_constructors: usize,
     },
@@ -1543,7 +1540,7 @@ fn validate_item_kind(
 fn insert_unique<T: Ord>(
     set: &mut BTreeSet<T>,
     value: T,
-    kind: crate::SemanticIdentityKind,
+    kind: krs_ir::SemanticIdentityKind,
     display: &str,
 ) -> Result<(), SemanticValidationError> {
     if set.insert(value) {
@@ -1562,7 +1559,7 @@ fn insert_declaration(
 ) -> Result<(), SemanticValidationError> {
     if map.insert(id.clone(), id.item_kind()).is_some() {
         return Err(SemanticValidationError::DuplicateId {
-            kind: crate::SemanticIdentityKind::Declaration,
+            kind: krs_ir::SemanticIdentityKind::Declaration,
             id: id.to_string(),
         });
     }
@@ -1572,7 +1569,7 @@ fn insert_declaration(
 fn insert_semantic_id(
     set: &mut BTreeSet<SemanticId>,
     id: &SemanticId,
-    kind: crate::SemanticIdentityKind,
+    kind: krs_ir::SemanticIdentityKind,
 ) -> Result<(), SemanticValidationError> {
     if set.insert(id.clone()) {
         Ok(())
@@ -1587,16 +1584,16 @@ fn insert_semantic_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ClaimModality;
     use crate::ir_validation::{validate_claim, variable_scope};
-    use crate::{CellContentFrame, CellPost, FixedCellClause};
+    use krs_ir::ClaimModality;
+    use krs_ir::{CellContentFrame, CellPost, FixedCellClause};
 
     fn node(key: &str) -> NodeOrigin {
-        crate::testing::origin_in(
+        krs_ir::testing::origin_in(
             key,
-            crate::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
+            krs_ir::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
             "src/lib.rs",
-            crate::testing::digest_with("a".repeat(64)),
+            krs_ir::testing::digest_with("a".repeat(64)),
             0,
             1,
         )
@@ -1608,7 +1605,7 @@ mod tests {
 
     fn claim_id() -> StableItemId {
         StableItemId::new(
-            crate::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
+            krs_ir::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
             ["claim"],
             "reachability",
             ItemKind::Claim,
@@ -1682,7 +1679,7 @@ mod tests {
                 SemanticSortRef::Builtin(BuiltinSort::Int),
             )],
             content: crate::ir_level::RuleContent::Configuration {
-                kind: crate::ConfigurationSentenceKind::Claim,
+                kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
             },
         }
@@ -1691,9 +1688,9 @@ mod tests {
     #[test]
     fn configuration_rule_round_trip_retains_refined_sentence_kind() {
         for expected in [
-            crate::ConfigurationSentenceKind::Transition,
-            crate::ConfigurationSentenceKind::Equation,
-            crate::ConfigurationSentenceKind::Claim,
+            krs_ir::ConfigurationSentenceKind::Transition,
+            krs_ir::ConfigurationSentenceKind::Equation,
+            krs_ir::ConfigurationSentenceKind::Claim,
         ] {
             let mut rule = claim_rule(int_token("before"), int_token("after"));
             let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut rule.content else {
@@ -1839,7 +1836,7 @@ mod tests {
     fn semantic_claim_metadata_is_exclusive_to_claim_sentences() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
         if let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut rule.content {
-            *kind = crate::ConfigurationSentenceKind::Transition;
+            *kind = krs_ir::ConfigurationSentenceKind::Transition;
         }
         assert!(matches!(
             validate_rule::<SemanticLevel>(

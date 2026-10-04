@@ -412,7 +412,7 @@ impl<S> ProductionAttribute<S> {
 
     /// Returns the non-repeatable production attribute family.
     #[must_use]
-    pub(crate) const fn unique_family(&self) -> Option<crate::ProductionAttributeFamily> {
+    pub const fn unique_family(&self) -> Option<crate::ProductionAttributeFamily> {
         match self {
             Self::Documentation { .. } => None,
             Self::Function { .. } => Some(crate::ProductionAttributeFamily::Function),

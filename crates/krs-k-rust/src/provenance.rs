@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
-use krs_ir::{DefinitionIr, DefinitionSentence, NodeOrigin, SourceMapKey};
+use krs_ir::{NodeOrigin, SourceMapKey};
+use krs_ir_levels::{DefinitionIr, DefinitionSentence};
 
 use crate::{
     EmittedSentenceProvenance, GeneratingPass, InputAddress, InputSentenceKind, InputSpace,

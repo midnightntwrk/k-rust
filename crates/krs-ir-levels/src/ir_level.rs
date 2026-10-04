@@ -4,10 +4,10 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{
-    ApplicationRef, BuiltinSort, DefinitionValidationError, FixedConfigurationPattern,
-    FixedConfigurationRewrite, ListOperation, MapOperation, NodeOrigin, SemanticId,
-    SemanticValidationError, SetOperation, StableItemId, SymbolId,
+use crate::{DefinitionValidationError, SemanticValidationError, SymbolId};
+use krs_ir::{
+    ApplicationRef, BuiltinSort, FixedConfigurationPattern, FixedConfigurationRewrite,
+    ListOperation, MapOperation, NodeOrigin, SemanticId, SetOperation, StableItemId,
 };
 
 /// Reference representations and local construction failures at one IR level.
@@ -31,7 +31,7 @@ pub trait IrLevel: Clone + Debug + Eq + Ord + Sized {
     /// Constructs the level's reference to an intrinsic K sort.
     fn builtin_sort(sort: BuiltinSort) -> Self::Sort;
     /// Constructs the level's unchanged empty-text failure.
-    fn empty_text(field: crate::IrField) -> Self::Error;
+    fn empty_text(field: krs_ir::IrField) -> Self::Error;
 }
 
 /// Resolved authored identities in the Semantic IR.
@@ -57,7 +57,7 @@ impl IrLevel for SemanticLevel {
         IrSortRef::Builtin(sort)
     }
 
-    fn empty_text(field: crate::IrField) -> Self::Error {
+    fn empty_text(field: krs_ir::IrField) -> Self::Error {
         SemanticValidationError::EmptyText(field)
     }
 }
@@ -77,7 +77,7 @@ impl IrLevel for DefinitionLevel {
         IrSortRef::Builtin(sort)
     }
 
-    fn empty_text(field: crate::IrField) -> Self::Error {
+    fn empty_text(field: krs_ir::IrField) -> Self::Error {
         DefinitionValidationError::EmptyText(field)
     }
 }
@@ -200,7 +200,7 @@ pub struct IrClaimBinder<L: IrLevel> {
 #[serde(deny_unknown_fields, bound = "")]
 pub struct IrClaim<L: IrLevel> {
     pub(crate) modality_origin: NodeOrigin,
-    pub(crate) modality: crate::ClaimModality,
+    pub(crate) modality: krs_ir::ClaimModality,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) circularity_origin: Option<NodeOrigin>,
     pub(crate) universals: Vec<IrClaimBinder<L>>,
@@ -259,7 +259,7 @@ impl<L: IrLevel> IrClaim<L> {
     #[must_use]
     pub const fn new(
         modality_origin: NodeOrigin,
-        modality: crate::ClaimModality,
+        modality: krs_ir::ClaimModality,
         circularity_origin: Option<NodeOrigin>,
         universals: Vec<IrClaimBinder<L>>,
         existentials: Vec<IrClaimBinder<L>>,
@@ -281,7 +281,7 @@ impl<L: IrLevel> IrClaim<L> {
     }
     /// Reachability modality.
     #[must_use]
-    pub const fn modality(&self) -> crate::ClaimModality {
+    pub const fn modality(&self) -> krs_ir::ClaimModality {
         self.modality
     }
     /// Optional circularity provenance.
@@ -499,7 +499,7 @@ pub enum RuleBodyRef<'a, L: IrLevel> {
     /// One configuration rewrite and its permitted sentence kind.
     Configuration {
         /// The configuration sentence classification.
-        kind: crate::ConfigurationSentenceKind,
+        kind: krs_ir::ConfigurationSentenceKind,
         /// The simultaneous configuration rewrite.
         body: &'a FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
     },
@@ -519,17 +519,17 @@ impl<L: IrLevel> Serialize for RuleBodyRef<'_, L> {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum RuleContent<L: IrLevel> {
     Term {
-        kind: crate::SentenceKind,
+        kind: krs_ir::SentenceKind,
         body: IrRewrite<L>,
     },
     Configuration {
-        kind: crate::ConfigurationSentenceKind,
+        kind: krs_ir::ConfigurationSentenceKind,
         body: FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
     },
 }
 
 impl<L: IrLevel> RuleContent<L> {
-    pub(crate) const fn kind(&self) -> crate::SentenceKind {
+    pub(crate) const fn kind(&self) -> krs_ir::SentenceKind {
         match self {
             Self::Term { kind, .. } => *kind,
             Self::Configuration { kind, .. } => kind.sentence_kind(),
@@ -552,7 +552,7 @@ pub(crate) enum RuleBodyRefinementError {
 impl<L: IrLevel> RuleBodyWire<L> {
     pub(crate) fn refine(
         self,
-        kind: crate::SentenceKind,
+        kind: krs_ir::SentenceKind,
     ) -> Result<RuleContent<L>, RuleBodyRefinementError> {
         match self {
             Self::Term(term) => Ok(RuleContent::Term {
@@ -621,7 +621,7 @@ impl<L: IrLevel> IrTerm<L> {
     ) -> Result<Self, L::Error> {
         let value = value.into();
         if value.is_empty() {
-            return Err(L::empty_text(crate::IrField::TokenValue));
+            return Err(L::empty_text(krs_ir::IrField::TokenValue));
         }
         Ok(Self {
             origin,

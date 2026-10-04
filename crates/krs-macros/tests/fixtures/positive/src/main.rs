@@ -1341,7 +1341,7 @@ mod tests {
         let semantic_hook = semantic
             .modules()
             .iter()
-            .flat_map(krs_ir::SemanticModule::productions)
+            .flat_map(krs_ir_levels::SemanticModule::productions)
             .find(|production| production.id().item_name() == "Keccak256Raw")
             .expect("hooked production survives Semantic IR lowering");
         assert!(semantic_hook.attributes().iter().any(|attribute| matches!(
@@ -1354,7 +1354,7 @@ mod tests {
         let semantic_sha256_hook = semantic
             .modules()
             .iter()
-            .flat_map(krs_ir::SemanticModule::productions)
+            .flat_map(krs_ir_levels::SemanticModule::productions)
             .find(|production| production.id().item_name() == "Sha256Raw")
             .expect("SHA-256 hook survives Semantic IR lowering");
         assert!(
@@ -1372,7 +1372,7 @@ mod tests {
         let semantic_ripemd160_hook = semantic
             .modules()
             .iter()
-            .flat_map(krs_ir::SemanticModule::productions)
+            .flat_map(krs_ir_levels::SemanticModule::productions)
             .find(|production| production.id().item_name() == "Ripemd160Raw")
             .expect("RIPEMD-160 hook survives Semantic IR lowering");
         assert!(
@@ -1390,7 +1390,7 @@ mod tests {
         let semantic_ecdsa_recover_hook = semantic
             .modules()
             .iter()
-            .flat_map(krs_ir::SemanticModule::productions)
+            .flat_map(krs_ir_levels::SemanticModule::productions)
             .find(|production| production.id().item_name() == "EcdsaRecover")
             .expect("ECDSA recovery hook survives Semantic IR lowering");
         assert!(
@@ -1415,7 +1415,7 @@ mod tests {
         let expression_rules = semantic
             .modules()
             .iter()
-            .flat_map(krs_ir::SemanticModule::rules)
+            .flat_map(krs_ir_levels::SemanticModule::rules)
             .filter(|rule| {
                 rule.id()
                     .module_path()
@@ -1449,14 +1449,14 @@ mod tests {
             eval_add
                 .variables()
                 .iter()
-                .map(krs_ir::SemanticVariable::sort)
+                .map(krs_ir_levels::SemanticVariable::sort)
                 .collect::<Vec<_>>(),
             [
-                &krs_ir::SemanticSortRef::Builtin(language_host::BuiltinSort::Int),
-                &krs_ir::SemanticSortRef::Builtin(language_host::BuiltinSort::Int),
+                &krs_ir_levels::SemanticSortRef::Builtin(language_host::BuiltinSort::Int),
+                &krs_ir_levels::SemanticSortRef::Builtin(language_host::BuiltinSort::Int),
             ]
         );
-        let krs_ir::RuleBodyRef::Configuration { body: eval_add_body, .. } =
+        let krs_ir_levels::RuleBodyRef::Configuration { body: eval_add_body, .. } =
             eval_add.relational_body()
         else {
             panic!("eval_add must lower to one configuration rewrite")
@@ -1467,12 +1467,12 @@ mod tests {
         else {
             panic!("eval_add must replace its computation-cell head")
         };
-        let krs_ir::SemanticTermKind::KSequence { items, .. } = eval_add_result.kind() else {
+        let krs_ir_levels::SemanticTermKind::KSequence { items, .. } = eval_add_result.kind() else {
             panic!("eval_add result must retain K-sequence structure")
         };
         assert!(matches!(
             items[0].kind(),
-            krs_ir::SemanticTermKind::Application {
+            krs_ir_levels::SemanticTermKind::Application {
                 application: krs_ir::ApplicationRef::Builtin(
                     language_host::BuiltinOperation::IntAdd
                 ),
@@ -1483,11 +1483,11 @@ mod tests {
             semantic_rule("eval_bool_eq")
                 .variables()
                 .iter()
-                .map(krs_ir::SemanticVariable::sort)
+                .map(krs_ir_levels::SemanticVariable::sort)
                 .collect::<Vec<_>>(),
             [
-                &krs_ir::SemanticSortRef::Builtin(language_host::BuiltinSort::Bool),
-                &krs_ir::SemanticSortRef::Builtin(language_host::BuiltinSort::Bool),
+                &krs_ir_levels::SemanticSortRef::Builtin(language_host::BuiltinSort::Bool),
+                &krs_ir_levels::SemanticSortRef::Builtin(language_host::BuiltinSort::Bool),
             ]
         );
         assert_eq!(semantic_rule("and_false").variables().len(), 1);
@@ -2723,7 +2723,7 @@ mod tests {
             .unwrap()
             .modules()
             .iter()
-            .find_map(krs_ir::SemanticModule::configuration)
+            .find_map(krs_ir_levels::SemanticModule::configuration)
             .cloned()
             .expect("the selected bundle has one semantic configuration")
         };
@@ -2765,21 +2765,21 @@ mod tests {
     }
 
     fn assert_semantic_term_equivalent(
-        explicit: &krs_ir::SemanticTerm,
-        readable: &krs_ir::SemanticTerm,
+        explicit: &krs_ir_levels::SemanticTerm,
+        readable: &krs_ir_levels::SemanticTerm,
     ) {
         assert_eq!(explicit.sort(), readable.sort());
         match (explicit.kind(), readable.kind()) {
             (
-                krs_ir::SemanticTermKind::Variable { variable: explicit },
-                krs_ir::SemanticTermKind::Variable { variable: readable },
+                krs_ir_levels::SemanticTermKind::Variable { variable: explicit },
+                krs_ir_levels::SemanticTermKind::Variable { variable: readable },
             ) => assert_eq!(explicit, readable),
             (
-                krs_ir::SemanticTermKind::Application {
+                krs_ir_levels::SemanticTermKind::Application {
                     application: explicit_application,
                     arguments: explicit_arguments,
                 },
-                krs_ir::SemanticTermKind::Application {
+                krs_ir_levels::SemanticTermKind::Application {
                     application: readable_application,
                     arguments: readable_arguments,
                 },
@@ -2791,15 +2791,15 @@ mod tests {
                 }
             }
             (
-                krs_ir::SemanticTermKind::Token { value: explicit },
-                krs_ir::SemanticTermKind::Token { value: readable },
+                krs_ir_levels::SemanticTermKind::Token { value: explicit },
+                krs_ir_levels::SemanticTermKind::Token { value: readable },
             ) => assert_eq!(explicit, readable),
             (
-                krs_ir::SemanticTermKind::KSequence {
+                krs_ir_levels::SemanticTermKind::KSequence {
                     item_sort: explicit_sort,
                     items: explicit_items,
                 },
-                krs_ir::SemanticTermKind::KSequence {
+                krs_ir_levels::SemanticTermKind::KSequence {
                     item_sort: readable_sort,
                     items: readable_items,
                 },
@@ -2811,11 +2811,11 @@ mod tests {
                 }
             }
             (
-                krs_ir::SemanticTermKind::Map {
+                krs_ir_levels::SemanticTermKind::Map {
                     operation: explicit_operation,
                     arguments: explicit_arguments,
                 },
-                krs_ir::SemanticTermKind::Map {
+                krs_ir_levels::SemanticTermKind::Map {
                     operation: readable_operation,
                     arguments: readable_arguments,
                 },
@@ -2831,8 +2831,8 @@ mod tests {
     }
 
     fn assert_semantic_rule_equivalent(
-        readable: &krs_ir::SemanticRule,
-        explicit: &krs_ir::SemanticRule,
+        readable: &krs_ir_levels::SemanticRule,
+        explicit: &krs_ir_levels::SemanticRule,
     ) {
         assert_eq!(readable.kind(), explicit.kind());
         for readable_variable in readable.variables() {
@@ -2854,8 +2854,8 @@ mod tests {
             );
         }
         let (
-            krs_ir::RuleBodyRef::Configuration { body: readable, .. },
-            krs_ir::RuleBodyRef::Configuration { body: explicit, .. },
+            krs_ir_levels::RuleBodyRef::Configuration { body: readable, .. },
+            krs_ir_levels::RuleBodyRef::Configuration { body: explicit, .. },
         ) = (readable.relational_body(), explicit.relational_body())
         else {
             panic!("equivalent readable and explicit rules must rewrite configurations")

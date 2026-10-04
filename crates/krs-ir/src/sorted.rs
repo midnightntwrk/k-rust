@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::ModuleId;
+use crate::{GroupAssociativitySentence, ModuleId, PrecedenceRelation};
 
 /// Supplies the canonical ordering key for a sequence element.
 pub trait SortKey {
@@ -18,6 +18,20 @@ pub trait SortKey {
 impl SortKey for ModuleId {
     type Key = Self;
 
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for PrecedenceRelation {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for GroupAssociativitySentence {
+    type Key = Self;
     fn sort_key(&self) -> &Self::Key {
         self
     }

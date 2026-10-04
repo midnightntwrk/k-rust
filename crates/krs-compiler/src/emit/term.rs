@@ -1,8 +1,11 @@
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinOperationNotation, DefinitionClaimBinder,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, GrammarProductionItemKind,
-    ListOperation, MapOperation, ProductionAttribute, ProductionGroupId, ProductionSentence,
-    RuleSentence, SemanticId, SemanticIdKind, SetOperation, SourceMapKey, k_surface::variable_name,
+    ApplicationRef, BuiltinOperation, BuiltinOperationNotation, GrammarProductionItemKind,
+    ListOperation, MapOperation, ProductionAttribute, ProductionGroupId, SemanticId,
+    SemanticIdKind, SetOperation, SourceMapKey,
+};
+use krs_ir_levels::{
+    DefinitionClaimBinder, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    ProductionSentence, RuleSentence, k_surface::variable_name,
 };
 
 use super::{EmitContext, EmitError, quoted};

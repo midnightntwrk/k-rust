@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorIndex,
     DescriptorPayload, DescriptorProductionItem, DescriptorProductionOwner, DescriptorSortRef,
-    GeneratedProductionKind, GrammarDescriptor, ProductionFieldId, SemanticSortRef, SemanticTerm,
-    StableItemId, generated_production_id,
+    GeneratedProductionKind, GrammarDescriptor, ProductionFieldId, StableItemId,
+    generated_production_id,
 };
+use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
 use super::error::DescriptorLoweringError;
 

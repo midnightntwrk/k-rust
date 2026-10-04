@@ -18,7 +18,8 @@ use k_rust::{
     kore::parser::parse_definition as parse_kore_definition,
     outer::{LoadOptions as NativeLoadOptions, load_structured},
 };
-use krs_ir::{DefinitionIr, measure::Timings};
+use krs_ir::measure::Timings;
+use krs_ir_levels::DefinitionIr;
 
 use error::resolve_diagnostic_keys;
 use provenance::join_sentence_provenance;

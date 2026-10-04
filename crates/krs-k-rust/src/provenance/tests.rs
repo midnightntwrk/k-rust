@@ -3,13 +3,16 @@ use k_rust::{
     kore::{ast::Pattern as KorePattern, parser::parse_definition},
 };
 use krs_ir::{
-    ApplicationRef, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot, DefinitionClaim,
-    DefinitionIr, DefinitionModule, DefinitionProductionAttribute, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, FixedCell, FixedCellClause, FixedConfiguration,
-    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell, LabelId,
-    LabelIdentity, NodeOrigin, ProductionFieldId, ProductionFieldReference,
-    ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
-    SourceMapKey, StrictnessKind, SymbolId, SymbolKind, SyntaxSortSentence,
+    ApplicationRef, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot, FixedCell,
+    FixedCellClause, FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, NodeOrigin, ProductionFieldId, ProductionFieldReference,
+    ProductionResultSort, SourceMapKey, StrictnessKind,
+};
+use krs_ir_levels::{
+    DefinitionClaim, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, LabelId, LabelIdentity,
+    ProductionItem as IrProductionItem, ProductionSentence, RuleSentence, SymbolId, SymbolKind,
+    SyntaxSortSentence,
 };
 
 use crate::{

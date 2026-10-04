@@ -4,7 +4,7 @@ use crate::ir_level::{
     IrClaim, IrLevel, IrRuleCondition, IrRulePriority, IrSimplification, IrTerm, IrTermKind,
     IrVariable, RuleBodyRef,
 };
-use crate::{
+use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
@@ -106,11 +106,11 @@ pub(crate) enum ValidationError<L: Validation> {
     ConfigurationRuleTargetMismatch(L::RuleId),
     ConfigurationRuleWithoutFixedConfiguration(L::RuleId),
     DanglingVariable(SemanticId),
-    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
+    DuplicateProductionAttribute(krs_ir::ProductionAttributeFamily),
     DuplicateSourceMapKey(SourceMapKey),
     DuplicateVariable(SemanticId),
     EmptyProduction(L::Declaration),
-    EmptyText(crate::IrField),
+    EmptyText(krs_ir::IrField),
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
     InitializerTreeMismatch,
@@ -127,7 +127,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidBn128PointConstructor {
         hook: HookOperation,
         sort: String,
-        expected_signature: crate::Bn128PointSignature,
+        expected_signature: krs_ir::Bn128PointSignature,
         matching_constructors: usize,
     },
     InvalidRulePriority(L::RuleId),
@@ -215,14 +215,14 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
         }
         if !external_names.insert(variable.external_name()) {
             return Err(L::error(ValidationError::EmptyText(
-                crate::IrField::DuplicateExternalConfigurationVariable,
+                krs_ir::IrField::DuplicateExternalConfigurationVariable,
             )));
         }
         main_count += usize::from(variable.is_main());
     }
     if main_count > 1 {
         return Err(L::error(ValidationError::EmptyText(
-            crate::IrField::MultipleMainConfigurationVariables,
+            krs_ir::IrField::MultipleMainConfigurationVariables,
         )));
     }
     validate_initializer_forest::<L>(
@@ -425,7 +425,7 @@ pub(crate) fn validate_context_alias<L: Validation>(
             .any(|variable| variable.id() == alias.here())
     {
         return Err(L::error(ValidationError::EmptyText(
-            crate::IrField::ContextAliasNameHere,
+            krs_ir::IrField::ContextAliasNameHere,
         )));
     }
     let scope = variable_scope::<L>(alias.variables(), declarations)?;
@@ -1019,7 +1019,7 @@ pub(crate) fn validate_term<L: Validation>(
         IrTermKind::Token { value } => {
             if value.is_empty() {
                 return Err(L::error(ValidationError::EmptyText(
-                    crate::IrField::TokenValue,
+                    krs_ir::IrField::TokenValue,
                 )));
             }
         }
@@ -1574,7 +1574,7 @@ where
 {
     let productions = productions.collect::<Vec<_>>();
     let check =
-        |hook, expected_signature: crate::Bn128PointSignature, used_sort: Option<&L::Sort>| {
+        |hook, expected_signature: krs_ir::Bn128PointSignature, used_sort: Option<&L::Sort>| {
             let expected_sort = expected_signature.sort_name();
             let arity = expected_signature.arity();
             let sort = if let Some(used_sort) = used_sort {

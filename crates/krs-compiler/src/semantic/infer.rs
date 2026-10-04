@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef,
     DescriptorApplicationReference, DescriptorIndex, DescriptorPayload, DescriptorTerm,
-    ListOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId,
-    SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation, StableItemId,
+    ListOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId, SetOperation,
+    StableItemId,
 };
+use krs_ir_levels::{SemanticSortRef, SemanticTerm, SemanticVariable};
 
 use super::catalog::{
     ProductionSignature, semantic_is_subsort, semantic_sort_closure, semantic_sort_ref,

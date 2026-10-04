@@ -6,10 +6,12 @@ use krs_ir::{
     DescriptorHeadRuleExtra, DescriptorIndex, DescriptorRuleCondition, DescriptorRuleLabel,
     DescriptorRulePriority, DescriptorSimplification, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, MapOperation,
-    ProtocolCellContent, ProvenanceKey, SemanticId, SemanticRule, SemanticRuleCondition,
-    SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSortRef, SemanticTerm, SemanticVariable, StableItemId,
-    StructuredRuleDescriptor,
+    ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
+};
+use krs_ir_levels::{
+    SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
+    SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef, SemanticTerm,
+    SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 

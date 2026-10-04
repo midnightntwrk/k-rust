@@ -232,10 +232,14 @@ impl fmt::Display for IrIdentityError {
 
 impl Error for IrIdentityError {}
 
-pub(crate) fn validated_id(
-    kind: crate::IrIdentityKind,
-    value: String,
-) -> Result<String, IrIdentityError> {
+/// Checks the spelling every path-free IR identity shares: not blank, and free of `/` and `\`.
+///
+/// `ModuleId`, `SemanticId`, `SourceMapKey`, `ProductionGroupId`, `ProductionFieldId`, and the Definition IR's `SymbolId` and `LabelId` (crate `krs-ir-levels`) all validate through this one rule.
+///
+/// # Errors
+///
+/// Returns [`IrIdentityError::Empty`] for blank input and [`IrIdentityError::PathLike`] for input that contains a path separator.
+pub fn validated_id(kind: crate::IrIdentityKind, value: String) -> Result<String, IrIdentityError> {
     if value.trim().is_empty() {
         return Err(IrIdentityError::Empty(kind));
     }

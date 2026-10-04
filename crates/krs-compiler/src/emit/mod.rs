@@ -9,9 +9,12 @@ use std::{
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{
-    ByteRange, CellAttribute, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, FixedCell, FixedCellContent, GroupAssociativity, ProductionGroupId,
-    ProductionSentence, SentenceKind, SourceMapKey, StableText, SymbolId,
+    ByteRange, CellAttribute, FixedCell, FixedCellContent, GroupAssociativity, ProductionGroupId,
+    SentenceKind, SourceMapKey, StableText,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ProductionSentence,
+    SymbolId,
     k_surface::{DefinitionIndex, ImportPolicy, builtin_imports},
 };
 

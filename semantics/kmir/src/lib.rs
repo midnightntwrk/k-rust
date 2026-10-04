@@ -8204,7 +8204,7 @@ mod tests {
 
     use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
     use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
-    use krs_ir::{DefinitionIr, SemanticTheory};
+    use krs_ir_levels::{DefinitionIr, SemanticTheory};
 
     fn package_context() -> PackageContext {
         PackageContext::new(

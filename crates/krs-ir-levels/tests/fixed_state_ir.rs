@@ -2,12 +2,14 @@
 
 use krs_ir::testing;
 use krs_ir::{
-    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr, DefinitionModule,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
-    DefinitionVariable, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, LabelId, LabelIdentity, MapOperation,
-    ModuleId, NodeOrigin, RuleSentence, SemanticId, StateShapeError, SubsortSentence, SymbolId,
-    SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell, FixedCellClause,
+    FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, MapOperation, ModuleId, NodeOrigin, SemanticId, StateShapeError,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity, RuleSentence,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {

@@ -3,7 +3,7 @@
 //! # Commands and Rust APIs
 //!
 //! `krs-gate compile [--timings FILE] DEFINITION-IR OUTPUT-KORE` writes the compiled KORE definition and, when requested, a `krs-timings/1` document.
-//! It reads [`krs_ir::DefinitionIr`] through [`krs_ir::json::from_slice`] and calls [`krs_k_rust::compile_definition_with_context_timed`] with [`krs_k_rust::CompileOptions`] selecting the Haskell backend.
+//! It reads [`krs_ir_levels::DefinitionIr`] through [`krs_ir::json::from_slice`] and calls [`krs_k_rust::compile_definition_with_context_timed`] with [`krs_k_rust::CompileOptions`] selecting the Haskell backend.
 //! The timing document is written on success and failure, uses the document name `native-compile`, and includes `native.input` and `native.write` spans.
 //! `krs-gate collector-bundle COLLECTOR-STDOUT DESCRIPTOR-BUNDLE` requires equality between the collector wire decoded by [`krs_ir::DescriptorBundle::from_collector_protocol`] and the typed emitted [`krs_ir::DescriptorBundle`].
 //! It returns a JSON summary with the collector wire `protocol_version`, `descriptors` count, and `descriptor_kinds` counts using canonical serialized names.
@@ -58,7 +58,7 @@
 //! The operation fails unless the generated file ends with exactly that table.
 //! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below.
 //! It operates independently of a loaded definition and reads only the artifacts required by the selected query.
-//! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir::SemanticTheory`], and [`krs_ir::DefinitionIr`].
+//! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir_levels::SemanticTheory`], and [`krs_ir_levels::DefinitionIr`].
 //! Symbol and source inputs use the version-checked [`krs_compiler::SymbolMap`] and [`krs_compiler::SourceMap`] readers.
 //! Unknown query kinds and fields are errors.
 //! All filters are optional exact matches; omitted filters select all rows.

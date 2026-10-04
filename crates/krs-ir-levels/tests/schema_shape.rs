@@ -1,10 +1,12 @@
-//! Pin the serde-reflection registry for the supported KRS IR shapes.
-//! The registry, unsupported samples, and collector encoding are pinned in `tests/schema`.
+//! Pin the serde-reflection registry for every serialized KRS contract shape: the descriptor
+//! contracts in `krs-ir` and the Semantic and Definition IR in this crate, under the one
+//! `SchemaVersion`. This crate is the only one that sees both, so the census reads both
+//! source trees. The registry and unsupported samples are pinned in `tests/schema`; the
+//! collector encoding is pinned by `krs-ir`'s `tests/collector_schema.rs`.
 //! The samples file also lists every `ProvenanceRole` spelling, a closed catalog the registry
 //! sees only as a string.
 //! A change to a pinned schema file must advance `SchemaVersion::CURRENT` and `Krs.lock`
-//! `[schemas] krs_ir`; a collector file change must advance `collector::VERSION` and its
-//! `Krs.lock` entry. A released version's file must never be overwritten.
+//! `[schemas] krs_ir`. A released version's file must never be overwritten.
 //! After advancing a version, use `UPDATE_EXPECT=1` to create the absent versioned file.
 //! An existing versioned file is compared byte for byte even when recording is enabled.
 //!
@@ -16,68 +18,18 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use krs_ir::measure::*;
-use krs_ir::transport::collector;
 use krs_ir::wire::*;
 use krs_ir::*;
+use krs_ir_levels::*;
+use krs_test_support::assert_versioned_pin;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_reflection::{Error, FormatHolder, Registry, Samples, Tracer, TracerConfig};
 use syn::{Item, Meta, Token, punctuated::Punctuated};
 
 mod schema_samples;
-
-fn recording() -> bool {
-    std::env::var("UPDATE_EXPECT").as_deref() == Ok("1")
-}
-
-fn assert_versioned_pin(file: &str, bump: &str, actual: &str) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join(file);
-    let bump_message = format!(
-        "advance {bump}, then record the new versioned file with UPDATE_EXPECT=1; never overwrite a released version's file"
-    );
-    match fs::read(&path) {
-        Ok(expected) => {
-            if expected != actual.as_bytes() {
-                let expected = String::from_utf8_lossy(&expected);
-                let hint = expected
-                    .lines()
-                    .zip(actual.lines())
-                    .enumerate()
-                    .find(|(_, (left, right))| left != right)
-                    .map_or_else(
-                        || {
-                            format!(
-                                "line count: expected {}, actual {}; first differing byte at {}",
-                                expected.lines().count(),
-                                actual.lines().count(),
-                                expected
-                                    .as_bytes()
-                                    .iter()
-                                    .zip(actual.as_bytes())
-                                    .position(|(left, right)| left != right)
-                                    .unwrap_or(expected.len().min(actual.len()))
-                            )
-                        },
-                        |(index, (left, right))| {
-                            format!("line {}: expected {left:?}, actual {right:?}", index + 1)
-                        },
-                    );
-                panic!("{} differs ({hint}); {bump_message}", path.display());
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && recording() => {
-            fs::write(&path, actual).unwrap();
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            panic!("{} is missing; {bump_message}", path.display());
-        }
-        Err(error) => panic!("cannot read {}: {error}", path.display()),
-    }
-}
 
 // Internally and adjacently tagged enums must remain outside reflection.
 const UNSUPPORTED_TAGGED: &[&str] = &[
@@ -548,10 +500,10 @@ fn deserializable_names(sources: &[syn::File]) -> BTreeSet<String> {
 
 fn census() -> BTreeSet<String> {
     let mut sources = Vec::new();
-    rust_sources(
-        &PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src")),
-        &mut sources,
-    );
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for directory in [manifest.join("../krs-ir/src"), manifest.join("src")] {
+        rust_sources(&directory, &mut sources);
+    }
     deserializable_names(&sources)
 }
 
@@ -980,6 +932,7 @@ fn registry() -> Registry {
 fn krs_ir_schema_shape_is_pinned() {
     let actual = format!("{}\n", serde_json::to_string_pretty(&registry()).unwrap());
     assert_versioned_pin(
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests")),
         &format!("schema/krs_ir-{}.json", SchemaVersion::CURRENT.0),
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
@@ -1004,133 +957,9 @@ fn unsupported_samples_are_pinned() {
     );
     let actual = format!("{}\n", serde_json::to_string_pretty(&corpus).unwrap());
     assert_versioned_pin(
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests")),
         &format!("schema/krs_ir-{}.samples.json", SchemaVersion::CURRENT.0),
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
-        &actual,
-    );
-}
-
-fn collector_origin(id: &StableItemId, populated: bool) -> OriginStack {
-    let authored = krs_ir::testing::authored(0, 3);
-    let range = match &authored.frames()[0] {
-        OriginFrame::Ranged { range, .. } => range.clone(),
-        OriginFrame::Transformation { .. } => unreachable!(),
-    };
-    let item = populated.then(|| id.clone());
-    let label = populated.then(|| "collector schema sample".to_owned());
-    let mut frames = vec![OriginFrame::Ranged {
-        kind: RangedOriginKind::Authored,
-        range: range.clone(),
-        item: item.clone(),
-        label: label.clone(),
-    }];
-    for kind in [
-        RangedOriginKind::MacroInvocation,
-        RangedOriginKind::GeneratedArtifact,
-        RangedOriginKind::FrontendDiagnostic,
-    ] {
-        frames.push(OriginFrame::Ranged {
-            kind,
-            range: range.clone(),
-            item: item.clone(),
-            label: label.clone(),
-        });
-    }
-    for kind in [
-        TransformationOriginKind::GeneratedDescriptor,
-        TransformationOriginKind::SemanticIr,
-        TransformationOriginKind::DefinitionIr,
-    ] {
-        frames.push(OriginFrame::Transformation {
-            kind,
-            item: item.clone(),
-            label: label.clone(),
-        });
-    }
-    OriginStack::try_from_frames(frames).unwrap()
-}
-
-fn collector_descriptor(
-    id: StableItemId,
-    payload: DescriptorPayload,
-    populated: bool,
-) -> Descriptor {
-    let role = match id.item_kind() {
-        ItemKind::Sort => ProvenanceRole::SortDeclaration,
-        ItemKind::Constructor => ProvenanceRole::ConstructorDeclaration,
-        _ => unreachable!(),
-    };
-    let key = ProvenanceKey::new(role, 0);
-    let mut origins = vec![DescriptorNodeOrigin::new(
-        key.clone(),
-        collector_origin(&id, populated),
-    )];
-    if populated {
-        origins.push(DescriptorNodeOrigin::new(
-            ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
-            krs_ir::testing::authored(0, 3),
-        ));
-    }
-    krs_ir::testing::descriptor(
-        id,
-        BTreeMap::from([("feature".to_owned(), Some("enabled".to_owned()))]),
-        DescriptorProvenance::new(key, origins).unwrap(),
-        payload,
-    )
-}
-
-#[test]
-fn collector_encoding_is_pinned() {
-    let sort_id = krs_ir::testing::item("syntax", "Value", ItemKind::Sort);
-    let constructor_id = krs_ir::testing::item("syntax", "Foo", ItemKind::Constructor);
-    let sort = collector_descriptor(
-        sort_id.clone(),
-        DescriptorPayload::Sort(SortDescriptor {
-            parents: BTreeSet::new(),
-        }),
-        true,
-    );
-    let constructor = collector_descriptor(
-        constructor_id.clone(),
-        DescriptorPayload::Constructor(ConstructorDescriptor {
-            sort: DescriptorSortRef::Declared(sort_id.clone()),
-            fields: vec![ConstructorFieldDescriptor {
-                name: "value".to_owned(),
-                sort: Some(DescriptorSortRef::Declared(sort_id)),
-            }],
-        }),
-        false,
-    );
-    let bundle = DescriptorBundle::with_declarations(
-        vec![sort, constructor],
-        vec![
-            DescriptorDeclaration::new(
-                krs_ir::testing::item("syntax", "Value", ItemKind::Sort),
-                RustVisibility::Public,
-                Some(ExplicitSymbol::new("Schema::Value").unwrap()),
-            ),
-            DescriptorDeclaration::new(constructor_id, RustVisibility::Inherited, None),
-        ],
-    )
-    .unwrap();
-    let bytes = bundle.to_collector_protocol_measured().unwrap().0;
-    let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
-    assert_eq!(decoded, bundle);
-    let encoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let frame_codes: BTreeSet<_> = encoded["descriptors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|descriptor| descriptor["provenance"]["origins"].as_array().unwrap())
-        .flat_map(|origin| origin["origin"].as_array().unwrap())
-        .map(|frame| frame[0].as_u64().unwrap())
-        .collect();
-    assert_eq!(frame_codes, (0..=6).collect());
-
-    let actual = format!("{}\n", serde_json::to_string_pretty(&encoded).unwrap());
-    assert_versioned_pin(
-        &format!("schema/collector-{}.json", collector::VERSION),
-        "collector::VERSION and Krs.lock [schemas] collector",
         &actual,
     );
 }

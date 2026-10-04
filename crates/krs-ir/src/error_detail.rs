@@ -113,10 +113,7 @@ impl Bn128PointSignature {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        DefinitionValidationError, GrammarShapeError, IdentityError, IrIdentityError,
-        SemanticValidationError, StateShapeError,
-    };
+    use crate::{GrammarShapeError, IdentityError, IrIdentityError, StateShapeError};
 
     #[test]
     fn identity_detail_displays_are_stable() {
@@ -140,29 +137,10 @@ mod tests {
             GrammarShapeError::EmptyText(IrField::ProductionRegex).to_string(),
             "production regex must not be empty",
         );
-        assert_eq!(
-            SemanticValidationError::DuplicateId {
-                kind: SemanticIdentityKind::Cell,
-                id: "same".to_owned(),
-            }
-            .to_string(),
-            "duplicate cell ID same",
-        );
-        assert_eq!(
-            DefinitionValidationError::AdapterSpecificValue(IrField::SymbolName).to_string(),
-            "symbol name must be target-neutral and path-free",
-        );
     }
 
     #[test]
     fn attribute_and_signature_displays_are_stable() {
-        assert_eq!(
-            DefinitionValidationError::DuplicateProductionAttribute(
-                ProductionAttributeFamily::Function
-            )
-            .to_string(),
-            "production repeats function metadata",
-        );
         assert_eq!(Bn128PointSignature::G1.to_string(), "G1Point(Int, Int)");
         assert_eq!(
             Bn128PointSignature::G2.to_string(),

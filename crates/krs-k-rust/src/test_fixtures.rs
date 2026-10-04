@@ -1,8 +1,10 @@
 use krs_ir::{
-    ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, FixedCell, FixedConfiguration, FixedConfigurationVariable,
-    FixedInitializerCell, LabelId, LabelIdentity, ModuleId, NodeOrigin,
-    ProductionItem as IrProductionItem, ProductionSentence, RuleSentence, SemanticId, SentenceKind,
+    ApplicationRef, ConfigurationRoot, FixedCell, FixedConfiguration, FixedConfigurationVariable,
+    FixedInitializerCell, ModuleId, NodeOrigin, SemanticId, SentenceKind,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm, LabelId,
+    LabelIdentity, ProductionItem as IrProductionItem, ProductionSentence, RuleSentence,
     SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 

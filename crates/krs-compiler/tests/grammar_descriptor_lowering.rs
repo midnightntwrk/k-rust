@@ -20,9 +20,10 @@ use krs_ir::{
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind, GrammarDescriptor,
     GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId, ProductionGroupId,
-    ProvenanceKey, ProvenanceRole, SemanticSortRef, SemanticTerm, SemanticTermKind, SentenceKind,
-    SortDescriptor, StableItemId, StructuredRuleDescriptor, generated_production_id,
+    ProvenanceKey, ProvenanceRole, SentenceKind, SortDescriptor, StableItemId,
+    StructuredRuleDescriptor, generated_production_id,
 };
+use krs_ir_levels::{SemanticSortRef, SemanticTerm, SemanticTermKind};
 
 fn package() -> PackageId {
     testing::package("KRS-GRAMMAR", "grammar")

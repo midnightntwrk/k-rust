@@ -174,7 +174,7 @@ impl CommandOutcome {
 
 struct PreparedDefinition {
     bundle: DescriptorBundle,
-    semantic: krs_ir::SemanticTheory,
+    semantic: krs_ir_levels::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
 }
 
@@ -363,12 +363,14 @@ fn prepare(
     })
 }
 
-fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, CommandError> {
+fn lower_semantic(
+    bundle: &DescriptorBundle,
+) -> Result<krs_ir_levels::SemanticTheory, CommandError> {
     lower_descriptor_bundle(bundle).map_err(CommandError::DescriptorLowering)
 }
 
 fn lower_definition(
-    semantic: &krs_ir::SemanticTheory,
+    semantic: &krs_ir_levels::SemanticTheory,
 ) -> Result<krs_compiler::LoweredDefinition, CommandError> {
     lower_semantic_theory(semantic).map_err(CommandError::Lowering)
 }

@@ -2,6 +2,7 @@
 use krs_ir::measure::*;
 use krs_ir::wire::*;
 use krs_ir::*;
+use krs_ir_levels::*;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet};
 

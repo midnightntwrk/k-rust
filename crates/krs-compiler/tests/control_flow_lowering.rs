@@ -9,17 +9,19 @@ use krs_compiler::{
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
-    DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause, FixedCellPattern,
-    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, PackageId,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, RuleBodyRef, SemanticClaim, SemanticClaimBinder,
-    SemanticContextAlias, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
-    SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
+    FixedCell, FixedCellClause, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
+    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
+    GroupAssociativity, GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin,
+    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SentenceKind,
+    StableItemId, StrictnessKind,
+};
+use krs_ir_levels::{
+    DefinitionSentence, DefinitionTermKind, RuleBodyRef, SemanticClaim, SemanticClaimBinder,
+    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
     SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind, StableItemId,
-    StrictnessKind,
+    SemanticTheory, SemanticValidationError, SemanticVariable,
 };
 use krs_test_support::kompile_reference;
 

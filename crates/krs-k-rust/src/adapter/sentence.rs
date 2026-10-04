@@ -7,13 +7,15 @@ use k_rust::{
 };
 use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
-    ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
-    DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
+    FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    NodeOrigin, ProductionSentence, RuleBodyRef, RuleSentence, SemanticId, SentenceKind,
-    StrictnessKind, SymbolId,
+    NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
+};
+use krs_ir_levels::{
+    ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
+    DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionTermKind, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
 };
 use serde_json::json;
 
@@ -937,7 +939,7 @@ fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeT
     )
 }
 
-pub(super) fn native_rule_label(module: &str, label: &krs_ir::LabelIdentity) -> String {
+pub(super) fn native_rule_label(module: &str, label: &krs_ir_levels::LabelIdentity) -> String {
     let emitted_name = label.emitted_name();
     // Shared lowering emits this reserved fallback directly as a label
     // attribute. K therefore leaves it unqualified. Authored/named rules and

@@ -4,11 +4,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    ApplicationRef, BuiltinSort, CellPost, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
-    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, ProductionAttribute,
-    ProductionGroupId, ProductionSentence, RuleBodyRef, SemanticId, StableItemId, SymbolId,
-    SymbolIdentity,
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionTermKind, ProductionSentence, RuleBodyRef, SymbolId, SymbolIdentity,
+};
+use krs_ir::{
+    ApplicationRef, BuiltinSort, CellPost, FixedCell, FixedCellContent, FixedInitializerCell,
+    FixedInitializerContent, GrammarProductionItemKind, ProductionAttribute, ProductionGroupId,
+    SemanticId, StableItemId,
 };
 
 /// Borrowed declarations and names from one Definition IR.
@@ -333,14 +335,16 @@ pub fn variable_name(variable: &SemanticId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{item, origin};
     use crate::{
-        BuiltinOperation, BuiltinSort, CellContentFrame, ClaimModality, ConfigurationRoot,
         ConfigurationSentence, ContextAliasSentence, DefinitionClaim, DefinitionModule,
-        DefinitionRuleCondition, DefinitionTerm, DefinitionVariable, FixedCellPattern,
-        FixedConfigurationPattern, FixedInitializerCell, ItemKind, LabelId, LabelIdentity,
-        ModuleId, ProductionAttribute, ProductionGroupIdentity, ProductionItem, RuleSentence,
-        SentenceKind, SymbolKind, SyntaxSortSentence,
+        DefinitionRuleCondition, DefinitionTerm, DefinitionVariable, LabelId, LabelIdentity,
+        ProductionGroupIdentity, ProductionItem, RuleSentence, SymbolKind, SyntaxSortSentence,
+    };
+    use krs_ir::testing::{item, origin};
+    use krs_ir::{
+        BuiltinOperation, BuiltinSort, CellContentFrame, ClaimModality, ConfigurationRoot,
+        FixedCellPattern, FixedConfigurationPattern, FixedInitializerCell, ItemKind, ModuleId,
+        ProductionAttribute, SentenceKind,
     };
 
     fn symbol_id(name: &str) -> SymbolId {

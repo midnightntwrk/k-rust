@@ -6,15 +6,17 @@ use k_rust::{
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, CellAttribute, CellContentFrame, ClaimModality,
-    ConfigurationRoot, ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr,
-    DefinitionModule, DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, FixedCell, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
-    GroupAssociativity, GroupAssociativitySentence, HookOperation, ItemKind, LabelId,
-    LabelIdentity, ListOperation, MapOperation, ModuleId, PrecedenceRelation, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
-    ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
-    SentenceKind, SetOperation, StableItemId, StrictnessKind, SymbolId, SymbolKind,
+    ConfigurationRoot, FixedCell, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
+    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
+    GroupAssociativitySentence, HookOperation, ItemKind, ListOperation, MapOperation, ModuleId,
+    PrecedenceRelation, ProductionFieldId, ProductionFieldReference, ProductionGroupId,
+    ProductionResultSort, SentenceKind, SetOperation, StableItemId, StrictnessKind,
+};
+use krs_ir_levels::{
+    ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
+    DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef,
+    DefinitionTerm, LabelId, LabelIdentity, ProductionGroupIdentity,
+    ProductionItem as IrProductionItem, ProductionSentence, RuleSentence, SymbolId, SymbolKind,
     k_surface::{ImportPolicy, builtin_imports, variable_name},
 };
 

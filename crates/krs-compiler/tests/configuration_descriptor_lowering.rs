@@ -492,7 +492,8 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
         .iter()
         .find(|module| !module.rules().is_empty())
         .unwrap();
-    let krs_ir::RuleBodyRef::Configuration { body: rule, .. } = module.rules()[0].relational_body()
+    let krs_ir_levels::RuleBodyRef::Configuration { body: rule, .. } =
+        module.rules()[0].relational_body()
     else {
         panic!("a configuration rule must remain a simultaneous configuration rewrite");
     };
@@ -560,7 +561,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         .iter()
         .find(|module| !module.rules().is_empty())
         .unwrap();
-    let krs_ir::RuleBodyRef::Configuration { body: rewrite, .. } =
+    let krs_ir_levels::RuleBodyRef::Configuration { body: rewrite, .. } =
         module.rules()[0].relational_body()
     else {
         panic!("a configuration rule must remain a simultaneous configuration rewrite");
@@ -569,7 +570,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     assert!(matches!(env.frame(), krs_ir::CellContentFrame::Exact));
     assert!(matches!(
         env.before().kind(),
-        krs_ir::semantic::SemanticTermKind::Map {
+        krs_ir_levels::semantic::SemanticTermKind::Map {
             operation: krs_ir::MapOperation::Empty,
             arguments,
         } if arguments.is_empty()
@@ -579,7 +580,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         krs_ir::CellPost::Replace { term }
             if matches!(
                 term.kind(),
-                krs_ir::semantic::SemanticTermKind::Map {
+                krs_ir_levels::semantic::SemanticTermKind::Map {
                     operation: krs_ir::MapOperation::Item,
                     arguments,
                 } if arguments.len() == 2
@@ -685,7 +686,7 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
         variables
             .iter()
             .any(|variable| variable.id().as_str() == "__krs_wildcard_0"
-                && variable.sort() == &krs_ir::SemanticSortRef::map())
+                && variable.sort() == &krs_ir_levels::SemanticSortRef::map())
     );
 }
 

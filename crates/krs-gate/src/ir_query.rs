@@ -2,10 +2,13 @@
 
 use krs_compiler::{MappedIdentity, SourceMap, SymbolMap, definition_module_imports};
 use krs_ir::{
-    ApplicationRef, CellPost, DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
+    ApplicationRef, CellPost, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
     FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, OriginFrame,
-    ProductionAttribute, RangedOriginKind, RuleBodyRef, SemanticTheory, SentenceKind, SymbolId,
+    ProductionAttribute, RangedOriginKind, SentenceKind,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    RuleBodyRef, SemanticTheory, SymbolId,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -428,7 +431,10 @@ fn frame_fact(frame: &krs_ir::CellContentFrame) -> Value {
     json!({"kind":kind,"binding":binding})
 }
 
-fn rule_body(context: &Context<'_>, body: RuleBodyRef<'_, krs_ir::DefinitionLevel>) -> Value {
+fn rule_body(
+    context: &Context<'_>,
+    body: RuleBodyRef<'_, krs_ir_levels::DefinitionLevel>,
+) -> Value {
     match body {
         RuleBodyRef::Term(term) => json!({
             "sort": context.sort(term.sort()),
@@ -588,7 +594,10 @@ fn operations(
                         include_arguments,
                     );
                 }
-                if let Some(condition) = rule.claim().and_then(krs_ir::DefinitionClaim::ensures) {
+                if let Some(condition) = rule
+                    .claim()
+                    .and_then(krs_ir_levels::DefinitionClaim::ensures)
+                {
                     context.operation_rows(
                         condition.term(),
                         &mut rows,
@@ -893,7 +902,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     let has_claims = definition
                         .modules()
                         .iter()
-                        .flat_map(krs_ir::DefinitionModule::sentences)
+                        .flat_map(krs_ir_levels::DefinitionModule::sentences)
                         .any(|sentence| {
                             matches!(sentence,
                             DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim)
@@ -1106,9 +1115,11 @@ mod tests {
     use krs_ir::testing;
     use krs_ir::{
         ConfigurationRoot, FixedConfiguration, ItemKind, ModuleId, NodeOrigin, PackageId,
-        SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-        SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, StableItemId,
-        TransformationOriginKind,
+        SemanticId, StableItemId, TransformationOriginKind,
+    };
+    use krs_ir_levels::{
+        SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
+        SemanticSortRef, SemanticSubsort, SemanticTerm,
     };
     fn package() -> PackageId {
         testing::package("KRS-FOO-BAR", "foo-bar-semantics")
@@ -1274,9 +1285,9 @@ mod tests {
                 )
                 .unwrap()
                 .with_label(Some(
-                    krs_ir::SemanticRuleLabel::new(origin(&key("label")), label).unwrap(),
+                    krs_ir_levels::SemanticRuleLabel::new(origin(&key("label")), label).unwrap(),
                 ))
-                .with_claim(Some(krs_ir::SemanticClaim::new(
+                .with_claim(Some(krs_ir_levels::SemanticClaim::new(
                     origin(&key("modality")),
                     krs_ir::ClaimModality::AllPaths,
                     None,
@@ -1780,11 +1791,11 @@ mod tests {
         };
         let (from, to) = (rewrite.from(), rewrite.to());
         let make = |frame: krs_ir::CellContentFrame, after: CellPost<DefinitionTerm>| {
-            DefinitionSentence::Rule(krs_ir::RuleSentence::new_configuration(
+            DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new_configuration(
                 ordinary.origin().clone(),
                 ordinary.label().clone(),
                 ordinary.kind().try_into().unwrap(),
-                vec![krs_ir::DefinitionVariable::new(
+                vec![krs_ir_levels::DefinitionVariable::new(
                     SemanticId::new("tail").unwrap(),
                     DefinitionSortRef::k_sequence(),
                 )],
@@ -2017,8 +2028,10 @@ mod tests {
                             };
                             let tail = SemanticId::new("tail").unwrap();
                             let sort = DefinitionSortRef::k_sequence();
-                            let variables =
-                                vec![krs_ir::DefinitionVariable::new(tail.clone(), sort.clone())];
+                            let variables = vec![krs_ir_levels::DefinitionVariable::new(
+                                tail.clone(),
+                                sort.clone(),
+                            )];
                             let body = DefinitionTerm::rewrite(
                                 body.origin().clone(),
                                 sort.clone(),
@@ -2031,7 +2044,7 @@ mod tests {
                             )
                             .unwrap();
                             DefinitionSentence::Rule(
-                                krs_ir::RuleSentence::new(
+                                krs_ir_levels::RuleSentence::new(
                                     rule.origin().clone(),
                                     rule.label().clone(),
                                     rule.kind(),
@@ -2045,7 +2058,7 @@ mod tests {
                         }
                     })
                     .collect();
-                krs_ir::DefinitionModule::new(
+                krs_ir_levels::DefinitionModule::new(
                     module.origin().clone(),
                     module.id().clone(),
                     module.imports().iter().cloned().collect(),

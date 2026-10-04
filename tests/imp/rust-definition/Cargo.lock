@@ -122,6 +122,7 @@ version = "0.1.0"
 dependencies = [
  "krs-diagnostic",
  "krs-ir",
+ "krs-ir-levels",
  "krs-syntax",
  "prettyplease",
  "proc-macro2",
@@ -174,6 +175,15 @@ name = "krs-ir"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "krs-ir-levels"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
  "serde",
  "serde_json",
 ]

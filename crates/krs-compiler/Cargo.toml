@@ -7,11 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-test-support = ["krs-ir/test-support"]
+test-support = ["krs-ir/test-support", "krs-ir-levels/test-support"]
 
 [dependencies]
 krs-diagnostic = { path = "../krs-diagnostic" }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
+krs-ir-levels = { path = "../krs-ir-levels" }
 krs-syntax = { path = "../krs-syntax" }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 prettyplease = { workspace = true }
@@ -28,4 +29,5 @@ workspace = true
 expect-test = { workspace = true }
 krs-compiler = { path = ".", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-ir-levels = { path = "../krs-ir-levels", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }

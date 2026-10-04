@@ -4,21 +4,23 @@ use std::fmt;
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
+    FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
+    GroupAssociativitySentence, IrIdentityError, ModuleId, NodeOrigin, OriginFrame, OriginStack,
+    PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SourceMapKey, StableItemId,
+    StableText, TransformationOriginKind, lower_hex,
+};
+use krs_ir_levels::{
     ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
     DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
     DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
-    FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    GroupAssociativitySentence, IrIdentityError, LabelId, LabelIdentity, ModuleId, NodeOrigin,
-    OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
-    ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
-    ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence, RuleBodyRef,
-    RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticSortRef,
-    SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable, SourceMapKey, StableItemId,
-    StableText, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
-    TransformationOriginKind, lower_hex,
+    LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
+    RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
+    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 use sha2::{Digest, Sha256};
 
@@ -965,7 +967,7 @@ fn state_shape_error(error: krs_ir::StateShapeError) -> LoweringError {
 
 fn lower_rule_metadata(
     mut sentence: RuleSentence,
-    rule: &krs_ir::SemanticRule,
+    rule: &krs_ir_levels::SemanticRule,
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<RuleSentence, LoweringError> {
@@ -1023,7 +1025,7 @@ fn lower_rule_metadata(
 }
 
 fn lower_rule_condition(
-    condition: &krs_ir::SemanticRuleCondition,
+    condition: &krs_ir_levels::SemanticRuleCondition,
     item: &StableItemId,
     names: &NamingPass,
     origins: &mut OriginPass,
@@ -1036,7 +1038,7 @@ fn lower_rule_condition(
 }
 
 fn lower_claim(
-    claim: &krs_ir::SemanticClaim,
+    claim: &krs_ir_levels::SemanticClaim,
     item: &StableItemId,
     names: &NamingPass,
     origins: &mut OriginPass,
@@ -1064,7 +1066,7 @@ fn lower_claim(
 }
 
 fn lower_claim_binders(
-    binders: &[krs_ir::SemanticClaimBinder],
+    binders: &[krs_ir_levels::SemanticClaimBinder],
     item: &StableItemId,
     names: &NamingPass,
     origins: &mut OriginPass,
@@ -1099,11 +1101,11 @@ fn lower_claim_binders(
 fn lower_variables(
     variables: &[SemanticVariable],
     names: &NamingPass,
-) -> Result<Vec<krs_ir::DefinitionVariable>, LoweringError> {
+) -> Result<Vec<krs_ir_levels::DefinitionVariable>, LoweringError> {
     variables
         .iter()
         .map(|variable| {
-            Ok(krs_ir::DefinitionVariable::new(
+            Ok(krs_ir_levels::DefinitionVariable::new(
                 variable.id().clone(),
                 lower_sort_ref(variable.sort(), names)?,
             ))
@@ -1176,7 +1178,7 @@ fn lower_production_attributes(
     production: &SemanticProduction,
     names: &NamingPass,
     origins: &mut OriginPass,
-) -> Result<Vec<krs_ir::DefinitionProductionAttribute>, LoweringError> {
+) -> Result<Vec<krs_ir_levels::DefinitionProductionAttribute>, LoweringError> {
     production
         .attributes()
         .iter()
@@ -1272,7 +1274,7 @@ fn lower_production_attributes(
 }
 
 fn lower_rule_rewrite(
-    body: &krs_ir::IrRewrite<krs_ir::SemanticLevel>,
+    body: &krs_ir_levels::IrRewrite<krs_ir_levels::SemanticLevel>,
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionTerm, LoweringError> {
@@ -1512,7 +1514,7 @@ fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbo
     text
 }
 
-fn production_symbol_name(production: &krs_ir::SemanticProduction, owner: &str) -> String {
+fn production_symbol_name(production: &krs_ir_levels::SemanticProduction, owner: &str) -> String {
     if let Some(symbol) = production.explicit_symbol() {
         return lower_camel(symbol.final_component());
     }

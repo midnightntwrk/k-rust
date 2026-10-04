@@ -34,7 +34,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 | `crates/krs` | Author-facing facade (`k::sorts!`, `k::rules!`, attributes, builtins) |
 | `crates/krs-macros`, `crates/krs-expand`, `crates/krs-syntax` | Procedural macros, the shared expansion core, and span-preserving parsers for macro islands |
 | `crates/krs-collector` | Deterministic host descriptor collection |
-| `crates/krs-compiler`, `crates/krs-ir` | Semantic analysis, `.k` emission, and the descriptor/IR contracts |
+| `crates/krs-compiler`, `crates/krs-ir`, `crates/krs-ir-levels` | Semantic analysis, `.k` emission, descriptor contracts, and the Semantic and Definition IR levels |
 | `crates/krs-diagnostic` | Located diagnostic model and code registry shared by producers |
 | `crates/krs-k-rust` | Adapter from Definition IR to the pinned `k-rust` frontend |
 | `crates/krs-cli` | The `krs` command: `check`, `expand`, `emit-k`, `build`, and `fmt` |

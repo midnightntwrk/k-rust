@@ -2,9 +2,9 @@ use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
     GeneratedProductionKind, GrammarDescriptor, GroupAssociativitySentence, PrecedenceRelation,
-    ProductionAttribute, SemanticProduction, SemanticProductionItem, SemanticSortRef,
-    SemanticSubsort, StableItemId, generated_production_id,
+    ProductionAttribute, StableItemId, generated_production_id,
 };
+use krs_ir_levels::{SemanticProduction, SemanticProductionItem, SemanticSortRef, SemanticSubsort};
 
 use super::catalog::semantic_sort_ref;
 use super::error::DescriptorLoweringError;

@@ -3,9 +3,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, RuleBodyRef,
-    SemanticApplicationRef, SemanticId, SemanticModule, SemanticRule, SemanticSortRef,
-    SemanticTerm, SemanticTermKind, SetOperation, StableItemId,
+    BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, SemanticId, SetOperation,
+    StableItemId,
+};
+use krs_ir_levels::{
+    RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule, SemanticSortRef,
+    SemanticTerm, SemanticTermKind,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -562,10 +565,10 @@ pub(crate) fn first_head_rule_overlap(
         for right in &rules[index + 1..] {
             let left_priority = left
                 .priority()
-                .map_or(50, krs_ir::SemanticRulePriority::value);
+                .map_or(50, krs_ir_levels::SemanticRulePriority::value);
             let right_priority = right
                 .priority()
-                .map_or(50, krs_ir::SemanticRulePriority::value);
+                .map_or(50, krs_ir_levels::SemanticRulePriority::value);
             if left_priority != right_priority {
                 continue;
             }

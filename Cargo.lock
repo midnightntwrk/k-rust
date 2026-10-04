@@ -551,6 +551,7 @@ dependencies = [
  "krs-diagnostic",
  "krs-fmt",
  "krs-ir",
+ "krs-ir-levels",
  "krs-k-rust",
  "krs-syntax",
  "krs-test-support",
@@ -590,6 +591,7 @@ dependencies = [
  "krs-compiler",
  "krs-diagnostic",
  "krs-ir",
+ "krs-ir-levels",
  "krs-syntax",
  "krs-test-support",
  "prettyplease",
@@ -664,6 +666,7 @@ dependencies = [
  "krs-compiler",
  "krs-expand",
  "krs-ir",
+ "krs-ir-levels",
  "krs-k-rust",
  "krs-test-support",
  "quote",
@@ -682,11 +685,24 @@ dependencies = [
  "krs-test-support",
  "proc-macro2",
  "serde",
- "serde-reflection",
  "serde_json",
  "static_assertions",
- "syn 2.0.119",
  "toml_edit",
+]
+
+[[package]]
+name = "krs-ir-levels"
+version = "0.1.0"
+dependencies = [
+ "expect-test",
+ "krs-ir",
+ "krs-ir-levels",
+ "krs-test-support",
+ "proc-macro2",
+ "serde",
+ "serde-reflection",
+ "serde_json",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -696,6 +712,7 @@ dependencies = [
  "k-rust",
  "krs-diagnostic",
  "krs-ir",
+ "krs-ir-levels",
  "serde",
  "serde_json",
 ]

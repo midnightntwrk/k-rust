@@ -8,9 +8,11 @@ use krs_ir::{
     GrammarDescriptor, GroupAssociativitySentence, ModuleId, PackageId, PrecedenceRelation,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, SemanticConfiguration, SemanticContextAlias, SemanticModule,
-    SemanticProduction, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
-    SortDescriptor, StableItemId,
+    ProtocolRuleStateTerm, SortDescriptor, StableItemId,
+};
+use krs_ir_levels::{
+    SemanticConfiguration, SemanticContextAlias, SemanticModule, SemanticProduction, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort,
 };
 use krs_syntax::ProvenanceRole;
 

@@ -3,9 +3,9 @@
 use std::fmt;
 
 use crate::{
-    BuiltinOperation, BuiltinSort, ExplicitSymbol, HookOperation, ItemKind, LabelId, ListOperation,
+    BuiltinOperation, BuiltinSort, ExplicitSymbol, HookOperation, ItemKind, ListOperation,
     MapOperation, ModuleId, PackageId, ProductionFieldId, ProductionGroupId, SemanticId,
-    SetOperation, Sha256Digest, SourceMapKey, StableItemId, SymbolId, SymbolKind,
+    SetOperation, Sha256Digest, SourceMapKey, StableItemId,
 };
 
 impl fmt::Display for ItemKind {
@@ -52,15 +52,6 @@ impl fmt::Display for BuiltinSort {
     }
 }
 
-impl<D: fmt::Display> fmt::Display for crate::IrSortRef<D> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Declared(id) => id.fmt(formatter),
-            Self::Builtin(sort) => sort.fmt(formatter),
-        }
-    }
-}
-
 macro_rules! display_inner {
     ($($type:ty),+ $(,)?) => {
         $(impl fmt::Display for $type {
@@ -77,21 +68,9 @@ display_inner!(
     SourceMapKey,
     ModuleId,
     SemanticId,
-    SymbolId,
-    LabelId,
     ProductionGroupId,
     ProductionFieldId,
 );
-
-impl fmt::Display for SymbolKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Sort => "sort",
-            Self::Production => "production",
-            Self::Cell => "cell",
-        })
-    }
-}
 
 impl fmt::Display for BuiltinOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -148,7 +127,6 @@ impl fmt::Display for SetOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DefinitionSortRef, SemanticSortRef};
 
     #[test]
     fn author_facing_id_and_sort_text() {
@@ -156,22 +134,6 @@ mod tests {
         let item =
             StableItemId::new(package, ["math", "integer"], "Number", ItemKind::Sort, "").unwrap();
         assert_eq!(item.to_string(), "EXAMPLE::math::integer::Number (sort)");
-        assert_eq!(
-            SemanticSortRef::Declared(item.clone()).to_string(),
-            "EXAMPLE::math::integer::Number (sort)"
-        );
-        assert_eq!(
-            SemanticSortRef::Builtin(BuiltinSort::Int).to_string(),
-            "Int"
-        );
-        assert_eq!(
-            DefinitionSortRef::Builtin(BuiltinSort::KSequence).to_string(),
-            "K"
-        );
-        assert_eq!(
-            DefinitionSortRef::Declared(SymbolId::new("NumberSymbol").unwrap()).to_string(),
-            "NumberSymbol"
-        );
         let generated = StableItemId::new(
             item.package().clone(),
             ["math"],

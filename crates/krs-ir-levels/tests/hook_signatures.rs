@@ -2,11 +2,14 @@
 
 use krs_ir::testing::{assert_canonical_contract, item, origin as node};
 use krs_ir::{
-    ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef,
-    DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration, FixedInitializerCell,
-    HookOperation, ItemKind, ModuleId, ProductionAttribute, ProductionFieldId, ProductionItem,
-    ProductionSentence, SemanticId, SemanticProduction, SemanticProductionItem, SemanticSortRef,
-    SemanticValidationError, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ConfigurationRoot, FixedCell, FixedConfiguration, FixedInitializerCell, HookOperation,
+    ItemKind, ModuleId, ProductionAttribute, ProductionFieldId, SemanticId,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, ProductionItem, ProductionSentence, SemanticProduction,
+    SemanticProductionItem, SemanticSortRef, SemanticValidationError, SymbolId, SymbolIdentity,
+    SymbolKind, SyntaxSortSentence,
 };
 
 fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {

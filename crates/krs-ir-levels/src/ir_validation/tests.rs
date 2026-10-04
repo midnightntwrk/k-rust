@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
-    DefinitionLevel, DefinitionSortRef, DefinitionTerm, DefinitionValidationError, ItemKind,
-    SemanticLevel, SemanticSortRef, SemanticTerm, SemanticValidationError, SymbolId, SymbolKind,
-    testing,
+    DefinitionLevel, DefinitionSortRef, DefinitionTerm, DefinitionValidationError, SemanticLevel,
+    SemanticSortRef, SemanticTerm, SemanticValidationError, SymbolId, SymbolKind,
 };
+use krs_ir::{ItemKind, testing};
 
 fn check<L: Validation>(term: &IrTerm<L>, declarations: &Declarations<L>) -> Result<(), L::Error> {
     check_cells::<L>(term, declarations, &BTreeSet::new())
@@ -307,7 +307,7 @@ fn bn128_point_constructors_are_checked_in_both_levels() {
                 Err(SemanticValidationError::InvalidBn128PointConstructor {
                     hook,
                     sort: name.to_owned(),
-                    expected_signature: crate::Bn128PointSignature::G1,
+                    expected_signature: krs_ir::Bn128PointSignature::G1,
                     matching_constructors: count,
                 })
             );
@@ -338,7 +338,7 @@ fn bn128_point_constructors_are_checked_in_both_levels() {
             Err(SemanticValidationError::InvalidBn128PointConstructor {
                 hook: HookOperation::KryptoBn128Valid,
                 sort: "G1Point".to_owned(),
-                expected_signature: crate::Bn128PointSignature::G1,
+                expected_signature: krs_ir::Bn128PointSignature::G1,
                 matching_constructors: 0,
             })
         );
@@ -368,7 +368,7 @@ fn bn128_g2_and_pairing_require_the_four_integer_constructor() {
         Err(SemanticValidationError::InvalidBn128PointConstructor {
             hook: HookOperation::KryptoBn128G2Valid,
             sort: "G2Point".to_owned(),
-            expected_signature: crate::Bn128PointSignature::G2,
+            expected_signature: krs_ir::Bn128PointSignature::G2,
             matching_constructors: 0,
         })
     );
@@ -384,7 +384,7 @@ fn bn128_g2_and_pairing_require_the_four_integer_constructor() {
         Err(SemanticValidationError::InvalidBn128PointConstructor {
             hook: HookOperation::KryptoBn128Ate,
             sort: "G2Point".to_owned(),
-            expected_signature: crate::Bn128PointSignature::G2,
+            expected_signature: krs_ir::Bn128PointSignature::G2,
             matching_constructors: 0,
         })
     );
@@ -437,7 +437,7 @@ fn bn128_semantic_sort_names_follow_definition_lowering() {
     let configuration = FixedConfiguration::new(
         testing::origin("configuration"),
         SemanticId::new("configuration").unwrap(),
-        crate::ConfigurationRoot::GeneratedTop,
+        krs_ir::ConfigurationRoot::GeneratedTop,
         vec![
             FixedCell::leaf(
                 testing::origin("cell"),
@@ -461,13 +461,13 @@ fn bn128_semantic_sort_names_follow_definition_lowering() {
     let theory = |symbol| {
         crate::SemanticTheory::new(vec![crate::SemanticModule::new(
             testing::origin("module"),
-            crate::ModuleId::new("POINTS").unwrap(),
+            krs_ir::ModuleId::new("POINTS").unwrap(),
             vec![],
             vec![crate::SemanticSort::with_api(
                 testing::origin("sort"),
                 point_id.clone(),
-                crate::RustVisibility::Inherited,
-                Some(crate::ExplicitSymbol::new(symbol).unwrap()),
+                krs_ir::RustVisibility::Inherited,
+                Some(krs_ir::ExplicitSymbol::new(symbol).unwrap()),
             )],
             vec![],
             vec![point.clone(), hook.clone()],
@@ -483,7 +483,7 @@ fn bn128_semantic_sort_names_follow_definition_lowering() {
         Err(SemanticValidationError::InvalidBn128PointConstructor {
             hook: HookOperation::KryptoBn128Valid,
             sort: "OtherPoint".to_owned(),
-            expected_signature: crate::Bn128PointSignature::G1,
+            expected_signature: krs_ir::Bn128PointSignature::G1,
             matching_constructors: 1,
         })
     );
@@ -587,10 +587,10 @@ fn alias<L: Validation>(
         testing::origin("here"),
         SemanticId::new("HERE").unwrap(),
         variables,
-        crate::FixedConfigurationPattern::new(
+        krs_ir::FixedConfigurationPattern::new(
             testing::origin("pattern"),
             SemanticId::new("configuration").unwrap(),
-            vec![crate::FixedCellPattern::new(
+            vec![krs_ir::FixedCellPattern::new(
                 testing::origin("cell"),
                 cell,
                 pattern,
@@ -606,7 +606,7 @@ fn alias_configuration<L: Validation>(cell: L::Cell, sort: L::Sort) -> Configura
     FixedConfiguration::new(
         testing::origin("configuration"),
         SemanticId::new("configuration").unwrap(),
-        crate::ConfigurationRoot::GeneratedTop,
+        krs_ir::ConfigurationRoot::GeneratedTop,
         vec![
             FixedCell::leaf(
                 testing::origin("declared-cell"),
@@ -914,7 +914,7 @@ fn bn128_point_coordinates_must_all_have_builtin_integer_sort() {
         Err(SemanticValidationError::InvalidBn128PointConstructor {
             hook: HookOperation::KryptoBn128Valid,
             sort: "G1Point".to_owned(),
-            expected_signature: crate::Bn128PointSignature::G1,
+            expected_signature: krs_ir::Bn128PointSignature::G1,
             matching_constructors: 0,
         })
     );
@@ -926,7 +926,7 @@ fn semantic_theory_checks_alias_bodies_against_registered_cells() {
     let configuration = FixedConfiguration::new(
         testing::origin("configuration"),
         SemanticId::new("configuration").unwrap(),
-        crate::ConfigurationRoot::GeneratedTop,
+        krs_ir::ConfigurationRoot::GeneratedTop,
         vec![
             FixedCell::leaf(
                 testing::origin("declared-cell"),
@@ -957,7 +957,7 @@ fn semantic_theory_checks_alias_bodies_against_registered_cells() {
     let theory = |alias| {
         crate::SemanticTheory::new(vec![crate::SemanticModule::new_with_context_aliases(
             testing::origin("module"),
-            crate::ModuleId::new("CONTEXTS").unwrap(),
+            krs_ir::ModuleId::new("CONTEXTS").unwrap(),
             vec![],
             vec![],
             vec![],
@@ -973,10 +973,10 @@ fn semantic_theory_checks_alias_bodies_against_registered_cells() {
     // Configuration identities share the semantic namespace but are not fixed-cell declarations.
     let not_a_cell = SemanticId::new("configuration").unwrap();
     let mut dangling_cell = valid.clone();
-    dangling_cell.body = crate::FixedConfigurationPattern::new(
+    dangling_cell.body = krs_ir::FixedConfigurationPattern::new(
         testing::origin("pattern"),
         not_a_cell.clone(),
-        vec![crate::FixedCellPattern::new(
+        vec![krs_ir::FixedCellPattern::new(
             testing::origin("cell"),
             not_a_cell.clone(),
             valid.body.cells()[0].pattern().clone(),
@@ -991,10 +991,10 @@ fn semantic_theory_checks_alias_bodies_against_registered_cells() {
     );
     let mut dangling_variable = valid;
     let variable = SemanticId::new("missing").unwrap();
-    dangling_variable.body = crate::FixedConfigurationPattern::new(
+    dangling_variable.body = krs_ir::FixedConfigurationPattern::new(
         testing::origin("pattern"),
         SemanticId::new("configuration").unwrap(),
-        vec![crate::FixedCellPattern::new(
+        vec![krs_ir::FixedCellPattern::new(
             testing::origin("cell"),
             SemanticId::new("k").unwrap(),
             SemanticTerm::variable(
@@ -1044,7 +1044,7 @@ fn semantic_sentence_errors_precede_new_cell_reference_checks() {
         .unwrap();
         crate::SemanticTheory::new(vec![crate::SemanticModule::new(
             testing::origin("module"),
-            crate::ModuleId::new("CELLS").unwrap(),
+            krs_ir::ModuleId::new("CELLS").unwrap(),
             vec![],
             vec![],
             vec![],

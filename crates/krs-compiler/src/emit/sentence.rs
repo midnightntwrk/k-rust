@@ -2,12 +2,15 @@ use std::collections::BTreeSet;
 
 use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
+    FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
+    GroupAssociativity, ProductionAttribute, ProductionGroupId, SemanticId, SentenceKind,
+    StrictnessKind,
+};
+use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
-    GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ProductionAttribute,
-    ProductionGroupId, ProductionSentence, RuleBodyRef, RuleSentence, SemanticId, SentenceKind,
-    StrictnessKind, SymbolId, k_surface::variable_name,
+    DefinitionTermKind, LabelIdentity, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
+    k_surface::variable_name,
 };
 
 use super::{
@@ -148,7 +151,7 @@ fn emit_group_list(
 
 #[allow(clippy::too_many_lines)]
 fn emit_production_attribute(
-    attribute: &krs_ir::DefinitionProductionAttribute,
+    attribute: &krs_ir_levels::DefinitionProductionAttribute,
     sentence: &ProductionSentence,
     context: &EmitContext<'_>,
     writer: &mut Writer,
@@ -628,11 +631,11 @@ fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<
             "simplification",
             simplification
                 .priority()
-                .map(krs_ir::DefinitionSimplificationPriority::value),
+                .map(krs_ir_levels::DefinitionSimplificationPriority::value),
             Some(simplification.origin()),
             simplification
                 .priority()
-                .map(krs_ir::DefinitionSimplificationPriority::origin),
+                .map(krs_ir_levels::DefinitionSimplificationPriority::origin),
         ));
     }
     if let Some(claim) = sentence.claim() {

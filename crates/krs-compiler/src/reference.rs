@@ -13,10 +13,10 @@ use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
     DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, OriginFrame, PackageId,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SemanticRule,
-    SemanticSortRef, SemanticTheory, SetOperation, Sha256Digest, SourceFileId, StableItemId,
-    TermMapOperation,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SetOperation,
+    Sha256Digest, SourceFileId, StableItemId, TermMapOperation,
 };
+use krs_ir_levels::{SemanticRule, SemanticSortRef, SemanticTheory};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -159,7 +159,7 @@ pub fn expand_reference_source(
     let semantic_rules = semantic
         .modules()
         .iter()
-        .flat_map(krs_ir::SemanticModule::rules)
+        .flat_map(krs_ir_levels::SemanticModule::rules)
         .map(|rule| (rule.id(), rule))
         .collect::<BTreeMap<_, _>>();
     let mut rendered_names = BTreeSet::new();

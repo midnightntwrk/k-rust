@@ -14,9 +14,9 @@ use k_rust::{
     kast::Sort as NativeSort,
 };
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
-use krs_ir::{
-    DefinitionIr, DefinitionSentence, DefinitionSortRef, NodeOrigin, OriginFrame,
-    ProductionGroupId, SemanticId, SourceMapKey, StableItemId, SymbolId,
+use krs_ir::{NodeOrigin, OriginFrame, ProductionGroupId, SemanticId, SourceMapKey, StableItemId};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId,
     k_surface::{DefinitionIndex, ImportPolicy, builtin_imports},
 };
 use serde_json::json;
@@ -262,7 +262,10 @@ impl<'a> Adapter<'a> {
         })
     }
 
-    fn module(&mut self, module: &krs_ir::DefinitionModule) -> Result<FlatModule, AdapterError> {
+    fn module(
+        &mut self,
+        module: &krs_ir_levels::DefinitionModule,
+    ) -> Result<FlatModule, AdapterError> {
         let module_name = module.id().as_str().to_owned();
         self.map_origin(module.origin(), &module_name, NativeNodePlace::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());

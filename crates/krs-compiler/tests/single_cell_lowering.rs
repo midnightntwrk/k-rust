@@ -4,11 +4,14 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_compiler::{LoweringError, lower_semantic_theory};
 use krs_ir::testing;
 use krs_ir::{
-    ApplicationRef, ConfigurationRoot, DefinitionSentence, FixedCell, FixedConfiguration,
-    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, SemanticId,
-    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SentenceKind, StableItemId, TransformationOriginKind,
+    ApplicationRef, ConfigurationRoot, FixedCell, FixedConfiguration, FixedInitializerCell,
+    ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, SemanticId, SentenceKind, StableItemId,
+    TransformationOriginKind,
+};
+use krs_ir_levels::{
+    DefinitionSentence, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SemanticValidationError,
 };
 use krs_test_support::assert_rejects_with_message;
 
@@ -204,7 +207,7 @@ fn one_cell_configuration_and_initializer_remain_structural() {
         .definition()
         .modules()
         .iter()
-        .flat_map(krs_ir::DefinitionModule::sentences)
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
         .find_map(|sentence| match sentence {
             DefinitionSentence::Configuration(value) => Some(value),
             _ => None,
@@ -220,7 +223,7 @@ fn one_cell_configuration_and_initializer_remain_structural() {
     assert!(matches!(
         initializer.content(),
         krs_ir::FixedInitializerContent::Term { term }
-            if matches!(term.kind(), krs_ir::DefinitionTermKind::KSequence { items, .. } if items.len() == 1)
+            if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::KSequence { items, .. } if items.len() == 1)
     ));
 }
 

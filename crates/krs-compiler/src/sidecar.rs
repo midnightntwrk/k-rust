@@ -3,11 +3,14 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DisplayPath,
+    ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DisplayPath,
     FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent,
-    LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, RuleBodyRef, SourceMapKey,
-    SourceRange, StableItemId, SymbolId, SymbolKind,
+    LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, SourceRange,
+    StableItemId,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    LabelId, RuleBodyRef, SymbolId, SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -462,7 +465,7 @@ impl SourceMap {
                                 attribute.origin(),
                                 SourceMapNodeKind::ProductionAttribute,
                             )?;
-                            if let krs_ir::DefinitionProductionAttribute::Strictness {
+                            if let krs_ir_levels::DefinitionProductionAttribute::Strictness {
                                 using,
                                 fields,
                                 result_sort,
@@ -817,7 +820,7 @@ fn insert_fixed_configuration(
 
 fn insert_rule_body(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
-    body: RuleBodyRef<'_, krs_ir::DefinitionLevel>,
+    body: RuleBodyRef<'_, krs_ir_levels::DefinitionLevel>,
 ) -> Result<(), SidecarError> {
     match body {
         RuleBodyRef::Term(body) => {

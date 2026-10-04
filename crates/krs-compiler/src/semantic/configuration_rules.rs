@@ -6,8 +6,11 @@ use krs_ir::{
     FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, MapOperation,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolRuleBindingKind,
     ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
-    SemanticContextAlias, SemanticId, SemanticRule, SemanticRuleCondition, SemanticSortRef,
-    SemanticTerm, SemanticVariable, StableItemId,
+    SemanticId, StableItemId,
+};
+use krs_ir_levels::{
+    SemanticContextAlias, SemanticRule, SemanticRuleCondition, SemanticSortRef, SemanticTerm,
+    SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -403,7 +406,7 @@ fn lower_rule_claim(
     terms: &mut StateRuleTerms<'_>,
     claim: &DescriptorClaim,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<krs_ir::SemanticClaim, DescriptorLoweringError> {
+) -> Result<krs_ir_levels::SemanticClaim, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let universals = claim
         .universals
@@ -426,7 +429,7 @@ fn lower_rule_claim(
             ))
         })
         .transpose()?;
-    Ok(krs_ir::SemanticClaim::new(
+    Ok(krs_ir_levels::SemanticClaim::new(
         semantic_origin(descriptor, claim.modality_key.clone(), "claim-modality")?,
         claim.modality,
         claim
@@ -444,8 +447,8 @@ fn lower_claim_binder(
     descriptor: &Descriptor,
     binder: &DescriptorClaimBinder,
     role: &str,
-) -> Result<krs_ir::SemanticClaimBinder, DescriptorLoweringError> {
-    Ok(krs_ir::SemanticClaimBinder::new(
+) -> Result<krs_ir_levels::SemanticClaimBinder, DescriptorLoweringError> {
+    Ok(krs_ir_levels::SemanticClaimBinder::new(
         semantic_origin(descriptor, binder.declaration_key.clone(), role)?,
         semantic_origin(descriptor, binder.name_key.clone(), "claim-binder-name")?,
         SemanticId::new(binder.name.clone())?,
@@ -776,15 +779,15 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
     }
     match (left.kind(), right.kind()) {
         (
-            krs_ir::SemanticTermKind::Variable { variable: left },
-            krs_ir::SemanticTermKind::Variable { variable: right },
+            krs_ir_levels::SemanticTermKind::Variable { variable: left },
+            krs_ir_levels::SemanticTermKind::Variable { variable: right },
         ) => left == right,
         (
-            krs_ir::SemanticTermKind::Application {
+            krs_ir_levels::SemanticTermKind::Application {
                 application: left_application,
                 arguments: left_arguments,
             },
-            krs_ir::SemanticTermKind::Application {
+            krs_ir_levels::SemanticTermKind::Application {
                 application: right_application,
                 arguments: right_arguments,
             },
@@ -793,25 +796,25 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (
-            krs_ir::SemanticTermKind::Token { value: left },
-            krs_ir::SemanticTermKind::Token { value: right },
+            krs_ir_levels::SemanticTermKind::Token { value: left },
+            krs_ir_levels::SemanticTermKind::Token { value: right },
         ) => left == right,
         (
-            krs_ir::SemanticTermKind::KSequence {
+            krs_ir_levels::SemanticTermKind::KSequence {
                 item_sort: left_sort,
                 items: left_items,
             },
-            krs_ir::SemanticTermKind::KSequence {
+            krs_ir_levels::SemanticTermKind::KSequence {
                 item_sort: right_sort,
                 items: right_items,
             },
         ) => left_sort == right_sort && semantic_term_slices_equivalent(left_items, right_items),
         (
-            krs_ir::SemanticTermKind::Map {
+            krs_ir_levels::SemanticTermKind::Map {
                 operation: left_operation,
                 arguments: left_arguments,
             },
-            krs_ir::SemanticTermKind::Map {
+            krs_ir_levels::SemanticTermKind::Map {
                 operation: right_operation,
                 arguments: right_arguments,
             },
@@ -820,11 +823,11 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (
-            krs_ir::SemanticTermKind::List {
+            krs_ir_levels::SemanticTermKind::List {
                 operation: left_operation,
                 arguments: left_arguments,
             },
-            krs_ir::SemanticTermKind::List {
+            krs_ir_levels::SemanticTermKind::List {
                 operation: right_operation,
                 arguments: right_arguments,
             },
@@ -833,11 +836,11 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (
-            krs_ir::SemanticTermKind::Set {
+            krs_ir_levels::SemanticTermKind::Set {
                 operation: left_operation,
                 arguments: left_arguments,
             },
-            krs_ir::SemanticTermKind::Set {
+            krs_ir_levels::SemanticTermKind::Set {
                 operation: right_operation,
                 arguments: right_arguments,
             },
@@ -846,11 +849,11 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (
-            krs_ir::SemanticTermKind::Rewrite {
+            krs_ir_levels::SemanticTermKind::Rewrite {
                 from: left_from,
                 to: left_to,
             },
-            krs_ir::SemanticTermKind::Rewrite {
+            krs_ir_levels::SemanticTermKind::Rewrite {
                 from: right_from,
                 to: right_to,
             },

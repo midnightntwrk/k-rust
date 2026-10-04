@@ -13,6 +13,7 @@ krs-cli = { path = "../krs-cli" }
 krs-compiler = { path = "../krs-compiler" }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
+krs-ir-levels = { path = "../krs-ir-levels" }
 krs-k-rust = { path = "../krs-k-rust" }
 quote.workspace = true
 serde.workspace = true

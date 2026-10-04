@@ -2693,7 +2693,11 @@ impl StructuredRuleDescriptor {
     }
 }
 
-pub(crate) fn valid_rule_label_name(value: &str) -> bool {
+/// Whether `value` is a rule label spelling: an ASCII letter followed by ASCII letters, digits, `_`, or `-`.
+///
+/// Descriptor rule labels and Semantic IR rule labels (crate `krs-ir-levels`) accept exactly these spellings.
+#[must_use]
+pub fn valid_rule_label_name(value: &str) -> bool {
     value
         .bytes()
         .next()

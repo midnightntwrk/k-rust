@@ -1,8 +1,9 @@
 use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm};
 use krs_ir::{
-    ApplicationRef, DefinitionTerm, DefinitionTermKind, ListOperation, MapOperation, NodeOrigin,
-    RuleSentence, SemanticId, SemanticIdKind, SetOperation, k_surface::variable_name,
+    ApplicationRef, ListOperation, MapOperation, NodeOrigin, SemanticId, SemanticIdKind,
+    SetOperation,
 };
+use krs_ir_levels::{DefinitionTerm, DefinitionTermKind, RuleSentence, k_surface::variable_name};
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 

@@ -6,12 +6,70 @@
 //! Fixture builds must apply [`fixture_build_env`] unless the test observes rustc invocations through its own wrapper.
 
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 mod compile_fixtures;
 pub use compile_fixtures::{Expectation, check_compile_fixtures};
+
+/// Compares `actual` with the versioned pin file `tests_dir/file`, byte for byte.
+///
+/// A missing file is written only while `UPDATE_EXPECT=1`; an existing file is compared even
+/// while recording and never overwritten, because a released version's file is immutable.
+/// `bump` names the version constants that must advance before a changed shape gets a new file.
+///
+/// # Panics
+///
+/// Panics if the file differs from `actual`, is missing outside recording, or cannot be read or written.
+pub fn assert_versioned_pin(tests_dir: &Path, file: &str, bump: &str, actual: &str) {
+    let path = tests_dir.join(file);
+    let bump_message = format!(
+        "advance {bump}, then record the new versioned file with UPDATE_EXPECT=1; never overwrite a released version's file"
+    );
+    match fs::read(&path) {
+        Ok(expected) => {
+            if expected != actual.as_bytes() {
+                let expected = String::from_utf8_lossy(&expected);
+                let hint = expected
+                    .lines()
+                    .zip(actual.lines())
+                    .enumerate()
+                    .find(|(_, (left, right))| left != right)
+                    .map_or_else(
+                        || {
+                            format!(
+                                "line count: expected {}, actual {}; first differing byte at {}",
+                                expected.lines().count(),
+                                actual.lines().count(),
+                                expected
+                                    .as_bytes()
+                                    .iter()
+                                    .zip(actual.as_bytes())
+                                    .position(|(left, right)| left != right)
+                                    .unwrap_or(expected.len().min(actual.len()))
+                            )
+                        },
+                        |(index, (left, right))| {
+                            format!("line {}: expected {left:?}, actual {right:?}", index + 1)
+                        },
+                    );
+                panic!("{} differs ({hint}); {bump_message}", path.display());
+            }
+        }
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && std::env::var("UPDATE_EXPECT").as_deref() == Ok("1") =>
+        {
+            fs::write(&path, actual).unwrap();
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            panic!("{} is missing; {bump_message}", path.display());
+        }
+        Err(error) => panic!("cannot read {}: {error}", path.display()),
+    }
+}
 
 /// Assert that a result is rejected with the specified error pattern and optional guard.
 /// The expression is evaluated once, and the assertion returns `()`.

@@ -19,8 +19,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
-    DescriptorPayload, ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
+    DescriptorPayload, ModuleId, PackageId, ProvenanceRole, StableItemId,
 };
+use krs_ir_levels::SemanticTheory;
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
 use package::lower_package_module;

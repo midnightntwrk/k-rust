@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::{
-    BuiltinOperation, DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm, ListOperation,
-    MapOperation, NodeOrigin, SetOperation,
-};
+use krs_ir::{BuiltinOperation, ListOperation, MapOperation, NodeOrigin, SetOperation};
+use krs_ir_levels::{DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm};
 
 use super::{EmitContext, term::render_term};
 
@@ -20,7 +18,7 @@ fn node(key: &str) -> NodeOrigin {
 
 fn context() -> EmitContext<'static> {
     EmitContext {
-        index: krs_ir::k_surface::DefinitionIndex::default(),
+        index: krs_ir_levels::k_surface::DefinitionIndex::default(),
         non_associative_groups: BTreeSet::new(),
         repeated_ancestors: BTreeMap::new(),
     }

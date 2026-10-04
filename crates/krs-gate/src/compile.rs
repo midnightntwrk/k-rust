@@ -1,7 +1,7 @@
 //! One-shot native compiler with optional timing output.
 
-use krs_ir::DefinitionIr;
 use krs_ir::measure::Timings;
+use krs_ir_levels::DefinitionIr;
 use krs_k_rust::{
     Backend, CompileOptions, CompiledArtifacts, ConfigurationContext,
     compile_definition_with_context_timed,

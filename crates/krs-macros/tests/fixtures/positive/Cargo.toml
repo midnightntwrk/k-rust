@@ -12,6 +12,7 @@ language-host = { package = "krs", path = "../../../../krs" }
 krs-collector = { path = "../../../../krs-collector" }
 krs-compiler = { path = "../../../../krs-compiler" }
 krs-ir = { path = "../../../../krs-ir" }
+krs-ir-levels = { path = "../../../../krs-ir-levels" }
 
 [lints.rust]
 warnings = "deny"

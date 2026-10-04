@@ -7,10 +7,12 @@ use krs_ir::{
     FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
     GroupAssociativity, GroupAssociativitySentence, HookOperation, ItemKind, ModuleId, NodeOrigin,
     PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, StableItemId,
-    StrictnessKind,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SentenceKind,
+    StableItemId, StrictnessKind,
+};
+use krs_ir_levels::{
+    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
 };
 
 fn package() -> PackageId {

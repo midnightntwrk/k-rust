@@ -6,8 +6,9 @@ use krs_ir::{
     DescriptorInitializerStateTerm, DescriptorTerm, FixedCell, FixedConfiguration,
     FixedConfigurationVariable, FixedInitializerCell, MapOperation, ProtocolCellContent,
     ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey,
-    SemanticConfiguration, SemanticId, SemanticSortRef, SemanticTerm, StableItemId,
+    SemanticId, StableItemId,
 };
+use krs_ir_levels::{SemanticConfiguration, SemanticSortRef, SemanticTerm};
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::error::DescriptorLoweringError;

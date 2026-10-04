@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use serde::de::DeserializeOwned;
 
 #[cfg(feature = "test-support")]
-use crate::{DefinitionIr, DescriptorBundle, SemanticTheory};
+use crate::DescriptorBundle;
 use crate::{
     ItemKind, NodeOrigin, OriginStack, PackageId, Sha256Digest, SourceFileId, SourceMapKey,
     SourceRange, StableItemId,
@@ -30,28 +30,6 @@ pub trait CanonicalContract: Debug + Eq + DeserializeOwned {
 
 #[cfg(feature = "test-support")]
 impl CanonicalContract for DescriptorBundle {
-    fn permute_sets(&self, seed: u64) -> Self {
-        Self::permute_sets(self, seed)
-    }
-
-    fn to_canonical_json(&self) -> serde_json::Result<String> {
-        Self::to_canonical_json(self)
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl CanonicalContract for SemanticTheory {
-    fn permute_sets(&self, seed: u64) -> Self {
-        Self::permute_sets(self, seed)
-    }
-
-    fn to_canonical_json(&self) -> serde_json::Result<String> {
-        Self::to_canonical_json(self)
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl CanonicalContract for DefinitionIr {
     fn permute_sets(&self, seed: u64) -> Self {
         Self::permute_sets(self, seed)
     }
@@ -97,8 +75,12 @@ pub fn assert_canonical_contract<T: CanonicalContract>(value: &T) {
 }
 
 /// Permutes a set input deterministically; seed zero reverses it.
+///
+/// # Panics
+///
+/// Panics if the input length does not fit in `u64`.
 #[cfg(feature = "test-support")]
-pub(crate) fn permute<T>(values: &mut [T], seed: u64) {
+pub fn permute<T>(values: &mut [T], seed: u64) {
     if seed == 0 {
         values.reverse();
         return;

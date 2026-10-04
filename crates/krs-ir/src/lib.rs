@@ -10,12 +10,15 @@
 //! A host collector is responsible for crossing that boundary. Neither this
 //! crate nor serialized bundles depend on a Rust ABI, linker order, `k-rust`,
 //! or the KRS command-line interface.
+//!
+//! The Semantic IR and Definition IR, which the compiler lowers a bundle into,
+//! live in the `krs-ir-levels` crate. The author-facing facade and the
+//! front-end crates depend on this crate only.
 
 pub mod bundle;
 pub mod bytes_token;
 mod catalog;
 pub mod coordinates;
-pub mod definition;
 pub mod descriptor_index;
 mod detail_macros;
 mod display;
@@ -25,15 +28,11 @@ pub mod grammar;
 pub mod host;
 pub mod identity;
 pub mod ir;
-pub mod ir_level;
-mod ir_validation;
 pub mod json;
-pub mod k_surface;
 pub mod measure;
 pub mod provenance;
 pub mod provenance_role;
 pub mod refined;
-pub mod semantic;
 pub mod sorted;
 pub use refined::{AtLeastTwo, AtLeastTwoError, NonEmpty};
 pub mod stable_text;
@@ -62,15 +61,6 @@ pub use catalog::{
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
 };
-pub use definition::{
-    ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
-    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,
-    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence,
-    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
-    ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
-    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
-};
 pub use descriptor_index::{DescriptorIndex, LookupError};
 pub use error_detail::{
     Bn128PointSignature, IdentityComponent, IrField, IrIdentityKind, ProductionAttributeFamily,
@@ -95,24 +85,11 @@ pub use identity::{
     StableItemId, lower_hex,
 };
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
-pub use ir_level::{
-    DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRewrite, IrRuleBody,
-    IrRuleCondition, IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef,
-    IrSubsort, IrTerm, IrTermKind, IrVariable, RuleBodyRef, SemanticLevel,
-};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
     SourceRangeOverflow, TransformationOriginKind,
 };
 pub use provenance_role::{ProvenanceRole, RuleRole, RuleSide};
-pub use semantic::{
-    SemanticApplicationRef, SemanticClaim, SemanticClaimBinder, SemanticConfiguration,
-    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionAttribute,
-    SemanticProductionItem, SemanticRule, SemanticRuleBody, SemanticRuleCondition,
-    SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
-};
 pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
@@ -188,8 +165,10 @@ use serde::{Deserialize, Serialize};
 /// catalog it carries (builtin operations, hooks, sorts) changes. It must equal
 /// `[schemas] krs_ir` in the repository's `Krs.lock`, which the gates read and a
 /// `krs-ir` test checks against this constant.
-/// Traceable serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.json`.
-/// Other serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.samples.json`.
+/// The Semantic and Definition IR types live in `krs-ir-levels`, the only crate that sees
+/// every serialized type, so it pins the shapes of both crates in one registry: traceable
+/// shapes in `crates/krs-ir-levels/tests/schema/krs_ir-<version>.json` and the others in
+/// `crates/krs-ir-levels/tests/schema/krs_ir-<version>.samples.json`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SchemaVersion(pub u32);
