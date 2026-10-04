@@ -119,7 +119,7 @@ fn written_injection_without_identity_reports_module_and_sentence() {
     .expect_err("written unlicensed injection must be refused");
     assert_eq!(
         error.to_string(),
-        "Unlicensed injection from SortA{} to SortB{} in axiom module TEST, sentence 7",
+        "Unlicensed injection from SortA{} to SortB{} in axiom module TEST, sentence index 7 (zero-based)",
     );
 }
 

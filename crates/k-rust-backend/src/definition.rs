@@ -798,7 +798,9 @@ pub enum DefinitionError {
         source: Sort,
         target: Sort,
         axiom: String,
-        /// Declaring module and sentence index of the representative axiom that failed.
+        /// Declaring module and zero-based position of the representative axiom that failed
+        /// in that module's sentence list, counting all sentences, including sorts, symbols
+        /// and imports.
         sentence: Box<SentenceKey>,
     },
     InvalidSymbolType(String),

@@ -794,11 +794,12 @@ pub(crate) fn collapse_equal_axioms(
     }
     collapsed
         .into_iter()
-        .zip(
+        .zip(sentences.into_iter().map(|sentences| {
             sentences
                 .into_iter()
-                .map(|mut sentences| sentences.remove(0)),
-        )
+                .next()
+                .expect("each class records its first sentence")
+        }))
         .collect()
 }
 
@@ -1498,7 +1499,13 @@ pub(crate) fn written_injection_error(
     let DefinitionError::NotSubsort { source, target } = error else {
         return error;
     };
-    let fallback = || format!("module {}, sentence {}", sentence.0, sentence.1);
+    // The index counts all module sentences, including sorts, symbols and imports.
+    let fallback = || {
+        format!(
+            "module {}, sentence index {} (zero-based)",
+            sentence.0, sentence.1
+        )
+    };
     let axiom = if attributes.unique_id != "UNKNOWN" {
         attributes.unique_id.clone()
     } else if let Some(label) = &attributes.label {

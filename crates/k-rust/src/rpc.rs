@@ -1205,6 +1205,9 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             )
         }
         DefinitionError::UnlicensedInjection { source, target, .. } => {
+            // Report the first application of the refused inj{source,target} pair in this
+            // sentence. It is an unlicensed instance in the refused axiom, but may be a
+            // matched occurrence rather than the written one.
             let source = externalize::sort(source).to_string();
             let target = externalize::sort(target).to_string();
             (
