@@ -262,3 +262,49 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
         assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
     }
 }
+
+#[test]
+fn remaining_collection_operations_have_exact_canonical_k_source() {
+    let map = || DefinitionTerm::map(node("map.empty"), MapOperation::Empty, vec![]);
+    let terms = [
+        (map(), ".Map"),
+        (
+            DefinitionTerm::map(
+                node("map.items"),
+                MapOperation::Item,
+                vec![
+                    int("map.items.first.key", "1"),
+                    int("map.items.first.value", "2"),
+                    int("map.items.second.key", "3"),
+                    int("map.items.second.value", "4"),
+                ],
+            ),
+            "1 |-> 2 3 |-> 4",
+        ),
+        (
+            DefinitionTerm::map(
+                node("map.update"),
+                MapOperation::Update,
+                vec![
+                    map(),
+                    int("map.update.key", "1"),
+                    int("map.update.value", "2"),
+                ],
+            ),
+            ".Map [ 1 <- 2 ]",
+        ),
+        (
+            DefinitionTerm::list(
+                node("list.make"),
+                DefinitionSortRef::list(),
+                ListOperation::Make,
+                vec![int("list.make.length", "3"), int("list.make.value", "7")],
+            ),
+            "makeList(3, 7)",
+        ),
+    ];
+    let context = context();
+    for (term, expected) in terms {
+        assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+    }
+}

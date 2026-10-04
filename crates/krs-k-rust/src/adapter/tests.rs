@@ -593,6 +593,211 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One literal case per collection operation keeps the native labels an independent oracle."
+)]
+fn every_collection_operation_has_its_native_label() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let int = |key: &str, value: &str| {
+        DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap()
+    };
+    let map = |key: &str| DefinitionTerm::map(node(key), MapOperation::Empty, vec![]);
+    let list = |key: &str| {
+        DefinitionTerm::list(
+            node(key),
+            DefinitionSortRef::list(),
+            ListOperation::Empty,
+            vec![],
+        )
+    };
+    let set = |key: &str| {
+        DefinitionTerm::set(
+            node(key),
+            DefinitionSortRef::set(),
+            SetOperation::Empty,
+            vec![],
+        )
+    };
+    let cases = [
+        (map("labels.map.empty"), ".Map", 0),
+        (
+            DefinitionTerm::map(
+                node("labels.map.update"),
+                MapOperation::Update,
+                vec![
+                    map("labels.map.update.map"),
+                    int("labels.map.update.key", "1"),
+                    int("labels.map.update.value", "2"),
+                ],
+            ),
+            "Map:update",
+            3,
+        ),
+        (
+            DefinitionTerm::typed_map(
+                node("labels.map.in-keys"),
+                DefinitionSortRef::bool(),
+                MapOperation::InKeys,
+                vec![
+                    int("labels.map.in-keys.key", "1"),
+                    map("labels.map.in-keys.map"),
+                ],
+            ),
+            "_in_keys(_)_MAP_Bool_KItem_Map",
+            2,
+        ),
+        (list("labels.list.empty"), ".List", 0),
+        (
+            DefinitionTerm::list(
+                node("labels.list.item"),
+                DefinitionSortRef::list(),
+                ListOperation::Item,
+                vec![int("labels.list.item.element", "1")],
+            ),
+            "ListItem",
+            1,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.concat"),
+                DefinitionSortRef::list(),
+                ListOperation::Concat,
+                vec![
+                    list("labels.list.concat.left"),
+                    list("labels.list.concat.right"),
+                ],
+            ),
+            "_List_",
+            2,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.update"),
+                DefinitionSortRef::list(),
+                ListOperation::Update,
+                vec![
+                    list("labels.list.update.list"),
+                    int("labels.list.update.index", "0"),
+                    int("labels.list.update.value", "1"),
+                ],
+            ),
+            "List:set",
+            3,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.size"),
+                DefinitionSortRef::int(),
+                ListOperation::Size,
+                vec![list("labels.list.size.list")],
+            ),
+            "sizeList",
+            1,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.make"),
+                DefinitionSortRef::list(),
+                ListOperation::Make,
+                vec![
+                    int("labels.list.make.length", "2"),
+                    int("labels.list.make.value", "1"),
+                ],
+            ),
+            "makeList(_,_)_LIST_List_Int_KItem",
+            2,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.range"),
+                DefinitionSortRef::list(),
+                ListOperation::Range,
+                vec![
+                    list("labels.list.range.list"),
+                    int("labels.list.range.front", "0"),
+                    int("labels.list.range.back", "0"),
+                ],
+            ),
+            "List:range",
+            3,
+        ),
+        (
+            DefinitionTerm::list(
+                node("labels.list.update-all"),
+                DefinitionSortRef::list(),
+                ListOperation::UpdateAll,
+                vec![
+                    list("labels.list.update-all.list"),
+                    int("labels.list.update-all.index", "0"),
+                    list("labels.list.update-all.replacement"),
+                ],
+            ),
+            "updateList(_,_,_)_LIST_List_List_Int_List",
+            3,
+        ),
+        (set("labels.set.empty"), ".Set", 0),
+        (
+            DefinitionTerm::set(
+                node("labels.set.item"),
+                DefinitionSortRef::set(),
+                SetOperation::Item,
+                vec![int("labels.set.item.element", "1")],
+            ),
+            "SetItem",
+            1,
+        ),
+        (
+            DefinitionTerm::set(
+                node("labels.set.concat"),
+                DefinitionSortRef::set(),
+                SetOperation::Concat,
+                vec![
+                    set("labels.set.concat.left"),
+                    set("labels.set.concat.right"),
+                ],
+            ),
+            "_Set_",
+            2,
+        ),
+        (
+            DefinitionTerm::set(
+                node("labels.set.union"),
+                DefinitionSortRef::set(),
+                SetOperation::Union,
+                vec![set("labels.set.union.left"), set("labels.set.union.right")],
+            ),
+            "_|Set__SET_Set_Set_Set",
+            2,
+        ),
+        (
+            DefinitionTerm::set(
+                node("labels.set.contains"),
+                DefinitionSortRef::bool(),
+                SetOperation::Contains,
+                vec![
+                    int("labels.set.contains.element", "1"),
+                    set("labels.set.contains.set"),
+                ],
+            ),
+            "Set:in",
+            2,
+        ),
+    ];
+    for (term, expected, arity) in cases {
+        let native = adapter
+            .term(&term, MODULE, 0, Vec::new(), TermContext::Normal, None)
+            .unwrap();
+        assert!(
+            matches!(&native, Term::Apply { label, arguments }
+                if label.name == expected && arguments.len() == arity),
+            "{expected}"
+        );
+    }
+}
+
+#[test]
 fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
     let adapted = adapt_definition(&smoke_definition()).unwrap();
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
