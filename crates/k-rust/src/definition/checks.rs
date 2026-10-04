@@ -234,22 +234,31 @@ pub fn check_definition_with_options(
     Ok(diagnostics)
 }
 
-/// The production checks that judge a production by what its result sort is in the compiled
-/// definition, run over every module the main module imports, against the main module's view.
+/// The checks that judge a sentence by a property of the compiled definition, run over every
+/// module the main module imports, against the main module's view.
 ///
-/// Whether a sort is hooked or has domain values is fixed by its declarations anywhere in the
-/// compiled definition, and a module that declares a production on the sort need not import the
-/// module that hooks it or declares its tokens. The per-module checks see only the declaring
-/// module's view, where the production is an ordinary constructor; the compiled definition
-/// emits it as a constructor of a sort whose values are fixed, which has no model. The main
-/// module's view contains the view of every module it imports and is the view the compiled
-/// definition is emitted from, so it is the one view this second judgement needs. Diagnostics
-/// the per-module checks already reported are not repeated.
+/// - Whether a sort is hooked or has domain values is fixed by its declarations anywhere in the
+///   compiled definition, and a module that declares a production on the sort need not import
+///   the module that hooks it or declares its tokens (token productions, hooked constructors).
+/// - The symbol a collection attribute (`element`, `update`, `wrapElement`, `unit`) names, and
+///   the collection hook of the sort whose unit it names, are the compiled definition's: a module
+///   may name a production or rely on a hook declared in a module it does not import, which the
+///   compiled definition resolves (collection productions).
+/// - The subsort order is the compiled definition's: a module may place a sort below both `KList`
+///   and `Bag` in subsorts declared outside the module that declares the sort (top sorts).
+///
+/// The per-module checks see only the declaring module's view, where the sentence passes; the
+/// compiled definition is emitted from the main module's view, which contains the view of every
+/// module it imports, so it is the one view this second judgement needs. A module the main
+/// module does not import contributes nothing to the compiled definition and keeps its own-view
+/// judgement only. Diagnostics the per-module checks already reported are not repeated.
 fn check_compiled_view_productions(views: &DefinitionViews<'_>) -> Vec<Diagnostic> {
     let definition = views.definition();
     let main = definition.main_module_id();
     let sorts = views.sort_catalog(main);
     let productions = views.production_catalog(main);
+    // A cyclic order is the definition's circular subsort error, which its own checks report.
+    let subsorts = views.subsorts(main).ok();
     let macro_labels = definition.rule_catalog(main).all_macro_labels(productions);
     let mut modules = definition.transitive_imports(main);
     modules.push(main);
@@ -267,6 +276,14 @@ fn check_compiled_view_productions(views: &DefinitionViews<'_>) -> Vec<Diagnosti
             productions,
             sorts,
         ));
+        diagnostics.extend(collections::check_collection_productions(
+            &sentences,
+            productions,
+            sorts,
+        ));
+        if let Some(subsorts) = subsorts {
+            diagnostics.extend(check_sort_top_uniqueness(&sentences, subsorts));
+        }
     }
     diagnostics
 }

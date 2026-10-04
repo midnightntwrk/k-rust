@@ -4261,3 +4261,131 @@ fn a_constructor_on_a_hooked_instance_in_an_imported_module_is_rejected() {
     let location = rejection.location.expect("the diagnostic is located");
     assert_eq!(location.start_line, 3, "{rejection:?}");
 }
+
+fn definition_check_errors(source: &str, main: &str) -> Vec<Diagnostic> {
+    let parsed = k_rust::outer::parse("compiled-view.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, main).unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    check_definition(&resolved)
+        .unwrap()
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .collect()
+}
+
+/// A collection attribute names a symbol of the compiled definition, which may be declared in a
+/// module the attribute's module does not import: the schema it names is rejected at the
+/// attribute's production, once, as it is when both share a module.
+#[test]
+fn collection_attributes_are_judged_by_the_symbols_of_the_compiled_definition() {
+    for attribute in ["element", "update", "wrapElement"] {
+        let source = format!(
+            r#"module A
+  syntax C
+  syntax C ::= C "++" C [function, symbol(cat), {attribute}(role)]
+endmodule
+module B
+  syntax C
+  syntax {{W}} C ::= role(W) [function, symbol(role)]
+endmodule
+module MAIN
+  imports A
+  imports B
+endmodule"#
+        );
+        let errors = definition_check_errors(&source, "MAIN");
+        assert_eq!(errors.len(), 1, "{attribute}: {errors:#?}");
+        assert_eq!(errors[0].code, DiagnosticCode::UnsupportedParametricSort);
+        assert!(
+            errors[0].message.contains(attribute) && errors[0].message.contains("{W}"),
+            "{errors:#?}"
+        );
+        assert_eq!(errors[0].location.as_ref().unwrap().start_line, 3);
+    }
+
+    // A unit whose sort parameters the result sort does not bind, declared in a sibling module.
+    let errors = definition_check_errors(
+        r#"module A
+  syntax Foo
+  syntax Foo ::= Foo "++" Foo [function, symbol(cat), unit(eps)]
+endmodule
+module B
+  syntax Foo
+  syntax {S} Foo ::= "eps" [symbol(eps)]
+endmodule
+module MAIN
+  imports A
+  imports B
+endmodule"#,
+        "MAIN",
+    );
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert_eq!(errors[0].code, DiagnosticCode::InvalidUnitAttribute);
+    assert!(errors[0].message.contains("{S}"), "{errors:#?}");
+    assert_eq!(errors[0].location.as_ref().unwrap().start_line, 3);
+
+    // A schematic unit of a sort whose collection hook a sibling module declares.
+    let errors = definition_check_errors(
+        r#"module A
+  syntax C
+  syntax {S} S ::= "eps" [symbol(eps)]
+  syntax C ::= C "++" C [function, symbol(cat), unit(eps)]
+endmodule
+module B
+  syntax C [hook(LIST.List)]
+endmodule
+module MAIN
+  imports A
+  imports B
+endmodule"#,
+        "MAIN",
+    );
+    let unit = errors
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidUnitAttribute)
+        .collect::<Vec<_>>();
+    assert_eq!(unit.len(), 1, "{errors:#?}");
+    assert!(unit[0].message.contains("LIST.List"), "{errors:#?}");
+    assert_eq!(unit[0].location.as_ref().unwrap().start_line, 4);
+}
+
+/// A module the main module does not import contributes nothing to the compiled definition, so
+/// its collection attributes are judged in its own view, where the named schema is not visible.
+#[test]
+fn collection_attributes_outside_the_main_modules_imports_are_judged_in_their_own_view() {
+    let errors = definition_check_errors(
+        r#"module A
+  syntax C
+  syntax C ::= C "++" C [function, symbol(cat), element(role)]
+endmodule
+module B
+  imports A
+  syntax {W} C ::= role(W) [function, symbol(role)]
+endmodule
+module MAIN
+  imports A
+endmodule"#,
+        "MAIN",
+    );
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+/// Whether a sort lies below both `KList` and `Bag` is a property of the compiled definition's
+/// subsort order, whichever module declares the subsorts: the sort is rejected at its
+/// declaration as it is when one module declares all three.
+#[test]
+fn top_sorts_are_judged_by_the_subsorts_of_the_compiled_definition() {
+    for (a, b) in [
+        ("\n  syntax KList ::= Foo\n  syntax Bag ::= Foo", ""),
+        ("", "\n  syntax KList ::= Foo\n  syntax Bag ::= Foo"),
+        ("\n  syntax KList ::= Foo", "\n  syntax Bag ::= Foo"),
+    ] {
+        let source = format!(
+            "module A\n  syntax Foo ::= \"x\" [symbol(x)]{a}\nendmodule\nmodule B\n  imports A{b}\nendmodule\nmodule MAIN\n  imports B\nendmodule"
+        );
+        let errors = definition_check_errors(&source, "MAIN");
+        assert_eq!(errors.len(), 1, "{source}: {errors:#?}");
+        assert_eq!(errors[0].code, DiagnosticCode::MultipleTopSorts);
+        assert_eq!(errors[0].location.as_ref().unwrap().start_line, 2);
+    }
+}
