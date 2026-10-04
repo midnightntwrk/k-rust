@@ -1,7 +1,6 @@
 //! In-process concrete and symbolic execution for KORE definitions.
 
 mod alias;
-mod fresh;
 mod instance_normal;
 mod ite;
 mod verify;
@@ -13,6 +12,7 @@ pub mod definedness;
 pub mod definition;
 pub mod diagnostic;
 pub mod externalize;
+pub mod fresh;
 pub mod implication;
 pub mod matching;
 pub mod model;

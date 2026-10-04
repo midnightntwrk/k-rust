@@ -701,6 +701,8 @@ Which successor `--strategy any` follows among equal-priority rules is likewise 
 The port follows the first applicable rule in priority order, then `definition.kore` declaration order (main module first, imports depth-first in their written order); which rule the reference follows is engine-internal.
 Among several collection matches of that rule, the port follows the first candidate in deterministic structural order; which candidate the reference follows is engine-internal.
 The RPC `next-states` array is a set of successors and is compared as a multiset (N27).
+A search given no target pattern matches every reached configuration against one variable, spelled `VarResult` as reference krun spells its target, and reports each match as a binding of that variable.
+That variable belongs to the request, so when a variable of the initial pattern is already spelled `VarResult` (for example the K variable `Result`), the target is `VarResult0`, or the next `VarResultN` no initial variable spells: sharing the name would identify the two variables in the match, or print one name at two sorts.
 
 A depth-bounded execution result covers every path of every input instance up to the bound, so a configuration reached at the bound is a result whatever other branches did; the port keeps such a leaf when another branch halted, where the reference graph traversal drops it.
 Normalization N17 limits the corresponding differential exception to marked depth-bounded cases and requires the reference leaves to remain a sub-multiset of the Rust leaves.

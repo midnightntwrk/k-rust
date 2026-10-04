@@ -3918,12 +3918,32 @@ mod tests {
             )),
             constraints: Vec::new(),
         };
-        let target = default_search_pattern(&initial);
-        let TermKind::Variable(variable) = target.term.kind() else {
-            panic!("default search target should be a variable");
+        let target_name = |initial: &[Pattern]| {
+            let target = default_search_pattern(initial).expect("an initial pattern");
+            let TermKind::Variable(variable) = target.term.kind() else {
+                panic!("default search target should be a variable");
+            };
+            assert_eq!(variable.sort, initial[0].term.sort());
+            variable.name.to_string()
         };
 
-        assert_eq!(variable.name.as_ref(), "VarResult");
+        assert_eq!(target_name(std::slice::from_ref(&initial)), "VarResult");
+        assert!(default_search_pattern(&[]).is_none());
+
+        // The target is part of the request: it takes no name a request variable has, at any
+        // sort and in any initial disjunct.
+        let named = |name: &str, sort: &str| Pattern {
+            term: Term::variable(Variable::new(name, BackendSort::simple(sort))),
+            constraints: Vec::new(),
+        };
+        assert_eq!(
+            target_name(&[
+                named("Initial", "SortGeneratedTopCell"),
+                named("VarResult", "SortInt"),
+                named("VarResult0", "SortGeneratedTopCell"),
+            ]),
+            "VarResult1"
+        );
     }
 
     fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {

@@ -578,7 +578,8 @@ fn run_backend_with_solver(
             None => BackendMatchTarget {
                 pattern: match search.pattern {
                     Some(path) => load_backend_pattern(backend, &path, "search")?,
-                    None => default_search_pattern(first_initial),
+                    None => default_search_pattern(&initial)
+                        .ok_or_else(|| io::Error::other("initial pattern has no live disjuncts"))?,
                 },
                 generated_anonymous_variables: BTreeSet::new(),
             },
@@ -1011,12 +1012,27 @@ pub fn term_exit_code(term: &Term) -> Option<u8> {
     (((value % &modulus) + &modulus) % modulus).to_u8()
 }
 
-pub fn default_search_pattern(initial: &Pattern) -> Pattern {
-    Pattern {
-        // This is already a KORE variable, so use reference krun's mangled K-level spelling.
-        term: Term::variable(Variable::new("VarResult", initial.term.sort())),
+/// The target of a search given no target pattern: one variable, at the sort of the first
+/// initial term, that matches every state the search reaches.
+///
+/// It is spelled `VarResult`, reference krun's KORE spelling of the K variable `Result`, unless a
+/// variable of the request (free or bound, in any initial pattern) is already spelled so; then it
+/// is `VarResult{N}` for the least `N` that no request variable spells. The target is a pattern
+/// of the request, so its variable must be apart from every request variable: one of the same
+/// name would be identified with it by the match, or share its printed name at another sort, and
+/// the search would answer about other states than those reached.
+///
+/// `None` when there is no initial pattern.
+pub fn default_search_pattern(initial: &[Pattern]) -> Option<Pattern> {
+    let sort = initial.first()?.term.sort();
+    let request = k_rust_backend::fresh::RequestNames::of(&initial.iter().collect::<Vec<_>>());
+    let name = std::iter::once("VarResult".to_owned())
+        .chain((0_u64..).map(|index| format!("VarResult{index}")))
+        .find(|name| !request.spells(name))?;
+    Some(Pattern {
+        term: Term::variable(Variable::new(name, sort)),
         constraints: Vec::new(),
-    }
+    })
 }
 
 fn load_backend_pattern(
