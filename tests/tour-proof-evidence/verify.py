@@ -140,7 +140,7 @@ def verify_llvm_claim_omission() -> None:
         "krs-k-rust",
         ("--lib",),
         "tests::only_the_haskell_backend_proves_claims",
-        "tests::llvm_compilation_omits_claims_and_keeps_provenance_consistent",
+        "provenance::tests::llvm_compilation_omits_claims_and_keeps_provenance_consistent",
     )
     require_fragments(
         "docs-site/src/pages/verification/reachability-claims.mdx",
