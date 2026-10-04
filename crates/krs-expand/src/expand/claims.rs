@@ -34,7 +34,10 @@ pub(crate) fn claim(
     configuration_claim(env, item, &attribute)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Claim metadata and both structured sides are lowered together."
+)]
 fn configuration_claim(
     env: &dyn MacroEnvironment,
     item: TokenStream,

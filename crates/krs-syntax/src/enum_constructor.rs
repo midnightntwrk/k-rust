@@ -325,7 +325,10 @@ impl EnumConstructorDeclaration {
         Self::validate(&attribute, item, true)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered validation pass keeps enum and variant diagnostics at their source spans."
+    )]
     fn validate(
         attribute: &ConstructorsAttribute,
         mut item: ItemEnum,

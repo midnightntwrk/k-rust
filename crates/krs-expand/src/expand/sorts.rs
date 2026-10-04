@@ -24,7 +24,10 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[allow(clippy::too_many_lines)] // Legacy and aliased carriers share one descriptor expansion.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Legacy and aliased carriers share one descriptor expansion."
+)]
 pub(crate) fn sort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -652,7 +655,10 @@ pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> crate::Res
     ))
 }
 
-#[allow(clippy::too_many_lines)] // Both identity carriers deliberately emit the same payload shape.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Both identity carriers deliberately emit the same payload shape."
+)]
 pub(crate) fn subsort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -781,7 +787,10 @@ pub(crate) fn subsort(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bracket lowering passes the complete declaration context explicitly."
+)]
 fn expand_bracket_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
@@ -812,7 +821,10 @@ fn expand_bracket_grammar(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bracket lowering passes the complete declaration context explicitly."
+)]
 fn expand_bracket_grammar_parts(
     env: &dyn MacroEnvironment,
     facade: &Path,

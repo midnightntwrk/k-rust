@@ -71,7 +71,10 @@ fn application(key: &str, production: StableItemId, arguments: Vec<SemanticTerm>
     )
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete calculator grammar fixture in one place."
+)]
 fn calc_syntax_module() -> SemanticModule {
     let expr = sort("Expr");
     let stmt = sort("Stmt");
@@ -233,7 +236,10 @@ fn control_production(
     .unwrap()
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete imperative grammar fixture in one place."
+)]
 fn imp_syntax_module() -> SemanticModule {
     let expr = sort("Expr");
     let stmt = sort("Stmt");
@@ -553,7 +559,10 @@ struct ControlOptions {
     adjuncts: bool,
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps related control-flow rule fixtures and their options together."
+)]
 fn control_rules(options: ControlOptions) -> Vec<SemanticRule> {
     let expr = sort("Expr");
     let stmt = sort("Stmt");

@@ -310,7 +310,13 @@ impl<S> ProductionResultSort<S> {
 }
 
 /// One classified production attribute with mandatory provenance.
-#[allow(clippy::large_enum_variant)]
+#[cfg_attr(
+    target_pointer_width = "64",
+    expect(
+        clippy::large_enum_variant,
+        reason = "Public production attribute payloads retain their unboxed construction API; the size imbalance is specific to 64-bit targets."
+    )
+)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProductionAttribute<S> {

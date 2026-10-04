@@ -178,7 +178,10 @@ impl MapItem {
 
 /// Empty, associative-item, or functional-update `map!` payload.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Span-preserving term nodes are the public parser contract.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Span-preserving term nodes are the public parser contract."
+)]
 pub enum MapBody {
     /// Empty `.Map` unit (also represented by `map![]`).
     Empty {
@@ -337,7 +340,10 @@ impl MapExpression {
 
 /// Term families admitted as fixed leaf-cell contents.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Avoid hiding parser AST ownership behind allocation.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Avoid hiding parser AST ownership behind allocation."
+)]
 pub enum StateTerm {
     /// Ordinary named term.
     Term(TermExpression),
@@ -562,7 +568,10 @@ pub fn parse_cells_expression_source_with_trivia(
     Ok((parse_cells_expression(tokens)?, trivia))
 }
 
-#[allow(clippy::too_many_lines)] // One closed sequence grammar keeps tail diagnostics local.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One closed sequence grammar keeps tail diagnostics local."
+)]
 fn parse_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
@@ -689,7 +698,10 @@ fn parse_k_sequence(
     )
 }
 
-#[allow(clippy::too_many_lines)] // One closed grammar keeps update/item diagnostics local.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One closed grammar keeps update/item diagnostics local."
+)]
 fn parse_map(
     tokens: TokenStream,
     context: StateMacroContext,
@@ -834,7 +846,10 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<Expr, SyntaxError> {
     syn::parse2(tokens).map_err(SyntaxError::from)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One closed cell grammar keeps entry and remainder diagnostics local."
+)]
 fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,

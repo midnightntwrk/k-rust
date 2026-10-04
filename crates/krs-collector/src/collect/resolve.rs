@@ -1294,7 +1294,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)] // Exhaustively verifies sort and operation alias identity.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustively verifies sort and operation alias identity."
+    )]
     fn complete_builtin_registry_joins_aliases_by_exact_type_identity() {
         let registry = registry();
         registry.validate().unwrap();

@@ -171,7 +171,10 @@ impl Adapter<'_> {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps exhaustive production attribute adaptation in one match."
+    )]
     fn production_attribute(
         &mut self,
         attribute: &DefinitionProductionAttribute,
@@ -496,7 +499,10 @@ impl Adapter<'_> {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps rule adaptation and native origin roles together."
+    )]
     pub(super) fn rule(
         &mut self,
         sentence: &RuleSentence,

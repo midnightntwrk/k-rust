@@ -66,7 +66,10 @@ struct CalcOptions {
     colliding_rule_label: bool,
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete fixed-state lowering fixture in one place."
+)]
 fn calc_theory(options: CalcOptions) -> SemanticTheory {
     let expr = declared("Expr");
     let stmt = declared("Stmt");

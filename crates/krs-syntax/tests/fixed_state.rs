@@ -281,7 +281,10 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // One table-driven block freezes the complete map grammar.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table-driven block freezes the complete map grammar."
+)]
 fn maps_freeze_empty_items_remainders_and_functional_update() {
     assert!(matches!(
         krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source(".Map").unwrap())
@@ -657,7 +660,10 @@ fn state_macro_provenance_ranges_select_the_exact_authored_tokens() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // One assertion block freezes the descriptor-wide ordering contract.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One assertion block freezes the descriptor-wide ordering contract."
+)]
 fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
     krs_syntax::parse_k_sequence_expression(
         krs_syntax::parse::tokens_from_source("V, ..tail").unwrap(),

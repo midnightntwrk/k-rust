@@ -215,7 +215,10 @@ impl RuleClause {
     /// # Errors
     ///
     /// Returns endpoint or provenance-ordinal overflow errors.
-    #[allow(clippy::too_many_lines)] // One ordered pass retains exact aggregate term ordinals.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered pass retains exact aggregate term ordinals."
+    )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.rule.full_provenance()?;
         if self.attribute.label().is_none() {
@@ -449,7 +452,10 @@ impl RuleBlock {
         &self.clauses
     }
 
-    #[allow(clippy::too_many_lines)] // One linear parser keeps clause diagnostics at authored tokens.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One linear parser keeps clause diagnostics at authored tokens."
+    )]
     fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
         input.parse::<Token![for]>()?;
         let sort_type: Type = input.parse()?;

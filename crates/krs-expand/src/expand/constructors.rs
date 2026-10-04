@@ -155,7 +155,11 @@ pub(crate) fn function(
     )
 }
 
-#[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+#[expect(
+    clippy::needless_pass_by_value,
+    clippy::too_many_lines,
+    reason = "Constructor metadata and fields are expanded in one pass; the entry point owns the parsed attribute."
+)]
 fn constructor_like(
     env: &dyn MacroEnvironment,
     attribute: krs_syntax::ConstructorAttribute,
@@ -526,7 +530,10 @@ pub(crate) fn orphan_strictness(
     ))
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Token metadata and carrier items are emitted together."
+)]
 pub(crate) fn token(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -653,7 +660,11 @@ pub(crate) fn token(
     })
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "Grammar lowering retains all declaration context in one expansion."
+)]
 fn constructor_grammar(
     facade: &Path,
     attribute: &krs_syntax::ConstructorAttribute,
@@ -802,7 +813,10 @@ fn constructor_grammar(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Template fields and production slots are lowered in one ordered pass."
+)]
 fn constructor_production_wire_items(
     facade: &Path,
     template: Option<&krs_syntax::SyntaxTemplate>,

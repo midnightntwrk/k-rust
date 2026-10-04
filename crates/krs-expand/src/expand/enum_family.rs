@@ -33,7 +33,10 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The enum family and its variants share one descriptor expansion."
+)]
 pub(crate) fn constructors(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -283,7 +286,10 @@ fn enum_precedence_group_name(
         .emitted_name(declaration.sort_name(), ordinal)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Family productions and their provenance are emitted together."
+)]
 fn expand_enum_family_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
@@ -398,7 +404,11 @@ fn expand_enum_family_grammar(
     Ok(quote!(#(#output)*))
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "Variant lowering keeps the complete family context and metadata together."
+)]
 fn expand_enum_variant(
     env: &dyn MacroEnvironment,
     facade: &Path,
@@ -610,7 +620,10 @@ fn expand_enum_variant(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Template fields and production slots are lowered in one ordered pass."
+)]
 fn enum_variant_production_wire_items(
     facade: &Path,
     variant: &krs_syntax::EnumConstructorVariant,

@@ -160,7 +160,10 @@ impl SemanticTheory {
         Ok(json)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered pass checks whole-theory identities, references, and rule invariants."
+    )]
     fn validate(&self) -> Result<(), SemanticValidationError> {
         if self.modules.is_empty() {
             return Err(SemanticValidationError::EmptyTheory);
@@ -490,7 +493,10 @@ impl SemanticModule {
     /// Creates a module. Cross-module references are checked by
     /// [`SemanticTheory::new`].
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The constructor explicitly supplies every semantic module sentence collection."
+    )]
     pub fn new(
         origin: NodeOrigin,
         id: ModuleId,
@@ -520,7 +526,10 @@ impl SemanticModule {
 
     /// Creates a module including source-level context aliases.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The constructor explicitly supplies module sentence collections and context aliases."
+    )]
     pub fn new_with_context_aliases(
         origin: NodeOrigin,
         id: ModuleId,
@@ -1311,7 +1320,10 @@ pub enum SemanticValidationError {
 }
 
 impl fmt::Display for SemanticValidationError {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive formatting keeps each semantic validation message with its variant."
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyTheory => formatter.write_str("semantic theory must contain a module"),

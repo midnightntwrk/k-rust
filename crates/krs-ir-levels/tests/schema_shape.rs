@@ -592,7 +592,10 @@ fn serde_census_preserves_concrete_ir_aliases() {
     );
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One registry builder traces and classifies the complete public IR schema."
+)]
 fn registry() -> Registry {
     let samples = samples();
     let mut tracer = Tracer::new(config());

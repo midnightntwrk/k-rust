@@ -337,7 +337,10 @@ impl StructuredFormat {
     /// Builds the readable named-placeholder format used by open constructor
     /// families. Field placeholders are translated to their one-based syntax
     /// item positions; all other text, including spacing, is preserved.
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered format parser preserves placeholder positions and authored spacing."
+    )]
     pub(crate) fn parse_named(
         literal: LitStr,
         template: &SyntaxTemplate,

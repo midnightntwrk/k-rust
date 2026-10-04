@@ -34,7 +34,10 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Initializer metadata and the replacement method are emitted together."
+)]
 pub(crate) fn init(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,

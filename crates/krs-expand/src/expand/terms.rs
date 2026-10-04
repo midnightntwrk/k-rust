@@ -276,7 +276,10 @@ impl<'a> TermBuilder<'a> {
     }
 
     /// Builds the literal term tree while retaining Rust-resolved heads in slots.
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive transport for the closed structured-term grammar."
+    )]
     pub(super) fn expand_wire(
         &mut self,
         tree: &TermTree,

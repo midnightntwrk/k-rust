@@ -179,7 +179,10 @@ impl<'graph> Unifier<'graph> {
         }
     }
 
-    #[allow(clippy::too_many_lines)] // Keeps the symmetric unification cases in one exhaustive match.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps the symmetric unification cases in one exhaustive match."
+    )]
     fn unify(&mut self, left: Pattern, right: Pattern) -> bool {
         let left = self.resolve(left);
         let right = self.resolve(right);

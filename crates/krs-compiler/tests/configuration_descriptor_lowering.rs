@@ -275,7 +275,10 @@ fn frame_binding(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds both sides and provenance of the configuration rule fixture together."
+)]
 fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
     let k_state = |side: RuleSide, value: &str, tail| {
         ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {

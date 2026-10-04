@@ -15,7 +15,11 @@ use krs_ir_levels::{
 };
 use krs_test_support::{assert_rejects, assert_rejects_with_message};
 
-#[allow(clippy::too_many_lines, clippy::disallowed_names)] // Stable golden fixture vocabulary.
+#[expect(
+    clippy::too_many_lines,
+    clippy::disallowed_names,
+    reason = "Stable golden fixture vocabulary."
+)]
 fn semantic_theory(
     bar_reference: Option<StableItemId>,
 ) -> Result<SemanticTheory, SemanticValidationError> {
@@ -157,7 +161,11 @@ fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
     SymbolIdentity::new(SymbolId::new(id).unwrap(), name, kind).unwrap()
 }
 
-#[allow(clippy::too_many_lines, clippy::disallowed_names)] // Mirrors the semantic golden fixture.
+#[expect(
+    clippy::too_many_lines,
+    clippy::disallowed_names,
+    reason = "Mirrors the semantic golden fixture."
+)]
 fn definition_ir(
     bar_reference: Option<SymbolId>,
 ) -> Result<DefinitionIr, DefinitionValidationError> {

@@ -237,7 +237,10 @@ fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // One end-to-end readable production metadata specimen.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One end-to-end readable production metadata specimen."
+)]
 fn readable_open_family_parses_exhaustive_chain_fields_and_formats() {
     let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[dialect::constructors(sort = ExprAlias, result = framework::KResult)]

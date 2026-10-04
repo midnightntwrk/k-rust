@@ -49,7 +49,10 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The complete rule clause is lowered in one ordered pass."
+)]
 fn expand_head_rule(
     env: &dyn MacroEnvironment,
     clause: &krs_syntax::RuleClause,

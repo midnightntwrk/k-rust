@@ -14,7 +14,13 @@ use crate::{
 
 /// Supported subject-pattern shell.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Public variant field types are a compatibility contract.
+#[cfg_attr(
+    target_pointer_width = "64",
+    expect(
+        clippy::large_enum_variant,
+        reason = "Public variant field types are a compatibility contract. The size imbalance is specific to 64-bit targets."
+    )
+)]
 pub enum RulePattern {
     /// Ordinary Rust named constructor pattern.
     Native {
@@ -321,7 +327,10 @@ pub(super) fn parse_rule_pattern(
     }
 }
 
-#[allow(clippy::too_many_lines)] // Exhaustive validation over syn's closed pattern variants.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exhaustive validation over syn's closed pattern variants."
+)]
 fn validate_native_pattern(
     pattern: &Pat,
     is_root: bool,

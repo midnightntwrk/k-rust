@@ -233,7 +233,10 @@ fn parse_configuration_stream(
     Ok(ConfigurationAttribute { root })
 }
 
-#[allow(clippy::too_many_lines)] // Keeps the closed cell-attribute grammar in one ordered parser.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps the closed cell-attribute grammar in one ordered parser."
+)]
 fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, ParseError> {
     let mut name = None;
     let mut color = None;

@@ -168,7 +168,10 @@ fn context_alias_id() -> StableItemId {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Qualifies all structured builtin families in one definition.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Qualifies all structured builtin families in one definition."
+)]
 fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition, true);
@@ -915,7 +918,10 @@ fn pinned_native_prelude_evaluates_set_union() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Checks grammar items, attributes, and groups in one complete definition."
+)]
 fn grammar_items_attributes_and_group_sentences_map_structurally() {
     let definition = smoke_definition();
     let application_group = ProductionGroupId::new("group.application").unwrap();
@@ -1298,7 +1304,10 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Checks related native claim and context forms with shared provenance fixtures."
+)]
 fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition, true);
@@ -1484,7 +1493,10 @@ fn alias_clause_relies_on_aliased_production_propagation() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Checks the complete structural adapter result from one smoke definition."
+)]
 fn definition_ir_maps_structurally_without_frontend_metadata() {
     let adapted = adapt_definition(&smoke_definition()).expect("the smoke IR must adapt");
     let native = adapted.definition();

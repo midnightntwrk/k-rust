@@ -102,7 +102,10 @@ fn application(
     DefinitionTerm::application(node(key), sort, application, arguments)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One fixture assembles the complete expression Definition IR contract."
+)]
 fn expression_definition() -> Result<DefinitionIr, DefinitionValidationError> {
     let expr = declared("sort.expr");
     let value = declared("sort.value");
@@ -499,7 +502,10 @@ fn representative_expression_definition_has_canonical_bytes() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One fixture checks semantic expression sort and application resolution together."
+)]
 fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
     let k_item = stable_item("syntax", "KItem", krs_ir::ItemKind::Sort);
     let k_result = stable_item("syntax", "KResult", krs_ir::ItemKind::Sort);

@@ -351,7 +351,10 @@ impl DefinitionIr {
         Ok(json)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered pass checks whole-definition identities, references, and sentence invariants."
+    )]
     fn validate(&self) -> Result<(), DefinitionValidationError> {
         if self.modules.is_empty() {
             return Err(DefinitionValidationError::EmptyDefinition);
@@ -701,9 +704,10 @@ impl DefinitionModule {
 /// One source-level K sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "sentence_kind", content = "sentence", rename_all = "snake_case")]
-// This is a serialized public sum type. Boxing only the largest sentence would
-// change its Rust construction API without reducing any serialized payload.
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Boxing only the largest sentence would change the public construction API without reducing any serialized payload."
+)]
 pub enum DefinitionSentence {
     /// Syntax sort declaration.
     SyntaxSort(SyntaxSortSentence),
@@ -1324,7 +1328,10 @@ pub enum DefinitionValidationError {
 }
 
 impl fmt::Display for DefinitionValidationError {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive formatting keeps each definition validation message with its variant."
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyDefinition => formatter.write_str("Definition IR must contain a module"),

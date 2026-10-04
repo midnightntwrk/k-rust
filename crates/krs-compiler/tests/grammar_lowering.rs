@@ -35,7 +35,10 @@ fn origin(key: &str) -> NodeOrigin {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Checks the complete hook catalog with shared grammar fixtures."
+)]
 fn every_hook_emits_its_catalog_spelling() {
     let g1 = item("G1Point", ItemKind::Sort);
     let g2 = item("G2Point", ItemKind::Sort);
@@ -207,7 +210,10 @@ fn every_hook_emits_its_catalog_spelling() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Checks canonical grammar and builtin rule emission with one complete fixture."
+)]
 fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let expr = item("Expr", ItemKind::Sort);
     let id_sort = item("Id", ItemKind::Sort);

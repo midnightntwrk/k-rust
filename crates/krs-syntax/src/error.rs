@@ -344,7 +344,10 @@ impl From<SyntaxError> for syn::Error {
 }
 
 impl fmt::Display for SyntaxError {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive formatting keeps each syntax error message with its variant."
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             SyntaxErrorKind::ReservedBinder => write!(

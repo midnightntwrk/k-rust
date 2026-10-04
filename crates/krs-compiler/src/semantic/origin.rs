@@ -31,7 +31,10 @@ pub(super) fn semantic_cell_id(
     generated_semantic_id("cell", &identity.owner, Some(&identity.field))
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Accepts owned provenance keys constructed by semantic lowering callers."
+)]
 pub(super) fn semantic_origin(
     descriptor: &Descriptor,
     key: ProvenanceKey,

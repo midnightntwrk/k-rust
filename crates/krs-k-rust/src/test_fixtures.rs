@@ -14,7 +14,10 @@ pub(crate) fn smoke_definition() -> DefinitionIr {
     smoke_definition_with_cell(SentenceKind::Transition, "k")
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete adapter smoke definition with shared cell configuration."
+)]
 pub(crate) fn smoke_definition_with_cell(rule_kind: SentenceKind, cell_name: &str) -> DefinitionIr {
     let k_item = SymbolId::new("sort.kitem").unwrap();
     let k_result = SymbolId::new("sort.kresult").unwrap();

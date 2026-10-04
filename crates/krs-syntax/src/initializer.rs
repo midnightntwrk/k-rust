@@ -108,7 +108,10 @@ impl ConfigurationVariable {
 
 /// Leaf or nested content in a declarative fixed-cell initializer.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Span-preserving syn nodes are the public parser contract.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Span-preserving syn nodes are the public parser contract."
+)]
 pub enum InitializerCellContent {
     /// `Cell::new(value)` or `KCell::new(k![...])`.
     Leaf {
@@ -757,7 +760,10 @@ fn parse_body(
     Ok((body.clone(), cells, legacy_cell))
 }
 
-#[allow(clippy::too_many_lines)] // Validation stays linear and reports each local syn node.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Validation stays linear and reports each local syn node."
+)]
 fn parse_initializer_cell(
     field: syn::FieldValue,
     name: Ident,

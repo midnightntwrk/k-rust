@@ -481,7 +481,10 @@ where
     /// # Errors
     ///
     /// Returns [`StateShapeError`] for empty/duplicate cells or variables.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The constructor explicitly supplies every fixed-configuration and initializer field."
+    )]
     pub fn new(
         origin: NodeOrigin,
         id: SemanticId,

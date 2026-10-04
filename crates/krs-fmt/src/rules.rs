@@ -65,7 +65,10 @@ struct AlignedClause {
 }
 
 /// Formats one complete `rules!` body at its Rustfmt-selected indentation.
-#[allow(clippy::too_many_lines)] // One ordered pass preserves trivia geometry around every clause.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One ordered pass preserves trivia geometry around every clause."
+)]
 pub(crate) fn format_rule_body(
     source: &str,
     source_offset: usize,
@@ -662,7 +665,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unicode_not_nfc)] // Decomposed labels exercise zero-width combining marks.
+    #[expect(
+        clippy::unicode_not_nfc,
+        reason = "Decomposed labels exercise zero-width combining marks."
+    )]
     fn aligns_unicode_table_and_trailing_comments_by_display_width() {
         // Term validation rejects string literals, so this test exercises rendering and alignment directly.
         let tokens = |source: &str| {
@@ -701,7 +707,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unicode_not_nfc)] // The parser must preserve the decomposed label.
+    #[expect(
+        clippy::unicode_not_nfc,
+        reason = "The parser must preserve the decomposed label."
+    )]
     fn formats_wide_and_combining_labels_by_display_width() {
         let source = "for Expr;\n\
                       漢字: A(x) => x where x: Value; // wide\n\

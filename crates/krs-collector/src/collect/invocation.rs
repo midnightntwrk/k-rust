@@ -1185,7 +1185,10 @@ fn source_syntax(error: krs_syntax::SyntaxError) -> CollectionError {
     source_syntax_at(error, 0)
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Parser error conversion consumes the error at map_err call sites."
+)]
 pub(super) fn source_syntax_at(
     error: krs_syntax::SyntaxError,
     byte_offset: usize,

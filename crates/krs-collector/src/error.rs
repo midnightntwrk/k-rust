@@ -234,7 +234,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)] // Covers every registered collection category.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Covers every registered collection category."
+    )]
     fn located_and_unlocated_errors_preserve_detail_and_registered_codes() {
         let file = SourceFileId::new(
             PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),

@@ -162,7 +162,6 @@ pub struct Machine {
     pub k: k::configuration::KCell<k::builtin::KSequence>,
 }
 
-#[allow(clippy::must_use_candidate, clippy::needless_pass_by_value)]
 impl Machine {
     #[k::init]
     pub fn init(#[k::config_var(name = "PGM", main)] program: Term<dyn Expr>) -> Self {

@@ -268,7 +268,10 @@ struct NamingPass {
 }
 
 impl NamingPass {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps naming and collision checks together for all semantic item kinds."
+    )]
     fn run(theory: &SemanticTheory) -> Result<Self, LoweringError> {
         let mut pass = Self::default();
         let mut identities = BTreeMap::<String, String>::new();
@@ -487,7 +490,10 @@ impl OriginPass {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps module sentence lowering in source order in one traversal."
+)]
 fn lower_module(
     module: &SemanticModule,
     names: &NamingPass,
@@ -957,7 +963,10 @@ fn lower_configuration_rewrite(
     .map_err(state_shape_error)
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Matches the owned error argument required by Result::map_err."
+)]
 fn state_shape_error(error: krs_ir::StateShapeError) -> LoweringError {
     LoweringError::UnsupportedShape {
         node: "fixed state",

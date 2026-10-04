@@ -18,7 +18,10 @@ use crate::{
 
 /// Leaf term content or a nominal nested fixed-cell group.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Span-preserving syn nodes are the public parser contract.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Span-preserving syn nodes are the public parser contract."
+)]
 pub enum ConfigurationCellContent {
     /// A `Cell<T>` or `KCell<T>` leaf.
     Leaf {

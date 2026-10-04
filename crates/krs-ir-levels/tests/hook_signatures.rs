@@ -116,7 +116,10 @@ fn typed_hook_signatures_are_enforced_in_semantic_and_definition_ir() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Exercises every declared-sort BN128 signature in both IR layers.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exercises every declared-sort BN128 signature in both IR layers."
+)]
 fn declared_sort_bn128_hook_signatures_are_enforced_in_both_ir_layers() {
     let point = item("syntax", "G1Point", ItemKind::Sort);
     let other = item("syntax", "OtherPoint", ItemKind::Sort);
@@ -379,7 +382,10 @@ fn declared_sort_bn128_hook_signatures_are_enforced_in_both_ir_layers() {
     );
 }
 
-#[allow(clippy::too_many_lines)] // Builds a complete Definition IR fixture around one BN128 hook.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds a complete Definition IR fixture around one BN128 hook."
+)]
 fn bn128_definition(
     point_sort_name: &str,
     point_constructors: &[(&str, usize)],

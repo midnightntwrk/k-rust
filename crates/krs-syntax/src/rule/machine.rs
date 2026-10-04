@@ -187,7 +187,10 @@ fn parse_machine_result_record(
     Ok(cells)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One linear parser retains clause layout and diagnostics at authored tokens."
+)]
 pub(super) fn parse_machine_clause(
     input: ParseStream<'_>,
     attributes: Vec<Attribute>,

@@ -80,7 +80,10 @@ impl DiagnosticSources {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The renderer accepts the complete diagnostic and source presentation context."
+    )]
     fn render<'a>(
         &self,
         level: Level<'a>,

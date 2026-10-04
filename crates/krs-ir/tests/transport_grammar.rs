@@ -32,7 +32,10 @@ struct Add;
 
 type AddAlias = Add;
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "The fixture uses enum type identity without constructing every variant."
+)]
 enum Boolean {
     True,
     False,
@@ -42,7 +45,10 @@ struct TrueVariantMarker;
 
 struct FalseVariantMarker;
 
-#[allow(non_snake_case)]
+#[expect(
+    non_snake_case,
+    reason = "The fixture mirrors generated variant-key method names."
+)]
 impl Boolean {
     fn __krs_variant_key_True() -> TypeId {
         TypeId::of::<TrueVariantMarker>()
@@ -61,14 +67,20 @@ mod boolean_api {
     pub(super) use super::Boolean as ReexportAlias;
 }
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "The fixture uses enum type identity without constructing its variant."
+)]
 enum OtherBoolean {
     False,
 }
 
 struct OtherFalseVariantMarker;
 
-#[allow(non_snake_case)]
+#[expect(
+    non_snake_case,
+    reason = "The fixture mirrors generated variant-key method names."
+)]
 impl OtherBoolean {
     fn __krs_variant_key_False() -> TypeId {
         TypeId::of::<OtherFalseVariantMarker>()

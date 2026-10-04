@@ -149,7 +149,10 @@ fn emit_group_list(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps exhaustive production attribute emission in one match."
+)]
 fn emit_production_attribute(
     attribute: &krs_ir_levels::DefinitionProductionAttribute,
     sentence: &ProductionSentence,

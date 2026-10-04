@@ -175,7 +175,10 @@ fn machine_configuration(start: StableItemId) -> DescriptorInputs {
     )
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete grammar descriptor bundle in one place."
+)]
 fn bundle() -> (DescriptorBundleInputs, StableItemId) {
     let expr = id("Expr", ItemKind::Sort);
     let add = id("Add", ItemKind::Constructor);

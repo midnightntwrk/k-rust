@@ -261,7 +261,10 @@ impl CollectorPlan {
         Ok(plan)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Selection resolution validates and joins the complete Cargo package and facet graph."
+    )]
     fn resolve_selection(
         metadata: &CargoMetadata,
         root: &FacetSelector,

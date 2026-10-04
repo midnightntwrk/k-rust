@@ -421,7 +421,10 @@ impl SourceMap {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Collects every definition node kind into one source map traversal."
+    )]
     pub(crate) fn from_definition(definition: &DefinitionIr) -> Result<Self, SidecarError> {
         let mut entries = BTreeMap::new();
         for module in definition.modules() {

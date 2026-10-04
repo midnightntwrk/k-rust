@@ -271,7 +271,6 @@ fn marker<const N: usize>() -> TypeId {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Constructs the complete registry and verifies sort identity.
 fn builtin_registry_resolves_map_and_id() {
     let sorts = [
         HostTypeKey(marker::<0>),
@@ -550,7 +549,10 @@ fn frame_rule_binding(
     }
 }
 
-#[allow(clippy::too_many_lines)] // Keeps the complete two-cell rewrite legible in one fixture.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps the complete two-cell rewrite legible in one fixture."
+)]
 fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
     let configuration = item("Machine", ItemKind::Configuration);
     let rule_id = item("var", ItemKind::Rule);

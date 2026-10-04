@@ -112,7 +112,10 @@ pub(super) fn render_rewrite(
     Ok(output)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps exhaustive term rendering and binder handling together."
+)]
 fn render_term_with_binders(
     term: &DefinitionTerm,
     context: &EmitContext<'_>,

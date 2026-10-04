@@ -1,7 +1,7 @@
 //! A non-proc-macro host for tour-minimal: a rustc-faithful test environment
 //! and a driver that expands every invocation of the whole authored file.
 
-#![allow(dead_code)] // each test binary uses part of the driver
+#![allow(dead_code, reason = "each test binary uses part of the driver")]
 
 use std::cell::Cell;
 

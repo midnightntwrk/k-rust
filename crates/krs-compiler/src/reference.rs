@@ -144,7 +144,10 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
 /// Returns a typed failure for invalid Rust/KRS syntax, absent or ambiguous
 /// collected rules, missing inferred sorts, or an external declaration whose
 /// Cargo dependency alias is not recoverable from the stable protocol.
-#[allow(clippy::too_many_lines)] // The source-order traversal keeps projected items deterministic.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The source-order traversal keeps projected items deterministic."
+)]
 pub fn expand_reference_source(
     source: &str,
     facade: &FacadeScope,
@@ -659,7 +662,10 @@ fn render_family_grammar(
     Ok(items)
 }
 
-#[allow(clippy::too_many_lines)] // Trait aliases and direct/ancestor impls are one graph projection.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Trait aliases and direct/ancestor impls are one graph projection."
+)]
 fn materialize_readable_sorts(
     invocation: &syn::ItemMacro,
 ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
@@ -1028,7 +1034,10 @@ fn is_initializer_lint_allow(attribute: &syn::Attribute) -> bool {
             .contains("clippy :: must_use_candidate")
 }
 
-#[allow(clippy::too_many_lines)] // One rule projection keeps its two sides visibly paired.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One rule projection keeps its two sides visibly paired."
+)]
 fn render_rule(
     clause: &krs_syntax::RuleClause,
     rule: &DescriptorHeadRule,
@@ -1180,7 +1189,10 @@ fn render_rule_cell_field(
     Ok(quote!(#owner::#field))
 }
 
-#[allow(clippy::too_many_lines)] // Exhaustive rendering mirrors the closed descriptor term sum.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exhaustive rendering mirrors the closed descriptor term sum."
+)]
 fn render_term(
     term: &DescriptorTerm,
     pattern: bool,

@@ -1765,7 +1765,10 @@ impl GrammarDescriptor {
 }
 
 impl DescriptorProduction {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered pass checks all production shape and provenance invariants."
+    )]
     fn validate(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
@@ -2111,7 +2114,10 @@ impl GrammarDescriptor {
 }
 
 impl DescriptorProduction {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One ordered pass retains exact provenance ordinals for every production owner."
+    )]
     fn collect_expected_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,

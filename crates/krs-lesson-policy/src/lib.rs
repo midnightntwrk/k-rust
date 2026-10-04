@@ -122,8 +122,10 @@ pub const CLASS_EXACT_AUTHORED: &str = "exact-authored";
 /// Diagnostic class of a request-level diagnostic.
 pub const CLASS_UNMAPPABLE: &str = "unmappable";
 
-// `serialize_with` passes the field by reference.
-#[allow(clippy::ref_option)]
+#[expect(
+    clippy::ref_option,
+    reason = "serialize_with passes the field by reference."
+)]
 fn serialize_range<S: Serializer>(
     range: &Option<ByteRange>,
     serializer: S,

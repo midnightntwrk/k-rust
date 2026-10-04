@@ -66,7 +66,10 @@ mod readable_imp_grammar {
         > left (And)
         > left (Or)
     )]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "The compile fixture checks the authored surface without executing every declaration."
+    )]
     pub enum Op {
         #[language_host::syntax("-{value}")]
         #[language_host::strict]
@@ -112,7 +115,13 @@ mod readable_imp_grammar {
         Or { lhs: Expr, rhs: Expr },
     }
 
-    #[allow(clippy::enum_glob_use)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::enum_glob_use,
+            reason = "Readable rules import every constructor variant into the DSL scope; Clippy exempts test targets."
+        )
+    )]
     use Op::*;
 
     language_host::rules! {
@@ -145,7 +154,6 @@ mod readable_imp_grammar {
 
     }
 
-    #[allow(dead_code)]
     fn _sort_narrowing_paths_are_block_local(_: Option<Value>) {}
 
     #[language_host::constructors(sort = Stmt, result = KResult)]
@@ -153,7 +161,10 @@ mod readable_imp_grammar {
         stmt (Assign, IfThenElse, IfThen, While, Block, EmptyBlock)
         > right seq_stmt (Sequence)
     )]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "The compile fixture checks the authored surface without executing every declaration."
+    )]
     pub enum StmtSyntax {
         #[language_host::syntax("{name} = {value};")]
         #[language_host::strict(value)]
@@ -179,11 +190,16 @@ mod readable_imp_grammar {
         Sequence { first: Stmt, second: Stmt },
     }
 
-    #[allow(clippy::enum_glob_use)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::enum_glob_use,
+            reason = "Readable rules import every constructor variant into the DSL scope; Clippy exempts test targets."
+        )
+    )]
     use StmtSyntax::*;
 
     #[language_host::configuration]
-    #[allow(dead_code)]
     pub struct ReadableRuleMachine {
         #[language_host::cell]
         pub computation: KSequence,
@@ -191,7 +207,10 @@ mod readable_imp_grammar {
         pub env: Map<Id, Value>,
     }
 
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "The compile fixture checks the authored surface without executing every declaration."
+    )]
     impl ReadableRuleMachine {
         #[language_host::init]
         pub fn init(pgm: Stmt, env: Map<Id, Value>) -> Self {
@@ -383,7 +402,10 @@ mod standalone_island_hygiene {
     use super::{Cell, Halt, KCell, Machine};
     use krs_macros::{cells, map};
 
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "The compile fixture checks the authored surface without executing every declaration."
+    )]
     fn checked() -> Machine {
         cells! {
             k: KCell(Halt),
@@ -808,7 +830,10 @@ pub mod nested {
     }
 }
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "The compile fixture checks the authored surface without executing every declaration."
+)]
 fn standalone_term(value: Term<dyn Expr>) -> Term<dyn Expr> {
     term![Wrap { value }]
 }

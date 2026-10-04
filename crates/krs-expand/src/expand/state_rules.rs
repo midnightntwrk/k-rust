@@ -39,7 +39,10 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The context alias and its complete provenance are expanded together."
+)]
 pub(crate) fn context_alias(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -202,7 +205,10 @@ pub(crate) fn context_alias(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The configuration rule and its complete provenance are expanded together."
+)]
 pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
@@ -691,7 +697,10 @@ impl<'a> StateRuleBuilder<'a> {
         }
     }
 
-    #[allow(clippy::too_many_lines)] // Exhaustive transport for the closed structured-term grammar.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive transport for the closed structured-term grammar."
+    )]
     fn expand_term(&mut self, tree: &TermTree, slots: &mut WireSlots) -> crate::Result<WireTerm> {
         let facade = self.facade;
         match tree {

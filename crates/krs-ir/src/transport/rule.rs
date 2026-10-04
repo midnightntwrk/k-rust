@@ -522,7 +522,10 @@ fn validate_context_alias<S: RuleValidationStage>(
     Ok(())
 }
 
-#[allow(clippy::enum_variant_names)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "Each variant names the distinct frame family used by a context-alias binding."
+)]
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum ContextAliasBindingUse {
     KSequenceFrame,
@@ -2099,7 +2102,10 @@ fn validate_term_path_key(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Frame validation requires its rule side, binding context, and provenance accumulators."
+)]
 fn validate_frame<S>(
     frame: &ProtocolRuleFrame,
     side: RuleSide,

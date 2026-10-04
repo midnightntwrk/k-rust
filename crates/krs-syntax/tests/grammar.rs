@@ -421,7 +421,10 @@ fn bracket_is_syntax_only_and_has_one_same_sort_value() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One fixture checks the complete ordered strictness and field-validation contract."
+)]
 fn strictness_is_ordered_typed_and_field_checked() {
     let declaration = krs_syntax::ConstructorDeclaration::parse_source(
         "struct Add { lhs: Term<Expr>, rhs: Term<Expr> }",

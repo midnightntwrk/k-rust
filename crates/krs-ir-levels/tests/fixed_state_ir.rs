@@ -41,7 +41,10 @@ fn variable(key: &str, id: &str, sort: DefinitionSortRef) -> DefinitionTerm {
 }
 
 #[derive(Clone, Copy)]
-#[allow(clippy::struct_excessive_bools)] // Each flag independently corrupts one validation invariant.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag independently corrupts one validation invariant."
+)]
 struct Variants {
     include_id_subsort: bool,
     matching_target: bool,
@@ -62,7 +65,10 @@ impl Default for Variants {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One fixture assembles the complete fixed-state Definition IR validation contract."
+)]
 fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidationError> {
     let expr = declared("sort.expr");
     let stmt = declared("sort.stmt");

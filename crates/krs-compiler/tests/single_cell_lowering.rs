@@ -37,7 +37,10 @@ fn origin_with_label(key: &str, label: Option<&str>) -> NodeOrigin {
     NodeOrigin::new(krs_ir::SourceMapKey::new(key).unwrap(), stack)
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds the complete single-cell lowering fixture in one place."
+)]
 fn theory() -> SemanticTheory {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);

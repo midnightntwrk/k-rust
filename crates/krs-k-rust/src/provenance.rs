@@ -214,7 +214,10 @@ fn input_kind(sentence: &DefinitionSentence) -> InputSentenceKind {
     }
 }
 
-#[allow(clippy::too_many_lines)] // Validates both address spaces and every sentence kind in one join.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Validates both address spaces and every sentence kind in one join."
+)]
 pub(super) fn join_sentence_provenance(
     ir: &DefinitionIr,
     adapted: &AdaptedDefinition,

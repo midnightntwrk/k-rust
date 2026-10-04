@@ -759,7 +759,10 @@ pub fn dispatch(request: &Value) -> QueryResult {
 ///
 /// Returns an error for unknown fields, invalid artifacts, unsupported schemas,
 /// or unreadable required files.
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The closed query dispatcher keeps every supported artifact query in one exhaustive match."
+)]
 pub fn query(directory: &Path, request: &Value) -> QueryResult {
     let query: Query = serde_json::from_value(request.clone())?;
     match query {
@@ -1157,12 +1160,14 @@ mod tests {
         NodeOrigin::new(krs_ir::SourceMapKey::new(key).unwrap(), stack)
     }
 
-    #[allow(clippy::too_many_lines)]
     fn theory() -> SemanticTheory {
         theory_with_claims(false)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The fixture constructs the complete semantic theory and optional claims."
+    )]
     fn theory_with_claims(with_claims: bool) -> SemanticTheory {
         let k_item = item("syntax", "KItem", ItemKind::Sort);
         let k_result = item("syntax", "KResult", ItemKind::Sort);
@@ -1781,7 +1786,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The test compares every declared K-tail and map-remainder normalization case."
+    )]
     fn replacement_normalizes_only_declared_replaced_k_tails_and_preserved_map_remainders() {
         let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
         let definition = lowered.definition();

@@ -17,7 +17,10 @@ pub(super) enum TermContext {
 }
 
 impl Adapter<'_> {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps exhaustive term adaptation in one match."
+    )]
     pub(super) fn term(
         &mut self,
         term: &DefinitionTerm,

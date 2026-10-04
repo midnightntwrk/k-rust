@@ -165,7 +165,11 @@ fn ordinary_rule(
     )
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "Rule lowering keeps the declaration context and both sides together."
+)]
 fn expand_ordinary_rule(
     env: &dyn MacroEnvironment,
     rule: &krs_syntax::RuleItem,
@@ -381,7 +385,10 @@ fn expand_ordinary_rule(
     })
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Attribute macro entry points own their input token streams."
+)]
 pub(crate) fn orphan_rule_helper(
     env: &dyn MacroEnvironment,
     entry: AttributeMacro,
