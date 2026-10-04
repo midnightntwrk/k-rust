@@ -29,6 +29,14 @@ fn bison_overload_dispatch_preserves_recovered_arguments_and_fallbacks() {
     use k_rust::kast::Sort;
     use std::{fs, process::Command};
 
+    struct ScratchDirectory(std::path::PathBuf);
+
+    impl Drop for ScratchDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     let source = indoc! {r#"
         module OVERLOADS
           syntax S ::= "s" [symbol(s)]
@@ -51,8 +59,11 @@ fn bison_overload_dispatch_preserves_recovered_arguments_and_fallbacks() {
         &mut resolver,
     )
     .unwrap();
-    let root = std::env::temp_dir().join(format!("krust-bison-overloads-{}", std::process::id()));
-    fs::create_dir_all(&root).unwrap();
+    let scratch = ScratchDirectory(
+        std::env::temp_dir().join(format!("krust-bison-overloads-{}", std::process::id())),
+    );
+    let root = &scratch.0;
+    fs::create_dir_all(root).unwrap();
     let s = "Lbls{}()";
     let m = "Lblm{}()";
     let s_item = format!("inj{{SortS{{}}, SortKItem{{}}}}({s})");

@@ -857,6 +857,8 @@ fn write_token_action(
     .expect("writing to a string cannot fail");
 }
 
+/// Describes a production from its own sort, items, source and location attributes,
+/// so a placement diagnostic cannot hold a non-production sentence.
 struct ProductionDescription<'a> {
     sort: &'a Sort,
     items: &'a [ProductionItem],
@@ -1066,6 +1068,7 @@ fn write_labeled_action(
         // Each candidate has its own scope, so later candidates are tested only after a miss.
         output.push_str("  {\n");
         overload_count += 1;
+        let mut previous_recovery = None;
         for (index, (greater_lesser, cases)) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
@@ -1077,6 +1080,10 @@ fn write_labeled_action(
             }
             writeln!(output, "  int matched_case_{index} = -1;")
                 .expect("writing to a string cannot fail");
+            if let Some(previous) = previous_recovery {
+                writeln!(output, "  if (matched_case_{previous} >= 0) {{")
+                    .expect("writing to a string cannot fail");
+            }
             for (ordinal, case) in cases.iter().enumerate() {
                 writeln!(
                     output,
@@ -1086,6 +1093,10 @@ fn write_labeled_action(
                 )
                 .expect("writing to a string cannot fail");
             }
+            if previous_recovery.is_some() {
+                output.push_str("  }\n");
+            }
+            previous_recovery = Some(index);
         }
         output.push_str("  if (true");
         for (index, (greater, lesser)) in
@@ -2000,6 +2011,7 @@ mod tests {
                     nonterminal("Mid"),
                     nonterminal("K"),
                     nonterminal("Same"),
+                    nonterminal("Mid"),
                 ],
                 Some("fSmall"),
                 &[("klabel", "f")],
@@ -2011,6 +2023,7 @@ mod tests {
                     nonterminal("K"),
                     nonterminal("KList"),
                     nonterminal("Same"),
+                    nonterminal("K"),
                 ],
                 Some("fBig"),
                 &[("klabel", "f")],
@@ -2027,14 +2040,19 @@ mod tests {
             prefix: "placed",
         };
         let mut total = 0;
-        for (index, (greater, lesser)) in [("K", "Mid"), ("KList", "K")].iter().enumerate() {
+        let mut previous_recovery = None;
+        for (index, greater, lesser) in [(0, "K", "Mid"), (1, "KList", "K"), (3, "K", "Mid")] {
             let cases = recovery_cases(
                 &placements,
-                &Sort::new(*greater),
-                &Sort::new(*lesser),
+                &Sort::new(greater),
+                &Sort::new(lesser),
                 &format!("${}.nterm", index + 2),
             );
             assert!(cases.len() > 1);
+            let mut chain = format!("  int matched_case_{index} = -1;\n");
+            if let Some(previous) = previous_recovery {
+                writeln!(chain, "  if (matched_case_{previous} >= 0) {{").unwrap();
+            }
             for (ordinal, case) in cases.iter().enumerate() {
                 let count = output.matches(&case.condition).count();
                 assert_eq!(
@@ -2043,15 +2061,30 @@ mod tests {
                 );
                 assert!(output.contains(&format!("matched_case_{index} = {ordinal};")));
                 assert!(output.contains(&format!("if (matched_case_{index} == {ordinal})")));
+                writeln!(
+                    chain,
+                    "  {}if ({}) {{ matched_case_{index} = {ordinal}; }}",
+                    if ordinal == 0 { "" } else { "else " },
+                    case.condition
+                )
+                .unwrap();
                 total += 1;
             }
+            if previous_recovery.is_some() {
+                chain.push_str("  }\n");
+            }
+            assert!(
+                output.contains(&chain),
+                "argument {index} recovery must short-circuit after the previous missed argument"
+            );
+            previous_recovery = Some(index);
             assert!(output.contains(&format!("int matched_case_{index} = -1;")));
             assert!(output.contains(&format!(" && matched_case_{index} >= 0")));
         }
         assert!(output.contains("n->children[2] = $4.nterm;"));
         assert!(!output.contains("matched_case_2"));
         println!(
-            "{total} recovery conditions emitted once; guard and dispatch read the same matched cases"
+            "{total} recovery conditions emitted once; later arguments short-circuit; guard and dispatch read the same matched cases"
         );
     }
 
