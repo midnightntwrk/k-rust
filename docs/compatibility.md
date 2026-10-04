@@ -634,7 +634,9 @@ Requests and claims must contain only licensed injections; krun's initial config
 Requests and claims also refuse injection pairs containing sort variables.
 An unlicensed alternative of a no-junk axiom prevents that axiom from establishing a finite domain.
 A dead axiom remains in the written rule catalog with its executable attribute, but contributes no loaded rule and cannot be selected in an observation allowlist (`UnknownRule`).
-These load checks establish that every closed injection held by the backend is licensed, and rewriting preserves that condition by substituting licensed values and composing licensed embeddings.
+These load checks license closed injection pairs in loaded patterns, and rewriting preserves that condition by substituting licensed values and composing licensed embeddings.
+Instances of sort-parametric axioms remain the residual: they are not checked closed at load.
+Applicable instances arise only from the injection composition schema, whose instances are licensed by transitivity; sort-parametric equations do not match closed subjects.
 
 ### SMT prelude consistency
 

@@ -3,7 +3,7 @@
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    definition::{BackendDefinition, DefinitionError, UnlicensedInjection},
+    definition::{BackendDefinition, DefinitionError, UnlicensedInjectionSite},
     rule::{Predicate, TermIndex, internalize_predicate},
     simplify::{SimplificationOptions, simplify},
     term::{Name, Sort, Term},
@@ -69,26 +69,44 @@ fn rewrite_written_injection_is_refused_with_axiom_label() {
 }
 
 #[test]
-fn written_injection_without_identity_reports_origin_or_unidentified_axiom() {
+fn written_injection_without_identity_formats_origin() {
     for (attributes, expected) in [
         (
             r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
-            "Source(fixture.k)",
+            "source Source(fixture.k), location Location(3,1,7,2)",
         ),
         (
             r#"org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
-            "Location(3,1,7,2)",
+            "location Location(3,1,7,2)",
         ),
-        ("", "<unidentified axiom>"),
+        (
+            r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)")"#,
+            "source Source(fixture.k)",
+        ),
     ] {
-        assert_written_refused(
-            &format!(
-                r"axiom{{}} \rewrites{{SortB{{}}}}(\and{{SortB{{}}}}(b{{}}(), \top{{SortB{{}}}}()),
-                    inj{{SortA{{}},SortB{{}}}}(a{{}}())) [{attributes}]",
-            ),
-            expected,
+        let error = load(&source(&format!(
+            r"axiom{{}} \rewrites{{SortB{{}}}}(\and{{SortB{{}}}}(b{{}}(), \top{{SortB{{}}}}()),
+                inj{{SortA{{}},SortB{{}}}}(a{{}}())) [{attributes}]",
+        )))
+        .expect_err("written unlicensed injection must be refused");
+        assert_eq!(
+            error.to_string(),
+            format!("Unlicensed injection from SortA{{}} to SortB{{}} in axiom {expected}"),
         );
     }
+}
+
+#[test]
+fn written_injection_without_identity_reports_module_and_sentence() {
+    let error = load(&source(
+        r"axiom{} \rewrites{SortB{}}(\and{SortB{}}(b{}(), \top{SortB{}}()),
+            inj{SortA{},SortB{}}(a{}())) []",
+    ))
+    .expect_err("written unlicensed injection must be refused");
+    assert_eq!(
+        error.to_string(),
+        "Unlicensed injection from SortA{} to SortB{} in axiom module TEST, sentence 7",
+    );
 }
 
 #[test]
@@ -153,12 +171,22 @@ fn dead_membership_is_false_only_inside_axioms() {
     )
     .unwrap();
     assert_eq!(
-        internalize_predicate(&definition, &membership, &[], UnlicensedInjection::InAxiom)
-            .expect("an impossible axiom membership denotes false"),
+        internalize_predicate(
+            &definition,
+            &membership,
+            &[],
+            UnlicensedInjectionSite::InAxiom
+        )
+        .expect("an impossible axiom membership denotes false"),
         Predicate::False,
     );
     assert_eq!(
-        internalize_predicate(&definition, &membership, &[], UnlicensedInjection::Refuse),
+        internalize_predicate(
+            &definition,
+            &membership,
+            &[],
+            UnlicensedInjectionSite::Refuse
+        ),
         Err(DefinitionError::NotSubsort {
             source: Sort::simple("SortL"),
             target: Sort::simple("SortKItem"),
@@ -201,7 +229,7 @@ endmodule []"#,
             &definition,
             &membership,
             &[Name::from("R")],
-            UnlicensedInjection::InAxiomMatched,
+            UnlicensedInjectionSite::InAxiomMatched,
         ),
         Err(DefinitionError::NotSubsort {
             source: Sort::simple("SortA"),
@@ -215,7 +243,7 @@ endmodule []"#,
             &definition,
             &schema,
             &[Name::from("S"), Name::from("T"), Name::from("R")],
-            UnlicensedInjection::InAxiomMatched,
+            UnlicensedInjectionSite::InAxiomMatched,
         ),
         Ok(Predicate::In(_, _)),
     ));

@@ -111,9 +111,6 @@ The role is one of `"part"`, `"variant"`, or `"fallback"`.
 A variant site may add a scalar `variant_of`; a fallback site may add an ordered `falls_back_to` list.
 The referenced algorithm identity must exist; a card must not create an identity that is absent from `Algorithm::ALL`.
 
-`backend.definedness.discharge` keeps its structural analysis card in `definedness.rs`.
-Its construction-only `BackendDefinition::discharge_rewrite_definedness` site lives in `definition.rs`, where it computes all rule decisions before applying successful annotations to the private rewrite theory.
-
 ## Representations and constraints
 
 An entry in `consumes` or `produces` is either a workspace type path or `{ type = "workspace::Type", role = "meaning" }`.
@@ -272,6 +269,9 @@ sites = ["initial_match"]
 `fresh.rs` is the home of `backend.fresh.variables` and names only symbols in `fresh.rs`.
 The `freshen_claim` item in `proof.rs`, `freshen_existentials` in `implication.rs`, and the alias-local fresh-name item in `alias.rs` each use an `algorithm-site` card with `role = "part"`.
 The object-language substitution in `builtin/substitution.rs` has its own primary identity, `backend.fresh.object_language`, because it operates in a different name domain.
+
+`backend.definedness.discharge` keeps its structural analysis card in `definedness.rs`.
+Its construction-only `BackendDefinition::discharge_rewrite_definedness` site lives in `definition.rs`, where it computes all rule decisions before applying successful annotations to the private rewrite theory.
 
 In `fresh.rs`:
 

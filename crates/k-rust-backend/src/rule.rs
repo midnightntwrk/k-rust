@@ -64,7 +64,7 @@ use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     condition::Condition,
-    definition::{BackendDefinition, DefinitionError, UnlicensedInjection},
+    definition::{BackendDefinition, DefinitionError, UnlicensedInjectionSite},
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, Name, Sort, Term, TermKind, Variable,
@@ -752,10 +752,11 @@ pub(crate) type SentenceKey = (Name, usize);
 /// two axioms have the same instances: the same matches, substitutions, side conditions,
 /// results and applicability constraints, so no execution fact tells an application of one
 /// from an application of the other, and storing both only makes one rule apply twice. The
-/// declaring module is not compared because no later stage reads it.
+/// declaring module is not compared because it locates the sentence and does not affect its instances.
 ///
-/// The first axiom of a class in declaration order is kept with its variable names, and the
-/// origins of the others are appended to its origin list in declaration order. A sentence
+/// The first axiom of a class in declaration order is kept with its variable names and sentence
+/// key for load diagnostics, and the origins of the others are appended to its origin list in
+/// declaration order. A sentence
 /// visited again through another import path adds no origin. Axioms that share a `UNIQUE_ID`
 /// but differ in anything compared above stay separate rules. Each axiom is hashed once by its
 /// `UNIQUE_ID` and a shape that ignores variable names (`axiom_shape`), and comparisons, each
@@ -763,7 +764,7 @@ pub(crate) type SentenceKey = (Name, usize);
 /// definition without `UNIQUE_ID`s does not compare every pair of its axioms.
 pub(crate) fn collapse_equal_axioms(
     axioms: impl IntoIterator<Item = (ClassifiedAxiom, SentenceKey)>,
-) -> Vec<ClassifiedAxiom> {
+) -> Vec<(ClassifiedAxiom, SentenceKey)> {
     let mut collapsed = Vec::<ClassifiedAxiom>::new();
     let mut sentences = Vec::<Vec<SentenceKey>>::new();
     let mut classes = BTreeMap::<(String, u64), Vec<usize>>::new();
@@ -791,6 +792,13 @@ pub(crate) fn collapse_equal_axioms(
         }
     }
     collapsed
+        .into_iter()
+        .zip(
+            sentences
+                .into_iter()
+                .map(|mut sentences| sentences.remove(0)),
+        )
+        .collect()
 }
 
 fn equal_axioms(left: &ClassifiedAxiom, right: &ClassifiedAxiom) -> bool {
@@ -1205,8 +1213,16 @@ fn axiom_shape(axiom: &ClassifiedAxiom) -> u64 {
 pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
+    sentence_index: usize,
 ) -> Result<Vec<InternalizedRule>, DefinitionError> {
-    let injection_role = UnlicensedInjection::InAxiom;
+    let module = match axiom {
+        ClassifiedAxiom::Rewrite { module, .. }
+        | ClassifiedAxiom::Function { module, .. }
+        | ClassifiedAxiom::Simplification { module, .. }
+        | ClassifiedAxiom::Ceil { module, .. } => module,
+    };
+    let sentence = (module.clone(), sentence_index);
+    let injection_role = UnlicensedInjectionSite::InAxiom;
     let internalize = || match axiom {
         ClassifiedAxiom::Rewrite {
             sort_parameters,
@@ -1226,7 +1242,7 @@ pub fn internalize_axiom(
                         &lhs,
                         sort_parameters,
                         injection_role,
-                        Some(attributes),
+                        Some((attributes, &sentence)),
                     ))?
                 {
                     live.push((index, lhs, requires));
@@ -1291,7 +1307,7 @@ pub fn internalize_axiom(
                     definition,
                     lhs,
                     sort_parameters,
-                    UnlicensedInjection::InAxiomMatched,
+                    UnlicensedInjectionSite::InAxiomMatched,
                 ))?
                 else {
                     return Ok(vec![]);
@@ -1477,34 +1493,37 @@ pub fn internalize_axiom(
             )])
         }
     };
-    internalize().map_err(|error| written_injection_error(error, axiom.attributes()))
+    internalize().map_err(|error| written_injection_error(error, axiom.attributes(), &sentence))
 }
 
 pub(crate) fn written_injection_error(
     error: DefinitionError,
     attributes: &RuleAttributes,
+    sentence: &SentenceKey,
 ) -> DefinitionError {
     let DefinitionError::NotSubsort { source, target } = error else {
         return error;
     };
+    let fallback = || format!("module {}, sentence {}", sentence.0, sentence.1);
     let axiom = if attributes.unique_id != "UNKNOWN" {
         attributes.unique_id.clone()
+    } else if let Some(label) = &attributes.label {
+        label.clone()
     } else {
-        attributes.origins.first().map_or_else(
-            || "<unidentified axiom>".to_owned(),
-            |origin| {
-                if origin.source.is_none() && origin.location.is_none() {
-                    "<unidentified axiom>".to_owned()
-                } else {
-                    format!("source {:?}, location {:?}", origin.source, origin.location)
-                }
-            },
-        )
+        attributes.origins.first().map_or_else(fallback, |origin| {
+            match (&origin.source, &origin.location) {
+                (Some(source), Some(location)) => format!("source {source}, location {location}"),
+                (Some(source), None) => format!("source {source}"),
+                (None, Some(location)) => format!("location {location}"),
+                (None, None) => fallback(),
+            }
+        })
     };
     DefinitionError::UnlicensedInjection {
         source,
         target,
         axiom,
+        sentence_index: sentence.1,
     }
 }
 
@@ -1936,7 +1955,7 @@ pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
+    injection_role: UnlicensedInjectionSite,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     internalize_rule_pattern_with_position(
         definition,
@@ -1951,8 +1970,8 @@ fn internalize_rule_pattern_with_position(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
-    written_predicates: Option<&RuleAttributes>,
+    injection_role: UnlicensedInjectionSite,
+    defer_written_conditions_for: Option<(&RuleAttributes, &SentenceKey)>,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     if contains_term_or(pattern) {
         return Err(DefinitionError::RulePattern(
@@ -1971,9 +1990,9 @@ fn internalize_rule_pattern_with_position(
                 sort_parameters,
                 injection_role,
                 &mut predicates,
-                written_predicates.map(|_| &mut deferred_predicates),
+                defer_written_conditions_for.map(|_| &mut deferred_predicates),
             )?);
-        } else if written_predicates.is_some() {
+        } else if defer_written_conditions_for.is_some() {
             deferred_predicates.push(component.clone());
         } else {
             predicates.extend(internalize_predicates(
@@ -1989,10 +2008,9 @@ fn internalize_rule_pattern_with_position(
         predicates.extend(
             internalize_predicates(definition, &predicate, sort_parameters, injection_role)
                 .map_err(|error| {
-                    written_injection_error(
-                        error,
-                        written_predicates.expect("written conditions were deferred"),
-                    )
+                    let (attributes, sentence) =
+                        defer_written_conditions_for.expect("written conditions were deferred");
+                    written_injection_error(error, attributes, sentence)
                 })?,
         );
     }
@@ -2011,7 +2029,7 @@ fn internalize_term_rhs(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
+    injection_role: UnlicensedInjectionSite,
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
@@ -2071,7 +2089,7 @@ fn internalize_predicates(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
+    injection_role: UnlicensedInjectionSite,
 ) -> Result<Vec<Predicate>, DefinitionError> {
     match pattern {
         kore::Pattern::Top { .. } => Ok(Vec::new()),
@@ -2104,7 +2122,7 @@ pub(crate) fn internalize_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
+    injection_role: UnlicensedInjectionSite,
 ) -> Result<Predicate, DefinitionError> {
     let term = |pattern: &kore::Pattern| {
         definition.internalize_term_with_validation(pattern, sort_parameters, injection_role)
@@ -2130,7 +2148,7 @@ pub(crate) fn internalize_predicate(
             let left = term(left)?;
             match term(right) {
                 Err(DefinitionError::NotSubsort { .. })
-                    if injection_role == UnlicensedInjection::InAxiom =>
+                    if injection_role == UnlicensedInjectionSite::InAxiom =>
                 {
                     Ok(Predicate::False)
                 }
@@ -2191,7 +2209,7 @@ pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
-    injection_role: UnlicensedInjection,
+    injection_role: UnlicensedInjectionSite,
 ) -> Result<Option<Predicate>, DefinitionError> {
     let recurse = |pattern: &kore::Pattern| {
         internalize_model_predicate(definition, pattern, sort_parameters, injection_role)
@@ -3335,7 +3353,7 @@ mod tests {
         let classified = classify(source)
             .expect("axiom should classify")
             .expect("axiom should be executable");
-        internalize_axiom(&function_binder_definition(), &classified)
+        internalize_axiom(&function_binder_definition(), &classified, 0)
     }
 
     fn function_lhs_argument_names(rules: &[InternalizedRule]) -> Vec<Vec<String>> {
@@ -3359,6 +3377,31 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    #[test]
+    fn nested_written_conditions_internalize_like_top_level_requires() {
+        let definition = function_binder_definition();
+        for condition in [
+            r"\top{SortS{}}()",
+            r"\and{SortS{}}(\top{SortS{}}(), \equals{SortS{},SortS{}}(a{}(), b{}()))",
+        ] {
+            let internalize = |lhs: &str| {
+                let axiom = classify(&format!(
+                    r"axiom{{}} \rewrites{{SortS{{}}}}({lhs}, result{{}}()) []",
+                ))
+                .unwrap()
+                .unwrap();
+                internalize_axiom(&definition, &axiom, 0).unwrap()
+            };
+            let nested = internalize(&format!(
+                r"\and{{SortS{{}}}}(wrap{{}}(\and{{SortS{{}}}}(a{{}}(), {condition})), \top{{SortS{{}}}}())",
+            ));
+            let top_level = internalize(&format!(
+                r"\and{{SortS{{}}}}(wrap{{}}(a{{}}()), {condition})",
+            ));
+            assert_eq!(nested, top_level);
+        }
     }
 
     #[test]
@@ -3796,6 +3839,9 @@ mod tests {
                 .expect("axiom should be a rule");
             (axiom, (Name::from("MAIN"), sentence))
         }))
+        .into_iter()
+        .map(|(axiom, _)| axiom)
+        .collect()
     }
 
     fn origin_locations(axiom: &ClassifiedAxiom) -> Vec<&str> {
@@ -4028,7 +4074,7 @@ mod tests {
         .expect("axiom should classify")
         .expect("axiom should be a rule");
         let [InternalizedRule::Term(_, rule)] =
-            &internalize_axiom(&function_binder_definition(), &classified).unwrap()[..]
+            &internalize_axiom(&function_binder_definition(), &classified, 0).unwrap()[..]
         else {
             panic!("expected one term rule");
         };
@@ -4107,7 +4153,7 @@ mod tests {
         )
         .unwrap();
         let [InternalizedRule::Term(_, rule)] =
-            &internalize_axiom(&definition, &classified).unwrap()[..]
+            &internalize_axiom(&definition, &classified, 0).unwrap()[..]
         else {
             panic!("expected one term rule");
         };

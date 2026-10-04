@@ -1203,6 +1203,21 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
                 .map(|(term, _)| term),
             )
         }
+        DefinitionError::UnlicensedInjection { source, target, .. } => {
+            let source = externalize::sort(source).to_string();
+            let target = externalize::sort(target).to_string();
+            (
+                error.to_string(),
+                locate_application(
+                    pattern,
+                    WellKnownSymbol::Inj.as_str(),
+                    Some(1),
+                    None,
+                    Some((source.as_str(), target.as_str())),
+                )
+                .map(|(term, _)| term),
+            )
+        }
         DefinitionError::ExpectedTerm(_) => ("Pattern not supported".into(), Some(pattern)),
         _ => (error.to_string(), None),
     };
@@ -1218,14 +1233,24 @@ fn module_verification_detail(
     error: &DefinitionError,
     module: &k_rust::kore::ast::Module,
 ) -> ErrorDetail {
-    let pattern = module.sentences.iter().find_map(|sentence| match sentence {
-        k_rust::kore::ast::Sentence::AliasDeclaration { right, .. }
-        | k_rust::kore::ast::Sentence::Axiom { pattern: right, .. }
-        | k_rust::kore::ast::Sentence::Claim { pattern: right, .. } => Some(right.as_ref()),
-        k_rust::kore::ast::Sentence::Import { .. }
-        | k_rust::kore::ast::Sentence::SortDeclaration { .. }
-        | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
-    });
+    fn sentence_pattern(sentence: &k_rust::kore::ast::Sentence) -> Option<&KorePattern> {
+        match sentence {
+            k_rust::kore::ast::Sentence::AliasDeclaration { right, .. }
+            | k_rust::kore::ast::Sentence::Axiom { pattern: right, .. }
+            | k_rust::kore::ast::Sentence::Claim { pattern: right, .. } => Some(right.as_ref()),
+            k_rust::kore::ast::Sentence::Import { .. }
+            | k_rust::kore::ast::Sentence::SortDeclaration { .. }
+            | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
+        }
+    }
+    let pattern = if let DefinitionError::UnlicensedInjection { sentence_index, .. } = error {
+        module
+            .sentences
+            .get(*sentence_index)
+            .and_then(sentence_pattern)
+    } else {
+        module.sentences.iter().find_map(sentence_pattern)
+    };
     match (error, pattern) {
         (DefinitionError::Verification(verification), Some(pattern))
             if verification

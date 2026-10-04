@@ -673,6 +673,8 @@ fn deduplicate(predicates: &mut Vec<Predicate>) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
@@ -723,7 +725,7 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
-    fn rewrite_rule(definition: &BackendDefinition) -> &std::sync::Arc<RewriteRule> {
+    fn rewrite_rule(definition: &BackendDefinition) -> &Arc<RewriteRule> {
         definition
             .rewrite_theory()
             .values()

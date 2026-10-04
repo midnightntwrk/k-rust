@@ -103,13 +103,16 @@ enum CollectionSort {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum UnlicensedInjection {
+pub(crate) enum UnlicensedInjectionSite {
     /// Requests, claims, no-junk alternatives and initial configurations require a subsort path.
     Refuse,
     /// Definition axioms also admit sort-variable schemas; closed pairs still require a path.
     /// The axiom loader drops dead matched alternatives and refuses unlicensed written terms.
     InAxiom,
-    /// A matched predicate of a definition axiom (a predicate simplification's left-hand side): sort-variable pairs are licensed as in InAxiom, but a membership whose pattern operand holds an unlicensed injection is refused, so the axiom is dead rather than matching \bottom.
+    /// A matched predicate of a definition axiom (a predicate simplification's left-hand side):
+    /// sort-variable pairs are licensed as in InAxiom, but a membership whose pattern operand
+    /// holds an unlicensed injection is refused, so the axiom is dead rather than matching
+    /// \bottom.
     InAxiomMatched,
 }
 
@@ -795,6 +798,7 @@ pub enum DefinitionError {
         source: Sort,
         target: Sort,
         axiom: String,
+        sentence_index: usize,
     },
     InvalidSymbolType(String),
     ConstructorAtFixedSort {
@@ -913,6 +917,7 @@ impl fmt::Display for DefinitionError {
                 source,
                 target,
                 axiom,
+                ..
             } => write!(
                 formatter,
                 "Unlicensed injection from {} to {} in axiom {axiom}",
@@ -1384,7 +1389,7 @@ impl BackendDefinition {
             }
         }
 
-        let classified_axioms = collapse_equal_axioms(
+        let (classified_axioms, axiom_sentences): (Vec<_>, Vec<_>) = collapse_equal_axioms(
             axioms
                 .iter()
                 .zip(axiom_sentences)
@@ -1400,7 +1405,9 @@ impl BackendDefinition {
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(DefinitionError::Axiom)?,
-        );
+        )
+        .into_iter()
+        .unzip();
         let sort_graph = build_sort_graph(&sorts, subsorts);
         for (greater, lesser) in &overloads {
             if !symbols.contains_key(greater) {
@@ -1441,13 +1448,14 @@ impl BackendDefinition {
         let rules = result
             .classified_axioms
             .iter()
-            .filter(|axiom| match axiom {
+            .zip(axiom_sentences)
+            .filter(|(axiom, _)| match axiom {
                 ClassifiedAxiom::Rewrite { attributes, .. }
                 | ClassifiedAxiom::Function { attributes, .. }
                 | ClassifiedAxiom::Simplification { attributes, .. }
                 | ClassifiedAxiom::Ceil { attributes, .. } => attributes.executable,
             })
-            .map(|axiom| internalize_axiom(&result, axiom))
+            .map(|(axiom, (_, index))| internalize_axiom(&result, axiom, index))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten();
@@ -1596,16 +1604,25 @@ impl BackendDefinition {
         sort_variables: &[Name],
     ) -> Result<Term, DefinitionError> {
         let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
-        self.internalize_term_with_validation(pattern, sort_variables, UnlicensedInjection::Refuse)
+        self.internalize_term_with_validation(
+            pattern,
+            sort_variables,
+            UnlicensedInjectionSite::Refuse,
+        )
     }
 
-    fn injection_licensed(&self, source: &Sort, target: &Sort, role: UnlicensedInjection) -> bool {
+    fn injection_licensed(
+        &self,
+        source: &Sort,
+        target: &Sort,
+        role: UnlicensedInjectionSite,
+    ) -> bool {
         match role {
-            UnlicensedInjection::Refuse => self
+            UnlicensedInjectionSite::Refuse => self
                 .sort_graph
                 .check_subsort(source, target)
                 .unwrap_or(false),
-            UnlicensedInjection::InAxiom | UnlicensedInjection::InAxiomMatched => {
+            UnlicensedInjectionSite::InAxiom | UnlicensedInjectionSite::InAxiomMatched => {
                 match self.sort_graph.check_subsort(source, target) {
                     Ok(licensed) => licensed,
                     Err(SortError::FoundSortVariable(_)) => true,
@@ -1619,7 +1636,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
-        injection_role: UnlicensedInjection,
+        injection_role: UnlicensedInjectionSite,
     ) -> Result<Term, DefinitionError> {
         let mut floated = Vec::new();
         let term = self.internalize_term_collecting(
@@ -1641,7 +1658,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
-        injection_role: UnlicensedInjection,
+        injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         deferred_predicates: Option<&mut Vec<kore::Pattern>>,
     ) -> Result<Term, DefinitionError> {
@@ -1664,8 +1681,12 @@ impl BackendDefinition {
     ) -> Result<Pattern, DefinitionError> {
         let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        let (term, constraints) =
-            internalize_rule_pattern(self, &pattern, sort_variables, UnlicensedInjection::Refuse)?;
+        let (term, constraints) = internalize_rule_pattern(
+            self,
+            &pattern,
+            sort_variables,
+            UnlicensedInjectionSite::Refuse,
+        )?;
         Ok(Pattern { term, constraints })
     }
 
@@ -1740,13 +1761,16 @@ impl BackendDefinition {
     ) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
-        let result_sort =
-            self.internalize_pattern_result_sort(&pattern, &known, UnlicensedInjection::Refuse)?;
+        let result_sort = self.internalize_pattern_result_sort(
+            &pattern,
+            &known,
+            UnlicensedInjectionSite::Refuse,
+        )?;
         let predicate = internalize_rule_predicate(
             self,
             &pattern,
             sort_variables,
-            UnlicensedInjection::Refuse,
+            UnlicensedInjectionSite::Refuse,
         )?;
         Ok((predicate, result_sort))
     }
@@ -1759,13 +1783,16 @@ impl BackendDefinition {
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
-        let result_sort =
-            self.internalize_pattern_result_sort(&pattern, &known, UnlicensedInjection::Refuse)?;
+        let result_sort = self.internalize_pattern_result_sort(
+            &pattern,
+            &known,
+            UnlicensedInjectionSite::Refuse,
+        )?;
         Ok(internalize_rule_model_predicate(
             self,
             &pattern,
             sort_variables,
-            UnlicensedInjection::Refuse,
+            UnlicensedInjectionSite::Refuse,
         )?
         .map(|predicate| (predicate, result_sort)))
     }
@@ -1790,7 +1817,7 @@ impl BackendDefinition {
             body = next;
         }
         let (term, constraints) =
-            internalize_rule_pattern(self, body, sort_variables, UnlicensedInjection::Refuse)?;
+            internalize_rule_pattern(self, body, sort_variables, UnlicensedInjectionSite::Refuse)?;
         Ok((Pattern { term, constraints }, existentials))
     }
 
@@ -1884,7 +1911,7 @@ impl BackendDefinition {
                     self,
                     &alternative,
                     sort_variables,
-                    UnlicensedInjection::Refuse,
+                    UnlicensedInjectionSite::Refuse,
                 )?;
                 Ok(Pattern { term, constraints })
             })
@@ -1916,7 +1943,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &BTreeSet<Name>,
-        injection_role: UnlicensedInjection,
+        injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         mut deferred_predicates: Option<&mut Vec<kore::Pattern>>,
     ) -> Result<Term, DefinitionError> {
@@ -2108,7 +2135,7 @@ impl BackendDefinition {
         &self,
         pattern: &kore::Pattern,
         sort_variables: &BTreeSet<Name>,
-        injection_role: UnlicensedInjection,
+        injection_role: UnlicensedInjectionSite,
     ) -> Result<Sort, DefinitionError> {
         let syntax_sort = match pattern {
             kore::Pattern::Variable(variable) => Some(&variable.sort),
@@ -2155,7 +2182,7 @@ impl BackendDefinition {
         syntax: &kore::Symbol,
         arguments: Vec<Term>,
         sort_variables: &BTreeSet<Name>,
-        injection_role: UnlicensedInjection,
+        injection_role: UnlicensedInjectionSite,
     ) -> Result<Term, DefinitionError> {
         let symbol = self
             .symbols
@@ -2354,7 +2381,7 @@ fn collect_finite_sort_constructors(
                     let Ok(term) = definition.internalize_term_with_validation(
                         constructor,
                         &axiom.parameters,
-                        UnlicensedInjection::Refuse,
+                        UnlicensedInjectionSite::Refuse,
                     ) else {
                         valid = false;
                         break;
