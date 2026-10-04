@@ -1,12 +1,11 @@
 //! Refined contract constructors and unchanged wire shapes.
 
-use krs_ir::transport::detail::StateTermReason;
 use krs_ir::{
     Arguments, ArgumentsError, AtLeastTwo, AtLeastTwoError, BuiltinSort, DefinitionRuleBody,
     DefinitionSortRef, DefinitionTerm, DescriptorLiteral, DescriptorStage, DescriptorTerm,
     DescriptorTermArgument, IrRewrite, ItemKind, LabelId, LabelIdentity, ProductionFieldId,
     ProvenanceKey, ProvenanceRole, RuleSentence, SemanticRule, SemanticRuleBody, SemanticSortRef,
-    SemanticTerm, SemanticValidationError, SentenceKind, StateTransportError, testing,
+    SemanticTerm, SemanticValidationError, SentenceKind, testing,
 };
 
 fn literal() -> DescriptorTerm {
@@ -27,6 +26,10 @@ fn argument_adapter_rejects_both_mixed_orders_and_keeps_valid_json() {
         value: Box::new(literal()),
     };
     let expected = ArgumentsError::MixedForms;
+    assert_eq!(
+        expected.to_string(),
+        "positional and named arguments are mixed"
+    );
     for values in [
         vec![positional.clone(), named.clone()],
         vec![named.clone(), positional.clone()],
@@ -60,8 +63,8 @@ fn argument_adapter_rejects_both_mixed_orders_and_keeps_valid_json() {
 }
 
 #[test]
-fn application_boundary_keeps_the_state_context_message() {
-    let expected = StateTransportError::InvalidTerm(StateTermReason::MixedRuleArgumentForms);
+fn application_boundary_reports_context_free_mixed_forms() {
+    let expected = ArgumentsError::MixedForms;
     let positional = serde_json::json!({"argument_kind": "positional", "value": literal()});
     let named = serde_json::json!({
         "argument_kind": "named",
@@ -120,8 +123,7 @@ fn named_arguments_are_nonempty_and_every_form_round_trips() {
 
 #[test]
 fn disjunction_adapter_rejects_zero_and_one_operand_and_keeps_array_shape() {
-    let expected =
-        StateTransportError::InvalidTerm(StateTermReason::OrBoolRequiresAtLeastTwoOperands);
+    let expected = "or_bool requires at least two operands";
     for values in [vec![], vec![literal()]] {
         assert_eq!(
             AtLeastTwo::try_from(values.clone()).unwrap_err(),
@@ -143,7 +145,7 @@ fn disjunction_adapter_rejects_zero_and_one_operand_and_keeps_array_shape() {
             serde_json::from_value::<DescriptorTerm>(json)
                 .unwrap_err()
                 .to_string()
-                .contains(&expected.to_string())
+                .contains(expected)
         );
     }
     for values in [

@@ -10,9 +10,9 @@ use krs_ir::transport::detail::{
     GrammarApplicationReason, GrammarProductionReason, GrammarTermReason,
 };
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorAssociativitySentence, DescriptorBundle,
-    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
+    ArgumentsError, BuiltinOperation, BuiltinSort, DescriptorApplicationHeadClass,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
+    DescriptorBundle, DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
     DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
     DescriptorProductionItem, DescriptorProductionOwner, DescriptorProvenance,
@@ -1762,7 +1762,7 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
 }
 
 #[test]
-fn grammar_argument_boundary_preserves_its_contextual_mixed_form_message() {
+fn grammar_argument_boundary_reports_context_free_mixed_forms() {
     let rule = expression_descriptors()
         .into_iter()
         .find_map(|descriptor| match descriptor.payload {
@@ -1771,8 +1771,7 @@ fn grammar_argument_boundary_preserves_its_contextual_mixed_form_message() {
         })
         .unwrap();
     let original = serde_json::to_value(rule).unwrap();
-    let expected =
-        GrammarTransportError::InvalidApplication(GrammarApplicationReason::MixedArgumentForms);
+    let expected = ArgumentsError::MixedForms;
     for field in ["subject", "result", "requires"] {
         for nested in [false, true] {
             for positional_first in [false, true] {
@@ -1809,7 +1808,7 @@ fn grammar_argument_boundary_preserves_its_contextual_mixed_form_message() {
 }
 
 #[test]
-fn grammar_disjunction_boundary_preserves_its_minimum_operand_message() {
+fn grammar_disjunction_boundary_reports_context_free_arity_error_with_location() {
     let rule = expression_descriptors()
         .into_iter()
         .find_map(|descriptor| match descriptor.payload {
@@ -1818,27 +1817,39 @@ fn grammar_disjunction_boundary_preserves_its_minimum_operand_message() {
         })
         .unwrap();
     let original = serde_json::to_value(rule).unwrap();
-    let expected = krs_ir::StateTransportError::InvalidTerm(
-        krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
-    );
-    for nested in [false, true] {
-        for operands in 0..2 {
+    for operands in 0..2 {
+        let disjunction = serde_json::json!({
+            "term_kind": "or_bool",
+            "key": key(ProvenanceRole::ClaimOrBool, 0),
+            "arguments": vec![original["subject"]["arguments"][0]["value"].clone(); operands],
+        });
+        let mut nested = original.clone();
+        nested["subject"]["arguments"][0]["value"] = disjunction.clone();
+        let mut cases = vec![nested];
+        for field in ["subject", "result", "requires"] {
             let mut json = original.clone();
-            let disjunction = serde_json::json!({
-                "term_kind": "or_bool",
-                "key": key(ProvenanceRole::ClaimOrBool, 0),
-                "arguments": vec![original["subject"]["arguments"][0]["value"].clone(); operands],
-            });
-            if nested {
-                json["subject"]["arguments"][0]["value"] = disjunction;
+            json[field] = if field == "requires" {
+                serde_json::json!({
+                    "key": key(ProvenanceRole::RuleRequires, 0),
+                    "term": disjunction,
+                })
             } else {
-                json["subject"] = disjunction;
-            }
-            assert!(
-                serde_json::from_value::<StructuredRuleDescriptor>(json)
-                    .unwrap_err()
-                    .to_string()
-                    .starts_with(&expected.to_string())
+                disjunction.clone()
+            };
+            cases.push(json);
+        }
+        for json in cases {
+            let source = serde_json::to_string_pretty(&json).unwrap();
+            let error = serde_json::from_str::<StructuredRuleDescriptor>(&source).unwrap_err();
+            assert!(error.line() > 0);
+            assert!(error.column() > 0);
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "or_bool requires at least two operands at line {} column {}",
+                    error.line(),
+                    error.column()
+                )
             );
         }
     }

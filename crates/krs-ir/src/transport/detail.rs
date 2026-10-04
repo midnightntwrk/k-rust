@@ -135,9 +135,7 @@ details! {
         InvalidClaimBinderCatalog => "invalid, duplicate, or uncatalogued claim binder",
         MapReadCellProvenanceKey => "map read cell provenance key",
         MapUpdateCellProvenanceKey => "map update cell provenance key",
-        OrBoolRequiresAtLeastTwoOperands => "or_bool requires at least two operands",
         OrdinaryCellRewriteProvenanceKey => "ordinary cell rewrite provenance key",
-        MixedRuleArgumentForms => "positional and named rule arguments are mixed",
         ResultFrameBindingKind => "result frame binding has the wrong structural kind",
         InvalidRuleApplicationKeysOrHeadClass => "rule application keys or head class are invalid",
         RuleProvenanceOrdinalExceedsU32 => "rule provenance ordinal exceeds u32",
@@ -202,7 +200,6 @@ details! {
         UnappliedSetOperation => "a Set operation must be an applied term head",
         BareConstructorArguments => "a bare-reference constructor must have no arguments",
         DuplicateNamedField => "named field occurs more than once",
-        MixedArgumentForms => "positional and named arguments are mixed",
         StructuralMapApplication => "structural-only Map operation used as an application head",
     }
 }
@@ -266,9 +263,11 @@ mod tests {
             "invalid production: constructor field declaration ordinals must form a dense permutation"
         );
         assert_eq!(
-            GrammarTransportError::InvalidApplication(GrammarApplicationReason::MixedArgumentForms)
-                .to_string(),
-            "invalid application: positional and named arguments are mixed"
+            GrammarTransportError::InvalidApplication(
+                GrammarApplicationReason::DuplicateNamedField
+            )
+            .to_string(),
+            "invalid application: named field occurs more than once"
         );
         assert_eq!(
             GrammarTransportError::InvalidTerm(GrammarTermReason::UnexpectedClaimTerm).to_string(),

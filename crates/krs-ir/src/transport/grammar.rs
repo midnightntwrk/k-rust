@@ -1164,46 +1164,11 @@ pub enum ArgumentsError {
 
 impl fmt::Display for ArgumentsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("mixed positional and named arguments")
+        formatter.write_str("positional and named arguments are mixed")
     }
 }
 
 impl Error for ArgumentsError {}
-
-fn deserialize_state_arguments<'de, S: Stage, D>(deserializer: D) -> Result<Arguments<S>, D::Error>
-where
-    S::Sort: Deserialize<'de>,
-    S::Application: Deserialize<'de>,
-    S::Nominal: Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    let values = Vec::<TermArgument<S>>::deserialize(deserializer)?;
-    Arguments::try_from(values).map_err(|ArgumentsError::MixedForms| {
-        serde::de::Error::custom(super::configuration::StateTransportError::InvalidTerm(
-            super::detail::StateTermReason::MixedRuleArgumentForms,
-        ))
-    })
-}
-
-fn deserialize_grammar_value<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<T, D::Error> {
-    T::deserialize(deserializer).map_err(|error| {
-        let state = super::configuration::StateTransportError::InvalidTerm(
-            super::detail::StateTermReason::MixedRuleArgumentForms,
-        )
-        .to_string();
-        let grammar =
-            GrammarTransportError::InvalidApplication(GrammarApplicationReason::MixedArgumentForms)
-                .to_string();
-        let message = error.to_string();
-        if message.contains(&state) {
-            serde::de::Error::custom(message.replace(&state, &grammar))
-        } else {
-            error
-        }
-    })
-}
 
 impl<S: Stage> Arguments<S> {
     /// Creates named arguments, canonicalizing an empty list to positional form.
@@ -1282,16 +1247,6 @@ stage_shape! {
 /// Descriptor-stage form of [`CellTermField`].
 pub type DescriptorCellTermField = CellTermField<DescriptorStage>;
 
-fn refine_or_bool_arguments<T>(
-    arguments: Vec<T>,
-) -> Result<crate::AtLeastTwo<T>, super::configuration::StateTransportError> {
-    crate::AtLeastTwo::try_from(arguments).map_err(|_| {
-        super::configuration::StateTransportError::InvalidTerm(
-            super::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
-        )
-    })
-}
-
 fn deserialize_or_bool_arguments<'de, T, D>(
     deserializer: D,
 ) -> Result<crate::AtLeastTwo<T>, D::Error>
@@ -1299,7 +1254,8 @@ where
     T: Deserialize<'de>,
     D: serde::Deserializer<'de>,
 {
-    refine_or_bool_arguments(Vec::<T>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    crate::AtLeastTwo::try_from(Vec::<T>::deserialize(deserializer)?)
+        .map_err(|_| serde::de::Error::custom("or_bool requires at least two operands"))
 }
 
 /// Host-stage form of [`CellTermField`].
@@ -1337,7 +1293,6 @@ stage_shape! {
             path_key: ProvenanceKey => [keep],
             /// Positional or named arguments.
             /// One application may not mix forms.
-            #[serde(deserialize_with = "deserialize_state_arguments")]
             arguments: Arguments<S> => [nested],
         },
         /// Exact Int/Bool literal.
@@ -1490,7 +1445,7 @@ stage_shape! {
         pub label: Option<DescriptorRuleLabel> => [keep],
         /// Optional object-language Boolean applicability condition.
         #[serde(skip_serializing_if = "S::skip_none")]
-        #[serde(default, deserialize_with = "deserialize_grammar_value")]
+        #[serde(default)]
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Optional explicit equation or ordered-fallback priority.
         #[serde(skip_serializing_if = "S::skip_none")]
@@ -1509,10 +1464,8 @@ stage_shape! {
         /// Bound names in deterministic pattern preorder.
         pub bindings: Vec<String> => [keep],
         /// Structured left pattern.
-        #[serde(deserialize_with = "deserialize_grammar_value")]
         pub subject: Term<S> => [nested],
         /// Structured right result.
-        #[serde(deserialize_with = "deserialize_grammar_value")]
         pub result: Term<S> => [nested],
     }
 }
