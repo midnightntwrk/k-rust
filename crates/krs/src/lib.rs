@@ -589,10 +589,7 @@ mod tests {
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
         assert_eq!(registry.map_operations.len(), TermMapOperation::ALL.len());
-        assert_eq!(
-            registry.list_operations.len(),
-            ListOperation::TERM_APPLICATIONS.len()
-        );
+        assert_eq!(registry.list_operations.len(), ListOperation::ALL.len());
         for (marker, expected) in [
             (TypeId::of::<IntAlias>(), BuiltinSort::Int),
             (TypeId::of::<MapAlias>(), BuiltinSort::Map),

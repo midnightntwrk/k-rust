@@ -5,7 +5,7 @@ use std::fmt;
 use crate::{
     BuiltinOperation, BuiltinSort, ExplicitSymbol, HookOperation, ItemKind, ListOperation,
     MapOperation, ModuleId, PackageId, ProductionFieldId, ProductionGroupId, SemanticId,
-    SetOperation, Sha256Digest, SourceMapKey, StableItemId,
+    SetOperation, Sha256Digest, SourceMapKey, StableItemId, TermMapOperation,
 };
 
 impl fmt::Display for ItemKind {
@@ -86,41 +86,25 @@ impl fmt::Display for HookOperation {
 
 impl fmt::Display for MapOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Empty => "empty Map",
-            Self::Item => "Map item",
-            Self::Update => "Map update",
-            Self::Get => "Map lookup",
-            Self::InKeys => "Map key membership",
-        })
+        formatter.write_str(self.spec().description)
+    }
+}
+
+impl fmt::Display for TermMapOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.spec().description)
     }
 }
 
 impl fmt::Display for ListOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Empty => "empty List",
-            Self::Item => "List item",
-            Self::Concat => "List concatenation",
-            Self::Get => "List lookup",
-            Self::Update => "List update",
-            Self::Size => "List size",
-            Self::Make => "List repetition",
-            Self::Range => "List range",
-            Self::UpdateAll => "List range update",
-        })
+        formatter.write_str(self.spec().description)
     }
 }
 
 impl fmt::Display for SetOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Empty => "empty Set",
-            Self::Item => "Set item",
-            Self::Concat => "Set concatenation",
-            Self::Union => "Set union",
-            Self::Contains => "Set membership",
-        })
+        formatter.write_str(self.spec().description)
     }
 }
 

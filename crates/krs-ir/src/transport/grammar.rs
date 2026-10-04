@@ -459,12 +459,12 @@ impl HostBuiltinRegistry {
                 ));
             }
         }
-        for operation in ListOperation::TERM_APPLICATIONS {
+        for operation in ListOperation::ALL {
             if !list_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingListOperation(operation));
             }
         }
-        for operation in SetOperation::TERM_APPLICATIONS {
+        for operation in SetOperation::ALL {
             if !set_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingSetOperation(operation));
             }

@@ -931,7 +931,7 @@ mod tests {
                 ])
                 .map(|(operation, target)| HostMapOperationRegistration { operation, target })
                 .collect(),
-            list_operations: ListOperation::TERM_APPLICATIONS
+            list_operations: ListOperation::ALL
                 .into_iter()
                 .zip([
                     HostTypeKey(marker_key::<ListOp0>),
@@ -946,7 +946,7 @@ mod tests {
                 ])
                 .map(|(operation, target)| HostListOperationRegistration { operation, target })
                 .collect(),
-            set_operations: SetOperation::TERM_APPLICATIONS
+            set_operations: SetOperation::ALL
                 .into_iter()
                 .zip([
                     HostTypeKey(marker_key::<SetOp0>),

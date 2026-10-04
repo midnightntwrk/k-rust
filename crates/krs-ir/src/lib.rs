@@ -55,8 +55,9 @@ pub use bundle::{
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
-    HookOperationSpec, HookPointConstructor, HookPointSortSource, HookSignature,
-    HookSortConstraint,
+    CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
+    CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
+    HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,

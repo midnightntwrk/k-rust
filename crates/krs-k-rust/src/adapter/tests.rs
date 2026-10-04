@@ -813,16 +813,21 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
             _ => None,
         })
         .collect::<std::collections::BTreeSet<_>>();
-    for expected in [
-        "Map:lookup",
-        "_in_keys(_)_MAP_Bool_KItem_Map",
-        ".Set",
-        "SetItem",
-        "_Set_",
-        "_|Set__SET_Set_Set_Set",
-        "Set:in",
-        "makeList(_,_)_LIST_List_Int_KItem",
-    ] {
+    let catalog_labels = MapOperation::ALL
+        .iter()
+        .map(|operation| operation.spec().k_label)
+        .chain(
+            ListOperation::ALL
+                .iter()
+                .map(|operation| operation.spec().k_label),
+        )
+        .chain(
+            SetOperation::ALL
+                .iter()
+                .map(|operation| operation.spec().k_label),
+        )
+        .chain([MapOperation::CONCATENATION.k_label]);
+    for expected in catalog_labels {
         assert!(
             labels.contains(expected),
             "missing native prelude label {expected}"

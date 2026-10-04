@@ -1,5 +1,7 @@
 //! Declarative builtin and hook catalogs for the pinned K frontend.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::Bn128PointSignature;
@@ -850,3 +852,586 @@ macro_rules! define_builtin_operations {
 }
 
 __krs_builtin_operation_catalog!(define_builtin_operations);
+
+/// Sort constraint on one collection-operation operand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionOperandSort {
+    /// Exactly this builtin sort.
+    Builtin(BuiltinSort),
+    /// A collection element, key, or value; it keeps its authored sort.
+    Element,
+}
+
+/// Result sort of a collection operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionResultSort {
+    /// Exactly this builtin sort.
+    Builtin(BuiltinSort),
+    /// The sort expected at the use site. Both K backends project the `KItem`
+    /// result to it: `{...}:>Sort` in source K and `project:Sort` natively.
+    Projected,
+}
+
+/// K source spelling of a collection operation; operands use ordinary term rendering.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionNotation {
+    /// Literal pieces interleaved with the operands.
+    /// There must be one more piece than the operation's arity.
+    Mixfix {
+        /// Literal text before, between, and after the operands.
+        pieces: &'static [&'static str],
+    },
+    /// A comma-separated call `name(operand, ...)`.
+    Call {
+        /// Function name before the parenthesized operands.
+        name: &'static str,
+    },
+}
+
+/// Per-operation facts shared by the Rust facade, the compiler, and the pinned K adapters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CollectionOperationSpec {
+    /// Human-readable operation description.
+    pub description: &'static str,
+    /// Exact native frontend K label.
+    pub k_label: &'static str,
+    /// Application spelling used by the K printer.
+    pub k_notation: CollectionNotation,
+    /// Operand sorts in wire order; their count is the arity. For
+    /// [`MapOperation::Item`] they describe one key/value entry, which a term
+    /// repeats one or more times.
+    pub operand_sorts: &'static [CollectionOperandSort],
+    /// Result sort.
+    pub result_sort: CollectionResultSort,
+}
+
+impl CollectionOperationSpec {
+    /// Number of operands, or of operands per entry for [`MapOperation::Item`].
+    #[must_use]
+    pub const fn arity(&self) -> usize {
+        self.operand_sorts.len()
+    }
+
+    /// Whether both backends project the result to the sort expected at the use site.
+    #[must_use]
+    pub const fn is_projected(&self) -> bool {
+        matches!(self.result_sort, CollectionResultSort::Projected)
+    }
+}
+
+/// Rust marker path `k::builtin::<module>::<name>` of an ordinary collection application head.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FacadeMarker {
+    /// Module under `k::builtin`.
+    pub module: &'static str,
+    /// Marker name within the module.
+    pub name: &'static str,
+}
+
+/// Associative concatenation of one collection sort.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CollectionConcatenation {
+    /// Exact native frontend K label.
+    pub k_label: &'static str,
+    /// Separator between juxtaposed operands in K source.
+    pub separator: &'static str,
+}
+
+/// An ordinary collection operation that may head an authored term application.
+pub trait CollectionApplication: Copy + fmt::Display {
+    /// Builtin sort whose pinned K module supplies the operation.
+    const SORT: BuiltinSort;
+    /// Returns the pinned operation specification.
+    fn spec(self) -> &'static CollectionOperationSpec;
+    /// Returns the Rust facade marker path.
+    fn facade_marker(self) -> FacadeMarker;
+}
+
+macro_rules! collection_operation_spec {
+    (
+        description: $description:literal,
+        k_label: $label:literal,
+        k_notation: $notation:expr,
+        operand_sorts: [$($operand:ident $(($operand_sort:ident))?),* $(,)?],
+        result_sort: $result:ident $(($result_sort:ident))?
+    ) => {
+        CollectionOperationSpec {
+            description: $description,
+            k_label: $label,
+            k_notation: $notation,
+            operand_sorts: &[$(CollectionOperandSort::$operand $((BuiltinSort::$operand_sort))?),*],
+            result_sort: CollectionResultSort::$result $((BuiltinSort::$result_sort))?,
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_map_operation_catalog {
+    ($callback:path) => {
+        $callback! {
+            rust_module: map;
+            structural {
+                /// Empty map unit (`.Map`).
+                Empty {
+                    description: "empty Map",
+                    k_label: ".Map",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
+                    operand_sorts: [],
+                    result_sort: Builtin(Map)
+                }
+                /// One or more flattened key/value map items, also usable in associative matching.
+                Item {
+                    description: "Map item",
+                    k_label: "_|->_",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " |-> ", ""] },
+                    operand_sorts: [Element, Element],
+                    result_sort: Builtin(Map)
+                }
+            }
+            term {
+                /// Functional map update.
+                Update {
+                    rust_name: update,
+                    description: "Map update",
+                    k_label: "Map:update",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " <- ", " ]"] },
+                    operand_sorts: [Builtin(Map), Element, Element],
+                    result_sort: Builtin(Map)
+                }
+                /// Partial lookup of the value associated with a key (`M [ K ]`).
+                Get {
+                    rust_name: get,
+                    description: "Map lookup",
+                    k_label: "Map:lookup",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " ]"] },
+                    operand_sorts: [Builtin(Map), Element],
+                    result_sort: Projected
+                }
+                /// Boolean key membership (`K in_keys(M)`).
+                InKeys {
+                    rust_name: in_keys,
+                    description: "Map key membership",
+                    k_label: "_in_keys(_)_MAP_Bool_KItem_Map",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " in_keys(", ")"] },
+                    operand_sorts: [Element, Builtin(Map)],
+                    result_sort: Builtin(Bool)
+                }
+            }
+        }
+    };
+}
+
+macro_rules! define_map_operations {
+    (
+        rust_module: $module:ident;
+        structural {
+            $( $(#[$structural_meta:meta])* $structural:ident { $($structural_facts:tt)* } )*
+        }
+        term {
+            $( $(#[$term_meta:meta])* $term:ident { rust_name: $name:ident, $($term_facts:tt)* } )*
+        }
+    ) => {
+        /// Exact map-theory term operations needed by the IMP state slice.
+        ///
+        /// Map item keys and values are intentionally not assigned fake builtin sorts;
+        /// their enclosing structured terms retain their authored sorts.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum MapOperation {
+            $($(#[$structural_meta])* $structural,)*
+            $($(#[$term_meta])* $term,)*
+        }
+
+        impl MapOperation {
+            /// Complete Map catalog in stable semantic order.
+            pub const ALL: [Self; [$(stringify!($structural),)* $(stringify!($term)),*].len()] =
+                [$(Self::$structural,)* $(Self::$term),*];
+
+            /// Returns the pinned operation specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static CollectionOperationSpec {
+                match self {
+                    $(Self::$structural => {
+                        const SPEC: CollectionOperationSpec =
+                            collection_operation_spec!($($structural_facts)*);
+                        &SPEC
+                    },)*
+                    $(Self::$term => {
+                        const SPEC: CollectionOperationSpec = collection_operation_spec!($($term_facts)*);
+                        &SPEC
+                    },)*
+                }
+            }
+        }
+
+        /// Map operations available as ordinary term application heads.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(try_from = "MapOperation", into = "MapOperation")]
+        pub enum TermMapOperation {
+            $($(#[$term_meta])* $term,)*
+        }
+
+        impl TermMapOperation {
+            /// Map operations which may occur as ordinary authored term applications, in stable semantic order.
+            ///
+            /// Empty maps and map items retain their dedicated `map!` structural syntax.
+            /// Update, lookup, and key membership resolve through the ordinary application-head registry.
+            pub const ALL: [Self; [$(stringify!($term)),*].len()] = [$(Self::$term),*];
+
+            /// Returns the pinned operation specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static CollectionOperationSpec {
+                match self {
+                    $(Self::$term => MapOperation::$term.spec(),)*
+                }
+            }
+
+            /// Returns the Rust facade marker path.
+            #[must_use]
+            pub const fn facade_marker(self) -> FacadeMarker {
+                match self {
+                    $(Self::$term => FacadeMarker {
+                        module: stringify!($module),
+                        name: stringify!($name),
+                    },)*
+                }
+            }
+        }
+
+        impl TryFrom<MapOperation> for TermMapOperation {
+            type Error = crate::GrammarTransportError;
+
+            fn try_from(operation: MapOperation) -> Result<Self, Self::Error> {
+                match operation {
+                    $(MapOperation::$term => Ok(Self::$term),)*
+                    $(MapOperation::$structural)|* => Err(crate::GrammarTransportError::InvalidApplication(
+                        crate::transport::detail::GrammarApplicationReason::StructuralMapApplication,
+                    )),
+                }
+            }
+        }
+
+        impl From<TermMapOperation> for MapOperation {
+            fn from(operation: TermMapOperation) -> Self {
+                match operation {
+                    $(TermMapOperation::$term => Self::$term,)*
+                }
+            }
+        }
+    };
+}
+
+__krs_map_operation_catalog!(define_map_operations);
+
+impl MapOperation {
+    /// Concatenation of Map terms: it joins map items and a cell's map remainder.
+    pub const CONCATENATION: CollectionConcatenation = CollectionConcatenation {
+        k_label: "_Map_",
+        separator: " ",
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_list_operation_catalog {
+    ($callback:path) => {
+        $callback! {
+            rust_module: list;
+            /// Empty list unit (`.List`).
+            Empty {
+                rust_name: empty,
+                description: "empty List",
+                k_label: ".List",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".List"] },
+                operand_sorts: [],
+                result_sort: Builtin(List)
+            }
+            /// Singleton list element (`ListItem(K)`).
+            Item {
+                rust_name: item,
+                description: "List item",
+                k_label: "ListItem",
+                k_notation: $crate::CollectionNotation::Call { name: "ListItem" },
+                operand_sorts: [Element],
+                result_sort: Builtin(List)
+            }
+            /// Associative list concatenation (`L1 L2`).
+            Concat {
+                rust_name: concat,
+                description: "List concatenation",
+                k_label: "_List_",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " ", ""] },
+                operand_sorts: [Builtin(List), Builtin(List)],
+                result_sort: Builtin(List)
+            }
+            /// Indexed element lookup (`L[I]`).
+            Get {
+                rust_name: get,
+                description: "List lookup",
+                k_label: "List:get",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " ]"] },
+                operand_sorts: [Builtin(List), Builtin(Int)],
+                result_sort: Projected
+            }
+            /// Persistent indexed update (`L[I <- K]`).
+            Update {
+                rust_name: update,
+                description: "List update",
+                k_label: "List:set",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " <- ", " ]"] },
+                operand_sorts: [Builtin(List), Builtin(Int), Element],
+                result_sort: Builtin(List)
+            }
+            /// List length (`size(L)`).
+            Size {
+                rust_name: size,
+                description: "List size",
+                k_label: "sizeList",
+                k_notation: $crate::CollectionNotation::Call { name: "size" },
+                operand_sorts: [Builtin(List)],
+                result_sort: Builtin(Int)
+            }
+            /// Repetition with a fixed length (`makeList(N, K)`).
+            Make {
+                rust_name: make,
+                description: "List repetition",
+                k_label: "makeList(_,_)_LIST_List_Int_KItem",
+                k_notation: $crate::CollectionNotation::Call { name: "makeList" },
+                operand_sorts: [Builtin(Int), Element],
+                result_sort: Builtin(List)
+            }
+            /// Contiguous sublist after trimming a prefix and suffix (`range(L, I, J)`).
+            Range {
+                rust_name: range,
+                description: "List range",
+                k_label: "List:range",
+                k_notation: $crate::CollectionNotation::Call { name: "range" },
+                operand_sorts: [Builtin(List), Builtin(Int), Builtin(Int)],
+                result_sort: Builtin(List)
+            }
+            /// Persistent replacement of a contiguous region (`updateList(L, I, R)`).
+            UpdateAll {
+                rust_name: update_all,
+                description: "List range update",
+                k_label: "updateList(_,_,_)_LIST_List_List_Int_List",
+                k_notation: $crate::CollectionNotation::Call { name: "updateList" },
+                operand_sorts: [Builtin(List), Builtin(Int), Builtin(List)],
+                result_sort: Builtin(List)
+            }
+        }
+    };
+}
+
+macro_rules! define_list_operations {
+    (
+        rust_module: $module:ident;
+        $( $(#[$meta:meta])* $variant:ident { rust_name: $name:ident, $($facts:tt)* } )*
+    ) => {
+        /// Exact builtin-list operations selected from pinned module `LIST`.
+        ///
+        /// List elements deliberately retain their authored sorts. The K frontend
+        /// injects them into `KItem` at `ListItem`, lookup, and update boundaries.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum ListOperation {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl ListOperation {
+            /// Complete List catalog in stable semantic order; every operation is an
+            /// ordinary application head.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// Returns the pinned operation specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static CollectionOperationSpec {
+                match self {
+                    $(Self::$variant => {
+                        const SPEC: CollectionOperationSpec = collection_operation_spec!($($facts)*);
+                        &SPEC
+                    },)*
+                }
+            }
+
+            /// Returns the Rust facade marker path.
+            #[must_use]
+            pub const fn facade_marker(self) -> FacadeMarker {
+                match self {
+                    $(Self::$variant => FacadeMarker {
+                        module: stringify!($module),
+                        name: stringify!($name),
+                    },)*
+                }
+            }
+        }
+    };
+}
+
+__krs_list_operation_catalog!(define_list_operations);
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_set_operation_catalog {
+    ($callback:path) => {
+        $callback! {
+            rust_module: set;
+            /// Empty set unit (`.Set`).
+            Empty {
+                rust_name: empty,
+                description: "empty Set",
+                k_label: ".Set",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Set"] },
+                operand_sorts: [],
+                result_sort: Builtin(Set)
+            }
+            /// Singleton set element (`SetItem(K)`).
+            Item {
+                rust_name: item,
+                description: "Set item",
+                k_label: "SetItem",
+                k_notation: $crate::CollectionNotation::Call { name: "SetItem" },
+                operand_sorts: [Element],
+                result_sort: Builtin(Set)
+            }
+            /// Associative, commutative concatenation (`S1 S2`), defined on disjoint operands.
+            Concat {
+                rust_name: concat,
+                description: "Set concatenation",
+                k_label: "_Set_",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " ", ""] },
+                operand_sorts: [Builtin(Set), Builtin(Set)],
+                result_sort: Builtin(Set)
+            }
+            /// Set union (`S1 |Set S2`), including overlapping operands.
+            Union {
+                rust_name: union,
+                description: "Set union",
+                k_label: "_|Set__SET_Set_Set_Set",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " |Set ", ""] },
+                operand_sorts: [Builtin(Set), Builtin(Set)],
+                result_sort: Builtin(Set)
+            }
+            /// Boolean membership (`K in S`).
+            Contains {
+                rust_name: contains,
+                description: "Set membership",
+                k_label: "Set:in",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " in ", ""] },
+                operand_sorts: [Element, Builtin(Set)],
+                result_sort: Builtin(Bool)
+            }
+        }
+    };
+}
+
+macro_rules! define_set_operations {
+    (
+        rust_module: $module:ident;
+        $( $(#[$meta:meta])* $variant:ident { rust_name: $name:ident, $($facts:tt)* } )*
+    ) => {
+        /// Exact builtin-Set operations selected from pinned module `SET`.
+        ///
+        /// Set elements deliberately retain their authored sorts. The K frontend
+        /// injects them into `KItem` at item and membership boundaries.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum SetOperation {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl SetOperation {
+            /// Complete Set catalog in stable semantic order; every operation is an
+            /// ordinary application head.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// Returns the pinned operation specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static CollectionOperationSpec {
+                match self {
+                    $(Self::$variant => {
+                        const SPEC: CollectionOperationSpec = collection_operation_spec!($($facts)*);
+                        &SPEC
+                    },)*
+                }
+            }
+
+            /// Returns the Rust facade marker path.
+            #[must_use]
+            pub const fn facade_marker(self) -> FacadeMarker {
+                match self {
+                    $(Self::$variant => FacadeMarker {
+                        module: stringify!($module),
+                        name: stringify!($name),
+                    },)*
+                }
+            }
+        }
+    };
+}
+
+__krs_set_operation_catalog!(define_set_operations);
+
+impl CollectionApplication for TermMapOperation {
+    const SORT: BuiltinSort = BuiltinSort::Map;
+
+    fn spec(self) -> &'static CollectionOperationSpec {
+        TermMapOperation::spec(self)
+    }
+
+    fn facade_marker(self) -> FacadeMarker {
+        TermMapOperation::facade_marker(self)
+    }
+}
+
+impl CollectionApplication for ListOperation {
+    const SORT: BuiltinSort = BuiltinSort::List;
+
+    fn spec(self) -> &'static CollectionOperationSpec {
+        ListOperation::spec(self)
+    }
+
+    fn facade_marker(self) -> FacadeMarker {
+        ListOperation::facade_marker(self)
+    }
+}
+
+impl CollectionApplication for SetOperation {
+    const SORT: BuiltinSort = BuiltinSort::Set;
+
+    fn spec(self) -> &'static CollectionOperationSpec {
+        SetOperation::spec(self)
+    }
+
+    fn facade_marker(self) -> FacadeMarker {
+        SetOperation::facade_marker(self)
+    }
+}
+
+// Every Mixfix notation has one more piece than its operation's arity.
+const _: () = {
+    let mut index = 0;
+    while index < MapOperation::ALL.len() {
+        let spec = MapOperation::ALL[index].spec();
+        if let CollectionNotation::Mixfix { pieces } = spec.k_notation {
+            assert!(pieces.len() == spec.arity() + 1);
+        }
+        index += 1;
+    }
+    let mut index = 0;
+    while index < ListOperation::ALL.len() {
+        let spec = ListOperation::ALL[index].spec();
+        if let CollectionNotation::Mixfix { pieces } = spec.k_notation {
+            assert!(pieces.len() == spec.arity() + 1);
+        }
+        index += 1;
+    }
+    let mut index = 0;
+    while index < SetOperation::ALL.len() {
+        let spec = SetOperation::ALL[index].spec();
+        if let CollectionNotation::Mixfix { pieces } = spec.k_notation {
+            assert!(pieces.len() == spec.arity() + 1);
+        }
+        index += 1;
+    }
+};

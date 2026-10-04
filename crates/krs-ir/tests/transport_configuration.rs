@@ -329,7 +329,7 @@ fn builtin_registry_resolves_map_and_id() {
             },
         })
         .collect();
-    let list_operations = ListOperation::TERM_APPLICATIONS
+    let list_operations = ListOperation::ALL
         .into_iter()
         .enumerate()
         .map(|(index, operation)| HostListOperationRegistration {
@@ -347,7 +347,7 @@ fn builtin_registry_resolves_map_and_id() {
             },
         })
         .collect();
-    let set_operations = SetOperation::TERM_APPLICATIONS
+    let set_operations = SetOperation::ALL
         .into_iter()
         .enumerate()
         .map(|(index, operation)| HostSetOperationRegistration {
