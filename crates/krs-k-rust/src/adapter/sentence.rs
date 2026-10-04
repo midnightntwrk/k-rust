@@ -10,7 +10,7 @@ use krs_ir::{
     FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
+    MapOperation, NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
 };
 use krs_ir_levels::{
     ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
@@ -779,7 +779,7 @@ impl Adapter<'_> {
                 binding.as_ref().map_or((content.clone(), true), |binding| {
                     (
                         NativeTerm::apply(
-                            "_Map_",
+                            MapOperation::CONCATENATION.k_label,
                             vec![
                                 content,
                                 native_variable(

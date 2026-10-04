@@ -4,8 +4,8 @@ use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
     FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
-    GroupAssociativity, ProductionAttribute, ProductionGroupId, SemanticId, SentenceKind,
-    StrictnessKind,
+    GroupAssociativity, MapOperation, ProductionAttribute, ProductionGroupId, SemanticId,
+    SentenceKind, StrictnessKind,
 };
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
@@ -722,7 +722,12 @@ fn emit_cell_clause(
                 CellContentFrame::MapRemainder {
                     binding: Some(binding),
                     ..
-                } => emit_named_frame_suffix(writer, binding, BuiltinSort::Map.k_name(), " "),
+                } => emit_named_frame_suffix(
+                    writer,
+                    binding,
+                    BuiltinSort::Map.k_name(),
+                    MapOperation::CONCATENATION.separator,
+                ),
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
                 | CellContentFrame::MapRemainder { binding: None, .. } => {}
@@ -754,7 +759,12 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
         CellContentFrame::MapRemainder { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, BuiltinSort::Map.k_name(), " ");
+                emit_named_frame_suffix(
+                    writer,
+                    binding,
+                    BuiltinSort::Map.k_name(),
+                    MapOperation::CONCATENATION.separator,
+                );
             } else {
                 writer.push(" ...");
             }
@@ -814,9 +824,7 @@ fn emit_context_alias_cell(
         CellContentFrame::KSequenceTail { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                writer.push(" ~> ");
-                writer.push(&variable_name(binding));
-                writer.push(":K");
+                emit_named_frame_suffix(writer, binding, BuiltinSort::KSequence.k_name(), " ~> ");
             } else {
                 writer.push(" ...");
             }
@@ -824,12 +832,15 @@ fn emit_context_alias_cell(
         }
         CellContentFrame::MapRemainder { origin, binding } => {
             let frame_start = writer.source.len();
-            writer.push(" ");
             if let Some(binding) = binding {
-                writer.push(&variable_name(binding));
-                writer.push(":Map");
+                emit_named_frame_suffix(
+                    writer,
+                    binding,
+                    BuiltinSort::Map.k_name(),
+                    MapOperation::CONCATENATION.separator,
+                );
             } else {
-                writer.push("...");
+                writer.push(" ...");
             }
             writer.record(origin.key(), frame_start, writer.source.len())?;
         }
