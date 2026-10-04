@@ -257,6 +257,12 @@ message = 'Fresh variable !\S+ is not supported in an? (function rule|simplifica
 reason = "a fresh value is allocated from the counter cell by the rewrite step that introduces it; equations and claims are applied without the configuration"
 
 [[category]]
+id = "fresh-before-the-step"
+outcome = "compile_error"
+message = 'Fresh variable !\S+ cannot occur (where a rule matches|in the requires clause of a rule|in a context)'
+reason = "a fresh value is allocated by the step that applies a rewrite rule, so it exists only where the rule builds its result (right-hand side, ensures); a matched term or a requires clause describes the configuration before the step, and a context's heated term is matched again by its cooling step"
+
+[[category]]
 id = "heat-cool-without-hole"
 outcome = "compile_error"
 message = "rule must match HOLE on its left-hand side|The HOLE of a context must be rewritten to a term containing HOLE"
