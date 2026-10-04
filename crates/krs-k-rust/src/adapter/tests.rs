@@ -9,14 +9,15 @@ use krs_ir::{
     ConfigurationRoot, FixedCell, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, HookOperation, ItemKind, ListOperation, MapOperation, ModuleId,
-    PrecedenceRelation, ProductionFieldId, ProductionFieldReference, ProductionGroupId,
+    NonEmpty, PrecedenceRelation, ProductionFieldId, ProductionFieldReference, ProductionGroupId,
     ProductionResultSort, SentenceKind, SetOperation, StableItemId, StrictnessKind,
 };
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
     DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef,
-    DefinitionTerm, LabelId, LabelIdentity, ProductionGroupIdentity,
-    ProductionItem as IrProductionItem, ProductionSentence, RuleSentence, SymbolId, SymbolKind,
+    DefinitionTerm, LabelId, LabelIdentity, ListOperands, MapEntry, MapOperands,
+    ProductionGroupIdentity, ProductionItem as IrProductionItem, ProductionSentence, RuleSentence,
+    SetOperands, SymbolId, SymbolKind,
     k_surface::{ImportPolicy, builtin_imports, variable_name},
 };
 
@@ -182,22 +183,24 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     );
     let item = DefinitionTerm::map(
         node("schema9.term.map-item"),
-        MapOperation::Item,
-        vec![
-            id("schema9.term.key-a", "a"),
-            addition.clone(),
-            id("schema9.term.key-b", "b"),
-            int("schema9.term.three", "3"),
-        ],
+        MapOperands::Items(NonEmpty::new(
+            MapEntry {
+                key: id("schema9.term.key-a", "a"),
+                value: addition.clone(),
+            },
+            vec![MapEntry {
+                key: id("schema9.term.key-b", "b"),
+                value: int("schema9.term.three", "3"),
+            }],
+        )),
     );
     let update = DefinitionTerm::map(
         node("schema9.term.map-update"),
-        MapOperation::Update,
-        vec![
-            DefinitionTerm::map(node("schema9.term.empty-map"), MapOperation::Empty, vec![]),
-            id("schema9.term.update-key", "a"),
-            int("schema9.term.update-value", "4"),
-        ],
+        MapOperands::Update {
+            map: DefinitionTerm::map(node("schema9.term.empty-map"), MapOperands::Empty),
+            key: id("schema9.term.update-key", "a"),
+            value: int("schema9.term.update-value", "4"),
+        },
     );
 
     let native_addition = adapter
@@ -339,11 +342,10 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let map_get = DefinitionTerm::typed_map(
         node("schema16.term.map-get"),
         DefinitionSortRef::int(),
-        MapOperation::Get,
-        vec![
-            DefinitionTerm::map(node("schema16.term.get-map"), MapOperation::Empty, vec![]),
-            id("schema16.term.get-key", "a"),
-        ],
+        MapOperands::Get {
+            map: DefinitionTerm::map(node("schema16.term.get-map"), MapOperands::Empty),
+            key: id("schema16.term.get-key", "a"),
+        },
     );
     let native_map_get = adapter
         .term(&map_get, MODULE, 0, Vec::new(), TermContext::Normal, None)
@@ -355,15 +357,10 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let map_in_keys = DefinitionTerm::typed_map(
         node("schema16.term.map-in-keys"),
         DefinitionSortRef::bool(),
-        MapOperation::InKeys,
-        vec![
-            id("schema16.term.in-keys-key", "a"),
-            DefinitionTerm::map(
-                node("schema16.term.in-keys-map"),
-                MapOperation::Empty,
-                vec![],
-            ),
-        ],
+        MapOperands::InKeys {
+            key: id("schema16.term.in-keys-key", "a"),
+            map: DefinitionTerm::map(node("schema16.term.in-keys-map"), MapOperands::Empty),
+        },
     );
     let native_map_in_keys = adapter
         .term(
@@ -383,26 +380,30 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let set_empty = DefinitionTerm::set(
         node("schema16.term.empty-set"),
         DefinitionSortRef::set(),
-        SetOperation::Empty,
-        vec![],
+        SetOperands::Empty,
     );
     let set_item = DefinitionTerm::set(
         node("schema16.term.set-item"),
         DefinitionSortRef::set(),
-        SetOperation::Item,
-        vec![int("schema16.term.set-value", "7")],
+        SetOperands::Item {
+            element: int("schema16.term.set-value", "7"),
+        },
     );
     let set_concat = DefinitionTerm::set(
         node("schema16.term.set-concat"),
         DefinitionSortRef::set(),
-        SetOperation::Concat,
-        vec![set_item, set_empty],
+        SetOperands::Concat {
+            left: set_item,
+            right: set_empty,
+        },
     );
     let set_contains = DefinitionTerm::set(
         node("schema16.term.set-contains"),
         DefinitionSortRef::bool(),
-        SetOperation::Contains,
-        vec![int("schema16.term.set-member", "7"), set_concat],
+        SetOperands::Contains {
+            element: int("schema16.term.set-member", "7"),
+            set: set_concat,
+        },
     );
     let native_set_contains = adapter
         .term(
@@ -423,71 +424,70 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let list_empty = DefinitionTerm::list(
         node("schema11.term.empty-list"),
         DefinitionSortRef::list(),
-        ListOperation::Empty,
-        vec![],
+        ListOperands::Empty,
     );
     let list_item = DefinitionTerm::list(
         node("schema11.term.list-item"),
         DefinitionSortRef::list(),
-        ListOperation::Item,
-        vec![int("schema11.term.list-value", "7")],
+        ListOperands::Item {
+            element: int("schema11.term.list-value", "7"),
+        },
     );
     let list_concat = DefinitionTerm::list(
         node("schema11.term.list-concat"),
         DefinitionSortRef::list(),
-        ListOperation::Concat,
-        vec![list_item.clone(), list_empty.clone()],
+        ListOperands::Concat {
+            left: list_item.clone(),
+            right: list_empty.clone(),
+        },
     );
     let list_get = DefinitionTerm::list(
         node("schema11.term.list-get"),
         DefinitionSortRef::int(),
-        ListOperation::Get,
-        vec![list_concat.clone(), int("schema11.term.list-index", "0")],
+        ListOperands::Get {
+            list: list_concat.clone(),
+            index: int("schema11.term.list-index", "0"),
+        },
     );
     let list_update = DefinitionTerm::list(
         node("schema11.term.list-update"),
         DefinitionSortRef::list(),
-        ListOperation::Update,
-        vec![
-            list_concat.clone(),
-            int("schema11.term.list-update-index", "0"),
-            int("schema11.term.list-update-value", "8"),
-        ],
+        ListOperands::Update {
+            list: list_concat.clone(),
+            index: int("schema11.term.list-update-index", "0"),
+            value: int("schema11.term.list-update-value", "8"),
+        },
     );
     let list_size = DefinitionTerm::list(
         node("schema11.term.list-size"),
         DefinitionSortRef::int(),
-        ListOperation::Size,
-        vec![list_concat],
+        ListOperands::Size { list: list_concat },
     );
     let list_make = DefinitionTerm::list(
         node("schema27.term.list-make"),
         DefinitionSortRef::list(),
-        ListOperation::Make,
-        vec![
-            int("schema27.term.list-make-length", "3"),
-            int("schema27.term.list-make-value", "7"),
-        ],
+        ListOperands::Make {
+            length: int("schema27.term.list-make-length", "3"),
+            value: int("schema27.term.list-make-value", "7"),
+        },
     );
     let list_range = DefinitionTerm::list(
         node("schema25.term.list-range"),
         DefinitionSortRef::list(),
-        ListOperation::Range,
-        vec![
-            list_empty.clone(),
-            int("schema25.term.list-range-front", "1"),
-            int("schema25.term.list-range-back", "2"),
-        ],
+        ListOperands::Range {
+            list: list_empty.clone(),
+            from_front: int("schema25.term.list-range-front", "1"),
+            from_back: int("schema25.term.list-range-back", "2"),
+        },
     );
     let list_update_all = DefinitionTerm::list(
         node("schema25.term.list-update-all"),
         DefinitionSortRef::list(),
-        ListOperation::UpdateAll,
-        vec![
-            list_empty.clone(),
-            int("schema25.term.list-update-all-index", "1"),
-            list_empty,
-        ],
+        ListOperands::UpdateAll {
+            list: list_empty.clone(),
+            index: int("schema25.term.list-update-all-index", "1"),
+            replacement: list_empty,
+        },
     );
     let native_list_get = adapter
         .term(&list_get, MODULE, 0, Vec::new(), TermContext::Normal, None)
@@ -603,34 +603,21 @@ fn every_collection_operation_has_its_native_label() {
     let int = |key: &str, value: &str| {
         DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap()
     };
-    let map = |key: &str| DefinitionTerm::map(node(key), MapOperation::Empty, vec![]);
-    let list = |key: &str| {
-        DefinitionTerm::list(
-            node(key),
-            DefinitionSortRef::list(),
-            ListOperation::Empty,
-            vec![],
-        )
-    };
-    let set = |key: &str| {
-        DefinitionTerm::set(
-            node(key),
-            DefinitionSortRef::set(),
-            SetOperation::Empty,
-            vec![],
-        )
-    };
+    let map = |key: &str| DefinitionTerm::map(node(key), MapOperands::Empty);
+    let list =
+        |key: &str| DefinitionTerm::list(node(key), DefinitionSortRef::list(), ListOperands::Empty);
+    let set =
+        |key: &str| DefinitionTerm::set(node(key), DefinitionSortRef::set(), SetOperands::Empty);
     let cases = [
         (map("labels.map.empty"), ".Map", 0),
         (
             DefinitionTerm::map(
                 node("labels.map.update"),
-                MapOperation::Update,
-                vec![
-                    map("labels.map.update.map"),
-                    int("labels.map.update.key", "1"),
-                    int("labels.map.update.value", "2"),
-                ],
+                MapOperands::Update {
+                    map: map("labels.map.update.map"),
+                    key: int("labels.map.update.key", "1"),
+                    value: int("labels.map.update.value", "2"),
+                },
             ),
             "Map:update",
             3,
@@ -639,11 +626,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::typed_map(
                 node("labels.map.in-keys"),
                 DefinitionSortRef::bool(),
-                MapOperation::InKeys,
-                vec![
-                    int("labels.map.in-keys.key", "1"),
-                    map("labels.map.in-keys.map"),
-                ],
+                MapOperands::InKeys {
+                    key: int("labels.map.in-keys.key", "1"),
+                    map: map("labels.map.in-keys.map"),
+                },
             ),
             "_in_keys(_)_MAP_Bool_KItem_Map",
             2,
@@ -653,8 +639,9 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.item"),
                 DefinitionSortRef::list(),
-                ListOperation::Item,
-                vec![int("labels.list.item.element", "1")],
+                ListOperands::Item {
+                    element: int("labels.list.item.element", "1"),
+                },
             ),
             "ListItem",
             1,
@@ -663,11 +650,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.concat"),
                 DefinitionSortRef::list(),
-                ListOperation::Concat,
-                vec![
-                    list("labels.list.concat.left"),
-                    list("labels.list.concat.right"),
-                ],
+                ListOperands::Concat {
+                    left: list("labels.list.concat.left"),
+                    right: list("labels.list.concat.right"),
+                },
             ),
             "_List_",
             2,
@@ -676,12 +662,11 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.update"),
                 DefinitionSortRef::list(),
-                ListOperation::Update,
-                vec![
-                    list("labels.list.update.list"),
-                    int("labels.list.update.index", "0"),
-                    int("labels.list.update.value", "1"),
-                ],
+                ListOperands::Update {
+                    list: list("labels.list.update.list"),
+                    index: int("labels.list.update.index", "0"),
+                    value: int("labels.list.update.value", "1"),
+                },
             ),
             "List:set",
             3,
@@ -690,8 +675,9 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.size"),
                 DefinitionSortRef::int(),
-                ListOperation::Size,
-                vec![list("labels.list.size.list")],
+                ListOperands::Size {
+                    list: list("labels.list.size.list"),
+                },
             ),
             "sizeList",
             1,
@@ -700,11 +686,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.make"),
                 DefinitionSortRef::list(),
-                ListOperation::Make,
-                vec![
-                    int("labels.list.make.length", "2"),
-                    int("labels.list.make.value", "1"),
-                ],
+                ListOperands::Make {
+                    length: int("labels.list.make.length", "2"),
+                    value: int("labels.list.make.value", "1"),
+                },
             ),
             "makeList(_,_)_LIST_List_Int_KItem",
             2,
@@ -713,12 +698,11 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.range"),
                 DefinitionSortRef::list(),
-                ListOperation::Range,
-                vec![
-                    list("labels.list.range.list"),
-                    int("labels.list.range.front", "0"),
-                    int("labels.list.range.back", "0"),
-                ],
+                ListOperands::Range {
+                    list: list("labels.list.range.list"),
+                    from_front: int("labels.list.range.front", "0"),
+                    from_back: int("labels.list.range.back", "0"),
+                },
             ),
             "List:range",
             3,
@@ -727,12 +711,11 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::list(
                 node("labels.list.update-all"),
                 DefinitionSortRef::list(),
-                ListOperation::UpdateAll,
-                vec![
-                    list("labels.list.update-all.list"),
-                    int("labels.list.update-all.index", "0"),
-                    list("labels.list.update-all.replacement"),
-                ],
+                ListOperands::UpdateAll {
+                    list: list("labels.list.update-all.list"),
+                    index: int("labels.list.update-all.index", "0"),
+                    replacement: list("labels.list.update-all.replacement"),
+                },
             ),
             "updateList(_,_,_)_LIST_List_List_Int_List",
             3,
@@ -742,8 +725,9 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::set(
                 node("labels.set.item"),
                 DefinitionSortRef::set(),
-                SetOperation::Item,
-                vec![int("labels.set.item.element", "1")],
+                SetOperands::Item {
+                    element: int("labels.set.item.element", "1"),
+                },
             ),
             "SetItem",
             1,
@@ -752,11 +736,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::set(
                 node("labels.set.concat"),
                 DefinitionSortRef::set(),
-                SetOperation::Concat,
-                vec![
-                    set("labels.set.concat.left"),
-                    set("labels.set.concat.right"),
-                ],
+                SetOperands::Concat {
+                    left: set("labels.set.concat.left"),
+                    right: set("labels.set.concat.right"),
+                },
             ),
             "_Set_",
             2,
@@ -765,8 +748,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::set(
                 node("labels.set.union"),
                 DefinitionSortRef::set(),
-                SetOperation::Union,
-                vec![set("labels.set.union.left"), set("labels.set.union.right")],
+                SetOperands::Union {
+                    left: set("labels.set.union.left"),
+                    right: set("labels.set.union.right"),
+                },
             ),
             "_|Set__SET_Set_Set_Set",
             2,
@@ -775,11 +760,10 @@ fn every_collection_operation_has_its_native_label() {
             DefinitionTerm::set(
                 node("labels.set.contains"),
                 DefinitionSortRef::bool(),
-                SetOperation::Contains,
-                vec![
-                    int("labels.set.contains.element", "1"),
-                    set("labels.set.contains.set"),
-                ],
+                SetOperands::Contains {
+                    element: int("labels.set.contains.element", "1"),
+                    set: set("labels.set.contains.set"),
+                },
             ),
             "Set:in",
             2,
@@ -873,25 +857,27 @@ fn pinned_native_prelude_evaluates_set_union() {
         let union = DefinitionTerm::set(
             node("set.union.execution"),
             DefinitionSortRef::set(),
-            SetOperation::Union,
-            [1, right]
-                .into_iter()
-                .map(|value| {
-                    DefinitionTerm::set(
-                        node("set.item.execution"),
-                        DefinitionSortRef::set(),
-                        SetOperation::Item,
-                        vec![
-                            DefinitionTerm::token(
-                                node("set.value.execution"),
-                                DefinitionSortRef::int(),
-                                value.to_string(),
-                            )
-                            .unwrap(),
-                        ],
-                    )
-                })
-                .collect(),
+            SetOperands::from_operands(
+                SetOperation::Union,
+                [1, right]
+                    .into_iter()
+                    .map(|value| {
+                        DefinitionTerm::set(
+                            node("set.item.execution"),
+                            DefinitionSortRef::set(),
+                            SetOperands::Item {
+                                element: DefinitionTerm::token(
+                                    node("set.value.execution"),
+                                    DefinitionSortRef::int(),
+                                    value.to_string(),
+                                )
+                                .unwrap(),
+                            },
+                        )
+                    })
+                    .collect(),
+            )
+            .unwrap(),
         );
         let lowered = adapter
             .term(&union, MODULE, 0, Vec::new(), TermContext::Normal, None)

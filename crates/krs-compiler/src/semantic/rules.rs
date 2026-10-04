@@ -5,11 +5,11 @@ use krs_ir::{
     DescriptorCellIdentity, DescriptorCellReference, DescriptorFixedConfiguration,
     DescriptorHeadRuleExtra, DescriptorIndex, DescriptorRuleCondition, DescriptorRuleLabel,
     DescriptorRulePriority, DescriptorSimplification, DescriptorSortRef, DescriptorSortReference,
-    DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, MapOperation,
-    ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
+    DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, ProtocolCellContent,
+    ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
-    SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
+    MapOperands, SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
     SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef, SemanticTerm,
     SemanticVariable,
 };
@@ -550,8 +550,7 @@ fn lower_head_rule_map_read(
         semantic_cell_id(&cell.cell)?,
         SemanticTerm::map(
             semantic_origin(descriptor, cell.key.clone(), "completed-map-item")?,
-            MapOperation::Item,
-            vec![key, value],
+            MapOperands::entry(key, value),
         ),
         CellPost::Preserve,
         CellContentFrame::MapRemainder {

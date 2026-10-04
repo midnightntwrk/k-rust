@@ -19,11 +19,11 @@ use krs_ir::{
     DescriptorProductionItem, DescriptorProductionOwner, DescriptorProvenance,
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind, GrammarDescriptor,
-    GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId, ProductionGroupId,
-    ProvenanceKey, ProvenanceRole, SentenceKind, SortDescriptor, StableItemId,
-    StructuredRuleDescriptor, generated_production_id,
+    GroupAssociativity, ItemKind, PackageId, ProductionFieldId, ProductionGroupId, ProvenanceKey,
+    ProvenanceRole, SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
+    generated_production_id,
 };
-use krs_ir_levels::{SemanticSortRef, SemanticTerm, SemanticTermKind};
+use krs_ir_levels::{MapOperands, SemanticSortRef, SemanticTerm, SemanticTermKind};
 
 fn package() -> PackageId {
     testing::package("KRS-GRAMMAR", "grammar")
@@ -833,12 +833,24 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
         SemanticTermKind::Variable { variable } if variable.as_str() == "x" => {
             output.push(term.sort().clone());
         }
-        SemanticTermKind::Application { arguments, .. }
-        | SemanticTermKind::Map { arguments, .. }
-        | SemanticTermKind::List { arguments, .. }
-        | SemanticTermKind::Set { arguments, .. } => {
+        SemanticTermKind::Application { arguments, .. } => {
             for argument in arguments {
                 variable_sorts(argument, output);
+            }
+        }
+        SemanticTermKind::Map(operands) => {
+            for operand in operands.operands() {
+                variable_sorts(operand, output);
+            }
+        }
+        SemanticTermKind::List(operands) => {
+            for operand in operands.operands() {
+                variable_sorts(operand, output);
+            }
+        }
+        SemanticTermKind::Set(operands) => {
+            for operand in operands.operands() {
+                variable_sorts(operand, output);
             }
         }
         SemanticTermKind::Cell { children, .. } => {
@@ -1166,10 +1178,8 @@ fn nested_ordinary_map_update_survives_every_ir_and_emission_layer() {
     };
     assert!(matches!(
         arguments[0].kind(),
-        SemanticTermKind::Map {
-            operation: MapOperation::Update,
-            arguments,
-        } if arguments.len() == 3
+        SemanticTermKind::Map(operands)
+            if matches!(operands.as_ref(), MapOperands::Update { .. })
     ));
 
     let (_definition, emitted) = assert_lowering_contract(&semantic);

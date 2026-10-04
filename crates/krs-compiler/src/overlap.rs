@@ -464,37 +464,28 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
                 .map(|item| pattern(item, rule, catalog))
                 .collect(),
         },
-        SemanticTermKind::Map {
-            operation,
-            arguments,
-        } => Pattern::Map {
+        SemanticTermKind::Map(operands) => Pattern::Map {
             sort: term.sort().clone(),
-            operation: *operation,
-            arguments: arguments
-                .iter()
-                .map(|argument| pattern(argument, rule, catalog))
+            operation: operands.operation(),
+            arguments: operands
+                .operands()
+                .map(|operand| pattern(operand, rule, catalog))
                 .collect(),
         },
-        SemanticTermKind::List {
-            operation,
-            arguments,
-        } => Pattern::List {
+        SemanticTermKind::List(operands) => Pattern::List {
             sort: term.sort().clone(),
-            operation: *operation,
-            arguments: arguments
-                .iter()
-                .map(|argument| pattern(argument, rule, catalog))
+            operation: operands.operation(),
+            arguments: operands
+                .operands()
+                .map(|operand| pattern(operand, rule, catalog))
                 .collect(),
         },
-        SemanticTermKind::Set {
-            operation,
-            arguments,
-        } => Pattern::Set {
+        SemanticTermKind::Set(operands) => Pattern::Set {
             sort: term.sort().clone(),
-            operation: *operation,
-            arguments: arguments
-                .iter()
-                .map(|argument| pattern(argument, rule, catalog))
+            operation: operands.operation(),
+            arguments: operands
+                .operands()
+                .map(|operand| pattern(operand, rule, catalog))
                 .collect(),
         },
         SemanticTermKind::Cell { cell, children } => Pattern::Cell {

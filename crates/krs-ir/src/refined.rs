@@ -170,6 +170,22 @@ impl<T> NonEmpty<T> {
             self.rest.into_iter().map(map).collect::<Result<_, _>>()?,
         ))
     }
+    /// Maps borrowed elements without changing cardinality or order.
+    /// # Errors
+    /// Returns the first mapping error.
+    pub fn try_map_ref<U, E>(
+        &self,
+        mut map: impl FnMut(&T) -> Result<U, E>,
+    ) -> Result<NonEmpty<U>, E> {
+        Ok(NonEmpty::new(
+            map(&self.first)?,
+            self.rest.iter().map(map).collect::<Result<_, _>>()?,
+        ))
+    }
+    /// Separates the first element from the remaining elements.
+    pub fn into_head_tail(self) -> (T, std::vec::IntoIter<T>) {
+        (self.first, self.rest.into_iter())
+    }
 }
 
 impl<T> IntoIterator for NonEmpty<T> {

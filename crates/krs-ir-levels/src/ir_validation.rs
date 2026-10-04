@@ -5,7 +5,8 @@ use crate::ir_level::{
     IrVariable, RuleBodyRef,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost,
+    CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
@@ -850,11 +851,26 @@ pub(crate) fn validate_term_cell_references<L: Validation>(
             L::require_cell(declarations, cell_ids, cell)?;
             children
         }
-        IrTermKind::Application { arguments, .. }
-        | IrTermKind::Map { arguments, .. }
-        | IrTermKind::List { arguments, .. }
-        | IrTermKind::Set { arguments, .. } => arguments,
+        IrTermKind::Application { arguments, .. } => arguments,
         IrTermKind::KSequence { items, .. } => items,
+        IrTermKind::Map(operands) => {
+            for operand in operands.operands() {
+                validate_term_cell_references::<L>(operand, declarations, cell_ids)?;
+            }
+            return Ok(());
+        }
+        IrTermKind::List(operands) => {
+            for operand in operands.operands() {
+                validate_term_cell_references::<L>(operand, declarations, cell_ids)?;
+            }
+            return Ok(());
+        }
+        IrTermKind::Set(operands) => {
+            for operand in operands.operands() {
+                validate_term_cell_references::<L>(operand, declarations, cell_ids)?;
+            }
+            return Ok(());
+        }
         IrTermKind::Rewrite { from, to } => {
             validate_term_cell_references::<L>(from, declarations, cell_ids)?;
             return validate_term_cell_references::<L>(to, declarations, cell_ids);
@@ -922,12 +938,24 @@ pub(crate) fn collect_term_variables<L: Validation>(
         IrTermKind::Variable { variable } => {
             used.insert(variable.clone());
         }
-        IrTermKind::Application { arguments, .. }
-        | IrTermKind::Map { arguments, .. }
-        | IrTermKind::List { arguments, .. }
-        | IrTermKind::Set { arguments, .. } => {
+        IrTermKind::Application { arguments, .. } => {
             for argument in arguments {
                 collect_term_variables::<L>(argument, used);
+            }
+        }
+        IrTermKind::Map(operands) => {
+            for operand in operands.operands() {
+                collect_term_variables::<L>(operand, used);
+            }
+        }
+        IrTermKind::List(operands) => {
+            for operand in operands.operands() {
+                collect_term_variables::<L>(operand, used);
+            }
+        }
+        IrTermKind::Set(operands) => {
+            for operand in operands.operands() {
+                collect_term_variables::<L>(operand, used);
             }
         }
         IrTermKind::KSequence { items, .. } => {
@@ -946,6 +974,26 @@ pub(crate) fn collect_term_variables<L: Validation>(
         }
         IrTermKind::Token { .. } => {}
     }
+}
+
+/// Whether a collection term's result and operand sorts satisfy its catalog row.
+/// Operand sorts repeat per entry, which only `MapOperation::Item` has more than one of.
+fn collection_signature_holds<'a, L: Validation + 'a>(
+    result: &L::Sort,
+    spec: &CollectionOperationSpec,
+    operands: impl Iterator<Item = &'a IrTerm<L>>,
+) -> bool {
+    let result_holds = match spec.result_sort {
+        CollectionResultSort::Builtin(sort) => *result == L::builtin_sort(sort),
+        CollectionResultSort::Projected => true,
+    };
+    result_holds
+        && operands
+            .zip(spec.operand_sorts.iter().cycle())
+            .all(|(operand, sort)| match sort {
+                CollectionOperandSort::Builtin(sort) => *operand.sort() == L::builtin_sort(*sort),
+                CollectionOperandSort::Element => true,
+            })
 }
 
 #[expect(
@@ -1043,106 +1091,19 @@ pub(crate) fn validate_term<L: Validation>(
                 }
             }
         }
-        IrTermKind::Map {
-            operation,
-            arguments,
-        } => {
-            let map_sort = L::builtin_sort(BuiltinSort::Map);
-            let bool_sort = L::builtin_sort(BuiltinSort::Bool);
-            let valid_arity = match operation {
-                MapOperation::Empty => *term.sort() == map_sort && arguments.is_empty(),
-                MapOperation::Item => {
-                    *term.sort() == map_sort
-                        && !arguments.is_empty()
-                        && arguments.len().is_multiple_of(2)
-                }
-                MapOperation::Update => {
-                    *term.sort() == map_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == map_sort
-                }
-                MapOperation::Get => arguments.len() == 2 && arguments[0].sort == map_sort,
-                MapOperation::InKeys => {
-                    *term.sort() == bool_sort
-                        && arguments.len() == 2
-                        && arguments[1].sort == map_sort
-                }
-            };
-            if !valid_arity {
-                return Err(L::error(ValidationError::MapOperationSignature(*operation)));
-            }
-            for argument in arguments {
-                validate_term::<L>(
-                    argument,
-                    scope,
-                    declarations,
-                    signatures,
-                    sort_parents,
-                    cell_ids,
-                    nodes,
-                )?;
-            }
-        }
-        IrTermKind::List {
-            operation,
-            arguments,
-        } => {
-            let list_sort = L::builtin_sort(BuiltinSort::List);
-            let int_sort = L::builtin_sort(BuiltinSort::Int);
-            let valid = match operation {
-                ListOperation::Empty => *term.sort() == list_sort && arguments.is_empty(),
-                ListOperation::Item => *term.sort() == list_sort && arguments.len() == 1,
-                ListOperation::Concat => {
-                    *term.sort() == list_sort
-                        && arguments.len() == 2
-                        && arguments
-                            .iter()
-                            .all(|argument| *argument.sort() == list_sort)
-                }
-                ListOperation::Get => {
-                    arguments.len() == 2
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Update => {
-                    *term.sort() == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Size => {
-                    *term.sort() == int_sort
-                        && arguments.len() == 1
-                        && arguments[0].sort == list_sort
-                }
-                ListOperation::Make => {
-                    *term.sort() == list_sort
-                        && arguments.len() == 2
-                        && arguments[0].sort == int_sort
-                }
-                ListOperation::Range => {
-                    *term.sort() == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == int_sort
-                }
-                ListOperation::UpdateAll => {
-                    *term.sort() == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == list_sort
-                }
-            };
-            if !valid {
-                return Err(L::error(ValidationError::ListOperationSignature(
-                    *operation,
+        IrTermKind::Map(operands) => {
+            if !collection_signature_holds::<L>(
+                term.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+            ) {
+                return Err(L::error(ValidationError::MapOperationSignature(
+                    operands.operation(),
                 )));
             }
-            for argument in arguments {
+            for operand in operands.operands() {
                 validate_term::<L>(
-                    argument,
+                    operand,
                     scope,
                     declarations,
                     signatures,
@@ -1152,34 +1113,41 @@ pub(crate) fn validate_term<L: Validation>(
                 )?;
             }
         }
-        IrTermKind::Set {
-            operation,
-            arguments,
-        } => {
-            let set_sort = L::builtin_sort(BuiltinSort::Set);
-            let bool_sort = L::builtin_sort(BuiltinSort::Bool);
-            let valid = match operation {
-                SetOperation::Empty => *term.sort() == set_sort && arguments.is_empty(),
-                SetOperation::Item => *term.sort() == set_sort && arguments.len() == 1,
-                SetOperation::Concat | SetOperation::Union => {
-                    *term.sort() == set_sort
-                        && arguments.len() == 2
-                        && arguments
-                            .iter()
-                            .all(|argument| *argument.sort() == set_sort)
-                }
-                SetOperation::Contains => {
-                    *term.sort() == bool_sort
-                        && arguments.len() == 2
-                        && arguments[1].sort == set_sort
-                }
-            };
-            if !valid {
-                return Err(L::error(ValidationError::SetOperationSignature(*operation)));
+        IrTermKind::List(operands) => {
+            if !collection_signature_holds::<L>(
+                term.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+            ) {
+                return Err(L::error(ValidationError::ListOperationSignature(
+                    operands.operation(),
+                )));
             }
-            for argument in arguments {
+            for operand in operands.operands() {
                 validate_term::<L>(
-                    argument,
+                    operand,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            }
+        }
+        IrTermKind::Set(operands) => {
+            if !collection_signature_holds::<L>(
+                term.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+            ) {
+                return Err(L::error(ValidationError::SetOperationSignature(
+                    operands.operation(),
+                )));
+            }
+            for operand in operands.operands() {
+                validate_term::<L>(
+                    operand,
                     scope,
                     declarations,
                     signatures,

@@ -1,9 +1,11 @@
 use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm};
 use krs_ir::{
-    ApplicationRef, ListOperation, MapOperation, NodeOrigin, SemanticId, SemanticIdKind,
-    SetOperation,
+    ApplicationRef, CollectionOperationSpec, MapOperation, NonEmpty, SemanticId, SemanticIdKind,
 };
-use krs_ir_levels::{DefinitionTerm, DefinitionTermKind, RuleSentence, k_surface::variable_name};
+use krs_ir_levels::{
+    DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands, RuleSentence,
+    k_surface::variable_name,
+};
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 
@@ -100,70 +102,47 @@ impl Adapter<'_> {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
-            DefinitionTermKind::Map {
-                operation,
-                arguments,
-            } => {
-                let arguments = arguments
-                    .iter()
-                    .enumerate()
-                    .map(|(index, argument)| {
-                        let mut child_path = path.clone();
-                        child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(argument, module, sentence_index, child_path, context, rule)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let native = Self::map_term(*operation, arguments, term.origin())?;
-                if *operation == MapOperation::Get {
-                    // semantic-cast-projection-widening: represent a typed
-                    // heterogeneous lookup with the project:<Sort> term used
-                    // by k-rust's semantic downcast. Keep the Definition IR
-                    // result sort explicit.
-                    Ok(NativeTerm::apply(
-                        format!("project:{}", self.sort(term.sort(), term.origin())?.name),
-                        vec![native],
-                    ))
-                } else {
-                    Ok(native)
-                }
+            DefinitionTermKind::Map(operands) => {
+                let mut next_index = 0_usize;
+                let native = operands.try_map_ref(|operand| {
+                    let mut child_path = path.clone();
+                    child_path.push(u32::try_from(next_index).unwrap_or(u32::MAX));
+                    next_index += 1;
+                    self.term(operand, module, sentence_index, child_path, context, rule)
+                })?;
+                let native = match native {
+                    MapOperands::Items(entries) => native_map_items(entries),
+                    native => {
+                        NativeTerm::apply(native.operation().spec().k_label, native.into_operands())
+                    }
+                };
+                self.project_collection(native, operands.operation().spec(), term)
             }
-            DefinitionTermKind::List {
-                operation,
-                arguments,
-            } => {
-                let arguments = arguments
-                    .iter()
+            DefinitionTermKind::List(operands) => {
+                let arguments = operands
+                    .operands()
                     .enumerate()
-                    .map(|(index, argument)| {
+                    .map(|(index, operand)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(argument, module, sentence_index, child_path, context, rule)
+                        self.term(operand, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let native = Self::list_term(*operation, arguments, term.origin())?;
-                if *operation == ListOperation::Get {
-                    Ok(NativeTerm::apply(
-                        format!("project:{}", self.sort(term.sort(), term.origin())?.name),
-                        vec![native],
-                    ))
-                } else {
-                    Ok(native)
-                }
+                let spec = operands.operation().spec();
+                self.project_collection(NativeTerm::apply(spec.k_label, arguments), spec, term)
             }
-            DefinitionTermKind::Set {
-                operation,
-                arguments,
-            } => {
-                let arguments = arguments
-                    .iter()
+            DefinitionTermKind::Set(operands) => {
+                let arguments = operands
+                    .operands()
                     .enumerate()
-                    .map(|(index, argument)| {
+                    .map(|(index, operand)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(argument, module, sentence_index, child_path, context, rule)
+                        self.term(operand, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Self::set_term(*operation, arguments, term.origin())
+                let spec = operands.operation().spec();
+                self.project_collection(NativeTerm::apply(spec.k_label, arguments), spec, term)
             }
             DefinitionTermKind::Cell { cell, children } => {
                 let name = self.cell_name(cell, term.origin())?.to_owned();
@@ -208,89 +187,25 @@ impl Adapter<'_> {
         })
     }
 
-    fn map_term(
-        operation: MapOperation,
-        arguments: Vec<NativeTerm>,
-        origin: &NodeOrigin,
+    /// Projects a `KItem` collection result to the Definition IR result sort when
+    /// the operation's catalog row says both backends do.
+    fn project_collection(
+        &self,
+        native: NativeTerm,
+        spec: &CollectionOperationSpec,
+        term: &DefinitionTerm,
     ) -> Result<NativeTerm, AdapterError> {
-        match operation {
-            MapOperation::Empty if arguments.is_empty() => Ok(NativeTerm::apply(".Map", vec![])),
-            MapOperation::Item if !arguments.is_empty() && arguments.len().is_multiple_of(2) => {
-                let mut arguments = arguments.into_iter();
-                let mut items = std::iter::from_fn(|| {
-                    let key = arguments.next()?;
-                    let value = arguments.next().expect("validated even map item arity");
-                    Some(NativeTerm::apply("_|->_", vec![key, value]))
-                });
-                let first = items.next().expect("nonempty even argument list");
-                Ok(items.fold(first, |left, right| {
-                    NativeTerm::apply("_Map_", vec![left, right])
-                }))
-            }
-            MapOperation::Update if arguments.len() == 3 => {
-                Ok(NativeTerm::apply("Map:update", arguments))
-            }
-            MapOperation::Get if arguments.len() == 2 => {
-                Ok(NativeTerm::apply("Map:lookup", arguments))
-            }
-            MapOperation::InKeys if arguments.len() == 2 => Ok(NativeTerm::apply(
-                "_in_keys(_)_MAP_Bool_KItem_Map",
-                arguments,
-            )),
-            _ => Err(AdapterError::MissingReference {
-                key: origin.key().clone(),
-                kind: "Map operation arity",
-                target: format!("{operation}/{}", arguments.len()),
-            }),
+        if !spec.is_projected() {
+            return Ok(native);
         }
-    }
-
-    fn list_term(
-        operation: ListOperation,
-        arguments: Vec<NativeTerm>,
-        origin: &NodeOrigin,
-    ) -> Result<NativeTerm, AdapterError> {
-        let label = match (operation, arguments.len()) {
-            (ListOperation::Empty, 0) => ".List",
-            (ListOperation::Item, 1) => "ListItem",
-            (ListOperation::Concat, 2) => "_List_",
-            (ListOperation::Get, 2) => "List:get",
-            (ListOperation::Update, 3) => "List:set",
-            (ListOperation::Size, 1) => "sizeList",
-            (ListOperation::Make, 2) => "makeList(_,_)_LIST_List_Int_KItem",
-            (ListOperation::Range, 3) => "List:range",
-            (ListOperation::UpdateAll, 3) => "updateList(_,_,_)_LIST_List_List_Int_List",
-            _ => {
-                return Err(AdapterError::MissingReference {
-                    key: origin.key().clone(),
-                    kind: "List operation arity",
-                    target: format!("{operation}/{}", arguments.len()),
-                });
-            }
-        };
-        Ok(NativeTerm::apply(label, arguments))
-    }
-
-    fn set_term(
-        operation: SetOperation,
-        arguments: Vec<NativeTerm>,
-        origin: &NodeOrigin,
-    ) -> Result<NativeTerm, AdapterError> {
-        let label = match (operation, arguments.len()) {
-            (SetOperation::Empty, 0) => ".Set",
-            (SetOperation::Item, 1) => "SetItem",
-            (SetOperation::Concat, 2) => "_Set_",
-            (SetOperation::Union, 2) => "_|Set__SET_Set_Set_Set",
-            (SetOperation::Contains, 2) => "Set:in",
-            _ => {
-                return Err(AdapterError::MissingReference {
-                    key: origin.key().clone(),
-                    kind: "Set operation arity",
-                    target: format!("{operation}/{}", arguments.len()),
-                });
-            }
-        };
-        Ok(NativeTerm::apply(label, arguments))
+        // semantic-cast-projection-widening: represent a typed
+        // heterogeneous lookup with the project:<Sort> term used
+        // by k-rust's semantic downcast. Keep the Definition IR
+        // result sort explicit.
+        Ok(NativeTerm::apply(
+            format!("project:{}", self.sort(term.sort(), term.origin())?.name),
+            vec![native],
+        ))
     }
 }
 
@@ -307,4 +222,18 @@ pub(super) fn native_variable(
         variable_name(variable)
     };
     NativeTerm::Variable { name, sort }
+}
+
+/// Applies the Map item label to each entry and joins the items with Map concatenation.
+fn native_map_items(entries: NonEmpty<MapEntry<NativeTerm>>) -> NativeTerm {
+    let item = |entry: MapEntry<NativeTerm>| {
+        NativeTerm::apply(
+            MapOperation::Item.spec().k_label,
+            vec![entry.key, entry.value],
+        )
+    };
+    let (first, rest) = entries.into_head_tail();
+    rest.fold(item(first), |left, right| {
+        NativeTerm::apply(MapOperation::CONCATENATION.k_label, vec![left, item(right)])
+    })
 }

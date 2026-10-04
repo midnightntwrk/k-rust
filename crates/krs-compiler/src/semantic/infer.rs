@@ -6,7 +6,9 @@ use krs_ir::{
     DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, ProductionFieldId,
     ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
 };
-use krs_ir_levels::{SemanticSortRef, SemanticTerm, SemanticVariable};
+use krs_ir_levels::{
+    ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
+};
 
 use super::catalog::{
     ProductionSignature, semantic_is_subsort, semantic_sort_closure, semantic_sort_ref,
@@ -457,16 +459,19 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Map(operation) => {
                 let (result_sort, operands) =
                     self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let operands = MapOperands::from_operands((*operation).into(), operands)
+                    .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::typed_map(
                     semantic_origin(self.descriptor, reference.key.clone(), "term-map-operation")?,
                     result_sort,
-                    (*operation).into(),
                     operands,
                 ));
             }
             DescriptorApplicationRef::List(operation) => {
                 let (result_sort, operands) =
                     self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let operands = ListOperands::from_operands(*operation, operands)
+                    .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::list(
                     semantic_origin(
                         self.descriptor,
@@ -474,17 +479,17 @@ impl StructuredTermBuilder<'_> {
                         "term-list-operation",
                     )?,
                     result_sort,
-                    *operation,
                     operands,
                 ));
             }
             DescriptorApplicationRef::Set(operation) => {
                 let (result_sort, operands) =
                     self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let operands = SetOperands::from_operands(*operation, operands)
+                    .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::set(
                     semantic_origin(self.descriptor, reference.key.clone(), "term-set-operation")?,
                     result_sort,
-                    *operation,
                     operands,
                 ));
             }

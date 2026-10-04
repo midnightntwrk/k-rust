@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::{BuiltinOperation, ListOperation, MapOperation, NodeOrigin, SetOperation};
-use krs_ir_levels::{DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm};
+use krs_ir::{BuiltinOperation, NodeOrigin, NonEmpty};
+use krs_ir_levels::{
+    DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm, ListOperands, MapEntry,
+    MapOperands, SetOperands,
+};
 
 use super::{EmitContext, term::render_term};
 
@@ -25,12 +28,7 @@ fn context() -> EmitContext<'static> {
 }
 
 fn empty(key: &str) -> DefinitionTerm {
-    DefinitionTerm::list(
-        node(key),
-        DefinitionSortRef::list(),
-        ListOperation::Empty,
-        vec![],
-    )
+    DefinitionTerm::list(node(key), DefinitionSortRef::list(), ListOperands::Empty)
 }
 
 fn int(key: &str, value: &str) -> DefinitionTerm {
@@ -45,8 +43,9 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.item"),
                 DefinitionSortRef::list(),
-                ListOperation::Item,
-                vec![int("list.item.value", "1")],
+                ListOperands::Item {
+                    element: int("list.item.value", "1"),
+                },
             ),
             "ListItem(1)",
         ),
@@ -54,16 +53,16 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.concat"),
                 DefinitionSortRef::list(),
-                ListOperation::Concat,
-                vec![
-                    empty("list.concat.left"),
-                    DefinitionTerm::list(
+                ListOperands::Concat {
+                    left: empty("list.concat.left"),
+                    right: DefinitionTerm::list(
                         node("list.concat.right"),
                         DefinitionSortRef::list(),
-                        ListOperation::Item,
-                        vec![int("list.concat.value", "1")],
+                        ListOperands::Item {
+                            element: int("list.concat.value", "1"),
+                        },
                     ),
-                ],
+                },
             ),
             ".List ListItem(1)",
         ),
@@ -71,8 +70,10 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.get"),
                 DefinitionSortRef::int(),
-                ListOperation::Get,
-                vec![empty("list.get.base"), int("list.get.index", "0")],
+                ListOperands::Get {
+                    list: empty("list.get.base"),
+                    index: int("list.get.index", "0"),
+                },
             ),
             "{.List [ 0 ]}:>Int",
         ),
@@ -80,12 +81,11 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.update"),
                 DefinitionSortRef::list(),
-                ListOperation::Update,
-                vec![
-                    empty("list.update.base"),
-                    int("list.update.index", "0"),
-                    int("list.update.value", "1"),
-                ],
+                ListOperands::Update {
+                    list: empty("list.update.base"),
+                    index: int("list.update.index", "0"),
+                    value: int("list.update.value", "1"),
+                },
             ),
             ".List [ 0 <- 1 ]",
         ),
@@ -93,8 +93,9 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.size"),
                 DefinitionSortRef::int(),
-                ListOperation::Size,
-                vec![empty("list.size.base")],
+                ListOperands::Size {
+                    list: empty("list.size.base"),
+                },
             ),
             "size(.List)",
         ),
@@ -102,12 +103,11 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.range"),
                 DefinitionSortRef::list(),
-                ListOperation::Range,
-                vec![
-                    empty("list.range.base"),
-                    int("list.range.front", "1"),
-                    int("list.range.back", "2"),
-                ],
+                ListOperands::Range {
+                    list: empty("list.range.base"),
+                    from_front: int("list.range.front", "1"),
+                    from_back: int("list.range.back", "2"),
+                },
             ),
             "range(.List, 1, 2)",
         ),
@@ -115,12 +115,11 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.update-all"),
                 DefinitionSortRef::list(),
-                ListOperation::UpdateAll,
-                vec![
-                    empty("list.update-all.base"),
-                    int("list.update-all.index", "1"),
-                    empty("list.update-all.replacement"),
-                ],
+                ListOperands::UpdateAll {
+                    list: empty("list.update-all.base"),
+                    index: int("list.update-all.index", "1"),
+                    replacement: empty("list.update-all.replacement"),
+                },
             ),
             "updateList(.List, 1, .List)",
         ),
@@ -191,13 +190,12 @@ fn builtin_bytes_operations_have_exact_canonical_k_source() {
 
 #[test]
 fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
-    let map = || DefinitionTerm::map(node("map.empty"), MapOperation::Empty, vec![]);
+    let map = || DefinitionTerm::map(node("map.empty"), MapOperands::Empty);
     let set = || {
         DefinitionTerm::set(
             node("set.empty"),
             DefinitionSortRef::set(),
-            SetOperation::Empty,
-            vec![],
+            SetOperands::Empty,
         )
     };
     let terms = [
@@ -205,8 +203,10 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::typed_map(
                 node("map.get"),
                 DefinitionSortRef::int(),
-                MapOperation::Get,
-                vec![map(), int("map.get.key", "1")],
+                MapOperands::Get {
+                    map: map(),
+                    key: int("map.get.key", "1"),
+                },
             ),
             "{.Map [ 1 ]}:>Int",
         ),
@@ -214,8 +214,10 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::typed_map(
                 node("map.in-keys"),
                 DefinitionSortRef::bool(),
-                MapOperation::InKeys,
-                vec![int("map.in-keys.key", "1"), map()],
+                MapOperands::InKeys {
+                    key: int("map.in-keys.key", "1"),
+                    map: map(),
+                },
             ),
             "1 in_keys(.Map)",
         ),
@@ -224,8 +226,9 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::set(
                 node("set.item"),
                 DefinitionSortRef::set(),
-                SetOperation::Item,
-                vec![int("set.item.value", "1")],
+                SetOperands::Item {
+                    element: int("set.item.value", "1"),
+                },
             ),
             "SetItem(1)",
         ),
@@ -233,8 +236,10 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::set(
                 node("set.concat"),
                 DefinitionSortRef::set(),
-                SetOperation::Concat,
-                vec![set(), set()],
+                SetOperands::Concat {
+                    left: set(),
+                    right: set(),
+                },
             ),
             ".Set .Set",
         ),
@@ -242,8 +247,10 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::set(
                 node("set.union"),
                 DefinitionSortRef::set(),
-                SetOperation::Union,
-                vec![set(), set()],
+                SetOperands::Union {
+                    left: set(),
+                    right: set(),
+                },
             ),
             ".Set |Set .Set",
         ),
@@ -251,8 +258,10 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
             DefinitionTerm::set(
                 node("set.contains"),
                 DefinitionSortRef::bool(),
-                SetOperation::Contains,
-                vec![int("set.contains.value", "1"), set()],
+                SetOperands::Contains {
+                    element: int("set.contains.value", "1"),
+                    set: set(),
+                },
             ),
             "1 in .Set",
         ),
@@ -265,31 +274,33 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
 
 #[test]
 fn remaining_collection_operations_have_exact_canonical_k_source() {
-    let map = || DefinitionTerm::map(node("map.empty"), MapOperation::Empty, vec![]);
+    let map = || DefinitionTerm::map(node("map.empty"), MapOperands::Empty);
     let terms = [
         (map(), ".Map"),
         (
             DefinitionTerm::map(
                 node("map.items"),
-                MapOperation::Item,
-                vec![
-                    int("map.items.first.key", "1"),
-                    int("map.items.first.value", "2"),
-                    int("map.items.second.key", "3"),
-                    int("map.items.second.value", "4"),
-                ],
+                MapOperands::Items(NonEmpty::new(
+                    MapEntry {
+                        key: int("map.items.first.key", "1"),
+                        value: int("map.items.first.value", "2"),
+                    },
+                    vec![MapEntry {
+                        key: int("map.items.second.key", "3"),
+                        value: int("map.items.second.value", "4"),
+                    }],
+                )),
             ),
             "1 |-> 2 3 |-> 4",
         ),
         (
             DefinitionTerm::map(
                 node("map.update"),
-                MapOperation::Update,
-                vec![
-                    map(),
-                    int("map.update.key", "1"),
-                    int("map.update.value", "2"),
-                ],
+                MapOperands::Update {
+                    map: map(),
+                    key: int("map.update.key", "1"),
+                    value: int("map.update.value", "2"),
+                },
             ),
             ".Map [ 1 <- 2 ]",
         ),
@@ -297,8 +308,10 @@ fn remaining_collection_operations_have_exact_canonical_k_source() {
             DefinitionTerm::list(
                 node("list.make"),
                 DefinitionSortRef::list(),
-                ListOperation::Make,
-                vec![int("list.make.length", "3"), int("list.make.value", "7")],
+                ListOperands::Make {
+                    length: int("list.make.length", "3"),
+                    value: int("list.make.value", "7"),
+                },
             ),
             "makeList(3, 7)",
         ),

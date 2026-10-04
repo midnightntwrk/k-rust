@@ -2811,18 +2811,18 @@ mod tests {
                 }
             }
             (
-                krs_ir_levels::SemanticTermKind::Map {
-                    operation: explicit_operation,
-                    arguments: explicit_arguments,
-                },
-                krs_ir_levels::SemanticTermKind::Map {
-                    operation: readable_operation,
-                    arguments: readable_arguments,
-                },
+                krs_ir_levels::SemanticTermKind::Map(explicit_operands),
+                krs_ir_levels::SemanticTermKind::Map(readable_operands),
             ) => {
-                assert_eq!(explicit_operation, readable_operation);
-                assert_eq!(explicit_arguments.len(), readable_arguments.len());
-                for (explicit, readable) in explicit_arguments.iter().zip(readable_arguments) {
+                assert_eq!(explicit_operands.operation(), readable_operands.operation());
+                assert_eq!(
+                    explicit_operands.operands().count(),
+                    readable_operands.operands().count()
+                );
+                for (explicit, readable) in explicit_operands
+                    .operands()
+                    .zip(readable_operands.operands())
+                {
                     assert_semantic_term_equivalent(explicit, readable);
                 }
             }

@@ -770,18 +770,19 @@ impl Sample for DefinitionTermKind {
                     item_sort: sample::<DefinitionSortRef>(),
                     items: sample::<Vec<DefinitionTerm>>(),
                 },
-                Self::Map {
-                    operation: sample::<MapOperation>(),
-                    arguments: sample::<Vec<DefinitionTerm>>(),
-                },
-                Self::List {
-                    operation: sample::<ListOperation>(),
-                    arguments: sample::<Vec<DefinitionTerm>>(),
-                },
-                Self::Set {
-                    operation: sample::<SetOperation>(),
-                    arguments: sample::<Vec<DefinitionTerm>>(),
-                },
+                Self::Map(Box::new(MapOperands::Items(NonEmpty::new(
+                    MapEntry {
+                        key: sample::<DefinitionTerm>(),
+                        value: sample::<DefinitionTerm>(),
+                    },
+                    Vec::new(),
+                )))),
+                Self::List(Box::new(ListOperands::Item {
+                    element: sample::<DefinitionTerm>(),
+                })),
+                Self::Set(Box::new(SetOperands::Item {
+                    element: sample::<DefinitionTerm>(),
+                })),
                 Self::Cell {
                     cell: sample::<SymbolId>(),
                     children: sample::<Vec<DefinitionTerm>>(),
@@ -798,9 +799,9 @@ impl Sample for DefinitionTermKind {
                 Self::Application { .. } => 1,
                 Self::Token { .. } => 2,
                 Self::KSequence { .. } => 3,
-                Self::Map { .. } => 4,
-                Self::List { .. } => 5,
-                Self::Set { .. } => 6,
+                Self::Map(_) => 4,
+                Self::List(_) => 5,
+                Self::Set(_) => 6,
                 Self::Cell { .. } => 7,
                 Self::Rewrite { .. } => 8,
             },
@@ -1689,18 +1690,19 @@ impl Sample for SemanticTermKind {
                     item_sort: sample::<SemanticSortRef>(),
                     items: sample::<Vec<SemanticTerm>>(),
                 },
-                Self::Map {
-                    operation: sample::<MapOperation>(),
-                    arguments: sample::<Vec<SemanticTerm>>(),
-                },
-                Self::List {
-                    operation: sample::<ListOperation>(),
-                    arguments: sample::<Vec<SemanticTerm>>(),
-                },
-                Self::Set {
-                    operation: sample::<SetOperation>(),
-                    arguments: sample::<Vec<SemanticTerm>>(),
-                },
+                Self::Map(Box::new(MapOperands::Items(NonEmpty::new(
+                    MapEntry {
+                        key: sample::<SemanticTerm>(),
+                        value: sample::<SemanticTerm>(),
+                    },
+                    Vec::new(),
+                )))),
+                Self::List(Box::new(ListOperands::Item {
+                    element: sample::<SemanticTerm>(),
+                })),
+                Self::Set(Box::new(SetOperands::Item {
+                    element: sample::<SemanticTerm>(),
+                })),
                 Self::Cell {
                     cell: sample::<SemanticId>(),
                     children: sample::<Vec<SemanticTerm>>(),
@@ -1717,9 +1719,9 @@ impl Sample for SemanticTermKind {
                 Self::Application { .. } => 1,
                 Self::Token { .. } => 2,
                 Self::KSequence { .. } => 3,
-                Self::Map { .. } => 4,
-                Self::List { .. } => 5,
-                Self::Set { .. } => 6,
+                Self::Map(_) => 4,
+                Self::List(_) => 5,
+                Self::Set(_) => 6,
                 Self::Cell { .. } => 7,
                 Self::Rewrite { .. } => 8,
             },

@@ -4,12 +4,13 @@ use krs_ir::testing;
 use krs_ir::{
     CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell, FixedCellClause,
     FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, MapOperation, ModuleId, NodeOrigin, SemanticId, StateShapeError,
+    FixedInitializerCell, MapOperation, ModuleId, NodeOrigin, NonEmpty, SemanticId,
+    StateShapeError,
 };
 use krs_ir_levels::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity, RuleSentence,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity, MapEntry, MapOperands,
+    RuleSentence, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
@@ -255,11 +256,13 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                 env.clone(),
                 DefinitionTerm::map(
                     node("rule.var.env.item"),
-                    MapOperation::Item,
-                    vec![
-                        variable("rule.var.x.map", "variable.x", DefinitionSortRef::id()),
-                        variable("rule.var.v.map", "variable.v", value.clone()),
-                    ],
+                    MapOperands::Items(NonEmpty::new(
+                        MapEntry {
+                            key: variable("rule.var.x.map", "variable.x", DefinitionSortRef::id()),
+                            value: variable("rule.var.v.map", "variable.v", value.clone()),
+                        },
+                        Vec::new(),
+                    )),
                 ),
                 CellPost::Preserve,
                 CellContentFrame::MapRemainder {
@@ -283,26 +286,28 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         var_rule,
     )));
 
-    let update_arguments = if variants.valid_update {
-        vec![
-            variable(
-                "rule.assign.e.update",
-                "variable.assign.e",
-                DefinitionSortRef::map(),
-            ),
-            variable(
-                "rule.assign.x.update",
-                "variable.assign.x",
-                DefinitionSortRef::id(),
-            ),
-            variable("rule.assign.v.update", "variable.assign.v", value.clone()),
-        ]
+    // An invalid update passes the Id-sorted key binding where the Map operand belongs.
+    let update_map = if variants.valid_update {
+        variable(
+            "rule.assign.e.update",
+            "variable.assign.e",
+            DefinitionSortRef::map(),
+        )
     } else {
-        vec![variable(
+        variable(
+            "rule.assign.e.update",
+            "variable.assign.x",
+            DefinitionSortRef::id(),
+        )
+    };
+    let update_operands = MapOperands::Update {
+        map: update_map,
+        key: variable(
             "rule.assign.x.update",
             "variable.assign.x",
             DefinitionSortRef::id(),
-        )]
+        ),
+        value: variable("rule.assign.v.update", "variable.assign.v", value.clone()),
     };
     let assign = FixedConfigurationRewrite::new(
         node("rule.assign.rewrite"),
@@ -341,11 +346,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                     DefinitionSortRef::map(),
                 ),
                 CellPost::Replace {
-                    term: DefinitionTerm::map(
-                        node("rule.assign.env.update"),
-                        MapOperation::Update,
-                        update_arguments,
-                    ),
+                    term: DefinitionTerm::map(node("rule.assign.env.update"), update_operands),
                 },
                 CellContentFrame::Exact,
             ),

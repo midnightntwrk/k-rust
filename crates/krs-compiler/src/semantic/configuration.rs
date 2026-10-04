@@ -4,11 +4,11 @@ use krs_ir::{
     CellAttribute, CellMultiplicity, ConfigurationRoot, Descriptor, DescriptorCellDeclaration,
     DescriptorFixedConfiguration, DescriptorIndex, DescriptorInitializerCell,
     DescriptorInitializerStateTerm, DescriptorTerm, FixedCell, FixedConfiguration,
-    FixedConfigurationVariable, FixedInitializerCell, MapOperation, ProtocolCellContent,
+    FixedConfigurationVariable, FixedInitializerCell, ProtocolCellContent,
     ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey,
     SemanticId, StableItemId,
 };
-use krs_ir_levels::{SemanticConfiguration, SemanticSortRef, SemanticTerm};
+use krs_ir_levels::{MapEntry, MapOperands, SemanticConfiguration, SemanticSortRef, SemanticTerm};
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::error::DescriptorLoweringError;
@@ -265,31 +265,34 @@ fn lower_initializer_state(
                 });
             }
             let key = map.payload_key.as_ref().unwrap_or(fallback_key);
-            let (operation, arguments) = match &map.body {
-                ProtocolMapBody::Empty { .. } => (MapOperation::Empty, Vec::new()),
+            let operands = match &map.body {
+                ProtocolMapBody::Empty { .. } => MapOperands::Empty,
                 ProtocolMapBody::Items { items } => {
-                    let mut arguments = Vec::with_capacity(items.len() * 2);
+                    let mut entries = Vec::with_capacity(items.len());
                     for item in items {
-                        arguments.push(lower_term(&item.key.term, None)?);
-                        arguments.push(lower_term(&item.value.term, None)?);
+                        entries.push(MapEntry {
+                            key: lower_term(&item.key.term, None)?,
+                            value: lower_term(&item.value.term, None)?,
+                        });
                     }
-                    (MapOperation::Item, arguments)
+                    MapOperands::items(entries).map_err(|error| {
+                        DescriptorLoweringError::InvalidTerm {
+                            id: Box::new(descriptor.id().clone()),
+                            detail: error.to_string(),
+                        }
+                    })?
                 }
                 ProtocolMapBody::Update {
                     base, key, value, ..
-                } => (
-                    MapOperation::Update,
-                    vec![
-                        lower_term(&base.term, Some(&SemanticSortRef::map()))?,
-                        lower_term(&key.term, None)?,
-                        lower_term(&value.term, None)?,
-                    ],
-                ),
+                } => MapOperands::Update {
+                    map: lower_term(&base.term, Some(&SemanticSortRef::map()))?,
+                    key: lower_term(&key.term, None)?,
+                    value: lower_term(&value.term, None)?,
+                },
             };
             Ok(SemanticTerm::map(
                 semantic_origin(descriptor, key.clone(), "initializer-map")?,
-                operation,
-                arguments,
+                operands,
             ))
         }
     }

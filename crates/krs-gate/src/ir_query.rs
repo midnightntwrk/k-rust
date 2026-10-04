@@ -286,33 +286,26 @@ impl<'a> Context<'a> {
                         fact["operation"] = json!(enum_name(operation));
                     }
                 }
-                ("application", Some(arguments))
+                ("application", Some(arguments.iter().collect::<Vec<_>>()))
             }
-            DefinitionTermKind::KSequence { items, .. } => ("k_sequence", Some(items)),
-            DefinitionTermKind::Map {
-                operation,
-                arguments,
-            } => {
-                fact["operation"] = json!(format!("map.{}", enum_name(operation)));
-                ("map", Some(arguments))
+            DefinitionTermKind::KSequence { items, .. } => {
+                ("k_sequence", Some(items.iter().collect()))
             }
-            DefinitionTermKind::List {
-                operation,
-                arguments,
-            } => {
-                fact["operation"] = json!(format!("list.{}", enum_name(operation)));
-                ("list", Some(arguments))
+            DefinitionTermKind::Map(operands) => {
+                fact["operation"] = json!(format!("map.{}", enum_name(&operands.operation())));
+                ("map", Some(operands.operands().collect()))
             }
-            DefinitionTermKind::Set {
-                operation,
-                arguments,
-            } => {
-                fact["operation"] = json!(format!("set.{}", enum_name(operation)));
-                ("set", Some(arguments))
+            DefinitionTermKind::List(operands) => {
+                fact["operation"] = json!(format!("list.{}", enum_name(&operands.operation())));
+                ("list", Some(operands.operands().collect()))
+            }
+            DefinitionTermKind::Set(operands) => {
+                fact["operation"] = json!(format!("set.{}", enum_name(&operands.operation())));
+                ("set", Some(operands.operands().collect()))
             }
             DefinitionTermKind::Cell { cell, children } => {
                 fact["cell"] = json!(self.cells[cell]);
-                ("cell", Some(children))
+                ("cell", Some(children.iter().collect()))
             }
             DefinitionTermKind::Rewrite { from, to } => {
                 fact["from"] = self.term(from);
@@ -322,7 +315,12 @@ impl<'a> Context<'a> {
         };
         fact["kind"] = json!(kind);
         if let Some(arguments) = arguments {
-            fact["arguments"] = json!(arguments.iter().map(|t| self.term(t)).collect::<Vec<_>>());
+            fact["arguments"] = json!(
+                arguments
+                    .into_iter()
+                    .map(|t| self.term(t))
+                    .collect::<Vec<_>>()
+            );
         }
         fact
     }
@@ -335,60 +333,40 @@ impl<'a> Context<'a> {
         filter: &dyn Fn(&Value) -> bool,
         include_arguments: bool,
     ) {
-        let children = match term.kind() {
-            DefinitionTermKind::Application { arguments, .. }
-            | DefinitionTermKind::Map { arguments, .. }
-            | DefinitionTermKind::List { arguments, .. }
-            | DefinitionTermKind::Set { arguments, .. } => {
-                let (symbol, operation) = match term.kind() {
-                    DefinitionTermKind::Application {
-                        application: ApplicationRef::Declared(id),
-                        ..
-                    } => (Some(self.names[id].to_owned()), None),
-                    DefinitionTermKind::Application {
-                        application: ApplicationRef::Builtin(op),
-                        ..
-                    } => (None, Some(enum_name(op))),
-                    DefinitionTermKind::Map { operation, .. } => {
-                        (None, Some(format!("map.{}", enum_name(operation))))
-                    }
-                    DefinitionTermKind::List { operation, .. } => {
-                        (None, Some(format!("list.{}", enum_name(operation))))
-                    }
-                    DefinitionTermKind::Set { operation, .. } => {
-                        (None, Some(format!("set.{}", enum_name(operation))))
-                    }
-                    _ => unreachable!("operation term"),
-                };
-                let hook = match term.kind() {
-                    DefinitionTermKind::Application {
-                        application: ApplicationRef::Declared(id),
-                        ..
-                    } => self.hooks.get(id),
-                    _ => None,
-                };
-                let argument_sorts = arguments
-                    .iter()
-                    .map(|term| self.sort(term.sort()))
-                    .collect::<Vec<_>>();
-                let mut row = json!({
-                    "module": module,
-                    "label": label,
-                    "symbol": symbol,
-                    "operation": operation,
-                    "hook": hook,
-                    "result_sort": self.sort(term.sort()),
-                    "argument_sorts": argument_sorts,
-                });
-                if filter(&row) {
-                    if include_arguments {
-                        row["arguments"] =
-                            json!(arguments.iter().map(|t| self.term(t)).collect::<Vec<_>>());
-                    }
-                    rows.push(row);
+        if let Some((symbol, operation, arguments)) = self.operation_head(term) {
+            let hook = match term.kind() {
+                DefinitionTermKind::Application {
+                    application: ApplicationRef::Declared(id),
+                    ..
+                } => self.hooks.get(id),
+                _ => None,
+            };
+            let argument_sorts = arguments
+                .iter()
+                .map(|term| self.sort(term.sort()))
+                .collect::<Vec<_>>();
+            let mut row = json!({
+                "module": module,
+                "label": label,
+                "symbol": symbol,
+                "operation": operation,
+                "hook": hook,
+                "result_sort": self.sort(term.sort()),
+                "argument_sorts": argument_sorts,
+            });
+            if filter(&row) {
+                if include_arguments {
+                    row["arguments"] =
+                        json!(arguments.iter().map(|t| self.term(t)).collect::<Vec<_>>());
                 }
-                arguments.as_slice()
+                rows.push(row);
             }
+            for child in arguments {
+                self.operation_rows(child, rows, module, label, filter, include_arguments);
+            }
+            return;
+        }
+        let children = match term.kind() {
             DefinitionTermKind::KSequence { items, .. } => items,
             DefinitionTermKind::Cell { children, .. } => children,
             DefinitionTermKind::Rewrite { from, to } => {
@@ -400,6 +378,42 @@ impl<'a> Context<'a> {
         };
         for child in children {
             self.operation_rows(child, rows, module, label, filter, include_arguments);
+        }
+    }
+    /// The symbol or operation name and the operands of an application or collection term.
+    fn operation_head<'t>(
+        &self,
+        term: &'t DefinitionTerm,
+    ) -> Option<(Option<String>, Option<String>, Vec<&'t DefinitionTerm>)> {
+        match term.kind() {
+            DefinitionTermKind::Application {
+                application: ApplicationRef::Declared(id),
+                arguments,
+            } => Some((
+                Some(self.names[id].to_owned()),
+                None,
+                arguments.iter().collect(),
+            )),
+            DefinitionTermKind::Application {
+                application: ApplicationRef::Builtin(operation),
+                arguments,
+            } => Some((None, Some(enum_name(operation)), arguments.iter().collect())),
+            DefinitionTermKind::Map(operands) => Some((
+                None,
+                Some(format!("map.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            DefinitionTermKind::List(operands) => Some((
+                None,
+                Some(format!("list.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            DefinitionTermKind::Set(operands) => Some((
+                None,
+                Some(format!("set.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            _ => None,
         }
     }
 }

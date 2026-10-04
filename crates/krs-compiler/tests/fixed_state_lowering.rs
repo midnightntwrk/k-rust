@@ -9,13 +9,14 @@ use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
     FixedCellClause, FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
     FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, ItemKind,
-    MapOperation, ModuleId, NodeOrigin, PackageId, PrecedenceRelation, ProductionAttribute,
+    ModuleId, NodeOrigin, NonEmpty, PackageId, PrecedenceRelation, ProductionAttribute,
     ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
     SemanticId, SentenceKind, StableItemId, StrictnessKind,
 };
 use krs_ir_levels::{
-    RuleBodyRef, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
+    MapEntry, MapOperands, RuleBodyRef, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SemanticVariable,
 };
 use krs_test_support::kompile_reference;
 
@@ -352,11 +353,13 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                     env.clone(),
                     SemanticTerm::map(
                         origin("rule.var.env.item"),
-                        MapOperation::Item,
-                        vec![
-                            variable("rule.var.x.map", "X", SemanticSortRef::id()),
-                            variable("rule.var.v.map", "V", value.clone()),
-                        ],
+                        MapOperands::Items(NonEmpty::new(
+                            MapEntry {
+                                key: variable("rule.var.x.map", "X", SemanticSortRef::id()),
+                                value: variable("rule.var.v.map", "V", value.clone()),
+                            },
+                            vec![],
+                        )),
                     ),
                     CellPost::Preserve,
                     map_frame("rule.var.env.frame", "MREST"),
@@ -420,12 +423,11 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                     CellPost::Replace {
                         term: SemanticTerm::map(
                             origin("rule.assign.env.update"),
-                            MapOperation::Update,
-                            vec![
-                                variable("rule.assign.e.update", "E", SemanticSortRef::map()),
-                                variable("rule.assign.x.update", "X", SemanticSortRef::id()),
-                                variable("rule.assign.v.update", "V", value.clone()),
-                            ],
+                            MapOperands::Update {
+                                map: variable("rule.assign.e.update", "E", SemanticSortRef::map()),
+                                key: variable("rule.assign.x.update", "X", SemanticSortRef::id()),
+                                value: variable("rule.assign.v.update", "V", value.clone()),
+                            },
                         ),
                     },
                     if options.named_frames {
@@ -697,10 +699,8 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     };
     assert!(matches!(
         var_rule.clauses()[1].before().kind(),
-        krs_ir_levels::DefinitionTermKind::Map {
-            operation: MapOperation::Item,
-            arguments,
-        } if arguments.len() == 2
+        krs_ir_levels::DefinitionTermKind::Map(operands)
+            if matches!(operands.as_ref(), MapOperands::Items(entries) if entries.len() == 1)
     ));
     assert!(matches!(var_rule.clauses()[1].after(), CellPost::Preserve));
     assert!(matches!(
@@ -722,10 +722,8 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     assert!(matches!(
         assign_rule.clauses()[1].after(),
         CellPost::Replace { term }
-            if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::Map {
-                operation: MapOperation::Update,
-                arguments,
-            } if arguments.len() == 3)
+            if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::Map(operands)
+                if matches!(operands.as_ref(), MapOperands::Update { .. }))
     ));
 
     assert_exact_source(emitted.source());

@@ -876,10 +876,22 @@ fn insert_term(
 ) -> Result<(), SidecarError> {
     insert_origin(entries, term.origin(), SourceMapNodeKind::Term)?;
     match term.kind() {
+        DefinitionTermKind::Map(operands) => {
+            for operand in operands.operands() {
+                insert_term(entries, operand)?;
+            }
+        }
+        DefinitionTermKind::List(operands) => {
+            for operand in operands.operands() {
+                insert_term(entries, operand)?;
+            }
+        }
+        DefinitionTermKind::Set(operands) => {
+            for operand in operands.operands() {
+                insert_term(entries, operand)?;
+            }
+        }
         DefinitionTermKind::Application { arguments, .. }
-        | DefinitionTermKind::Map { arguments, .. }
-        | DefinitionTermKind::List { arguments, .. }
-        | DefinitionTermKind::Set { arguments, .. }
         | DefinitionTermKind::KSequence {
             items: arguments, ..
         }

@@ -912,12 +912,18 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
         DefinitionTermKind::Application { arguments, .. }
         | DefinitionTermKind::KSequence {
             items: arguments, ..
-        }
-        | DefinitionTermKind::Map { arguments, .. }
-        | DefinitionTermKind::List { arguments, .. }
-        | DefinitionTermKind::Set { arguments, .. } => arguments
+        } => arguments
             .iter()
             .any(|argument| term_contains_variable(argument, variable)),
+        DefinitionTermKind::Map(operands) => operands
+            .operands()
+            .any(|operand| term_contains_variable(operand, variable)),
+        DefinitionTermKind::List(operands) => operands
+            .operands()
+            .any(|operand| term_contains_variable(operand, variable)),
+        DefinitionTermKind::Set(operands) => operands
+            .operands()
+            .any(|operand| term_contains_variable(operand, variable)),
         DefinitionTermKind::Cell { children, .. } => children
             .iter()
             .any(|child| term_contains_variable(child, variable)),

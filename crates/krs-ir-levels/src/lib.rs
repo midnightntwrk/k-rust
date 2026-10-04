@@ -11,6 +11,7 @@
 //! [`krs_ir::SchemaVersion`] of every serialized contract come from `krs-ir`.
 //! The author-facing facade and the front-end crates do not depend on this crate.
 
+pub mod collection_operands;
 pub mod definition;
 mod display;
 pub mod ir_level;
@@ -18,6 +19,10 @@ mod ir_validation;
 pub mod k_surface;
 pub mod semantic;
 mod stable_text;
+
+pub use collection_operands::{
+    CollectionArityError, ListOperands, MapEntry, MapOperands, SetOperands,
+};
 
 pub use definition::{
     ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,

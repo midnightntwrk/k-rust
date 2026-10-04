@@ -1286,11 +1286,11 @@ pub enum SemanticValidationError {
     InitializerLeafSortMismatch,
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
-    /// A Map operation had the wrong arity or Map operand.
+    /// A Map operation had a wrong result or operand sort.
     MapOperationSignature(MapOperation),
-    /// A List operation had the wrong result sort, arity, or operand sorts.
+    /// A List operation had a wrong result or operand sort.
     ListOperationSignature(ListOperation),
-    /// A Set term has a locally invalid result sort or operand signature.
+    /// A Set operation had a wrong result or operand sort.
     SetOperationSignature(SetOperation),
     /// A configuration rule exists without a general fixed configuration.
     ConfigurationRuleWithoutFixedConfiguration(Box<StableItemId>),

@@ -4,7 +4,10 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{DefinitionValidationError, SemanticValidationError, SymbolId};
+use crate::{
+    CollectionArityError, DefinitionValidationError, ListOperands, MapOperands,
+    SemanticValidationError, SetOperands, SymbolId,
+};
 use krs_ir::{
     ApplicationRef, BuiltinSort, FixedConfigurationPattern, FixedConfigurationRewrite,
     ListOperation, MapOperation, NodeOrigin, SemanticId, SetOperation, StableItemId,
@@ -650,55 +653,31 @@ impl<L: IrLevel> IrTerm<L> {
             },
         })
     }
-    /// Creates one typed Map-theory operation with a non-Map result sort.
+    /// Creates one typed Map-theory operation with an explicit result sort.
     #[must_use]
-    pub const fn typed_map(
-        origin: NodeOrigin,
-        sort: L::Sort,
-        operation: MapOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
+    pub fn typed_map(origin: NodeOrigin, sort: L::Sort, operands: MapOperands<Self>) -> Self {
         Self {
             origin,
             sort,
-            kind: IrTermKind::Map {
-                operation,
-                arguments,
-            },
+            kind: IrTermKind::Map(Box::new(operands)),
         }
     }
     /// Creates one typed builtin-List operation.
     #[must_use]
-    pub const fn list(
-        origin: NodeOrigin,
-        sort: L::Sort,
-        operation: ListOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
+    pub fn list(origin: NodeOrigin, sort: L::Sort, operands: ListOperands<Self>) -> Self {
         Self {
             origin,
             sort,
-            kind: IrTermKind::List {
-                operation,
-                arguments,
-            },
+            kind: IrTermKind::List(Box::new(operands)),
         }
     }
     /// Creates one typed builtin-Set operation.
     #[must_use]
-    pub const fn set(
-        origin: NodeOrigin,
-        sort: L::Sort,
-        operation: SetOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
+    pub fn set(origin: NodeOrigin, sort: L::Sort, operands: SetOperands<Self>) -> Self {
         Self {
             origin,
             sort,
-            kind: IrTermKind::Set {
-                operation,
-                arguments,
-            },
+            kind: IrTermKind::Set(Box::new(operands)),
         }
     }
     /// Creates one complete generated configuration-cell term.
@@ -733,13 +712,11 @@ impl<L: IrLevel> IrTerm<L> {
 }
 
 /// Structured target-neutral term forms at one IR level.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "term_kind",
-    rename_all = "snake_case",
-    deny_unknown_fields,
-    bound = ""
-)]
+///
+/// The JSON form is internally tagged by `term_kind`; Map, List, and Set terms
+/// serialize their operation and their operands, in wire order, as `arguments`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
+#[serde(try_from = "IrTermKindWire<L>", bound = "")]
 pub enum IrTermKind<L: IrLevel> {
     /// Reference to a declared rule or initializer variable.
     Variable {
@@ -766,26 +743,11 @@ pub enum IrTermKind<L: IrLevel> {
         items: Vec<IrTerm<L>>,
     },
     /// Structured finite-map operation or associative item pattern.
-    Map {
-        /// Exact compiler-known Map operation.
-        operation: MapOperation,
-        /// Ordered structured operands.
-        arguments: Vec<IrTerm<L>>,
-    },
+    Map(Box<MapOperands<IrTerm<L>>>),
     /// Structured builtin-List operation.
-    List {
-        /// Exact compiler-known List operation.
-        operation: ListOperation,
-        /// Ordered structured operands.
-        arguments: Vec<IrTerm<L>>,
-    },
+    List(Box<ListOperands<IrTerm<L>>>),
     /// Structured builtin-Set operation.
-    Set {
-        /// Exact compiler-known Set operation.
-        operation: SetOperation,
-        /// Ordered structured operands.
-        arguments: Vec<IrTerm<L>>,
-    },
+    Set(Box<SetOperands<IrTerm<L>>>),
     /// Complete generated configuration-cell application.
     Cell {
         /// Stable fixed-cell identity.
@@ -802,6 +764,156 @@ pub enum IrTermKind<L: IrLevel> {
     },
 }
 
+/// Owned decoding form of [`IrTermKind`]; collection operands arrive as one ordered list.
+#[derive(Deserialize)]
+#[serde(
+    tag = "term_kind",
+    rename_all = "snake_case",
+    deny_unknown_fields,
+    bound = ""
+)]
+pub(crate) enum IrTermKindWire<L: IrLevel> {
+    Variable {
+        variable: SemanticId,
+    },
+    Application {
+        application: ApplicationRef<L::Declaration>,
+        arguments: Vec<IrTerm<L>>,
+    },
+    Token {
+        value: String,
+    },
+    KSequence {
+        item_sort: L::Sort,
+        items: Vec<IrTerm<L>>,
+    },
+    Map {
+        operation: MapOperation,
+        arguments: Vec<IrTerm<L>>,
+    },
+    List {
+        operation: ListOperation,
+        arguments: Vec<IrTerm<L>>,
+    },
+    Set {
+        operation: SetOperation,
+        arguments: Vec<IrTerm<L>>,
+    },
+    Cell {
+        cell: L::Cell,
+        children: Vec<IrTerm<L>>,
+    },
+    Rewrite {
+        from: Box<IrTerm<L>>,
+        to: Box<IrTerm<L>>,
+    },
+}
+
+/// Borrowed encoding form of [`IrTermKind`], field for field the shape of [`IrTermKindWire`].
+#[derive(Serialize)]
+#[serde(tag = "term_kind", rename_all = "snake_case", bound = "")]
+enum IrTermKindRef<'a, L: IrLevel> {
+    Variable {
+        variable: &'a SemanticId,
+    },
+    Application {
+        application: &'a ApplicationRef<L::Declaration>,
+        arguments: &'a [IrTerm<L>],
+    },
+    Token {
+        value: &'a str,
+    },
+    KSequence {
+        item_sort: &'a L::Sort,
+        items: &'a [IrTerm<L>],
+    },
+    Map {
+        operation: MapOperation,
+        arguments: Vec<&'a IrTerm<L>>,
+    },
+    List {
+        operation: ListOperation,
+        arguments: Vec<&'a IrTerm<L>>,
+    },
+    Set {
+        operation: SetOperation,
+        arguments: Vec<&'a IrTerm<L>>,
+    },
+    Cell {
+        cell: &'a L::Cell,
+        children: &'a [IrTerm<L>],
+    },
+    Rewrite {
+        from: &'a IrTerm<L>,
+        to: &'a IrTerm<L>,
+    },
+}
+
+impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
+    type Error = CollectionArityError;
+
+    fn try_from(wire: IrTermKindWire<L>) -> Result<Self, Self::Error> {
+        Ok(match wire {
+            IrTermKindWire::Variable { variable } => Self::Variable { variable },
+            IrTermKindWire::Application {
+                application,
+                arguments,
+            } => Self::Application {
+                application,
+                arguments,
+            },
+            IrTermKindWire::Token { value } => Self::Token { value },
+            IrTermKindWire::KSequence { item_sort, items } => Self::KSequence { item_sort, items },
+            IrTermKindWire::Map {
+                operation,
+                arguments,
+            } => Self::Map(Box::new(MapOperands::from_operands(operation, arguments)?)),
+            IrTermKindWire::List {
+                operation,
+                arguments,
+            } => Self::List(Box::new(ListOperands::from_operands(operation, arguments)?)),
+            IrTermKindWire::Set {
+                operation,
+                arguments,
+            } => Self::Set(Box::new(SetOperands::from_operands(operation, arguments)?)),
+            IrTermKindWire::Cell { cell, children } => Self::Cell { cell, children },
+            IrTermKindWire::Rewrite { from, to } => Self::Rewrite { from, to },
+        })
+    }
+}
+
+impl<L: IrLevel> Serialize for IrTermKind<L> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Variable { variable } => IrTermKindRef::Variable { variable },
+            Self::Application {
+                application,
+                arguments,
+            } => IrTermKindRef::Application {
+                application,
+                arguments,
+            },
+            Self::Token { value } => IrTermKindRef::Token { value },
+            Self::KSequence { item_sort, items } => IrTermKindRef::KSequence { item_sort, items },
+            Self::Map(operands) => IrTermKindRef::Map {
+                operation: operands.operation(),
+                arguments: operands.operands().collect(),
+            },
+            Self::List(operands) => IrTermKindRef::List {
+                operation: operands.operation(),
+                arguments: operands.operands().collect(),
+            },
+            Self::Set(operands) => IrTermKindRef::Set {
+                operation: operands.operation(),
+                arguments: operands.operands().collect(),
+            },
+            Self::Cell { cell, children } => IrTermKindRef::Cell { cell, children },
+            Self::Rewrite { from, to } => IrTermKindRef::Rewrite { from, to },
+        }
+        .serialize(serializer)
+    }
+}
+
 impl<L> IrTerm<L>
 where
     L: IrLevel<Sort = IrSortRef<<L as IrLevel>::Declaration>>,
@@ -816,16 +928,13 @@ where
             kind: IrTermKind::KSequence { item_sort, items },
         }
     }
-    /// Creates one typed Map-theory operation.
+    /// Creates one typed Map-theory operation of builtin `Map` sort.
     #[must_use]
-    pub const fn map(origin: NodeOrigin, operation: MapOperation, arguments: Vec<Self>) -> Self {
+    pub fn map(origin: NodeOrigin, operands: MapOperands<Self>) -> Self {
         Self {
             origin,
             sort: IrSortRef::Builtin(BuiltinSort::Map),
-            kind: IrTermKind::Map {
-                operation,
-                arguments,
-            },
+            kind: IrTermKind::Map(Box::new(operands)),
         }
     }
 }

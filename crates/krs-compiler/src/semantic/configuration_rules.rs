@@ -3,14 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellReference, DescriptorClaim,
     DescriptorClaimBinder, DescriptorIndex, DescriptorTerm, FixedCellClause, FixedCellPattern,
-    FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, MapOperation,
-    ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolRuleBindingKind,
-    ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
-    SemanticId, StableItemId,
+    FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, ProtocolCellContent,
+    ProtocolContextAliasBindingKind, ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame,
+    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticId, StableItemId,
 };
 use krs_ir_levels::{
-    SemanticContextAlias, SemanticRule, SemanticRuleCondition, SemanticSortRef, SemanticTerm,
-    SemanticVariable,
+    MapEntry, MapOperands, SemanticContextAlias, SemanticRule, SemanticRuleCondition,
+    SemanticSortRef, SemanticTerm, SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -115,31 +114,39 @@ impl StateRuleTerms<'_> {
                     });
                 }
                 let key = map.payload_key.as_ref().unwrap_or(fallback_key);
-                let (operation, arguments) = match &map.body {
-                    ProtocolRuleMapBody::Empty { .. } => (MapOperation::Empty, Vec::new()),
+                let operands = match &map.body {
+                    ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
                     ProtocolRuleMapBody::Items { items, .. } => {
-                        let mut arguments = Vec::with_capacity(items.len() * 2);
+                        let mut entries = Vec::with_capacity(items.len());
                         for item in items {
-                            arguments.push(self.term(&item.key, None, binding_sorts, subject)?);
-                            arguments.push(self.term(&item.value, None, binding_sorts, subject)?);
+                            entries.push(MapEntry {
+                                key: self.term(&item.key, None, binding_sorts, subject)?,
+                                value: self.term(&item.value, None, binding_sorts, subject)?,
+                            });
                         }
-                        (MapOperation::Item, arguments)
+                        MapOperands::items(entries).map_err(|error| {
+                            DescriptorLoweringError::InvalidTerm {
+                                id: Box::new(descriptor.id().clone()),
+                                detail: error.to_string(),
+                            }
+                        })?
                     }
                     ProtocolRuleMapBody::Update {
                         base, key, value, ..
-                    } => (
-                        MapOperation::Update,
-                        vec![
-                            self.term(base, Some(&SemanticSortRef::map()), binding_sorts, subject)?,
-                            self.term(key, None, binding_sorts, subject)?,
-                            self.term(value, None, binding_sorts, subject)?,
-                        ],
-                    ),
+                    } => MapOperands::Update {
+                        map: self.term(
+                            base,
+                            Some(&SemanticSortRef::map()),
+                            binding_sorts,
+                            subject,
+                        )?,
+                        key: self.term(key, None, binding_sorts, subject)?,
+                        value: self.term(value, None, binding_sorts, subject)?,
+                    },
                 };
                 Ok(SemanticTerm::map(
                     semantic_origin(descriptor, key.clone(), "rule-map")?,
-                    operation,
-                    arguments,
+                    operands,
                 ))
             }
         }
@@ -810,43 +817,25 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
             },
         ) => left_sort == right_sort && semantic_term_slices_equivalent(left_items, right_items),
         (
-            krs_ir_levels::SemanticTermKind::Map {
-                operation: left_operation,
-                arguments: left_arguments,
-            },
-            krs_ir_levels::SemanticTermKind::Map {
-                operation: right_operation,
-                arguments: right_arguments,
-            },
+            krs_ir_levels::SemanticTermKind::Map(left),
+            krs_ir_levels::SemanticTermKind::Map(right),
         ) => {
-            left_operation == right_operation
-                && semantic_term_slices_equivalent(left_arguments, right_arguments)
+            left.operation() == right.operation()
+                && semantic_term_iters_equivalent(left.operands(), right.operands())
         }
         (
-            krs_ir_levels::SemanticTermKind::List {
-                operation: left_operation,
-                arguments: left_arguments,
-            },
-            krs_ir_levels::SemanticTermKind::List {
-                operation: right_operation,
-                arguments: right_arguments,
-            },
+            krs_ir_levels::SemanticTermKind::List(left),
+            krs_ir_levels::SemanticTermKind::List(right),
         ) => {
-            left_operation == right_operation
-                && semantic_term_slices_equivalent(left_arguments, right_arguments)
+            left.operation() == right.operation()
+                && semantic_term_iters_equivalent(left.operands(), right.operands())
         }
         (
-            krs_ir_levels::SemanticTermKind::Set {
-                operation: left_operation,
-                arguments: left_arguments,
-            },
-            krs_ir_levels::SemanticTermKind::Set {
-                operation: right_operation,
-                arguments: right_arguments,
-            },
+            krs_ir_levels::SemanticTermKind::Set(left),
+            krs_ir_levels::SemanticTermKind::Set(right),
         ) => {
-            left_operation == right_operation
-                && semantic_term_slices_equivalent(left_arguments, right_arguments)
+            left.operation() == right.operation()
+                && semantic_term_iters_equivalent(left.operands(), right.operands())
         }
         (
             krs_ir_levels::SemanticTermKind::Rewrite {
@@ -862,6 +851,19 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
                 && semantic_terms_equivalent(left_to, right_to)
         }
         _ => false,
+    }
+}
+
+fn semantic_term_iters_equivalent<'a>(
+    mut left: impl Iterator<Item = &'a SemanticTerm>,
+    mut right: impl Iterator<Item = &'a SemanticTerm>,
+) -> bool {
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return true,
+            (Some(left), Some(right)) if semantic_terms_equivalent(left, right) => {}
+            _ => return false,
+        }
     }
 }
 

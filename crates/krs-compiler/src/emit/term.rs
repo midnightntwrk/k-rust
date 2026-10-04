@@ -1,10 +1,10 @@
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinOperationNotation, GrammarProductionItemKind,
-    ListOperation, MapOperation, ProductionAttribute, ProductionGroupId, SemanticId,
-    SemanticIdKind, SetOperation, SourceMapKey,
+    ApplicationRef, BuiltinOperation, BuiltinOperationNotation, CollectionNotation,
+    CollectionOperationSpec, GrammarProductionItemKind, MapOperation, ProductionAttribute,
+    ProductionGroupId, SemanticId, SemanticIdKind, SourceMapKey,
 };
 use krs_ir_levels::{
-    DefinitionClaimBinder, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    DefinitionClaimBinder, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands,
     ProductionSentence, RuleSentence, k_surface::variable_name,
 };
 
@@ -228,32 +228,25 @@ fn render_term_with_binders(
                 }
             }
         }
-        DefinitionTermKind::Map {
-            operation,
-            arguments,
-        } => render_map(
+        DefinitionTermKind::Map(operands) => {
+            render_map(term.sort(), operands, context, existentials, &mut output)?;
+        }
+        DefinitionTermKind::List(operands) => render_collection(
             term.sort(),
-            *operation,
-            arguments,
+            operands.operation().spec(),
+            operands.operands(),
             context,
             existentials,
             &mut output,
         )?,
-        DefinitionTermKind::List {
-            operation,
-            arguments,
-        } => render_list(
+        DefinitionTermKind::Set(operands) => render_collection(
             term.sort(),
-            *operation,
-            arguments,
+            operands.operation().spec(),
+            operands.operands(),
             context,
             existentials,
             &mut output,
         )?,
-        DefinitionTermKind::Set {
-            operation,
-            arguments,
-        } => render_set(*operation, arguments, context, existentials, &mut output)?,
         DefinitionTermKind::Cell { cell, children } => {
             let name = context.cell_name(cell)?;
             output.push("<");
@@ -405,218 +398,81 @@ fn render_builtin_argument(
 
 fn render_map(
     result_sort: &DefinitionSortRef,
-    operation: MapOperation,
-    arguments: &[DefinitionTerm],
+    operands: &MapOperands<DefinitionTerm>,
     context: &EmitContext<'_>,
     existentials: &[DefinitionClaimBinder],
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
-    match operation {
-        MapOperation::Empty if arguments.is_empty() => output.push(".Map"),
-        MapOperation::Item if !arguments.is_empty() && arguments.len().is_multiple_of(2) => {
-            for (index, pair) in arguments.as_chunks::<2>().0.iter().enumerate() {
-                if index != 0 {
-                    output.push(" ");
-                }
+    let MapOperands::Items(entries) = operands else {
+        return render_collection(
+            result_sort,
+            operands.operation().spec(),
+            operands.operands(),
+            context,
+            existentials,
+            output,
+        );
+    };
+    for (index, entry) in entries.iter().enumerate() {
+        if index != 0 {
+            output.push(MapOperation::CONCATENATION.separator);
+        }
+        render_collection(
+            result_sort,
+            MapOperation::Item.spec(),
+            [&entry.key, &entry.value].into_iter(),
+            context,
+            existentials,
+            output,
+        )?;
+    }
+    Ok(())
+}
+
+fn render_collection<'a>(
+    result_sort: &DefinitionSortRef,
+    spec: &CollectionOperationSpec,
+    operands: impl Iterator<Item = &'a DefinitionTerm>,
+    context: &EmitContext<'_>,
+    existentials: &[DefinitionClaimBinder],
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    if spec.is_projected() {
+        output.push("{");
+    }
+    match spec.k_notation {
+        CollectionNotation::Mixfix { pieces } => {
+            output.push(pieces[0]);
+            for (operand, piece) in operands.zip(&pieces[1..]) {
                 output.append(render_term_with_binders(
-                    &pair[0],
+                    operand,
                     context,
                     false,
                     existentials,
                 )?);
-                output.push(" |-> ");
+                output.push(piece);
+            }
+        }
+        CollectionNotation::Call { name } => {
+            output.push(name);
+            output.push("(");
+            for (index, operand) in operands.enumerate() {
+                if index > 0 {
+                    output.push(", ");
+                }
                 output.append(render_term_with_binders(
-                    &pair[1],
+                    operand,
                     context,
                     false,
                     existentials,
                 )?);
             }
-        }
-        MapOperation::Update if arguments.len() == 3 => {
-            output.append(render_term_with_binders(
-                &arguments[0],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" [ ");
-            output.append(render_term_with_binders(
-                &arguments[1],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" <- ");
-            output.append(render_term_with_binders(
-                &arguments[2],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" ]");
-        }
-        MapOperation::Get if arguments.len() == 2 => {
-            output.push("{");
-            output.append(render_term_with_binders(
-                &arguments[0],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" [ ");
-            output.append(render_term_with_binders(
-                &arguments[1],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" ]}:>");
-            output.push(context.sort_name_ref(result_sort)?);
-        }
-        MapOperation::InKeys if arguments.len() == 2 => {
-            output.append(render_term_with_binders(
-                &arguments[0],
-                context,
-                false,
-                existentials,
-            )?);
-            output.push(" in_keys(");
-            output.append(render_term_with_binders(
-                &arguments[1],
-                context,
-                false,
-                existentials,
-            )?);
             output.push(")");
-        }
-        _ => {
-            return Err(EmitError::InvalidReference(format!(
-                "the {operation} operation has invalid arity {}",
-                arguments.len()
-            )));
         }
     }
-    Ok(())
-}
-
-fn render_set(
-    operation: SetOperation,
-    arguments: &[DefinitionTerm],
-    context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
-    output: &mut Rendered,
-) -> Result<(), EmitError> {
-    let render = |argument: &DefinitionTerm| {
-        render_term_with_binders(argument, context, false, existentials)
-    };
-    match operation {
-        SetOperation::Empty if arguments.is_empty() => output.push(".Set"),
-        SetOperation::Item if arguments.len() == 1 => {
-            output.push("SetItem(");
-            output.append(render(&arguments[0])?);
-            output.push(")");
-        }
-        SetOperation::Concat if arguments.len() == 2 => {
-            output.append(render(&arguments[0])?);
-            output.push(" ");
-            output.append(render(&arguments[1])?);
-        }
-        SetOperation::Union if arguments.len() == 2 => {
-            output.append(render(&arguments[0])?);
-            output.push(" |Set ");
-            output.append(render(&arguments[1])?);
-        }
-        SetOperation::Contains if arguments.len() == 2 => {
-            output.append(render(&arguments[0])?);
-            output.push(" in ");
-            output.append(render(&arguments[1])?);
-        }
-        _ => {
-            return Err(EmitError::InvalidReference(format!(
-                "the {operation} operation has invalid arity {}",
-                arguments.len()
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn render_list(
-    result_sort: &DefinitionSortRef,
-    operation: ListOperation,
-    arguments: &[DefinitionTerm],
-    context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
-    output: &mut Rendered,
-) -> Result<(), EmitError> {
-    let render = |argument: &DefinitionTerm| {
-        render_term_with_binders(argument, context, false, existentials)
-    };
-    match operation {
-        ListOperation::Empty if arguments.is_empty() => output.push(".List"),
-        ListOperation::Item if arguments.len() == 1 => {
-            output.push("ListItem(");
-            output.append(render(&arguments[0])?);
-            output.push(")");
-        }
-        ListOperation::Concat if arguments.len() == 2 => {
-            output.append(render(&arguments[0])?);
-            output.push(" ");
-            output.append(render(&arguments[1])?);
-        }
-        ListOperation::Get if arguments.len() == 2 => {
-            output.push("{");
-            output.append(render(&arguments[0])?);
-            output.push(" [ ");
-            output.append(render(&arguments[1])?);
-            output.push(" ]}:>");
-            output.push(context.sort_name_ref(result_sort)?);
-        }
-        ListOperation::Update if arguments.len() == 3 => {
-            output.append(render(&arguments[0])?);
-            output.push(" [ ");
-            output.append(render(&arguments[1])?);
-            output.push(" <- ");
-            output.append(render(&arguments[2])?);
-            output.push(" ]");
-        }
-        ListOperation::Size if arguments.len() == 1 => {
-            output.push("size(");
-            output.append(render(&arguments[0])?);
-            output.push(")");
-        }
-        ListOperation::Make if arguments.len() == 2 => {
-            output.push("makeList(");
-            output.append(render(&arguments[0])?);
-            output.push(", ");
-            output.append(render(&arguments[1])?);
-            output.push(")");
-        }
-        ListOperation::Range if arguments.len() == 3 => {
-            output.push("range(");
-            output.append(render(&arguments[0])?);
-            output.push(", ");
-            output.append(render(&arguments[1])?);
-            output.push(", ");
-            output.append(render(&arguments[2])?);
-            output.push(")");
-        }
-        ListOperation::UpdateAll if arguments.len() == 3 => {
-            output.push("updateList(");
-            output.append(render(&arguments[0])?);
-            output.push(", ");
-            output.append(render(&arguments[1])?);
-            output.push(", ");
-            output.append(render(&arguments[2])?);
-            output.push(")");
-        }
-        _ => {
-            return Err(EmitError::InvalidReference(format!(
-                "the {operation} operation has invalid arity {}",
-                arguments.len()
-            )));
-        }
+    if spec.is_projected() {
+        output.push("}:>");
+        output.push(context.sort_name_ref(result_sort)?);
     }
     Ok(())
 }

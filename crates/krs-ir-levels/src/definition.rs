@@ -1299,11 +1299,11 @@ pub enum DefinitionValidationError {
     InitializerLeafSortMismatch,
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
-    /// A Map operation had the wrong arity or Map operand.
+    /// A Map operation had a wrong result or operand sort.
     MapOperationSignature(MapOperation),
-    /// A List operation had the wrong result sort, arity, or operand sorts.
+    /// A List operation had a wrong result or operand sort.
     ListOperationSignature(ListOperation),
-    /// A Set operation had the wrong result sort, arity, or operand sorts.
+    /// A Set operation had a wrong result or operand sort.
     SetOperationSignature(SetOperation),
     /// A configuration rule exists without a general fixed configuration.
     ConfigurationRuleWithoutFixedConfiguration(LabelId),

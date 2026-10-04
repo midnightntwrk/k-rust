@@ -1335,41 +1335,20 @@ fn lower_term(
             lower_term(from, names, origins)?,
             lower_term(to, names, origins)?,
         )?),
-        SemanticTermKind::Map {
-            operation,
-            arguments,
-        } => Ok(DefinitionTerm::typed_map(
+        SemanticTermKind::Map(operands) => Ok(DefinitionTerm::typed_map(
             origin,
             lower_sort_ref(term.sort(), names)?,
-            *operation,
-            arguments
-                .iter()
-                .map(|argument| lower_term(argument, names, origins))
-                .collect::<Result<Vec<_>, _>>()?,
+            operands.try_map_ref(|operand| lower_term(operand, names, origins))?,
         )),
-        SemanticTermKind::List {
-            operation,
-            arguments,
-        } => Ok(DefinitionTerm::list(
+        SemanticTermKind::List(operands) => Ok(DefinitionTerm::list(
             origin,
             lower_sort_ref(term.sort(), names)?,
-            *operation,
-            arguments
-                .iter()
-                .map(|argument| lower_term(argument, names, origins))
-                .collect::<Result<Vec<_>, _>>()?,
+            operands.try_map_ref(|operand| lower_term(operand, names, origins))?,
         )),
-        SemanticTermKind::Set {
-            operation,
-            arguments,
-        } => Ok(DefinitionTerm::set(
+        SemanticTermKind::Set(operands) => Ok(DefinitionTerm::set(
             origin,
             lower_sort_ref(term.sort(), names)?,
-            *operation,
-            arguments
-                .iter()
-                .map(|argument| lower_term(argument, names, origins))
-                .collect::<Result<Vec<_>, _>>()?,
+            operands.try_map_ref(|operand| lower_term(operand, names, origins))?,
         )),
         SemanticTermKind::Cell { cell, children } => Ok(DefinitionTerm::cell(
             origin,

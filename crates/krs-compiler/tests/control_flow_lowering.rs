@@ -11,17 +11,17 @@ use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
     FixedCell, FixedCellClause, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
-    GroupAssociativity, GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin,
-    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SentenceKind,
-    StableItemId, StrictnessKind,
+    GroupAssociativity, GroupAssociativitySentence, ItemKind, ModuleId, NodeOrigin, PackageId,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
+    ProductionGroupId, ProductionResultSort, SemanticId, SentenceKind, StableItemId,
+    StrictnessKind,
 };
 use krs_ir_levels::{
-    DefinitionSentence, DefinitionTermKind, RuleBodyRef, SemanticClaim, SemanticClaimBinder,
-    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTheory, SemanticValidationError, SemanticVariable,
+    DefinitionSentence, DefinitionTermKind, MapOperands, RuleBodyRef, SemanticClaim,
+    SemanticClaimBinder, SemanticContextAlias, SemanticModule, SemanticProduction,
+    SemanticProductionItem, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
+    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError, SemanticVariable,
 };
 use krs_test_support::kompile_reference;
 
@@ -738,8 +738,7 @@ fn all_paths_claim() -> SemanticRule {
     let map = |key: &str, value: SemanticTerm| {
         SemanticTerm::map(
             origin(key),
-            MapOperation::Item,
-            vec![id_token(&format!("{key}.id")), value],
+            MapOperands::entry(id_token(&format!("{key}.id")), value),
         )
     };
     SemanticRule::new_configuration(
@@ -830,7 +829,7 @@ fn all_paths_claim() -> SemanticRule {
 }
 
 fn one_path_claim() -> SemanticRule {
-    let empty_map = |key: &str| SemanticTerm::map(origin(key), MapOperation::Empty, vec![]);
+    let empty_map = |key: &str| SemanticTerm::map(origin(key), MapOperands::Empty);
     SemanticRule::new_configuration(
         origin("imp.claim.one-path"),
         item("imp", "OnePath", ItemKind::Claim),

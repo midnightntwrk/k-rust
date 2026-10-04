@@ -570,20 +570,16 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     assert!(matches!(env.frame(), krs_ir::CellContentFrame::Exact));
     assert!(matches!(
         env.before().kind(),
-        krs_ir_levels::semantic::SemanticTermKind::Map {
-            operation: krs_ir::MapOperation::Empty,
-            arguments,
-        } if arguments.is_empty()
+        krs_ir_levels::semantic::SemanticTermKind::Map(operands)
+            if matches!(operands.as_ref(), krs_ir_levels::MapOperands::Empty)
     ));
     assert!(matches!(
         env.after(),
         krs_ir::CellPost::Replace { term }
             if matches!(
                 term.kind(),
-                krs_ir_levels::semantic::SemanticTermKind::Map {
-                    operation: krs_ir::MapOperation::Item,
-                    arguments,
-                } if arguments.len() == 2
+                krs_ir_levels::semantic::SemanticTermKind::Map(operands)
+                    if matches!(operands.as_ref(), krs_ir_levels::MapOperands::Items(entries) if entries.len() == 1)
             )
     ));
 

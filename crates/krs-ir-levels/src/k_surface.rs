@@ -267,22 +267,22 @@ impl BuiltinRequirements {
                     self.term(item);
                 }
             }
-            DefinitionTermKind::Map { arguments, .. } => {
+            DefinitionTermKind::Map(operands) => {
                 self.sorts.insert(BuiltinSort::Map);
-                for argument in arguments {
-                    self.term(argument);
+                for operand in operands.operands() {
+                    self.term(operand);
                 }
             }
-            DefinitionTermKind::List { arguments, .. } => {
+            DefinitionTermKind::List(operands) => {
                 self.sorts.insert(BuiltinSort::List);
-                for argument in arguments {
-                    self.term(argument);
+                for operand in operands.operands() {
+                    self.term(operand);
                 }
             }
-            DefinitionTermKind::Set { arguments, .. } => {
+            DefinitionTermKind::Set(operands) => {
                 self.sorts.insert(BuiltinSort::Set);
-                for argument in arguments {
-                    self.term(argument);
+                for operand in operands.operands() {
+                    self.term(operand);
                 }
             }
             DefinitionTermKind::Rewrite { from, to } => {
