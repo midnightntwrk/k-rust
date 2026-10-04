@@ -11517,3 +11517,77 @@ endmodule
         );
     }
 }
+
+/// Run `krust kcompile` on `source`, written as the definition of a fresh fixture, into a
+/// scratch output directory.
+fn kcompile_source(source: &str) -> Output {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(["--main-module", "MAIN", "--output-directory"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    output
+}
+
+#[test]
+fn anywhere_rules_needing_the_configuration_are_rejected_at_the_rule() {
+    // An anywhere rule applies to its left-hand side wherever that term occurs, with no
+    // configuration around it: no counter cell to draw a fresh value from, and no parent cell
+    // to hold several sibling cells.
+    for (source, line, message) in [
+        (
+            r#"
+module MAIN
+  imports INT
+  syntax Foo ::= "a" | f(Int)
+  rule a => f(!X:Int) [anywhere]
+endmodule
+"#,
+            5,
+            "Fresh variable !X is not supported in an anywhere rule",
+        ),
+        (
+            r#"
+module MAIN
+  syntax Foo ::= "a" | "b"
+  configuration <k> .K </k> <mem> a </mem>
+  rule <k> .K </k> <mem> a => b </mem> [anywhere]
+endmodule
+"#,
+            5,
+            "An anywhere rule must rewrite a single term",
+        ),
+    ] {
+        let output = kcompile_source(source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "definition.k:{line}:3: Error[InvalidAttribute]: {message}"
+            )),
+            "{stderr}"
+        );
+        assert!(!stderr.contains("cannot find a production"), "{stderr}");
+    }
+
+    // The parent cell written around the same cells is a term, and the rule compiles and runs.
+    let stdout = krun_success(
+        r#"
+module MAIN
+  syntax Foo ::= "a" | "b"
+  configuration <t> <k> .K </k> <mem> a </mem> </t>
+  rule <t> <k> .K </k> <mem> a => b </mem> </t> [anywhere]
+endmodule
+"#,
+        &["--main-module", "MAIN", "--sort", "Foo"],
+    );
+    assert!(
+        stdout.contains("Lbl'-LT-'mem'-GT-'{}(Lblb'Unds'MAIN'Unds'Foo{}())"),
+        "{stdout}"
+    );
+}

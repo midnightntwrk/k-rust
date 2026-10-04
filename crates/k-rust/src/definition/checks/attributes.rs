@@ -16,7 +16,7 @@ use crate::definition::{
     match_rule_label, sentence_equivalent,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{FrontendSort, InternalLabel};
+use crate::kast::{FrontendSort, InternalLabel, Term};
 use crate::names::BuiltinSort;
 
 #[derive(Clone, Copy)]
@@ -191,6 +191,9 @@ fn check_rule(
             "anywhere attribute is not supported on symbolic rules.",
             rule,
         ));
+    }
+    if attributes.has(AttributeKey::Anywhere) {
+        check_anywhere_context(rule, diagnostics);
     }
     if attributes.has(AttributeKey::Syntactic) && !attributes.has(AttributeKey::Simplification) {
         diagnostics.push(invalid_attribute(
@@ -554,6 +557,63 @@ fn check_symbol_attributes(
         diagnostics.push(deprecated_attribute(
             "Zero-argument `symbol` attribute used without a corresponding `klabel(_)`. Either remove `symbol`, or supply an argument.",
             production,
+        ));
+    }
+}
+
+/// Reject an `anywhere` rule that needs the configuration around the term it rewrites.
+///
+/// An anywhere rule is an equation on the head of its left-hand side: it applies wherever that
+/// term occurs, inside any context, so it sees nothing of the configuration beyond the term.
+/// Two things need more than that, and have no lowering as such an equation:
+///
+/// - a fresh variable `!X`, whose value is drawn from the configuration's counter cell, which the
+///   rule would also have to advance; and
+/// - a left-hand side made of several cells, which is a fragment of their parent cell's children
+///   rather than a term with a head, so it occurs at no position on its own. The parent cell
+///   written around them is such a term.
+fn check_anywhere_context(rule: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = rule
+    else {
+        return;
+    };
+    let mut fresh = std::collections::BTreeSet::new();
+    for root in [body, requires, ensures] {
+        root.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term
+                && name.starts_with('!')
+            {
+                fresh.insert(name.clone());
+            }
+        });
+    }
+    for name in fresh {
+        diagnostics.push(invalid_attribute(
+            format!(
+                "Fresh variable {name} is not supported in an anywhere rule: the rule applies to its left-hand side wherever that term occurs, without the configuration whose counter cell supplies fresh values."
+            ),
+            rule,
+        ));
+    }
+    let mut left = body.unannotated();
+    if let Term::Rewrite {
+        left: rewritten, ..
+    } = left
+    {
+        left = rewritten.unannotated();
+    }
+    if let Term::Apply { label, arguments } = left
+        && label.is(InternalLabel::Cells)
+        && arguments.len() > 1
+    {
+        diagnostics.push(invalid_attribute(
+            "An anywhere rule must rewrite a single term, but the left-hand side of this rule is several cells; write their parent cell around them.",
+            rule,
         ));
     }
 }
