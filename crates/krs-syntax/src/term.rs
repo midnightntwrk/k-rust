@@ -736,6 +736,7 @@ fn validate_special_macro(
             };
             let (sort, spelling) = parser.parse2(value.mac.tokens.clone())?;
             let text = spelling.value();
+            crate::parse::validate_authored_binder(&text, spelling.span())?;
             if !text.starts_with('_')
                 || text.len() < 2
                 || !text[1..]

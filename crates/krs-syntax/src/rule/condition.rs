@@ -7,7 +7,8 @@ use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 use super::machine::parse_expression_before_arrow;
 use super::pattern::{RulePattern, push_term_node_anchors, push_term_reference_candidates};
 use crate::parse::{
-    KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
+    KrsSyntax, ParseError, checked_ordinal, unsupported_rule_signature as unsupported_signature,
+    validate_authored_binder,
 };
 use crate::path::is_plain_path;
 use crate::term::push_record_field_anchors;
@@ -198,16 +199,22 @@ impl From<MapUpdateExtra> for RuleExtra {
     }
 }
 
-pub(super) fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<HaveMapExtra> {
+pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, ParseError> {
     let cell = input.call(Ident::parse_any)?;
-    let content;
-    bracketed!(content in input);
+    let content = input.call(|input| {
+        let content;
+        bracketed!(content in input);
+        Ok(content)
+    })?;
     let key = parse_expression_before_arrow(&content)?;
     content.parse::<Token![->]>()?;
     content.parse::<Token![let]>()?;
     let value = content.call(Ident::parse_any)?;
+    validate_authored_binder(&value.to_string(), value.span())?;
     if !content.is_empty() {
-        return Err(content.error("unexpected tokens after map binding value"));
+        return Err(content
+            .error("unexpected tokens after map binding value")
+            .into());
     }
     Ok(HaveMapExtra {
         cell,
@@ -216,8 +223,9 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<HaveMapExt
     })
 }
 
-pub(super) fn parse_update_extra(input: ParseStream<'_>) -> syn::Result<MapUpdateExtra> {
+pub(super) fn parse_update_extra(input: ParseStream<'_>) -> Result<MapUpdateExtra, ParseError> {
     let cell = input.call(Ident::parse_any)?;
+    validate_authored_binder(&cell.to_string(), cell.span())?;
     input.parse::<Token![=]>()?;
     let expression: Expr = input.parse()?;
     parse_map_update(
@@ -233,38 +241,43 @@ pub(super) fn parse_map_update(
     expected_base: &Ident,
     expression: &Expr,
     base_error: &str,
-) -> syn::Result<MapUpdateExtra> {
+) -> Result<MapUpdateExtra, ParseError> {
     let Expr::Call(ExprCall { func, args, .. }) = expression else {
         return Err(syn::Error::new(
             expression.span(),
             "a changed map cell requires one ordinary three-argument update term",
-        ));
+        )
+        .into());
     };
     let Expr::Path(function) = func.as_ref() else {
         return Err(syn::Error::new(
             func.span(),
             "a changed map cell update must have a plain path head",
-        ));
+        )
+        .into());
     };
     if function.qself.is_some() || !is_plain_path(&function.path) {
         return Err(syn::Error::new(
             function.path.span(),
             "a changed map cell update must have a plain path head",
-        ));
+        )
+        .into());
     }
     let arguments = args.iter().collect::<Vec<_>>();
     let [base, key, value] = arguments.as_slice() else {
         return Err(syn::Error::new(
             args.span(),
             "a map update term requires exactly three arguments",
-        ));
+        )
+        .into());
     };
     let base_expression = *base;
     let Expr::Path(base) = base else {
         return Err(syn::Error::new(
             base.span(),
             "the first map update argument must be the matched whole-map binding",
-        ));
+        )
+        .into());
     };
     if base.path.leading_colon.is_some()
         || base.path.segments.len() != 1
@@ -273,7 +286,8 @@ pub(super) fn parse_map_update(
         return Err(syn::Error::new(
             base.path.span(),
             format!("{base_error} `{}`", expected_base.unraw()),
-        ));
+        )
+        .into());
     }
     let update = TermExpression::from_expression(expression.clone())?;
     Ok(MapUpdateExtra {

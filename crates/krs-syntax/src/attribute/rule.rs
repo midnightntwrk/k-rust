@@ -306,7 +306,11 @@ impl KrsSyntax for ExistsAttribute {
             }
             Ok(ExistsAttribute { binders })
         };
-        parser.parse2(tokens).map_err(SyntaxError::from)
+        let exists = parser.parse2(tokens).map_err(SyntaxError::from)?;
+        for binder in &exists.binders {
+            crate::parse::validate_authored_binder(&binder.name.to_string(), binder.name.span())?;
+        }
+        Ok(exists)
     }
 }
 

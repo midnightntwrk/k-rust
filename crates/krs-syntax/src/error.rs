@@ -10,6 +10,8 @@ use crate::SourceRange;
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SyntaxErrorKind {
+    /// An authored binder contained the generated-identity marker.
+    ReservedBinder,
     /// Rust token parsing failed before KRS shape validation could finish.
     RustSyntax(String),
     /// An attribute which takes no arguments received a payload.
@@ -210,6 +212,7 @@ impl SyntaxErrorKind {
     #[must_use]
     pub const fn code(&self) -> Code {
         match self {
+            Self::ReservedBinder => codes::syntax::RESERVED_BINDER,
             Self::RustSyntax(_) => codes::syntax::RUST_SYNTAX,
             Self::UnexpectedAttributePayload { .. } => codes::syntax::UNEXPECTED_ATTRIBUTE_PAYLOAD,
             Self::UnknownArgument { .. } => codes::syntax::UNKNOWN_ARGUMENT,
@@ -344,6 +347,11 @@ impl fmt::Display for SyntaxError {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
+            SyntaxErrorKind::ReservedBinder => write!(
+                formatter,
+                "marker `{}` is reserved for generated identifiers",
+                krs_ir::ir::RESERVED_MARKER
+            ),
             SyntaxErrorKind::RustSyntax(message) => formatter.write_str(message),
             SyntaxErrorKind::UnexpectedAttributePayload { attribute } => {
                 write!(formatter, "`{attribute}` takes no arguments")

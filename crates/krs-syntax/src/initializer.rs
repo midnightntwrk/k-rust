@@ -534,6 +534,7 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
         ));
     }
     let binding = binding_pattern.ident.clone();
+    crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
     let attribute = if let Some(attribute) = parameter.attrs.first() {
         parse_config_var_attribute(attribute)?
     } else {

@@ -146,6 +146,13 @@ pub fn checked_ordinal(index: usize, role: ProvenanceRole, span: Span) -> Result
     u32::try_from(index).map_err(|_| occurrence_overflow(role, span))
 }
 
+pub(crate) fn validate_authored_binder(spelling: &str, span: Span) -> Result<(), SyntaxError> {
+    if spelling.contains(krs_ir::ir::RESERVED_MARKER) {
+        return Err(SyntaxError::new(SyntaxErrorKind::ReservedBinder, span));
+    }
+    Ok(())
+}
+
 fn occurrence_overflow(role: ProvenanceRole, span: Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::TooManyProvenanceOccurrences {

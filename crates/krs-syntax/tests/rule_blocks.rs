@@ -395,3 +395,83 @@ fn map_update_head_identity_is_deferred_to_rust_resolution() {
     };
     assert_eq!(update.term().spelling(), "aliased (env , a , a)");
 }
+
+#[test]
+fn reserved_binder_diagnostics_survive_readable_rule_parsing() {
+    use krs_diagnostic::{ToDiagnostic, codes};
+
+    for spelling in ["__krs_wildcard_1", "_x__krs_3", "a__krs_b"] {
+        for source in [
+            format!("for Expr; x: Wrap({spelling}) => true;"),
+            format!("for Expr; x: term!(Wrap({spelling})) => true;"),
+            format!("for Expr; x: Wrap(a) => true where have env[a -> let {spelling}];"),
+            format!(
+                "for Expr; x: Wrap(a) => true where update {spelling} = map::update({spelling}, a, a);"
+            ),
+            format!(
+                "for Machine; x: {{ computation: [Wrap(a), ..], env: {{ a -> {spelling}, .. }} }} => {{ computation: [a, ..] }};"
+            ),
+            format!(
+                "for Machine; x: {{ computation: [Wrap(a), ..], env: {spelling} }} => {{ computation: [a, ..], env: map::update({spelling}, a, a) }};"
+            ),
+        ] {
+            let error = krs_syntax::RuleBlock::parse_source(&source).unwrap_err();
+            assert_eq!(
+                error.to_diagnostic().code,
+                codes::syntax::RESERVED_BINDER,
+                "{source}"
+            );
+            assert_eq!(
+                error.span().start().column,
+                source.find(spelling).unwrap(),
+                "{source}"
+            );
+            assert!(error.to_string().contains("__krs_"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("reserved for generated identifiers")
+            );
+        }
+    }
+}
+
+#[test]
+fn reserved_anonymous_spelling_diagnostics_survive_readable_rule_parsing() {
+    use krs_diagnostic::{ToDiagnostic, codes};
+
+    for spelling in ["__krs_wildcard_1", "_x__krs_3"] {
+        for source in [
+            format!("for Expr; x: Wrap(a) => k::anonymous!(Expr, \"{spelling}\");"),
+            format!(
+                "for Expr; x: Wrap(a) => true where have env[k::anonymous!(Expr, \"{spelling}\") -> let value];"
+            ),
+            format!(
+                "for Machine; x: {{ computation: [Wrap(a), ..] }} => {{ computation: [k::anonymous!(Expr, \"{spelling}\"), ..] }};"
+            ),
+        ] {
+            let error = krs_syntax::RuleBlock::parse_source(&source).unwrap_err();
+            assert_eq!(
+                error.to_diagnostic().code,
+                codes::syntax::RESERVED_BINDER,
+                "{source}"
+            );
+            assert_eq!(
+                error.span().start().column,
+                source.find('"').unwrap(),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reserved_marker_remains_allowed_in_readable_item_and_constructor_names() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        "for Expr; __krs_rule: __krs_constructor(a) => a; __krs_unit_rule: model::__krs_unit => true;",
+    )
+    .unwrap();
+    assert_eq!(block.clauses().len(), 2);
+    assert_eq!(block.clauses()[0].bindings(), ["a"]);
+    assert!(block.clauses()[1].bindings().is_empty());
+}

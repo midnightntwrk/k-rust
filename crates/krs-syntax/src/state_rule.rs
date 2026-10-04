@@ -819,6 +819,7 @@ fn parse_typed_bindings(item: &ItemFn) -> Result<Vec<(Ident, TermSort)>, SyntaxE
             ));
         }
         let authored_type = (*argument.ty).clone();
+        crate::parse::validate_authored_binder(&pattern.ident.to_string(), pattern.ident.span())?;
         let sort = parse_term_sort(authored_type.clone())
             .or_else(|_| parse_readable_sort(authored_type))?;
         output.push((pattern.ident.clone(), sort));
@@ -988,6 +989,7 @@ fn push_binding(
     kind: StateRuleBindingKind,
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
+    crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
     if let Some(existing) = output.iter().find(|existing| existing.name == *binding) {
         if existing.kind != kind {
             return Err(pattern_error(

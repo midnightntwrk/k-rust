@@ -12,6 +12,7 @@ use super::block::{
 use super::condition::{MapUpdateExtra, RuleExtra, condition_token_range, parse_map_update};
 use super::item::RuleItem;
 use super::pattern::{RulePattern, parse_rule_pattern};
+use crate::parse::{ParseError, validate_authored_binder};
 use crate::path::is_plain_path;
 use crate::{TermExpression, TermTree, TokenRange};
 
@@ -36,9 +37,12 @@ enum MachineResultCell {
 
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
-) -> syn::Result<Vec<(Ident, MachinePatternCell)>> {
-    let content;
-    braced!(content in input);
+) -> Result<Vec<(Ident, MachinePatternCell)>, ParseError> {
+    let content = input.call(|input| {
+        let content;
+        braced!(content in input);
+        Ok(content)
+    })?;
     let mut cells = Vec::new();
     while !content.is_empty() {
         let cell = content.call(Ident::parse_any)?;
@@ -49,16 +53,20 @@ fn parse_machine_pattern_record(
             return Err(syn::Error::new(
                 cell.span(),
                 format!("duplicate machine-rule cell `{}`", cell.unraw()),
-            ));
+            )
+            .into());
         }
         content.parse::<Token![:]>()?;
         let value = if content.peek(syn::token::Bracket) {
-            let sequence;
-            bracketed!(sequence in content);
+            let sequence = content.call(|input| {
+                let sequence;
+                bracketed!(sequence in input);
+                Ok(sequence)
+            })?;
             if sequence.peek(Token![..]) {
-                return Err(
-                    sequence.error("a machine-rule pattern must match one k head before `..`")
-                );
+                return Err(sequence
+                    .error("a machine-rule pattern must match one k head before `..`")
+                    .into());
             }
             let head = sequence.call(Pat::parse_single)?;
             sequence.parse::<Token![,]>()?;
@@ -67,22 +75,30 @@ fn parse_machine_pattern_record(
                 sequence.parse::<Token![,]>()?;
             }
             if !sequence.is_empty() {
-                return Err(sequence.error("a machine-rule k pattern is `[head, ..]`"));
+                return Err(sequence
+                    .error("a machine-rule k pattern is `[head, ..]`")
+                    .into());
             }
             MachinePatternCell::KHead(head)
         } else if content.peek(syn::token::Brace) {
-            let map;
-            braced!(map in content);
+            let map = content.call(|input| {
+                let map;
+                braced!(map in input);
+                Ok(map)
+            })?;
             let key = parse_expression_before_arrow(&map)?;
             map.parse::<Token![->]>()?;
             let value = map.call(Ident::parse_any)?;
+            validate_authored_binder(&value.to_string(), value.span())?;
             map.parse::<Token![,]>()?;
             map.parse::<Token![..]>()?;
             if map.peek(Token![,]) {
                 map.parse::<Token![,]>()?;
             }
             if !map.is_empty() {
-                return Err(map.error("a machine-rule map pattern is `{ key -> value, .. }`"));
+                return Err(map
+                    .error("a machine-rule map pattern is `{ key -> value, .. }`")
+                    .into());
             }
             MachinePatternCell::MapItem { key, value }
         } else {
@@ -97,7 +113,9 @@ fn parse_machine_pattern_record(
         if content.peek(Token![,]) {
             content.parse::<Token![,]>()?;
         } else if !content.is_empty() {
-            return Err(content.error("expected `,` between machine-rule cells"));
+            return Err(content
+                .error("expected `,` between machine-rule cells")
+                .into());
         }
     }
     Ok(cells)
@@ -176,7 +194,7 @@ pub(super) fn parse_machine_clause(
     name: &Ident,
     configuration_type: &Type,
     clause_start: proc_macro2::Span,
-) -> syn::Result<RuleClause> {
+) -> Result<RuleClause, ParseError> {
     let pattern_record: TokenTree = input.fork().parse()?;
     let subject_cells = parse_machine_pattern_record(input)?;
     input.parse::<Token![=>]>()?;
@@ -201,7 +219,8 @@ pub(super) fn parse_machine_clause(
                 return Err(syn::Error::new(
                     sort.span(),
                     "a rule narrowing requires a plain object-sort path",
-                ));
+                )
+                .into());
             }
             if narrowings
                 .iter()
@@ -210,7 +229,8 @@ pub(super) fn parse_machine_clause(
                 return Err(syn::Error::new(
                     binding.span(),
                     format!("duplicate narrowing for binding `{}`", binding.unraw()),
-                ));
+                )
+                .into());
             }
             narrowings.push(RuleNarrowing { binding, sort });
             if !input.peek(Token![,]) {
@@ -231,7 +251,8 @@ pub(super) fn parse_machine_clause(
                     return Err(syn::Error::new(
                         cell.span(),
                         "a machine rule has exactly one sequence-pattern cell",
-                    ));
+                    )
+                    .into());
                 }
             }
             MachinePatternCell::MapItem { key, value } => {
@@ -242,7 +263,8 @@ pub(super) fn parse_machine_clause(
                     return Err(syn::Error::new(
                         cell.span(),
                         "a preserved map-item cell is omitted from the machine-rule result",
-                    ));
+                    )
+                    .into());
                 }
                 extras.push(RuleExtra::HaveMap {
                     cell: cell.clone(),
@@ -262,7 +284,8 @@ pub(super) fn parse_machine_clause(
                     return Err(syn::Error::new(
                         cell.span(),
                         "an ordinary fixed-cell pattern requires a corresponding result",
-                    ));
+                    )
+                    .into());
                 };
                 let map_update = match pattern.native_pattern() {
                     Some(Pat::Ident(PatIdent { ident: base, .. })) => {
@@ -293,7 +316,8 @@ pub(super) fn parse_machine_clause(
             return Err(syn::Error::new(
                 cell.span(),
                 "a machine-rule result cannot introduce an unmatched cell",
-            ));
+            )
+            .into());
         }
     }
     let (computation_cell, subject_k) = subject_k.ok_or_else(|| {
@@ -309,7 +333,8 @@ pub(super) fn parse_machine_clause(
         return Err(syn::Error::new(
             name.span(),
             "a machine rule must write its framed computation-cell sequence",
-        ));
+        )
+        .into());
     };
     let head_result = match result_k.as_slice() {
         [] => RuleHeadResult::Erase(TokenRange::for_tokens(&name)?),
@@ -343,7 +368,8 @@ pub(super) fn parse_machine_clause(
             return Err(syn::Error::new(
                 introduced.span(),
                 format!("duplicate readable rule binding `{}`", introduced.unraw()),
-            ));
+            )
+            .into());
         }
         bindings.push(introduced);
     }
@@ -358,7 +384,8 @@ pub(super) fn parse_machine_clause(
                     "rule narrowing names unbound subject binding `{}`",
                     narrowing.binding.unraw()
                 ),
-            ));
+            )
+            .into());
         }
     }
     Ok(RuleClause {
@@ -378,6 +405,6 @@ fn parse_machine_update(
     cell: &Ident,
     base: &Ident,
     expression: &Expr,
-) -> syn::Result<MapUpdateExtra> {
+) -> Result<MapUpdateExtra, ParseError> {
     parse_map_update(cell, base, expression, "the map update base must be")
 }

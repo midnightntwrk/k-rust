@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::ext::IdentExt;
-use syn::parse::{ParseStream, Parser};
+use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Pat, Path, Token, Type, UseTree};
 
@@ -15,7 +15,8 @@ use super::pattern::{
     RuleTermCounters, RuleTermSide, append_rule_pattern_anchors, append_rule_term_anchors,
 };
 use crate::parse::{
-    KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
+    KrsSyntax, ParseError, checked_ordinal, structured,
+    unsupported_rule_signature as unsupported_signature,
 };
 use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_readable_sort};
@@ -449,14 +450,16 @@ impl RuleBlock {
     }
 
     #[allow(clippy::too_many_lines)] // One linear parser keeps clause diagnostics at authored tokens.
-    fn from_stream(input: ParseStream<'_>) -> syn::Result<Self> {
+    fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
         input.parse::<Token![for]>()?;
         let sort_type: Type = input.parse()?;
         let sort = parse_readable_sort(sort_type.clone())?;
         if input.peek(Token![in]) {
-            return Err(input.error(
-                "`for Sort in cell` is a control-flow rule surface and is not implemented yet",
-            ));
+            return Err(input
+                .error(
+                    "`for Sort in cell` is a control-flow rule surface and is not implemented yet",
+                )
+                .into());
         }
         input.parse::<Token![;]>()?;
 
@@ -468,7 +471,8 @@ impl RuleBlock {
                 return Err(syn::Error::new(
                     item.span(),
                     "a readable term-rule block accepts exactly one enum glob import",
-                ));
+                )
+                .into());
             }
             imports.push(RuleImport {
                 item,
@@ -490,7 +494,8 @@ impl RuleBlock {
                 return Err(syn::Error::new(
                     name.span(),
                     format!("duplicate readable rule clause `{}`", name.unraw()),
-                ));
+                )
+                .into());
             }
             input.parse::<Token![:]>()?;
             let machine_clause = input.peek(syn::token::Brace);
@@ -499,7 +504,8 @@ impl RuleBlock {
                     return Err(syn::Error::new(
                         name.span(),
                         "a readable rule block cannot mix term clauses and cell-record clauses",
-                    ));
+                    )
+                    .into());
                 }
             } else {
                 configuration = Some(machine_clause);
@@ -543,7 +549,8 @@ impl RuleBlock {
                                 return Err(syn::Error::new(
                                     sort.span(),
                                     "a rule narrowing requires a plain object-sort path",
-                                ));
+                                )
+                                .into());
                             }
                             if narrowings.iter().any(|existing: &RuleNarrowing| {
                                 existing.binding.unraw() == binding.unraw()
@@ -554,7 +561,8 @@ impl RuleBlock {
                                         "duplicate narrowing for binding `{}`",
                                         binding.unraw()
                                     ),
-                                ));
+                                )
+                                .into());
                             }
                             narrowings.push(RuleNarrowing { binding, sort });
                         }
@@ -564,7 +572,9 @@ impl RuleBlock {
                     }
                     input.parse::<Token![,]>()?;
                     if input.peek(Token![;]) {
-                        return Err(input.error("expected a binding refinement after `,`"));
+                        return Err(input
+                            .error("expected a binding refinement after `,`")
+                            .into());
                     }
                 }
             }
@@ -590,7 +600,8 @@ impl RuleBlock {
                     return Err(syn::Error::new(
                         introduced.span(),
                         format!("duplicate readable rule binding `{}`", introduced.unraw()),
-                    ));
+                    )
+                    .into());
                 }
                 bindings.push(introduced.clone());
             }
@@ -604,7 +615,8 @@ impl RuleBlock {
                     return Err(syn::Error::new(
                         cell.span(),
                         format!("duplicate extra-cell mention `{}`", cell.unraw()),
-                    ));
+                    )
+                    .into());
                 }
                 mentioned_cells.push(cell.clone());
             }
@@ -619,7 +631,8 @@ impl RuleBlock {
                             "rule narrowing names unbound subject binding `{}`",
                             narrowing.binding.unraw()
                         ),
-                    ));
+                    )
+                    .into());
                 }
             }
             clauses.push(RuleClause {
@@ -635,7 +648,9 @@ impl RuleBlock {
             });
         }
         if clauses.is_empty() {
-            return Err(input.error("a readable rule block requires at least one clause"));
+            return Err(input
+                .error("a readable rule block requires at least one clause")
+                .into());
         }
         if !configuration.unwrap_or(false)
             && imports.iter().any(|import| import.variant().is_some())
@@ -643,7 +658,8 @@ impl RuleBlock {
             return Err(syn::Error::new(
                 imports[0].item().span(),
                 "a `for Sort` rule table accepts only `use Enum::*;` imports",
-            ));
+            )
+            .into());
         }
         Ok(Self {
             sort,
@@ -654,7 +670,7 @@ impl RuleBlock {
     }
 }
 
-fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
+fn parse_head_result(result: Expr) -> Result<RuleHeadResult, ParseError> {
     if let Expr::Tuple(tuple) = &result
         && tuple.elems.is_empty()
     {
@@ -673,7 +689,8 @@ fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
             return Err(syn::Error::new(
                 expression.span(),
                 "a readable rule splice has an implicit preserved tail; do not spell another tail",
-            ));
+            )
+            .into());
         }
         return Ok(RuleHeadResult::Splice {
             range: TokenRange::for_tokens(&result)?,
@@ -687,8 +704,7 @@ fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
 
 impl KrsSyntax for RuleBlock {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let parser = |input: ParseStream<'_>| Self::from_stream(input);
-        parser.parse2(tokens).map_err(SyntaxError::from)
+        structured(tokens, Self::from_stream)
     }
 }
 

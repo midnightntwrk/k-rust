@@ -178,6 +178,7 @@ register_codes! {
     }
     /// Diagnostics from Rust token parsing and KRS syntax validation.
     syntax {
+        RESERVED_BINDER: "krs::syntax::reserved-binder" => "An authored binder contains the marker reserved for generated identifiers.",
         RUST_SYNTAX: "krs::syntax::rust-syntax" => "Rust token parsing failed before KRS shape validation could finish.",
         UNEXPECTED_ATTRIBUTE_PAYLOAD: "krs::syntax::unexpected-attribute-payload" => "An attribute which takes no arguments received a payload.",
         UNKNOWN_ARGUMENT: "krs::syntax::unknown-argument" => "A keyed attribute argument is not part of the attribute grammar.",

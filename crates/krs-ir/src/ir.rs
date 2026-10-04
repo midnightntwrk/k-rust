@@ -74,8 +74,16 @@ impl<'de> Deserialize<'de> for ModuleId {
 #[serde(transparent)]
 pub struct SemanticId(String);
 
-const WILDCARD_PREFIX: &str = "__krs_wildcard_";
-const ANONYMOUS_SEPARATOR: &str = "__krs_";
+macro_rules! reserved_encodings {
+    ($marker:literal) => {
+        /// Marker reserved for generated semantic identifiers.
+        pub const RESERVED_MARKER: &str = $marker;
+        const WILDCARD_PREFIX: &str = concat!($marker, "wildcard_");
+        const ANONYMOUS_SEPARATOR: &str = RESERVED_MARKER;
+    };
+}
+
+reserved_encodings!("__krs_");
 
 /// The reserved encoding recognized in a semantic identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +107,19 @@ impl SemanticId {
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
         validated_id(crate::IrIdentityKind::SemanticId, value.into()).map(Self)
+    }
+
+    /// Creates an authored semantic identity without generated encodings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IrIdentityError`] for reserved-marker, blank, or path-shaped input.
+    pub fn authored(value: impl Into<String>) -> Result<Self, IrIdentityError> {
+        let value = value.into();
+        if value.contains(RESERVED_MARKER) {
+            return Err(IrIdentityError::ReservedMarker(value));
+        }
+        Self::new(value)
     }
 
     /// Creates a wildcard occurrence with the reserved spelling.
@@ -190,6 +211,8 @@ pub enum IrIdentityError {
     Empty(crate::IrIdentityKind),
     /// An identity contained a filesystem separator.
     PathLike(crate::IrIdentityKind, String),
+    /// An authored semantic identity contained the generated-identity marker.
+    ReservedMarker(String),
 }
 
 impl fmt::Display for IrIdentityError {
@@ -199,6 +222,10 @@ impl fmt::Display for IrIdentityError {
             Self::PathLike(kind, value) => {
                 write!(formatter, "{kind} must be path-free, found {value:?}")
             }
+            Self::ReservedMarker(value) => write!(
+                formatter,
+                "marker `{RESERVED_MARKER}` is reserved for generated identifiers, found {value:?}"
+            ),
         }
     }
 }
@@ -221,6 +248,22 @@ pub(crate) fn validated_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_semantic_ids_reject_reserved_marker() {
+        for spelling in ["__krs_wildcard_1", "_x__krs_3", "a__krs_b"] {
+            assert_eq!(
+                SemanticId::authored(spelling),
+                Err(IrIdentityError::ReservedMarker(spelling.into()))
+            );
+        }
+        for spelling in ["x", "_x", "__x"] {
+            assert_eq!(SemanticId::authored(spelling), SemanticId::new(spelling));
+        }
+        for spelling in ["", " ", "a/b", "a\\b"] {
+            assert_eq!(SemanticId::authored(spelling), SemanticId::new(spelling));
+        }
+    }
 
     #[test]
     fn reserved_semantic_constructors_round_trip() {

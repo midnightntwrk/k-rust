@@ -269,7 +269,7 @@ pub(super) fn parse_rule_pattern(
             let term = TermExpression::from_pattern_expression(syn::parse2::<Expr>(
                 macro_pattern.mac.tokens.clone(),
             )?)?;
-            let bindings = term_pattern_bindings(&term);
+            let bindings = term_pattern_bindings(&term)?;
             let tree = term.tree().clone();
             Ok((
                 RulePattern::TermMacro {
@@ -520,6 +520,10 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
         && identifier.mutability.is_none()
         && identifier.subpat.is_none()
     {
+        crate::parse::validate_authored_binder(
+            &identifier.ident.to_string(),
+            identifier.ident.span(),
+        )?;
         push_unique_binding(bindings, identifier.ident.clone());
         Ok(())
     } else {
@@ -530,7 +534,7 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
     }
 }
 
-fn term_pattern_bindings(term: &TermExpression) -> Vec<Ident> {
+fn term_pattern_bindings(term: &TermExpression) -> Result<Vec<Ident>, SyntaxError> {
     let mut bindings = Vec::new();
     for binding in term
         .symbols()
@@ -539,9 +543,10 @@ fn term_pattern_bindings(term: &TermExpression) -> Vec<Ident> {
         .filter(|symbol| symbol.kind() == crate::TermSymbolKind::Reference)
         .filter_map(|symbol| bare_path_ident(symbol.path()).cloned())
     {
+        crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
         push_unique_binding(&mut bindings, binding);
     }
-    bindings
+    Ok(bindings)
 }
 
 fn push_unique_binding(bindings: &mut Vec<Ident>, binding: Ident) {

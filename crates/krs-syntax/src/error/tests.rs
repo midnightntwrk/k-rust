@@ -7,6 +7,7 @@ use super::*;
 #[test]
 fn syntax_categories_have_distinct_registered_codes() {
     let kinds = [
+        SyntaxErrorKind::ReservedBinder,
         SyntaxErrorKind::RustSyntax(String::from("example")),
         SyntaxErrorKind::UnexpectedAttributePayload {
             attribute: "example",
