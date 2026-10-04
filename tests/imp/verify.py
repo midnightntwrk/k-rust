@@ -97,8 +97,9 @@ class RustBuild:
     @property
     def detail(self) -> str:
         return (
-            "workspace/package fmt, check, Clippy, tests, docs, authored IMP MSRV, "
-            "stable native frontend, diagnostic and readable IMP LSP"
+            "authored package formatting, Clippy, and MSRV checks; authored and expanded "
+            "helper tests; authored helper docs; kompile tests; gate self-tests; "
+            "krs/krs-gate builds; diagnostic and readable IMP LSP evidence"
         )
 
 
@@ -211,26 +212,11 @@ def phase_preflight(context: Context) -> str:
 def phase_rust(context: Context) -> RustBuild:
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     commands = [
-        ["cargo", "fmt", "--all", "--check"],
-        ["cargo", "check", "--workspace", "--all-targets", "--locked"],
-        ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"],
-        ["cargo", "test", "--workspace", "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(RUST_MANIFEST), "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--locked"],
     ]
     for command in commands:
         run(command, timeout=900, environment=env)
-    # Clean k-rust enforces MSRV 1.88 since 758a3a9, so the exact-MSRV check
-    # now covers the workspace and every helper beside the stable-toolchain
-    # qualification above. Earlier k-rust used if-let guards, which 1.88 rejects.
-    run(
-        [
-            "cargo", f"+{lock.msrv()}", "check", "--workspace",
-            "--all-targets", "--locked",
-        ],
-        timeout=900,
-        environment=env,
-    )
     kompile_tests = run(
         [
             "cargo", "test", "--locked", "-p", "krs-compiler",
@@ -250,11 +236,6 @@ def phase_rust(context: Context) -> RustBuild:
     ):
         raise GateError(f"expected exactly two passing kompile tests: {compact(kompile_tests)}")
     doc_env = {**env, "RUSTDOCFLAGS": "-D warnings"}
-    run(
-        ["cargo", "doc", "--workspace", "--no-deps", "--locked"],
-        timeout=900,
-        environment=doc_env,
-    )
     run(
         [
             "cargo", "doc", "--manifest-path", RUST_MANIFEST,

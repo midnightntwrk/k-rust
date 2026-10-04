@@ -16,11 +16,10 @@ all 15 upstream IMP claims, and five independently selectable adjunct claims.
 Its only normal dependency is the author-facing `krs` facade renamed to `k`.
 Every authored source file is rustc-valid Rust.
 
-The authored and independently expanded IMP packages are checked on the `Krs.lock` MSRV, Rust 1.88.0.
+The authored and independently expanded IMP packages and the artifact probe are checked on the `Krs.lock` MSRV, Rust 1.88.0, by IMP.2's package checks.
 Native/frontend helpers are additionally qualified on the current stable Rust, which must be at or above that MSRV.
-Clean k-rust main `f7a2cf1ea842c6f3526bae54540bb268bac1376a` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
-Earlier k-rust revisions used if-let guards, which Rust 1.88.0 rejects; that discrepancy previously blocked this alignment and is now closed.
-The original eight-phase IMP gate passed against that pin on 2026-09-15 JST.
+Workspace-wide formatting, Clippy, tests, documentation, and the workspace MSRV check belong to the standard checks that CI's workspace job runs.
+The original eight-phase IMP gate passed against clean k-rust main `f7a2cf1ea842c6f3526bae54540bb268bac1376a` on 2026-09-15 JST.
 
 ## Evidence layers
 
@@ -29,8 +28,10 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
 
 - IMP.1 `preflight`: external checkout revisions and file digests,
   `Krs.lock` tool and schema versions, and the corpus;
-- IMP.2 `rust-and-lsp`: ordinary Rust formatting, check, Clippy, docs,
-  tests, and LSP evidence;
+- IMP.2 `rust-and-lsp`: authored package formatting, Clippy, and MSRV
+  checks; authored and expanded helper tests; authored helper docs;
+  kompile tests; gate self-tests; `krs` and `krs-gate` builds; and
+  diagnostic and readable IMP LSP evidence;
 - IMP.3 `deterministic-artifacts`: repeated KRS collection, byte-exact
   layer-2 Rust expansion, `.k`, sidecar, IR, and native artifact
   determinism;
