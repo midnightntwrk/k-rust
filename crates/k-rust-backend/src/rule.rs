@@ -60,7 +60,9 @@ use std::{
 use k_rust_kore::kore::ast::{self as kore, KoreString};
 use k_rust_kore::kore::walk;
 use k_rust_kore::measure::{self, Algorithm};
-use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
+use k_rust_kore::names::{
+    DEFAULT_RULE_PRIORITY, KoreAttribute, MalformedAttribute, WellKnownSymbol, rule_priority,
+};
 
 use crate::{
     condition::Condition,
@@ -2988,17 +2990,9 @@ impl RuleAttributes {
         } else {
             priority
                 .or(simplification_priority)
-                .map(|value| {
-                    if value.is_empty() {
-                        Ok(50)
-                    } else {
-                        value
-                            .parse::<u8>()
-                            .map_err(|_| AxiomError::InvalidPriority(value))
-                    }
-                })
+                .map(|value| rule_priority(&value).ok_or(AxiomError::InvalidPriority(value)))
                 .transpose()?
-                .unwrap_or(50)
+                .unwrap_or(DEFAULT_RULE_PRIORITY)
         };
         let label = attributes.string(KoreAttribute::Label)?.map(str::to_owned);
         let unique_id = attributes

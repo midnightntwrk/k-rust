@@ -343,6 +343,24 @@ impl KoreAttribute {
     }
 }
 
+/// The rank of a rule whose `priority` or `simplification` attribute names none.
+pub const DEFAULT_RULE_PRIORITY: u8 = 50;
+
+/// The rank a `priority` or `simplification` attribute's string names: the default for the empty
+/// string, otherwise a decimal natural number below 256. `None` for every other string.
+///
+/// A priority ranks the rules of a group: a rule applies only where no rule of a smaller rank
+/// does. Ranks are natural numbers, and the backend represents them in a byte whose largest
+/// value is the rank of `owise` rules. The frontend rejects, at the sentence, every attribute
+/// value this function does not read, so a compiled definition carries only readable ranks.
+pub fn rule_priority(value: &str) -> Option<u8> {
+    if value.is_empty() {
+        Some(DEFAULT_RULE_PRIORITY)
+    } else {
+        value.parse().ok()
+    }
+}
+
 /// One attribute's arguments failed the shape the reader expects.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MalformedAttribute {
@@ -449,6 +467,18 @@ impl Attributes {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rule_priority_reads_the_default_and_the_naturals_below_256() {
+        assert_eq!(rule_priority(""), Some(DEFAULT_RULE_PRIORITY));
+        assert_eq!(rule_priority("0"), Some(0));
+        assert_eq!(rule_priority("255"), Some(255));
+        assert_eq!(rule_priority("007"), Some(7));
+        for value in ["256", "-1", "abc", " 5", "5.0", "1e2"] {
+            assert_eq!(rule_priority(value), None, "{value}");
+        }
+    }
+
     use super::*;
     use crate::kore::lexical::symbol_problems;
 

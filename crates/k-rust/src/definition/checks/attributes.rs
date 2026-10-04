@@ -18,6 +18,7 @@ use crate::definition::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, InternalLabel, Term};
 use crate::names::BuiltinSort;
+use k_rust_kore::names::rule_priority;
 
 #[derive(Clone, Copy)]
 struct Target {
@@ -88,8 +89,72 @@ pub(super) fn check_attribute_semantics_with_overloads(
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => {}
         }
+        check_rule_ranks(sentence, productions, &mut diagnostics);
     }
     diagnostics
+}
+
+/// Reject a `priority` or `simplification` value that names no rank of the rules it ranks.
+///
+/// A rule's priority ranks it among the rules of its group: it applies only where no rule of a
+/// smaller rank does. A rank is a natural number that the compiled definition carries as the
+/// attribute's string, and the backend reads it in a byte (`k_rust_kore::names::rule_priority`):
+/// a decimal natural number below 256, or the empty string for the default. Any other value
+/// (`-1`, `abc`, `300`) ranks nothing the definition can run, so it is an error at the sentence
+/// rather than when the backend loads the definition.
+///
+/// The value is judged where it ranks emitted rules: on a rule, a context and a context alias
+/// (whose generated rules carry it), and on a strict production (whose strictness rules carry
+/// it). A macro or alias rule is exempt: its priority orders macro expansion, which compilation
+/// performs itself over any integer, and the rule is not among the rules the backend runs.
+fn check_rule_ranks(
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let attributes = sentence.attributes();
+    let ranked = match sentence {
+        Sentence::Rule { .. } => !is_macro_rule(sentence, productions),
+        Sentence::Context { .. } | Sentence::ContextAlias { .. } => true,
+        Sentence::Production { .. } => {
+            attributes.has_any(&[AttributeKey::Strict, AttributeKey::Seqstrict])
+        }
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => false,
+    };
+    if !ranked {
+        return;
+    }
+    for key in [AttributeKey::Priority, AttributeKey::Simplification] {
+        let Some(value) = attributes.value(key) else {
+            continue;
+        };
+        let value = crate::kompile::attribute_value_string(key.as_str(), value);
+        if rule_priority(&value).is_none() {
+            diagnostics.push(invalid_attribute(
+                format!(
+                    "Invalid value for {key} attribute: {value}. A rule priority is a natural number from 0 to 255.",
+                    key = key.as_str()
+                ),
+                sentence,
+            ));
+        }
+    }
+}
+
+/// Whether `rule` defines a macro or an alias: it is not a simplification and the production its
+/// left-hand side applies is macro-like.
+fn is_macro_rule(rule: &Sentence, productions: &ProductionCatalog<'_>) -> bool {
+    !rule.attributes().has(AttributeKey::Simplification)
+        && productions
+            .attributes_for(&LabelHead::from(&match_rule_label(rule)))
+            .is_some_and(|attributes| attributes.has_any(&AttributeKey::MACRO_LIKE))
 }
 
 fn check_attribute_map(

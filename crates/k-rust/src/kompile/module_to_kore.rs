@@ -1993,7 +1993,8 @@ impl From<AttributeKey> for KoreAttribute {
     }
 }
 
-fn attribute_value_string(key: &str, value: &Value) -> String {
+/// The string emission writes as the argument of the attribute `key` with value `value`.
+pub(crate) fn attribute_value_string(key: &str, value: &Value) -> String {
     let key = AttributeKey::from_name(key);
     if key == Some(AttributeKey::Location)
         && let Some(values) = value.as_array()

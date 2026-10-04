@@ -13,6 +13,7 @@ pub mod initial_configuration;
 mod invariants;
 mod label_graph;
 mod module_to_kore;
+pub(crate) use module_to_kore::attribute_value_string;
 mod passes;
 pub mod pipeline;
 mod retarget;

@@ -3284,3 +3284,64 @@ fn an_associativity_attribute_on_an_unrelated_argument_is_a_located_error() {
     assert_eq!(start_line, 4, "{message}");
     assert!(message.contains("Ty <= Int"), "{message}");
 }
+
+/// A priority ranks rules by a natural number the compiled definition carries and the backend
+/// reads below 256; any other `priority` or `simplification` value is an error at the sentence
+/// whose emitted rules it would rank.
+#[test]
+fn a_priority_that_names_no_rank_is_a_located_error() {
+    let rules = "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)]\n  rule {rule}\nendmodule\n";
+    for rule in [
+        "a => b [priority(300)]",
+        "a => b [priority(-1)]",
+        "a => b [priority(abc)]",
+        "a => b [priority(5.0)]",
+        "f(X) => X [priority(256)]",
+        "f(a) => b [simplification(300)]",
+        "f(a) => b [simplification(abc)]",
+    ] {
+        let (start_line, message) = compile_error(&rules.replace("{rule}", rule), "MAIN");
+        assert_eq!(start_line, 3, "{rule}: {message}");
+        assert!(message.contains("Invalid value for"), "{rule}: {message}");
+    }
+    // A context and a strict production give their priority to the rules they generate.
+    for (sentences, line) in [
+        (
+            "syntax Foo ::= g(Int) [seqstrict, symbol(g)]\n  context g(HOLE) [priority(300)]",
+            4,
+        ),
+        (
+            "syntax Foo ::= g(Int) [strict, symbol(g), priority(abc)]",
+            3,
+        ),
+    ] {
+        let source = format!(
+            "module MAIN\n  imports INT\n  {sentences}\n  syntax KResult ::= Int\nendmodule\n"
+        );
+        let (start_line, message) = compile_error(&source, "MAIN");
+        assert_eq!(start_line, line, "{sentences}: {message}");
+        assert!(message.contains("priority"), "{sentences}: {message}");
+    }
+}
+
+/// The ranks the backend reads compile and load, and a macro rule's priority, which orders
+/// macro expansion during compilation, keeps its integer range.
+#[test]
+fn readable_priorities_and_macro_priorities_compile_and_load() {
+    for rule in [
+        "a => b [priority(0)]",
+        "a => b [priority(255)]",
+        "f(X) => X [priority(007)]",
+        "f(a) => b [simplification]",
+        "f(a) => b [simplification(255)]",
+        "m(X) => X [priority(300)]",
+        "m(X) => X [priority(-1)]",
+    ] {
+        assert_compiles_and_loads(
+            &format!(
+                "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)] | m(Foo) [macro, symbol(m)]\n  rule {rule}\nendmodule\n"
+            ),
+            "MAIN",
+        );
+    }
+}
