@@ -201,17 +201,9 @@ display_error!(
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
     pub(super) covering_lambdas: Vec<passes::CoveringLambda>,
-    /// The metadata stage sets this only when it writes no totality claim.
-    initializer_totality_unchanged: bool,
     /// The stage-boundary invariant checks, which span the transform and emission runs.
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     pub checks: StageChecks,
-}
-
-impl PipelineState {
-    pub(super) fn record_initializer_totality_change(&mut self, changed: bool) {
-        self.initializer_totality_unchanged = !changed;
-    }
 }
 
 struct Current {
@@ -280,7 +272,13 @@ impl<'a> PassInput<'a> {
     }
 }
 
-pub(crate) type PassFn = fn(&PassInput<'_>, &mut PipelineState) -> Result<Definition, PassError>;
+/// A stage either preserves its input or supplies a replacement definition.
+pub(crate) enum PassOutcome {
+    Unchanged,
+    Changed(Definition),
+}
+
+pub(crate) type PassFn = fn(&PassInput<'_>, &mut PipelineState) -> Result<PassOutcome, PassError>;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Provenance {
@@ -367,8 +365,10 @@ macro_rules! stage_adapter {
         fn $name(
             input: &PassInput<'_>,
             state: &mut PipelineState,
-        ) -> Result<Definition, PassError> {
-            $pass(input, state).map_err(Into::into)
+        ) -> Result<PassOutcome, PassError> {
+            $pass(input, state)
+                .map(PassOutcome::Changed)
+                .map_err(Into::into)
         }
     };
 }
@@ -408,10 +408,12 @@ stage_adapter!(
     passes::generate_sort_projections_pass
 );
 stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
-stage_adapter!(
-    declare_initializer_totality_stage,
-    passes::declare_initializer_totality_pass
-);
+fn declare_deferred_totality_stage(
+    input: &PassInput<'_>,
+    state: &mut PipelineState,
+) -> Result<PassOutcome, PassError> {
+    passes::declare_deferred_totality_pass(input, state).map_err(Into::into)
+}
 stage_adapter!(
     add_implicit_computation_cell_stage,
     passes::add_implicit_computation_cell_pass
@@ -455,9 +457,9 @@ stage_adapter!(
 fn resolve_fresh_config_constants_stage(
     input: &PassInput<'_>,
     state: &mut PipelineState,
-) -> Result<Definition, PassError> {
+) -> Result<PassOutcome, PassError> {
     passes::resolve_fresh_config_constants_pass(input, state)
-        .map(|(definition, _)| definition)
+        .map(|(definition, _)| PassOutcome::Changed(definition))
         .map_err(Into::into)
 }
 
@@ -677,9 +679,9 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "generating"
     ),
     stage!(
-        "declare initializer totality",
-        "declare_initializer_totality",
-        declare_initializer_totality_stage,
+        "declare deferred totality",
+        "declare_deferred_totality",
+        declare_deferred_totality_stage,
         Provenance::None,
         "metadata-only"
     ),
@@ -912,7 +914,6 @@ fn run_stages_seeded_current(
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     measure::without_counting(|| state.checks.start(&current.definition, options));
     for stage in stages {
-        state.initializer_totality_unchanged = false;
         let (output, next_resolved) = timings.time(stage.name, || {
             let input = PassInput::new(&current);
             let output = (stage.run)(&input, state).map_err(|error| CompileError {
@@ -920,6 +921,10 @@ fn run_stages_seeded_current(
                 message: error.message,
                 diagnostics: options.diagnostics.apply(error.diagnostics),
             })?;
+            let output = match output {
+                PassOutcome::Unchanged => return Ok((None, None)),
+                PassOutcome::Changed(definition) => definition,
+            };
             let output = match stage.provenance {
                 Provenance::Driver(pass) => {
                     record_generated_origins(&current.definition, output, pass)
@@ -928,10 +933,6 @@ fn run_stages_seeded_current(
             };
             #[cfg(debug_assertions)]
             assert_no_dangling_application_identities(&output);
-            if state.initializer_totality_unchanged {
-                debug_assert!(output == current.definition);
-                return Ok((None, None));
-            }
             let next_resolved = match current.resolved.get() {
                 Some(Ok(previous)) => Some(previous.update(&current.definition, &output)),
                 Some(Err(error)) => Some(Err(error.clone())),
@@ -1061,15 +1062,15 @@ mod tests {
     }
 
     #[test]
-    fn initializer_totality_without_new_claims_retains_resolution() {
+    fn deferred_totality_without_new_claims_retains_resolution() {
         let definition = definition();
         let resolved = ResolvedDefinition::resolve(&definition).unwrap();
         let before = k_rust_kore::measure::snapshot();
         let mut state = PipelineState::default();
         let stages = [stage!(
-            "declare initializer totality",
-            "declare_initializer_totality",
-            declare_initializer_totality_stage,
+            "declare deferred totality",
+            "declare_deferred_totality",
+            declare_deferred_totality_stage,
             Provenance::None,
             "metadata-only"
         )];
@@ -1089,6 +1090,17 @@ mod tests {
                 .get(k_rust_kore::measure::Counter::KompileResolveUpdates),
             0
         );
+    }
+
+    #[test]
+    fn deferred_totality_without_new_claims_returns_unchanged() {
+        let current = Current::new(definition());
+        let outcome = passes::declare_deferred_totality_pass(
+            &PassInput::new(&current),
+            &mut PipelineState::default(),
+        )
+        .unwrap();
+        assert!(matches!(outcome, PassOutcome::Unchanged));
     }
 
     #[test]
@@ -1124,7 +1136,7 @@ mod tests {
 
     #[test]
     fn run_stages_names_the_failing_stage() {
-        fn fail(_: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
+        fn fail(_: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
             Err(PassError::from("failure".to_owned()))
         }
         let stages = [Stage {
@@ -1192,8 +1204,8 @@ mod tests {
 
     #[test]
     fn a_stage_does_not_meet_its_own_requirement() {
-        fn pass(input: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
-            Ok(input.definition.clone())
+        fn pass(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            Ok(PassOutcome::Changed(input.definition.clone()))
         }
         const SELF_PROVIDING: &[Stage] = &[stage!(
             "self-providing stage",

@@ -212,7 +212,8 @@ mod tests {
     use crate::kast::Term;
     use crate::kompile::CompileOptions;
     use crate::kompile::pipeline::{
-        Artifacts, PassError, PassFn, PassInput, PipelineState, Provenance, Stage, run_stages,
+        Artifacts, PassError, PassFn, PassInput, PassOutcome, PipelineState, Provenance, Stage,
+        run_stages,
     };
     use crate::timings::PhaseTimings;
 
@@ -253,14 +254,14 @@ mod tests {
         }
     }
 
-    fn identity(input: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
-        Ok(input.definition.clone())
+    fn identity(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+        Ok(PassOutcome::Changed(input.definition.clone()))
     }
 
-    fn appending(input: &PassInput<'_>, sentence: Sentence) -> Result<Definition, PassError> {
+    fn appending(input: &PassInput<'_>, sentence: Sentence) -> Result<PassOutcome, PassError> {
         let mut output = input.definition.clone();
         output.modules[0].local_sentences.push(Arc::new(sentence));
-        Ok(output)
+        Ok(PassOutcome::Changed(output))
     }
 
     fn run(stages: &[Stage], input: Definition) -> Definition {
@@ -306,7 +307,7 @@ mod tests {
 
     #[test]
     fn a_stage_appending_an_unbound_right_hand_side_variable_panics_naming_it() {
-        fn append(input: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
+        fn append(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
             appending(input, foo_x_to_bar("Y", Attributes::default()))
         }
         let message = panic_message(|| {
@@ -333,13 +334,13 @@ mod tests {
         fn append_gen(
             input: &PassInput<'_>,
             _: &mut PipelineState,
-        ) -> Result<Definition, PassError> {
+        ) -> Result<PassOutcome, PassError> {
             appending(input, foo_x_to_bar("_Gen0", anonymous_listed()))
         }
         fn append_dot_var(
             input: &PassInput<'_>,
             _: &mut PipelineState,
-        ) -> Result<Definition, PassError> {
+        ) -> Result<PassOutcome, PassError> {
             appending(input, foo_x_to_bar("_DotVar0", anonymous_listed()))
         }
         let output = run(
@@ -378,13 +379,13 @@ mod tests {
         fn append_rule(
             input: &PassInput<'_>,
             _: &mut PipelineState,
-        ) -> Result<Definition, PassError> {
+        ) -> Result<PassOutcome, PassError> {
             appending(input, configuration_rule(Attributes::default()))
         }
         fn append_macro(
             input: &PassInput<'_>,
             _: &mut PipelineState,
-        ) -> Result<Definition, PassError> {
+        ) -> Result<PassOutcome, PassError> {
             appending(input, configuration_rule(macro_attributes()))
         }
 
@@ -453,7 +454,7 @@ mod tests {
 
     #[test]
     fn an_input_with_an_unbound_variable_waives_the_obligation() {
-        fn append(input: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
+        fn append(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
             appending(input, foo_x_to_bar("Z", Attributes::default()))
         }
         let output = run(

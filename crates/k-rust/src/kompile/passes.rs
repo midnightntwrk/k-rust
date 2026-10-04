@@ -73,7 +73,7 @@ pub use generate_sort_helpers::{
 };
 pub(crate) use guard_or_patterns::guard_or_patterns_pass;
 pub use guard_or_patterns::{GuardOrPatternsError, guard_or_patterns};
-pub(crate) use initializer_totality::{DefinedInitializer, declare_initializer_totality_pass};
+pub(crate) use initializer_totality::{DefinedInitializer, declare_deferred_totality_pass};
 pub use minimize_term_construction::minimize_term_construction;
 pub(crate) use minimize_term_construction::minimize_term_construction_pass;
 pub(crate) use number_sentences::number_sentence;

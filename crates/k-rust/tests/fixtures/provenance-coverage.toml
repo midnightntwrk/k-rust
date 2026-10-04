@@ -171,10 +171,10 @@ generating_passes = ["resolve-fresh-constants"]
 reason = "Fresh-constant resolution creates generator machinery and terms."
 
 [[pipeline]]
-call = "declare_initializer_totality"
+call = "declare_deferred_totality"
 occurrences = 1
 behavior = "metadata-only"
-reason = "Initializer totality adds the total attribute to generated nullary initializers whose equations are judged defined, without creating semantic nodes."
+reason = "Deferred totality adds the total attribute to generated nullary initializers and covering lambdas whose complete equations are judged defined, without creating semantic nodes."
 
 [[pipeline]]
 call = "check_simplification_rules"

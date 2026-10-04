@@ -5,17 +5,15 @@
 
 use crate::definition::head_totality::{EquationTotality, is_true, term_is_defined};
 use crate::definition::totality::TotalityWitness;
-use crate::definition::{
-    AttributeKey, Definition, ProductionItem, ResolveError, Sentence, match_rule_label,
-};
+use crate::definition::{AttributeKey, ProductionItem, ResolveError, Sentence, match_rule_label};
 use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::provenance::GeneratingPass;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) fn declare_initializer_totality_pass(
+pub(crate) fn declare_deferred_totality_pass(
     input: &super::super::pipeline::PassInput<'_>,
     state: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, ResolveError> {
+) -> Result<super::super::pipeline::PassOutcome, ResolveError> {
     let resolved = input.resolved_raw().map_err(Clone::clone)?;
     let main = resolved.main_module_id();
     let productions = resolved.production_catalog(main);
@@ -148,10 +146,10 @@ pub(crate) fn declare_initializer_totality_pass(
         }
     }
     let proven = proven_deferred_labels(&deferred_rules, &lambdas, &defined, totality.as_ref());
-    let mut changed = false;
-    let mut output = input.definition.clone();
-    for module in &mut output.modules {
-        for sentence in &mut module.local_sentences {
+    let mut declarations = Vec::new();
+    // Gather proven writes before cloning: an empty set preserves the input and its views.
+    for (module_index, module) in input.definition.modules.iter().enumerate() {
+        for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
             let Sentence::Production {
                 label: Some(label),
                 items,
@@ -190,7 +188,7 @@ pub(crate) fn declare_initializer_totality_pass(
             };
             let witness = if let Some(lambda) = lambda {
                 TotalityWitness::defined_body(
-                    defined_lambda(lambda, equations, &mut label_is_defined)
+                    defined_lambda(&label.name, lambda, equations, &mut label_is_defined)
                         .expect("the fixed point established every lambda equation"),
                 )
             } else {
@@ -199,14 +197,19 @@ pub(crate) fn declare_initializer_totality_pass(
                         .expect("the fixed point established every initializer equation"),
                 )
             };
-            crate::definition::sentence_mut(sentence)
-                .attributes_mut()
-                .declare_total(witness);
-            changed = true;
+            declarations.push((module_index, sentence_index, witness));
         }
     }
-    state.record_initializer_totality_change(changed);
-    Ok(output)
+    if declarations.is_empty() {
+        return Ok(super::super::pipeline::PassOutcome::Unchanged);
+    }
+    let mut output = input.definition.clone();
+    for (module, sentence, witness) in declarations {
+        crate::definition::sentence_mut(&mut output.modules[module].local_sentences[sentence])
+            .attributes_mut()
+            .declare_total(witness);
+    }
+    Ok(super::super::pipeline::PassOutcome::Changed(output))
 }
 
 // Fresh-constant resolution expands the generated counter configuration and restamps its
@@ -264,24 +267,40 @@ fn initializer_rules_are_defined(
         })
 }
 
+/// Equations of one label, prepared only by this stage from its complete main-module catalog.
+/// The private fields bind the label to all its results, conditions and child-unit obligations.
+pub(super) struct PreparedLambdaEquations<'a> {
+    label: &'a str,
+    rules: &'a [DeferredRule],
+}
+
+impl PreparedLambdaEquations<'_> {
+    pub(super) fn are_defined_for(
+        &self,
+        label: &str,
+        defined: &mut dyn FnMut(&Label) -> bool,
+    ) -> bool {
+        self.label == label
+            && !self.rules.is_empty()
+            && self.rules.iter().all(|rule| {
+                is_true(&rule.requires)
+                    && is_true(&rule.ensures)
+                    && term_is_defined(&rule.rule_right, defined)
+                    && rule
+                        .child_units
+                        .iter()
+                        .all(|unit| defined(&Label::new(unit)))
+            })
+    }
+}
+
 fn defined_lambda(
+    label: &str,
     lambda: &super::resolve_fun::CoveringLambda,
     rules: &[DeferredRule],
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> Option<super::resolve_fun::DefinedBody> {
-    if !rules.iter().all(|rule| {
-        rule.child_units
-            .iter()
-            .all(|unit| defined(&Label::new(unit)))
-    }) {
-        return None;
-    }
-    lambda.defined_body(
-        rules
-            .iter()
-            .map(|rule| (&rule.rule_right, &rule.requires, &rule.ensures)),
-        defined,
-    )
+    lambda.defined_body(&PreparedLambdaEquations { label, rules }, defined)
 }
 
 fn deferred_rules_are_defined(
@@ -291,7 +310,7 @@ fn deferred_rules_are_defined(
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
     if let Some(lambda) = lambdas.get(label) {
-        defined_lambda(lambda, rules, defined).is_some()
+        defined_lambda(label, lambda, rules, defined).is_some()
     } else {
         initializer_rules_are_defined(rules, defined)
     }
@@ -395,7 +414,9 @@ fn deferred_label_is_defined(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::definition::{Attributes, Definition, FlatModule};
     use crate::names::BuiltinSort;
+    use std::sync::Arc;
     fn truth() -> Term {
         Term::Token {
             token: "true".into(),
@@ -406,6 +427,102 @@ mod tests {
         let marker = Term::apply(InternalLabel::NoDots.as_str(), vec![]);
         Term::apply(label, vec![marker.clone(), content, marker])
     }
+    fn covering_lambda() -> super::super::resolve_fun::CoveringLambda {
+        let int = Sort::builtin(BuiltinSort::Int);
+        let variable = Term::Variable {
+            name: "X".into(),
+            sort: Some(int.clone()),
+        };
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: vec![],
+                local_sentences: vec![
+                    Arc::new(Sentence::SyntaxSort {
+                        parameters: vec![],
+                        sort: int.clone(),
+                        attributes: Attributes::default(),
+                    }),
+                    Arc::new(Sentence::Rule {
+                        body: Term::apply(
+                            "#fun3",
+                            vec![
+                                Term::apply("#SemanticCastToInt", vec![variable.clone()]),
+                                variable,
+                                Term::Token {
+                                    token: "1".into(),
+                                    sort: int,
+                                },
+                            ],
+                        ),
+                        requires: truth(),
+                        ensures: truth(),
+                        attributes: Attributes::default(),
+                    }),
+                ],
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+        super::super::super::pipeline::run_standalone_raw(&definition, |input, state| {
+            super::super::resolve_fun::resolve_fun_pass(input, state).unwrap();
+            assert_eq!(state.covering_lambdas.len(), 1);
+            Ok::<_, std::convert::Infallible>(state.covering_lambdas.pop().unwrap())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn deferred_lambda_evidence_requires_unconditional_equations() {
+        let lambda = covering_lambda();
+        let unconditional = || DeferredRule {
+            rule_right: Term::variable("X"),
+            requires: truth(),
+            ensures: truth(),
+            child_units: BTreeSet::new(),
+        };
+        let conditional = || DeferredRule {
+            requires: Term::variable("Condition"),
+            ..unconditional()
+        };
+        let judge = |rules: &[DeferredRule]| {
+            defined_lambda(lambda.label(), &lambda, rules, &mut |_| false).is_some()
+        };
+        assert!(judge(&[unconditional()]));
+        assert!(!judge(&[conditional()]));
+        assert!(!judge(&[unconditional(), conditional()]));
+        assert!(!judge(&[]));
+        assert!(!judge(&[DeferredRule {
+            ensures: Term::variable("Postcondition"),
+            ..unconditional()
+        }]));
+        assert!(!judge(&[DeferredRule {
+            rule_right: Term::apply("partial", vec![]),
+            ..unconditional()
+        }]));
+        assert!(!judge(&[DeferredRule {
+            child_units: BTreeSet::from(["partial".into()]),
+            ..unconditional()
+        }]));
+    }
+
+    #[test]
+    fn deferred_lambda_evidence_cannot_use_another_labels_equations() {
+        let lambda = covering_lambda();
+        let equations = [DeferredRule {
+            rule_right: Term::variable("X"),
+            requires: truth(),
+            ensures: truth(),
+            child_units: BTreeSet::new(),
+        }];
+        assert!(defined_lambda(lambda.label(), &lambda, &equations, &mut |_| false).is_some());
+        assert!(
+            defined_lambda("other", &lambda, &equations, &mut |_| false).is_none(),
+            "another label's equations must not mint this lambda's DefinedBody"
+        );
+    }
+
     #[test]
     fn initializer_frame_markers_are_only_syntax_at_generated_cell_boundaries() {
         let cells = BTreeSet::from(["<n>".to_owned()]);

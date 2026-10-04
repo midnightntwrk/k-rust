@@ -68,20 +68,15 @@ impl CoveringLambda {
         &self.label
     }
 
-    /// Callers must supply exactly this label's equations from the main-module rule catalog.
-    pub(crate) fn defined_body<'a>(
+    /// Judge only the equations prepared for this label from the main-module catalog.
+    pub(super) fn defined_body(
         &self,
-        equations: impl IntoIterator<Item = (&'a Term, &'a Term, &'a Term)>,
+        equations: &super::initializer_totality::PreparedLambdaEquations<'_>,
         defined: &mut dyn FnMut(&Label) -> bool,
     ) -> Option<DefinedBody> {
-        let mut count = 0;
-        let all_defined = equations.into_iter().all(|(right, requires, ensures)| {
-            count += 1;
-            head_totality::is_true(requires)
-                && head_totality::is_true(ensures)
-                && head_totality::term_is_defined(right, defined)
-        });
-        (count > 0 && all_defined).then_some(DefinedBody(()))
+        equations
+            .are_defined_for(&self.label, defined)
+            .then_some(DefinedBody(()))
     }
 }
 
@@ -1180,32 +1175,5 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         source: None,
         location: None,
         input_addresses: Vec::new(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn deferred_lambda_evidence_requires_unconditional_equations() {
-        let lambda = CoveringLambda {
-            label: "lambda".to_owned(),
-        };
-        let right = Term::variable("X");
-        let truth = bool_token(true);
-        let falsehood = bool_token(false);
-        let unconditional = (&right, &truth, &truth);
-        let conditional = (&right, &falsehood, &truth);
-        let mut defined = |_: &Label| false;
-
-        assert!(lambda.defined_body([unconditional], &mut defined).is_some());
-        assert!(lambda.defined_body([conditional], &mut defined).is_none());
-        assert!(
-            lambda
-                .defined_body([unconditional, conditional], &mut defined)
-                .is_none()
-        );
-        assert!(lambda.defined_body([], &mut defined).is_none());
     }
 }

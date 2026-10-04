@@ -1104,8 +1104,8 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
     let local_function = application(
         "#fun3",
         vec![
-            // An untyped pattern covers the generated K parameter; a sorted bare variable would not.
-            Term::variable("X"),
+            // The cast and Int argument make the parameter Int, covered by X:Int.
+            application("#SemanticCastToInt", vec![x.clone()]),
             application("plus", vec![x, y.clone()]),
             Term::Token {
                 token: "1".into(),
@@ -1190,7 +1190,7 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
     assert!(
         rendered
             .iter()
-            .any(|body| { body.contains("`#lambda__`(X,Y)=>plus(X,Y)") })
+            .any(|body| { body.contains("`#lambda__`(#SemanticCastToInt(X),Y)=>plus(X,Y)") })
     );
     let receipts = sentences
         .iter()
@@ -1592,8 +1592,8 @@ fn declares_a_generated_lambda_total_only_when_its_body_is_defined() {
         application(
             "#let",
             vec![
-                // An untyped pattern covers the generated K parameter, so the body alone decides totality.
-                Term::variable("Y"),
+                // The cast covers the Int parameter, so the body alone decides totality.
+                application("#SemanticCastToInt", vec![y()]),
                 Term::Variable {
                     name: hint.into(),
                     sort: int(),
@@ -1896,8 +1896,8 @@ fn a_lambda_over_a_function_its_equation_defines_everywhere_is_total() {
             application(
                 "#let",
                 vec![
-                    // An untyped pattern covers the generated K parameter, so the body alone decides totality.
-                    Term::variable("Y"),
+                    // The cast covers the Int parameter, so the body alone decides totality.
+                    application("#SemanticCastToInt", vec![variable("Y")]),
                     variable(&hint),
                     application(label, (0..*arity).map(|_| variable("Y")).collect()),
                 ],

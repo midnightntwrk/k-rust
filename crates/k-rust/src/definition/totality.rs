@@ -41,6 +41,7 @@ enum TotalityReason {
 impl TotalityWitness {
     /// Evidence: the generated lambda covers every argument tuple and each equation builds
     /// a defined result with a trivial postcondition, so every application denotes one value.
+    /// Deferred evidence binds the covering receipt to its own main-catalog equations.
     pub(crate) fn defined_body(_: DefinedBody) -> Self {
         Self(TotalityReason::DefinedBody)
     }

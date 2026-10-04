@@ -2901,19 +2901,19 @@ symbol = "crates/k-rust-backend/tests/backend/term_order.rs"
 
 [[node]]
 kind = "phase"
-id = "declare initializer totality"
+id = "declare deferred totality"
 provenance = "table"
 area = "kompile"
-name = "declare initializer totality"
+name = "declare deferred totality"
 table = "TRANSFORM_STAGES"
-call = "declare_initializer_totality"
+call = "declare_deferred_totality"
 behavior = "metadata-only"
 sequence = 40
 
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
-symbol = "declare_initializer_totality"
+symbol = "declare_deferred_totality"
 
 [[node]]
 kind = "phase"
@@ -8297,7 +8297,7 @@ order = 29
 
 [[edge]]
 kind = "follows"
-from = "declare initializer totality"
+from = "declare deferred totality"
 to = "check simplification rules"
 provenance = "table"
 order = 40
@@ -9198,7 +9198,7 @@ provenance = "derived"
 [[edge]]
 kind = "follows"
 from = "regenerate sort projections"
-to = "declare initializer totality"
+to = "declare deferred totality"
 provenance = "table"
 order = 39
 

@@ -63,7 +63,7 @@ Phases:
     - kompile.fresh_constants.resolve — O(N + F log F + L) plus one… — at k-rust/kompile/passes/resolve_fresh_constants.rs `resolve_fresh_constants`
   - 38 regenerate sort predicate syntax: = kompile.sort_helpers.generate (phase 20)
   - 39 regenerate sort projections: = kompile.sort_helpers.generate (phase 20)
-  - 40 declare initializer totality → 41 check simplification rules
+  - 40 declare deferred totality → 41 check simplification rules
   - 42 finalize KItem subsorts: = kompile.sort_helpers.generate (phase 20)
   - 43 concretize cells
     - kompile.cells.concretize — O(P + C x |children| + r^2) per module plus the… +1 mode — at k-rust/kompile/passes/concretize_cells.rs `concretize_cells`
