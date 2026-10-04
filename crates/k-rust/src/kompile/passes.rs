@@ -127,31 +127,40 @@ pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 /// (the result test of a heating or cooling rule, the negation of a `:/=K` match, the conjunction
 /// of a cell fragment's sort tests) are `Bool` formulas built from those connectives. The sentence
 /// the user wrote means the same whether or not its module imports `BOOL`: the condition is part
-/// of the lowering, not of the user's syntax. So compilation makes the connectives visible where the
-/// generated sentence is checked, by a private import: `BOOL` declares functions over `Bool` only
-/// (the sort itself is already in `BASIC-K`), so the import changes no user sort or production, and
-/// being private it reaches no module that imports `module`. Passes run after rule parsing, so the
-/// import changes no parse either.
-///
-/// Returns `false`, and changes nothing, when the definition has no `BOOL` module (a
-/// `--no-prelude` definition that does not provide one); the caller reports the sentence that
-/// needs it.
+/// of the lowering, not of the user's syntax. So compilation makes the connectives visible where
+/// the generated sentence is checked ([`import_for_generated`]). `BOOL` declares functions over
+/// `Bool` only, whose sort `BASIC-K` already provides.
 pub(super) fn import_bool(
     module: &mut crate::definition::FlatModule,
     resolved: &crate::definition::ResolvedDefinition,
 ) -> bool {
-    let name = crate::kast::WellKnownModule::Bool.as_str();
-    let Some(bool_module) = resolved.module_id(name) else {
+    import_for_generated(module, resolved, crate::kast::WellKnownModule::Bool)
+}
+
+/// Make `required` visible in `module`, which holds a sentence that compilation wrote with
+/// symbols `required` declares.
+///
+/// The import is private, so it reaches no module that imports `module`, and passes run after
+/// rule parsing, so it changes no parse. A module that already sees `required` is unchanged.
+///
+/// Returns `false`, and changes nothing, when the definition has no module `required` (a
+/// `--no-prelude` definition that does not provide one); the caller reports the sentence that
+/// needs it ([`missing_module_message`]).
+pub(super) fn import_for_generated(
+    module: &mut crate::definition::FlatModule,
+    resolved: &crate::definition::ResolvedDefinition,
+    required: crate::kast::WellKnownModule,
+) -> bool {
+    let name = required.as_str();
+    let Some(required) = resolved.module_id(name) else {
         return false;
     };
     if module.name == name || module.imports.iter().any(|import| import.name == name) {
         return true;
     }
-    let visible = resolved.module_id(&module.name).is_some_and(|module_id| {
-        resolved
-            .transitive_imports(module_id)
-            .contains(&bool_module)
-    });
+    let visible = resolved
+        .module_id(&module.name)
+        .is_some_and(|module_id| resolved.transitive_imports(module_id).contains(&required));
     if !visible {
         module.imports.insert(
             0,
@@ -167,9 +176,23 @@ pub(super) fn import_bool(
 /// The error message for a sentence whose generated condition needs `BOOL` in a definition
 /// that has no `BOOL` module ([`import_bool`]).
 pub(super) fn missing_bool_message(what: &str) -> String {
+    missing_module_message(
+        what,
+        "a Bool side condition",
+        crate::kast::WellKnownModule::Bool,
+    )
+}
+
+/// The error message for a sentence whose lowering, described by `what` and `generated`, needs
+/// the module `required` in a definition that has none ([`import_for_generated`]).
+pub(super) fn missing_module_message(
+    what: &str,
+    generated: &str,
+    required: crate::kast::WellKnownModule,
+) -> String {
     format!(
-        "{what} generates a Bool side condition, which needs the module {}, but the definition does not contain it.",
-        crate::kast::WellKnownModule::Bool.as_str()
+        "{what} generates {generated}, which needs the module {}, but the definition does not contain it.",
+        required.as_str()
     )
 }
 

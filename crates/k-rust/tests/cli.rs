@@ -11622,3 +11622,33 @@ endmodule
         assert!(stdout.contains(expected), "{source}: {stdout}");
     }
 }
+
+#[test]
+fn fresh_variables_need_no_int_import() {
+    // The counter cell that supplies fresh values is advanced with `INT`'s `_+Int_`; a module
+    // that only sees `INT-SYNTAX` still states the rule.
+    let stdout = krun_success(
+        r#"
+module MAIN
+  imports INT-SYNTAX
+  syntax Foo ::= foo(Int) | "a"
+  syntax Foo ::= freshFoo(Int) [freshGenerator, function, total]
+  rule freshFoo(I) => foo(I)
+  configuration <k> $PGM:Foo </k>
+  rule <k> a => !X:Foo ... </k>
+endmodule
+"#,
+        &[
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Foo",
+            "--expression",
+            "a",
+        ],
+    );
+    assert!(
+        stdout.contains("Lblfoo'LParUndsRParUnds'MAIN'Unds'Foo'Unds'Int{}(\\dv{SortInt{}}(\"0\"))"),
+        "{stdout}"
+    );
+}

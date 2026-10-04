@@ -32,7 +32,10 @@ use crate::{
         Sentence, expand_configurations_allowing_reserved_cells, production_identity,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term},
+    kast::{
+        FrontendSort, GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term,
+        WellKnownModule,
+    },
     provenance::GeneratingPass,
 };
 
@@ -104,17 +107,31 @@ pub(crate) fn resolve_fresh_constants_pass(
             .contains(&LabelHead::new(GeneratedCell::Top.label()));
 
         let cell_labels = std::cell::OnceCell::new();
+        // The first sentence of the module whose lowering advances the counter, which the
+        // module's `INT` import is for; it locates the error when the definition has no `INT`.
+        let mut first_counter_use = None;
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             let original = sentence.clone();
             match transform_sentence(original, &productions, &generators, &cell_labels) {
-                Ok(transformed) => {
+                Ok((transformed, counter)) => {
                     if let (Some(before), Some(after)) =
                         (before_identity, production_identity(&transformed))
                         && before != after
                     {
                         replacements.insert(before, after);
+                    }
+                    if counter == CounterUse::Advances && first_counter_use.is_none() {
+                        first_counter_use = Some(Diagnostic::error(
+                            DiagnosticCode::InvalidFreshConstant,
+                            super::missing_module_message(
+                                "A fresh variable",
+                                "an increment of the fresh counter",
+                                WellKnownModule::Int,
+                            ),
+                            &transformed,
+                        ));
                     }
                     *sentence = transformed;
                 }
@@ -124,6 +141,13 @@ pub(crate) fn resolve_fresh_constants_pass(
                     sentence,
                 )),
             }
+        }
+        // The counter cell is an `Int` advanced with `_+Int_`, which the rule's module declares
+        // only when it sees `INT`; the user's rule means the same without that import.
+        if let Some(missing_int) = first_counter_use
+            && !super::import_for_generated(module, resolved, WellKnownModule::Int)
+        {
+            diagnostics.push(missing_int);
         }
 
         let has_cells = productions
@@ -198,6 +222,27 @@ fn transform_sentence(
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
     cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
+) -> Result<(Sentence, CounterUse), String> {
+    let mut counter = CounterUse::None;
+    let transformed =
+        transform_sentence_counting(sentence, productions, generators, cell_labels, &mut counter)?;
+    Ok((transformed, counter))
+}
+
+/// Whether the lowering of a sentence advances the counter cell (`add_fresh_cell`), whose
+/// increment is `INT`'s `_+Int_`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CounterUse {
+    None,
+    Advances,
+}
+
+fn transform_sentence_counting(
+    sentence: Sentence,
+    productions: &ProductionCatalog<'_>,
+    generators: &BTreeMap<Sort, Label>,
+    cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
+    counter: &mut CounterUse,
 ) -> Result<Sentence, String> {
     match sentence {
         Sentence::Rule {
@@ -235,6 +280,9 @@ fn transform_sentence(
             if rule_defines_function(&original, productions) {
                 Ok(original)
             } else {
+                if !fresh.is_empty() {
+                    *counter = CounterUse::Advances;
+                }
                 Ok(with_fresh)
             }
         }
@@ -244,6 +292,9 @@ fn transform_sentence(
             attributes,
         } => {
             let fresh = fresh_variables([&body, &requires]);
+            if !fresh.is_empty() {
+                *counter = CounterUse::Advances;
+            }
             let offsets = fresh
                 .keys()
                 .enumerate()

@@ -525,6 +525,7 @@ impl GeneratedCell {
 pub enum WellKnownModule {
     K,
     Bool,
+    Int,
     Map,
     KReflection,
     DefaultConfiguration,
@@ -539,6 +540,7 @@ impl WellKnownModule {
         match self {
             Self::K => "K",
             Self::Bool => "BOOL",
+            Self::Int => "INT",
             Self::Map => "MAP",
             Self::KReflection => "K-REFLECTION",
             Self::DefaultConfiguration => "DEFAULT-CONFIGURATION",

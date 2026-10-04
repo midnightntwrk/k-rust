@@ -5561,9 +5561,58 @@ fn implicit_computation_cells_require_a_declared_main_cell_only_when_needed() {
     assert_eq!(add_implicit_computation_cell(&skipped).unwrap(), skipped);
 }
 
+/// The fresh counter is advanced with `INT`'s `_+Int_`, so a rule drawing a fresh value is given
+/// a private `INT` import; a definition without `INT` is told so at the rule.
+#[test]
+fn fresh_variables_import_int_for_the_counter_or_report_its_absence() {
+    let main = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Id ::= r"[a-z]+" [token]
+                      | "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
+          syntax Exp ::= Int | Id
+          configuration <k> 0 </k>
+          rule 0 => !X:Id
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let lowered = |source: &str| {
+        let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+        let definition = add_implicit_computation_cell(&definition).unwrap();
+        resolve_fresh_constants(&definition, 0)
+    };
+    let transformed = lowered(&format!("module INT\nendmodule\n{main}")).unwrap();
+    assert!(
+        transformed
+            .main_module()
+            .unwrap()
+            .imports
+            .contains(&FlatImport {
+                name: "INT".into(),
+                public: false,
+            })
+    );
+
+    let error = lowered(main).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1, "{:?}", error.diagnostics);
+    let diagnostic = &error.diagnostics[0];
+    assert!(
+        diagnostic.message.contains("needs the module INT"),
+        "{}",
+        diagnostic.message
+    );
+    assert_eq!(
+        diagnostic.location.map(|location| location.start_line),
+        Some(7)
+    );
+}
+
 #[test]
 fn resolves_fresh_variables_and_generates_the_counter_configuration() {
     let source = indoc! {r#"
+        module INT
+        endmodule
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           syntax Exp ::= Int | Id
@@ -5634,6 +5683,8 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
 #[test]
 fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
     let source = indoc! {r#"
+        module INT
+        endmodule
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
                        | "freshInt(" Int ")" [function, freshGenerator, symbol(freshInt)]
@@ -5691,6 +5742,8 @@ fn claim_bodies_after_fresh_constants(definition: &Definition) -> Vec<(String, S
 #[test]
 fn claims_over_declared_cells_leave_the_generated_counter_to_the_path() {
     let source = indoc! {r#"
+        module INT
+        endmodule
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
                        | "freshInt(" Int ")" [function, freshGenerator, symbol(freshInt)]
@@ -5822,6 +5875,8 @@ fn expands_the_internally_generated_counter_configuration() {
 #[test]
 fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
     let source = indoc! {r#"
+        module INT
+        endmodule
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           syntax Id ::= "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
