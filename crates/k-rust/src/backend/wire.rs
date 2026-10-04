@@ -9,7 +9,7 @@ use super::{
     BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
     ExecutionResult, TraceEntry, halt_reason, trace_entry,
 };
-use crate::kore::json as kore_json;
+use crate::kore::{ast::Pattern as KorePattern, json as kore_json};
 use k_rust_backend::{
     builtin::{BuiltinEffect, BuiltinError},
     diagnostic::BackendDiagnostic,
@@ -137,29 +137,60 @@ pub enum SearchTypeArg {
     OneOrMoreSteps,
 }
 
+/// Deserializes a KORE JSON pattern field of a host request.
+///
+/// The field's JSON text is captured without building a generic JSON value: serde_json scans a
+/// [`RawValue`] with an explicit stack and no recursion limit. The captured text is then decoded
+/// by the iterative KORE JSON codec. Neither step depends on the pattern's depth, so a deep
+/// pattern is decoded and a malformed one of any depth is an ordinary deserialization error.
+pub fn deserialize_kore_pattern<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<KorePattern, D::Error> {
+    let raw = Box::<RawValue>::deserialize(deserializer)?;
+    kore_json::from_str(raw.get())
+        .map_err(|error| serde::de::Error::custom(format!("invalid KORE JSON: {error}")))
+}
+
+/// Deserializes a host request from JSON text.
+///
+/// Every KORE field of the facade's requests is decoded by [`deserialize_kore_pattern`], so
+/// serde's recursion limit stays on for the rest of the request: a value nested more deeply
+/// than that limit in any other field is an ordinary error.
+pub fn deserialize_request<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, BackendError> {
+    serde_json::from_str(json).map_err(|error| BackendError(error.to_string()))
+}
+
+pub(super) fn default_max_simplification_iterations() -> usize {
+    DEFAULT_MAX_SIMPLIFICATION_ITERATIONS
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SearchRequest {
-    pub state: Value,
+    /// A KORE JSON envelope on the wire ([`deserialize_kore_pattern`]).
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub state: KorePattern,
+    #[serde(default)]
     pub module_name: Option<String>,
+    #[serde(default)]
     pub search_type: SearchTypeArg,
+    #[serde(default)]
     pub max_depth: Option<u64>,
+    #[serde(default)]
     pub max_breadth: Option<usize>,
+    #[serde(default)]
     pub max_results: Option<usize>,
+    #[serde(default = "default_max_simplification_iterations")]
     pub max_simplification_iterations: usize,
+    #[serde(default = "super::default_backend_schema_version")]
     pub schema_version: u32,
 }
 
 impl SearchRequest {
-    pub fn validate_schema(&self) -> Result<(), BackendError> {
-        validate_schema_version(self.schema_version)
-    }
-}
-
-impl Default for SearchRequest {
-    fn default() -> Self {
+    /// A request from `state` with every other field at its wire default.
+    pub fn new(state: KorePattern) -> Self {
         Self {
-            state: Value::Null,
+            state,
             module_name: None,
             search_type: SearchTypeArg::Final,
             max_depth: None,
@@ -169,34 +200,44 @@ impl Default for SearchRequest {
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
-}
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
-pub struct SearchPatternRequest {
-    pub state: Value,
-    pub pattern: Value,
-    pub module_name: Option<String>,
-    pub search_type: SearchTypeArg,
-    pub max_depth: Option<u64>,
-    pub max_breadth: Option<usize>,
-    pub max_results: Option<usize>,
-    pub max_simplification_iterations: usize,
-    pub schema_version: u32,
-}
-
-impl SearchPatternRequest {
     pub fn validate_schema(&self) -> Result<(), BackendError> {
         validate_schema_version(self.schema_version)
     }
 }
 
-impl Default for SearchPatternRequest {
-    fn default() -> Self {
-        let search = SearchRequest::default();
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SearchPatternRequest {
+    /// A KORE JSON envelope on the wire ([`deserialize_kore_pattern`]).
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub state: KorePattern,
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub pattern: KorePattern,
+    #[serde(default)]
+    pub module_name: Option<String>,
+    #[serde(default)]
+    pub search_type: SearchTypeArg,
+    #[serde(default)]
+    pub max_depth: Option<u64>,
+    #[serde(default)]
+    pub max_breadth: Option<usize>,
+    #[serde(default)]
+    pub max_results: Option<usize>,
+    #[serde(default = "default_max_simplification_iterations")]
+    pub max_simplification_iterations: usize,
+    #[serde(default = "super::default_backend_schema_version")]
+    pub schema_version: u32,
+}
+
+impl SearchPatternRequest {
+    /// A request from `state` and the target `pattern` with every other field at its wire
+    /// default.
+    pub fn new(state: KorePattern, pattern: KorePattern) -> Self {
+        let search = SearchRequest::new(state);
         Self {
             state: search.state,
-            pattern: Value::Null,
+            pattern,
             module_name: search.module_name,
             search_type: search.search_type,
             max_depth: search.max_depth,
@@ -205,6 +246,10 @@ impl Default for SearchPatternRequest {
             max_simplification_iterations: search.max_simplification_iterations,
             schema_version: search.schema_version,
         }
+    }
+
+    pub fn validate_schema(&self) -> Result<(), BackendError> {
+        validate_schema_version(self.schema_version)
     }
 }
 

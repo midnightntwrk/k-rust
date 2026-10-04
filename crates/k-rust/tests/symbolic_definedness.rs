@@ -167,14 +167,13 @@ fn leaf(leaf: ExecutionLeaf) -> Leaf {
 }
 
 fn execute(backend: &mut Backend, program: &str, assume_state_defined: bool) -> Vec<Leaf> {
-    let state = codec::to_value(&parse_pattern(&top(program)).unwrap()).unwrap();
+    let state = parse_pattern(&top(program)).unwrap();
     backend
         .execute(ExecuteRequest {
-            state,
             assume_state_defined,
             result_modality: ResultModalityOutput::PathSet,
             max_depth: Some(4),
-            ..ExecuteRequest::default()
+            ..ExecuteRequest::new(state)
         })
         .unwrap()
         .leaves

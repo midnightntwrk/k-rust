@@ -10,9 +10,24 @@ use std::{
     path::PathBuf,
 };
 
-use k_rust::backend::{Backend, BackendOptions, ExecuteRequest, ObservedRequest};
+use k_rust::{
+    backend::{Backend, BackendOptions, ExecuteRequest, ObservedRequest, deserialize_kore_pattern},
+    kore::ast::Pattern,
+};
 use k_rust_kore::{measure, trace_aggregate::SpanAggregator};
 use serde_json::Value;
+
+/// The `params.state` of a KORE RPC `execute` request; other members are ignored.
+#[derive(serde::Deserialize)]
+struct RpcRequest {
+    params: RpcParams,
+}
+
+#[derive(serde::Deserialize)]
+struct RpcParams {
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    state: Pattern,
+}
 
 #[global_allocator]
 static ALLOCATOR: measure::CountingAllocator = measure::CountingAllocator;
@@ -45,11 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let depth = depth.ok_or("missing --depth")?;
 
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-        let envelope: Value = serde_json::from_reader(File::open(request)?)?;
-        let state = envelope
-            .pointer("/params/state")
-            .ok_or("request has no params.state")?
-            .clone();
+        let RpcRequest {
+            params: RpcParams { state },
+        } = serde_json::from_reader(File::open(request)?)?;
         let mut backend = Backend::new(
             &fs::read_to_string(definition)?,
             module,
@@ -57,9 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         let request = ObservedRequest {
             request: ExecuteRequest {
-                state,
                 max_depth: Some(depth),
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(state)
             },
             rules: None,
         };

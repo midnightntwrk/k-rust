@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use k_rust::{
     backend::{Backend, BackendOptions, ObservedRequest, SearchRequest, TransitionIdOutput},
-    kore::{codec, parser::parse_pattern},
+    kore::parser::parse_pattern,
 };
 
 const DEFINITION: &str = r#"[]
@@ -22,13 +22,10 @@ const DEFINITION: &str = r#"[]
 #[test]
 fn public_observed_transition_ids_are_ordered_hash_keys() {
     let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
-    let state = codec::to_value(&parse_pattern("a{}()").unwrap()).unwrap();
+    let state = parse_pattern("a{}()").unwrap();
     let result = backend
         .search_observed(ObservedRequest {
-            request: SearchRequest {
-                state,
-                ..SearchRequest::default()
-            },
+            request: SearchRequest::new(state),
             rules: None,
         })
         .unwrap();

@@ -7,7 +7,7 @@ use k_rust::{
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern},
+    kore::parser::parse_pattern,
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -164,11 +164,10 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
     let mut backend = backend();
     let catalog = backend.rule_catalog(None).unwrap();
     let ids: BTreeSet<_> = catalog.iter().map(|entry| entry.id.as_str()).collect();
-    let state = codec::to_value(&parse_pattern(X_STATE).unwrap()).unwrap();
+    let state = parse_pattern(X_STATE).unwrap();
     let request = ExecuteRequest {
-        state,
         max_depth: Some(1),
-        ..ExecuteRequest::default()
+        ..ExecuteRequest::new(state)
     };
 
     for entry in catalog.iter().filter(|entry| {

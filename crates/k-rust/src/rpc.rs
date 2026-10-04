@@ -79,7 +79,7 @@ use k_rust_backend::{
 #[cfg(feature = "measure")]
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json, value::RawValue};
+use serde_json::{Map, Value, json};
 
 #[cfg(test)]
 use k_rust_backend::session::BackendSession;
@@ -270,10 +270,7 @@ struct KoreJson(KorePattern);
 
 impl<'de> Deserialize<'de> for KoreJson {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Box::<RawValue>::deserialize(deserializer)?;
-        kore_json::from_str(raw.get())
-            .map(Self)
-            .map_err(serde::de::Error::custom)
+        k_rust::backend::deserialize_kore_pattern(deserializer).map(Self)
     }
 }
 

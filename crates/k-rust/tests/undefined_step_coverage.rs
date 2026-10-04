@@ -122,9 +122,8 @@ fn int(value: i64) -> String {
 
 fn request(program: &str) -> ExecuteRequest {
     ExecuteRequest {
-        state: codec::to_value(&parse_pattern(&top(program)).unwrap()).unwrap(),
         result_modality: ResultModalityOutput::PathSet,
-        ..ExecuteRequest::default()
+        ..ExecuteRequest::new(parse_pattern(&top(program)).unwrap())
     }
 }
 
@@ -177,11 +176,7 @@ fn assert_trivial_rule(backend: &Backend, leaf: &ExecutionLeaf, label: &str) {
 fn satisfiable(backend: &mut Backend, leaf: &ExecutionLeaf) -> Option<String> {
     backend.capabilities().smt.then(|| {
         backend
-            .get_model(PatternRequest {
-                state: leaf.state.clone(),
-                module_name: None,
-                schema_version: k_rust::backend::BACKEND_SCHEMA_VERSION,
-            })
+            .get_model(PatternRequest::new(codec::from_value(&leaf.state).unwrap()))
             .unwrap()
             .satisfiable
     })

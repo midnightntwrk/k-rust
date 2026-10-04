@@ -96,11 +96,16 @@ pub struct BackendCapabilities {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExecuteRequest {
-    pub state: Value,
+    /// A KORE JSON envelope on the wire ([`deserialize_kore_pattern`]).
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub state: KorePattern,
+    #[serde(default)]
     pub module_name: Option<String>,
+    #[serde(default)]
     pub max_depth: Option<u64>,
+    #[serde(default)]
     pub max_breadth: Option<usize>,
     /// Maximum simplifier iterations per rewrite step.
     ///
@@ -110,29 +115,40 @@ pub struct ExecuteRequest {
     /// the thread's stack, whose exhaustion is a typed error.
     /// Execution keeps a partially simplified term or the original constraints after exhaustion
     /// and records a backend diagnostic before continuing.
+    #[serde(default = "wire::default_max_simplification_iterations")]
     pub max_simplification_iterations: usize,
+    #[serde(default)]
     pub strategy: ExecutionStrategy,
+    #[serde(default)]
     pub stop_at_branch: bool,
+    #[serde(default)]
     pub cut_point_rules: Vec<String>,
+    #[serde(default)]
     pub terminal_rules: Vec<String>,
+    #[serde(default)]
     pub step_timeout_ms: Option<u64>,
+    #[serde(default)]
     pub moving_average_timeout: bool,
     /// Assume the initial state's definedness instead of adding it to the path predicate.
     /// Other path obligations still apply: an execution leaf's predicate implies the
     /// definedness of every partial term relied on by its conditions, right-hand sides, and
     /// simplified states in either solver profile.
+    #[serde(default)]
     pub assume_state_defined: bool,
     /// `state-set` (the default) merges structurally equal final configurations into one leaf;
     /// `path-set` returns one leaf per explored path, so converging paths keep their own trace,
     /// branch identity, and observations. The result reports the modality it was produced under.
+    #[serde(default = "default_result_modality")]
     pub result_modality: ResultModalityOutput,
+    #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
 
-impl Default for ExecuteRequest {
-    fn default() -> Self {
+impl ExecuteRequest {
+    /// A request from `state` with every other field at its wire default.
+    pub fn new(state: KorePattern) -> Self {
         Self {
-            state: Value::Null,
+            state,
             module_name: None,
             max_depth: None,
             max_breadth: None,
@@ -311,22 +327,49 @@ pub struct TraceEntry {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PatternRequest {
-    pub state: Value,
+    /// A KORE JSON envelope on the wire ([`deserialize_kore_pattern`]).
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub state: KorePattern,
     #[serde(default)]
     pub module_name: Option<String>,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
 
+impl PatternRequest {
+    /// A request from `state` in the default module.
+    pub fn new(state: KorePattern) -> Self {
+        Self {
+            state,
+            module_name: None,
+            schema_version: BACKEND_SCHEMA_VERSION,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ImplicationRequest {
-    pub antecedent: Value,
-    pub consequent: Value,
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub antecedent: KorePattern,
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub consequent: KorePattern,
     #[serde(default)]
     pub module_name: Option<String>,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
+}
+
+impl ImplicationRequest {
+    /// A request for `antecedent` implies `consequent` in the default module.
+    pub fn new(antecedent: KorePattern, consequent: KorePattern) -> Self {
+        Self {
+            antecedent,
+            consequent,
+            module_name: None,
+            schema_version: BACKEND_SCHEMA_VERSION,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -688,7 +731,7 @@ impl Backend {
                     .into(),
             ));
         }
-        let syntax = decode_pattern(request.state)?;
+        let syntax = request.state;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
@@ -749,7 +792,7 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = search_options(&request);
-        let syntax = decode_pattern(request.state)?;
+        let syntax = request.state;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
@@ -797,7 +840,7 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = search_options(&request);
-        let syntax = decode_pattern(request.state)?;
+        let syntax = request.state;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
@@ -845,8 +888,8 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = pattern_search_options(&request);
-        let initial_syntax = decode_pattern(request.state)?;
-        let target_syntax = decode_pattern(request.pattern)?;
+        let initial_syntax = request.state;
+        let target_syntax = request.pattern;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
@@ -899,8 +942,8 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = pattern_search_options(&request);
-        let initial_syntax = decode_pattern(request.state)?;
-        let target_syntax = decode_pattern(request.pattern)?;
+        let initial_syntax = request.state;
+        let target_syntax = request.pattern;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
@@ -1015,7 +1058,7 @@ impl Backend {
 
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
-        let syntax = decode_pattern(request.state)?;
+        let syntax = request.state;
         let output = self.simplify_kore(
             request.module_name.as_deref(),
             &syntax,
@@ -1029,8 +1072,8 @@ impl Backend {
         request: ImplicationRequest,
     ) -> Result<ImplicationResult, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
-        let antecedent = decode_pattern(request.antecedent)?;
-        let consequent = decode_pattern(request.consequent)?;
+        let antecedent = request.antecedent;
+        let consequent = request.consequent;
         let (verdict, result_sort) = self.implies_kore(
             request.module_name.as_deref(),
             &antecedent,
@@ -1068,7 +1111,7 @@ impl Backend {
         }
         #[cfg(feature = "z3-inference")]
         {
-            let syntax = decode_pattern(request.state)?;
+            let syntax = request.state;
             let (result, result_sort) = self.model_for(
                 request.module_name.as_deref(),
                 &syntax,
@@ -1255,17 +1298,33 @@ impl Backend {
 }
 
 fn search_options(request: &SearchRequest) -> SearchOptions {
+    bounded_search_options(
+        request.search_type,
+        request.max_depth,
+        request.max_breadth,
+        request.max_results,
+        request.max_simplification_iterations,
+    )
+}
+
+fn bounded_search_options(
+    search_type: SearchTypeArg,
+    max_depth: Option<u64>,
+    max_breadth: Option<usize>,
+    max_results: Option<usize>,
+    max_simplification_iterations: usize,
+) -> SearchOptions {
     SearchOptions {
-        search_type: match request.search_type {
+        search_type: match search_type {
             SearchTypeArg::Final => SearchType::Final,
             SearchTypeArg::All => SearchType::Star,
             SearchTypeArg::OneStep => SearchType::One,
             SearchTypeArg::OneOrMoreSteps => SearchType::Plus,
         },
-        max_depth: request.max_depth.unwrap_or(u64::MAX),
-        max_breadth: request.max_breadth,
-        max_results: request.max_results,
-        max_simplification_iterations: request.max_simplification_iterations,
+        max_depth: max_depth.unwrap_or(u64::MAX),
+        max_breadth,
+        max_results,
+        max_simplification_iterations,
     }
 }
 
@@ -1273,21 +1332,22 @@ fn default_backend_schema_version() -> u32 {
     BACKEND_SCHEMA_VERSION
 }
 
+fn default_result_modality() -> ResultModalityOutput {
+    ResultModalityOutput::StateSet
+}
+
 fn validate_backend_schema_version(schema_version: u32) -> Result<(), BackendError> {
     wire::validate_schema_version(schema_version)
 }
 
 fn pattern_search_options(request: &SearchPatternRequest) -> SearchOptions {
-    search_options(&SearchRequest {
-        state: Value::Null,
-        module_name: None,
-        search_type: request.search_type,
-        max_depth: request.max_depth,
-        max_breadth: request.max_breadth,
-        max_results: request.max_results,
-        max_simplification_iterations: request.max_simplification_iterations,
-        schema_version: request.schema_version,
-    })
+    bounded_search_options(
+        request.search_type,
+        request.max_depth,
+        request.max_breadth,
+        request.max_results,
+        request.max_simplification_iterations,
+    )
 }
 
 fn observation_options(
@@ -1299,10 +1359,6 @@ fn observation_options(
             .map_err(error("could not install observation filter")),
         None => Ok(ObservationOptions::all()),
     }
-}
-
-fn decode_pattern(value: Value) -> Result<KorePattern, BackendError> {
-    kore_codec::from_value(&value).map_err(error("invalid KORE JSON"))
 }
 
 fn encode_pattern(pattern: &KorePattern) -> Result<Value, BackendError> {
@@ -1662,10 +1718,7 @@ mod tests {
         for (definition, state, kind) in cases {
             let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
             let leaf = backend
-                .execute(ExecuteRequest {
-                    state: json(state),
-                    ..ExecuteRequest::default()
-                })
+                .execute(ExecuteRequest::new(kore(state)))
                 .unwrap()
                 .leaves
                 .remove(0);
@@ -1684,10 +1737,7 @@ mod tests {
             assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
         }
         let leaf = backend()
-            .execute(ExecuteRequest {
-                state: json("a{}()"),
-                ..ExecuteRequest::default()
-            })
+            .execute(ExecuteRequest::new(kore("a{}()")))
             .unwrap()
             .leaves
             .remove(0);
@@ -1702,19 +1752,9 @@ mod tests {
 
     #[test]
     fn json_text_paths_match_value_responses() {
-        let execute = || ExecuteRequest {
-            state: json("a{}()"),
-            ..ExecuteRequest::default()
-        };
-        let search = || SearchRequest {
-            state: json("a{}()"),
-            ..SearchRequest::default()
-        };
-        let pattern = || SearchPatternRequest {
-            state: json("a{}()"),
-            pattern: json("c{}()"),
-            ..SearchPatternRequest::default()
-        };
+        let execute = || ExecuteRequest::new(kore("a{}()"));
+        let search = || SearchRequest::new(kore("a{}()"));
+        let pattern = || SearchPatternRequest::new(kore("a{}()"), kore("c{}()"));
         let observed_execute = || ObservedRequest {
             request: execute(),
             rules: None,
@@ -1774,8 +1814,8 @@ mod tests {
 
     #[test]
     fn executable_facade_rejects_nested_macro_and_alias_states_before_internalization() {
-        let alias = json("weakExistsFinally{SortS{}}(a{}())");
-        let nested_macro = json(r#"\and{SortS{}}(a{}(), macroValue{}())"#);
+        let alias = kore("weakExistsFinally{SortS{}}(a{}())");
+        let nested_macro = kore(r#"\and{SortS{}}(a{}(), macroValue{}())"#);
         let assert_invalid = |error: BackendError, symbol: &str| {
             let error = error.to_string();
             assert!(error.contains("invalid executable state"), "{error}");
@@ -1784,59 +1824,46 @@ mod tests {
 
         assert_invalid(
             backend()
-                .execute(ExecuteRequest {
-                    state: alias.clone(),
-                    ..ExecuteRequest::default()
-                })
+                .execute(ExecuteRequest::new(alias.clone()))
                 .unwrap_err(),
             "weakExistsFinally",
         );
         assert_invalid(
             backend()
-                .search(SearchRequest {
-                    state: nested_macro.clone(),
-                    ..SearchRequest::default()
-                })
+                .search(SearchRequest::new(nested_macro.clone()))
                 .unwrap_err(),
             "macroValue",
         );
         assert_invalid(
             backend()
-                .search_paths(SearchRequest {
-                    state: alias.clone(),
-                    ..SearchRequest::default()
-                })
+                .search_paths(SearchRequest::new(alias.clone()))
                 .unwrap_err(),
             "weakExistsFinally",
         );
         assert_invalid(
             backend()
-                .search_pattern(SearchPatternRequest {
-                    state: nested_macro,
-                    pattern: json("a{}()"),
-                    ..SearchPatternRequest::default()
-                })
+                .search_pattern(SearchPatternRequest::new(nested_macro, kore("a{}()")))
                 .unwrap_err(),
             "macroValue",
         );
         assert_invalid(
             backend()
-                .search_pattern_paths(SearchPatternRequest {
-                    state: alias,
-                    pattern: json("a{}()"),
-                    ..SearchPatternRequest::default()
-                })
+                .search_pattern_paths(SearchPatternRequest::new(alias, kore("a{}()")))
                 .unwrap_err(),
             "weakExistsFinally",
         );
+    }
+
+    fn kore(source: &str) -> KorePattern {
+        parse_pattern(source).unwrap()
     }
 
     fn json(source: &str) -> Value {
-        encode_pattern(&parse_pattern(source).unwrap()).unwrap()
+        encode_pattern(&kore(source)).unwrap()
     }
 
     fn text(value: Value) -> String {
-        Printer::compact().print_pattern(&decode_pattern(value).unwrap())
+        Printer::compact().print_pattern(&kore_codec::from_value(&value).unwrap())
     }
 
     #[test]
@@ -1937,24 +1964,119 @@ mod tests {
 
         let error = backend()
             .execute(ExecuteRequest {
-                state: json("a{}()"),
                 schema_version: 99,
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("a{}()"))
             })
             .unwrap_err();
         assert!(error.to_string().contains("schema version 99"), "{error}");
     }
 
-    #[test]
-    fn facade_decodes_deep_kore_json_without_a_recursion_limit() {
-        let sort = serde_json::json!({ "tag": "SortApp", "name": "SortK", "args": [] });
-        let mut term = serde_json::json!({ "tag": "Top", "sort": sort });
-        for _ in 0..160 {
-            term = serde_json::json!({ "tag": "Not", "sort": sort, "arg": term });
-        }
-        let envelope = serde_json::json!({ "format": "KORE", "version": 1, "term": term });
+    const DEEP_REQUEST_LEVELS: usize = 200_000;
 
-        assert!(decode_pattern(envelope).is_ok());
+    /// KORE JSON for a `\not` chain `levels` deep, built without a JSON value.
+    fn deep_kore_json(levels: usize) -> String {
+        let sort = r#"{"tag":"SortApp","name":"SortK","args":[]}"#;
+        let mut json = String::from(r#"{"format":"KORE","version":1,"term":"#);
+        for _ in 0..levels {
+            json.push_str(&format!(r#"{{"tag":"Not","sort":{sort},"arg":"#));
+        }
+        json.push_str(&format!(r#"{{"tag":"Top","sort":{sort}}}"#));
+        json.push_str(&"}".repeat(levels + 1));
+        json
+    }
+
+    fn deep_not_depth(mut pattern: &KorePattern) -> usize {
+        let mut depth = 0;
+        while let KorePattern::Not { argument, .. } = pattern {
+            depth += 1;
+            pattern = argument;
+        }
+        depth
+    }
+
+    #[test]
+    fn deep_kore_request_fields_decode_on_the_test_thread() {
+        let deep = deep_kore_json(DEEP_REQUEST_LEVELS);
+
+        let execute =
+            deserialize_request::<ExecuteRequest>(&format!(r#"{{"state":{deep},"maxDepth":0}}"#))
+                .unwrap();
+        assert_eq!(deep_not_depth(&execute.state), DEEP_REQUEST_LEVELS);
+        assert_eq!(execute.max_depth, Some(0));
+        drop(execute);
+
+        let observed = deserialize_request::<ObservedRequest<SearchPatternRequest>>(&format!(
+            r#"{{"request":{{"state":{deep},"pattern":{deep}}},"rules":[]}}"#
+        ))
+        .unwrap();
+        assert_eq!(deep_not_depth(&observed.request.state), DEEP_REQUEST_LEVELS);
+        assert_eq!(observed.request.state, observed.request.pattern);
+        drop(observed);
+
+        let implication = deserialize_request::<ImplicationRequest>(&format!(
+            r#"{{"antecedent":{deep},"consequent":{deep}}}"#
+        ))
+        .unwrap();
+        assert_eq!(deep_not_depth(&implication.consequent), DEEP_REQUEST_LEVELS);
+        drop(implication);
+
+        let simplify =
+            deserialize_request::<PatternRequest>(&format!(r#"{{"state":{deep}}}"#)).unwrap();
+        assert_eq!(
+            format!("{simplify:?}").matches("Not {").count(),
+            DEEP_REQUEST_LEVELS
+        );
+    }
+
+    #[test]
+    fn deep_malformed_kore_request_fields_are_ordinary_errors() {
+        let unclosed_arrays = format!(r#"{{"state":{}"#, "[".repeat(DEEP_REQUEST_LEVELS));
+        let error = deserialize_request::<ExecuteRequest>(&unclosed_arrays).unwrap_err();
+        assert!(error.to_string().contains("EOF"), "{error}");
+
+        let deep = deep_kore_json(DEEP_REQUEST_LEVELS);
+        let unclosed_term = format!(r#"{{"state":{}"#, &deep[..deep.len() - 10]);
+        let error = deserialize_request::<SearchRequest>(&unclosed_term).unwrap_err();
+        assert!(error.to_string().contains("EOF"), "{error}");
+
+        let mut wrong_tag = deep.replacen(r#""tag":"Top""#, r#""tag":"Bogus""#, 1);
+        let error = deserialize_request::<SearchRequest>(&format!(r#"{{"state":{wrong_tag}}}"#))
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid KORE JSON"), "{error}");
+        wrong_tag.clear();
+
+        let error = deserialize_request::<ExecuteRequest>(r#"{"maxDepth":0}"#).unwrap_err();
+        assert!(
+            error.to_string().contains("missing field `state`"),
+            "{error}"
+        );
+        let error = deserialize_request::<ExecuteRequest>(r#"{"state":null}"#).unwrap_err();
+        assert!(error.to_string().contains("invalid KORE JSON"), "{error}");
+    }
+
+    /// No field outside the KORE fields has a type that nests, so serde rejects a deep value
+    /// there at its first level, with its recursion limit as a backstop.
+    #[test]
+    fn deep_values_outside_kore_fields_are_ordinary_errors() {
+        let state = deep_kore_json(1);
+        let nested = format!(
+            "{}{}",
+            "[".repeat(DEEP_REQUEST_LEVELS),
+            "]".repeat(DEEP_REQUEST_LEVELS)
+        );
+        for request in [
+            format!(r#"{{"state":{state},"moduleName":{nested}}}"#),
+            format!(r#"{{"state":{state},"cutPointRules":{nested}}}"#),
+            format!(r#"{{"state":{state},"bogus":{nested}}}"#),
+        ] {
+            assert!(deserialize_request::<ExecuteRequest>(&request).is_err());
+        }
+        assert!(
+            deserialize_request::<ObservedRequest<ExecuteRequest>>(&format!(
+                r#"{{"request":{{"state":{state}}},"rules":{nested}}}"#
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -2061,9 +2183,8 @@ mod tests {
         let mut backend = backend();
         let execution = backend
             .execute(ExecuteRequest {
-                state: json("a{}()"),
                 max_depth: Some(2),
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("a{}()"))
             })
             .unwrap();
         assert_eq!(execution.leaves.len(), 1);
@@ -2076,8 +2197,8 @@ mod tests {
 
         let implication = backend
             .implies(ImplicationRequest {
-                antecedent: json("X:S"),
-                consequent: json("X:S"),
+                antecedent: kore("X:S"),
+                consequent: kore("X:S"),
                 module_name: None,
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
@@ -2103,9 +2224,8 @@ mod tests {
         .unwrap();
         let result = backend
             .execute(ExecuteRequest {
-                state: json("start{}()"),
                 max_simplification_iterations: 3,
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("start{}()"))
             })
             .unwrap();
         assert_eq!(result.leaves.len(), 1);
@@ -2130,10 +2250,9 @@ mod tests {
         .unwrap();
         let result = backend
             .execute(ExecuteRequest {
-                state: json("start{}()"),
                 max_simplification_iterations: 3,
                 stop_at_branch: true,
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("start{}()"))
             })
             .unwrap();
         let value = serde_json::to_value(result).unwrap();
@@ -2174,10 +2293,9 @@ mod tests {
         .unwrap();
         let result = backend
             .execute(ExecuteRequest {
-                state: json("start{}()"),
                 max_simplification_iterations: 3,
                 cut_point_rules: vec!["to-g".into()],
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("start{}()"))
             })
             .unwrap();
         let value = serde_json::to_value(result).unwrap();
@@ -2239,9 +2357,8 @@ mod tests {
     fn search_states_and_witnesses_expose_their_paths_diagnostics_on_the_wire() {
         let mut backend = search_diagnostics_backend();
         let request = SearchRequest {
-            state: json("start{}()"),
             max_simplification_iterations: 3,
-            ..SearchRequest::default()
+            ..SearchRequest::new(kore("start{}()"))
         };
 
         let states = serde_json::to_value(backend.search(request.clone()).unwrap()).unwrap();
@@ -2282,12 +2399,13 @@ mod tests {
     fn search_matches_expose_their_own_diagnostics_apart_from_their_states_on_the_wire() {
         let mut backend = search_diagnostics_backend();
         let request = SearchPatternRequest {
-            state: json("start{}()"),
-            pattern: json(
-                r#"\and{SortS{}}(X:SortS{}, \equals{SortS{}, SortS{}}(check{}(X:SortS{}), ok{}()))"#,
-            ),
             max_simplification_iterations: 3,
-            ..SearchPatternRequest::default()
+            ..SearchPatternRequest::new(
+                kore("start{}()"),
+                kore(
+                    r#"\and{SortS{}}(X:SortS{}, \equals{SortS{}, SortS{}}(check{}(X:SortS{}), ok{}()))"#,
+                ),
+            )
         };
 
         let states =
@@ -2325,8 +2443,8 @@ mod tests {
         for (antecedent, consequent, status, predicate) in cases {
             let result = backend
                 .implies(ImplicationRequest {
-                    antecedent: json(antecedent),
-                    consequent: json(consequent),
+                    antecedent: kore(antecedent),
+                    consequent: kore(consequent),
                     module_name: None,
                     schema_version: BACKEND_SCHEMA_VERSION,
                 })
@@ -2350,8 +2468,8 @@ mod tests {
         for consequent in [bottom, top, regular] {
             let error = backend
                 .implies(ImplicationRequest {
-                    antecedent: json(top),
-                    consequent: json(consequent),
+                    antecedent: kore(top),
+                    consequent: kore(consequent),
                     module_name: None,
                     schema_version: BACKEND_SCHEMA_VERSION,
                 })
@@ -2364,8 +2482,8 @@ mod tests {
     fn persistent_backend_short_circuits_a_not_consequent() {
         let result = backend()
             .implies(ImplicationRequest {
-                antecedent: json("a{}()"),
-                consequent: json(r#"\not{SortS{}}(a{}())"#),
+                antecedent: kore("a{}()"),
+                consequent: kore(r#"\not{SortS{}}(a{}())"#),
                 module_name: None,
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
@@ -2378,8 +2496,8 @@ mod tests {
     fn implies_rejects_internalized_sort_mismatch() {
         let error = backend()
             .implies(ImplicationRequest {
-                antecedent: json("a{}()"),
-                consequent: json("t{}()"),
+                antecedent: kore("a{}()"),
+                consequent: kore("t{}()"),
                 module_name: None,
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
@@ -2439,8 +2557,8 @@ mod tests {
     fn persistent_implication_results_advertise_schema_version_two() {
         let result = backend()
             .implies(ImplicationRequest {
-                antecedent: json("a{}()"),
-                consequent: json("a{}()"),
+                antecedent: kore("a{}()"),
+                consequent: kore("a{}()"),
                 module_name: None,
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
@@ -2452,7 +2570,7 @@ mod tests {
 
     #[test]
     fn persistent_backend_names_and_structures_unsupported_hook_failures() {
-        let state = json(r#"missing{}(\dv{SortState{}}("value"))"#);
+        let state = kore(r#"missing{}(\dv{SortState{}}("value"))"#);
         let mut backend = Backend::new(
             UNSUPPORTED_HOOK_DEFINITION,
             "MAIN",
@@ -2460,12 +2578,7 @@ mod tests {
         )
         .unwrap();
 
-        let execution = backend
-            .execute(ExecuteRequest {
-                state: state.clone(),
-                ..ExecuteRequest::default()
-            })
-            .unwrap();
+        let execution = backend.execute(ExecuteRequest::new(state.clone())).unwrap();
         assert_eq!(
             execution.leaves[0].reason,
             HaltReasonOutput::UnsupportedHook
@@ -2481,12 +2594,7 @@ mod tests {
             execution.leaves[0]
         );
 
-        let search = backend
-            .search(SearchRequest {
-                state,
-                ..SearchRequest::default()
-            })
-            .unwrap();
+        let search = backend.search(SearchRequest::new(state)).unwrap();
         let encoded = serde_json::to_value(search).unwrap();
         let encoded = encoded.to_string();
         assert!(
@@ -2499,12 +2607,7 @@ mod tests {
     #[test]
     fn persistent_backend_searches_states_and_reports_bounds() {
         let mut backend = backend();
-        let result = backend
-            .search(SearchRequest {
-                state: json("a{}()"),
-                ..SearchRequest::default()
-            })
-            .unwrap();
+        let result = backend.search(SearchRequest::new(kore("a{}()"))).unwrap();
         assert_eq!(result.schema_version, BACKEND_SCHEMA_VERSION);
         assert_eq!(result.modality, ResultModalityOutput::StateSet);
         assert_eq!(result.states.len(), 1);
@@ -2513,9 +2616,8 @@ mod tests {
 
         let bounded = backend
             .search(SearchRequest {
-                state: json("a{}()"),
                 max_results: Some(0),
-                ..SearchRequest::default()
+                ..SearchRequest::new(kore("a{}()"))
             })
             .unwrap();
         assert!(bounded.states.is_empty());
@@ -2524,10 +2626,7 @@ mod tests {
 
     #[test]
     fn persistent_backend_searches_deterministic_path_witnesses() {
-        let request = SearchRequest {
-            state: json("initial{}()"),
-            ..SearchRequest::default()
-        };
+        let request = SearchRequest::new(kore("initial{}()"));
         let mut backend =
             Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
         let first = backend.search_paths(request.clone()).unwrap();
@@ -2555,11 +2654,7 @@ mod tests {
     fn persistent_backend_searches_patterns_in_both_modalities() {
         let mut backend = backend();
         let state_set = backend
-            .search_pattern(SearchPatternRequest {
-                state: json("a{}()"),
-                pattern: json("c{}()"),
-                ..SearchPatternRequest::default()
-            })
+            .search_pattern(SearchPatternRequest::new(kore("a{}()"), kore("c{}()")))
             .unwrap();
         assert_eq!(state_set.modality, ResultModalityOutput::StateSet);
         assert_eq!(state_set.matches.len(), 1);
@@ -2568,11 +2663,10 @@ mod tests {
         let mut diamond =
             Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
         let path_set = diamond
-            .search_pattern_paths(SearchPatternRequest {
-                state: json("initial{}()"),
-                pattern: json("merged{}()"),
-                ..SearchPatternRequest::default()
-            })
+            .search_pattern_paths(SearchPatternRequest::new(
+                kore("initial{}()"),
+                kore("merged{}()"),
+            ))
             .unwrap();
         assert_eq!(path_set.modality, ResultModalityOutput::PathSet);
         assert_eq!(path_set.matches.len(), 2);
@@ -2586,10 +2680,7 @@ mod tests {
 
     #[test]
     fn observed_searches_expose_filtered_transition_streams_atomically() {
-        let request = SearchRequest {
-            state: json("a{}()"),
-            ..SearchRequest::default()
-        };
+        let request = SearchRequest::new(kore("a{}()"));
         let mut backend = backend();
         let observed = backend
             .search_observed(ObservedRequest {
@@ -2616,10 +2707,7 @@ mod tests {
 
     #[test]
     fn execute_preserves_effects_and_observed_execution_attributes_them() {
-        let request = ExecuteRequest {
-            state: json(r#"log{}(\dv{SortString{}}("one line"))"#),
-            ..ExecuteRequest::default()
-        };
+        let request = ExecuteRequest::new(kore(r#"log{}(\dv{SortString{}}("one line"))"#));
         let mut backend = Backend::new(LOG_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
         let ordinary = backend.execute(request.clone()).unwrap();
         assert_eq!(
@@ -2659,10 +2747,7 @@ mod tests {
 
     #[test]
     fn execute_exposes_each_branches_effects_without_observation() {
-        let request = ExecuteRequest {
-            state: json("initial{}()"),
-            ..ExecuteRequest::default()
-        };
+        let request = ExecuteRequest::new(kore("initial{}()"));
         let mut backend = Backend::new(
             EFFECTFUL_BRANCH_DEFINITION,
             "MAIN",
@@ -2736,9 +2821,8 @@ mod tests {
             (ResultModalityOutput::PathSet, 2),
         ] {
             let request = ExecuteRequest {
-                state: json("initial{}()"),
                 result_modality: modality,
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("initial{}()"))
             };
             let plain = backend.execute(request.clone()).unwrap();
             let all = backend
@@ -2851,10 +2935,7 @@ mod tests {
         assert_eq!(labels(right), ["initial-right", "right-merged"]);
 
         let default = backend
-            .execute(ExecuteRequest {
-                state: json("initial{}()"),
-                ..ExecuteRequest::default()
-            })
+            .execute(ExecuteRequest::new(kore("initial{}()")))
             .unwrap();
         assert_eq!(default.modality, ResultModalityOutput::StateSet);
         assert_eq!(default.leaves.len(), 1);
@@ -2883,10 +2964,7 @@ mod tests {
             endmodule []"#;
         let mut backend =
             Backend::new(EVALUATING_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
-        let request = ExecuteRequest {
-            state: json("start{}()"),
-            ..ExecuteRequest::default()
-        };
+        let request = ExecuteRequest::new(kore("start{}()"));
         let ordinary = backend.execute(request.clone()).unwrap();
 
         let observed = backend
@@ -2965,10 +3043,7 @@ mod tests {
                 ) [label{}("step")]
             endmodule []"#;
         let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
-        let request = ExecuteRequest {
-            state: json("start{}()"),
-            ..ExecuteRequest::default()
-        };
+        let request = ExecuteRequest::new(kore("start{}()"));
         let selected = backend
             .execute_observed(ObservedRequest {
                 request: request.clone(),
@@ -3115,9 +3190,8 @@ endmodule
         assert_eq!(id, single_id);
 
         let request = ExecuteRequest {
-            state: json(DUPLICATE_UNLABELLED_STATE),
             stop_at_branch: true,
-            ..ExecuteRequest::default()
+            ..ExecuteRequest::new(kore(DUPLICATE_UNLABELLED_STATE))
         };
         let mut outcomes = Vec::new();
         for definition in [single, duplicated] {
@@ -3265,10 +3339,9 @@ endmodule
         backend.add_module(module, true).unwrap();
         let execution = backend
             .execute(ExecuteRequest {
-                state: json("c{}()"),
                 module_name: Some("EXTRA".into()),
                 max_depth: Some(1),
-                ..ExecuteRequest::default()
+                ..ExecuteRequest::new(kore("c{}()"))
             })
             .unwrap();
         assert_eq!(text(execution.leaves[0].state.clone()), "a{}()");
@@ -3278,11 +3351,7 @@ endmodule
     #[test]
     fn portable_model_generation_reports_the_capability_boundary() {
         let error = backend()
-            .get_model(PatternRequest {
-                state: json("a{}()"),
-                module_name: None,
-                schema_version: BACKEND_SCHEMA_VERSION,
-            })
+            .get_model(PatternRequest::new(kore("a{}()")))
             .unwrap_err();
         assert!(error.to_string().contains("no Z3"));
     }
