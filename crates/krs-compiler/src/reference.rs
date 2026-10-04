@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
     DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, OriginFrame, PackageId,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SetOperation,
-    Sha256Digest, SourceFileId, StableItemId, TermMapOperation,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, OriginFrame, PackageId, ProtocolHeadRuleExtra,
+    ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, Sha256Digest, SourceFileId,
+    StableItemId,
 };
 use krs_ir_levels::{SemanticRule, SemanticSortRef, SemanticTheory};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
@@ -1203,9 +1203,15 @@ fn render_term(
                 DescriptorApplicationRef::Builtin(operation) => {
                     render_builtin_operation(*operation)
                 }
-                DescriptorApplicationRef::Map(operation) => render_map_operation(*operation),
-                DescriptorApplicationRef::List(operation) => render_list_operation(*operation),
-                DescriptorApplicationRef::Set(operation) => render_set_operation(*operation),
+                DescriptorApplicationRef::Map(operation) => {
+                    render_facade_marker(operation.facade_marker())
+                }
+                DescriptorApplicationRef::List(operation) => {
+                    render_facade_marker(operation.facade_marker())
+                }
+                DescriptorApplicationRef::Set(operation) => {
+                    render_facade_marker(operation.facade_marker())
+                }
             };
             if arguments.is_empty()
                 && matches!(
@@ -1406,38 +1412,10 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
     quote!(k::builtin::#module::#name)
 }
 
-fn render_map_operation(operation: TermMapOperation) -> TokenStream {
-    match operation {
-        TermMapOperation::Update => quote!(k::builtin::map::update),
-        TermMapOperation::Get => quote!(k::builtin::map::get),
-        TermMapOperation::InKeys => quote!(k::builtin::map::in_keys),
-    }
-}
-
-fn render_set_operation(operation: SetOperation) -> TokenStream {
-    let name = match operation {
-        SetOperation::Empty => format_ident!("empty"),
-        SetOperation::Item => format_ident!("item"),
-        SetOperation::Concat => format_ident!("concat"),
-        SetOperation::Union => format_ident!("union"),
-        SetOperation::Contains => format_ident!("contains"),
-    };
-    quote!(k::builtin::set::#name)
-}
-
-fn render_list_operation(operation: ListOperation) -> TokenStream {
-    let name = match operation {
-        ListOperation::Empty => format_ident!("empty"),
-        ListOperation::Item => format_ident!("item"),
-        ListOperation::Concat => format_ident!("concat"),
-        ListOperation::Get => format_ident!("get"),
-        ListOperation::Update => format_ident!("update"),
-        ListOperation::Size => format_ident!("size"),
-        ListOperation::Make => format_ident!("make"),
-        ListOperation::Range => format_ident!("range"),
-        ListOperation::UpdateAll => format_ident!("update_all"),
-    };
-    quote!(k::builtin::list::#name)
+fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
+    let module = format_ident!("{}", marker.module);
+    let name = format_ident!("{}", marker.name);
+    quote!(k::builtin::#module::#name)
 }
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {

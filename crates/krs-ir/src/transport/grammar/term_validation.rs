@@ -6,8 +6,7 @@ use super::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationReference,
     DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError,
     TermKeyCounters, TermSide, increment, insert_exact, require_key,
-    validate_list_application_shape, validate_map_application_shape,
-    validate_set_application_shape,
+    validate_collection_application_shape,
 };
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
@@ -55,9 +54,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
                 GrammarApplicationReason::BareConstructorArguments,
             ));
         }
-        validate_map_application_shape(head_class, &reference.application, arguments)?;
-        validate_list_application_shape(head_class, &reference.application, arguments)?;
-        validate_set_application_shape(head_class, &reference.application, arguments)
+        validate_collection_application_shape(head_class, &reference.application, arguments)
     }
 
     fn literal(

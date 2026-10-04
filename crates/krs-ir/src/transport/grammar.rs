@@ -1503,104 +1503,45 @@ impl DescriptorLiteral {
     }
 }
 
-fn validate_map_application_shape(
+fn validate_collection_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
     arguments: &Arguments<DescriptorStage>,
 ) -> Result<(), GrammarTransportError> {
-    let DescriptorApplicationRef::Map(operation) = application else {
-        return Ok(());
-    };
-    if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(GrammarTransportError::InvalidApplication(
+    let (arity, unapplied, invalid_arity, positional_only) = match application {
+        DescriptorApplicationRef::Map(operation) => (
+            operation.spec().arity(),
             GrammarApplicationReason::UnappliedMapOperation,
-        ));
-    }
-    let expected = match operation {
-        TermMapOperation::Update => 3,
-        TermMapOperation::Get | TermMapOperation::InKeys => 2,
-    };
-    if arguments.len() != expected {
-        return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::MapOperationHasInvalidArity,
-        ));
-    }
-    if arguments
-        .iter()
-        .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
-    {
-        return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::MapOperationsAcceptPositionalArgumentsOnly,
-        ));
-    }
-    Ok(())
-}
-
-fn validate_set_application_shape(
-    head_class: DescriptorApplicationHeadClass,
-    application: &DescriptorApplicationRef,
-    arguments: &Arguments<DescriptorStage>,
-) -> Result<(), GrammarTransportError> {
-    let DescriptorApplicationRef::Set(operation) = application else {
-        return Ok(());
-    };
-    if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::UnappliedSetOperation,
-        ));
-    }
-    let expected = match operation {
-        SetOperation::Empty => 0,
-        SetOperation::Item => 1,
-        SetOperation::Concat | SetOperation::Union | SetOperation::Contains => 2,
-    };
-    if arguments.len() != expected {
-        return Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::SetOperationHasInvalidArity,
-        ));
-    }
-    if arguments
-        .iter()
-        .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
-    {
-        return Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::SetOperationsAcceptPositionalArgumentsOnly,
-        ));
-    }
-    Ok(())
-}
-
-fn validate_list_application_shape(
-    head_class: DescriptorApplicationHeadClass,
-    application: &DescriptorApplicationRef,
-    arguments: &Arguments<DescriptorStage>,
-) -> Result<(), GrammarTransportError> {
-    let DescriptorApplicationRef::List(operation) = application else {
-        return Ok(());
-    };
-    if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(GrammarTransportError::InvalidApplication(
+        ),
+        DescriptorApplicationRef::List(operation) => (
+            operation.spec().arity(),
             GrammarApplicationReason::UnappliedListOperation,
-        ));
-    }
-    let expected = match operation {
-        ListOperation::Empty => 0,
-        ListOperation::Item | ListOperation::Size => 1,
-        ListOperation::Concat | ListOperation::Get | ListOperation::Make => 2,
-        ListOperation::Update | ListOperation::Range | ListOperation::UpdateAll => 3,
-    };
-    if arguments.len() != expected {
-        return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::ListOperationHasInvalidArity,
-        ));
+            GrammarApplicationReason::ListOperationsAcceptPositionalArgumentsOnly,
+        ),
+        DescriptorApplicationRef::Set(operation) => (
+            operation.spec().arity(),
+            GrammarApplicationReason::UnappliedSetOperation,
+            GrammarApplicationReason::SetOperationHasInvalidArity,
+            GrammarApplicationReason::SetOperationsAcceptPositionalArgumentsOnly,
+        ),
+        DescriptorApplicationRef::Declared(_) | DescriptorApplicationRef::Builtin(_) => {
+            return Ok(());
+        }
+    };
+    if head_class != DescriptorApplicationHeadClass::Applied {
+        return Err(GrammarTransportError::InvalidApplication(unapplied));
+    }
+    if arguments.len() != arity {
+        return Err(GrammarTransportError::InvalidApplication(invalid_arity));
     }
     if arguments
         .iter()
         .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
     {
-        return Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::ListOperationsAcceptPositionalArgumentsOnly,
-        ));
+        return Err(GrammarTransportError::InvalidApplication(positional_only));
     }
     Ok(())
 }
