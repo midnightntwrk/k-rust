@@ -74,7 +74,7 @@ pub use rhs_variables::{
 pub(crate) use rhs_variables::{CheckedRoot, right_hand_side_binding};
 pub(crate) use rhs_variables::{FreeVariable, local_function_free_variables};
 pub(crate) use sorts::kernel_position_cycle;
-use sorts::rule_grammar_subsorts;
+pub(crate) use sorts::rule_grammar_subsorts;
 pub use sorts::{check_outer_modules, check_sort_synonyms, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
@@ -143,19 +143,18 @@ fn check_module_with_options_and_catalog(
     let overloads = views.overloads(module).ok();
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(production_catalog);
-    // Associativity is judged by the order the module's rule grammar admits terms by. When that
-    // order is cyclic the definition's subsort checks reject it, and the declared order stands in.
-    let rule_order = local_associativity(&sentences)
-        .then(|| rule_grammar_subsorts(&definition.sentences(module)).ok())
-        .flatten();
+    let associativity = if local_associativity(&sentences) {
+        check_associativity_by(&sentences, |below, above| {
+            grammar_admits(views, module, below, above)
+        })
+    } else {
+        Vec::new()
+    };
     let mut diagnostics = check_attributes(definition.module(module))
         .into_iter()
         .chain(check_duplicate_labels(&sentences))
         .chain(check_syntax_groups(&sentences, priorities))
-        .chain(check_associativity(
-            &sentences,
-            rule_order.as_ref().unwrap_or(subsorts),
-        ))
+        .chain(associativity)
         .chain(check_sort_top_uniqueness(&sentences, subsorts))
         .chain(check_holes(&sentences))
         .chain(check_streams(&sentences, subsorts))
@@ -457,6 +456,33 @@ fn local_associativity(sentences: &[&Sentence]) -> bool {
     })
 }
 
+/// Whether some grammar containing the productions of `module` admits a term of sort `below` at a
+/// nonterminal of sort `above`.
+///
+/// A production belongs to the rule grammar of its own module and to that of every module that
+/// imports it, directly or not, and the rules of each are parsed in that module's grammar, whose
+/// order ([`sorts::rule_grammar_subsorts`]) includes the subsorts the module itself declares. The
+/// declaring module is asked first, and the importing modules only when it does not admit the
+/// term.
+/// A cyclic rule-grammar order is the definition's subsort error, which its own checks report;
+/// the module's declared order then stands in, and a module whose declared order is cyclic too
+/// admits nothing here.
+fn grammar_admits(
+    views: &DefinitionViews<'_>,
+    module: ModuleId,
+    below: &Sort,
+    above: &Sort,
+) -> bool {
+    std::iter::once(module)
+        .chain(views.importers(module).iter().copied())
+        .any(|grammar| {
+            views
+                .rule_grammar_subsorts(grammar)
+                .or_else(|_| views.subsorts(grammar))
+                .is_ok_and(|order| order.less_than_eq(below, above))
+        })
+}
+
 /// Reject an associativity attribute on a binary production that it cannot affect.
 ///
 /// `left` on a production `p` forbids a `p` term as the right argument of a `p` term, `right` as
@@ -468,6 +494,20 @@ fn local_associativity(sentences: &[&Sentence]) -> bool {
 pub fn check_associativity(
     sentences: &[&Sentence],
     admission: &PartialOrder<Sort>,
+) -> Vec<Diagnostic> {
+    check_associativity_by(sentences, |below, above| {
+        admission.less_than_eq(below, above)
+    })
+}
+
+/// [`check_associativity`] with the admission order given as `admits(below, above)`.
+///
+/// A production is part of every grammar that contains it, and its attribute has an effect when
+/// some such grammar admits the nesting it forbids; the definition checks pass
+/// [`grammar_admits`], which asks every module whose view contains the production.
+fn check_associativity_by(
+    sentences: &[&Sentence],
+    mut admits: impl FnMut(&Sort, &Sort) -> bool,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -490,31 +530,30 @@ pub fn check_associativity(
         let [left, right] = arguments.as_slice() else {
             continue;
         };
-        let leq_left = admission.less_than_eq(sort, left);
-        let leq_right = admission.less_than_eq(sort, right);
-        if attributes.has(AttributeKey::Left) && !leq_right {
+        // Only the relations an attribute needs are asked: `admits` may consult other modules.
+        if attributes.has(AttributeKey::Left) && !admits(sort, right) {
             diagnostics.push(invalid_assoc(
                 AttributeKey::Left.as_str(),
                 format!(
-                    "The sub-sorting relation {sort} <= {right} does not hold, so the left attribute has no effect."
+                    "The sub-sorting relation {sort} <= {right} does not hold in any module that sees this production, so the left attribute has no effect."
                 ),
                 sentence,
             ));
         }
-        if attributes.has(AttributeKey::Right) && !leq_left {
+        if attributes.has(AttributeKey::Right) && !admits(sort, left) {
             diagnostics.push(invalid_assoc(
                 AttributeKey::Right.as_str(),
                 format!(
-                    "The sub-sorting relation {sort} <= {left} does not hold, so the right attribute has no effect."
+                    "The sub-sorting relation {sort} <= {left} does not hold in any module that sees this production, so the right attribute has no effect."
                 ),
                 sentence,
             ));
         }
-        if attributes.has(AttributeKey::NonAssoc) && !(leq_left && leq_right) {
+        if attributes.has(AttributeKey::NonAssoc) && !(admits(sort, left) && admits(sort, right)) {
             diagnostics.push(invalid_assoc(
                 AttributeKey::NonAssoc.as_str(),
                 format!(
-                    "One of the sub-sorting relations {sort} <= {left} or {sort} <= {right} does not hold, so the non-assoc attribute has no effect."
+                    "One of the sub-sorting relations {sort} <= {left} or {sort} <= {right} does not hold in any module that sees this production, so the non-assoc attribute has no effect."
                 ),
                 sentence,
             ));

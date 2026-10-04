@@ -24,6 +24,8 @@ pub struct DefinitionViews<'a> {
     overloads: Vec<OnceLock<Result<OverloadOrder<'a>, relations::Error>>>,
     priorities: Vec<OnceLock<Result<PartialOrder<String>, Cycle<String>>>>,
     associativities: Vec<OnceLock<AssociativityRelations>>,
+    rule_grammar_subsorts: Vec<OnceLock<Result<PartialOrder<Sort>, Cycle<Sort>>>>,
+    importers: OnceLock<Vec<Vec<ModuleId>>>,
 }
 
 impl ResolvedDefinition {
@@ -48,6 +50,8 @@ impl<'a> DefinitionViews<'a> {
             overloads: locks(modules),
             priorities: locks(modules),
             associativities: locks(modules),
+            rule_grammar_subsorts: locks(modules),
+            importers: OnceLock::new(),
         }
     }
 
@@ -108,5 +112,34 @@ impl<'a> DefinitionViews<'a> {
     pub fn associativities(&self, module: ModuleId) -> &AssociativityRelations {
         self.associativities[module.0.index()]
             .get_or_init(|| relations::compute_associativities(self.definition.sentences(module)))
+    }
+
+    /// The order in which the rule grammar of `module` admits terms
+    /// ([`super::checks::rule_grammar_subsorts`]).
+    pub(crate) fn rule_grammar_subsorts(
+        &self,
+        module: ModuleId,
+    ) -> Result<&PartialOrder<Sort>, &Cycle<Sort>> {
+        self.rule_grammar_subsorts[module.0.index()]
+            .get_or_init(|| {
+                super::checks::rule_grammar_subsorts(&self.definition.sentences(module))
+            })
+            .as_ref()
+    }
+
+    /// The modules other than `module` whose view contains `module`'s sentences: those that import
+    /// it, directly or not, in dependency order.
+    pub(crate) fn importers(&self, module: ModuleId) -> &[ModuleId] {
+        &self.importers.get_or_init(|| {
+            let mut importers = vec![Vec::new(); self.production_catalogs.len()];
+            // Invariant: `importers[i]` lists, in dependency order, every module before `importer`
+            // whose transitive imports contain module `i`.
+            for &importer in self.definition.dependency_order() {
+                for imported in self.definition.transitive_imports(importer) {
+                    importers[imported.0.index()].push(importer);
+                }
+            }
+            importers
+        })[module.0.index()]
     }
 }

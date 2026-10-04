@@ -3309,6 +3309,74 @@ fn an_associativity_attribute_on_an_unrelated_argument_is_a_located_error() {
     assert!(message.contains("Ty <= Int"), "{message}");
 }
 
+/// G5 of the generated-input experiment: an associativity attribute is judged in every grammar
+/// that contains its production, the rule grammar of its own module and of each module importing
+/// it. A subsort an importing module declares makes the nesting the attribute forbids parsable
+/// there, so the attribute has an effect and compiles; with `left`, `t ~ t ~ t` parses as
+/// `(t ~ t) ~ t`. A module of the definition that imports the production without being imported
+/// by the main module parses its own rules in such a grammar too.
+#[test]
+fn an_associativity_attribute_made_effective_by_an_importing_module_compiles_and_loads() {
+    for (production, attribute, rule) in [
+        (
+            r#"Ty "~" Foo"#,
+            "left",
+            "\n  rule <k> go => t ~ t ~ t ... </k>",
+        ),
+        (
+            r#"Foo "~" Ty"#,
+            "right",
+            "\n  rule <k> go => t ~ t ~ t ... </k>",
+        ),
+        (r#"Foo "~" Foo"#, "non-assoc", ""),
+    ] {
+        let declaring = format!(
+            "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" | {production} [symbol(tilde), {attribute}]\nendmodule\n"
+        );
+        assert_compiles_and_loads(
+            &format!(
+                "{declaring}module MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\"{rule}\nendmodule\n"
+            ),
+            "MAIN",
+        );
+        assert_compiles_and_loads(
+            &format!(
+                "{declaring}module OTHER\n  imports DECL\n  syntax Foo ::= Ty\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= \"f\"\nendmodule\n"
+            ),
+            "MAIN",
+        );
+    }
+    let artifacts = compile_for_backend(
+        "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" [symbol(t)] | Ty \"~\" Foo [symbol(tilde), left]\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\" [symbol(go)]\n  rule <k> go => t ~ t ~ t ... </k>\nendmodule\n",
+        "MAIN",
+    )
+    .expect("the left-associative production compiles");
+    let compact = artifacts
+        .definition_kore
+        .split_whitespace()
+        .collect::<String>();
+    assert!(
+        compact.contains(
+            "Lbltilde{}(Lbltilde{}(Lblt{}(),inj{SortTy{},SortFoo{}}(Lblt{}())),inj{SortTy{},SortFoo{}}(Lblt{}()))"
+        ),
+        "{}",
+        artifacts.definition_kore
+    );
+}
+
+/// The attribute is still an error at its production when no module that sees the production
+/// admits the nesting it forbids, here because the importing module places `Ty` below another
+/// sort than the argument's.
+#[test]
+fn an_associativity_attribute_effective_in_no_importing_module_is_a_located_error() {
+    let (start_line, message) = compile_error(
+        "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" | Ty \"~\" Foo [symbol(tilde), left]\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Bar ::= Ty\nendmodule\n",
+        "MAIN",
+    );
+    assert_eq!(start_line, 3, "{message}");
+    assert!(message.contains("Ty <= Foo"), "{message}");
+}
+
 /// A priority ranks rules by a natural number the compiled definition carries and the backend
 /// reads below the `owise` rank 255; any other `priority` or `simplification` value is an error
 /// at the sentence whose emitted rules it would rank. 255 itself would rank a rule beside the
