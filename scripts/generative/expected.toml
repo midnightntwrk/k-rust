@@ -231,3 +231,27 @@ message = "#KRewrite"
 source = '\[cellCollection\]'
 internal = true
 reason = "the cellCollection attribute on a user sort (mutated attribute) makes its rules unparsable"
+
+[[category]]
+id = "cell-collection-shape"
+outcome = "load_error"
+message = "has the attribute 'cellCollection' but no collection hook|The attribute 'cellCollection' applies only to the concatenation"
+reason = "cellCollection asserts a cell-collection sort with a collection hook, or its S ::= S S concatenation; the sentence has neither shape"
+
+[[category]]
+id = "hook-on-non-function"
+outcome = "compile_error"
+message = "names the builtin implementation of a function, but this production is not a function"
+reason = "a builtin hook implements a function; on a constructor it would never evaluate, and the emitted symbol could not carry it"
+
+[[category]]
+id = "anywhere-needs-configuration"
+outcome = "compile_error"
+message = "An anywhere rule must rewrite a single term|is not supported in an anywhere rule"
+reason = "an anywhere rule applies to its left-hand side wherever it occurs, without a configuration around it, so it cannot match sibling cells or allocate fresh values"
+
+[[category]]
+id = "macro-rec-divergence"
+outcome = "compile_error"
+message = "Macro expansion does not terminate"
+reason = "macro-rec rules that keep rewriting their own results have no expansion"
