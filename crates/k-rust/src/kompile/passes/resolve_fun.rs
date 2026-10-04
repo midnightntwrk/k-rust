@@ -68,14 +68,14 @@ impl CoveringLambda {
         &self.label
     }
 
-    /// Judge only the equations prepared for this label from the main-module catalog.
+    /// Look up this receipt's own label in the complete main-module equation collection.
     pub(super) fn defined_body(
         &self,
-        equations: &super::initializer_totality::PreparedLambdaEquations<'_>,
+        equations: &super::initializer_totality::DeferredEquations,
         defined: &mut dyn FnMut(&Label) -> bool,
     ) -> Option<DefinedBody> {
         equations
-            .are_defined_for(&self.label, defined)
+            .lambda_is_defined(self, defined)
             .then_some(DefinedBody(()))
     }
 }

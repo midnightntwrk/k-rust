@@ -361,6 +361,14 @@ pub(crate) const fn first_unmet_requirement(tables: &[&[Stage]]) -> Option<&'sta
 }
 
 macro_rules! stage_adapter {
+    ($name:ident, $pass:path, outcome) => {
+        fn $name(
+            input: &PassInput<'_>,
+            state: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            $pass(input, state).map_err(Into::into)
+        }
+    };
     ($name:ident, $pass:path) => {
         fn $name(
             input: &PassInput<'_>,
@@ -408,12 +416,11 @@ stage_adapter!(
     passes::generate_sort_projections_pass
 );
 stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
-fn declare_deferred_totality_stage(
-    input: &PassInput<'_>,
-    state: &mut PipelineState,
-) -> Result<PassOutcome, PassError> {
-    passes::declare_deferred_totality_pass(input, state).map_err(Into::into)
-}
+stage_adapter!(
+    declare_deferred_totality_stage,
+    passes::declare_deferred_totality_pass,
+    outcome
+);
 stage_adapter!(
     add_implicit_computation_cell_stage,
     passes::add_implicit_computation_cell_pass

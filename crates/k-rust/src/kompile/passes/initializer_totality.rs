@@ -17,11 +17,12 @@ pub(crate) fn declare_deferred_totality_pass(
     let resolved = input.resolved_raw().map_err(Clone::clone)?;
     let main = resolved.main_module_id();
     let productions = resolved.production_catalog(main);
-    let rules = resolved.rule_catalog(main);
+    let main_rules = deferred_equations::MainRules::new(resolved);
+    let rules = main_rules.catalog();
     let totality = resolved
         .overloads(main)
         .ok()
-        .map(|overloads| EquationTotality::judge(&productions, &rules, &overloads));
+        .map(|overloads| EquationTotality::judge(&productions, rules, &overloads));
     let lambdas = state
         .covering_lambdas
         .iter()
@@ -33,7 +34,7 @@ pub(crate) fn declare_deferred_totality_pass(
             headed.insert(match_rule_label(rule).name);
         }
     }
-    let mut deferred_rules = BTreeMap::<String, Vec<DeferredRule>>::new();
+    let mut deferred_labels = BTreeSet::new();
     let mut cells = BTreeSet::new();
     let mut defined = BTreeSet::new();
     let mut units = BTreeMap::<Sort, BTreeSet<String>>::new();
@@ -72,7 +73,7 @@ pub(crate) fn declare_deferred_totality_pass(
             && !attributes.has(AttributeKey::Total)
             && lambdas.contains_key(&label.name)
         {
-            deferred_rules.entry(label.name.clone()).or_default();
+            deferred_labels.insert(label.name.clone());
         }
         if !configuration_generated(production) {
             continue;
@@ -108,43 +109,11 @@ pub(crate) fn declare_deferred_totality_pass(
             && attributes.has(AttributeKey::Function)
             && matches!(items.as_slice(), [ProductionItem::Terminal(_)])
         {
-            deferred_rules.entry(label.name.clone()).or_default();
+            deferred_labels.insert(label.name.clone());
         }
     }
-    for (_, rule) in rules.rules() {
-        let Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        } = rule
-        else {
-            unreachable!("rule catalogs contain rules")
-        };
-        let label = match_rule_label(rule);
-        if let Some(equations) = deferred_rules.get_mut(&label.name) {
-            let rule_right = match body.unannotated() {
-                Term::Rewrite { right, .. } => &**right,
-                Term::As { .. }
-                | Term::Apply { .. }
-                | Term::Sequence(_)
-                | Term::Variable { .. }
-                | Term::Token { .. }
-                | Term::InjectedLabel(_) => body,
-                Term::Annotated { .. } => unreachable!("unannotated terms carry no annotation"),
-            };
-            equations.push(DeferredRule {
-                // Boundary syntax is independent of the proven-label set; erase it once.
-                rule_right: without_initializer_frames(rule_right, &cells),
-                requires: requires.clone(),
-                ensures: ensures.clone(),
-                // Cell closing fills absent optional/collection slots with these units.
-                // Check all possible insertions rather than duplicating its placement analysis.
-                // This may withhold evidence when a partial unit's slot is already populated.
-                child_units: initializer_child_units(rule_right, &child_units),
-            });
-        }
-    }
+    let deferred_rules =
+        DeferredEquations::gather(&main_rules, deferred_labels, &cells, &child_units);
     let proven = proven_deferred_labels(&deferred_rules, &lambdas, &defined, totality.as_ref());
     let mut declarations = Vec::new();
     // Gather proven writes before cloning: an empty set preserves the input and its views.
@@ -176,7 +145,6 @@ pub(crate) fn declare_deferred_totality_pass(
                 continue;
             }
             // Only the complete all-equations judgement can mint evidence, after its fixed point.
-            let equations = &deferred_rules[&label.name];
             let mut label_is_defined = |label: &Label| {
                 deferred_label_is_defined(
                     label,
@@ -188,12 +156,13 @@ pub(crate) fn declare_deferred_totality_pass(
             };
             let witness = if let Some(lambda) = lambda {
                 TotalityWitness::defined_body(
-                    defined_lambda(&label.name, lambda, equations, &mut label_is_defined)
+                    defined_lambda(lambda, &deferred_rules, &mut label_is_defined)
                         .expect("the fixed point established every lambda equation"),
                 )
             } else {
                 TotalityWitness::nullary_initializer(
-                    defined_initializer(equations, &mut label_is_defined)
+                    deferred_rules
+                        .defined_initializer(&label.name, &mut label_is_defined)
                         .expect("the fixed point established every initializer equation"),
                 )
             };
@@ -250,6 +219,18 @@ fn initializer_child_units(
     required
 }
 
+fn deferred_result_is_defined(
+    rule: &DeferredRule,
+    defined: &mut dyn FnMut(&Label) -> bool,
+) -> bool {
+    is_true(&rule.ensures)
+        && term_is_defined(&rule.rule_right, defined)
+        && rule
+            .child_units
+            .iter()
+            .all(|unit| defined(&Label::new(unit)))
+}
+
 fn initializer_rules_are_defined(
     rules: &[DeferredRule],
     defined: &mut dyn FnMut(&Label) -> bool,
@@ -257,62 +238,140 @@ fn initializer_rules_are_defined(
     // A partial function needs an applicable equation, not only defined possible results.
     // Nullary signatures have one argument tuple, covered by any unconditional equation.
     rules.iter().any(|rule| is_true(&rule.requires))
-        && rules.iter().all(|rule| {
-            is_true(&rule.ensures)
-                && term_is_defined(&rule.rule_right, defined)
-                && rule
-                    .child_units
-                    .iter()
-                    .all(|unit| defined(&Label::new(unit)))
-        })
+        && rules
+            .iter()
+            .all(|rule| deferred_result_is_defined(rule, defined))
 }
 
-/// Equations of one label, prepared only by this stage from its complete main-module catalog.
-/// The private fields bind the label to all its results, conditions and child-unit obligations.
-pub(super) struct PreparedLambdaEquations<'a> {
-    label: &'a str,
-    rules: &'a [DeferredRule],
-}
+pub(super) use deferred_equations::DeferredEquations;
 
-impl PreparedLambdaEquations<'_> {
-    pub(super) fn are_defined_for(
-        &self,
-        label: &str,
-        defined: &mut dyn FnMut(&Label) -> bool,
-    ) -> bool {
-        self.label == label
-            && !self.rules.is_empty()
-            && self.rules.iter().all(|rule| {
-                is_true(&rule.requires)
-                    && is_true(&rule.ensures)
-                    && term_is_defined(&rule.rule_right, defined)
-                    && rule
-                        .child_units
-                        .iter()
-                        .all(|unit| defined(&Label::new(unit)))
-            })
+mod deferred_equations {
+    use super::*;
+    use crate::definition::{ResolvedDefinition, RuleCatalog};
+    use crate::kompile::passes::resolve_fun::CoveringLambda;
+
+    // This wrapper selects the main module once, so gathering cannot use a module-local catalog
+    // that omits equations contributed by an importer in the emitted theory.
+    pub(super) struct MainRules<'a>(RuleCatalog<'a>);
+
+    impl<'a> MainRules<'a> {
+        pub(super) fn new(resolved: &'a ResolvedDefinition) -> Self {
+            Self(resolved.rule_catalog(resolved.main_module_id()))
+        }
+
+        pub(super) fn catalog(&self) -> &RuleCatalog<'a> {
+            &self.0
+        }
+    }
+
+    /// Complete main-module catalog equations for each deferred label, indexed by their matched heads.
+    /// The map is private; only catalog gathering can populate it, and the lambda judgement
+    /// looks up the covering receipt's label itself rather than accepting an equation slice.
+    pub(in crate::kompile::passes) struct DeferredEquations {
+        equations_by_label: BTreeMap<String, Vec<DeferredRule>>,
+    }
+
+    impl DeferredEquations {
+        pub(super) fn gather(
+            main_rules: &MainRules<'_>,
+            labels: BTreeSet<String>,
+            cells: &BTreeSet<String>,
+            child_units: &BTreeMap<String, BTreeSet<String>>,
+        ) -> Self {
+            let mut equations_by_label = labels
+                .into_iter()
+                .map(|label| (label, Vec::new()))
+                .collect::<BTreeMap<_, _>>();
+            for (_, rule) in main_rules.catalog().rules() {
+                let Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } = rule
+                else {
+                    unreachable!("rule catalogs contain rules")
+                };
+                let label = match_rule_label(rule);
+                if let Some(equations) = equations_by_label.get_mut(&label.name) {
+                    let rule_right = match body.unannotated() {
+                        Term::Rewrite { right, .. } => &**right,
+                        Term::As { .. }
+                        | Term::Apply { .. }
+                        | Term::Sequence(_)
+                        | Term::Variable { .. }
+                        | Term::Token { .. }
+                        | Term::InjectedLabel(_) => body,
+                        Term::Annotated { .. } => {
+                            unreachable!("unannotated terms carry no annotation")
+                        }
+                    };
+                    equations.push(DeferredRule {
+                        // Boundary syntax is independent of the proven-label set; erase it once.
+                        rule_right: without_initializer_frames(rule_right, cells),
+                        requires: requires.clone(),
+                        ensures: ensures.clone(),
+                        // Cell closing fills absent optional/collection slots with these units.
+                        // Check all possible insertions rather than duplicating its placement analysis.
+                        // This may withhold evidence when a partial unit's slot is already populated.
+                        child_units: initializer_child_units(rule_right, child_units),
+                    });
+                }
+            }
+            Self { equations_by_label }
+        }
+
+        pub(super) fn labels(&self) -> impl Iterator<Item = &String> {
+            self.equations_by_label.keys()
+        }
+
+        pub(super) fn contains(&self, label: &str) -> bool {
+            self.equations_by_label.contains_key(label)
+        }
+
+        pub(super) fn defined_initializer(
+            &self,
+            label: &str,
+            defined: &mut dyn FnMut(&Label) -> bool,
+        ) -> Option<DefinedInitializer> {
+            super::defined_initializer(self.equations_by_label.get(label)?, defined)
+        }
+
+        pub(in crate::kompile::passes) fn lambda_is_defined(
+            &self,
+            lambda: &CoveringLambda,
+            defined: &mut dyn FnMut(&Label) -> bool,
+        ) -> bool {
+            self.equations_by_label
+                .get(lambda.label())
+                .is_some_and(|rules| {
+                    !rules.is_empty()
+                        && rules.iter().all(|rule| {
+                            is_true(&rule.requires) && deferred_result_is_defined(rule, defined)
+                        })
+                })
+        }
     }
 }
 
 fn defined_lambda(
-    label: &str,
     lambda: &super::resolve_fun::CoveringLambda,
-    rules: &[DeferredRule],
+    equations: &DeferredEquations,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> Option<super::resolve_fun::DefinedBody> {
-    lambda.defined_body(&PreparedLambdaEquations { label, rules }, defined)
+    lambda.defined_body(equations, defined)
 }
 
 fn deferred_rules_are_defined(
     label: &str,
-    rules: &[DeferredRule],
+    equations: &DeferredEquations,
     lambdas: &BTreeMap<String, &super::resolve_fun::CoveringLambda>,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
     if let Some(lambda) = lambdas.get(label) {
-        defined_lambda(label, lambda, rules, defined).is_some()
+        defined_lambda(lambda, equations, defined).is_some()
     } else {
-        initializer_rules_are_defined(rules, defined)
+        equations.defined_initializer(label, defined).is_some()
     }
 }
 
@@ -362,7 +421,7 @@ fn without_initializer_frames(term: &Term, generated_cells: &BTreeSet<String>) -
 }
 
 fn proven_deferred_labels(
-    rules: &BTreeMap<String, Vec<DeferredRule>>,
+    rules: &DeferredEquations,
     lambdas: &BTreeMap<String, &super::resolve_fun::CoveringLambda>,
     generated_defined_labels: &BTreeSet<String>,
     totality: Option<&EquationTotality>,
@@ -372,9 +431,9 @@ fn proven_deferred_labels(
     // Thus at most |rules| changing rounds precede the fixed point; cycles cannot prove themselves.
     loop {
         let before = proven.len();
-        for (label, equations) in rules {
+        for label in rules.labels() {
             if !proven.contains(label)
-                && deferred_rules_are_defined(label, equations, lambdas, &mut |label| {
+                && deferred_rules_are_defined(label, rules, lambdas, &mut |label| {
                     deferred_label_is_defined(
                         label,
                         rules,
@@ -395,14 +454,14 @@ fn proven_deferred_labels(
 
 fn deferred_label_is_defined(
     label: &Label,
-    rules: &BTreeMap<String, Vec<DeferredRule>>,
+    rules: &DeferredEquations,
     proven: &BTreeSet<String>,
     generated_defined_labels: &BTreeSet<String>,
     totality: Option<&EquationTotality>,
 ) -> bool {
     // Collected equations decide deferred generated labels, even if a source declaration
     // already names one; an earlier declaration cannot bypass the all-equations judgement.
-    if rules.contains_key(&label.name) {
+    if rules.contains(&label.name) {
         proven.contains(&label.name)
     } else {
         generated_defined_labels.contains(&label.name)
@@ -473,54 +532,132 @@ mod tests {
         .unwrap()
     }
 
+    fn equation(label: &str, right: Term, requires: Term, ensures: Term) -> Sentence {
+        Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(Term::apply(label, vec![Term::variable("X")])),
+                right: Box::new(right),
+            },
+            requires,
+            ensures,
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn catalog_equations(
+        labels: BTreeSet<String>,
+        rules: Vec<Sentence>,
+        cells: &BTreeSet<String>,
+        child_units: &BTreeMap<String, BTreeSet<String>>,
+    ) -> DeferredEquations {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: vec![],
+                local_sentences: rules.into_iter().map(Arc::new).collect(),
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+        let resolved = crate::definition::ResolvedDefinition::resolve(&definition).unwrap();
+        DeferredEquations::gather(
+            &deferred_equations::MainRules::new(&resolved),
+            labels,
+            cells,
+            child_units,
+        )
+    }
+
     #[test]
     fn deferred_lambda_evidence_requires_unconditional_equations() {
         let lambda = covering_lambda();
-        let unconditional = || DeferredRule {
-            rule_right: Term::variable("X"),
-            requires: truth(),
-            ensures: truth(),
-            child_units: BTreeSet::new(),
+        let unconditional = || equation(lambda.label(), Term::variable("X"), truth(), truth());
+        let conditional = || {
+            equation(
+                lambda.label(),
+                Term::variable("X"),
+                Term::variable("Condition"),
+                truth(),
+            )
         };
-        let conditional = || DeferredRule {
-            requires: Term::variable("Condition"),
-            ..unconditional()
+        let judge = |rules| {
+            let equations = catalog_equations(
+                BTreeSet::from([lambda.label().to_owned()]),
+                rules,
+                &BTreeSet::new(),
+                &BTreeMap::new(),
+            );
+            defined_lambda(&lambda, &equations, &mut |_| false).is_some()
         };
-        let judge = |rules: &[DeferredRule]| {
-            defined_lambda(lambda.label(), &lambda, rules, &mut |_| false).is_some()
-        };
-        assert!(judge(&[unconditional()]));
-        assert!(!judge(&[conditional()]));
-        assert!(!judge(&[unconditional(), conditional()]));
-        assert!(!judge(&[]));
-        assert!(!judge(&[DeferredRule {
-            ensures: Term::variable("Postcondition"),
-            ..unconditional()
-        }]));
-        assert!(!judge(&[DeferredRule {
-            rule_right: Term::apply("partial", vec![]),
-            ..unconditional()
-        }]));
-        assert!(!judge(&[DeferredRule {
-            child_units: BTreeSet::from(["partial".into()]),
-            ..unconditional()
-        }]));
+        assert!(judge(vec![unconditional()]));
+        assert!(!judge(vec![conditional()]));
+        assert!(!judge(vec![unconditional(), conditional()]));
+        assert!(!judge(vec![]));
+        assert!(!judge(vec![equation(
+            lambda.label(),
+            Term::variable("X"),
+            truth(),
+            Term::variable("Postcondition"),
+        )]));
+        assert!(!judge(vec![equation(
+            lambda.label(),
+            Term::apply("partial", vec![]),
+            truth(),
+            truth(),
+        )]));
+        let equations = catalog_equations(
+            BTreeSet::from([lambda.label().to_owned()]),
+            vec![equation(
+                lambda.label(),
+                incomplete_cell("<n>", truth()),
+                truth(),
+                truth(),
+            )],
+            &BTreeSet::from(["<n>".into()]),
+            &BTreeMap::from([("<n>".into(), BTreeSet::from(["partial".into()]))]),
+        );
+        assert!(defined_lambda(&lambda, &equations, &mut |label| label.name == "<n>").is_none());
     }
 
     #[test]
     fn deferred_lambda_evidence_cannot_use_another_labels_equations() {
         let lambda = covering_lambda();
-        let equations = [DeferredRule {
-            rule_right: Term::variable("X"),
-            requires: truth(),
-            ensures: truth(),
-            child_units: BTreeSet::new(),
-        }];
-        assert!(defined_lambda(lambda.label(), &lambda, &equations, &mut |_| false).is_some());
-        assert!(
-            defined_lambda("other", &lambda, &equations, &mut |_| false).is_none(),
-            "another label's equations must not mint this lambda's DefinedBody"
-        );
+        let labels = BTreeSet::from([lambda.label().to_owned(), "other".into()]);
+        let own_equations = [
+            vec![],
+            vec![equation(
+                lambda.label(),
+                Term::variable("X"),
+                Term::variable("Condition"),
+                truth(),
+            )],
+            vec![equation(
+                lambda.label(),
+                Term::apply("partial", vec![]),
+                truth(),
+                truth(),
+            )],
+        ];
+        for mut rules in own_equations {
+            rules.push(equation("other", Term::variable("X"), truth(), truth()));
+            let equations =
+                catalog_equations(labels.clone(), rules, &BTreeSet::new(), &BTreeMap::new());
+            assert!(
+                equations
+                    .defined_initializer("other", &mut |_| false)
+                    .is_some()
+            );
+            assert!(
+                defined_lambda(&lambda, &equations, &mut |_| false).is_none(),
+                "another label's equations must not mint this lambda's DefinedBody"
+            );
+            let lambdas = BTreeMap::from([(lambda.label().to_owned(), &lambda)]);
+            assert_eq!(
+                proven_deferred_labels(&equations, &lambdas, &BTreeSet::new(), None),
+                BTreeSet::from(["other".into()]),
+            );
+        }
     }
 
     #[test]
@@ -564,25 +701,18 @@ mod tests {
     #[test]
     fn initializer_cycles_cannot_prove_themselves_even_with_a_defined_alternative() {
         let cells = BTreeSet::from(["<x>".to_owned(), "<y>".to_owned()]);
-        let rule = |cell, child: Term| DeferredRule {
-            rule_right: without_initializer_frames(&incomplete_cell(cell, child), &cells),
-            requires: truth(),
-            ensures: truth(),
-            child_units: BTreeSet::new(),
-        };
-        let rules = BTreeMap::from([
-            (
-                "initXCell".to_owned(),
-                vec![
-                    rule("<x>", truth()),
-                    rule("<x>", Term::apply("initYCell", vec![])),
-                ],
-            ),
-            (
-                "initYCell".to_owned(),
-                vec![rule("<y>", Term::apply("initXCell", vec![]))],
-            ),
-        ]);
+        let rule =
+            |label, cell, child| equation(label, incomplete_cell(cell, child), truth(), truth());
+        let rules = catalog_equations(
+            BTreeSet::from(["initXCell".into(), "initYCell".into()]),
+            vec![
+                rule("initXCell", "<x>", truth()),
+                rule("initXCell", "<x>", Term::apply("initYCell", vec![])),
+                rule("initYCell", "<y>", Term::apply("initXCell", vec![])),
+            ],
+            &cells,
+            &BTreeMap::new(),
+        );
         assert!(proven_deferred_labels(&rules, &BTreeMap::new(), &cells, None).is_empty());
     }
 
