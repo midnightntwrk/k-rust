@@ -10619,3 +10619,165 @@ fn a_cyclic_parametric_macro_rec_expansion_is_a_located_error() {
     assert_eq!(start_line, 4, "{message}");
     assert!(message.contains("leads back"), "{message}");
 }
+
+/// Cons lists over `Elem`, a non-recursive macro `m` and a recursive list reversal `rev`, with
+/// the rule `c => wrap(nil)` whose right side the deep-input tests replace.
+const DEEP_LIST_SOURCE: &str = indoc! {r#"
+    module MAIN
+      syntax Elem ::= "a" [symbol(a)] | "m" [macro, symbol(m)]
+      syntax List ::= "nil" [symbol(nil)] | cons(Elem, List) [symbol(cons)]
+                    | rev(List, List) [macro-rec, symbol(rev)]
+      syntax Foo ::= "c" [symbol(c)] | wrap(List) [symbol(wrap)]
+      rule m => a
+      rule rev(cons(X, L), A) => rev(L, cons(X, A))
+      rule rev(nil, A) => A
+      rule c => wrap(nil)
+    endmodule
+"#};
+
+/// The list `cons(a, cons(a, ... cons(last, nil)))` with `length` elements, built without
+/// recursion.
+fn deep_list(length: usize, last: &str) -> Term {
+    let mut list = application("nil", Vec::new());
+    for index in 0..length {
+        let element = if index == 0 { last } else { "a" };
+        list = application("cons", vec![application(element, Vec::new()), list]);
+    }
+    list
+}
+
+/// The elements of a cons list, read without recursion.
+fn list_elements(mut list: &Term) -> Vec<String> {
+    let mut elements = Vec::new();
+    loop {
+        let Term::Apply { label, arguments } = list.unannotated() else {
+            panic!("not a list: {list:?}");
+        };
+        match (label.name.as_str(), arguments.as_slice()) {
+            ("nil", []) => return elements,
+            ("cons", [element, rest]) => {
+                let Term::Apply { label, .. } = element.unannotated() else {
+                    panic!("not an element: {element:?}");
+                };
+                elements.push(label.name.clone());
+                list = rest;
+            }
+            _ => panic!("not a list: {list:?}"),
+        }
+    }
+}
+
+/// `DEEP_LIST_SOURCE` with macro attributes propagated and the right side of `c => wrap(nil)`
+/// replaced by `wrap(right)`.
+fn deep_list_definition(right: Term) -> Definition {
+    let definition = resolve_semantic_casts(&parsed(DEEP_LIST_SOURCE)).unwrap();
+    let mut definition = propagate_macro_attributes(&definition).unwrap();
+    let mut right = Some(right);
+    for sentence in definition
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.local_sentences)
+    {
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } = sentence.as_ref()
+        else {
+            continue;
+        };
+        let Term::Rewrite { left, .. } = body.unannotated() else {
+            continue;
+        };
+        if !matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "c") {
+            continue;
+        }
+        *sentence = std::sync::Arc::new(Sentence::Rule {
+            body: rewrite(
+                left.as_ref().clone(),
+                application("wrap", vec![right.take().unwrap()]),
+            ),
+            requires: requires.clone(),
+            ensures: ensures.clone(),
+            attributes: attributes.clone(),
+        });
+    }
+    assert!(right.is_none(), "the rule for c should be replaced");
+    definition
+}
+
+/// The list under `wrap` on the right side of the expanded rule for `c`.
+fn expanded_wrapped_list(expanded: &Definition) -> Vec<String> {
+    for sentence in expanded
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        let Sentence::Rule { body, .. } = sentence.as_ref() else {
+            continue;
+        };
+        let Term::Rewrite { left, right } = body.unannotated() else {
+            continue;
+        };
+        if !matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "c") {
+            continue;
+        }
+        let Term::Apply { label, arguments } = right.unannotated() else {
+            panic!("c should expand to wrap(...)");
+        };
+        assert_eq!(label.name, "wrap");
+        return list_elements(&arguments[0]);
+    }
+    panic!("the rule for c should remain")
+}
+
+/// Non-recursive macros are not subject to the divergence bounds: an ordinary macro applied at
+/// the innermost position of a list 5000 deep, in a rule and in a program, expands on the test
+/// thread's default stack.
+#[test]
+fn a_non_recursive_macro_expands_at_the_bottom_of_a_deep_term() {
+    const LENGTH: usize = 5_000;
+    let mut expected = vec!["a".to_owned(); LENGTH];
+    let definition = deep_list_definition(deep_list(LENGTH, "m"));
+    let expanded = expand_macros(&definition).expect("the deep rule should expand");
+    assert_eq!(expanded_wrapped_list(&expanded), expected);
+
+    let program = expand_macros_in_term(
+        &definition,
+        "MAIN",
+        ParsedProgram::from_term(deep_list(LENGTH, "m")),
+        &Sort::new("List"),
+    )
+    .expect("the deep program should expand")
+    .into_term();
+    assert_eq!(list_elements(&program), expected);
+    expected.clear();
+}
+
+/// A terminating `macro-rec` recursion over a deep input expands: reversing a list of 3000
+/// elements makes 3000 recursive rewrites and adds 1500 levels to the accumulator, more than
+/// the fixed growth allowance but less than the depth of the input.
+#[test]
+fn a_terminating_macro_rec_recursion_over_a_deep_input_expands() {
+    const LENGTH: usize = 3_000;
+    let input = || {
+        application(
+            "rev",
+            vec![deep_list(LENGTH, "a"), application("nil", Vec::new())],
+        )
+    };
+    let definition = deep_list_definition(input());
+    let expanded = expand_macros(&definition).expect("the reversal should expand");
+    assert_eq!(expanded_wrapped_list(&expanded).len(), LENGTH);
+
+    let program = expand_macros_in_term(
+        &definition,
+        "MAIN",
+        ParsedProgram::from_term(input()),
+        &Sort::new("List"),
+    )
+    .expect("the reversal of a program should expand")
+    .into_term();
+    assert_eq!(list_elements(&program).len(), LENGTH);
+}

@@ -4876,7 +4876,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_MACRO_REWRITES; S = nodes of the largest rewrite result; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
