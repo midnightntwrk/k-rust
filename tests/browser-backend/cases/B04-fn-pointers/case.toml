@@ -1,7 +1,7 @@
 schema = 1
 id = "B04-fn-pointers"
 behavior = "Static tables of fn pointers across crates, indirect calls, dyn Trait dispatch, closures coerced to fn."
-basis = "the collector control's factory and render pointers; krs HostRegistration::new (crates/krs/src/lib.rs)"
+basis = "the collector control's factory and render pointers; krs HostRegistration::new (crates/krs/src/private.rs)"
 # Widened with constructs fixed in eb8eda040 (B17/B18/B19/B20: checked i64 and u64 multiplies at opt-level 0 (smulhi/umulhi.i64), u8 arithmetic, and a u8 rotate).
 # It passes from eb8eda040 on and is a known gap of 195111dff (R-k) and 0ce51e933 (R-26),
 # whose recorded fork outcome is the first compile failure.
