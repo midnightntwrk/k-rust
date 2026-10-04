@@ -2618,8 +2618,8 @@ fn parsed_definition_matches_the_reference_frontend() {
 }
 
 /// Parsed configuration expansion precedes the compilation judgements for generated totality.
-/// Recognize projections through their cell map and nullary initializers through their marker
-/// and generated signature; retain every final compiled claim in the semantic comparison.
+/// Recognize projections through their cell map and nullary initializers through the cell
+/// that generates them; retain every final compiled claim in the semantic comparison.
 fn normalize_configuration_deferred_totality_json(
     reference: &mut serde_json::Value,
     actual: &serde_json::Value,
@@ -2634,6 +2634,58 @@ fn normalize_configuration_deferred_totality_json(
             .as_array()
             .ok_or("reference module has no sentences")?;
         let mut projections = BTreeMap::new();
+        let mut initializers = BTreeMap::new();
+        for cell in sentences {
+            let attributes = &cell["att"]["att"];
+            let Some(cell_name) = attributes["cellName"].as_str() else {
+                continue;
+            };
+            let cell_sort = k_rust::definition::configuration::cell_sort_name(cell_name);
+            let cell_label = format!("<{cell_name}>");
+            let Some(items) = cell["productionItems"].as_array() else {
+                continue;
+            };
+            if cell["node"] != "KProduction"
+                || attributes.get("cell").is_none()
+                || cell["sort"]["name"] != cell_sort
+                || cell["sort"]["params"] != serde_json::json!([])
+                || cell["klabel"]["name"] != cell_label
+                || items
+                    .first()
+                    .is_none_or(|item| item["node"] != "KTerminal" || item["value"] != cell_label)
+                || items.last().is_none_or(|item| {
+                    item["node"] != "KTerminal" || item["value"] != format!("</{cell_name}>")
+                })
+            {
+                continue;
+            }
+            let mut result_sort = cell["sort"].clone();
+            match attributes["multiplicity"].as_str() {
+                None | Some("1" | "?") => {}
+                Some("*") => {
+                    let collection_type = attributes["type"].as_str().unwrap_or("Bag");
+                    let hook = match collection_type {
+                        "Bag" => "BAG.concat",
+                        "Map" => "MAP.concat",
+                        "Set" => "SET.concat",
+                        "List" => "LIST.concat",
+                        _ => continue,
+                    };
+                    result_sort["name"] = format!("{cell_sort}{collection_type}").into();
+                    if !sentences.iter().any(|collection| {
+                        collection["node"] == "KProduction"
+                            && collection["sort"] == result_sort
+                            && collection["att"]["att"].get("cellCollection").is_some()
+                            && collection["att"]["att"]["wrapElement"] == cell_label
+                            && collection["att"]["att"]["hook"] == hook
+                    }) {
+                        continue;
+                    }
+                }
+                _ => continue,
+            }
+            initializers.insert(format!("init{cell_sort}"), result_sort);
+        }
         for collection in sentences {
             let attributes = &collection["att"]["att"];
             if collection["node"] != "KProduction"
@@ -2694,10 +2746,12 @@ fn normalize_configuration_deferred_totality_json(
                             {"node": "KTerminal", "value": ")"}
                         ]),
                     )
-                } else if production["att"]["att"].get("initializer").is_some() {
+                } else if let Some(cell_sort) = initializers.get(label)
+                    && production["att"]["att"].get("initializer").is_some()
+                {
                     (
                         vec![],
-                        production["sort"].clone(),
+                        cell_sort.clone(),
                         serde_json::json!([{"node": "KTerminal", "value": label}]),
                     )
                 } else {
@@ -2729,9 +2783,15 @@ fn normalize_configuration_deferred_totality_json(
                     format!("{module_name}: missing parsed generated production {label}")
                 })?;
             if counterpart["att"]["att"].get("total").is_some() {
-                return Err(format!(
-                    "{label}: parsed generated production already carries total; remove N39"
-                ));
+                return Err(if initializers.contains_key(label) {
+                    format!(
+                        "{label}: parsed initializer already carries total and may be source-written"
+                    )
+                } else {
+                    format!(
+                        "{label}: parsed generated production already carries total; remove N39"
+                    )
+                });
             }
             let mut deferred = production.clone();
             deferred["att"]["att"]
@@ -2789,24 +2849,24 @@ fn normalize_configuration_deferred_totality_json(
         }
         // Removing an attribute changes the sentence's key in the existing set comparison.
         sentences.sort_by_key(json_sort_key);
+        sentences.dedup();
     }
     Ok(count)
 }
 
 fn cell_map_key_totality_fixture() -> (serde_json::Value, serde_json::Value, Definition) {
     let sort = |name: &str| serde_json::json!({"node": "KSort", "name": name, "params": []});
-    let mut projection = parsed_transport_module()["localSentences"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|sentence| sentence["klabel"]["name"] == "#unboxKConfigValue")
-        .unwrap()
-        .clone();
-    projection["klabel"]["name"] = "EntryCellMapKey".into();
-    projection["sort"] = sort("IdCell");
-    projection["productionItems"][0]["value"] = "EntryCellMapKey".into();
-    projection["productionItems"][2]["sort"] = sort("EntryCell");
-    projection["att"]["att"] = serde_json::json!({"function": "", "total": ""});
+    let projection = serde_json::json!({
+        "node": "KProduction", "klabel": {"node": "KLabel", "name": "EntryCellMapKey", "params": []},
+        "sort": sort("IdCell"), "params": [],
+        "productionItems": [
+            {"node": "KTerminal", "value": "EntryCellMapKey"},
+            {"node": "KTerminal", "value": "("},
+            {"node": "KNonTerminal", "sort": sort("EntryCell")},
+            {"node": "KTerminal", "value": ")"}
+        ],
+        "att": {"node": "KAtt", "att": {"function": "", "total": ""}}
+    });
     let mut unrelated = projection.clone();
     unrelated["klabel"]["name"] = "OtherCellMapKey".into();
     unrelated["productionItems"][0]["value"] = "OtherCellMapKey".into();
@@ -2830,6 +2890,30 @@ fn cell_map_key_totality_fixture() -> (serde_json::Value, serde_json::Value, Def
         .remove("total");
     let compiled = parse_definition("[] module TEST symbol LblEntryCellMapKey{}(SortEntryCell{}) : SortIdCell{} [function{}(), total{}()] endmodule []").unwrap();
     (reference, actual, compiled)
+}
+
+#[test]
+fn cell_map_key_totality_json_normalizer_deduplicates_after_removing_total() {
+    let (mut reference, mut actual, compiled) = cell_map_key_totality_fixture();
+    let deferred = actual["term"]["modules"][0]["localSentences"][0].clone();
+    reference["term"]["modules"][0]["localSentences"]
+        .as_array_mut()
+        .unwrap()
+        .push(deferred);
+    normalize_definition_json(&mut reference);
+    normalize_definition_json(&mut actual);
+    assert_eq!(
+        normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
+        Ok(1)
+    );
+    let projections = reference["term"]["modules"][0]["localSentences"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|sentence| sentence["klabel"]["name"] == "EntryCellMapKey")
+        .count();
+    assert_eq!(projections, 1, "normalized projection must have one copy");
+    assert_eq!(reference, actual);
 }
 
 #[test]
@@ -2945,11 +3029,11 @@ fn cell_map_key_totality_json_normalizer_refuses_stale_or_changed_parsed_project
 
 fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Value, Definition) {
     let sort = |name: &str| serde_json::json!({"node": "KSort", "name": name, "params": []});
-    // The marker and signature identify the initializer; its label need not start with init.
+    // The expanded cell determines its initializer label and result sort.
     let initializer = serde_json::json!({
-        "node": "KProduction", "klabel": {"node": "KLabel", "name": "boot", "params": []},
+        "node": "KProduction", "klabel": {"node": "KLabel", "name": "initNCell", "params": []},
         "sort": sort("NCell"), "params": [],
-        "productionItems": [{"node": "KTerminal", "value": "boot"}],
+        "productionItems": [{"node": "KTerminal", "value": "initNCell"}],
         "att": {"node": "KAtt", "att": {"initializer": "", "function": "", "total": ""}}
     });
     let mut unrelated = initializer.clone();
@@ -2969,7 +3053,16 @@ fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Val
     ]);
     let reference = serde_json::json!({"term": {"modules": [{
         "node": "KFlatModule", "name": "TEST", "imports": [], "att": {"node": "KAtt", "att": {}},
-        "localSentences": [initializer, unrelated, with_map]
+        "localSentences": [initializer, unrelated, with_map, {
+            "node": "KProduction", "klabel": {"node": "KLabel", "name": "<n>", "params": []},
+            "sort": sort("NCell"), "params": [],
+            "productionItems": [
+                {"node": "KTerminal", "value": "<n>"},
+                {"node": "KNonTerminal", "sort": sort("Int")},
+                {"node": "KTerminal", "value": "</n>"}
+            ],
+            "att": {"node": "KAtt", "att": {"cell": "", "cellName": "n", "multiplicity": "1"}}
+        }]
     }]}});
     let mut actual = reference.clone();
     actual["term"]["modules"][0]["localSentences"][0]["att"]["att"]
@@ -2977,14 +3070,102 @@ fn nullary_initializer_totality_fixture() -> (serde_json::Value, serde_json::Val
         .unwrap()
         .remove("total");
     let compiled = parse_definition(
-        "[] module TEST symbol Lblboot{}() : SortNCell{} [function{}(), total{}()] endmodule []",
+        "[] module TEST symbol LblinitNCell{}() : SortNCell{} [function{}(), total{}()] endmodule []",
     )
     .unwrap();
     (reference, actual, compiled)
 }
 
 #[test]
-fn nullary_initializer_totality_json_normalizer_uses_marker_and_nullary_signature() {
+fn nullary_initializer_totality_json_normalizer_requires_the_generating_cell() {
+    for (path, replacement) in [
+        ("/att/att", serde_json::json!({"cellName": "n"})),
+        ("/att/att", serde_json::json!({"cell": ""})),
+        ("/att/att/cellName", serde_json::json!("other")),
+        ("/klabel/name", serde_json::json!("<other>")),
+        ("/sort/name", serde_json::json!("OtherCell")),
+        ("/productionItems/0/value", serde_json::json!("<other>")),
+        ("/productionItems/2/value", serde_json::json!("</other>")),
+        ("/att/att/multiplicity", serde_json::json!("*")),
+    ] {
+        let (mut reference, actual, compiled) = nullary_initializer_totality_fixture();
+        *reference["term"]["modules"][0]["localSentences"][3]
+            .pointer_mut(path)
+            .unwrap() = replacement;
+        normalize_definition_json(&mut reference);
+        let unchanged = reference.clone();
+        assert_eq!(
+            normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
+            Ok(0),
+            "{path}"
+        );
+        assert_eq!(reference, unchanged);
+    }
+}
+
+#[test]
+fn nullary_initializer_totality_json_normalizer_recognizes_collection_result_sorts() {
+    for (collection_type, hook) in [
+        ("Bag", "BAG.concat"),
+        ("Map", "MAP.concat"),
+        ("Set", "SET.concat"),
+        ("List", "LIST.concat"),
+    ] {
+        let (mut reference, _, _) = nullary_initializer_totality_fixture();
+        let sentences = reference["term"]["modules"][0]["localSentences"]
+            .as_array_mut()
+            .unwrap();
+        sentences[3]["att"]["att"]["multiplicity"] = "*".into();
+        // Bag is the default collection type when the cell has no explicit type property.
+        if collection_type != "Bag" {
+            sentences[3]["att"]["att"]["type"] = collection_type.into();
+        }
+        let result_sort = format!("NCell{collection_type}");
+        sentences[0]["sort"]["name"] = result_sort.clone().into();
+        sentences.push(serde_json::json!({
+            "node": "KProduction", "sort": sentences[0]["sort"],
+            "att": {"node": "KAtt", "att": {
+                "cellCollection": "", "hook": hook, "wrapElement": "<n>"
+            }}
+        }));
+        let mut actual = reference.clone();
+        actual["term"]["modules"][0]["localSentences"][0]["att"]["att"]
+            .as_object_mut()
+            .unwrap()
+            .remove("total");
+        normalize_definition_json(&mut reference);
+        normalize_definition_json(&mut actual);
+        let compiled = parse_definition(&format!(
+            "[] module TEST symbol LblinitNCell{{}}() : Sort{result_sort}{{}} [function{{}}(), total{{}}()] endmodule []"
+        ))
+        .unwrap();
+        assert_eq!(
+            normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
+            Ok(1),
+            "{collection_type}"
+        );
+        assert_eq!(reference, actual);
+    }
+}
+
+#[test]
+fn nullary_initializer_totality_json_normalizer_preserves_source_written_production() {
+    let (mut reference, _, compiled) = nullary_initializer_totality_fixture();
+    let source = &mut reference["term"]["modules"][0]["localSentences"][0];
+    source["klabel"]["name"] = "sourceInitializer".into();
+    source["productionItems"][0]["value"] = "sourceInitializer".into();
+    normalize_definition_json(&mut reference);
+    let actual = reference.clone();
+    assert_eq!(
+        normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
+        Ok(0),
+        "a source-written initializer must pass through without refusal"
+    );
+    assert_eq!(reference, actual);
+}
+
+#[test]
+fn nullary_initializer_totality_json_normalizer_requires_cell_marker_and_nullary_signature() {
     let (mut reference, mut actual, compiled) = nullary_initializer_totality_fixture();
     assert_eq!(
         normalize_configuration_deferred_totality_json(&mut reference, &actual, &compiled),
@@ -3030,12 +3211,12 @@ fn nullary_initializer_totality_json_normalizer_uses_marker_and_nullary_signatur
 #[test]
 fn nullary_initializer_totality_json_normalizer_refuses_missing_or_changed_final_claim() {
     for declaration in [
-        "symbol Lblboot{}() : SortNCell{} [function{}()]",
+        "symbol LblinitNCell{}() : SortNCell{} [function{}()]",
         "symbol Lblother{}() : SortNCell{} [total{}()]",
-        "symbol Lblboot{}(SortMap{}) : SortNCell{} [total{}()]",
-        "symbol Lblboot{}() : SortOtherCell{} [total{}()]",
-        "symbol Lblboot{}() : SortNCell{} [total{}(x{}())]",
-        "symbol Lblboot{}() : SortNCell{} [total{}()] symbol Lblboot{}() : SortNCell{} [total{}()]",
+        "symbol LblinitNCell{}(SortMap{}) : SortNCell{} [total{}()]",
+        "symbol LblinitNCell{}() : SortOtherCell{} [total{}()]",
+        "symbol LblinitNCell{}() : SortNCell{} [total{}(x{}())]",
+        "symbol LblinitNCell{}() : SortNCell{} [total{}()] symbol LblinitNCell{}() : SortNCell{} [total{}()]",
     ] {
         let (mut reference, actual, _) = nullary_initializer_totality_fixture();
         let compiled =
@@ -3051,7 +3232,7 @@ fn nullary_initializer_totality_json_normalizer_refuses_missing_or_changed_final
 #[test]
 fn nullary_initializer_totality_json_normalizer_refuses_stale_or_changed_parsed_claim() {
     for (attribute, value, message) in [
-        ("total", "", "remove N39"),
+        ("total", "", "may be source-written"),
         ("symbol", "changed", "differ beyond deferred totality"),
     ] {
         let (mut reference, mut actual, compiled) = nullary_initializer_totality_fixture();
