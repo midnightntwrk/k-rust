@@ -169,7 +169,6 @@ pub enum Associativity {
     Right,
 }
 
-#[derive(Debug)]
 pub enum Pattern {
     String(KoreString),
     Variable(Variable),
@@ -290,6 +289,15 @@ impl Drop for Pattern {
         while let Some(mut child) = work.pop() {
             work.extend(super::walk::take_children(&mut child));
         }
+    }
+}
+
+/// The output of `#[derive(Debug)]`, in both the compact and the alternate (`{:#?}`) form,
+/// written with an explicit work list: a derived implementation recurses through `Box<Pattern>`
+/// and overflows the stack on the deep patterns this crate supports (`deep.rs`).
+impl fmt::Debug for Pattern {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug::write(formatter, debug::Task::Pattern(self))
     }
 }
 
@@ -494,10 +502,343 @@ impl Pattern {
     }
 }
 
+/// The derived `Debug` rendering of [`Pattern`], written with an explicit work list.
+///
+/// `#[derive(Debug)]` writes a struct variant as `Name { field: value, .. }`, a tuple variant as
+/// `Name(value)` and a vector as `[value, ..]`; the alternate form puts each field or element on
+/// its own line, indented four spaces per level of nesting, followed by a comma. This module
+/// writes the same text. Values that are not patterns are written through their own `Debug`
+/// at the current indentation.
+mod debug {
+    use std::fmt::{self, Write as _};
+
+    use smallvec::SmallVec;
+
+    use super::Pattern;
+
+    pub(super) enum Task<'a> {
+        Pattern(&'a Pattern),
+        Patterns(&'a [Pattern]),
+        Leaf(&'a dyn fmt::Debug),
+        Text(&'static str),
+        Newline,
+        Indent,
+        Dedent,
+    }
+
+    /// Writes through a formatter, indenting every line that follows a newline by the current
+    /// nesting level, as the standard library's alternate debug builders do.
+    struct Indented<'a, 'f> {
+        formatter: &'a mut fmt::Formatter<'f>,
+        level: usize,
+        on_newline: bool,
+    }
+
+    impl fmt::Write for Indented<'_, '_> {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            for line in text.split_inclusive('\n') {
+                if self.on_newline {
+                    for _ in 0..self.level {
+                        self.formatter.write_str("    ")?;
+                    }
+                }
+                self.on_newline = line.ends_with('\n');
+                self.formatter.write_str(line)?;
+            }
+            Ok(())
+        }
+    }
+
+    type Fields<'a> = SmallVec<[(&'static str, Task<'a>); 4]>;
+
+    fn push_struct<'a>(
+        work: &mut Vec<Task<'a>>,
+        alternate: bool,
+        name: &'static str,
+        fields: Fields<'a>,
+    ) {
+        let mut tasks = Vec::with_capacity(4 * fields.len() + 4);
+        tasks.push(Task::Text(name));
+        if alternate {
+            tasks.push(Task::Text(" {"));
+            tasks.push(Task::Indent);
+            for (field, value) in fields {
+                tasks.extend([Task::Newline, Task::Text(field), Task::Text(": "), value]);
+                tasks.push(Task::Text(","));
+            }
+            tasks.extend([Task::Dedent, Task::Newline, Task::Text("}")]);
+        } else {
+            tasks.push(Task::Text(" { "));
+            for (index, (field, value)) in fields.into_iter().enumerate() {
+                if index != 0 {
+                    tasks.push(Task::Text(", "));
+                }
+                tasks.extend([Task::Text(field), Task::Text(": "), value]);
+            }
+            tasks.push(Task::Text(" }"));
+        }
+        work.extend(tasks.into_iter().rev());
+    }
+
+    fn push_tuple<'a>(
+        work: &mut Vec<Task<'a>>,
+        alternate: bool,
+        name: &'static str,
+        value: Task<'a>,
+    ) {
+        if alternate {
+            work.extend([
+                Task::Text(")"),
+                Task::Newline,
+                Task::Dedent,
+                Task::Text(","),
+                value,
+                Task::Newline,
+                Task::Indent,
+                Task::Text("("),
+                Task::Text(name),
+            ]);
+        } else {
+            work.extend([Task::Text(")"), value, Task::Text("("), Task::Text(name)]);
+        }
+    }
+
+    fn push_list<'a>(
+        work: &mut Vec<Task<'a>>,
+        alternate: bool,
+        items: impl DoubleEndedIterator<Item = Task<'a>> + ExactSizeIterator,
+    ) {
+        let count = items.len();
+        if count == 0 {
+            work.push(Task::Text("[]"));
+        } else if alternate {
+            work.extend([Task::Text("]"), Task::Newline, Task::Dedent]);
+            for item in items.rev() {
+                work.extend([Task::Text(","), item, Task::Newline]);
+            }
+            work.extend([Task::Indent, Task::Text("[")]);
+        } else {
+            work.push(Task::Text("]"));
+            for (index, item) in items.enumerate().rev() {
+                work.push(item);
+                if index != 0 {
+                    work.push(Task::Text(", "));
+                }
+            }
+            work.push(Task::Text("["));
+        }
+    }
+
+    fn push_pattern<'a>(work: &mut Vec<Task<'a>>, alternate: bool, pattern: &'a Pattern) {
+        use Task::{Leaf, Pattern as Child, Patterns};
+        use smallvec::smallvec;
+
+        let (name, fields): (&'static str, Fields<'a>) = match pattern {
+            Pattern::String(value) => return push_tuple(work, alternate, "String", Leaf(value)),
+            Pattern::Variable(variable) => {
+                return push_tuple(work, alternate, "Variable", Leaf(variable));
+            }
+            Pattern::Application { symbol, arguments } => (
+                "Application",
+                smallvec![("symbol", Leaf(symbol)), ("arguments", Patterns(arguments))],
+            ),
+            Pattern::Top { sort } => ("Top", smallvec![("sort", Leaf(sort))]),
+            Pattern::Bottom { sort } => ("Bottom", smallvec![("sort", Leaf(sort))]),
+            Pattern::And { sort, arguments } => (
+                "And",
+                smallvec![("sort", Leaf(sort)), ("arguments", Patterns(arguments))],
+            ),
+            Pattern::Or { sort, arguments } => (
+                "Or",
+                smallvec![("sort", Leaf(sort)), ("arguments", Patterns(arguments))],
+            ),
+            Pattern::Not { sort, argument } => (
+                "Not",
+                smallvec![("sort", Leaf(sort)), ("argument", Child(argument))],
+            ),
+            Pattern::Next { sort, argument } => (
+                "Next",
+                smallvec![("sort", Leaf(sort)), ("argument", Child(argument))],
+            ),
+            Pattern::Implies { sort, left, right } => (
+                "Implies",
+                smallvec![
+                    ("sort", Leaf(sort)),
+                    ("left", Child(left)),
+                    ("right", Child(right))
+                ],
+            ),
+            Pattern::Iff { sort, left, right } => (
+                "Iff",
+                smallvec![
+                    ("sort", Leaf(sort)),
+                    ("left", Child(left)),
+                    ("right", Child(right))
+                ],
+            ),
+            Pattern::Rewrites { sort, left, right } => (
+                "Rewrites",
+                smallvec![
+                    ("sort", Leaf(sort)),
+                    ("left", Child(left)),
+                    ("right", Child(right))
+                ],
+            ),
+            Pattern::Exists {
+                sort,
+                variable,
+                body,
+            } => (
+                "Exists",
+                smallvec![
+                    ("sort", Leaf(sort)),
+                    ("variable", Leaf(variable)),
+                    ("body", Child(body))
+                ],
+            ),
+            Pattern::Forall {
+                sort,
+                variable,
+                body,
+            } => (
+                "Forall",
+                smallvec![
+                    ("sort", Leaf(sort)),
+                    ("variable", Leaf(variable)),
+                    ("body", Child(body))
+                ],
+            ),
+            Pattern::Mu { variable, body } => (
+                "Mu",
+                smallvec![("variable", Leaf(variable)), ("body", Child(body))],
+            ),
+            Pattern::Nu { variable, body } => (
+                "Nu",
+                smallvec![("variable", Leaf(variable)), ("body", Child(body))],
+            ),
+            Pattern::Ceil {
+                operand_sort,
+                result_sort,
+                argument,
+            } => (
+                "Ceil",
+                smallvec![
+                    ("operand_sort", Leaf(operand_sort)),
+                    ("result_sort", Leaf(result_sort)),
+                    ("argument", Child(argument))
+                ],
+            ),
+            Pattern::Floor {
+                operand_sort,
+                result_sort,
+                argument,
+            } => (
+                "Floor",
+                smallvec![
+                    ("operand_sort", Leaf(operand_sort)),
+                    ("result_sort", Leaf(result_sort)),
+                    ("argument", Child(argument))
+                ],
+            ),
+            Pattern::Equals {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            } => (
+                "Equals",
+                smallvec![
+                    ("operand_sort", Leaf(operand_sort)),
+                    ("result_sort", Leaf(result_sort)),
+                    ("left", Child(left)),
+                    ("right", Child(right))
+                ],
+            ),
+            Pattern::In {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            } => (
+                "In",
+                smallvec![
+                    ("operand_sort", Leaf(operand_sort)),
+                    ("result_sort", Leaf(result_sort)),
+                    ("left", Child(left)),
+                    ("right", Child(right))
+                ],
+            ),
+            Pattern::DomainValue { sort, value } => (
+                "DomainValue",
+                smallvec![("sort", Leaf(sort)), ("value", Leaf(value))],
+            ),
+            Pattern::AssociativeApplication {
+                associativity,
+                symbol,
+                arguments,
+            } => (
+                "AssociativeApplication",
+                smallvec![
+                    ("associativity", Leaf(associativity)),
+                    ("symbol", Leaf(symbol)),
+                    ("arguments", Patterns(arguments))
+                ],
+            ),
+        };
+        push_struct(work, alternate, name, fields);
+    }
+
+    pub(super) fn write(formatter: &mut fmt::Formatter<'_>, root: Task<'_>) -> fmt::Result {
+        let alternate = formatter.alternate();
+        let mut output = Indented {
+            formatter,
+            level: 0,
+            on_newline: false,
+        };
+        let mut work = vec![root];
+        // Invariant: the text written so far followed by the text of `work`, popped in order, is the derived rendering of `root`; each pattern node is expanded once into its own punctuation, leaves, and child tasks, so the loop ends after O(|root|) pops.
+        while let Some(task) = work.pop() {
+            match task {
+                Task::Pattern(pattern) => push_pattern(&mut work, alternate, pattern),
+                Task::Patterns(patterns) => {
+                    push_list(&mut work, alternate, patterns.iter().map(Task::Pattern));
+                }
+                Task::Leaf(value) if alternate => write!(output, "{value:#?}")?,
+                Task::Leaf(value) => write!(output, "{value:?}")?,
+                Task::Text(text) => output.write_str(text)?,
+                Task::Newline => output.write_str("\n")?,
+                Task::Indent => output.level += 1,
+                Task::Dedent => output.level -= 1,
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Pattern;
     use crate::kore::parser::parse_pattern;
+
+    #[test]
+    fn debug_writes_the_derived_compact_form() {
+        let pattern = parse_pattern(
+            r#"\and{S{}}(f{}(X:S{}, "a"), \not{S{}}(\dv{S{}}("1")), \exists{S{}}(Y:S{}, \top{S{}}()))"#,
+        )
+        .unwrap();
+        let sort = r#"Application { name: "S", arguments: [] }"#;
+        assert_eq!(
+            format!("{pattern:?}"),
+            format!(
+                "And {{ sort: {sort}, arguments: [\
+                 Application {{ symbol: Symbol {{ name: \"f\", sort_parameters: [] }}, arguments: [\
+                 Variable(Variable {{ kind: Element, name: \"X\", sort: {sort} }}), String(\"a\")] }}, \
+                 Not {{ sort: {sort}, argument: DomainValue {{ sort: {sort}, value: \"1\" }} }}, \
+                 Exists {{ sort: {sort}, variable: Variable {{ kind: Element, name: \"Y\", sort: {sort} }}, \
+                 body: Top {{ sort: {sort} }} }}] }}"
+            )
+        );
+    }
 
     /// One source per variant, listed in the order the variants are declared in `Pattern`.
     #[test]

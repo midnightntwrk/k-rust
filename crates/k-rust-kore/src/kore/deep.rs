@@ -65,6 +65,15 @@ fn deep_patterns_survive_a_one_mebibyte_thread() {
         assert_eq!(cloned, pattern);
         drop(cloned);
 
+        let debug = format!("{pattern:?}");
+        assert!(debug.starts_with(
+            r#"Not { sort: Application { name: "S", arguments: [] }, argument: Not { "#
+        ));
+        let leaf = r#"argument: Top { sort: Application { name: "S", arguments: [] } }"#;
+        assert!(debug.ends_with(&format!("{leaf}{}", " }".repeat(DEEP_PATTERN_LEVELS))));
+        assert_eq!(debug.matches("Not {").count(), DEEP_PATTERN_LEVELS);
+        drop(debug);
+
         let normalized = normalize::for_kast(&pattern);
         assert_eq!(normalized, pattern);
         drop(normalized);
@@ -111,6 +120,19 @@ fn deep_pretty_outputs_preserve_existing_formatting() {
 
         let pretty_json = json::to_string_pretty(&pattern).unwrap();
         assert_eq!(json::from_str(&pretty_json).unwrap(), pattern);
+    });
+}
+
+#[test]
+fn alternate_debug_of_deep_patterns_runs_on_a_small_thread() {
+    on_stack(256 << 10, || {
+        let pattern = parse_pattern(&not_chain(PRETTY_LEVELS, r"\top{S{}}()")).unwrap();
+        let debug = format!("{pattern:#?}");
+        assert!(debug.starts_with("Not {\n    sort: Application {\n        name: \"S\",\n"));
+        assert!(debug.ends_with("\n    },\n}"));
+        assert_eq!(debug.matches("Not {").count(), PRETTY_LEVELS);
+        let leaf = format!("\n{}argument: Top {{\n", " ".repeat(4 * PRETTY_LEVELS));
+        assert!(debug.contains(&leaf));
     });
 }
 
