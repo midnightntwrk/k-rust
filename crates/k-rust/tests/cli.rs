@@ -11446,13 +11446,14 @@ endmodule
         "{stdout}"
     );
 
-    // The generated-input reproducer: a heat rule in a module without `BOOL` compiles.
+    // A module whose only lowered sentence is a heat rule, without `BOOL`, compiles. (A heat
+    // rule that matches no HOLE is rejected: `heat_and_cool_sentences_without_a_matched_hole_are_rejected`.)
     let output = krun_source(
         r#"
 module MAIN
   syntax KResult ::= Op
-  syntax Op ::= "a" | "b"
-  rule a => b [heat]
+  syntax Op ::= "a" | "b" | wrap(Op)
+  rule wrap(HOLE:Op) => HOLE ~> wrap(b) [heat]
 endmodule
 "#,
         &["--main-module", "MAIN", "--sort", "Op", "--expression", "b"],
@@ -11648,6 +11649,48 @@ endmodule
             && stdout.contains(r#"Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("1"))"#),
         "{stdout}"
     );
+}
+
+#[test]
+fn heat_and_cool_sentences_without_a_matched_hole_are_rejected() {
+    // Heating and cooling apply only when the subterm the sentence matches as HOLE is not yet,
+    // or is, a result. A rule that matches no HOLE would test a variable nothing binds, and a
+    // context whose HOLE is rewritten to a term without HOLE gives cooling nothing to plug back.
+    for (sentence, code, message) in [
+        // The generated-input reproducer.
+        (
+            "rule a => b [heat]",
+            "InvalidHeatCool",
+            "A heat rule must match HOLE on its left-hand side",
+        ),
+        (
+            "rule b => a [cool]",
+            "InvalidHeatCool",
+            "A cool rule must match HOLE on its left-hand side",
+        ),
+        (
+            "rule a => b requires HOLE:Op ==K b [heat]",
+            "InvalidHeatCool",
+            "A heat rule must match HOLE on its left-hand side",
+        ),
+        (
+            "context wrap(HOLE => a)",
+            "InvalidContext",
+            "The HOLE of a context must be rewritten to a term containing HOLE",
+        ),
+    ] {
+        let source = format!(
+            "module MAIN\n  imports K-EQUAL\n  syntax KResult ::= Op\n  syntax Op ::= \"a\" | \"b\" | wrap(Op)\n  {sentence}\nendmodule\n"
+        );
+        let output = kcompile_source(&source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("definition.k:5:3: Error[{code}]: {message}")),
+            "{source}\n{stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "{stderr}");
+    }
 }
 
 #[test]

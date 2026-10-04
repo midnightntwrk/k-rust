@@ -414,12 +414,25 @@ fn validate_context(body: &Term, attributes: &Attributes) -> Result<(), Vec<Diag
         )]);
     }
     for rewrite in rewrites {
-        let Term::Rewrite { left, .. } = rewrite.unannotated() else {
+        let Term::Rewrite { left, right } = rewrite.unannotated() else {
             unreachable!()
         };
         if !is_hole(left) {
             return Err(vec![error_at(
                 "Only the HOLE can be rewritten in a context definition",
+                attributes,
+            )]);
+        }
+        // Heating puts the rewritten term in front of the computation, and cooling matches that
+        // term, once evaluated, to plug its HOLE back into the context: a rewritten term without
+        // HOLE leaves the cooled context's HOLE bound by nothing.
+        let mut rewritten_hole = false;
+        right.visit_preorder(&mut |term| {
+            rewritten_hole |= matches!(term, Term::Variable { name, .. } if name == "HOLE");
+        });
+        if !rewritten_hole {
+            return Err(vec![error_at(
+                "The HOLE of a context must be rewritten to a term containing HOLE: cooling matches that term to plug its HOLE back into the context.",
                 attributes,
             )]);
         }

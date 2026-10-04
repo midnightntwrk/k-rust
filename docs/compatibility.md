@@ -181,6 +181,7 @@ A `context` written for one instance (`context pick(HOLE:MInt{8}, _)`) is instan
 Strictness on a function, macro, bracket or token production is rejected at the strictness stage with `InvalidStrictness` at the production.
 A context rooted at such a production or at a macro-like label is rejected at the contexts stage with `InvalidContext` at the context.
 A context lowers to heating and cooling rewrite rules that match its term: a function application is evaluated by its equations, a macro-like application is expanded before rewriting, a bracket is erased by every parser, and a token production's terms are domain values, so no rewrite step meets an application of these productions.
+A heating or cooling rule applies only when the subterm it matches as `HOLE` is not yet, or is, of its result sort, so a `heat` or `cool` rule whose left-hand side does not match `HOLE` is rejected with `InvalidHeatCool` at the rule, and a context whose `HOLE` is rewritten to a term without `HOLE` is rejected with `InvalidContext`, since its cooling rule matches that term to plug `HOLE` back.
 
 Every other construct that reads a term through the projection into a sort without one (`KConfigVar` included) is rejected where that term would be built, with the location of the construct that asks for it.
 A configuration variable cast to such a sort is rejected at configuration expansion, at the configuration: its initial value is read through that sort's projection, and no value of a sort without K terms can be supplied.

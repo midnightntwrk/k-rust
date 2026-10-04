@@ -2619,10 +2619,10 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
         endmodule
         module MAIN
           syntax KResult
-          syntax Exp ::= "heat" [symbol(heat)]
-                       | "cool" [symbol(cool)]
-          rule heat => cool [heat, result(KResult)]
-          rule cool => heat [cool, result(KResult)]
+          syntax Exp ::= heat(Exp) [symbol(heat)]
+                       | cool(Exp) [symbol(cool)]
+          rule heat(HOLE) => cool(HOLE) [heat, result(KResult)]
+          rule cool(HOLE) => heat(HOLE) [cool, result(KResult)]
         endmodule
     "#};
     let transformed = resolve_heat_cool_attributes(&parsed(source)).unwrap();
@@ -2655,8 +2655,8 @@ fn heat_cool_imports_bool_for_its_condition_or_reports_its_absence() {
     let main = indoc! {r#"
         module MAIN
           syntax KResult
-          syntax Exp ::= "heat" [symbol(heat)]
-          rule heat => heat [heat, result(KResult)]
+          syntax Exp ::= heat(Exp) [symbol(heat)]
+          rule heat(HOLE) => heat(HOLE) [heat, result(KResult)]
         endmodule
     "#};
     let transformed =
@@ -2772,11 +2772,11 @@ fn heat_cool_rejects_a_declared_result_sort_without_a_sort_predicate() {
           syntax 8
           syntax #Foo ::= "foo"
           syntax Val ::= "v"
-          syntax Exp ::= "heat" [symbol(heat)]
-                       | "cool" [symbol(cool)]
-          rule heat => cool [heat, result(8)]
-          rule cool => heat [cool, result(#Foo)]
-          rule heat => heat [heat, result(Val)]
+          syntax Exp ::= heat(Exp) [symbol(heat)]
+                       | cool(Exp) [symbol(cool)]
+          rule heat(HOLE) => cool(HOLE) [heat, result(8)]
+          rule cool(HOLE) => heat(HOLE) [cool, result(#Foo)]
+          rule heat(HOLE) => heat(HOLE) [heat, result(Val)]
         endmodule
     "#};
     let error = resolve_heat_cool_attributes(&parsed(source)).unwrap_err();

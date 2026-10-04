@@ -118,6 +118,39 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 ));
                 continue;
             }
+            // Heating moves the subterm the rule matches as `HOLE` to the front of the computation
+            // while it is not yet a result, and cooling plugs it back once it is: the condition
+            // below is on that matched subterm. A sentence whose left-hand side does not match
+            // `HOLE` leaves the condition on a variable nothing binds, which holds or fails for
+            // values unrelated to the term being rewritten.
+            let body = match &*sentence {
+                Sentence::Rule { body, .. } | Sentence::Context { body, .. } => body,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => unreachable!("the kind is decided above"),
+            };
+            if !matches_hole(body) {
+                let (attribute, state) = if heat {
+                    ("heat", "is not yet")
+                } else {
+                    ("cool", "is")
+                };
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidHeatCool,
+                    format!(
+                        "A {attribute} rule must match HOLE on its left-hand side: it applies only when the subterm it matches as HOLE {state} of the result sort {result_sort}, and this rule matches none."
+                    ),
+                    sentence,
+                ));
+                continue;
+            }
             let requires = match sentence {
                 Sentence::Rule { requires, .. } | Sentence::Context { requires, .. } => requires,
                 Sentence::SyntaxSort { .. }
@@ -159,5 +192,22 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
         diagnostics.sort();
         diagnostics.dedup();
         Err(ResolveHeatCoolError { diagnostics })
+    }
+}
+
+/// Whether the left-hand side of `body` matches `HOLE`: the variable occurs outside every
+/// rewrite or on the left of one.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
+fn matches_hole(body: &Term) -> bool {
+    match body.unannotated() {
+        Term::Variable { name, .. } => name == "HOLE",
+        Term::Rewrite { left, .. } => matches_hole(left),
+        Term::Apply { arguments, .. } => arguments.iter().any(matches_hole),
+        Term::Sequence(items) => items.iter().any(matches_hole),
+        Term::As { pattern, alias } => matches_hole(pattern) || matches_hole(alias),
+        _ => false,
     }
 }
