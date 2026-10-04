@@ -209,6 +209,13 @@ pub fn check_definition_with_options(
             sort_catalog,
         )?);
     }
+    let compiled = check_compiled_view_productions(&views);
+    let reported = diagnostics.iter().cloned().collect::<BTreeSet<_>>();
+    diagnostics.extend(
+        compiled
+            .into_iter()
+            .filter(|diagnostic| !reported.contains(diagnostic)),
+    );
     diagnostics.extend(check_sort_synonyms(definition));
     diagnostics.extend(check_duplicate_klabels(definition));
     diagnostics.extend(check_unused_symbols_with_views(&views, &options));
@@ -216,6 +223,43 @@ pub fn check_definition_with_options(
     diagnostics.extend(check_function_rule_attributes_with_views(&views));
     diagnostics.sort();
     Ok(diagnostics)
+}
+
+/// The production checks that judge a production by what its result sort is in the compiled
+/// definition, run over every module the main module imports, against the main module's view.
+///
+/// Whether a sort is hooked or has domain values is fixed by its declarations anywhere in the
+/// compiled definition, and a module that declares a production on the sort need not import the
+/// module that hooks it or declares its tokens. The per-module checks see only the declaring
+/// module's view, where the production is an ordinary constructor; the compiled definition
+/// emits it as a constructor of a sort whose values are fixed, which has no model. The main
+/// module's view contains the view of every module it imports and is the view the compiled
+/// definition is emitted from, so it is the one view this second judgement needs. Diagnostics
+/// the per-module checks already reported are not repeated.
+fn check_compiled_view_productions(views: &DefinitionViews<'_>) -> Vec<Diagnostic> {
+    let definition = views.definition();
+    let main = definition.main_module_id();
+    let sorts = views.sort_catalog(main);
+    let productions = views.production_catalog(main);
+    let macro_labels = definition.rule_catalog(main).all_macro_labels(productions);
+    let mut modules = definition.transitive_imports(main);
+    modules.push(main);
+    let mut diagnostics = Vec::new();
+    for module in modules {
+        let sentences = definition
+            .module(module)
+            .local_sentences
+            .iter()
+            .map(std::sync::Arc::as_ref)
+            .collect::<Vec<_>>();
+        diagnostics.extend(check_tokens(&sentences, sorts, &macro_labels));
+        diagnostics.extend(attributes::check_hooked_sort_constructors(
+            &sentences,
+            productions,
+            sorts,
+        ));
+    }
+    diagnostics
 }
 
 /// Java `CheckK`: the alias of an `#as` pattern must be a variable.

@@ -224,14 +224,12 @@ fn check_production(
             ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
         })
         .collect::<Vec<_>>();
-    let is_subsort = items.len() == 1 && nonterminals.len() == 1;
-
     check_hooked_sort_constructor(
         production,
         label,
         sort,
         attributes,
-        is_subsort,
+        is_subsort(items),
         productions,
         sorts,
         diagnostics,
@@ -277,6 +275,44 @@ fn check_production(
         attributes,
         diagnostics,
     );
+}
+
+/// The hooked-sort constructor check of [`check_attribute_semantics`] alone, for judging
+/// productions against a view other than their own module's.
+pub(super) fn check_hooked_sort_constructors(
+    sentences: &[&Sentence],
+    productions: &ProductionCatalog<'_>,
+    sorts: &SortCatalog<'_>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for production in sentences {
+        let Sentence::Production {
+            label,
+            sort,
+            items,
+            attributes,
+            ..
+        } = production
+        else {
+            continue;
+        };
+        check_hooked_sort_constructor(
+            production,
+            label,
+            sort,
+            attributes,
+            is_subsort(items),
+            productions,
+            sorts,
+            &mut diagnostics,
+        );
+    }
+    diagnostics
+}
+
+/// Whether a production's items are one nonterminal: a subsort declaration.
+fn is_subsort(items: &[ProductionItem]) -> bool {
+    matches!(items, [ProductionItem::NonTerminal { .. }])
 }
 
 #[allow(clippy::too_many_arguments)]

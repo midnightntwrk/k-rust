@@ -4131,3 +4131,133 @@ endmodule"#,
         "{diagnostics:#?}"
     );
 }
+
+/// A constructor declared in a module that does not see its sort's hook or token declaration is
+/// still a constructor of a sort with fixed values in the compiled definition, which the main
+/// module's view decides: it is rejected wherever it is declared, once.
+#[test]
+fn constructors_are_judged_by_their_sort_in_the_main_modules_view() {
+    let constructor = production(Some("x"), "Foo", &[], located_unused_symbol());
+    let hooked = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Foo"),
+        attributes: attrs(&[("hook", json!("BOOL.Bool"))]),
+    };
+    let token = regex_token_production(Sort::new("Foo"), vec![], "[0-9]+#");
+    for (fixed, expected) in [
+        (
+            hooked,
+            vec![(
+                DiagnosticCode::InvalidAttribute,
+                "Cannot add new constructors to hooked sort Foo",
+            )],
+        ),
+        (
+            token,
+            vec![(
+                DiagnosticCode::InvalidTokenProduction,
+                "Sort Foo was declared as a token. Productions of this sort can only contain [function] or [token] labels.",
+            )],
+        ),
+    ] {
+        // The constructor's own module, a sibling of the fixing module, and the main module.
+        for (constructor_module, main_sentences) in
+            [("A", Vec::new()), ("MAIN", vec![constructor.clone()])]
+        {
+            let a_sentences = if constructor_module == "A" {
+                vec![constructor.clone()]
+            } else {
+                Vec::new()
+            };
+            let definition = resolved_definition(
+                "MAIN",
+                vec![
+                    outer_check_module("A", &[], a_sentences),
+                    outer_check_module("B", &[], vec![fixed.clone()]),
+                    outer_check_module("MAIN", &["A", "B"], main_sentences),
+                ],
+            );
+            let diagnostics = check_definition(&definition).unwrap();
+            let actual = diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                .map(|diagnostic| (diagnostic.code, diagnostic.message.as_str()))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual, expected,
+                "in {constructor_module}: {diagnostics:#?}"
+            );
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.location.is_some()),
+                "{diagnostics:#?}"
+            );
+        }
+    }
+}
+
+/// A module the main module does not import contributes nothing to the compiled definition, so
+/// its productions are judged in their own view only.
+#[test]
+fn constructors_outside_the_main_modules_imports_are_judged_in_their_own_view() {
+    let constructor = production(Some("x"), "Foo", &[], located_unused_symbol());
+    let hooked = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Foo"),
+        attributes: attrs(&[("hook", json!("BOOL.Bool"))]),
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![
+            outer_check_module("A", &[], vec![constructor]),
+            outer_check_module("B", &["A"], vec![hooked]),
+            outer_check_module("MAIN", &[], Vec::new()),
+        ],
+    );
+    let diagnostics = check_definition(&definition).unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity != Severity::Error),
+        "{diagnostics:#?}"
+    );
+}
+
+/// The compiled definition of a constructor on the hooked `MInt{A}` declared in an imported
+/// module is rejected by the definition checks at the production, as it is in the main module,
+/// instead of being emitted for the backend to refuse.
+#[test]
+fn a_constructor_on_a_hooked_instance_in_an_imported_module_is_rejected() {
+    let source = "module MAIN-SYNTAX\n  syntax A\n  syntax MInt{A} ::= \"ka\" [symbol(ka)]\nendmodule\nmodule MAIN\n  imports MAIN-SYNTAX\nendmodule\n";
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let backend = k_rust::kompile::CompilationBackend::Rust;
+    let loaded = k_rust::outer::load_with_options(
+        k_rust::outer::ResolvedSource::new("main.k", source),
+        "MAIN",
+        &mut resolver,
+        &k_rust::outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+            ..k_rust::outer::LoadOptions::default()
+        },
+    )
+    .expect("the definition loads");
+    let error = k_rust::kompile::compile_loaded_definition(
+        &loaded,
+        k_rust::kompile::CompileOptions::default(),
+    )
+    .expect_err("the constructor is rejected");
+    assert_eq!(error.stage, "definition checks");
+    let rejection = error
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.message == "Cannot add new constructors to hooked sort MInt{A}"
+        })
+        .unwrap_or_else(|| panic!("{error:?}"));
+    let location = rejection.location.expect("the diagnostic is located");
+    assert_eq!(location.start_line, 3, "{rejection:?}");
+}

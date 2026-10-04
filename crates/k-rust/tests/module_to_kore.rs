@@ -2066,9 +2066,14 @@ fn disjointness_omits_constructors_at_non_unifying_closed_results() {
     assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
 }
 
+/// The fixture declares constructors on instances of `MInt`, which MINT-SYNTAX hooks; the
+/// fixture's syntax module does not import it, but the compiled definition does. A constructor
+/// of a hooked sort has no model, so the compilation stops at the definition checks, at each
+/// such production, instead of emitting their no-confusion axioms. Disjointness over unified
+/// result instances is covered by the emission tests on definitions without the hook above.
 #[cfg(feature = "z3-inference")]
 #[test]
-fn disjointness_result_instance_fixture_binds_every_axiom_sort_variable() {
+fn result_instance_fixture_constructors_on_the_hooked_mint_are_rejected() {
     let prelude = embedded("prelude.md").unwrap();
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -2089,16 +2094,21 @@ fn disjointness_result_instance_fixture_binds_every_axiom_sort_variable() {
         },
     )
     .unwrap();
-    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
-    for kore in [
-        &artifacts.definition_kore,
-        &artifacts.syntax_definition_kore,
-    ] {
-        let definition = parse_definition(kore).unwrap();
-        for module in &definition.modules {
-            assert_axiom_sort_variables_are_bound(&module.sentences);
-        }
-    }
+    let error = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap_err();
+    assert_eq!(error.stage, "definition checks");
+    let mut rejected = error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .message
+                .starts_with("Cannot add new constructors to hooked sort MInt{")
+        })
+        .map(|diagnostic| diagnostic.location.expect("located").start_line)
+        .collect::<Vec<_>>();
+    rejected.sort_unstable();
+    // ka, kb, the MInt{B} ::= MInt{A} subsort, mk, inner2, outer, mk2.
+    assert_eq!(rejected, [10, 11, 14, 18, 19, 20, 21], "{error:?}");
 }
 
 #[test]
