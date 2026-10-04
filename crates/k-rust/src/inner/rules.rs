@@ -1337,12 +1337,13 @@ fn add_rule_cells(
                 attributes,
                 ..
             } if attributes.has(AttributeKey::Cell) => {
-                let (Some(label), Some(first), Some(last)) =
-                    (label.clone(), items.first().cloned(), items.last().cloned())
+                // The load rejects a `cell` production of another shape than an opening item,
+                // the contents and a closing item (`check_cell_attributes`).
+                let (Some(label), [first, middle @ .., last]) = (label.clone(), items.as_slice())
                 else {
                     continue;
                 };
-                let middle = &items[1..items.len().saturating_sub(1)];
+                let (first, last) = (first.clone(), last.clone());
                 // The body of a cell is a pattern of one sort: the sort of a single body that is
                 // neither a cell nor a cell collection, which is an unbound operand of this
                 // visible production and so a universe member, else `Bag`, the sort of the cells.

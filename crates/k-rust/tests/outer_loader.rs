@@ -2537,3 +2537,78 @@ fn a_numeral_sort_with_terms_is_rejected_before_any_bubble() {
         "numeral terms loaded before any bubble was checked: {accepted:?}"
     );
 }
+
+/// A `cell` or `cellCollection` attribute on a sentence without the shape it asserts is a
+/// located load error, before any grammar reads the sentence as a cell. Each case is loaded with
+/// and without the prelude, so the rejection does not depend on the builtin modules.
+#[test]
+fn cell_attributes_on_sentences_of_another_shape_are_rejected_at_load() {
+    let cell = "The attribute 'cell' applies only to a cell production \"<name>\" Sort* \"</name>\", whose first and last terminals open and close one cell name and whose other items are the sorts of the cell's contents; this production is not one.";
+    let cases = [
+        // B1: a one-terminal production, which the rule grammar sliced past its end.
+        ("syntax Op ::= \"baz\" [cell]", cell.to_owned()),
+        (
+            "syntax Op ::= baz(Int, Op, Int) [function, total, klabel(s18), format(%1 %2 %3), cell]",
+            cell.to_owned(),
+        ),
+        ("syntax Op ::= \"<a>\" Int \"</b>\" [cell]", cell.to_owned()),
+        ("syntax Op ::= \"<a>\" \"x\" \"</a>\" [cell]", cell.to_owned()),
+        ("syntax Op ::= \"<>\" Int \"</>\" [cell]", cell.to_owned()),
+        (
+            "syntax Op [cellCollection]",
+            "Sort Op has the attribute 'cellCollection' but no collection hook (LIST.List, SET.Set, MAP.Map, BAG.Bag): a cell collection sort is the hooked collection of a multiplicity-* cell's instances.".to_owned(),
+        ),
+        (
+            "syntax Op ::= Op Op [cellCollection]",
+            "The attribute 'cellCollection' applies only to the concatenation S ::= S S of a sort S declared with 'cellCollection'; this production of Op is not one.".to_owned(),
+        ),
+    ];
+    for (sentence, message) in cases {
+        let source = format!("module MAIN\n  syntax Int\n  syntax Op\n  {sentence}\nendmodule\n");
+        for prelude in [false, true] {
+            let error = if prelude {
+                load_with_prelude(&source, "MAIN").unwrap_err()
+            } else {
+                let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+                load(
+                    ResolvedSource::new("main.k", source.clone()),
+                    "MAIN",
+                    &mut resolver,
+                )
+                .unwrap_err()
+            };
+            let LoadError::SourceDiagnostics(diagnostics) = error else {
+                panic!("{sentence}: expected source diagnostics, got {error:?}");
+            };
+            let errors = diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                .collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{sentence}: {diagnostics:#?}");
+            assert_eq!(errors[0].code, DiagnosticCode::InvalidAttribute);
+            assert_eq!(errors[0].message, message, "{sentence}");
+            assert_eq!(errors[0].source.as_deref(), Some("main.k"));
+            assert_eq!(errors[0].location.unwrap().start_line, 4, "{sentence}");
+        }
+    }
+}
+
+/// Written-out cells and cell collections of the generated shapes load, and rules over them parse.
+#[test]
+fn cell_attributes_on_sentences_of_their_shape_load() {
+    let source = indoc! {r#"
+        module MAIN
+          imports INT
+          imports SET
+          syntax KCell ::= "<k>" K "</k>" [cell, symbol(<k>)]
+          syntax ThreadCell ::= "<thread>" KCell "</thread>" [cell, symbol(<thread>)]
+          syntax EmptyCell ::= "<empty>" "</empty>" [cell, symbol(<empty>)]
+          syntax ThreadCellSet [cellCollection, hook(SET.Set)]
+          syntax ThreadCellSet ::= ThreadCellSet ThreadCellSet [cellCollection, assoc, comm, idem, function, hook(SET.concat), symbol(_ThreadCellSet_)]
+          rule <thread> <k> 1 => 2 </k> </thread>
+        endmodule
+    "#};
+    if let Err(error) = load_with_prelude(source, "MAIN") {
+        panic!("written-out cells load: {error}");
+    }
+}

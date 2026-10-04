@@ -844,6 +844,9 @@ pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
         let sorts = definition.sort_catalog(module_id);
         diagnostics.extend(check_sorts(module, &sorts));
         diagnostics.extend(check_user_lists(module, &visible));
+        diagnostics.extend(super::production_shapes::check_cell_attributes(
+            module, &sorts,
+        ));
         diagnostics.extend(check_kernel_sort_positions(
             &visible,
             &mut reported_kernel_contradictions,

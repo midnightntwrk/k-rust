@@ -6,12 +6,129 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
-use crate::definition::ProductionCatalog;
+use crate::definition::{ProductionCatalog, ResolvedModule, SortCatalog, SortHead};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{GeneratedLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
 const CELL_BAG_MESSAGE: &str = "Cell bags are only supported on the Java backend. If you want this feature, comment on https://github.com/runtimeverification/k/issues/1419 . As a workaround, you can add the attribute type=\"Set\" and add a unique identifier to each element in the set.";
+
+/// The collection hooks a cell collection sort can carry: the multiplicity-`*` cell types.
+const CELL_COLLECTION_HOOKS: [&str; 4] = ["LIST.List", "SET.Set", "MAP.Map", "BAG.Bag"];
+
+/// Reject a `cell` or `cellCollection` attribute on a sentence that does not have the shape the
+/// attribute asserts.
+///
+/// Configurations generate these sentences, and a definition may also spell them out (an
+/// expanded definition, or a parse-only cell such as `generatedCounter`). Every consumer reads
+/// the attribute as that shape: a `cell` production is the cell `"<name>" Sort* "</name>"`,
+/// whose first and last items open and close one cell name and whose other items are the sorts
+/// of its contents; a `cellCollection` sort is the hooked collection of a multiplicity-`*`
+/// cell's instances; a `cellCollection` production is that sort's concatenation `S ::= S S`.
+/// On any other sentence the attribute claims what the sentence is not, so it is reported here,
+/// at load, before a rule or configuration grammar reads the sentence as a cell.
+pub fn check_cell_attributes(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
+        match sentence {
+            Sentence::Production {
+                sort,
+                items,
+                attributes,
+                ..
+            } => {
+                if attributes.has(AttributeKey::Cell) && cell_name(items).is_none() {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidAttribute,
+                        "The attribute 'cell' applies only to a cell production \"<name>\" Sort* \"</name>\", whose first and last terminals open and close one cell name and whose other items are the sorts of the cell's contents; this production is not one.",
+                        sentence,
+                    ));
+                }
+                if attributes.has(AttributeKey::CellCollection)
+                    && !(is_concatenation(sort, items) && is_cell_collection(sort, sorts))
+                {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidAttribute,
+                        format!(
+                            "The attribute 'cellCollection' applies only to the concatenation S ::= S S of a sort S declared with 'cellCollection'; this production of {sort} is not one."
+                        ),
+                        sentence,
+                    ));
+                }
+            }
+            Sentence::SyntaxSort {
+                sort, attributes, ..
+            } if attributes.has(AttributeKey::CellCollection) => {
+                let hook = sorts
+                    .attributes_for(&SortHead::from(sort))
+                    .and_then(|attributes| attributes.string(AttributeKey::Hook));
+                if !hook.is_some_and(|hook| CELL_COLLECTION_HOOKS.contains(&hook)) {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidAttribute,
+                        format!(
+                            "Sort {sort} has the attribute 'cellCollection' but no collection hook ({}): a cell collection sort is the hooked collection of a multiplicity-* cell's instances.",
+                            CELL_COLLECTION_HOOKS.join(", ")
+                        ),
+                        sentence,
+                    ));
+                }
+            }
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
+        }
+    }
+    diagnostics
+}
+
+/// The cell name of a cell production's items `"<name>" Sort* "</name>"`, or `None` for items
+/// of another shape.
+fn cell_name(items: &[ProductionItem]) -> Option<&str> {
+    let [
+        ProductionItem::Terminal(open),
+        contents @ ..,
+        ProductionItem::Terminal(close),
+    ] = items
+    else {
+        return None;
+    };
+    let name = open.strip_prefix('<')?.strip_suffix('>')?;
+    let closes = close
+        .strip_prefix("</")
+        .and_then(|close| close.strip_suffix('>'))
+        == Some(name);
+    (closes
+        && !name.is_empty()
+        && !name.starts_with('/')
+        && contents
+            .iter()
+            .all(|item| matches!(item, ProductionItem::NonTerminal { .. })))
+    .then_some(name)
+}
+
+fn is_concatenation(sort: &Sort, items: &[ProductionItem]) -> bool {
+    matches!(
+        items,
+        [
+            ProductionItem::NonTerminal { sort: left, .. },
+            ProductionItem::NonTerminal { sort: right, .. },
+        ] if left == sort && right == sort
+    )
+}
+
+fn is_cell_collection(sort: &Sort, sorts: &SortCatalog<'_>) -> bool {
+    sorts
+        .attributes_for(&SortHead::from(sort))
+        .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
+}
 
 /// Java `CheckHOLE`.
 pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
