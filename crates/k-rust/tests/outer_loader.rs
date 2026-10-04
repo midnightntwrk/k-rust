@@ -23,6 +23,104 @@ struct LoadSummary {
 }
 
 #[test]
+#[cfg(feature = "cli")]
+fn bison_overload_dispatch_preserves_recovered_arguments_and_fallbacks() {
+    use k_rust::bison::{Mode, Options, generate_parser};
+    use k_rust::kast::Sort;
+    use std::{fs, process::Command};
+
+    let source = indoc! {r#"
+        module OVERLOADS
+          syntax S ::= "s" [symbol(s)]
+          syntax Mid ::= S | "m" [symbol(m)]
+          syntax KItem ::= Mid | "i" [symbol(i)]
+          syntax K ::= KItem
+                     | "empty" [symbol(emptyK)]
+                     | "pair" "(" K "," K ")" [symbol(pairK)]
+          syntax KList ::= K | "whole" [symbol(whole)]
+          syntax Same ::= "z" [symbol(z)]
+          syntax R ::= tiny(S, KItem, Same) [symbol(gTiny), overload(g)]
+                     | small(Mid, K, Same) [symbol(gSmall), overload(g)]
+                     | g(K, KList, Same) [symbol(gBig), overload(g)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("overloads.k", source),
+        "OVERLOADS",
+        &mut resolver,
+    )
+    .unwrap();
+    let root = std::env::temp_dir().join(format!("krust-bison-overloads-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let s = "Lbls{}()";
+    let m = "Lblm{}()";
+    let s_item = format!("inj{{SortS{{}}, SortKItem{{}}}}({s})");
+    let m_item = format!("inj{{SortMid{{}}, SortKItem{{}}}}({m})");
+    let sequence =
+        format!("LblpairK{{}}(kseq{{}}({s_item},dotk{{}}()),kseq{{}}({m_item},dotk{{}}()))");
+    let empty_list = "inj{SortK{}, SortKList{}}(LblemptyK{}())";
+    let cases = [
+        (
+            "g(s,s,z)",
+            format!("LblgTiny{{}}({s},{s_item},Lblz{{}}())\n"),
+        ),
+        (
+            "g(s,empty,z)",
+            format!(
+                "LblgSmall{{}}(inj{{SortS{{}}, SortMid{{}}}}({s}),LblemptyK{{}}(),Lblz{{}}())\n"
+            ),
+        ),
+        (
+            "g(m,pair(s,m),z)",
+            format!("LblgSmall{{}}({m},{sequence},Lblz{{}}())\n"),
+        ),
+        (
+            "g(i,empty,z)",
+            format!("LblgBig{{}}(kseq{{}}(Lbli{{}}(),dotk{{}}()),{empty_list},Lblz{{}}())\n"),
+        ),
+        (
+            "g(empty,whole,z)",
+            "LblgBig{}(LblemptyK{}(),Lblwhole{}(),Lblz{}())\n".into(),
+        ),
+        (
+            "g(pair(s,m),empty,z)",
+            format!("LblgBig{{}}({sequence},{empty_list},Lblz{{}}())\n"),
+        ),
+    ];
+    for mode in [Mode::Lr, Mode::Glr] {
+        let parser = root.join(format!("parser-{mode:?}"));
+        generate_parser(
+            loaded.resolved(),
+            "OVERLOADS",
+            &Sort::new("R"),
+            &parser,
+            Options {
+                mode,
+                ..Options::default()
+            },
+        )
+        .unwrap();
+        for (input, expected) in &cases {
+            let path = root.join("input");
+            fs::write(&path, input).unwrap();
+            let parsed = Command::new(&parser).arg(&path).output().unwrap();
+            assert!(
+                parsed.status.success(),
+                "{mode:?}: {input}: {}",
+                String::from_utf8_lossy(&parsed.stderr)
+            );
+            assert_eq!(
+                String::from_utf8(parsed.stdout).unwrap(),
+                *expected,
+                "{mode:?}: {input}"
+            );
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn bison_lists_orient_only_outer_user_list_sugar() {
     for separator in [",", ""] {
         let source = format!(

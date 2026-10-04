@@ -72,7 +72,7 @@ enum GrammarError {
     },
     Scanner(String),
     UnlicensedPlacement {
-        production: Box<Sentence>,
+        production: String,
         child: Sort,
         target: Sort,
     },
@@ -125,52 +125,10 @@ impl fmt::Display for GrammarError {
                 production,
                 child,
                 target,
-            } => {
-                let Sentence::Production {
-                    sort,
-                    items,
-                    attributes,
-                    ..
-                } = production.as_ref()
-                else {
-                    unreachable!("placement errors retain a production sentence")
-                };
-                write!(
-                    formatter,
-                    "unlicensed parser placement {child} -> {target} in production syntax {sort} ::="
-                )?;
-                for item in items {
-                    match item {
-                        ProductionItem::NonTerminal { sort, name } => {
-                            if let Some(name) = name {
-                                write!(formatter, " {name}:{sort}")?;
-                            } else {
-                                write!(formatter, " {sort}")?;
-                            }
-                        }
-                        ProductionItem::Terminal(value) => write!(formatter, " {value:?}")?,
-                        ProductionItem::RegexTerminal { regex, .. } => {
-                            write!(formatter, " r{regex:?}")?;
-                        }
-                    }
-                }
-                if let Some(source) = attributes.source() {
-                    write!(formatter, " at {source}")?;
-                }
-                if let Some(location) = attributes.location() {
-                    write!(
-                        formatter,
-                        " ({},{},{},{})",
-                        location.start_line,
-                        location.start_column,
-                        location.end_line,
-                        location.end_column
-                    )?;
-                } else if let Some(location) = attributes.string(AttributeKey::Location) {
-                    write!(formatter, " {location}")?;
-                }
-                Ok(())
-            }
+            } => write!(
+                formatter,
+                "unlicensed parser placement {child} -> {target} in production {production}"
+            ),
             Self::InvalidUserListMetadata { sort } => write!(
                 formatter,
                 "user-list terminator bridge for {sort} requires string userList and userListTerminator labels"
@@ -828,7 +786,7 @@ fn write_production(
         && !attributes.has(AttributeKey::NotInjection)
         && !attributes.has(AttributeKey::BisonParsingOnlySubsort)
     {
-        write_subsort_action(output, &production.source, &placements)?;
+        write_subsort_action(output, sort, items, attributes, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
         write_token_subsort_action(output, sort, has_location);
     } else if is_subsort
@@ -899,15 +857,67 @@ fn write_token_action(
     .expect("writing to a string cannot fail");
 }
 
+struct ProductionDescription<'a> {
+    sort: &'a Sort,
+    items: &'a [ProductionItem],
+    attributes: &'a Attributes,
+}
+
+impl fmt::Display for ProductionDescription<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            sort,
+            items,
+            attributes,
+        } = self;
+        write!(formatter, "syntax {sort} ::=")?;
+        for item in *items {
+            match item {
+                ProductionItem::NonTerminal { sort, name } => {
+                    if let Some(name) = name {
+                        write!(formatter, " {name}:{sort}")?;
+                    } else {
+                        write!(formatter, " {sort}")?;
+                    }
+                }
+                ProductionItem::Terminal(value) => write!(formatter, " {value:?}")?,
+                ProductionItem::RegexTerminal { regex, .. } => {
+                    write!(formatter, " r{regex:?}")?;
+                }
+            }
+        }
+        if let Some(source) = attributes.source() {
+            write!(formatter, " at {source}")?;
+        }
+        if let Some(location) = attributes.location() {
+            write!(
+                formatter,
+                " ({},{},{},{})",
+                location.start_line, location.start_column, location.end_line, location.end_column
+            )?;
+        } else if let Some(location) = attributes.string(AttributeKey::Location) {
+            write!(formatter, " {location}")?;
+        }
+        Ok(())
+    }
+}
+
 fn require_placement(
-    production: &Sentence,
+    sort: &Sort,
+    items: &[ProductionItem],
+    attributes: &Attributes,
     child: &Sort,
     target: &Sort,
     placements: &CPlacement<'_>,
 ) -> Result<Placement, GrammarError> {
     Placement::between(child, target, placements.subsorts).ok_or_else(|| {
         GrammarError::UnlicensedPlacement {
-            production: Box::new(production.clone()),
+            production: ProductionDescription {
+                sort,
+                items,
+                attributes,
+            }
+            .to_string(),
             child: child.clone(),
             target: target.clone(),
         }
@@ -916,18 +926,11 @@ fn require_placement(
 
 fn write_subsort_action(
     output: &mut String,
-    production: &Sentence,
+    result: &Sort,
+    items: &[ProductionItem],
+    attributes: &Attributes,
     placements: &CPlacement<'_>,
 ) -> Result<(), GrammarError> {
-    let Sentence::Production {
-        sort: result,
-        items,
-        attributes,
-        ..
-    } = production
-    else {
-        unreachable!()
-    };
     let child = subsort_child(items).ok_or_else(|| GrammarError::InvalidSubsort {
         sort: result.clone(),
     })?;
@@ -953,7 +956,7 @@ fn write_subsort_action(
         )
         .expect("writing to a string cannot fail");
     } else {
-        let plan = require_placement(production, child, result, placements)?;
+        let plan = require_placement(result, items, attributes, child, result, placements)?;
         let value = placements.write(output, &plan, "$1.nterm");
         writeln!(
             output,
@@ -1011,6 +1014,7 @@ fn write_labeled_action(
         })
         .map(|(id, _)| id)
         .collect::<Vec<_>>();
+    let mut overload_count = 0;
     for lesser in overloads.order().sorted_elements() {
         if !greater_ids
             .iter()
@@ -1022,13 +1026,20 @@ fn write_labeled_action(
             label: Some(lesser_label),
             sort: lesser_result,
             items: lesser_items,
+            attributes: lesser_attributes,
             ..
         } = overloads.production(*lesser)
         else {
             continue;
         };
-        let lesser_production = overloads.production(*lesser);
-        let result_plan = require_placement(lesser_production, lesser_result, result, placements)?;
+        let result_plan = require_placement(
+            lesser_result,
+            lesser_items,
+            lesser_attributes,
+            lesser_result,
+            result,
+            placements,
+        )?;
         let greater_arguments = nonterminal_sorts(items);
         let lesser_arguments = nonterminal_sorts(lesser_items);
         let mut recoveries = Vec::new();
@@ -1037,7 +1048,14 @@ fn write_labeled_action(
             .zip(&lesser_arguments)
             .zip(rhs_nonterminals)
         {
-            require_placement(lesser_production, lesser, greater, placements)?;
+            require_placement(
+                lesser_result,
+                lesser_items,
+                lesser_attributes,
+                lesser,
+                greater,
+                placements,
+            )?;
             let cases = if greater == lesser {
                 Vec::new()
             } else {
@@ -1045,21 +1063,38 @@ fn write_labeled_action(
             };
             recoveries.push(cases);
         }
-        output.push_str("  if (true");
-        for (greater_lesser, cases) in greater_arguments
+        // Each candidate has its own scope, so later candidates are tested only after a miss.
+        output.push_str("  {\n");
+        overload_count += 1;
+        for (index, (greater_lesser, cases)) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
             .zip(&recoveries)
+            .enumerate()
         {
             if greater_lesser.0 == greater_lesser.1 {
                 continue;
             }
-            output.push_str(" && (false");
-            for case in cases {
-                write!(output, " || ({})", case.condition)
+            writeln!(output, "  int matched_case_{index} = -1;")
+                .expect("writing to a string cannot fail");
+            for (ordinal, case) in cases.iter().enumerate() {
+                writeln!(
+                    output,
+                    "  {}if ({}) {{ matched_case_{index} = {ordinal}; }}",
+                    if ordinal == 0 { "" } else { "else " },
+                    case.condition
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
+        output.push_str("  if (true");
+        for (index, (greater, lesser)) in
+            greater_arguments.iter().zip(&lesser_arguments).enumerate()
+        {
+            if greater != lesser {
+                write!(output, " && matched_case_{index} >= 0")
                     .expect("writing to a string cannot fail");
             }
-            output.push(')');
         }
         output.push_str(") {\n");
         writeln!(
@@ -1088,9 +1123,8 @@ fn write_labeled_action(
                 for (ordinal, case) in cases.iter().enumerate() {
                     writeln!(
                         output,
-                        "    {}if ({}) {{",
+                        "    {}if (matched_case_{index} == {ordinal}) {{",
                         if ordinal == 0 { "" } else { "else " },
-                        case.condition
                     )
                     .expect("writing to a string cannot fail");
                     let location = format!("${rhs}.nterm->location");
@@ -1128,7 +1162,11 @@ fn write_labeled_action(
         writeln!(output, "    n->children[{index}] = ${rhs}.nterm;")
             .expect("writing to a string cannot fail");
     }
-    output.push_str("    value_type value = {.nterm = n};\n    $$ = value;\n  }\n}\n");
+    output.push_str("    value_type value = {.nterm = n};\n    $$ = value;\n  }\n");
+    for _ in 0..overload_count {
+        output.push_str("  }\n");
+    }
+    output.push_str("}\n");
     Ok(())
 }
 
@@ -1934,6 +1972,87 @@ mod tests {
         assert!(output.contains("n->symbol = \"Lblwrap{}\""));
         assert!(output.contains("n->children[0] = $1.nterm"));
         assert!(!output.contains("inj{SortChild{}, SortParent{}}"));
+    }
+
+    #[test]
+    fn overload_guard_and_dispatch_share_each_recovery_case() {
+        let sentences = vec![
+            production(
+                "S",
+                vec![ProductionItem::Terminal("s".into())],
+                Some("s"),
+                &[],
+            ),
+            production(
+                "Same",
+                vec![ProductionItem::Terminal("z".into())],
+                Some("z"),
+                &[],
+            ),
+            production("Mid", vec![nonterminal("S")], None, &[]),
+            production("KItem", vec![nonterminal("Mid")], None, &[]),
+            production("K", vec![nonterminal("KItem")], None, &[]),
+            production("KList", vec![nonterminal("K")], None, &[]),
+            production(
+                "R",
+                vec![
+                    ProductionItem::Terminal("f".into()),
+                    nonterminal("Mid"),
+                    nonterminal("K"),
+                    nonterminal("Same"),
+                ],
+                Some("fSmall"),
+                &[("klabel", "f")],
+            ),
+            production(
+                "R",
+                vec![
+                    ProductionItem::Terminal("f".into()),
+                    nonterminal("K"),
+                    nonterminal("KList"),
+                    nonterminal("Same"),
+                ],
+                Some("fBig"),
+                &[("klabel", "f")],
+            ),
+        ];
+        let output = rendered(&sentences, "R", Mode::Lr).unwrap();
+        let subsorts = compute_subsorts(sentences.iter(), false).unwrap();
+        let sorts = module_sorts(&sentences);
+        let placements = CPlacement {
+            subsorts: &subsorts,
+            sorts: &sorts,
+            location: "@$",
+            has_location: "0",
+            prefix: "placed",
+        };
+        let mut total = 0;
+        for (index, (greater, lesser)) in [("K", "Mid"), ("KList", "K")].iter().enumerate() {
+            let cases = recovery_cases(
+                &placements,
+                &Sort::new(*greater),
+                &Sort::new(*lesser),
+                &format!("${}.nterm", index + 2),
+            );
+            assert!(cases.len() > 1);
+            for (ordinal, case) in cases.iter().enumerate() {
+                let count = output.matches(&case.condition).count();
+                assert_eq!(
+                    count, 1,
+                    "recovery condition emitted {count} times; expected once"
+                );
+                assert!(output.contains(&format!("matched_case_{index} = {ordinal};")));
+                assert!(output.contains(&format!("if (matched_case_{index} == {ordinal})")));
+                total += 1;
+            }
+            assert!(output.contains(&format!("int matched_case_{index} = -1;")));
+            assert!(output.contains(&format!(" && matched_case_{index} >= 0")));
+        }
+        assert!(output.contains("n->children[2] = $4.nterm;"));
+        assert!(!output.contains("matched_case_2"));
+        println!(
+            "{total} recovery conditions emitted once; guard and dispatch read the same matched cases"
+        );
     }
 
     #[test]
