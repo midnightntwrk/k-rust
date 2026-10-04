@@ -15,12 +15,12 @@
 //! point forbids circular evidence: assuming a head total while its equations reapply it can
 //! identify an integer with itself minus one, or a value with a strictly larger constructor.
 //!
-//! The judgement costs O(P + R + Σ|right-hand sides| + O²), with expected constant-time equation
-//! index lookups, for P productions, R rules and O elements of the transitive overload order.
+//! The judgement costs O((P + R + Σ|right-hand sides| + O²) log(1 + P + R)), using ordered
+//! equation and dependency indexes, for P productions, R rules and O overload elements.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::production_kind::{BracketName, DeclaredTotality, ProductionKind, Totality};
 use super::{
@@ -158,8 +158,8 @@ struct IndexedEquations {
 pub(crate) struct EquationTotality {
     heads: Vec<Option<HeadTotality>>,
     productions: Vec<ProductionFact>,
-    labels: HashMap<LabelHead, Vec<ProductionId>>,
-    equations: HashMap<LabelHead, IndexedEquations>,
+    labels: BTreeMap<LabelHead, Vec<ProductionId>>,
+    equations: BTreeMap<LabelHead, IndexedEquations>,
 }
 
 /// The label a production's declaration is made under: its own label, or an unlabelled
@@ -190,7 +190,7 @@ impl EquationTotality {
         overloads: &OverloadOrder<'_>,
     ) -> Self {
         let macro_labels = rules.all_macro_labels(productions);
-        let mut equations = HashMap::<LabelHead, IndexedEquations>::new();
+        let mut equations = BTreeMap::<LabelHead, IndexedEquations>::new();
         for (id, rule) in rules.rules() {
             if rule.attributes().has(AttributeKey::Simplification) {
                 continue;
@@ -213,7 +213,7 @@ impl EquationTotality {
                 }
             }
         }
-        let mut labels = HashMap::<LabelHead, Vec<ProductionId>>::new();
+        let mut labels = BTreeMap::<LabelHead, Vec<ProductionId>>::new();
         let mut facts = Vec::with_capacity(productions.len());
         let mut heads = Vec::with_capacity(productions.len());
         let mut candidates = vec![false; productions.len()];
@@ -263,7 +263,7 @@ impl EquationTotality {
             labels,
             equations,
         };
-        let mut dependencies = vec![HashSet::new(); productions.len()];
+        let mut dependencies = vec![BTreeSet::new(); productions.len()];
         let mut blocked = vec![None; productions.len()];
         for (id, production) in productions.productions() {
             if !candidates[id.0] {
@@ -338,7 +338,7 @@ impl EquationTotality {
                 }
             }
         }
-        let mut remaining = dependencies.iter().map(HashSet::len).collect::<Vec<_>>();
+        let mut remaining = dependencies.iter().map(BTreeSet::len).collect::<Vec<_>>();
         let mut dependents = vec![Vec::new(); productions.len()];
         for (index, dependencies) in dependencies.iter().enumerate() {
             for dependency in dependencies {
@@ -481,7 +481,7 @@ mod tests {
     use super::*;
     use crate::definition::ResolvedDefinition;
 
-    fn judged(source: &str) -> HashMap<String, HeadTotality> {
+    fn judged(source: &str) -> BTreeMap<String, HeadTotality> {
         let parsed = crate::outer::parse("totality.k", source).expect("definition should parse");
         let lowered = crate::outer::lower(&parsed, "MAIN").expect("definition should lower");
         let definition =
@@ -508,7 +508,7 @@ mod tests {
             .collect()
     }
 
-    fn arithmetic(extra: &str) -> HashMap<String, HeadTotality> {
+    fn arithmetic(extra: &str) -> BTreeMap<String, HeadTotality> {
         judged(&format!(
             r#"
             module MAIN
@@ -539,6 +539,55 @@ mod tests {
         let heads =
             arithmetic("rule wrap(X:Int) => mk(10 /Int X:Int) requires X:Int =/=Int 0 [anywhere]");
         assert!(matches!(heads["wrap"], HeadTotality::Unshown(_)));
+    }
+
+    #[test]
+    fn mn1_two_distinct_blockers_give_a_dependent_the_same_cause() {
+        let source = indoc::indoc! {r#"
+            module MAIN
+              syntax S ::= "partial(" S ")" [function, symbol(partial)]
+                         | "first(" S ")" [symbol(first)]
+                         | "second(" S ")" [symbol(second)]
+                         | "pair(" S "," S ")" [symbol(pair)]
+                         | "dependent(" S ")" [symbol(dependent)]
+              syntax Bool ::= "true" [token] | "false" [token]
+              rule first(X:S) => partial(X:S) [anywhere]
+              rule second(X:S) => X:S ensures false [anywhere]
+              rule dependent(X:S) => pair(first(X:S), second(X:S)) [anywhere]
+            endmodule
+        "#};
+        let cause = |heads: &BTreeMap<String, HeadTotality>, label: &str| {
+            let HeadTotality::Unshown(cause) = &heads[label] else {
+                panic!("{label} must be blocked");
+            };
+            cause.to_string()
+        };
+        let initial = judged(source);
+        assert_ne!(cause(&initial, "first"), cause(&initial, "second"));
+        let expected = cause(&initial, "dependent");
+        for _ in 0..32 {
+            assert_eq!(cause(&judged(source), "dependent"), expected);
+        }
+    }
+
+    #[test]
+    fn mn1_functional_and_total_functions_give_the_same_definedness_evidence() {
+        for (attribute, expected_defined) in
+            [("", false), (", functional", true), (", total", true)]
+        {
+            let heads = judged(&format!(
+                "module MAIN
+                   syntax S ::= f(S) [function{attribute}, symbol(f)]
+                              | wrap(S) [symbol(wrap)]
+                   rule wrap(X:S) => f(X:S) [anywhere]
+                 endmodule"
+            ));
+            assert_eq!(
+                matches!(heads["wrap"], HeadTotality::Defined),
+                expected_defined,
+                "[function{attribute}]"
+            );
+        }
     }
 
     #[test]

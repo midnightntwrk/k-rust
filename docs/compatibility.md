@@ -362,6 +362,7 @@ The marker is emitted from the production kind and totality judgement, not read 
 A source function carries no such marker: an application its equations leave unevaluated remains a computed application.
 Any other symbol without one of those claims is rejected (`Invalid type for symbol`).
 A non-function value production carries compiler-added `functional` and its functional axiom exactly when it heads no anywhere, macro-like or overload equation, or every such equation has a trivially true `ensures` and a right-hand side evidently defined by declared-total symbols and heads admitted earlier.
+A label heads a rule equation only through a rule that is not a simplification lemma, so a simplification lemma or a macro label that heads no rule makes no production an equation head.
 On a value production, the frontend discards a deprecated source `functional` before emitting the judgement's claims in both the semantic and syntax definitions.
 It restores `functional` only when the judgement establishes totality, keeping the declaration and its functional axiom consistent with the definedness reading used for generated lambdas.
 To state totality as an author axiom instead, use `function, total`; that declaration remains trusted.

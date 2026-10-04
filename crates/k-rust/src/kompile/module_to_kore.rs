@@ -1631,6 +1631,7 @@ fn symbol_attributes(
     }
     debug_assert!(
         syntax.is_some()
+            || (partial_value_production && backend == CompilationBackend::Llvm)
             || [
                 AttributeKey::Constructor,
                 AttributeKey::Functional,
@@ -1640,8 +1641,9 @@ fn symbol_attributes(
             ]
             .into_iter()
             .any(|key| entries.contains_key(key.as_str())),
-        "production `{label}` has no backend evaluation marker; F3: a production without a \
-         totality claim must be evaluated by equations the backend can see",
+        "production `{label}` has no backend semantic role; F3: a semantic production must \
+         carry a totality or evaluation marker, or have irreducible applications that LLVM \
+         treats as values",
     );
     Ok(emit_attributes(&entries, valued, &overrides))
 }
@@ -2109,6 +2111,115 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn mn1_modules(source: &str, backend: CompilationBackend) -> DeclarationModules {
+        let parsed = crate::outer::parse("mn1.k", source).expect("definition should parse");
+        let lowered = crate::outer::lower(&parsed, "MAIN").expect("definition should lower");
+        let definition =
+            crate::inner::resolve_rule_bubbles(&lowered).expect("rules should resolve");
+        let definition = crate::kompile::resolve_semantic_casts(&definition)
+            .expect("semantic casts should resolve");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        module_to_kore_from_resolved_with_options(
+            &resolved,
+            "MAIN",
+            ModuleToKoreOptions {
+                backend,
+                ..ModuleToKoreOptions::default()
+            },
+        )
+        .expect("unchecked library definition should emit")
+    }
+
+    fn mn1_symbol_attributes<'a>(module: &'a Module, name: &str) -> &'a Attributes {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                KoreSentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } if symbol.name == name => Some(attributes),
+                KoreSentence::Import { .. }
+                | KoreSentence::SortDeclaration { .. }
+                | KoreSentence::SymbolDeclaration { .. }
+                | KoreSentence::AliasDeclaration { .. }
+                | KoreSentence::Axiom { .. }
+                | KoreSentence::Claim { .. } => None,
+            })
+            .expect("symbol should be declared")
+    }
+
+    fn mn1_has_attribute(attributes: &Attributes, name: &str) -> bool {
+        attributes.0.iter().any(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == name && symbol.sort_parameters.is_empty() && arguments.is_empty())
+        })
+    }
+
+    #[test]
+    fn mn1_rule_level_partial_macro_has_a_role_on_both_targets() {
+        let source = indoc! {r#"
+            module MAIN
+              syntax S ::= "z" [symbol(z)]
+                         | "plain(" S ")" [symbol(plain)]
+                         | "partial(" S ")" [function, symbol(partial)]
+              rule plain(X:S) => partial(X:S) [macro]
+            endmodule
+        "#};
+        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+            let modules = mn1_modules(source, backend);
+            for module in [&modules.semantics, &modules.syntax] {
+                let attributes = mn1_symbol_attributes(module, "Lblplain");
+                assert!(mn1_has_attribute(attributes, "value-production"));
+                assert_eq!(
+                    mn1_has_attribute(attributes, "function"),
+                    backend == CompilationBackend::Rust
+                );
+                for absent in ["constructor", "functional", "anywhere", "macro"] {
+                    assert!(!mn1_has_attribute(attributes, absent), "{absent}");
+                }
+            }
+            assert_eq!(modules.macros.len(), 1);
+        }
+    }
+
+    #[test]
+    fn mn1_deprecated_functional_on_a_function_emits_the_totality_axiom() {
+        for totality in ["functional", "total"] {
+            let modules = mn1_modules(
+                &format!(
+                    "module MAIN
+                       syntax S ::= f(S) [function, {totality}, symbol(f)]
+                     endmodule"
+                ),
+                CompilationBackend::Rust,
+            );
+            for module in [&modules.semantics, &modules.syntax] {
+                assert!(mn1_has_attribute(
+                    mn1_symbol_attributes(module, "Lblf"),
+                    "functional"
+                ));
+            }
+            let functional_axiom = modules.semantics.sentences.iter().any(|sentence| {
+                let KoreSentence::Axiom { pattern, attributes, .. } = sentence else {
+                    return false;
+                };
+                let Pattern::Exists { variable, body, .. } = pattern.as_ref() else {
+                    return false;
+                };
+                let Pattern::Equals { left, right, .. } = body.as_ref() else {
+                    return false;
+                };
+                mn1_has_attribute(attributes, "functional")
+                    && matches!(left.as_ref(), Pattern::Variable(value) if value == variable.as_ref())
+                    && matches!(right.as_ref(), Pattern::Application { symbol, .. } if symbol.name == "Lblf")
+            });
+            println!(
+                "[function, {totality}]: declaration functional=true, functional axiom={functional_axiom}"
+            );
+            assert!(functional_axiom, "{totality} must state a totality axiom");
+        }
+    }
 
     #[test]
     fn generates_symbolic_backend_map_definedness_rule() {

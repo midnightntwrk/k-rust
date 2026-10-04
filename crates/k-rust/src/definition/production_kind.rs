@@ -61,9 +61,9 @@ impl ResultSorts {
 /// declaration states.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Totality {
-    /// The declaration carries `total`.
+    /// The declaration carries `total` or deprecated `functional`.
     Total,
-    /// The declaration carries no `total`: an application may denote no value.
+    /// The declaration carries neither claim: an application may denote no value.
     Partial,
 }
 
@@ -220,7 +220,7 @@ impl ProductionKind {
         let macro_like = attributes.has_any(&AttributeKey::MACRO_LIKE);
         if attributes.has(AttributeKey::Function) {
             return Self::Function {
-                totality: if attributes.has(AttributeKey::Total) {
+                totality: if attributes.has_any(&[AttributeKey::Total, AttributeKey::Functional]) {
                     Totality::Total
                 } else {
                     Totality::Partial
@@ -1376,6 +1376,26 @@ mod tests {
                 Named::Generator(ProductionId(2)),
             ]
         );
+    }
+
+    #[test]
+    fn mn1_deprecated_functional_classifies_a_function_exactly_like_total() {
+        let classify = |attributes: &[AttributeKey]| {
+            ProductionKind::of(&production(Some("f"), "Int", Vec::new(), attributes))
+        };
+        let total = classify(&[AttributeKey::Function, AttributeKey::Total]);
+        assert_eq!(
+            total,
+            ProductionKind::Function {
+                totality: Totality::Total,
+                macro_like: false,
+            }
+        );
+        assert_eq!(
+            classify(&[AttributeKey::Function, AttributeKey::Functional]),
+            total
+        );
+        assert_eq!(classify(&[AttributeKey::Functional]), ProductionKind::Base);
     }
 
     #[test]
