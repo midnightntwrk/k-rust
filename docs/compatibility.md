@@ -344,6 +344,10 @@ Pinned K assigns names to offsets in unspecified `HashSet` iteration order, so i
 Each backend executes the permutation in its compiled definition; differing concrete values in ordered result positions must remain visible and must not be normalized as alpha-equivalent.
 The `fresh-variables` compilation differential checks a case where the permutations happen to agree, while the focused Rust pass regression pins lexicographic allocation and repeated-name reuse.
 
+Only a rewrite step of the configuration reads and advances the counter cell, so a `!` variable is accepted only in a rule applied as such a step, or in a context, whose heating rule is one.
+It is rejected with `InvalidFreshConstant` at the sentence in a function, simplification, anywhere, macro or alias rule, each an equation applied to the term its left-hand side matches without the configuration, and in a claim, which states which configurations a path reaches and takes no step of its own.
+A local function (`#fun`, `#let`) inside a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
+
 ## Anywhere rules
 
 Rust accepts and executes anywhere rules.
@@ -351,7 +355,7 @@ This differs from K's Haskell frontend, which rejects them (`checkAnywhereRules`
 The reason is the language specification: the [`anywhere` attribute](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md?plain=1#L1322-L1340) instructs "the backends" to apply the rule wherever it matches in the entire configuration, and it names no backend for which the attribute is unavailable.
 A definition that uses the attribute is therefore a K definition whose meaning is specified, and a backend implementing that meaning must not reject or silently drop its rules.
 Rust emits each anywhere rule as a KORE equation whose left-hand-side symbol carries the `anywhere` attribute, and the backend evaluates it during simplification like a function equation, as the manual's "simplified similarly to a `function`" describes.
-Because that equation sees only its left-hand side, an anywhere rule that needs the configuration around it is rejected at the rule: a fresh variable `!X` draws its value from the counter cell, which the equation can neither read nor advance, and a left-hand side of several sibling cells is a fragment of their parent's children with no head of its own (the parent cell written around them is a term, and such a rule compiles).
+Because that equation sees only its left-hand side, an anywhere rule that needs the configuration around it is rejected at the rule: a fresh variable `!X` draws its value from the counter cell, which the equation can neither read nor advance ([Compiler-resolved fresh constants](#compiler-resolved-fresh-constants)), and a left-hand side of several sibling cells is a fragment of their parent's children with no head of its own (the parent cell written around them is a term, and such a rule compiles).
 A symbol that carries `anywhere` or a macro-like attribute and neither `constructor`, `functional`/`total` nor `function` is a partial function evaluated by its equations, and its applications carry definedness obligations.
 When the frontend withholds `functional` from a value production, it emits the declaration attribute `value-production{}()` alongside its equation marker.
 The Rust/Haskell target also emits `function{}()` so that KORE verifiers admit equations headed by the symbol.

@@ -33,6 +33,7 @@ use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, SortRole, T
 mod attributes;
 mod collections;
 mod deprecated;
+mod fresh_variables;
 mod functions;
 mod kompile_checks;
 mod label_parameters;
@@ -170,6 +171,10 @@ fn check_module_with_options_and_catalog(
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
+        .chain(fresh_variables::check_fresh_variables(
+            &sentences,
+            production_catalog,
+        ))
         .chain(check_functions(
             &sentences,
             production_catalog,

@@ -640,45 +640,18 @@ fn check_symbol_attributes(
     }
 }
 
-/// Reject an `anywhere` rule that needs the configuration around the term it rewrites.
+/// Reject an `anywhere` rule whose left-hand side is not a term.
 ///
 /// An anywhere rule is an equation on the head of its left-hand side: it applies wherever that
-/// term occurs, inside any context, so it sees nothing of the configuration beyond the term.
-/// Two things need more than that, and have no lowering as such an equation:
-///
-/// - a fresh variable `!X`, whose value is drawn from the configuration's counter cell, which the
-///   rule would also have to advance; and
-/// - a left-hand side made of several cells, which is a fragment of their parent cell's children
-///   rather than a term with a head, so it occurs at no position on its own. The parent cell
-///   written around them is such a term.
+/// term occurs, inside any context, so it sees nothing of the configuration beyond the term. A
+/// left-hand side made of several cells is a fragment of their parent cell's children rather
+/// than a term with a head, so it occurs at no position on its own, and has no lowering as such
+/// an equation. The parent cell written around them is such a term. (A fresh variable needs the
+/// configuration too; `fresh_variables` rejects it in every sentence applied without one.)
 fn check_anywhere_context(rule: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
-    let Sentence::Rule {
-        body,
-        requires,
-        ensures,
-        ..
-    } = rule
-    else {
+    let Sentence::Rule { body, .. } = rule else {
         return;
     };
-    let mut fresh = std::collections::BTreeSet::new();
-    for root in [body, requires, ensures] {
-        root.visit_preorder(&mut |term| {
-            if let Term::Variable { name, .. } = term
-                && name.starts_with('!')
-            {
-                fresh.insert(name.clone());
-            }
-        });
-    }
-    for name in fresh {
-        diagnostics.push(invalid_attribute(
-            format!(
-                "Fresh variable {name} is not supported in an anywhere rule: the rule applies to its left-hand side wherever that term occurs, without the configuration whose counter cell supplies fresh values."
-            ),
-            rule,
-        ));
-    }
     let mut left = body.unannotated();
     if let Term::Rewrite {
         left: rewritten, ..

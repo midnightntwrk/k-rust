@@ -11537,43 +11537,25 @@ fn kcompile_source(source: &str) -> Output {
 #[test]
 fn anywhere_rules_needing_the_configuration_are_rejected_at_the_rule() {
     // An anywhere rule applies to its left-hand side wherever that term occurs, with no
-    // configuration around it: no counter cell to draw a fresh value from, and no parent cell
-    // to hold several sibling cells.
-    for (source, line, message) in [
-        (
-            r#"
-module MAIN
-  imports INT
-  syntax Foo ::= "a" | f(Int)
-  rule a => f(!X:Int) [anywhere]
-endmodule
-"#,
-            5,
-            "Fresh variable !X is not supported in an anywhere rule",
-        ),
-        (
-            r#"
+    // configuration around it: no parent cell to hold several sibling cells. (Its fresh
+    // variables are covered by `fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence`.)
+    let source = r#"
 module MAIN
   syntax Foo ::= "a" | "b"
   configuration <k> .K </k> <mem> a </mem>
   rule <k> .K </k> <mem> a => b </mem> [anywhere]
 endmodule
-"#,
-            5,
-            "An anywhere rule must rewrite a single term",
+"#;
+    let output = kcompile_source(source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:5:3: Error[InvalidAttribute]: An anywhere rule must rewrite a single term"
         ),
-    ] {
-        let output = kcompile_source(source);
-        assert!(!output.status.success(), "{source}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains(&format!(
-                "definition.k:{line}:3: Error[InvalidAttribute]: {message}"
-            )),
-            "{stderr}"
-        );
-        assert!(!stderr.contains("cannot find a production"), "{stderr}");
-    }
+        "{stderr}"
+    );
+    assert!(!stderr.contains("cannot find a production"), "{stderr}");
 
     // The parent cell written around the same cells is a term, and the rule compiles and runs.
     let stdout = krun_success(
@@ -11588,6 +11570,82 @@ endmodule
     );
     assert!(
         stdout.contains("Lbl'-LT-'mem'-GT-'{}(Lblb'Unds'MAIN'Unds'Foo{}())"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence() {
+    // A fresh value is drawn from the configuration's counter cell by the rewrite step that
+    // introduces it. Equations (function, simplification, anywhere, macro and alias rules) and
+    // claims are applied without that cell, so a `!X` in them would be a variable nothing binds.
+    for (sentences, kind) in [
+        // The generated-input reproducer: a function equation whose result is a fresh value.
+        (
+            "  syntax Int ::= g() [function]\n  rule g() => !X:Int",
+            "a function rule",
+        ),
+        (
+            "  syntax Int ::= g(Int) [function]\n  rule g(I) => I requires I =/=Int !X:Int",
+            "a function rule",
+        ),
+        (
+            "  syntax Int ::= g(Int) [function]\n  rule g(I) => I +Int !X:Int [simplification]",
+            "a simplification rule",
+        ),
+        (
+            "  syntax Foo ::= foo(Int)\n  rule foo(I) => foo(I +Int !X:Int) [anywhere]",
+            "an anywhere rule",
+        ),
+        (
+            "  syntax Int ::= \"m\" [macro]\n  rule m => !X:Int",
+            "a macro or alias rule",
+        ),
+        (
+            "  syntax Int ::= \"m\" [alias]\n  rule m => !X:Int",
+            "a macro or alias rule",
+        ),
+        (
+            "  syntax KItem ::= \"go\"\n  rule go => 1\n  claim go => !X:Int",
+            "a claim",
+        ),
+    ] {
+        let source = format!("module MAIN\n  imports INT\n{sentences}\nendmodule\n");
+        let output = kcompile_source(&source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = 2 + sentences.lines().count();
+        assert!(
+            stderr.contains(&format!(
+                "definition.k:{line}:3: Error[InvalidFreshConstant]: Fresh variable !X is not supported in {kind}:"
+            )),
+            "{source}\n{stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "{stderr}");
+    }
+
+    // A rewrite step draws the value, also for a local function inside it, whose equation
+    // receives the fresh value from the enclosing rule as an argument.
+    let stdout = krun_success(
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= "go"
+  rule <k> go => #fun(Y => Y +Int !X:Int)(1) ...</k>
+endmodule
+"#,
+        &[
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+            "--expression",
+            "go",
+        ],
+    );
+    assert!(
+        stdout.contains(r#"kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), dotk{}())"#)
+            && stdout.contains(r#"Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("1"))"#),
         "{stdout}"
     );
 }

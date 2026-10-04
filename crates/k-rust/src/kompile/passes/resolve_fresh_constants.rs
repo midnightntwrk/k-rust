@@ -278,6 +278,8 @@ fn transform_sentence_counting(
                 return add_counter_initializer(with_fresh);
             }
             if rule_defines_function(&original, productions) {
+                // An equation has no counter cell to draw from; the definition checks reject a
+                // fresh variable in it (`definition::checks::fresh_variables`).
                 Ok(original)
             } else {
                 if !fresh.is_empty() {
