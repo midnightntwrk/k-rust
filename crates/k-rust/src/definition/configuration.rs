@@ -281,11 +281,20 @@ fn expand_configurations_inner(
     Ok((transformed, diagnostics))
 }
 
-/// Whether expansion will replace a configuration-variable leaf with a decoded map read.
+/// Whether the initial configuration declared by `term` decodes a value of the initial map:
+/// a configuration-variable leaf, which expansion replaces with a decoded map read, or a stream
+/// cell.
+///
+/// A stream cell's initial contents are not the ones written in it: they are the contents its
+/// stream's builtin configuration declares (`$STDIN` and `$IO` for `stdin`, `$IO` for `stdout`),
+/// which I/O resolution substitutes into the cell's initializer, and whose initializer therefore
+/// takes the initial map (`compute_cell`). Those leaves decode configuration values exactly as
+/// the user's own variables do, whether or not the user's configuration declares any.
 fn configuration_reads_value(term: &Term) -> bool {
     match term.unannotated() {
         Term::Apply { label, arguments } if label.is(InternalLabel::ConfigCell) => {
-            arguments.get(2).is_some_and(configuration_reads_value)
+            arguments.get(1).is_some_and(declares_stream)
+                || arguments.get(2).is_some_and(configuration_reads_value)
         }
         Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
             arguments.iter().any(configuration_reads_value)
@@ -307,6 +316,13 @@ fn configuration_reads_value(term: &Term) -> bool {
             reads
         }
     }
+}
+
+/// Whether the cell property list `properties` declares a `stream`. A malformed list declares
+/// none here; cell generation reports it.
+fn declares_stream(properties: &Term) -> bool {
+    let mut parsed = Attributes::default();
+    parse_property_list(properties, &mut parsed).is_ok() && parsed.has(AttributeKey::Stream)
 }
 
 fn has_structured_configuration(definition: &Definition) -> bool {

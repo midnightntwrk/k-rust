@@ -11591,3 +11591,34 @@ endmodule
         "{stdout}"
     );
 }
+
+#[test]
+fn stream_cells_initialize_without_a_configuration_variable() {
+    // A stream cell's initial contents are its stream's builtin configuration, which reads
+    // `$STDIN` and `$IO` even when the user's configuration reads no variable.
+    for (source, expected) in [
+        (
+            r#"
+module MAIN
+  imports INT
+  imports LIST
+  configuration <k> .K </k> <in stream="stdin"> .List </in>
+endmodule
+"#,
+            "Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(\\dv{SortInt{}}(\"0\"))",
+        ),
+        (
+            r#"
+module MAIN
+  imports LIST
+  imports STRING
+  configuration <t> <k> .K </k> <out stream="stdout"> .List </out> </t>
+endmodule
+"#,
+            "Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(\\dv{SortInt{}}(\"1\"))",
+        ),
+    ] {
+        let stdout = krun_success(source, &["--main-module", "MAIN", "--sort", "KItem"]);
+        assert!(stdout.contains(expected), "{source}: {stdout}");
+    }
+}
