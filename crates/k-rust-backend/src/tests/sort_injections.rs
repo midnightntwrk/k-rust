@@ -69,6 +69,20 @@ fn rewrite_written_injection_is_refused_with_axiom_label() {
 }
 
 #[test]
+fn written_injection_with_unknown_unique_id_uses_label() {
+    let error = load(&source(
+        r#"axiom{} \rewrites{SortB{}}(
+            \and{SortB{}}(b{}(), \top{SortB{}}()),
+            inj{SortA{},SortB{}}(a{}())) [UNIQUE'Unds'ID{}("UNKNOWN"), label{}("fallback-label")]"#,
+    ))
+    .expect_err("written unlicensed injection must be refused");
+    assert_eq!(
+        error.to_string(),
+        "Unlicensed injection from SortA{} to SortB{} in axiom fallback-label",
+    );
+}
+
+#[test]
 fn written_injection_without_identity_formats_origin() {
     for (attributes, expected) in [
         (

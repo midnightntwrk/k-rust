@@ -727,7 +727,7 @@ impl ClassifiedAxiom {
 
 /// Identity of one KORE axiom sentence: the module that declares it and its index among that
 /// module's sentences. A sentence reached through two import paths has one key.
-pub(crate) type SentenceKey = (Name, usize);
+pub type SentenceKey = (Name, usize);
 
 /// ```toml algorithm-site
 /// id = "backend.definition.internalize"
@@ -752,16 +752,17 @@ pub(crate) type SentenceKey = (Name, usize);
 /// two axioms have the same instances: the same matches, substitutions, side conditions,
 /// results and applicability constraints, so no execution fact tells an application of one
 /// from an application of the other, and storing both only makes one rule apply twice. The
-/// declaring module is not compared because it locates the sentence and does not affect its instances.
+/// declaring module is not compared because it locates the sentence and does not affect its
+/// instances.
 ///
 /// The first axiom of a class in declaration order is kept with its variable names and sentence
 /// key for load diagnostics, and the origins of the others are appended to its origin list in
-/// declaration order. A sentence
-/// visited again through another import path adds no origin. Axioms that share a `UNIQUE_ID`
-/// but differ in anything compared above stay separate rules. Each axiom is hashed once by its
-/// `UNIQUE_ID` and a shape that ignores variable names (`axiom_shape`), and comparisons, each
-/// one traversal of the smaller axiom, run only between axioms with one hash key, so a
-/// definition without `UNIQUE_ID`s does not compare every pair of its axioms.
+/// declaration order. A sentence visited again through another import path adds no origin.
+/// Axioms that share a `UNIQUE_ID` but differ in anything compared above stay separate rules.
+/// Each axiom is hashed once by its `UNIQUE_ID` and a shape that ignores variable names
+/// (`axiom_shape`), and comparisons, each one traversal of the smaller axiom, run only between
+/// axioms with one hash key, so a definition without `UNIQUE_ID`s does not compare every pair
+/// of its axioms.
 pub(crate) fn collapse_equal_axioms(
     axioms: impl IntoIterator<Item = (ClassifiedAxiom, SentenceKey)>,
 ) -> Vec<(ClassifiedAxiom, SentenceKey)> {
@@ -1213,15 +1214,8 @@ fn axiom_shape(axiom: &ClassifiedAxiom) -> u64 {
 pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
-    sentence_index: usize,
+    sentence: &SentenceKey,
 ) -> Result<Vec<InternalizedRule>, DefinitionError> {
-    let module = match axiom {
-        ClassifiedAxiom::Rewrite { module, .. }
-        | ClassifiedAxiom::Function { module, .. }
-        | ClassifiedAxiom::Simplification { module, .. }
-        | ClassifiedAxiom::Ceil { module, .. } => module,
-    };
-    let sentence = (module.clone(), sentence_index);
     let injection_role = UnlicensedInjectionSite::InAxiom;
     let internalize = || match axiom {
         ClassifiedAxiom::Rewrite {
@@ -1242,7 +1236,7 @@ pub fn internalize_axiom(
                         &lhs,
                         sort_parameters,
                         injection_role,
-                        Some((attributes, &sentence)),
+                        Some((attributes, sentence)),
                     ))?
                 {
                     live.push((index, lhs, requires));
@@ -1493,7 +1487,7 @@ pub fn internalize_axiom(
             )])
         }
     };
-    internalize().map_err(|error| written_injection_error(error, axiom.attributes(), &sentence))
+    internalize().map_err(|error| written_injection_error(error, axiom.attributes(), sentence))
 }
 
 pub(crate) fn written_injection_error(
@@ -1508,6 +1502,7 @@ pub(crate) fn written_injection_error(
     let axiom = if attributes.unique_id != "UNKNOWN" {
         attributes.unique_id.clone()
     } else if let Some(label) = &attributes.label {
+        // An explicit UNIQUE_ID of "UNKNOWN" overrides the parser's label fallback.
         label.clone()
     } else {
         attributes.origins.first().map_or_else(fallback, |origin| {
@@ -1523,7 +1518,7 @@ pub(crate) fn written_injection_error(
         source,
         target,
         axiom,
-        sentence_index: sentence.1,
+        sentence: Box::new(sentence.clone()),
     }
 }
 
@@ -3353,7 +3348,11 @@ mod tests {
         let classified = classify(source)
             .expect("axiom should classify")
             .expect("axiom should be executable");
-        internalize_axiom(&function_binder_definition(), &classified, 0)
+        internalize_axiom(
+            &function_binder_definition(),
+            &classified,
+            &("MAIN".into(), 0),
+        )
     }
 
     fn function_lhs_argument_names(rules: &[InternalizedRule]) -> Vec<Vec<String>> {
@@ -3392,7 +3391,7 @@ mod tests {
                 ))
                 .unwrap()
                 .unwrap();
-                internalize_axiom(&definition, &axiom, 0).unwrap()
+                internalize_axiom(&definition, &axiom, &("MAIN".into(), 0)).unwrap()
             };
             let nested = internalize(&format!(
                 r"\and{{SortS{{}}}}(wrap{{}}(\and{{SortS{{}}}}(a{{}}(), {condition})), \top{{SortS{{}}}}())",
@@ -4073,9 +4072,12 @@ mod tests {
         )
         .expect("axiom should classify")
         .expect("axiom should be a rule");
-        let [InternalizedRule::Term(_, rule)] =
-            &internalize_axiom(&function_binder_definition(), &classified, 0).unwrap()[..]
-        else {
+        let [InternalizedRule::Term(_, rule)] = &internalize_axiom(
+            &function_binder_definition(),
+            &classified,
+            &("MAIN".into(), 0),
+        )
+        .unwrap()[..] else {
             panic!("expected one term rule");
         };
         let sort = crate::term::Sort::simple("SortS");
@@ -4153,7 +4155,7 @@ mod tests {
         )
         .unwrap();
         let [InternalizedRule::Term(_, rule)] =
-            &internalize_axiom(&definition, &classified, 0).unwrap()[..]
+            &internalize_axiom(&definition, &classified, &("MAIN".into(), 0)).unwrap()[..]
         else {
             panic!("expected one term rule");
         };

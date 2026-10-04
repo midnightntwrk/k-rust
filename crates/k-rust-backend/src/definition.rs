@@ -74,9 +74,9 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
-        RuleKind, RulePatternError, TermIndex, Theory, algebraic_axiom_roots, classify_axiom,
-        collapse_equal_axioms, insert_rewrite_theory, insert_theory, internalize_axiom,
-        internalize_model_predicate as internalize_rule_model_predicate,
+        RuleKind, RulePatternError, SentenceKey, TermIndex, Theory, algebraic_axiom_roots,
+        classify_axiom, collapse_equal_axioms, insert_rewrite_theory, insert_theory,
+        internalize_axiom, internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
     },
     smt::{SExpr, SmtType},
@@ -798,7 +798,8 @@ pub enum DefinitionError {
         source: Sort,
         target: Sort,
         axiom: String,
-        sentence_index: usize,
+        /// Declaring module and sentence index of the representative axiom that failed.
+        sentence: Box<SentenceKey>,
     },
     InvalidSymbolType(String),
     ConstructorAtFixedSort {
@@ -1455,7 +1456,7 @@ impl BackendDefinition {
                 | ClassifiedAxiom::Simplification { attributes, .. }
                 | ClassifiedAxiom::Ceil { attributes, .. } => attributes.executable,
             })
-            .map(|(axiom, (_, index))| internalize_axiom(&result, axiom, index))
+            .map(|(axiom, sentence)| internalize_axiom(&result, axiom, &sentence))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten();

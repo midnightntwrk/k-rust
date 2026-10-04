@@ -206,7 +206,8 @@ impl BackendSession {
     }
 }
 
-fn module_id(source: &str) -> String {
+/// Canonical identifier of an RPC-added module, derived from its exact source bytes.
+pub fn module_id(source: &str) -> String {
     let digest = Sha256::digest(source.as_bytes());
     let mut id = String::with_capacity(65);
     id.push('m');

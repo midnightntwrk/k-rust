@@ -64,7 +64,7 @@ use k_rust_backend::{
         TraceKind, substitute_predicates,
     },
     rule::Predicate,
-    session::SessionError,
+    session::{SessionError, module_id},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
     stop::{self, Stop, StopCause, Stoppable},
@@ -837,7 +837,8 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         let module = parse_module(&params.module)
             .map_err(|error| RpcFault::invalid_module(ErrorDetail::message(error.to_string())))?;
-        let error_module = module.clone();
+        let mut error_module = module.clone();
+        error_module.name = module_id(&params.module);
         let id = self
             .backend
             .add_parsed_module(&params.module, module, params.name_as_id)
@@ -1243,11 +1244,10 @@ fn module_verification_detail(
             | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
         }
     }
-    let pattern = if let DefinitionError::UnlicensedInjection { sentence_index, .. } = error {
-        module
-            .sentences
-            .get(*sentence_index)
-            .and_then(sentence_pattern)
+    let pattern = if let DefinitionError::UnlicensedInjection { sentence, .. } = error {
+        (sentence.0.as_ref() == module.name)
+            .then(|| module.sentences.get(sentence.1).and_then(sentence_pattern))
+            .flatten()
     } else {
         module.sentences.iter().find_map(sentence_pattern)
     };
@@ -4670,6 +4670,117 @@ endmodule
 
         let definition = service.backend.select_definition(Some("EXTRA")).unwrap();
         assert_eq!(definition.main_module().as_ref(), id);
+    }
+
+    #[test]
+    fn add_module_locates_written_unlicensed_injection() {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[] module TEST
+            sort SortA{} []
+            sort SortB{} []
+            symbol a{}() : SortA{} [constructor{}(), total{}()]
+            symbol b{}() : SortB{} [constructor{}(), total{}()]
+            symbol inj{From, To}(From) : To [sortInjection{}()]
+        endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ));
+        let response = request(
+            &mut service,
+            1,
+            "add-module",
+            json!({
+            "module": r#"module BAD-AXIOM
+                import TEST []
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(inj{SortA{}, SortB{}}(X:SortA{}), \top{SortB{}}()),
+                    b{}()
+                ) [label{}("dead-matched")]
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(b{}(), \top{SortB{}}()), b{}()
+                ) [label{}("benign")]
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(b{}(), \top{SortB{}}()),
+                    inj{SortA{}, SortB{}}(a{}())
+                ) [label{}("written-rewrite")]
+            endmodule []"#,
+            }),
+        );
+        assert_eq!(
+            response["error"],
+            json!({
+                "code": 8,
+                "message": "Invalid module",
+                "data": {
+                    "error": "Unlicensed injection from SortA{} to SortB{} in axiom written-rewrite",
+                    "term": {
+                        "format": "KORE",
+                        "version": 1,
+                        "term": {
+                            "tag": "App",
+                            "name": "inj",
+                            "sorts": [
+                                {"tag": "SortApp", "name": "SortA", "args": []},
+                                {"tag": "SortApp", "name": "SortB", "args": []}
+                            ],
+                            "args": [{"tag": "App", "name": "a", "sorts": [], "args": []}]
+                        }
+                    }
+                },
+            }),
+            "{response:#}",
+        );
+    }
+
+    #[test]
+    fn add_module_does_not_locate_imported_unlicensed_injection() {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[] module TEST
+                    sort SortA{} []
+                    sort SortB{} []
+                    symbol a{}() : SortA{} [constructor{}(), total{}()]
+                    symbol b{}() : SortB{} [constructor{}(), total{}()]
+                    symbol inj{From, To}(From) : To [sortInjection{}()]
+                endmodule []
+                module BAD-BASE
+                    import TEST []
+                    axiom{} \rewrites{SortB{}}(
+                        \and{SortB{}}(b{}(), \top{SortB{}}()),
+                        inj{SortA{},SortB{}}(a{}())
+                    ) [label{}("imported-written")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ));
+        let response = request(
+            &mut service,
+            1,
+            "add-module",
+            json!({
+                "module": r#"module EXTRA
+                    import BAD-BASE []
+                    axiom{} \rewrites{SortB{}}(
+                        \and{SortB{}}(inj{SortA{},SortB{}}(X:SortA{}), \top{SortB{}}()),
+                        b{}()
+                    ) [label{}("dead-matched")]
+                endmodule []"#,
+            }),
+        );
+        assert_eq!(
+            response["error"],
+            json!({
+                "code": 8,
+                "message": "Invalid module",
+                "data": {
+                    "error": "Unlicensed injection from SortA{} to SortB{} in axiom imported-written",
+                },
+            }),
+            "{response:#}",
+        );
     }
 
     #[test]
