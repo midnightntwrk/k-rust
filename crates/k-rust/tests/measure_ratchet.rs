@@ -120,8 +120,8 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
     );
     assert_eq!(
         delta.get(Counter::ParserGrammarBuilds),
-        delta.get(Counter::ParserPredictionAnalysisBuilds) + 1,
-        "one grammar is built for each bubble-bearing module plus the program grammar"
+        delta.get(Counter::ParserPredictionAnalysisBuilds),
+        "every grammar built parses: no grammar is built only to seed another's scanner"
     );
 }
 
@@ -294,10 +294,11 @@ fn scanner_winner_work_is_bounded_by_input_positions() {
     );
 }
 
+/// A standalone rule is parsed with its module's rule grammar alone, built once.
 #[test]
-fn casted_rule_chain_builds_its_two_rule_grammars_once() {
+fn casted_rule_chain_builds_its_rule_grammar_once() {
     let delta = parse_casted_chain(15);
-    assert_eq!(delta.get(Counter::ParserGrammarBuilds), 2);
+    assert_eq!(delta.get(Counter::ParserGrammarBuilds), 1);
 }
 
 #[test]

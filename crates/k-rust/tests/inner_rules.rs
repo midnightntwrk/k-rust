@@ -222,8 +222,24 @@ fn standalone_rule_content_parses_every_condition_shape_and_retains_attributes()
     }
 }
 
+/// The `X` occurrences of the body of `rule`, as variables and as `Id` tokens.
+fn x_variables_and_id_tokens(rule: &Sentence) -> (usize, usize) {
+    let Sentence::Rule { body, .. } = rule else {
+        panic!("expected a rule, got {rule:?}")
+    };
+    let (mut variables, mut tokens) = (0, 0);
+    body.visit_preorder(&mut |term| match term.unannotated() {
+        Term::Variable { name, .. } if name == "X" => variables += 1,
+        Term::Token { token, sort } if token == "X" && sort == &Sort::new("Id") => tokens += 1,
+        _ => {}
+    });
+    (variables, tokens)
+}
+
+/// A rule is parsed with the scanner of its own module: a token that only a sibling module
+/// declares does not lex the rule's variables, though the main module sees both modules.
 #[test]
-fn standalone_rule_content_uses_the_reachable_global_scanner() {
+fn standalone_rule_content_uses_its_own_modules_scanner() {
     let definition = lowered(indoc! {r#"
         module TOKEN
           syntax Id ::= r"[A-Z]+" [prec(3), token]
@@ -237,16 +253,13 @@ fn standalone_rule_content_uses_the_reachable_global_scanner() {
     "#});
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
 
-    assert!(matches!(
-        parse_rule_content(
-            &resolved,
-            "RULES",
-            "X => X",
-            Attributes::default(),
-        ),
-        Err(RuleError::Parse(ref error))
-            if error.module == "RULES" && matches!(error.error, ParseError::NoParse { .. })
-    ));
+    let rule = parse_rule_content(&resolved, "RULES", "X => X", Attributes::default())
+        .expect("RULES does not see TOKEN's Id lexeme");
+    assert_eq!(x_variables_and_id_tokens(&rule), (2, 0));
+    // MAIN sees the prec(3) Id lexeme, which outranks the variable lexeme.
+    let rule = parse_rule_content(&resolved, "MAIN", "X => X", Attributes::default())
+        .expect("MAIN parses X as an Id token");
+    assert_eq!(x_variables_and_id_tokens(&rule), (0, 2));
 }
 
 #[test]
@@ -2140,7 +2153,7 @@ fn reference_invalid_prec_is_rejected_without_any_rule_bubble() {
 }
 
 #[test]
-fn imported_rule_modules_use_the_main_modules_global_scanner() {
+fn imported_rule_modules_use_their_own_scanner() {
     let source = indoc! {r#"
         module TOKEN
           syntax Id ::= r"[A-Z]+" [prec(3), token]
@@ -2153,12 +2166,98 @@ fn imported_rule_modules_use_the_main_modules_global_scanner() {
           imports RULES
         endmodule
     "#};
-    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
-    assert!(matches!(
-        error,
-        RuleError::Parse(ref error)
-            if error.module == "RULES" && matches!(error.error, ParseError::NoParse { .. })
-    ));
+    let definition = resolve_rule_bubbles(&lowered(source)).expect("RULES does not see TOKEN");
+    let rules = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "RULES")
+        .unwrap();
+    assert_eq!(x_variables_and_id_tokens(&rules.local_sentences[0]), (2, 0));
+}
+
+/// A terminal that only an importing module declares is no lexeme of an imported module's
+/// rule-like sentences, whatever their kind; the importing module's own sentences see both
+/// its own terminals and the imported ones.
+#[test]
+fn an_importing_modules_terminal_does_not_split_an_imported_modules_sentences() {
+    let source = indoc! {r#"
+        module LIB
+          syntax Exp ::= "a" [symbol(a)]
+                       | Exp "+" Exp [symbol(plus), left]
+          syntax KResult
+          context a+HOLE:Exp
+          rule a+a => a
+          claim a+a => a
+        endmodule
+        module MAIN
+          imports LIB
+          syntax Exp ::= "+a" [symbol(plusA)]
+          rule a + a => +a
+          rule +a + a => a
+        endmodule
+    "#};
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap_or_else(|error| {
+        panic!("every module parses its sentences with its own scanner: {error}")
+    });
+    let lib = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "LIB")
+        .unwrap();
+    for sentence in &lib.local_sentences {
+        if matches!(
+            &**sentence,
+            Sentence::Context { .. } | Sentence::Rule { .. } | Sentence::Claim { .. }
+        ) {
+            let text = format!("{sentence:?}");
+            assert!(text.contains("plus"), "{text}");
+            assert!(!text.contains("plusA"), "{text}");
+        }
+    }
+    let main = definition.main_module().unwrap();
+    let rules = main
+        .local_sentences
+        .iter()
+        .filter(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
+        .map(|sentence| format!("{sentence:?}"))
+        .collect::<Vec<_>>();
+    assert_eq!(rules.len(), 2);
+    for rule in &rules {
+        assert!(rule.contains("\"plus\""), "{rule}");
+        assert!(rule.contains("\"plusA\""), "{rule}");
+    }
+}
+
+/// A terminal the main module declares spells part of a builtin module's rule (`0` after
+/// `+Int` in INT-SYMBOLIC, `-1` after `==Int` in STRING-COMMON). The builtin modules do not
+/// import MAIN, so their rules are lexed without it: the definition loads, compiles, and the
+/// backend accepts it.
+#[test]
+fn a_main_module_terminal_does_not_split_a_builtin_modules_rules() {
+    for (import, terminal) in [("INT", "0"), ("STRING", "-1")] {
+        let source = format!(
+            "module MAIN\n  imports {import}\n  syntax Foo ::= \"a\" | \"{terminal}\"\nendmodule\n"
+        );
+        let loaded = load_with_prelude_options(
+            &source,
+            "main.k",
+            "MAIN",
+            vec![
+                k_rust::kompile::CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .into(),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("{terminal:?} beside {import} loads: {error}"));
+        let artifacts = k_rust::kompile::compile_loaded_definition(
+            &loaded,
+            k_rust::kompile::CompileOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{terminal:?} beside {import} compiles: {error}"));
+        let kore = k_rust::kore::parser::parse_definition(&artifacts.definition_kore).unwrap();
+        k_rust_backend::definition::BackendDefinition::internalize(&kore, "MAIN")
+            .unwrap_or_else(|error| panic!("{terminal:?} beside {import}: backend load: {error}"));
+    }
 }
 
 #[test]

@@ -2,10 +2,10 @@
 source: crates/k-rust/tests/measure_ratchet.rs
 description: casted rule chain parser counters
 ---
-kompile.sentence_equivalence_checks = 6
-kompile.production_catalogs_built = 3
-kompile.partial_orders_built = 15
-kompile.production_identity_digests = 24
+kompile.sentence_equivalence_checks = 4
+kompile.production_catalogs_built = 2
+kompile.partial_orders_built = 8
+kompile.production_identity_digests = 13
 parser.parse_attempts = 1
 parser.prediction_analysis_builds = 1
 parser.chart_prediction_attempts = 216
@@ -22,6 +22,6 @@ parser.chart_revisit_pops = 148
 parser.chart_derivations_read = 3826
 parser.completed_nodes_hits = 255
 parser.completed_nodes_misses = 56
-parser.grammar_builds = 2
+parser.grammar_builds = 1
 parser.scanner_winner_computations = 49
 parser.portable_inferences = 1

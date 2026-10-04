@@ -104,7 +104,6 @@ impl Grammar {
             }),
             ParserRole::Program,
             false,
-            None,
             sort_denotations,
         )
     }
@@ -118,7 +117,6 @@ impl Grammar {
             None,
             ParserRole::Rule,
             false,
-            None,
             SortDenotations::default(),
         )
     }
@@ -128,20 +126,12 @@ impl Grammar {
         sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(
-            sentences,
-            None,
-            ParserRole::Rule,
-            true,
-            None,
-            sort_denotations,
-        )
+        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true, sort_denotations)
     }
 
     pub(in crate::inner) fn from_rule_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         source_catalog: &ProductionCatalog<'_>,
-        scanner_seed: Option<&Scanner>,
         sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
@@ -150,7 +140,6 @@ impl Grammar {
             Some(SourceLinks::catalog(source_catalog)),
             ParserRole::Rule,
             true,
-            scanner_seed,
             sort_denotations,
         )
     }
@@ -160,7 +149,6 @@ impl Grammar {
         source_links: Option<SourceLinks<'_, '_>>,
         role: ParserRole,
         include_default_layout: bool,
-        scanner_seed: Option<&Scanner>,
         sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserGrammarBuild);
@@ -285,7 +273,7 @@ impl Grammar {
         };
         let mut grammar = Self {
             sort_denotations,
-            scanner: scanner_seed.cloned().unwrap_or_default(),
+            scanner: Scanner::default(),
             source_production_texts,
             layout: if include_default_layout {
                 Layout::compile_with_default(&layout_sources, &lexical)?
@@ -596,6 +584,7 @@ impl Grammar {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::inner) fn scanner(&self) -> &Scanner {
         &self.scanner
     }
@@ -1650,7 +1639,6 @@ mod tests {
         let grammar = Grammar::from_rule_sentences(
             parsing_sentences,
             &source_catalog,
-            None,
             SortDenotations::default(),
         )
         .unwrap();

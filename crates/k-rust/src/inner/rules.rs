@@ -51,7 +51,7 @@ use super::config::{
 };
 use super::location::span_location;
 use super::parser::{
-    Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
+    Grammar, ParseError, TokenPrecedenceDeclaration, named_projection_productions,
 };
 use super::sort_universe::{
     CastTarget, GrammarSort, RULE_BRACKET_SEED_ORDER, RULE_CAST_SEED_ORDER, RULE_GRAMMAR,
@@ -148,20 +148,7 @@ pub fn parse_rule_content(
         .ok_or_else(|| RuleError::MissingModule {
             module: module.to_owned(),
         })?;
-    let main = definition.main_module_id();
-    let global = global_rule_grammar(definition)?;
-    let reachable = definition
-        .transitive_imports(main)
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    let grammar = module_rule_grammar(
-        definition,
-        module_id,
-        &global,
-        &reachable,
-        "rule",
-        &attributes,
-    )?;
+    let grammar = module_rule_grammar(definition, module_id, "rule", &attributes)?;
     parse_rule_like_sentence(&grammar, module, "rule", contents, attributes)
 }
 
@@ -187,34 +174,26 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     let mut parse_seconds = 0.0;
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
-    let global_started = timings.as_ref().map(|_| Instant::now());
-    let global = global_rule_grammar(resolved);
-    if let Some(started) = global_started {
-        grammar_seconds += started.elapsed().as_secs_f64();
-    }
-    let global = global?;
-    let reachable = resolved
-        .transitive_imports(main)
-        .into_iter()
-        .collect::<BTreeSet<_>>();
 
     for module in &mut transformed.modules {
-        if !module
-            .local_sentences
-            .iter()
-            .any(|sentence| is_rule_bubble(sentence))
-        {
-            continue;
-        }
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
+        // The main module's grammar is the syntax of the compiled definition, so it is built
+        // and checked (token precedences, priorities, subsorts) even when the main module
+        // has no bubble of its own; another module's grammar exists only to parse its bubbles.
+        if module_id != main
+            && !module
+                .local_sentences
+                .iter()
+                .any(|sentence| is_rule_bubble(sentence))
+        {
+            continue;
+        }
         let grammar_started = timings.as_ref().map(|_| Instant::now());
         let grammar = module_rule_grammar(
             resolved,
             module_id,
-            &global,
-            &reachable,
             "rule-like sentence",
             &module.attributes,
         );
@@ -270,13 +249,24 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     Ok((transformed, resolved))
 }
 
+/// The grammar that parses the rule-like sentences of `module`.
+///
+/// A sentence denotes in the syntax its own module sees, so the grammar, its scanner included,
+/// is built from that module's view alone. A terminal or token declared only in a module that
+/// `module` does not import is no lexeme of this grammar: lexing it would split or swallow the
+/// characters that spell `module`'s own tokens, so the meaning of a module's rules would depend
+/// on which definition imports it.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "ParseError is not a sentence kind; only the listed variants are special here"
 )]
-fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleError> {
-    let main = definition.main_module_id();
-    rule_grammar(definition, main, RuleGrammarScope::GlobalScanner).map_err(|error| match error {
+fn module_rule_grammar(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    sentence_type: &str,
+    attributes: &Attributes,
+) -> Result<Grammar, RuleError> {
+    rule_grammar(definition, module).map_err(|error| match error {
         ParseError::InconsistentTokenPrecedence {
             token,
             declarations,
@@ -285,42 +275,12 @@ fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleE
             declarations,
         },
         error => RuleError::Parse(Box::new(RuleParseError {
-            module: definition.main_module().name.clone(),
-            sentence_type: "rule grammar".into(),
-            source: definition
-                .main_module()
-                .attributes
-                .source()
-                .map(str::to_owned),
-            location: definition.main_module().attributes.location(),
-            error,
-        })),
-    })
-}
-
-fn module_rule_grammar(
-    definition: &ResolvedDefinition,
-    module: ModuleId,
-    global: &Grammar,
-    reachable: &BTreeSet<ModuleId>,
-    sentence_type: &str,
-    attributes: &Attributes,
-) -> Result<Grammar, RuleError> {
-    rule_grammar(
-        definition,
-        module,
-        RuleGrammarScope::Module {
-            scanner_seed: reachable.contains(&module).then_some(global.scanner()),
-        },
-    )
-    .map_err(|error| {
-        RuleError::Parse(Box::new(RuleParseError {
             module: definition.module(module).name.clone(),
             sentence_type: sentence_type.to_owned(),
             source: attributes.source().map(str::to_owned),
             location: attributes.location(),
             error,
-        }))
+        })),
     })
 }
 
@@ -543,50 +503,27 @@ fn up_sentence(
     }
 }
 
-#[derive(Clone, Copy)]
-enum RuleGrammarScope<'a> {
-    GlobalScanner,
-    Module { scanner_seed: Option<&'a Scanner> },
-}
-
-/// The sentences the rule grammar of `module` is built from: the module's sentences (all of them
-/// for the global scanner, the signature plus ML-SYNTAX for a module grammar), plus the RULE-CELLS
-/// cell productions that no visible cell production already provides.
-fn rule_grammar_view<'a>(
-    resolved: &'a ResolvedDefinition,
-    module: ModuleId,
-    scope: RuleGrammarScope<'_>,
-) -> Vec<&'a Sentence> {
-    let mut visible = match scope {
-        RuleGrammarScope::GlobalScanner => resolved.sentences(module),
-        RuleGrammarScope::Module { .. } => {
-            let mut visible = resolved.signature_sentences(module);
-            add_implicit_ml_syntax(resolved, &mut visible);
-            visible
-        }
-    };
+/// The sentences the rule grammar of `module` is built from: the module's signature plus
+/// ML-SYNTAX, plus the RULE-CELLS cell productions that no visible cell production already
+/// provides.
+fn rule_grammar_view(resolved: &ResolvedDefinition, module: ModuleId) -> Vec<&Sentence> {
+    let mut visible = resolved.signature_sentences(module);
+    add_implicit_ml_syntax(resolved, &mut visible);
     inject_rule_cell_sentences(resolved, &mut visible);
     visible
 }
 
-/// Sentences added to either rule view independently of the module's imports.
-/// Configuration grammars use the same ML-SYNTAX augmentation as the module rule view.
+/// Sentences added to the rule view independently of the module's imports.
+/// Configuration grammars use the same ML-SYNTAX augmentation as the rule view.
 pub(crate) fn grammar_injected_sentences(
     resolved: &ResolvedDefinition,
     module: ModuleId,
 ) -> Vec<&Sentence> {
-    let mut global = resolved.sentences(module);
-    let global_end = global.len();
-    inject_rule_cell_sentences(resolved, &mut global);
     let mut signature = resolved.signature_sentences(module);
     let signature_end = signature.len();
     add_implicit_ml_syntax(resolved, &mut signature);
     inject_rule_cell_sentences(resolved, &mut signature);
-    global[global_end..]
-        .iter()
-        .chain(&signature[signature_end..])
-        .copied()
-        .collect()
+    signature.split_off(signature_end)
 }
 
 fn inject_rule_cell_sentences<'a>(
@@ -625,17 +562,9 @@ fn inject_rule_cell_sentences<'a>(
     }
 }
 
-fn rule_grammar(
-    resolved: &ResolvedDefinition,
-    module: ModuleId,
-    scope: RuleGrammarScope<'_>,
-) -> Result<Grammar, ParseError> {
-    let visible = rule_grammar_view(resolved, module, scope);
+fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
+    let visible = rule_grammar_view(resolved, module);
     reject_kernel_position_contradiction(&visible)?;
-    let scanner_seed = match scope {
-        RuleGrammarScope::GlobalScanner => None,
-        RuleGrammarScope::Module { scanner_seed } => scanner_seed,
-    };
     // Start sorts and #token sort strings denote in the module's full view. SortUniverse
     // still restricts generated casts to aliases declared in this grammar's own view.
     let synonyms = if resolved.declares_sort_synonyms() {
@@ -736,7 +665,6 @@ fn rule_grammar(
     let mut grammar = Grammar::from_rule_sentences(
         parsing_sentences.iter(),
         &source_catalog,
-        scanner_seed,
         synonyms.denotations().clone(),
     )?;
     // Multiplicity-cell collection concatenations have no separator, so retaining every
@@ -1539,11 +1467,7 @@ mod tests {
         module: &str,
     ) -> (SortUniverse, BTreeSet<Sort>) {
         let module = resolved.module_id(module).expect("the module is resolved");
-        let visible = rule_grammar_view(
-            resolved,
-            module,
-            RuleGrammarScope::Module { scanner_seed: None },
-        );
+        let visible = rule_grammar_view(resolved, module);
         let declared = SortCatalog::from_visible(visible.iter().copied())
             .all_sorts()
             .clone();
@@ -1685,12 +1609,7 @@ endmodule
     /// The rule grammar of `module`, as a rule of that module is parsed with it.
     fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
         let module = resolved.module_id(module).expect("the module is resolved");
-        rule_grammar(
-            resolved,
-            module,
-            RuleGrammarScope::Module { scanner_seed: None },
-        )
-        .expect("the rule grammar builds")
+        rule_grammar(resolved, module).expect("the rule grammar builds")
     }
 
     #[test]
@@ -1888,9 +1807,8 @@ endmodule
         }
     }
 
-    /// A view that imports KAST and declares nothing else loads in a debug build. Its main
-    /// module's global rule grammar is built as the scanner seed and never parses, so only the
-    /// sort-role checker reads it, and its semantic relation is acyclic (G0).
+    /// A view that imports KAST and declares nothing else loads in a debug build: the sort-role
+    /// checker reads the rule grammars it builds, and their semantic relations are acyclic (G0).
     /// A user sort is a sort of K items, so `syntax Exp ::= KItem` closes `Exp < KItem < Exp`
     /// with the kernel position the rule grammar gives `Exp`. Built without the load, which would
     /// report the declaration first, the rule grammar rejects the view with that cycle before it
@@ -1902,18 +1820,13 @@ endmodule
         let definition = crate::outer::lower(&parsed, "MAIN").expect("MAIN lowers");
         let resolved = ResolvedDefinition::resolve(&definition).expect("MAIN resolves");
         let main = resolved.main_module_id();
-        for scope in [
-            RuleGrammarScope::GlobalScanner,
-            RuleGrammarScope::Module { scanner_seed: None },
-        ] {
-            match rule_grammar(&resolved, main, scope) {
-                Err(ParseError::CircularSubsorts { path }) => {
-                    assert!(path.contains(&Sort::new("Exp")), "{path:?}");
-                    assert!(path.contains(&KernelSort::KItem.sort()), "{path:?}");
-                }
-                Err(error) => panic!("expected the kernel-position cycle, got {error}"),
-                Ok(_) => panic!("the rule grammar of a contradicting view was built"),
+        match rule_grammar(&resolved, main) {
+            Err(ParseError::CircularSubsorts { path }) => {
+                assert!(path.contains(&Sort::new("Exp")), "{path:?}");
+                assert!(path.contains(&KernelSort::KItem.sort()), "{path:?}");
             }
+            Err(error) => panic!("expected the kernel-position cycle, got {error}"),
+            Ok(_) => panic!("the rule grammar of a contradicting view was built"),
         }
     }
 
