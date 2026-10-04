@@ -3063,3 +3063,118 @@ fn claims_rewrite_the_generated_counter_to_an_existential() {
     assert_eq!(claims.len(), 1);
     insta::assert_snapshot!(claims[0]);
 }
+
+/// Compile `source` for the Rust backend with the embedded prelude.
+fn compile_for_backend(
+    source: &str,
+    module: &str,
+) -> Result<k_rust::kompile::CompiledKoreArtifacts, k_rust::kompile::CompileError> {
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = outer::load_with_options(
+        outer::ResolvedSource::new("backend-admission.k", source),
+        module,
+        &mut resolver,
+        &outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![
+                k_rust::kompile::CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .into(),
+            ],
+            ..outer::LoadOptions::default()
+        },
+    )
+    .expect("probe should load");
+    k_rust::kompile::compile_loaded_definition(&loaded, k_rust::kompile::CompileOptions::default())
+}
+
+/// Compile `source` and load both emitted definitions into the backend.
+fn assert_compiles_and_loads(source: &str, module: &str) {
+    let artifacts = compile_for_backend(source, module)
+        .unwrap_or_else(|error| panic!("{source} should compile: {error:?}"));
+    for kore in [
+        &artifacts.definition_kore,
+        &artifacts.syntax_definition_kore,
+    ] {
+        let definition = parse_definition(kore).unwrap();
+        k_rust_backend::definition::BackendDefinition::internalize(&definition, module)
+            .unwrap_or_else(|error| panic!("{source} should load in the backend: {error:?}"));
+    }
+}
+
+/// The single error diagnostic compiling `source` reports, as (line, message).
+fn compile_error(source: &str, module: &str) -> (u32, String) {
+    let error = compile_for_backend(source, module).expect_err("probe should be rejected");
+    let errors = error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == k_rust::diagnostic::Severity::Error)
+        .collect::<Vec<_>>();
+    assert_eq!(errors.len(), 1, "{error:?}");
+    let location = errors[0]
+        .location
+        .unwrap_or_else(|| panic!("the error should be located: {error:?}"));
+    (location.start_line, errors[0].message.clone())
+}
+
+/// B4 of the generated-input experiment: a hook names the builtin implementation of a function,
+/// so a hooked production that declares a non-function symbol is rejected at the production,
+/// before emission writes a declaration the backend cannot interpret.
+#[test]
+fn a_hook_on_a_declared_non_function_symbol_is_a_located_error() {
+    for (attributes, line) in [
+        // The reproducer: a constructor.
+        ("[hook(BOOL.and)]", 3),
+        // A macro production.
+        ("[macro, hook(BOOL.and)]", 3),
+        // A labelled bracket, declared in the syntax module.
+        ("[bracket, symbol(paren), hook(BOOL.and)]", 3),
+    ] {
+        let operator = if attributes.contains("bracket") {
+            r#""(" Foo ")""#
+        } else {
+            r#"Foo "~" Foo"#
+        };
+        let source = format!(
+            "module MAIN\n  syntax Foo ::= \"a\"\n  syntax Foo ::= {operator} {attributes}\nendmodule\n"
+        );
+        let (start_line, message) = compile_error(&source, "MAIN");
+        assert_eq!(start_line, line, "{attributes}: {message}");
+        assert!(
+            message.contains("hook(BOOL.and)") && message.contains("not a function"),
+            "{attributes}: {message}"
+        );
+    }
+    // A labelled token production declares a symbol too.
+    let (start_line, message) = compile_error(
+        indoc! {r#"
+            module MAIN
+              syntax Tok ::= r"[x-z]+" [token, symbol(tok), hook(BOOL.and)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    assert_eq!(start_line, 2, "{message}");
+}
+
+/// The hooked productions the backend can interpret, and those emission declares no hooked
+/// symbol for, still compile and load: a hooked function, an unlabelled token production naming
+/// its lexical hook, a hooked subsort, and a constructor whose hook namespace emission does not
+/// name.
+#[test]
+fn hooks_on_functions_and_on_undeclared_or_unadmitted_productions_compile_and_load() {
+    assert_compiles_and_loads(
+        indoc! {r#"
+            module MAIN
+              imports BOOL
+              syntax Foo ::= "a" | Foo "~" Foo [function, hook(BOOL.and)]
+              syntax Tok ::= r"[x-z]+" [token, hook(BOOL.and)]
+              syntax Bar ::= Foo [hook(BOOL.or)]
+              syntax Foo ::= Foo "^" Foo [hook(PLUGIN.xor)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+}

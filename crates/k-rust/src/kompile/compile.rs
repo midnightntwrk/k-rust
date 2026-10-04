@@ -35,6 +35,7 @@ use crate::{
         AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
         StructuralCheckBackend, StructuralCheckOptions,
         checks::{check_definition_with_options, check_singleton_overloads},
+        production_kind::ProductionKind,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{GeneratedLabel, Sort, Term},
@@ -47,8 +48,8 @@ use crate::{
     timings::PhaseTimings,
 };
 
-use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
+use super::module_to_kore::{BUILTIN_HOOK_NAMESPACES, is_real_hook};
 use super::passes::number_sentence;
 use super::pipeline::{emission_phase, prologue_phase};
 use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
@@ -321,11 +322,15 @@ pub fn compile_loaded_definition_timed(
         .hook_namespaces
         .clone()
         .unwrap_or_else(|| options.backend.default_hook_namespaces());
-    diagnostics.extend(options.diagnostics.apply(
-        timings.time(emission_phase::HOOK_NAMESPACE_CHECKS, || {
-            unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces)
-        }),
-    ));
+    diagnostics.extend(options.diagnostics.apply(timings.time(
+        emission_phase::HOOK_NAMESPACE_CHECKS,
+        || {
+            let mut diagnostics =
+                unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces);
+            diagnostics.extend(uninterpreted_hook_diagnostics(&resolved, &hook_namespaces));
+            diagnostics
+        },
+    )));
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -737,6 +742,49 @@ fn unadmitted_hook_namespace_diagnostics(
                 "hook namespace `{namespace}` of `hook({hook})` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
             ),
             attributes,
+        ));
+    }
+    diagnostics
+}
+
+/// One error for every production of the main module that declares a symbol and carries a hook
+/// emission would name (its namespace builtin or in `admitted`) without being a `function`.
+///
+/// A hook names the builtin implementation by which the backend evaluates a function's
+/// applications. The symbol of a non-function production is not evaluated: a constructor's
+/// applications are values distinct from each other's (`true ~ false` is its own value, while
+/// `BOOL.and` would make it `false`), a macro's are replaced by its macro rules, and a bracket's
+/// never occur in a term. A hook on such a symbol therefore contradicts the symbol's meaning, and
+/// a declaration cannot be both a plain symbol and a hooked one. A production that declares no
+/// symbol (a subsort, or an unlabelled token production naming its domain's lexical hook) leaves
+/// nothing for the hook to contradict and is accepted, as is a hook whose namespace emission does
+/// not name, which compiles as no hook at all.
+fn uninterpreted_hook_diagnostics(
+    definition: &ResolvedDefinition,
+    admitted: &[String],
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` has one error for every production before `sentence` that declares a symbol, is not a function, and carries a hook whose namespace is builtin or in `admitted`.
+    for sentence in definition.sentences(definition.main_module_id()) {
+        let Sentence::Production {
+            label, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        if attributes.has(AttributeKey::Function)
+            || !is_real_hook(attributes, admitted)
+            || !ProductionKind::of(sentence).declares_symbol(label.is_some())
+        {
+            continue;
+        }
+        let hook = attributes.string(AttributeKey::Hook).unwrap_or_default();
+        diagnostics.push(Diagnostic::error(
+            DiagnosticCode::InvalidAttribute,
+            format!(
+                "hook({hook}) names the builtin implementation of a function, but this production is not a function, so the hook would never evaluate its symbol. Add `function` to the production or remove the hook."
+            ),
+            sentence,
         ));
     }
     diagnostics

@@ -570,6 +570,14 @@ fn declarations_with_roles(
     let mut syntax_sentences = common;
     for (id, production) in productions.productions() {
         let claims = roles.claims(id);
+        debug_assert_eq!(
+            claims.declaration() != Declaration::None,
+            ProductionKind::of(production).declares_symbol(matches!(
+                production,
+                Sentence::Production { label: Some(_), .. }
+            )),
+            "the declaration claims and ProductionKind::declares_symbol partition productions alike"
+        );
         let declared_semantically = match claims.declaration() {
             Declaration::SemanticAndSyntax => true,
             // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
@@ -627,8 +635,7 @@ fn declarations_with_roles(
             hook_namespaces,
             backend,
         )?;
-        let hooked =
-            attributes.has(AttributeKey::Function) && is_real_hook(attributes, hook_namespaces);
+        let hooked = interpreted_hook(attributes, hook_namespaces).is_some();
         let declaration = |attributes| KoreSentence::SymbolDeclaration {
             hooked,
             symbol: encode_kore_label_with_formals(label, parameters),
@@ -675,6 +682,7 @@ fn declarations_with_roles(
             bracket_label.parameters = parameters.clone();
         }
         let label = bracket_label;
+        let hooked = interpreted_hook(attributes, hook_namespaces).is_some();
         let attributes = symbol_attributes(
             attributes,
             &label,
@@ -691,7 +699,7 @@ fn declarations_with_roles(
             backend,
         )?;
         syntax_sentences.push(KoreSentence::SymbolDeclaration {
-            hooked: false,
+            hooked,
             symbol: encode_kore_label_with_formals(&label, parameters),
             argument_sorts: items
                 .iter()
@@ -1521,9 +1529,7 @@ fn symbol_attributes(
         entries.remove(AttributeKey::Functional.as_str());
     }
 
-    if is_real_hook(source, hook_namespaces)
-        && let Some(hook) = source.value(AttributeKey::Hook)
-    {
+    if let Some(hook) = interpreted_hook(source, hook_namespaces) {
         entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
     let freeness = claims.freeness();
@@ -2055,13 +2061,35 @@ fn label_pattern(
     })
 }
 
-fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
+/// Whether `attributes` carry a hook whose namespace is builtin or admitted by
+/// `hook_namespaces`, which a hooked-symbol declaration would name.
+pub(crate) fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
     attributes.string(AttributeKey::Hook).is_some_and(|hook| {
         hook.split_once('.').is_some_and(|(namespace, _)| {
             BUILTIN_HOOK_NAMESPACES.contains(&namespace)
                 || hook_namespaces.iter().any(|admitted| admitted == namespace)
         })
     })
+}
+
+/// The hook a symbol declaration names, and then declares a hooked symbol for.
+///
+/// A hook names the builtin implementation of a function: the backend evaluates the symbol's
+/// applications by it. Only a `function` production's symbol is evaluated, so only it is
+/// declared hooked; every other symbol's meaning is fixed by its constructor or macro axioms,
+/// and a hook on it would name an implementation nothing evaluates. Deriving both the
+/// `hooked-symbol` keyword and the `hook` attribute from this one predicate means a declaration
+/// carries the attribute exactly when it is a hooked symbol. A non-function production with a
+/// real hook is rejected before emission (`uninterpreted_hook_diagnostics` in `compile.rs`).
+fn interpreted_hook<'a>(
+    attributes: &'a KAttributes,
+    hook_namespaces: &[String],
+) -> Option<&'a Value> {
+    if attributes.has(AttributeKey::Function) && is_real_hook(attributes, hook_namespaces) {
+        attributes.value(AttributeKey::Hook)
+    } else {
+        None
+    }
 }
 
 /// Encode a K label as a KORE symbol head.

@@ -259,6 +259,26 @@ impl ProductionKind {
         }
     }
 
+    /// Whether a production of this kind declares a KORE symbol in some emitted module, given
+    /// whether the production carries a label.
+    ///
+    /// A subsort, a matching-logic builtin, an unlabelled production and a bracket with no name
+    /// declare none; a named bracket is declared in the syntax module only; a function, macro or
+    /// token production is declared exactly when it is labelled; every other kind is labelled
+    /// by classification and declared. KORE emission's declaration claims state the same
+    /// partition, which its declaration loop asserts.
+    pub(crate) fn declares_symbol(self, labelled: bool) -> bool {
+        match self {
+            Self::Subsort | Self::Builtin | Self::Unlabelled => false,
+            Self::Bracket(name) => match name {
+                BracketName::OwnLabel | BracketName::BracketLabel => true,
+                BracketName::Undeclared => false,
+            },
+            Self::Function { .. } | Self::MacroProduction | Self::Token { .. } => labelled,
+            Self::Algebraic | Self::Base => true,
+        }
+    }
+
     /// `MacroProduction`, or `Function` with `macro_like`.
     pub(crate) fn is_macro_like(self) -> bool {
         match self {
