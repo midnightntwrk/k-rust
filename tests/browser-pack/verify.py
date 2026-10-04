@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
 from support.hashing import sha256_bytes, sha256_file, sha256_text  # noqa: E402
-from support.process import run  # noqa: E402
+from support.process import BASE_ENVIRONMENT, run  # noqa: E402
 from support.tools import scratch_root  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -340,7 +340,7 @@ def run_rebuild(args: argparse.Namespace) -> dict[str, Any]:
         if out.exists():
             shutil.rmtree(out)
         uptime = wait_for_load()
-        env = {**os.environ, "JOBS": str(args.jobs), "LOAD_MAX": str(int(LOAD_MAX))}
+        env = {**os.environ, **BASE_ENVIRONMENT, "JOBS": str(args.jobs), "LOAD_MAX": str(int(LOAD_MAX))}
         if args.fork_source:
             env["FORK_SOURCE"] = str(args.fork_source.resolve())
         log(f"rebuild {label}: browser/pack/build.sh {args.fork_build} {out}")

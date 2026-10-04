@@ -52,6 +52,13 @@ class ProcessTests(unittest.TestCase):
         )
         self.assertEqual(result.stdout, "en_US.UTF-8/set")
 
+    def test_caller_rustc_wrapper_is_disabled(self) -> None:
+        with mock.patch.dict(os.environ, {"RUSTC_WRAPPER": "/caller/rustc-wrapper"}):
+            result = process.run(
+                [sys.executable, "-c", "import os; print(repr(os.environ['RUSTC_WRAPPER']))"],
+            )
+        self.assertEqual(result.stdout, "''\n")
+
     def test_failure_raises_with_output_unless_unchecked(self) -> None:
         with self.assertRaisesRegex(GateError, r"command failed \(3\): sh -c .*\nboom"):
             process.run(["sh", "-c", "echo boom >&2; exit 3"])

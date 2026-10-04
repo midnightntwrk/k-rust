@@ -68,7 +68,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
-from support.process import run  # noqa: E402
+from support.process import BASE_ENVIRONMENT, run  # noqa: E402
 from support.tools import checkout_scratch, scratch_root, z3_environment, z3_library_dir  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -101,7 +101,7 @@ class Runner:
         self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", checkout_scratch() / "browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
-        self.env = {**os.environ, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),
+        self.env = {**os.environ, **BASE_ENVIRONMENT, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),
                     "LOAD_MAX": str(int(LOAD_MAX)), "PYTHONDONTWRITEBYTECODE": "1"}
         self.staged = self.out / "staged"
         self.fetched = self.out / "fetched"

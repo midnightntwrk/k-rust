@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping
 
 from support import ROOT
 from support.hashing import sha256_file
+from support.process import BASE_ENVIRONMENT
 
 
 SCHEMA = "krs-perf-receipt/1"
@@ -36,7 +37,7 @@ def _output(command: list[str], environment: Mapping[str, str] | None = None) ->
         completed = subprocess.run(
             command,
             cwd=ROOT,
-            env={**os.environ, **(environment or {})},
+            env={**os.environ, **BASE_ENVIRONMENT, **(environment or {})},
             capture_output=True,
             text=True,
             timeout=60,

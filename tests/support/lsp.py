@@ -19,10 +19,11 @@ import time
 from typing import Any, Mapping, Sequence
 
 from support import GateError
+from support.process import BASE_ENVIRONMENT
 
 
 Probe = tuple[str, str, str, str]
-ENVIRONMENT = {**os.environ, "RUSTUP_TOOLCHAIN": "stable"}
+ENVIRONMENT = {**os.environ, **BASE_ENVIRONMENT, "RUSTUP_TOOLCHAIN": "stable"}
 
 
 class Client:

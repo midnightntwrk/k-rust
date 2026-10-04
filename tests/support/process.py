@@ -12,8 +12,12 @@ from typing import Any, Mapping, Sequence
 from support import ROOT, GateError
 
 
-BASE_ENVIRONMENT = {"LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1"}
-"""Variables every command receives, ahead of the caller's own overrides."""
+BASE_ENVIRONMENT = {"LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1", "RUSTC_WRAPPER": ""}
+"""Variables every command receives, ahead of the caller's own overrides.
+
+Gate commands never go through a caller's rustc wrapper, because gate targets are per checkout and a path-keyed compile cache only adds latency there.
+An empty RUSTC_WRAPPER also overrides build.rustc-wrapper from Cargo config.
+"""
 
 TERMINATION_GRACE_SECONDS = 5
 OUTPUT_LIMIT = 6000

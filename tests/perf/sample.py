@@ -40,6 +40,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
+from support.process import BASE_ENVIRONMENT  # noqa: E402
 
 
 NAME = "samply"
@@ -580,6 +581,7 @@ def build_profiling_krs() -> Path:
     print(f"building profiling krs into {target}", flush=True)
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("CARGO_PROFILE_", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER"))}
+    environment.update(BASE_ENVIRONMENT)
     environment.update(z3_environment())
     environment.update({**PROFILING_KRS_ENVIRONMENT, "CARGO_TARGET_DIR": os.fspath(target)})
     completed = subprocess.run(

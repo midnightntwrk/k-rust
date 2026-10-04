@@ -35,6 +35,7 @@ from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.pins import load_toml  # noqa: E402
+from support.process import BASE_ENVIRONMENT  # noqa: E402
 from perf import compare, measure, receipts  # noqa: E402
 from perf import sample  # noqa: E402
 from perf import rustc_profile  # noqa: E402
@@ -199,8 +200,9 @@ def base_environment(overrides: Mapping[str, str]) -> tuple[dict[str, str], list
     environment = {key: value for key, value in os.environ.items() if not STRIPPED_VARIABLES.match(key)}
     stripped = sorted(key for key in os.environ if STRIPPED_VARIABLES.match(key))
     environment.pop(measure.SCOPE_VARIABLE, None)
+    environment.update(BASE_ENVIRONMENT)
     environment.update(z3_environment())
-    environment.update({"CARGO_NET_OFFLINE": "true", "RUSTUP_TOOLCHAIN": "stable", "LC_ALL": "C"})
+    environment.update({"CARGO_NET_OFFLINE": "true", "RUSTUP_TOOLCHAIN": "stable"})
     environment.update(overrides)
     return environment, stripped
 
