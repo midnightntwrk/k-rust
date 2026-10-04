@@ -168,7 +168,85 @@ pub(crate) fn expand(
     )
 }
 
+/// Expands `pattern` under the sort and term substitutions of the enclosing alias bodies.
+///
+/// The recursion descends once per level of the pattern, so the stack held by one level bounds
+/// how deep a term can be internalized. Applications, the constructor that nests with term
+/// depth, are expanded in `expand_application`, whose frame holds only that case; every other
+/// constructor goes through `expand_connective`. Both return straight into this frame's result,
+/// so one level of an application spine costs this dispatch plus one application frame rather
+/// than the temporaries of every constructor case.
 fn expand_with(
+    pattern: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+    sorts: &BTreeMap<String, kore::Sort>,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+    stack: &mut Vec<String>,
+) -> Result<kore::Pattern, DefinitionError> {
+    match pattern {
+        kore::Pattern::Application { symbol, arguments } => {
+            expand_application(symbol, arguments, aliases, sorts, terms, stack)
+        }
+        _ => expand_connective(pattern, aliases, sorts, terms, stack),
+    }
+}
+
+fn expand_application(
+    symbol: &kore::Symbol,
+    arguments: &[kore::Pattern],
+    aliases: &BTreeMap<String, AliasDefinition>,
+    sorts: &BTreeMap<String, kore::Sort>,
+    terms: &BTreeMap<kore::Variable, kore::Pattern>,
+    stack: &mut Vec<String>,
+) -> Result<kore::Pattern, DefinitionError> {
+    let symbol = substitute_symbol(symbol, sorts);
+    let mut expanded = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        expanded.push(expand_with(argument, aliases, sorts, terms, stack)?);
+    }
+    let arguments = expanded;
+    let Some(alias) = aliases.get(&symbol.name) else {
+        return Ok(kore::Pattern::Application { symbol, arguments });
+    };
+    if symbol.sort_parameters.len() != alias.sort_parameters.len() {
+        return Err(DefinitionError::WrongAliasSortArgumentCount {
+            alias: symbol.name,
+            expected: alias.sort_parameters.len(),
+            actual: symbol.sort_parameters.len(),
+        });
+    }
+    if arguments.len() != alias.parameters.len() {
+        return Err(DefinitionError::WrongAliasArity {
+            alias: symbol.name,
+            expected: alias.parameters.len(),
+            actual: arguments.len(),
+        });
+    }
+    if let Some(start) = stack.iter().position(|name| name == &symbol.name) {
+        let mut cycle = stack[start..].to_vec();
+        cycle.push(symbol.name);
+        return Err(DefinitionError::AliasCycle(cycle));
+    }
+    let alias_sorts = alias
+        .sort_parameters
+        .iter()
+        .cloned()
+        .zip(symbol.sort_parameters)
+        .collect::<BTreeMap<_, _>>();
+    let alias_terms = alias
+        .parameters
+        .iter()
+        .cloned()
+        .zip(arguments)
+        .collect::<BTreeMap<_, _>>();
+    // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
+    stack.push(symbol.name);
+    let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
+    stack.pop();
+    result
+}
+
+fn expand_connective(
     pattern: &kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
     sorts: &BTreeMap<String, kore::Sort>,
@@ -187,50 +265,7 @@ fn expand_with(
             .cloned()
             .unwrap_or_else(|| Pattern::Variable(substitute_variable(variable, sorts)))),
         Pattern::Application { symbol, arguments } => {
-            let symbol = substitute_symbol(symbol, sorts);
-            let arguments = arguments
-                .iter()
-                .map(|argument| recurse(argument, stack))
-                .collect::<Result<Vec<_>, _>>()?;
-            let Some(alias) = aliases.get(&symbol.name) else {
-                return Ok(Pattern::Application { symbol, arguments });
-            };
-            if symbol.sort_parameters.len() != alias.sort_parameters.len() {
-                return Err(DefinitionError::WrongAliasSortArgumentCount {
-                    alias: symbol.name,
-                    expected: alias.sort_parameters.len(),
-                    actual: symbol.sort_parameters.len(),
-                });
-            }
-            if arguments.len() != alias.parameters.len() {
-                return Err(DefinitionError::WrongAliasArity {
-                    alias: symbol.name,
-                    expected: alias.parameters.len(),
-                    actual: arguments.len(),
-                });
-            }
-            if let Some(start) = stack.iter().position(|name| name == &symbol.name) {
-                let mut cycle = stack[start..].to_vec();
-                cycle.push(symbol.name);
-                return Err(DefinitionError::AliasCycle(cycle));
-            }
-            let alias_sorts = alias
-                .sort_parameters
-                .iter()
-                .cloned()
-                .zip(symbol.sort_parameters)
-                .collect::<BTreeMap<_, _>>();
-            let alias_terms = alias
-                .parameters
-                .iter()
-                .cloned()
-                .zip(arguments)
-                .collect::<BTreeMap<_, _>>();
-            // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
-            stack.push(symbol.name);
-            let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
-            stack.pop();
-            result
+            expand_application(symbol, arguments, aliases, sorts, terms, stack)
         }
         Pattern::Top { sort } => Ok(Pattern::Top {
             sort: substitute_sort(sort, sorts),
