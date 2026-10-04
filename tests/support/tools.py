@@ -139,11 +139,12 @@ def k_version_matches(reported: subprocess.CompletedProcess[str], version: str) 
     return token == f"v{version}"
 
 
-def rustfmt_dir() -> Path:
-    """Find the directory of a working rustfmt.
+def rustfmt() -> Path:
+    """Find a working rustfmt executable.
 
     `KRS_RUSTFMT` wins, then rustfmt on PATH, then each rustup toolchain with
     stable first, so an active toolchain that lacks rustfmt is bypassed.
+    The path is absolute but not resolved: the rustup proxy dispatches on its file name.
     """
 
     configured = os.environ.get("KRS_RUSTFMT")
@@ -168,8 +169,19 @@ def rustfmt_dir() -> Path:
         except OSError:
             continue
         if probe.returncode == 0:
-            return Path(candidate).parent
+            return Path(shutil.which(candidate) or candidate).absolute()
     raise GateError("a working rustfmt was not found; set KRS_RUSTFMT to the executable")
+
+
+def rustfmt_environment() -> dict[str, str]:
+    """The environment entry that makes `krs fmt` run the working rustfmt.
+
+    `krs fmt` starts the executable that `RUSTFMT` names (`crates/krs-fmt/src/rustfmt.rs`).
+    Naming the executable leaves PATH unchanged: a toolchain's `bin` directory also holds
+    that toolchain's `cargo`, which ahead of the rustup proxy rejects `cargo +stable`.
+    """
+
+    return {"RUSTFMT": os.fspath(rustfmt())}
 
 
 def rust_analyzer() -> Path:

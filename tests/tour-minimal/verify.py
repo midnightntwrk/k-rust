@@ -17,7 +17,7 @@ from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, rustfmt_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -167,13 +167,9 @@ def main() -> int:
     gate = krs_gate.configured_or_build(target)
 
     before = SOURCE.read_bytes()
-    format_environment = {
-        **environment,
-        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), os.environ.get("PATH", ""))),
-    }
     run(
         [binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE],
-        environment=format_environment,
+        environment={**environment, **rustfmt_environment()},
     )
     if SOURCE.read_bytes() != before:
         raise GateError("krs fmt --check unexpectedly changed the tour source")

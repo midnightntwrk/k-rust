@@ -266,7 +266,16 @@ class ToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             rustfmt = write_executable(Path(temporary, "rustfmt"), "echo rustfmt 1.0")
             with mock.patch.dict(os.environ, {"KRS_RUSTFMT": os.fspath(rustfmt)}):
-                self.assertEqual(tools.rustfmt_dir(), Path(temporary))
+                self.assertEqual(tools.rustfmt(), rustfmt)
+                self.assertEqual(tools.rustfmt_environment(), {"RUSTFMT": os.fspath(rustfmt)})
+
+    def test_rustfmt_keeps_the_proxy_file_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proxy = write_executable(Path(temporary, "rustup"), "echo rustfmt 1.0")
+            link = Path(temporary, "rustfmt")
+            link.symlink_to(proxy.name)
+            with mock.patch.dict(os.environ, {"KRS_RUSTFMT": os.fspath(link)}):
+                self.assertEqual(tools.rustfmt(), link)
 
 
 class CheckoutTests(unittest.TestCase):

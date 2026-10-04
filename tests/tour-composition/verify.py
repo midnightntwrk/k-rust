@@ -14,7 +14,7 @@ from support import GateError, entry, krs_gate  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -22,11 +22,7 @@ MANIFEST = HERE / "Cargo.toml"
 
 
 def environment() -> dict[str, str]:
-    return {
-        **z3_environment(),
-        "CARGO_TERM_COLOR": "never",
-        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), os.environ.get("PATH", ""))),
-    }
+    return {**z3_environment(), "CARGO_TERM_COLOR": "never"}
 
 
 def command(

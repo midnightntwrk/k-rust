@@ -24,7 +24,7 @@ from support import ROOT, GateError
 from support.lock import msrv
 from support.pins import load_toml
 from support.process import run
-from support.tools import rustfmt_dir
+from support.tools import rustfmt_environment
 
 
 @dataclass(frozen=True)
@@ -64,10 +64,7 @@ def check_packages(gate: str, *, krs: Path, env: Mapping[str, str], target_dir: 
     if not owned:
         raise GateError(f"no standalone packages are registered for gate {gate!r}")
     environment = {**env, "CARGO_TARGET_DIR": os.fspath(target_dir)}
-    format_environment = {
-        **environment,
-        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), env.get("PATH", os.environ.get("PATH", "")))),
-    }
+    format_environment = {**environment, **rustfmt_environment()}
     for package in owned:
         if package.kind != "authored":
             continue

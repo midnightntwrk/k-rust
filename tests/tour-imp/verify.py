@@ -17,7 +17,7 @@ from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, rustfmt_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -29,11 +29,7 @@ GENERATED = HERE / "generated"
 
 
 def cli_environment() -> dict[str, str]:
-    return {
-        **z3_environment(),
-        "CARGO_TERM_COLOR": "never",
-        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), os.environ.get("PATH", ""))),
-    }
+    return {**z3_environment(), "CARGO_TERM_COLOR": "never"}
 
 
 def cli(binary: Path, operation: str, *extra: os.PathLike[str] | str) -> list[os.PathLike[str] | str]:
@@ -110,7 +106,10 @@ def main() -> None:
     check_packages("tour-imp", krs=binary, env=env, target_dir=target)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.
-    run([binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE, sync.CHAPTERS], environment=env)
+    run(
+        [binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE, sync.CHAPTERS],
+        environment={**env, **rustfmt_environment()},
+    )
     run(cli(binary, "check"), environment=env)
     first_expansion = run(cli(binary, "expand"), environment=env).stdout
     second_expansion = run(cli(binary, "expand"), environment=env).stdout
