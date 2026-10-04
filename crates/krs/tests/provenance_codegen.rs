@@ -186,3 +186,11 @@ fn compact_provenance_rejects_duplicate_key() {
         ],
     );
 }
+
+#[test]
+fn provenance_shape_errors_are_nameable_through_the_facade() {
+    assert_eq!(
+        HostSourcePosition::new(0, 1),
+        Err(krs::HostProvenanceShapeError::ZeroLine)
+    );
+}

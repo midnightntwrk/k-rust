@@ -38,10 +38,10 @@ pub use krs_ir::{
     HostBuiltinRegistry, HostBuiltinRegistryError, HostConstructorDescriptor,
     HostConstructorFieldDescriptor, HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload,
     HostIdentityError, HostItemId, HostListOperationRegistration, HostMapOperationRegistration,
-    HostPackageKey, HostProvenance, HostProvenanceError, HostSetOperationRegistration,
-    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
-    ItemKind, ListOperation, MapOperation, ProvenanceKey, ProvenanceRole, SchemaVersion,
-    SentenceKind, SetOperation, TermMapOperation,
+    HostPackageKey, HostProvenance, HostProvenanceError, HostProvenanceShapeError,
+    HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, ProvenanceKey,
+    ProvenanceRole, SchemaVersion, SentenceKind, SetOperation, TermMapOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
