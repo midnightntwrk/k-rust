@@ -247,8 +247,20 @@ reason = "a builtin hook implements a function; on a constructor it would never 
 [[category]]
 id = "anywhere-needs-configuration"
 outcome = "compile_error"
-message = "An anywhere rule must rewrite a single term|is not supported in an anywhere rule"
-reason = "an anywhere rule applies to its left-hand side wherever it occurs, without a configuration around it, so it cannot match sibling cells or allocate fresh values"
+message = "An anywhere rule must rewrite a single term"
+reason = "an anywhere rule applies to its left-hand side wherever it occurs, without a configuration around it, so it cannot match sibling cells"
+
+[[category]]
+id = "fresh-without-counter"
+outcome = "compile_error"
+message = 'Fresh variable !\S+ is not supported in an? (function rule|simplification rule|anywhere rule|macro or alias rule|claim):'
+reason = "a fresh value is allocated from the counter cell by the rewrite step that introduces it; equations and claims are applied without the configuration"
+
+[[category]]
+id = "heat-cool-without-hole"
+outcome = "compile_error"
+message = "rule must match HOLE on its left-hand side|The HOLE of a context must be rewritten to a term containing HOLE"
+reason = "heating and cooling test whether the subterm matched as HOLE is a result, and cooling plugs it back; a sentence that matches or keeps no HOLE has nothing to test or plug back"
 
 [[category]]
 id = "macro-rec-divergence"
