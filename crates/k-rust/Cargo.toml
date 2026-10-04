@@ -19,6 +19,10 @@ required-features = ["cli"]
 name = "observed-execute"
 required-features = ["cli", "measure"]
 
+[[example]]
+name = "generative-compile"
+required-features = ["cli", "generative-harness"]
+
 [dependencies]
 clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
@@ -69,6 +73,9 @@ cli = [
 # Run the kompile invariant checkers (docs in k-rust/src/kompile/invariants.rs) in builds without
 # debug assertions, such as the conformance and reference gates.
 kompile-invariant-checks = []
+# Build the opt-in generative compile harness (`examples/generative-compile.rs`); it only gates
+# that example, so `cargo test` and `cargo clippy --all-targets` skip it unless requested.
+generative-harness = []
 measure = ["k-rust-kore/measure", "k-rust-backend/measure", "dep:libc"]
 mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]

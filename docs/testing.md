@@ -146,6 +146,15 @@ A step whose texts differ but whose reference and krust KORE are equal after `kr
 
 A `driver-delta` label in a ratchet report marks a rank decrease that stays at or above the floor while the driver version changed (`scripts/conformance/ratchet.py`); it is not a pass, and the decrease must be diagnosed like a regression.
 
+## Generative compile test
+
+`scripts/generative-compile.sh [--count N] [--seed S] [--jobs J]` is an exploratory tool, separate from `cargo test`, CI, and the gates.
+It generates N small definitions from seed S (`scripts/generative/gen.py`, 1000 by default), compiles each with the release example `crates/k-rust/examples/generative-compile.rs` (built only under the `generative-harness` feature, with the kompile invariant checkers), loads every emitted `definition.kore` in the Rust backend, and triages the rows with `scripts/generative/triage.py`.
+A panic, crash, timeout, or backend failure after a successful compilation, an error located in a builtin source, and a rejection that no category of `scripts/generative/expected.toml` explains as invalid input are unexpected; the script then exits 1 and keeps the corpus, and `scripts/generative/reduce.py` reduces a case.
+Workers load the prelude once and compile each case against it, about 0.26 s of CPU per case, so the default run takes about 40 s with 8 jobs after a build of about a minute; `--fresh` reloads the prelude for every case (about 0.5 s per case), which is needed to see a case whose syntax changes how builtin rules parse.
+The corpus is not committed, since the seed and count reproduce it.
+A finding becomes a focused regression in its owning subsystem as described above; `expected.toml` holds only rejections of invalid input, each with its reason.
+
 ## Durable regression descriptions
 
 Committed filenames, test names, fixture metadata, and comments must identify the behavior or scenario they describe.

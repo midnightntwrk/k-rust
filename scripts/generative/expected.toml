@@ -1,0 +1,233 @@
+# Expected outcomes of the generative compile test (scripts/generative-compile.sh).
+#
+# Each [[category]] names a class of invalid generated input and the ordinary error with which the
+# compiler correctly rejects it. scripts/generative/triage.py assigns a load, parse, or compile
+# error to the first category whose `outcome` and `message` regexes match the result row (and whose
+# optional `source` regex matches the case's text); a row that no category matches is unexpected.
+# Panics, crashes, timeouts, KORE parse errors, backend failures after a successful compilation,
+# and errors located in a builtin source are always unexpected and are never matched here.
+#
+# Fields:
+#   id        stable name, used by `triage.py --list ID`
+#   outcome   regex over the harness outcome (load_error, parse_error, compile_error)
+#   message   regex over the first line of the error
+#   source    optional regex that the case's source text must match
+#   internal  true when the rejection comes from an internal invariant or the KORE emission stage
+#             rather than a designed diagnostic: the input is invalid and is rejected, but the
+#             message usually lacks a location and does not name the user's mistake
+#   reason    why the input is invalid
+#
+# A category describes invalid input, never a compiler defect. When a defect is found, it stays
+# unexpected until it is fixed.
+
+[[category]]
+id = "hooked-constructor"
+outcome = "compile_error"
+message = "Cannot add new constructors to hooked sort"
+reason = "a constructor on a hooked sort (Int, Map, MInt{..}, a sort with hook(..)): the hook fixes the sort's values"
+
+[[category]]
+id = "parametric-instance-at-hooked-sort"
+outcome = "compile_error"
+message = 'whose values its hook or its domain values fix|\(origin: [a-z-]+\) the instance of'
+internal = true
+reason = "a non-function parametric production instantiated at a hooked sort builds values the hook does not admit"
+
+[[category]]
+id = "strict-without-kresult"
+outcome = "compile_error"
+message = "missing function isKResult"
+reason = "a strict production needs KResult to decide when an argument is evaluated, and the definition declares none"
+
+[[category]]
+id = "smt-lemma-without-smtlib"
+outcome = "compile_error"
+message = "smt-lemma"
+reason = "an smt-lemma rule over symbols that have no SMT translation"
+
+[[category]]
+id = "exit-cell-not-int"
+outcome = "compile_error"
+message = "term Exit has sort"
+internal = true
+reason = "the exit cell's content must be an Int exit code"
+
+[[category]]
+id = "ambiguity"
+outcome = "load_error"
+message = "Parsing ambiguity"
+reason = "a reused terminal or overloaded production makes a rule ambiguous"
+
+[[category]]
+id = "user-parametric-sort"
+outcome = "load_error"
+message = "parametric sorts are currently unsupported"
+reason = "user-defined parametric sorts are a documented unsupported feature"
+
+[[category]]
+id = "claim-in-definition"
+outcome = "compile_error"
+message = "Claims are not allowed"
+reason = "claims belong in a specification module, not in the definition"
+
+[[category]]
+id = "associativity-without-effect"
+outcome = "compile_error"
+# A K or KItem argument accepts the production itself, so the attribute has an effect there.
+message = 'attribute not permitted on non-associative production\.(?!.*<= K(Item)?\b)'
+reason = "left, right, or non-assoc on a binary production that cannot nest in that argument (mutated attribute)"
+
+[[category]]
+id = "strict-position-out-of-range"
+outcome = "compile_error"
+message = "strict position"
+reason = "strict(n) names an argument the production does not have"
+
+[[category]]
+id = "heat-k-argument"
+outcome = "compile_error"
+message = "Cannot heat a nonterminal of sort K"
+reason = "strictness on an argument of sort K, which cannot be heated as one item"
+
+[[category]]
+id = "rule-attribute-misuse"
+outcome = "compile_error"
+message = 'only supported on (simplification|function) rules|not supported on simplification rules|without simplification attribute|Simplification rules expect'
+reason = "a rule attribute on the wrong kind of rule (mutated attribute)"
+
+[[category]]
+id = "bracket-shape"
+outcome = "load_error"
+message = "bracket productions"
+reason = "bracket on a production that is not a parenthesis around a single argument"
+
+[[category]]
+id = "lexer-precedence"
+outcome = "load_error"
+message = "unexpected token '(k|top|T|generatedTop0)' following token '<'|Inconsistent token precedence|unexpected token '-[0-9]+' following token"
+reason = "a user token or terminal takes precedence over a token of the same module (a cell name or an Int literal), so the text lexes differently"
+
+[[category]]
+id = "terminator-symbol-on-non-list"
+outcome = "compile_error"
+message = "terminator-symbol"
+reason = "terminator-symbol on a production that is not a user list"
+
+[[category]]
+id = "circular-subsort-or-priority"
+outcome = "load_error"
+message = "illegal circular"
+reason = "a circular subsort or priority relation (mutated subsort)"
+
+[[category]]
+id = "token-sort-constructor"
+outcome = "compile_error"
+message = "was declared as a token"
+reason = "the token attribute makes a sort a token sort, whose non-token productions must be functions"
+
+[[category]]
+id = "strict-on-function-or-macro"
+outcome = "compile_error"
+message = "Strictness is not supported on a"
+reason = "strictness on a function or macro production, which is never rewritten by heating"
+
+[[category]]
+id = "division-by-zero-literal"
+outcome = "compile_error"
+message = '\[constant folding\] (Division|Modulus) by zero'
+reason = "a literal division or modulus by zero in a rule's right-hand side, outside the domain of the partial function, which constant folding reports"
+
+[[category]]
+id = "macro-without-rule"
+outcome = "compile_error"
+message = "macro symbol that was not expanded"
+reason = "a macro or alias production without a defining rule"
+
+[[category]]
+id = "binder-misuse"
+outcome = "compile_error"
+message = "[Bb]inder"
+reason = "binder attribute on a production that does not bind a variable (mutated attribute)"
+
+[[category]]
+id = "symbol-with-klabel-or-overload"
+outcome = "compile_error"
+message = "cannot be combined with|may not occur together"
+reason = "symbol(x) together with klabel(y), or klabel with overload"
+
+[[category]]
+id = "cell-bag-without-type"
+outcome = "compile_error"
+message = "Cell bags"
+reason = "a multiplicity=\"*\" cell without a collection type"
+
+[[category]]
+id = "emission-axiom-shape"
+outcome = "compile_error"
+message = 'cannot emit (assoc|idem|comm) axiom|Expected to find exactly one production for KLabel'
+internal = true
+reason = "assoc, comm, idem, or element on a production whose shape the axiom cannot describe (mutated attribute)"
+
+[[category]]
+id = "stream-attribute-on-production"
+outcome = "compile_error"
+message = "stream names"
+reason = "stream(x) on a production names no stream (mutated attribute)"
+
+[[category]]
+id = "colors-arity"
+outcome = "compile_error"
+message = "colors attribute"
+reason = "colors(..) does not give one color per terminal (mutated attribute)"
+
+[[category]]
+id = "unit-without-assoc"
+outcome = "compile_error"
+message = "unit attribute but is not associative"
+reason = "unit(..) on a production that is not associative (mutated attribute)"
+
+[[category]]
+id = "duplicate-label"
+outcome = "compile_error"
+message = "is not unique"
+reason = "two productions with the same label"
+
+[[category]]
+id = "total-without-function"
+outcome = "compile_error"
+message = "cannot be applied to a production which does not have"
+reason = "total or functional on a production that is not a function"
+
+[[category]]
+id = "second-top-cell"
+outcome = "compile_error"
+message = "Too many top cells"
+reason = "a mutated cell attribute declares a second top cell"
+
+[[category]]
+id = "function-symbol-on-lhs"
+outcome = "compile_error"
+message = "Illegal function symbol"
+reason = "a function symbol below the top of a rewrite rule's left-hand side"
+
+[[category]]
+id = "unbound-rhs-variable"
+outcome = "compile_error"
+message = "not bound on left hand side"
+reason = "a right-hand-side variable that the left-hand side does not bind"
+
+[[category]]
+id = "cell-attribute-on-production"
+outcome = "compile_error|load_error"
+message = "."
+source = '[\[,] ?cell[,\]]'
+internal = true
+reason = "the cell attribute on an ordinary production (mutated attribute) declares a malformed cell"
+
+[[category]]
+id = "cell-collection-on-user-sort"
+outcome = "load_error"
+message = "#KRewrite"
+source = '\[cellCollection\]'
+internal = true
+reason = "the cellCollection attribute on a user sort (mutated attribute) makes its rules unparsable"
