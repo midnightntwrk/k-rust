@@ -3220,6 +3220,30 @@ fn owise_or_a_priority_alone_compiles_and_loads() {
     }
 }
 
+/// An `owise` macro rule ranks after every explicit priority, so its emitted axiom states its rank
+/// by `owise` alone; the other rules state their priority.
+#[test]
+fn an_owise_macro_axiom_states_no_priority_beside_owise() {
+    let artifacts = compile_for_backend(
+        "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | m(Foo) [macro, symbol(m)]\n  rule m(a) => b [priority(250)]\n  rule m(X) => X [owise]\nendmodule\n",
+        "MAIN",
+    )
+    .expect("the macros should compile");
+    let axioms = artifacts
+        .macros_kore
+        .split("axiom{")
+        .skip(1)
+        .collect::<Vec<_>>();
+    assert_eq!(axioms.len(), 2, "{}", artifacts.macros_kore);
+    for axiom in axioms {
+        if axiom.contains("owise{}()") {
+            assert!(!axiom.contains("priority{}"), "{axiom}");
+        } else {
+            assert!(axiom.contains("priority{}(\"250\")"), "{axiom}");
+        }
+    }
+}
+
 /// Every sort of K items is below `KItem` and `K` in the order the rule grammar admits terms by,
 /// so a term of the result sort stands at a `K` argument and an associativity attribute on such a
 /// production decides the nesting: the generated-input reproducer compiles and loads.
@@ -3286,18 +3310,21 @@ fn an_associativity_attribute_on_an_unrelated_argument_is_a_located_error() {
 }
 
 /// A priority ranks rules by a natural number the compiled definition carries and the backend
-/// reads below 256; any other `priority` or `simplification` value is an error at the sentence
-/// whose emitted rules it would rank.
+/// reads below the `owise` rank 255; any other `priority` or `simplification` value is an error
+/// at the sentence whose emitted rules it would rank. 255 itself would rank a rule beside the
+/// `owise` rules that must yield to it.
 #[test]
 fn a_priority_that_names_no_rank_is_a_located_error() {
     let rules = "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)]\n  rule {rule}\nendmodule\n";
     for rule in [
         "a => b [priority(300)]",
+        "a => b [priority(255)]",
         "a => b [priority(-1)]",
         "a => b [priority(abc)]",
         "a => b [priority(5.0)]",
         "f(X) => X [priority(256)]",
         "f(a) => b [simplification(300)]",
+        "f(a) => b [simplification(255)]",
         "f(a) => b [simplification(abc)]",
     ] {
         let (start_line, message) = compile_error(&rules.replace("{rule}", rule), "MAIN");
@@ -3330,10 +3357,10 @@ fn a_priority_that_names_no_rank_is_a_located_error() {
 fn readable_priorities_and_macro_priorities_compile_and_load() {
     for rule in [
         "a => b [priority(0)]",
-        "a => b [priority(255)]",
+        "a => b [priority(254)]",
         "f(X) => X [priority(007)]",
         "f(a) => b [simplification]",
-        "f(a) => b [simplification(255)]",
+        "f(a) => b [simplification(254)]",
         "m(X) => X [priority(300)]",
         "m(X) => X [priority(-1)]",
     ] {

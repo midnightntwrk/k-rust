@@ -4143,6 +4143,45 @@ fn expands_nested_macros_child_first_in_priority_order() {
     assert_has_generated_by(&transformed, GeneratingPass::MacroExpansion);
 }
 
+/// An `owise` macro rule applies only where no other rule of its head applies, so it yields to
+/// a rule of any explicit priority, including one numbered above the default.
+#[test]
+fn an_owise_macro_rule_yields_to_every_explicit_priority() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "c" [symbol(c)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+          rule m(a) => b [priority(250)]
+          rule m(_) => c [owise]
+          rule pair(m(a), m(b)) => pair(a, b) [label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let output = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        output,
+        "pair(b(.KList),c(.KList))=>pair(a(.KList),b(.KList))"
+    );
+}
+
 #[test]
 fn simplification_rules_do_not_inherit_macro_kinds_during_expansion() {
     for macro_kind in ["macro", "macro-rec", "alias", "alias-rec"] {

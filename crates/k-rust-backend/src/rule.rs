@@ -61,7 +61,8 @@ use k_rust_kore::kore::ast::{self as kore, KoreString};
 use k_rust_kore::kore::walk;
 use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{
-    DEFAULT_RULE_PRIORITY, KoreAttribute, MalformedAttribute, WellKnownSymbol, rule_priority,
+    DEFAULT_RULE_PRIORITY, KoreAttribute, MalformedAttribute, OWISE_RULE_PRIORITY, WellKnownSymbol,
+    rule_priority,
 };
 
 use crate::{
@@ -2986,7 +2987,7 @@ impl RuleAttributes {
             return Err(AxiomError::ConflictingPriorities(present));
         }
         let priority = if owise {
-            u8::MAX
+            OWISE_RULE_PRIORITY
         } else {
             priority
                 .or(simplification_priority)
@@ -3829,6 +3830,30 @@ mod tests {
                 ) [priority{}("10"), owise{}()]"#
             ),
             Err(AxiomError::ConflictingPriorities(vec!["priority", "owise"]))
+        );
+    }
+
+    /// An `owise` rule ranks after every explicit priority, so no explicit priority names its
+    /// rank: a rule ranked beside the `owise` rules would be their alternative.
+    #[test]
+    fn owise_ranks_after_every_explicit_priority() {
+        let rank = |attributes: &str| {
+            let source = format!(
+                r#"axiom{{}} \rewrites{{S{{}}}}(
+                    \and{{S{{}}}}(lhs{{}}(), \top{{S{{}}}}()), rhs{{}}()
+                ) [{attributes}]"#
+            );
+            match classify(&source) {
+                Ok(Some(ClassifiedAxiom::Rewrite { attributes, .. })) => Ok(attributes.priority),
+                Ok(other) => panic!("expected a rewrite rule: {other:?}"),
+                Err(error) => Err(error),
+            }
+        };
+        assert_eq!(rank("owise{}()"), Ok(OWISE_RULE_PRIORITY));
+        assert_eq!(rank(r#"priority{}("254")"#), Ok(254));
+        assert_eq!(
+            rank(r#"priority{}("255")"#),
+            Err(AxiomError::InvalidPriority("255".into()))
         );
     }
 

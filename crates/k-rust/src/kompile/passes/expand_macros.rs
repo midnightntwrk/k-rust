@@ -37,6 +37,7 @@ use std::{
 };
 
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -1794,9 +1795,21 @@ fn contains_macro_symbol(sentence: &Sentence, productions: &ProductionCatalog<'_
     found
 }
 
-fn macro_priority(attributes: &Attributes) -> Result<i64, Diagnostic> {
+/// A macro or alias rule's place in expansion order: rules are tried by ascending rank.
+///
+/// A `priority` attribute names any integer, and a rule without one ranks at the default rule
+/// priority. An `owise` rule applies only where no other rule of its head applies, whatever that
+/// rule's priority, so it ranks after every rank a priority can name; the derived order, which
+/// compares variants first, places [`MacroRank::Owise`] after every [`MacroRank::Ranked`].
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum MacroRank {
+    Ranked(i64),
+    Owise,
+}
+
+fn macro_priority(attributes: &Attributes) -> Result<MacroRank, Diagnostic> {
     if let Some(value) = attributes.string(AttributeKey::Priority) {
-        value.parse().map_err(|_| {
+        value.parse().map(MacroRank::Ranked).map_err(|_| {
             Diagnostic::error_at(
                 DiagnosticCode::InvalidMacroExpansion,
                 format!("Invalid value for priority attribute: {value}. Must be an integer."),
@@ -1804,9 +1817,9 @@ fn macro_priority(attributes: &Attributes) -> Result<i64, Diagnostic> {
             )
         })
     } else if attributes.has(AttributeKey::Owise) {
-        Ok(200)
+        Ok(MacroRank::Owise)
     } else {
-        Ok(50)
+        Ok(MacroRank::Ranked(i64::from(DEFAULT_RULE_PRIORITY)))
     }
 }
 

@@ -38,6 +38,7 @@ use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
 use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
 
 pub(super) struct RuleEmissionContext<'a, 'definition> {
     pub valued: &'a BTreeSet<String>,
@@ -272,19 +273,18 @@ fn emit_macro_axiom(
         left: Box::new(converter.convert(left)?),
         right: Box::new(converter.convert(right)?),
     };
+    // The axiom states the rule's rank in macro expansion. An `owise` rule's rank is its `owise`
+    // attribute, which places it after every rank a priority names, so no priority is added
+    // beside it; every other rule states its priority, the default when it names none.
     let mut attributes = attributes.clone();
-    let priority = attributes
-        .value(AttributeKey::Priority)
-        .map(|value| attribute_value_string(AttributeKey::Priority.as_str(), value))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            if attributes.has(AttributeKey::Owise) {
-                "200".into()
-            } else {
-                "50".into()
-            }
-        });
-    attributes.set(AttributeKey::Priority, Value::String(priority));
+    if !attributes.has(AttributeKey::Owise) {
+        let priority = attributes
+            .value(AttributeKey::Priority)
+            .map(|value| attribute_value_string(AttributeKey::Priority.as_str(), value))
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_RULE_PRIORITY.to_string());
+        attributes.set(AttributeKey::Priority, Value::String(priority));
+    }
     equation_sentence(false, pattern, &attributes, valued, parameters)
 }
 

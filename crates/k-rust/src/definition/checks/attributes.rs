@@ -18,7 +18,7 @@ use crate::definition::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, InternalLabel, Term};
 use crate::names::BuiltinSort;
-use k_rust_kore::names::rule_priority;
+use k_rust_kore::names::{OWISE_RULE_PRIORITY, rule_priority};
 
 #[derive(Clone, Copy)]
 struct Target {
@@ -99,9 +99,11 @@ pub(super) fn check_attribute_semantics_with_overloads(
 /// A rule's priority ranks it among the rules of its group: it applies only where no rule of a
 /// smaller rank does. A rank is a natural number that the compiled definition carries as the
 /// attribute's string, and the backend reads it in a byte (`k_rust_kore::names::rule_priority`):
-/// a decimal natural number below 256, or the empty string for the default. Any other value
-/// (`-1`, `abc`, `300`) ranks nothing the definition can run, so it is an error at the sentence
-/// rather than when the backend loads the definition.
+/// a decimal natural number below the rank of `owise` rules (255), or the empty string for the
+/// default. Any other value (`-1`, `abc`, `300`) ranks nothing the definition can run, so it is
+/// an error at the sentence rather than when the backend loads the definition. The `owise` rank
+/// itself is no explicit rank: an `owise` rule must come strictly after every rule it yields to,
+/// and a rule of the same rank would be its alternative instead.
 ///
 /// The value is judged where it ranks emitted rules: on a rule, a context and a context alias
 /// (whose generated rules carry it), and on a strict production (whose strictness rules carry
@@ -139,8 +141,10 @@ fn check_rule_ranks(
         if rule_priority(&value).is_none() {
             diagnostics.push(invalid_attribute(
                 format!(
-                    "Invalid value for {key} attribute: {value}. A rule priority is a natural number from 0 to 255.",
-                    key = key.as_str()
+                    "Invalid value for {key} attribute: {value}. A rule priority is a natural number from 0 to {max}; {owise} is the rank of owise rules.",
+                    key = key.as_str(),
+                    max = OWISE_RULE_PRIORITY - 1,
+                    owise = OWISE_RULE_PRIORITY,
                 ),
                 sentence,
             ));
