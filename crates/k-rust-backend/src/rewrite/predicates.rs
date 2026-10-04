@@ -15,11 +15,14 @@ use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::{
     definition::{BackendDefinition, ConstructorHead, constructor_head},
-    rule::{Concreteness, ConstraintKind, Predicate, RewriteRule},
+    fresh::fresh_name,
+    rule::{
+        Concreteness, ConstraintKind, Predicate, RewriteRule, collect_all_variables, mentions_free,
+    },
     substitution::{Substitution, substitute},
     term::{
         Term, TermKind, Variable,
-        names::{VariableProvenance, split_marker},
+        names::{FreshMarker, VariableProvenance, split_marker},
     },
 };
 
@@ -263,21 +266,59 @@ fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> P
             Box::new(substitute_predicate(left, substitution)),
             Box::new(substitute_predicate(right, substitution)),
         ),
-        Predicate::Exists(variable, inner) => Predicate::Exists(
-            variable.clone(),
-            Box::new(substitute_predicate(
-                inner,
-                &without_variable(substitution, variable),
-            )),
-        ),
-        Predicate::Forall(variable, inner) => Predicate::Forall(
-            variable.clone(),
-            Box::new(substitute_predicate(
-                inner,
-                &without_variable(substitution, variable),
-            )),
-        ),
+        Predicate::Exists(variable, inner) => {
+            let (variable, inner) = substitute_under_binder(variable, inner, substitution);
+            Predicate::Exists(variable, Box::new(inner))
+        }
+        Predicate::Forall(variable, inner) => {
+            let (variable, inner) = substitute_under_binder(variable, inner, substitution);
+            Predicate::Forall(variable, Box::new(inner))
+        }
     }
+}
+
+/// The binder and body of a quantifier after substituting `substitution` into it, avoiding
+/// capture.
+///
+/// The binder shadows its variable, so the substitution is applied without it. A value that
+/// mentions the bound variable, substituted for a variable free in the body, would otherwise
+/// be captured: the substituted variable would denote the bound one instead of the free one.
+/// The binder is then renamed first, at every occurrence it binds, to a
+/// `{name}!binder{counter}` name of no variable of the body, of the substitution or of the
+/// binder itself, so the renaming captures nothing either. Otherwise the binder keeps its name.
+fn substitute_under_binder(
+    variable: &Variable,
+    inner: &Predicate,
+    substitution: &Substitution,
+) -> (Variable, Predicate) {
+    let substitution = without_variable(substitution, variable);
+    let captures = substitution.iter().any(|(key, value)| {
+        value.attributes().variables.contains(variable) && mentions_free(inner, key)
+    });
+    if !captures {
+        return (variable.clone(), substitute_predicate(inner, &substitution));
+    }
+    let mut variables = BTreeSet::from([variable.clone()]);
+    collect_all_variables(std::slice::from_ref(inner), &mut variables);
+    for (key, value) in &substitution {
+        variables.insert(key.clone());
+        variables.extend(value.attributes().variables.iter().cloned());
+    }
+    let mut avoid = variables
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<BTreeSet<_>>();
+    let fresh = variable.with_name(fresh_name(
+        &variable.name,
+        FreshMarker::Binder,
+        &mut 0,
+        &mut avoid,
+    ));
+    let renamed = substitute_predicate(
+        inner,
+        &Substitution::from([(variable.clone(), Term::variable(fresh.clone()))]),
+    );
+    (fresh, substitute_predicate(&renamed, &substitution))
 }
 
 fn without_variable(substitution: &Substitution, variable: &Variable) -> Substitution {

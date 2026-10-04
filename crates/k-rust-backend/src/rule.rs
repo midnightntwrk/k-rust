@@ -2814,6 +2814,30 @@ fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
     }
 }
 
+/// Whether `variable` occurs free in `predicate`, without collecting its free variables.
+pub(crate) fn mentions_free(predicate: &Predicate, variable: &Variable) -> bool {
+    match predicate {
+        Predicate::True | Predicate::False => false,
+        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+            term.attributes().variables.contains(variable)
+        }
+        Predicate::Equals(left, right) | Predicate::In(left, right) => {
+            left.attributes().variables.contains(variable)
+                || right.attributes().variables.contains(variable)
+        }
+        Predicate::Not(inner) => mentions_free(inner, variable),
+        Predicate::And(inner) | Predicate::Or(inner) => inner
+            .iter()
+            .any(|predicate| mentions_free(predicate, variable)),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            mentions_free(left, variable) || mentions_free(right, variable)
+        }
+        Predicate::Exists(bound, inner) | Predicate::Forall(bound, inner) => {
+            bound != variable && mentions_free(inner, variable)
+        }
+    }
+}
+
 fn free_variables_of<'a>(
     predicates: impl IntoIterator<Item = &'a Predicate>,
 ) -> BTreeSet<Variable> {

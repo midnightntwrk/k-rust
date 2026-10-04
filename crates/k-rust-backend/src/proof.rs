@@ -6162,4 +6162,93 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(simplification_ids, Vec::<&str>::new());
     }
+
+    /// Two constants of `SortK`, rules `start(X) => mid(X)`, `mid(a) => end`, `mid(b) => fin`,
+    /// the false claim `main: start(X) => end`, and the true trusted lemma
+    /// `mid(Y) /\ Y = a => end` whose `Y = a` is spelled with a binder named `binder`:
+    /// `\not(\exists binder. binder = a /\ \not(binder = Y))`.
+    fn claim_capture_definition(binder: &str) -> BackendDefinition {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortK{{}} []
+                sort SortS{{}} []
+                symbol a{{}}() : SortK{{}} [constructor{{}}(), functional{{}}()]
+                symbol b{{}}() : SortK{{}} [constructor{{}}(), functional{{}}()]
+                axiom{{}} \or{{SortK{{}}}}(a{{}}(), b{{}}()) [constructor{{}}()]
+                symbol start{{}}(SortK{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol mid{{}}(SortK{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol end{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol fin{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(start{{}}(X:SortK{{}}), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(mid{{}}(X:SortK{{}}), \top{{SortS{{}}}}())) [label{{}}("r-start")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(mid{{}}(a{{}}()), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(end{{}}(), \top{{SortS{{}}}}())) [label{{}}("r-a")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(mid{{}}(b{{}}()), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(fin{{}}(), \top{{SortS{{}}}}())) [label{{}}("r-b")]
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(start{{}}(X:SortK{{}}), \top{{SortS{{}}}}()),
+                    weakAlwaysFinally{{SortS{{}}}}(end{{}}())) [label{{}}("main")]
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(mid{{}}(Y:SortK{{}}),
+                        \not{{SortS{{}}}}(\exists{{SortS{{}}}}({binder}:SortK{{}},
+                            \and{{SortS{{}}}}(
+                                \equals{{SortK{{}}, SortS{{}}}}({binder}:SortK{{}}, a{{}}()),
+                                \not{{SortS{{}}}}(
+                                    \equals{{SortK{{}}, SortS{{}}}}({binder}:SortK{{}}, Y:SortK{{}})))))),
+                    weakAlwaysFinally{{SortS{{}}}}(end{{}}())) [label{{}}("lemma"), trusted{{}}()]
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// The lemma's binder spelled `X`, the name of the subject's variable in `mid(X)`.
+    /// Matching binds the lemma's `Y` to `X`, and the substitution into
+    /// `\not(\exists X. X = a /\ \not(X = Y))` must rename the binder, or it captures the
+    /// subject's `X`, the requires becomes `\top`, and the false claim is proven. Every
+    /// spelling answers as the `W` control.
+    #[test]
+    fn a_claim_binder_named_like_a_subject_variable_captures_nothing() {
+        fn status(binder: &str, solver: Option<&str>) -> ProofStatus {
+            let definition = claim_capture_definition(binder);
+            let lemma = claim_with_label(&definition, "lemma");
+            let prove = |solver: &dyn SmtSolver| {
+                super::prove_claim(
+                    &definition,
+                    claim_with_label(&definition, "main"),
+                    &[lemma],
+                    ProofOptions::default(),
+                    solver,
+                )
+                .expect("the claim should execute")
+                .status
+            };
+            match solver {
+                None => prove(&NoSolver),
+                #[cfg(feature = "z3")]
+                Some(_) => {
+                    prove(&crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize"))
+                }
+                #[cfg(not(feature = "z3"))]
+                Some(_) => unreachable!("Z3 runs only with the z3 feature"),
+            }
+        }
+        let control = status("W", None);
+        assert_ne!(control, ProofStatus::Proven);
+        assert_eq!(status("X", None), control);
+        #[cfg(feature = "z3")]
+        for binder in ["W", "X"] {
+            assert_eq!(
+                status(binder, Some("z3")),
+                ProofStatus::Failed,
+                "binder {binder}"
+            );
+        }
+    }
 }

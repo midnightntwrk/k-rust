@@ -11,6 +11,7 @@ mod rewrite;
 mod walk_flags;
 
 pub(crate) mod alpha;
+mod capture;
 mod cascade;
 
 mod sort_injections;

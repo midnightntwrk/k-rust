@@ -678,6 +678,58 @@ impl PredicateAssumptions<'_> {
     }
 }
 
+/// The assumptions that hold under a quantifier binding `variable`: those that do not
+/// mention `variable` free. Facts about a free variable of the bound variable's name speak of
+/// another variable.
+struct UnshadowedAssumptions {
+    predicates: Vec<Predicate>,
+    path_condition: PathConditionReplacements,
+    conjuncts: FxHashSet<Predicate>,
+}
+
+impl UnshadowedAssumptions {
+    /// `None` when no assumption mentions `variable` free, so every one of them holds under
+    /// the binder as it is.
+    fn under_binder(variable: &Variable, assumptions: &PredicateAssumptions<'_>) -> Option<Self> {
+        let holds = |predicate: &Predicate| !crate::rule::mentions_free(predicate, variable);
+        let shadowed = !assumptions.terms.predicates.iter().all(holds)
+            || !assumptions.conjuncts.iter().all(holds);
+        if !shadowed {
+            return None;
+        }
+        let predicates = assumptions
+            .terms
+            .predicates
+            .iter()
+            .filter(|predicate| holds(predicate))
+            .cloned()
+            .collect::<Vec<_>>();
+        let path_condition = PathConditionReplacements::new(&predicates);
+        let conjuncts = assumptions
+            .conjuncts
+            .iter()
+            .filter(|predicate| assumptions.contains(predicate) && holds(predicate))
+            .cloned()
+            .collect();
+        Some(Self {
+            predicates,
+            path_condition,
+            conjuncts,
+        })
+    }
+
+    fn view(&self) -> PredicateAssumptions<'_> {
+        PredicateAssumptions {
+            terms: TermAssumptions {
+                predicates: &self.predicates,
+                path_condition: &self.path_condition,
+            },
+            conjuncts: &self.conjuncts,
+            excluded: None,
+        }
+    }
+}
+
 fn predicate_conjunct_index(predicates: &[Predicate]) -> FxHashSet<Predicate> {
     fn insert(predicate: &Predicate, index: &mut FxHashSet<Predicate>) {
         if let Predicate::And(conjuncts) = predicate {
@@ -1544,10 +1596,23 @@ fn simplify_predicate_with_budget(
         }
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
             let mut inner_remaining = *remaining;
+            // The quantifier shadows its variable: a fact about a free variable of the same
+            // name is not a fact about the bound one, so the body is simplified without the
+            // facts that mention that variable free. With the fact `X = a`, `\exists X.
+            // \not(X = a)` would otherwise become `\bottom`.
+            let unshadowed = UnshadowedAssumptions::under_binder(variable, assumptions);
+            let unshadowed_view;
+            let inner_assumptions = match &unshadowed {
+                Some(unshadowed) => {
+                    unshadowed_view = unshadowed.view();
+                    &unshadowed_view
+                }
+                None => assumptions,
+            };
             let inner = simplify_predicate_with_budget(
                 definition,
                 inner,
-                assumptions,
+                inner_assumptions,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
