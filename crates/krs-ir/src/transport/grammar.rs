@@ -22,8 +22,8 @@ use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
-    ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey,
-    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
+    ListOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole,
+    SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -339,134 +339,44 @@ impl fmt::Display for HostEnumVariantReferenceError {
 
 impl Error for HostEnumVariantReferenceError {}
 
-/// One ordinary Map operation marker registered by the author-facing facade.
-#[derive(Clone, Copy, Debug)]
-pub struct HostMapOperationRegistration {
-    /// Target-neutral Map operation identity.
-    pub operation: TermMapOperation,
-    /// Function producing the marker type's build-local identity.
-    pub target: HostTypeKey,
-}
-
-impl HostMapOperationRegistration {
-    /// Registers an ordinary Map operation marker.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HostBuiltinRegistryError::UnsupportedMapOperation`] for structural Map operations.
-    pub fn new(
-        operation: MapOperation,
-        target: HostTypeKey,
-    ) -> Result<Self, HostBuiltinRegistryError> {
-        let operation = TermMapOperation::try_from(operation)
-            .map_err(|_| HostBuiltinRegistryError::UnsupportedMapOperation(operation))?;
-        Ok(Self { operation, target })
-    }
-}
-
-/// One ordinary List operation marker registered by the author-facing facade.
-#[derive(Clone, Copy, Debug)]
-pub struct HostListOperationRegistration {
-    /// Target-neutral List operation identity.
-    pub operation: ListOperation,
-    /// Function producing the marker type's build-local identity.
-    pub target: HostTypeKey,
-}
-
-/// One ordinary Set operation marker registered by the author-facing facade.
-#[derive(Clone, Copy, Debug)]
-pub struct HostSetOperationRegistration {
-    /// Target-neutral Set operation identity.
-    pub operation: SetOperation,
-    /// Function producing the marker type's build-local identity.
-    pub target: HostTypeKey,
-}
-
 /// Complete host-only builtin catalog used for exact `TypeId` joins.
 ///
 /// It is intentionally not serializable. A collector turns references into
 /// [`DescriptorSortRef`] and [`DescriptorApplicationRef`] before emitting JSON.
+/// Every field is ordered by its catalog's `ALL`, so the registry is complete by construction.
 #[derive(Clone, Debug)]
 pub struct HostBuiltinRegistry {
     /// Registered sort markers in [`BuiltinSort::ALL`] order.
     pub sorts: [HostTypeKey; BuiltinSort::ALL.len()],
     /// Registered operation markers in [`BuiltinOperation::ALL`] order.
     pub operations: [HostTypeKey; BuiltinOperation::ALL.len()],
-    /// Registered ordinary Map operation markers.
-    pub map_operations: Vec<HostMapOperationRegistration>,
-    /// Registered ordinary List operation markers.
-    pub list_operations: Vec<HostListOperationRegistration>,
-    /// Registered ordinary Set operation markers.
-    pub set_operations: Vec<HostSetOperationRegistration>,
+    /// Registered ordinary Map operation markers in [`TermMapOperation::ALL`] order.
+    pub map_operations: [HostTypeKey; TermMapOperation::ALL.len()],
+    /// Registered List operation markers in [`ListOperation::ALL`] order.
+    pub list_operations: [HostTypeKey; ListOperation::ALL.len()],
+    /// Registered Set operation markers in [`SetOperation::ALL`] order.
+    pub set_operations: [HostTypeKey; SetOperation::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
-    /// Validates completeness of dynamic catalogs and uniqueness of Rust marker types.
+    /// Validates that no Rust marker `TypeId` has two builtin meanings.
     ///
     /// # Errors
     ///
-    /// Returns an error for a missing or duplicate dynamic catalog identity or any reused Rust marker `TypeId`.
+    /// Returns [`HostBuiltinRegistryError::ReusedRustType`] for a reused marker `TypeId`.
     /// Alias paths remain valid because aliases preserve the same `TypeId`; no authored spelling participates in this check.
     pub fn validate(&self) -> Result<(), HostBuiltinRegistryError> {
-        let mut map_operation_ids = BTreeSet::new();
-        let mut list_operation_ids = BTreeSet::new();
-        let mut set_operation_ids = BTreeSet::new();
         let mut rust_ids = BTreeSet::new();
-        for target in &self.sorts {
+        for target in self
+            .sorts
+            .iter()
+            .chain(&self.operations)
+            .chain(&self.map_operations)
+            .chain(&self.list_operations)
+            .chain(&self.set_operations)
+        {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
-            }
-        }
-        for target in &self.operations {
-            if !rust_ids.insert(target.resolve()) {
-                return Err(HostBuiltinRegistryError::ReusedRustType);
-            }
-        }
-        for registration in &self.map_operations {
-            if !map_operation_ids.insert(registration.operation) {
-                return Err(HostBuiltinRegistryError::DuplicateMapOperation(
-                    registration.operation.into(),
-                ));
-            }
-            if !rust_ids.insert(registration.target.resolve()) {
-                return Err(HostBuiltinRegistryError::ReusedRustType);
-            }
-        }
-        for registration in &self.list_operations {
-            if !list_operation_ids.insert(registration.operation) {
-                return Err(HostBuiltinRegistryError::DuplicateListOperation(
-                    registration.operation,
-                ));
-            }
-            if !rust_ids.insert(registration.target.resolve()) {
-                return Err(HostBuiltinRegistryError::ReusedRustType);
-            }
-        }
-        for registration in &self.set_operations {
-            if !set_operation_ids.insert(registration.operation) {
-                return Err(HostBuiltinRegistryError::DuplicateSetOperation(
-                    registration.operation,
-                ));
-            }
-            if !rust_ids.insert(registration.target.resolve()) {
-                return Err(HostBuiltinRegistryError::ReusedRustType);
-            }
-        }
-        for operation in TermMapOperation::ALL {
-            if !map_operation_ids.contains(&operation) {
-                return Err(HostBuiltinRegistryError::MissingMapOperation(
-                    operation.into(),
-                ));
-            }
-        }
-        for operation in ListOperation::ALL {
-            if !list_operation_ids.contains(&operation) {
-                return Err(HostBuiltinRegistryError::MissingListOperation(operation));
-            }
-        }
-        for operation in SetOperation::ALL {
-            if !set_operation_ids.contains(&operation) {
-                return Err(HostBuiltinRegistryError::MissingSetOperation(operation));
             }
         }
         Ok(())
@@ -495,48 +405,37 @@ impl HostBuiltinRegistry {
     /// Resolves one build-local type as an ordinary Map operation.
     #[must_use]
     pub fn resolve_map_operation(&self, target: TypeId) -> Option<TermMapOperation> {
-        self.map_operations
-            .iter()
-            .find(|registration| registration.target.resolve() == target)
-            .map(|registration| registration.operation)
+        TermMapOperation::ALL
+            .into_iter()
+            .zip(&self.map_operations)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operation, _)| operation)
     }
 
-    /// Resolves one build-local type as an ordinary List operation.
+    /// Resolves one build-local type as a List operation.
     #[must_use]
     pub fn resolve_list_operation(&self, target: TypeId) -> Option<ListOperation> {
-        self.list_operations
-            .iter()
-            .find(|registration| registration.target.resolve() == target)
-            .map(|registration| registration.operation)
+        ListOperation::ALL
+            .into_iter()
+            .zip(&self.list_operations)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operation, _)| operation)
     }
 
-    /// Resolves one build-local type as an ordinary Set operation.
+    /// Resolves one build-local type as a Set operation.
     #[must_use]
     pub fn resolve_set_operation(&self, target: TypeId) -> Option<SetOperation> {
-        self.set_operations
-            .iter()
-            .find(|registration| registration.target.resolve() == target)
-            .map(|registration| registration.operation)
+        SetOperation::ALL
+            .into_iter()
+            .zip(&self.set_operations)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operation, _)| operation)
     }
 }
 
 /// Invalid host builtin catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HostBuiltinRegistryError {
-    /// A Map operation identity occurred more than once.
-    DuplicateMapOperation(MapOperation),
-    /// A required ordinary Map operation was absent.
-    MissingMapOperation(MapOperation),
-    /// A structural-only Map operation was registered as an ordinary term head.
-    UnsupportedMapOperation(MapOperation),
-    /// A List operation identity occurred more than once.
-    DuplicateListOperation(ListOperation),
-    /// A required ordinary List operation was absent.
-    MissingListOperation(ListOperation),
-    /// A Set operation identity occurred more than once.
-    DuplicateSetOperation(SetOperation),
-    /// A required ordinary Set operation was absent.
-    MissingSetOperation(SetOperation),
     /// One Rust marker type was assigned two meanings.
     ReusedRustType,
 }
@@ -544,27 +443,6 @@ pub enum HostBuiltinRegistryError {
 impl fmt::Display for HostBuiltinRegistryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateMapOperation(operation) => {
-                write!(formatter, "duplicate {operation}")
-            }
-            Self::MissingMapOperation(operation) => {
-                write!(formatter, "missing {operation}")
-            }
-            Self::UnsupportedMapOperation(operation) => {
-                write!(formatter, "{operation} is not an ordinary term application")
-            }
-            Self::DuplicateListOperation(operation) => {
-                write!(formatter, "duplicate {operation}")
-            }
-            Self::MissingListOperation(operation) => {
-                write!(formatter, "missing {operation}")
-            }
-            Self::DuplicateSetOperation(operation) => {
-                write!(formatter, "duplicate {operation}")
-            }
-            Self::MissingSetOperation(operation) => {
-                write!(formatter, "missing {operation}")
-            }
             Self::ReusedRustType => {
                 formatter.write_str("one Rust marker type has multiple builtin meanings")
             }

@@ -37,9 +37,8 @@ pub use krs_ir::{
     AnchorPrecision, BuiltinOperation, BuiltinSort, HookOperation, HostAuthoredAnchor,
     HostBuiltinRegistry, HostBuiltinRegistryError, HostConstructorDescriptor,
     HostConstructorFieldDescriptor, HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload,
-    HostIdentityError, HostItemId, HostListOperationRegistration, HostMapOperationRegistration,
-    HostPackageKey, HostProvenance, HostProvenanceError, HostProvenanceShapeError,
-    HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostIdentityError, HostItemId, HostPackageKey, HostProvenance, HostProvenanceError,
+    HostProvenanceShapeError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
     HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, ProvenanceKey,
     ProvenanceRole, SchemaVersion, SentenceKind, SetOperation, TermMapOperation,
 };
@@ -176,47 +175,65 @@ macro_rules! builtin_operation_registry {
 
 krs_ir::__krs_builtin_operation_catalog!(builtin_operation_registry);
 
-fn map_update_builtin_key() -> TypeId {
-    TypeId::of::<builtin::map::update>()
-}
-
-fn map_get_builtin_key() -> TypeId {
-    TypeId::of::<builtin::map::get>()
-}
-
-fn map_in_keys_builtin_key() -> TypeId {
-    TypeId::of::<builtin::map::in_keys>()
-}
-
-macro_rules! list_operation_keys {
-    ($(($function:ident, $marker:path)),+ $(,)?) => {
-        $(
-            fn $function() -> TypeId {
-                TypeId::of::<$marker>()
-            }
-        )+
+macro_rules! map_operation_registry {
+    (
+        rust_module: $module:ident;
+        structural { $($structural:tt)* }
+        term {
+            $(
+                $(#[$meta:meta])*
+                $variant:ident {
+                    rust_name: $name:ident,
+                    $($fact:tt)*
+                }
+            )*
+        }
+    ) => {
+        fn map_operation_registry() -> [HostTypeKey; TermMapOperation::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
+        }
     };
 }
 
-list_operation_keys! {
-    (list_empty_builtin_key, builtin::list::empty),
-    (list_item_builtin_key, builtin::list::item),
-    (list_concat_builtin_key, builtin::list::concat),
-    (list_get_builtin_key, builtin::list::get),
-    (list_update_builtin_key, builtin::list::update),
-    (list_size_builtin_key, builtin::list::size),
-    (list_make_builtin_key, builtin::list::make),
-    (list_range_builtin_key, builtin::list::range),
-    (list_update_all_builtin_key, builtin::list::update_all),
+krs_ir::__krs_map_operation_catalog!(map_operation_registry);
+
+macro_rules! list_operation_registry {
+    (
+        rust_module: $module:ident;
+        $(
+            $(#[$meta:meta])*
+            $variant:ident {
+                rust_name: $name:ident,
+                $($fact:tt)*
+            }
+        )*
+    ) => {
+        fn list_operation_registry() -> [HostTypeKey; ListOperation::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
+        }
+    };
 }
 
-list_operation_keys! {
-    (set_empty_builtin_key, builtin::set::empty),
-    (set_item_builtin_key, builtin::set::item),
-    (set_concat_builtin_key, builtin::set::concat),
-    (set_union_builtin_key, builtin::set::union),
-    (set_contains_builtin_key, builtin::set::contains),
+krs_ir::__krs_list_operation_catalog!(list_operation_registry);
+
+macro_rules! set_operation_registry {
+    (
+        rust_module: $module:ident;
+        $(
+            $(#[$meta:meta])*
+            $variant:ident {
+                rust_name: $name:ident,
+                $($fact:tt)*
+            }
+        )*
+    ) => {
+        fn set_operation_registry() -> [HostTypeKey; SetOperation::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
+        }
+    };
 }
+
+krs_ir::__krs_set_operation_catalog!(set_operation_registry);
 
 /// Constructs the complete process-local registry of builtin Rust markers.
 ///
@@ -225,70 +242,17 @@ list_operation_keys! {
 /// retain `TypeId`, while neither authored path spellings nor build-local keys
 /// cross the compiler protocol boundary.
 ///
-/// The returned registry has one entry for every [`BuiltinSort::ALL`] and
-/// [`BuiltinOperation::ALL`] member and passes [`HostBuiltinRegistry::validate`].
+/// The returned registry has one entry for every [`BuiltinSort::ALL`],
+/// [`BuiltinOperation::ALL`], [`TermMapOperation::ALL`], [`ListOperation::ALL`],
+/// and [`SetOperation::ALL`] member and passes [`HostBuiltinRegistry::validate`].
 #[must_use]
 pub fn builtin_registry() -> HostBuiltinRegistry {
-    let sorts = builtin_sort_registry();
-
-    let operations = builtin_operation_registry();
-
-    let map_operations = [
-        (
-            TermMapOperation::Update,
-            map_update_builtin_key as fn() -> TypeId,
-        ),
-        (TermMapOperation::Get, map_get_builtin_key),
-        (TermMapOperation::InKeys, map_in_keys_builtin_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostMapOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
-
-    let list_operations = [
-        (
-            ListOperation::Empty,
-            list_empty_builtin_key as fn() -> TypeId,
-        ),
-        (ListOperation::Item, list_item_builtin_key),
-        (ListOperation::Concat, list_concat_builtin_key),
-        (ListOperation::Get, list_get_builtin_key),
-        (ListOperation::Update, list_update_builtin_key),
-        (ListOperation::Size, list_size_builtin_key),
-        (ListOperation::Make, list_make_builtin_key),
-        (ListOperation::Range, list_range_builtin_key),
-        (ListOperation::UpdateAll, list_update_all_builtin_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostListOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
-
-    let set_operations = [
-        (SetOperation::Empty, set_empty_builtin_key as fn() -> TypeId),
-        (SetOperation::Item, set_item_builtin_key),
-        (SetOperation::Concat, set_concat_builtin_key),
-        (SetOperation::Union, set_union_builtin_key),
-        (SetOperation::Contains, set_contains_builtin_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostSetOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
-
     HostBuiltinRegistry {
-        sorts,
-        operations,
-        map_operations,
-        list_operations,
-        set_operations,
+        sorts: builtin_sort_registry(),
+        operations: builtin_operation_registry(),
+        map_operations: map_operation_registry(),
+        list_operations: list_operation_registry(),
+        set_operations: set_operation_registry(),
     }
 }
 
@@ -588,8 +552,6 @@ mod tests {
 
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
-        assert_eq!(registry.map_operations.len(), TermMapOperation::ALL.len());
-        assert_eq!(registry.list_operations.len(), ListOperation::ALL.len());
         for (marker, expected) in [
             (TypeId::of::<IntAlias>(), BuiltinSort::Int),
             (TypeId::of::<MapAlias>(), BuiltinSort::Map),

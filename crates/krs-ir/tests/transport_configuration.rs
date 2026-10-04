@@ -17,16 +17,14 @@ use krs_ir::{
     DescriptorRuleCells, DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, HostBuiltinRegistry, HostBuiltinRegistryError,
     HostCellIdentity, HostCellReference, HostConfigurationReference, HostConfigurationRule,
-    HostListOperationRegistration, HostMapOperationRegistration, HostRuleCells,
-    HostSetOperationRegistration, HostSortReference, HostTerm, HostTypeKey, HostTypeReference,
-    ItemKind, ListOperation, OriginStack, PackageId, ProtocolCellContent,
-    ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
-    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
-    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
-    StateTransportError, TermMapOperation,
+    HostRuleCells, HostSortReference, HostTerm, HostTypeKey, HostTypeReference, ItemKind,
+    OriginStack, PackageId, ProtocolCellContent, ProtocolContextAliasBinding,
+    ProtocolContextAliasBindingKind, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
+    ProtocolMapBody, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
+    ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
+    ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole,
+    SentenceKind, StableItemId, StateTransportError,
 };
 
 fn package() -> PackageId {
@@ -317,50 +315,29 @@ fn builtin_registry_resolves_map_and_id() {
         HostTypeKey(marker::<41>),
         HostTypeKey(marker::<51>),
     ];
-    let map_operations = TermMapOperation::ALL
-        .into_iter()
-        .enumerate()
-        .map(|(index, operation)| HostMapOperationRegistration {
-            operation,
-            target: match index {
-                0 => HostTypeKey(marker::<32>),
-                1 => HostTypeKey(marker::<43>),
-                _ => HostTypeKey(marker::<44>),
-            },
-        })
-        .collect();
-    let list_operations = ListOperation::ALL
-        .into_iter()
-        .enumerate()
-        .map(|(index, operation)| HostListOperationRegistration {
-            operation,
-            target: match index {
-                0 => HostTypeKey(marker::<33>),
-                1 => HostTypeKey(marker::<34>),
-                2 => HostTypeKey(marker::<35>),
-                3 => HostTypeKey(marker::<36>),
-                4 => HostTypeKey(marker::<37>),
-                5 => HostTypeKey(marker::<38>),
-                6 => HostTypeKey(marker::<49>),
-                7 => HostTypeKey(marker::<50>),
-                _ => HostTypeKey(marker::<52>),
-            },
-        })
-        .collect();
-    let set_operations = SetOperation::ALL
-        .into_iter()
-        .enumerate()
-        .map(|(index, operation)| HostSetOperationRegistration {
-            operation,
-            target: match index {
-                0 => HostTypeKey(marker::<45>),
-                1 => HostTypeKey(marker::<46>),
-                2 => HostTypeKey(marker::<47>),
-                3 => HostTypeKey(marker::<48>),
-                _ => HostTypeKey(marker::<54>),
-            },
-        })
-        .collect();
+    let map_operations = [
+        HostTypeKey(marker::<32>),
+        HostTypeKey(marker::<43>),
+        HostTypeKey(marker::<44>),
+    ];
+    let list_operations = [
+        HostTypeKey(marker::<33>),
+        HostTypeKey(marker::<34>),
+        HostTypeKey(marker::<35>),
+        HostTypeKey(marker::<36>),
+        HostTypeKey(marker::<37>),
+        HostTypeKey(marker::<38>),
+        HostTypeKey(marker::<49>),
+        HostTypeKey(marker::<50>),
+        HostTypeKey(marker::<52>),
+    ];
+    let set_operations = [
+        HostTypeKey(marker::<45>),
+        HostTypeKey(marker::<46>),
+        HostTypeKey(marker::<47>),
+        HostTypeKey(marker::<48>),
+        HostTypeKey(marker::<54>),
+    ];
     let registry = HostBuiltinRegistry {
         sorts,
         operations,

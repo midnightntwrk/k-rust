@@ -20,8 +20,7 @@ use krs_ir::{
     DescriptorTerm, DescriptorTermArgument, FormatFragment, GrammarDescriptor,
     GrammarTransportError, GroupAssociativity, HostApplicationIdentity, HostApplicationTarget,
     HostBuiltinRegistry, HostBuiltinRegistryError, HostDeclarationIdentity, HostEnumVariantKey,
-    HostEnumVariantReference, HostEnumVariantReferenceError, HostListOperationRegistration,
-    HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostTypeKey, HostTypeReference,
     ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
     ProductionGroupId, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
     StrictnessKind, StructuredRuleDescriptor, TermMapOperation, enum_variant_disambiguator,
@@ -1310,46 +1309,28 @@ fn registry() -> HostBuiltinRegistry {
         HostTypeKey(bytes_substring_key),
     ];
     let map_operations = [
-        (TermMapOperation::Update, map_update_key as fn() -> TypeId),
-        (TermMapOperation::Get, map_get_key),
-        (TermMapOperation::InKeys, map_in_keys_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostMapOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
+        HostTypeKey(map_update_key),
+        HostTypeKey(map_get_key),
+        HostTypeKey(map_in_keys_key),
+    ];
     let list_operations = [
-        (ListOperation::Empty, list_empty_key as fn() -> TypeId),
-        (ListOperation::Item, list_item_key),
-        (ListOperation::Concat, list_concat_key),
-        (ListOperation::Get, list_get_key),
-        (ListOperation::Update, list_update_key),
-        (ListOperation::Size, list_size_key),
-        (ListOperation::Make, list_make_key),
-        (ListOperation::Range, list_range_key),
-        (ListOperation::UpdateAll, list_update_all_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostListOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
+        HostTypeKey(list_empty_key),
+        HostTypeKey(list_item_key),
+        HostTypeKey(list_concat_key),
+        HostTypeKey(list_get_key),
+        HostTypeKey(list_update_key),
+        HostTypeKey(list_size_key),
+        HostTypeKey(list_make_key),
+        HostTypeKey(list_range_key),
+        HostTypeKey(list_update_all_key),
+    ];
     let set_operations = [
-        (SetOperation::Empty, set_empty_key as fn() -> TypeId),
-        (SetOperation::Item, set_item_key),
-        (SetOperation::Concat, set_concat_key),
-        (SetOperation::Union, set_union_key),
-        (SetOperation::Contains, set_contains_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostSetOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
+        HostTypeKey(set_empty_key),
+        HostTypeKey(set_item_key),
+        HostTypeKey(set_concat_key),
+        HostTypeKey(set_union_key),
+        HostTypeKey(set_contains_key),
+    ];
     HostBuiltinRegistry {
         sorts,
         operations,
@@ -1360,10 +1341,6 @@ fn registry() -> HostBuiltinRegistry {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Exhaustively verifies the closed builtin registry."
-)]
 fn builtin_registry_is_complete_exact_and_alias_safe() {
     let registry = registry();
     registry.validate().unwrap();
@@ -1416,34 +1393,6 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         Some(ListOperation::UpdateAll)
     );
 
-    let mut missing_map = registry.clone();
-    missing_map.map_operations.clear();
-    assert_eq!(
-        missing_map.validate(),
-        Err(HostBuiltinRegistryError::MissingMapOperation(
-            MapOperation::Update
-        ))
-    );
-    for operation in [MapOperation::Empty, MapOperation::Item] {
-        assert!(matches!(
-            HostMapOperationRegistration::new(operation, HostTypeKey(map_update_key)),
-            Err(HostBuiltinRegistryError::UnsupportedMapOperation(rejected)) if rejected == operation
-        ));
-    }
-    assert_eq!(
-        HostMapOperationRegistration::new(MapOperation::Update, HostTypeKey(map_update_key))
-            .unwrap()
-            .operation,
-        TermMapOperation::Update
-    );
-    let mut duplicate = registry.clone();
-    duplicate.map_operations.push(duplicate.map_operations[0]);
-    assert_eq!(
-        duplicate.validate(),
-        Err(HostBuiltinRegistryError::DuplicateMapOperation(
-            MapOperation::Update
-        ))
-    );
     let mut collision = registry.clone();
     collision.operations[0] = HostTypeKey(int_key);
     assert_eq!(
@@ -1451,32 +1400,14 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         Err(HostBuiltinRegistryError::ReusedRustType)
     );
     let mut map_collision = registry.clone();
-    map_collision.map_operations[0].target = HostTypeKey(int_key);
+    map_collision.map_operations[0] = HostTypeKey(int_key);
     assert_eq!(
         map_collision.validate(),
         Err(HostBuiltinRegistryError::ReusedRustType)
     );
 
-    let mut missing_list = registry.clone();
-    missing_list.list_operations.pop();
-    assert_eq!(
-        missing_list.validate(),
-        Err(HostBuiltinRegistryError::MissingListOperation(
-            ListOperation::UpdateAll
-        ))
-    );
-    let mut duplicate_list = registry.clone();
-    duplicate_list
-        .list_operations
-        .push(duplicate_list.list_operations[0]);
-    assert_eq!(
-        duplicate_list.validate(),
-        Err(HostBuiltinRegistryError::DuplicateListOperation(
-            ListOperation::Empty
-        ))
-    );
     let mut list_collision = registry;
-    list_collision.list_operations[0].target = HostTypeKey(int_key);
+    list_collision.list_operations[0] = HostTypeKey(int_key);
     assert_eq!(
         list_collision.validate(),
         Err(HostBuiltinRegistryError::ReusedRustType)

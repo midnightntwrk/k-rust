@@ -809,8 +809,7 @@ mod tests {
     use super::*;
     use krs_ir::{
         BuiltinSort, HostApplicationReference, HostApplicationTarget, HostEnumVariantReference,
-        HostListOperationRegistration, HostMapOperationRegistration, HostSetOperationRegistration,
-        HostTypeKey, ListOperation, PackageId, ProvenanceKey, SetOperation, TermMapOperation,
+        HostTypeKey, ListOperation, PackageId, ProvenanceKey, TermMapOperation,
     };
 
     struct Boolean;
@@ -922,41 +921,29 @@ mod tests {
         HostBuiltinRegistry {
             sorts: sort_keys,
             operations: operation_keys,
-            map_operations: TermMapOperation::ALL
-                .into_iter()
-                .zip([
-                    HostTypeKey(marker_key::<MapUpdateOp>),
-                    HostTypeKey(marker_key::<MapGetOp>),
-                    HostTypeKey(marker_key::<MapInKeysOp>),
-                ])
-                .map(|(operation, target)| HostMapOperationRegistration { operation, target })
-                .collect(),
-            list_operations: ListOperation::ALL
-                .into_iter()
-                .zip([
-                    HostTypeKey(marker_key::<ListOp0>),
-                    HostTypeKey(marker_key::<ListOp1>),
-                    HostTypeKey(marker_key::<ListOp2>),
-                    HostTypeKey(marker_key::<ListOp3>),
-                    HostTypeKey(marker_key::<ListOp4>),
-                    HostTypeKey(marker_key::<ListOp5>),
-                    HostTypeKey(marker_key::<ListOp6>),
-                    HostTypeKey(marker_key::<ListOp7>),
-                    HostTypeKey(marker_key::<ListOp8>),
-                ])
-                .map(|(operation, target)| HostListOperationRegistration { operation, target })
-                .collect(),
-            set_operations: SetOperation::ALL
-                .into_iter()
-                .zip([
-                    HostTypeKey(marker_key::<SetOp0>),
-                    HostTypeKey(marker_key::<SetOp1>),
-                    HostTypeKey(marker_key::<SetOp2>),
-                    HostTypeKey(marker_key::<SetOp3>),
-                    HostTypeKey(marker_key::<SetOp4>),
-                ])
-                .map(|(operation, target)| HostSetOperationRegistration { operation, target })
-                .collect(),
+            map_operations: [
+                HostTypeKey(marker_key::<MapUpdateOp>),
+                HostTypeKey(marker_key::<MapGetOp>),
+                HostTypeKey(marker_key::<MapInKeysOp>),
+            ],
+            list_operations: [
+                HostTypeKey(marker_key::<ListOp0>),
+                HostTypeKey(marker_key::<ListOp1>),
+                HostTypeKey(marker_key::<ListOp2>),
+                HostTypeKey(marker_key::<ListOp3>),
+                HostTypeKey(marker_key::<ListOp4>),
+                HostTypeKey(marker_key::<ListOp5>),
+                HostTypeKey(marker_key::<ListOp6>),
+                HostTypeKey(marker_key::<ListOp7>),
+                HostTypeKey(marker_key::<ListOp8>),
+            ],
+            set_operations: [
+                HostTypeKey(marker_key::<SetOp0>),
+                HostTypeKey(marker_key::<SetOp1>),
+                HostTypeKey(marker_key::<SetOp2>),
+                HostTypeKey(marker_key::<SetOp3>),
+                HostTypeKey(marker_key::<SetOp4>),
+            ],
         }
     }
 
