@@ -227,7 +227,9 @@ fn resolve_context(
                         "every parser erases a bracket, so no term applies it"
                     }
                     ProductionKind::Token { .. } => "a token production's terms are domain values",
-                    ProductionKind::Builtin => "it is a matching-logic connective",
+                    ProductionKind::Builtin => {
+                        "it is a matching-logic connective or the K sequence, which the prelude declares"
+                    }
                     ProductionKind::Subsort | ProductionKind::Unlabelled => {
                         "its production declares no symbol"
                     }

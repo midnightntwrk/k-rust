@@ -109,7 +109,7 @@ mod witness {
                         "Strictness is not supported on a token production: its terms are domain values, so no term applies its label."
                     }
                     ProductionKind::Builtin => {
-                        "Strictness is not supported on a matching-logic connective: it is not a term application that a rewrite step meets."
+                        "Strictness is not supported on a matching-logic connective or the K sequence: the prelude declares it, and it is not a term application that a rewrite step meets."
                     }
                     ProductionKind::Subsort | ProductionKind::Unlabelled => {
                         unreachable!("strict productions have a label")

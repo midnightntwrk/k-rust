@@ -3372,3 +3372,33 @@ fn readable_priorities_and_macro_priorities_compile_and_load() {
         );
     }
 }
+
+/// G3 of the generated-input experiment: `KSEQ` spells `#EmptyK` twice (`.K` and `.`) and gives
+/// `#KSequence` the unit `#EmptyK`. Both labels name the KORE prelude's `dotk` and `kseq`, which
+/// every definition has, so a module stating these productions declares no symbol of its own for
+/// them: importing `KSEQ`, or a module that imports it, compiles, and a module stating the same
+/// productions itself compiles, loads, and its `.K` and `~>` are the prelude's sequence.
+#[test]
+fn k_sequence_productions_declare_no_symbol_of_their_own() {
+    let declares_sequence_symbol =
+        |kore: &str| kore.contains("Lbl'Hash'EmptyK{") || kore.contains("Lbl'Hash'KSequence{");
+    let own = "module MAIN\n  syntax K ::= \".K\" [symbol(#EmptyK)] | \".\" [symbol(#EmptyK)]\n  syntax K ::= K \"~>\" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]\n  syntax KItem ::= \"go\" | \"done\"\n  rule <k> go => .K ~> done ... </k>\nendmodule\n";
+    assert_compiles_and_loads(own, "MAIN");
+    let artifacts = compile_for_backend(own, "MAIN").expect("the K sequence productions compile");
+    assert!(!declares_sequence_symbol(&artifacts.definition_kore));
+    assert!(!declares_sequence_symbol(&artifacts.syntax_definition_kore));
+    for module in ["KSEQ", "KSEQ-SYMBOLIC", "K"] {
+        let source =
+            format!("module MAIN\n  imports {module}\n  syntax Foo ::= \"a\"\nendmodule\n");
+        let artifacts = compile_for_backend(&source, "MAIN")
+            .unwrap_or_else(|error| panic!("importing {module} should compile: {error:?}"));
+        assert!(
+            !declares_sequence_symbol(&artifacts.definition_kore),
+            "{module}"
+        );
+        assert!(
+            !declares_sequence_symbol(&artifacts.syntax_definition_kore),
+            "{module}"
+        );
+    }
+}

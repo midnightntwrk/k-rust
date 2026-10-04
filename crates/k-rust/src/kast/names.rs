@@ -155,6 +155,11 @@ impl InternalLabel {
         Self::WeakAlwaysFinally,
     ];
 
+    /// The labels of the K sequence, whose productions in `KSEQ` give concrete syntax to the
+    /// KORE prelude's `dotk` and `kseq`: every term they head is a `Term::Sequence`, emitted with
+    /// those prelude symbols, so the emitter declares no symbol of its own for them.
+    pub const K_SEQUENCE: [Self; 2] = [Self::KSequence, Self::EmptyK];
+
     /// The fixed labels the KLabel checks treat as compiler-internal (the former
     /// `checks/labels.rs::FIXED_INTERNAL_LABELS` minus `#SemanticCastToBag` and
     /// `<generatedTop>`, which `GeneratedLabel` and `GeneratedCell` cover).

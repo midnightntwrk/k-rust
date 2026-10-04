@@ -100,7 +100,10 @@ pub(crate) enum BracketName {
 pub(crate) enum ProductionKind {
     /// Unlabelled `S ::= T`: an injection, stated by the subsort axiom; declares no symbol.
     Subsort,
-    /// Labelled with a matching-logic connective: the prelude declares it.
+    /// Labelled with a matching-logic connective or a label of the K sequence (`#KSequence`,
+    /// `#EmptyK`): the KORE prelude declares and axiomatises it, so the production only gives it
+    /// concrete syntax. `KSEQ` states `.K` and `.` both as `#EmptyK`, two spellings of the one
+    /// prelude symbol `dotk`.
     Builtin,
     /// Carries `bracket`, which only groups program or rule text.
     ///
@@ -154,8 +157,9 @@ impl ProductionKind {
     /// particular the heating and cooling rules of an evaluation context, can match one: `Base` and
     /// `Algebraic`. A function application is evaluated by its equations, a macro-like application
     /// is expanded before rewriting, a bracket is erased by every parser, a token production's terms
-    /// are domain values, a builtin is a matching-logic connective, and a subsort or unlabelled
-    /// production declares no symbol.
+    /// are domain values, a builtin is a matching-logic connective or the K sequence (which the
+    /// prelude's `kseq` list represents, never an application of the production), and a subsort
+    /// or unlabelled production declares no symbol.
     pub(crate) fn rewrite_steps_meet_applications(self) -> bool {
         match self {
             Self::Base | Self::Algebraic => true,
@@ -325,7 +329,8 @@ impl ProductionKind {
     /// semantic module does not have. A function or a macro production is evaluated or expanded
     /// away, so an application of it is not the term its arguments build, and reading an
     /// argument back out of it is no projection. A subsort or unlabelled production declares no
-    /// symbol, and a builtin is a matching-logic connective, not a term constructor.
+    /// symbol, and a builtin is a matching-logic connective or the K sequence, whose symbol the
+    /// prelude declares and the production does not.
     ///
     /// Eligibility reads the declaration alone; whether the source's own equations identify
     /// applications with different arguments is not decided here. The rule grammar and the
@@ -453,9 +458,12 @@ fn is_algebraic(attributes: &Attributes) -> bool {
     attributes.has_any(&[AttributeKey::Assoc, AttributeKey::Comm, AttributeKey::Idem])
 }
 
-/// Whether `label` is a matching-logic connective, which the prelude declares.
+/// Whether the KORE prelude declares `label`'s symbol: a matching-logic connective, or a label
+/// of the K sequence, whose terms are emitted with the prelude's `dotk` and `kseq`.
 pub(crate) fn is_builtin_label(label: &str) -> bool {
-    InternalLabel::of(label).is_some_and(|label| InternalLabel::MATCHING_LOGIC.contains(&label))
+    InternalLabel::of(label).is_some_and(|label| {
+        InternalLabel::MATCHING_LOGIC.contains(&label) || InternalLabel::K_SEQUENCE.contains(&label)
+    })
 }
 
 /// Bind the sort parameters `parameters` occurring in `pattern` so that `pattern` becomes
