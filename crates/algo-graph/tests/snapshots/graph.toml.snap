@@ -4876,7 +4876,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_MACRO_REWRITES; S = nodes of the largest rewrite result; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
@@ -4908,6 +4908,16 @@ symbol = "Expander::expand_term"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::expand_chain"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::record_rewrite"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Expander::expand_site"
 
 [[node.sites]]
@@ -4923,11 +4933,21 @@ symbol = "Expander::try_rules"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::try_rules_once"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Expander::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Chain::repeats"
 
 [[node.cost]]
 mode = "one sentence, no macro rule with a parametric head"
-bound = "O(N x R) plus recursive expansion of substituted results"
+bound = "O((N + W x S) x R)"
 
 [[node.cost]]
 mode = "one sentence, some macro rule with a parametric head (typed in place)"

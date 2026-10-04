@@ -1,13 +1,13 @@
 //! ```toml algorithm
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
-//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::new"]
-//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_chain", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Chain::repeats"]
+//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_MACRO_REWRITES; S = nodes of the largest rewrite result; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 //! counters = ["KompileMacroApplications"]
 //!
 //! [[cost]]
 //! mode = "one sentence, no macro rule with a parametric head"
-//! bound = "O(N x R) plus recursive expansion of substituted results"
+//! bound = "O((N + W x S) x R)"
 //!
 //! [[cost]]
 //! mode = "one sentence, some macro rule with a parametric head (typed in place)"
@@ -20,6 +20,10 @@
 //!
 //! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application whose rule set has a head fixing a sort parameter is retried after a rewriting round until a round rewrites nothing.
 //! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings; each round and each re-expansion of a substituted result clones and compares subterms along paths of length at most h.
+//!
+//! An application is rewritten at its root in a loop (`Expander::expand_chain`, `Expander::try_rules`) until no rule applies, so a long chain of root rewrites takes no native stack.
+//! `macro-rec` and `alias-rec` rules may apply again to their own results, so expansion need not terminate; `Expander::record_rewrite` reports, at the macro rule, a chain that returns to a subject it already rewrote (`Chain::repeats`, Brent's cycle finding), more than `MAX_MACRO_REWRITES` rewrites in one sentence, and a result that would make the term deeper than `MAX_MACRO_DEPTH`.
+//! Within those bounds each level of the recursion runs on a heap-grown stack segment when the thread's stack runs low (`with_stack`).
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
@@ -553,6 +557,8 @@ struct Expander<'view, 'definition> {
     typer: Option<SentenceTyper<'definition>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
+    /// Rewrites made since the sentence or standalone term began expanding.
+    rewrites: usize,
 }
 
 impl<'view, 'definition> Expander<'view, 'definition> {
@@ -642,12 +648,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             typer,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
+            rewrites: 0,
         })
     }
 
     fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, Diagnostic> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
+        self.begin();
         if self.typer.is_some() {
             let fields: &[u32] = match &sentence {
                 Sentence::Rule { .. } | Sentence::Claim { .. } => &[0, 1, 2],
@@ -673,9 +681,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 ensures,
                 attributes,
             } => Ok(Sentence::Rule {
-                body: self.expand_term(body, &BTreeSet::new())?,
-                requires: self.expand_term(requires, &BTreeSet::new())?,
-                ensures: self.expand_term(ensures, &BTreeSet::new())?,
+                body: self.expand_term(body, &BTreeSet::new(), 0)?,
+                requires: self.expand_term(requires, &BTreeSet::new(), 0)?,
+                ensures: self.expand_term(ensures, &BTreeSet::new(), 0)?,
                 attributes,
             }),
             Sentence::Claim {
@@ -684,9 +692,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 ensures,
                 attributes,
             } => Ok(Sentence::Claim {
-                body: self.expand_term(body, &BTreeSet::new())?,
-                requires: self.expand_term(requires, &BTreeSet::new())?,
-                ensures: self.expand_term(ensures, &BTreeSet::new())?,
+                body: self.expand_term(body, &BTreeSet::new(), 0)?,
+                requires: self.expand_term(requires, &BTreeSet::new(), 0)?,
+                ensures: self.expand_term(ensures, &BTreeSet::new(), 0)?,
                 attributes,
             }),
             Sentence::Context {
@@ -694,8 +702,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 requires,
                 attributes,
             } => Ok(Sentence::Context {
-                body: self.expand_term(body, &BTreeSet::new())?,
-                requires: self.expand_term(requires, &BTreeSet::new())?,
+                body: self.expand_term(body, &BTreeSet::new(), 0)?,
+                requires: self.expand_term(requires, &BTreeSet::new(), 0)?,
                 attributes,
             }),
             sentence @ Sentence::SyntaxSort { .. }
@@ -710,87 +718,182 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         }
     }
 
-    fn expand_term(&mut self, term: Term, applied: &BTreeSet<usize>) -> Result<Term, Diagnostic> {
+    /// Expand the macros of `term`, innermost first, under the rules `applied` above it;
+    /// `depth` terms enclose it in the term being expanded.
+    fn expand_term(
+        &mut self,
+        term: Term,
+        applied: &BTreeSet<usize>,
+        depth: usize,
+    ) -> Result<Term, Diagnostic> {
+        with_stack(|| self.expand_chain(term, applied, depth))
+    }
+
+    /// Expand the arguments of `term`, then rewrite it at its root until no rule applies,
+    /// expanding the arguments of each result before trying the rules again.
+    ///
+    /// The root rewrites form a [`Chain`] and are made in a loop, so a long chain takes no
+    /// native stack; only a rewrite inside an argument of a result nests.
+    fn expand_chain(
+        &mut self,
+        term: Term,
+        applied: &BTreeSet<usize>,
+        depth: usize,
+    ) -> Result<Term, Diagnostic> {
+        let mut chain = Chain::default();
+        let mut term = term;
+        let mut chain_applied = None::<BTreeSet<usize>>;
+        // Invariant: `term` is the result of the chain's last rewrite (the original term before any), and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
+        loop {
+            let applied = chain_applied.as_ref().unwrap_or(applied);
+            let (subject, rules) = self.expand_arguments(term, applied, depth)?;
+            let Some(rules) = rules else {
+                return Ok(subject);
+            };
+            let Some((index, substituted)) = self.select_rule(&subject, &rules, applied, None)?
+            else {
+                return Ok(subject);
+            };
+            let rule = &rules[index];
+            self.record_rewrite(
+                &mut chain,
+                rule,
+                &subject,
+                applied.len(),
+                depth,
+                &substituted,
+            )?;
+            let mut next_applied = applied.clone();
+            next_applied.insert(rule.id);
+            chain_applied = Some(next_applied);
+            term = substituted;
+        }
+    }
+
+    /// `term` with its arguments expanded under `applied`, and the macro rules of its head when
+    /// it is an application or a token that some rule may rewrite.
+    fn expand_arguments(
+        &mut self,
+        term: Term,
+        applied: &BTreeSet<usize>,
+        depth: usize,
+    ) -> Result<(Term, Option<Vec<MacroRule>>), Diagnostic> {
+        let below = depth + 1;
         let metadata = term.metadata().cloned();
         match term.into_unannotated() {
             Term::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
-                    .map(|argument| self.expand_term(argument, applied))
+                    .map(|argument| self.expand_term(argument, applied, below))
                     .collect::<Result<Vec<_>, _>>()?;
-                let application = with_metadata(
-                    Term::Apply {
-                        label: label.clone(),
-                        arguments,
-                    },
-                    metadata,
-                );
                 let rules = self.macros.get(&LabelHead::from(&label)).cloned();
-                self.apply_rules(application, rules.as_deref(), applied)
+                let application = with_metadata(Term::Apply { label, arguments }, metadata);
+                Ok((application, rules))
             }
             Term::Token { token, sort } => {
-                let token = with_metadata(
-                    Term::Token {
-                        token,
-                        sort: sort.clone(),
+                let rules = self.token_macros.get(&sort).cloned();
+                let token = with_metadata(Term::Token { token, sort }, metadata);
+                Ok((token, rules))
+            }
+            Term::Rewrite { left, right } => Ok((
+                with_metadata(
+                    Term::Rewrite {
+                        left: Box::new(self.expand_term(*left, applied, below)?),
+                        right: Box::new(self.expand_term(*right, applied, below)?),
                     },
                     metadata,
-                );
-                let rules = self.token_macros.get(&sort).cloned();
-                self.apply_rules(token, rules.as_deref(), applied)
-            }
-            Term::Rewrite { left, right } => Ok(with_metadata(
-                Term::Rewrite {
-                    left: Box::new(self.expand_term(*left, applied)?),
-                    right: Box::new(self.expand_term(*right, applied)?),
-                },
-                metadata,
-            )),
-            Term::As { pattern, alias } => Ok(with_metadata(
-                Term::As {
-                    pattern: Box::new(self.expand_term(*pattern, applied)?),
-                    alias: Box::new(self.expand_term(*alias, applied)?),
-                },
-                metadata,
-            )),
-            Term::Sequence(items) => Ok(with_metadata(
-                Term::Sequence(
-                    items
-                        .into_iter()
-                        .map(|item| self.expand_term(item, applied))
-                        .collect::<Result<_, _>>()?,
                 ),
-                metadata,
+                None,
+            )),
+            Term::As { pattern, alias } => Ok((
+                with_metadata(
+                    Term::As {
+                        pattern: Box::new(self.expand_term(*pattern, applied, below)?),
+                        alias: Box::new(self.expand_term(*alias, applied, below)?),
+                    },
+                    metadata,
+                ),
+                None,
+            )),
+            Term::Sequence(items) => Ok((
+                with_metadata(
+                    Term::Sequence(
+                        items
+                            .into_iter()
+                            .map(|item| self.expand_term(item, applied, below))
+                            .collect::<Result<_, _>>()?,
+                    ),
+                    metadata,
+                ),
+                None,
             )),
             leaf @ (Term::InjectedLabel(_) | Term::Variable { .. }) => {
-                Ok(with_metadata(leaf, metadata))
+                Ok((with_metadata(leaf, metadata), None))
             }
             Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         }
     }
 
-    fn apply_rules(
+    /// Account for the rewrite of `subject`, selected under `applied` earlier rules and enclosed
+    /// by `depth` terms, by `rule` to `result` as the next step of `chain`: report a chain that
+    /// repeats a subject, the rewrite that exceeds the sentence's budget of
+    /// [`MAX_MACRO_REWRITES`], and a result that makes the term deeper than [`MAX_MACRO_DEPTH`].
+    ///
+    /// Expansion is deterministic: the subject with its arguments expanded and the rules already
+    /// applied above it decide the rule selected and its result, up to the names of variables
+    /// the result introduces. A chain whose subject recurs under as many applied rules (which
+    /// only grow along a chain, so under the same ones) therefore repeats forever. Any other
+    /// infinite expansion makes infinitely many rewrites, so the budget ends it. The depth
+    /// bound ends sooner a divergence that builds an ever deeper term, by nesting rewrites
+    /// inside results (`t => s(t)`) or by growing the subject (`f(X) => f(s(X))`), and keeps
+    /// every term the expansion walks shallow enough for the recursive walks over it.
+    fn record_rewrite(
         &mut self,
-        subject: Term,
-        rules: Option<&[MacroRule]>,
-        applied: &BTreeSet<usize>,
-    ) -> Result<Term, Diagnostic> {
-        let Some(rules) = rules else {
-            return Ok(subject);
+        chain: &mut Chain,
+        rule: &MacroRule,
+        subject: &Term,
+        applied: usize,
+        depth: usize,
+        result: &Term,
+    ) -> Result<(), Diagnostic> {
+        let diverges = |message: String| {
+            Err(Diagnostic::error(
+                DiagnosticCode::InvalidMacroExpansion,
+                message,
+                &rule.sentence,
+            ))
         };
-        match self.select_rule(&subject, rules, applied, None)? {
-            Some((id, substituted)) => {
-                let mut next_applied = applied.clone();
-                next_applied.insert(id);
-                self.expand_term(substituted, &next_applied)
-            }
-            None => Ok(subject),
+        if chain.repeats(subject, applied) {
+            return diverges(format!(
+                "Macro expansion does not terminate: expanding {} with this macro rule leads back to {}, so the expansion repeats forever.",
+                shown(subject),
+                shown(subject)
+            ));
         }
+        self.rewrites += 1;
+        if self.rewrites > MAX_MACRO_REWRITES {
+            return diverges(format!(
+                "Macro expansion does not terminate within {MAX_MACRO_REWRITES} rewrites of one sentence; this macro rule made the last one, of {}. The macro-rec rules applied keep producing applications they rewrite again.",
+                shown(subject)
+            ));
+        }
+        if depth + term_depth(result) > MAX_MACRO_DEPTH {
+            return diverges(format!(
+                "Macro expansion builds a term more than {MAX_MACRO_DEPTH} levels deep; this macro rule made the last rewrite, of {}. The macro-rec rules applied keep producing applications they rewrite again.",
+                shown(subject)
+            ));
+        }
+        Ok(())
     }
 
-    /// The first rule of `rules` that applies to `subject` (its head instance agreeing with
-    /// `instance`, its left side matching, and it recursive or absent from `applied`), with its
-    /// substituted right side.
+    /// Start the expansion of one sentence or standalone term with its full budget.
+    fn begin(&mut self) {
+        self.rewrites = 0;
+    }
+
+    /// The index in `rules` of the first rule that applies to `subject` (its head instance
+    /// agreeing with `instance`, its left side matching, and it recursive or absent from
+    /// `applied`), with its substituted right side.
     fn select_rule(
         &mut self,
         subject: &Term,
@@ -799,7 +902,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         instance: Option<&Instance>,
     ) -> Result<Option<(usize, Term)>, Diagnostic> {
         // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule is returned with its substituted right side.
-        for rule in rules {
+        for (index, rule) in rules.iter().enumerate() {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
                 unreachable!()
             };
@@ -818,7 +921,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
                 measure::bump(Counter::KompileMacroApplications);
                 let substituted = self.substitute(rule.right.clone(), &mut substitution);
-                return Ok(Some((rule.id, substituted)));
+                return Ok(Some((index, substituted)));
             }
         }
         Ok(None)
@@ -827,8 +930,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// Expand a term parsed outside the definition. With a parametric macro head it is expanded
     /// at its position, so selection reads the instance injection emits there.
     fn expand_standalone(&mut self, term: Term, position: &Sort) -> Result<Term, Diagnostic> {
+        self.begin();
         if self.typer.is_none() {
-            return self.expand_term(term, &BTreeSet::new());
+            return self.expand_term(term, &BTreeSet::new(), 0);
         }
         let mut site = Site::ground(term, position);
         self.expand_site(&mut site, &[0])?;
@@ -863,6 +967,19 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         path: &[u32],
         applied: &BTreeSet<usize>,
     ) -> Result<(), Diagnostic> {
+        with_stack(|| {
+            self.expand_children(site, path, applied)?;
+            self.try_rules(site, path, applied)
+        })
+    }
+
+    /// Expand the macros of every child of the term at `path` of `site`.
+    fn expand_children(
+        &mut self,
+        site: &mut Site,
+        path: &[u32],
+        applied: &BTreeSet<usize>,
+    ) -> Result<(), Diagnostic> {
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "Term is syntax; only the listed variants are special here"
@@ -878,7 +995,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             child.push(u32::try_from(index).expect("a term has fewer than 2^32 children"));
             self.expand_at(site, &child, applied)?;
         }
-        self.try_rules(site, path, applied)
+        Ok(())
     }
 
     /// Expand the given fields of `site`, then retry every failed application whose rule set has a head fixing a sort parameter after a rewriting round until no retry rewrites anything: a rewrite elsewhere can change even a known instance.
@@ -929,13 +1046,37 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     }
 
     /// Try the macro rules of the application or token at `path`, whose arguments are already
-    /// expanded at the current typing of the site.
+    /// expanded at the current typing of the site, and rewrite it until no rule applies,
+    /// expanding the children of each result first; the chain of root rewrites is the one
+    /// [`Self::expand_chain`] makes, in a loop.
     fn try_rules(
         &mut self,
         site: &mut Site,
         path: &[u32],
         applied: &BTreeSet<usize>,
     ) -> Result<(), Diagnostic> {
+        let mut chain = Chain::default();
+        let mut chain_applied = None::<BTreeSet<usize>>;
+        // Invariant: the term at `path` is the result of the chain's last rewrite (the original application before any) with its children expanded, and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
+        loop {
+            let applied = chain_applied.as_ref().unwrap_or(applied);
+            let Some(next_applied) = self.try_rules_once(site, path, applied, &mut chain)? else {
+                return Ok(());
+            };
+            self.expand_children(site, path, &next_applied)?;
+            chain_applied = Some(next_applied);
+        }
+    }
+
+    /// Rewrite the application or token at `path` once, returning the rules applied above its
+    /// result, or record it for a retry when no rule applies.
+    fn try_rules_once(
+        &mut self,
+        site: &mut Site,
+        path: &[u32],
+        applied: &BTreeSet<usize>,
+        chain: &mut Chain,
+    ) -> Result<Option<BTreeSet<usize>>, Diagnostic> {
         let subject = site.term(path).clone();
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -944,7 +1085,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let (rules, instance) = match subject.unannotated() {
             Term::Apply { label, .. } => {
                 let Some(rules) = self.macros.get(&LabelHead::from(label)).cloned() else {
-                    return Ok(());
+                    return Ok(None);
                 };
                 let instance = if rules.iter().any(|rule| rule.head_instance.is_some()) {
                     Some(self.subject_instance(site, path))
@@ -956,18 +1097,23 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             }
             Term::Token { sort, .. } => match self.token_macros.get(sort).cloned() {
                 Some(rules) => (rules, None),
-                None => return Ok(()),
+                None => return Ok(None),
             },
-            _ => return Ok(()),
+            _ => return Ok(None),
         };
-        if let Some((id, substituted)) =
+        if let Some((index, substituted)) =
             self.select_rule(&subject, &rules, applied, instance.as_ref())?
         {
+            let rule = &rules[index];
+            // The path's first step selects the sentence field the term lies in.
+            let depth = path.len() - 1;
+            self.record_rewrite(chain, rule, &subject, applied.len(), depth, &substituted)?;
             site.replace(path, substituted);
             let mut next_applied = applied.clone();
-            next_applied.insert(id);
-            self.expand_at(site, path, &next_applied)?;
-        } else if instance.is_some()
+            next_applied.insert(rule.id);
+            return Ok(Some(next_applied));
+        }
+        if instance.is_some()
             && rules.iter().any(|rule| {
                 rule.head_instance
                     .as_ref()
@@ -976,7 +1122,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         {
             site.tried.push((path.to_vec(), applied.clone(), subject));
         }
-        Ok(())
+        Ok(None)
     }
 
     /// The instance of the application at `path` in the current typing of its site.
@@ -1594,6 +1740,137 @@ fn macro_priority(attributes: &Attributes) -> Result<i64, Diagnostic> {
         Ok(200)
     } else {
         Ok(50)
+    }
+}
+
+/// The rewrites one sentence's or standalone term's expansion may make before it is reported as
+/// not terminating.
+///
+/// A rule that is not `macro-rec` applies at most once on a path, so only `macro-rec` and
+/// `alias-rec` rules can approach this; a terminating definition makes a small multiple of the
+/// sentence's macro applications.
+const MAX_MACRO_REWRITES: usize = 100_000;
+
+/// How deep a term expansion may build, counting the terms that enclose a rewrite's result and
+/// the result's own depth, before the expansion is reported as not terminating.
+///
+/// A terminating `macro-rec` rule builds about as deep as the input term it recurses on, and
+/// the frontend's recursive walks over terms, during expansion and after it, need native stack
+/// in proportion to the depth of the term they walk. The deepest walk made during expansion,
+/// the sort-injection typing of a sentence with a parametric macro head, takes about 2 KiB per
+/// level in an unoptimized build, so a sentence this deep leaves it half of [`STACK_RED_ZONE`].
+const MAX_MACRO_DEPTH: usize = 1_000;
+
+/// The root rewrites of one application, each made to the expanded result of the one before.
+///
+/// `repeats` stores one subject at a time as Brent's cycle-finding algorithm does: the stored
+/// subject is replaced after 1, 2, 4, ... further steps, so a chain that enters a cycle of
+/// length λ after μ steps meets its stored subject again within 2(μ + λ) steps.
+struct Chain {
+    /// The stored subject and the number of rules applied above it.
+    checkpoint: Option<(Term, usize)>,
+    /// Steps after which the stored subject is replaced.
+    power: usize,
+    /// Steps since the stored subject was stored.
+    steps: usize,
+}
+
+impl Default for Chain {
+    fn default() -> Self {
+        Self {
+            checkpoint: None,
+            power: 1,
+            steps: 0,
+        }
+    }
+}
+
+impl Chain {
+    /// Whether `subject`, about to be rewritten under `applied` applied rules, is the stored
+    /// subject under as many; otherwise count the step and store `subject` when its turn comes.
+    fn repeats(&mut self, subject: &Term, applied: usize) -> bool {
+        if self
+            .checkpoint
+            .as_ref()
+            .is_some_and(|(stored, count)| *count == applied && stored == subject)
+        {
+            return true;
+        }
+        self.steps += 1;
+        if self.steps >= self.power {
+            self.checkpoint = Some((subject.clone(), applied));
+            self.power = self.power.saturating_mul(2);
+            self.steps = 0;
+        }
+        false
+    }
+}
+
+/// Bytes of native stack that must remain on entering one level of expansion.
+///
+/// Between two levels the thread also clones, compares, matches and types the terms involved,
+/// which recurse over their depth (bounded by [`MAX_MACRO_DEPTH`] plus the depth of the input);
+/// the zone is about what a main thread still has when expansion starts, so a shallow
+/// expansion never leaves the thread's own stack.
+#[cfg(not(target_family = "wasm"))]
+const STACK_RED_ZONE: usize = 4 * 1024 * 1024;
+
+/// Bytes of each stack segment allocated when less than [`STACK_RED_ZONE`] remains; pages are
+/// committed only as they are used.
+#[cfg(not(target_family = "wasm"))]
+const STACK_SEGMENT: usize = 32 * 1024 * 1024;
+
+/// Run one level of the expansion recursion, on a fresh heap-allocated stack segment when the
+/// current one is nearly exhausted, so that an expansion nested as deep as the bounds allow
+/// cannot overflow the native stack. On wasm32 the engine's stack limit is invisible to the
+/// module and `work` runs directly.
+#[inline]
+fn with_stack<T>(work: impl FnOnce() -> T) -> T {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, work)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        work()
+    }
+}
+
+/// The number of terms on the longest path from `term` to a leaf, counted without recursion so
+/// that a term of any depth can be measured.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants have children"
+)]
+fn term_depth(term: &Term) -> usize {
+    let mut deepest = 0;
+    let mut pending = vec![(term, 1)];
+    // Invariant: `deepest` is the greatest depth of a term visited so far, and `pending` holds every unvisited child of a visited term with its depth; each iteration visits one term.
+    while let Some((term, depth)) = pending.pop() {
+        deepest = deepest.max(depth);
+        match term.unannotated() {
+            Term::Apply { arguments, .. } => {
+                pending.extend(arguments.iter().map(|argument| (argument, depth + 1)));
+            }
+            Term::Sequence(items) => pending.extend(items.iter().map(|item| (item, depth + 1))),
+            Term::Rewrite { left, right } => {
+                pending.extend([(&**left, depth + 1), (&**right, depth + 1)]);
+            }
+            Term::As { pattern, alias } => {
+                pending.extend([(&**pattern, depth + 1), (&**alias, depth + 1)]);
+            }
+            _ => {}
+        }
+    }
+    deepest
+}
+
+/// `term` as K text for a diagnostic, shortened to its first 120 characters.
+fn shown(term: &Term) -> String {
+    let text = term.to_string();
+    match text.char_indices().nth(120) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text,
     }
 }
 

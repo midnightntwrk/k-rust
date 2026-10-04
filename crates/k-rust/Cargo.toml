@@ -49,6 +49,11 @@ tracing-subscriber = { workspace = true, optional = true }
 web-time.workspace = true
 z3 = { workspace = true, optional = true }
 
+# Macro expansion grows its native stack onto heap segments when deep; on wasm32 the engine's
+# call-stack limit is invisible to the module, so the growth is absent there.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+stacker.workspace = true
+
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true

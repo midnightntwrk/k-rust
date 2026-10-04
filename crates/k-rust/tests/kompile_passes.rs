@@ -10451,3 +10451,171 @@ fn rebuilds_cell_fragments_used_as_data_inside_leaf_cells() {
         "{variable_sorts:?}"
     );
 }
+
+/// The one diagnostic expanding the macros of `source` reports, as (line, message).
+fn macro_expansion_error(source: &str) -> (u32, String) {
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let error = expand_macros(&definition).expect_err("expansion should be rejected");
+    assert_eq!(error.diagnostics.len(), 1, "{:?}", error.diagnostics);
+    let diagnostic = &error.diagnostics[0];
+    let location = diagnostic
+        .location
+        .unwrap_or_else(|| panic!("the error should be located: {diagnostic:?}"));
+    (location.start_line, diagnostic.message.clone())
+}
+
+/// B2 of the generated-input experiment: a `macro-rec` rule whose expansion leads back to the
+/// application it rewrote never terminates; expansion reports it at the rule instead of
+/// recursing until the native stack overflows. The cycle may pass through several rules, and
+/// `alias-rec` rules are expanded alike.
+#[test]
+fn a_cyclic_macro_rec_expansion_is_a_located_error() {
+    for (source, line) in [
+        // The reproducer.
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax Foo ::= "t" [macro-rec] | "a"
+                  rule t => t
+                  rule a => t
+                endmodule
+            "#},
+            3,
+        ),
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax Foo ::= "a" [macro-rec] | "b" [macro-rec] | "c"
+                  rule a => b
+                  rule b => a
+                  rule c => a
+                endmodule
+            "#},
+            3,
+        ),
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax Foo ::= "t" [alias-rec] | "a"
+                  rule t => t
+                  rule a => t
+                endmodule
+            "#},
+            3,
+        ),
+    ] {
+        let (start_line, message) = macro_expansion_error(source);
+        assert_eq!(start_line, line, "{source}: {message}");
+        assert!(
+            message.contains("does not terminate") && message.contains("leads back"),
+            "{source}: {message}"
+        );
+    }
+}
+
+/// A `macro-rec` expansion that builds an ever deeper term, by nesting rewrites inside results
+/// or by growing the subject at the root, ends at the depth bound with a located error.
+#[test]
+fn a_macro_rec_expansion_that_deepens_forever_is_a_located_error() {
+    for source in [
+        indoc! {r#"
+            module MAIN
+              syntax Foo ::= "t" [macro-rec] | s(Foo) | "c"
+              rule t => s(t)
+              rule c => t
+            endmodule
+        "#},
+        indoc! {r#"
+            module MAIN
+              syntax Foo ::= f(Foo) [macro-rec] | s(Foo) | "z" | "c"
+              rule f(X) => f(s(X))
+              rule c => f(z)
+            endmodule
+        "#},
+    ] {
+        let (start_line, message) = macro_expansion_error(source);
+        assert_eq!(start_line, 3, "{source}: {message}");
+        assert!(message.contains("levels deep"), "{source}: {message}");
+    }
+}
+
+/// A `macro-rec` expansion that terminates expands, however long its chains of root rewrites:
+/// `d` doubles a numeral by nesting rewrites 256 deep, and `cnt` then counts the resulting
+/// 513-deep numeral down by 512 rewrites at the root. The test thread's default stack is
+/// smaller than the expansion would take without growing it.
+#[test]
+fn a_deep_terminating_macro_rec_expansion_expands() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= d(Foo) [macro-rec] | s(Foo) | "z" | "c" | cnt(Foo) [macro-rec] | "done"
+          rule d(s(X)) => s(s(d(X)))
+          rule d(z) => z
+          rule cnt(s(X)) => cnt(X)
+          rule cnt(z) => done
+          rule c => cnt(d(d(d(d(d(d(d(d(d(s(z)))))))))))
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let expanded = expand_macros(&definition).expect("a terminating expansion should succeed");
+    let rule = expanded
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .map(|sentence| sentence.as_ref())
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { left, right }
+                    if matches!(left.unannotated(), Term::Apply { label, .. } if label.name.starts_with("c_")) =>
+                {
+                    Some(right.as_ref().clone())
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the rule for c should remain");
+    let Term::Apply { label, arguments } = rule.unannotated() else {
+        panic!("c should expand to an application: {rule:?}");
+    };
+    assert!(label.name.starts_with("done"), "{rule:?}");
+    assert!(arguments.is_empty());
+}
+
+/// Standalone terms are expanded under the same bounds as sentences: a program that applies a
+/// cyclic `macro-rec` macro is rejected rather than overflowing the stack.
+#[test]
+fn a_cyclic_macro_rec_expansion_of_a_program_is_an_error() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "t" [macro-rec, symbol(t)]
+          rule t => t
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let error = expand_macros_in_term(
+        &definition,
+        "MAIN",
+        ParsedProgram::from_term(application("t", Vec::new())),
+        &Sort::new("Foo"),
+    )
+    .expect_err("a cyclic expansion should be rejected");
+    assert!(error.contains("does not terminate"), "{error}");
+}
+
+/// The cycle is found as well where a parametric macro head makes expansion read each
+/// application's instance from the typing of its sentence.
+#[test]
+fn a_cyclic_parametric_macro_rec_expansion_is_a_located_error() {
+    let (start_line, message) = macro_expansion_error(indoc! {r#"
+        module MAIN
+          syntax {S} S ::= t(S) [macro-rec]
+          syntax Foo ::= "c" | "e"
+          rule t(X:Foo) => t(X)
+          rule c => t(e)
+        endmodule
+    "#});
+    assert_eq!(start_line, 4, "{message}");
+    assert!(message.contains("leads back"), "{message}");
+}

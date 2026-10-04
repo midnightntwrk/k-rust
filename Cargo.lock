@@ -1048,6 +1048,7 @@ dependencies = [
  "sha2",
  "sha3",
  "socket2",
+ "stacker",
  "toml",
  "tracing",
  "tracing-chrome",
