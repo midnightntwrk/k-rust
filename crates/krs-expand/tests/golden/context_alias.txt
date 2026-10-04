@@ -44,159 +44,168 @@ fn __krs_context_alias_2fc29f1120842568() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (2u32, 54u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ContextAliasName,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 27u32),
+                            (2u32, 39u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ContextAliasHere,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 48u32),
+                            (2u32, 52u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ContextAliasDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 4u32),
+                            (3u32, 16u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RulePattern,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (7u32, 6u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleType,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 8u32),
+                            (7u32, 15u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftCellsPayload,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 9u32),
+                            (6u32, 19u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftCellsField,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 9u32),
+                            (5u32, 10u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftCellsWrapper,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 12u32),
+                            (5u32, 35u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftCellsRemainder,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 9u32),
+                            (6u32, 19u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftKSequencePayload,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 36u32),
+                            (5u32, 51u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftKSequenceItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 36u32),
+                            (5u32, 40u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftKSequenceTail,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 42u32),
+                            (5u32, 51u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::RuleLeftReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 36u32),
+                            (5u32, 40u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 54u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::ContextAliasName,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (2u32, 27u32),
-                        end: (2u32, 39u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::ContextAliasHere,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (2u32, 48u32),
-                        end: (2u32, 52u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::ContextAliasDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 4u32),
-                        end: (3u32, 16u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RulePattern,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 5u32),
-                        end: (7u32, 6u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleType,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (7u32, 8u32),
-                        end: (7u32, 15u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftCellsPayload,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 9u32),
-                        end: (6u32, 19u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftCellsField,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 9u32),
-                        end: (5u32, 10u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftCellsWrapper,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 12u32),
-                        end: (5u32, 35u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftCellsRemainder,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (6u32, 9u32),
-                        end: (6u32, 19u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftKSequencePayload,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 36u32),
-                        end: (5u32, 51u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftKSequenceItem,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 36u32),
-                        end: (5u32, 40u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftKSequenceTail,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 42u32),
-                        end: (5u32, 51u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::RuleLeftReference,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 36u32),
-                        end: (5u32, 40u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }

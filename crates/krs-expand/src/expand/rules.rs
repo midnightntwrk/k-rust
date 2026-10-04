@@ -23,7 +23,7 @@ use super::state_rules::configuration_rule;
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
-use crate::provenance::host_provenance_static;
+use crate::provenance::host_provenance;
 
 pub(crate) fn rule(
     env: &dyn MacroEnvironment,
@@ -204,7 +204,7 @@ fn expand_ordinary_rule(
         anchors.extend(simplification.provenance()?);
     }
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())?;
-    let provenance = host_provenance_static(env, &facade, fallback, &anchors);
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",
         krs_ir::SentenceKind::Equation => "equation",

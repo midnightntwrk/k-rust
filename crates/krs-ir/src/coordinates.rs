@@ -11,14 +11,12 @@ pub struct DisplayPath(String);
 impl DisplayPath {
     /// Reports whether a spelling must be treated as absolute on any supported host.
     #[must_use]
-    pub fn is_absolute_spelling(spelling: &str) -> bool {
-        let bytes = spelling.as_bytes();
-        spelling.starts_with(['/', '\\'])
-            || spelling.starts_with("file:")
-            || (bytes.len() >= 3
-                && bytes[0].is_ascii_alphabetic()
-                && bytes[1] == b':'
-                && matches!(bytes[2], b'/' | b'\\'))
+    pub const fn is_absolute_spelling(spelling: &str) -> bool {
+        match spelling.as_bytes() {
+            [b'/' | b'\\', ..] | [b'f', b'i', b'l', b'e', b':', ..] => true,
+            [drive, b':', b'/' | b'\\', ..] => drive.is_ascii_alphabetic(),
+            _ => false,
+        }
     }
 
     /// Normalizes separators and validates a package-relative display path.

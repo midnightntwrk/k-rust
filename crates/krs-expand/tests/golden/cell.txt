@@ -59,60 +59,69 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (2u32, 11u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ConfigurationDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 12u32),
+                            (3u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConfigurationField,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 9u32),
+                            (4u32, 12u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConfigurationCellWrapper,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 14u32),
+                            (4u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConfigurationCellContent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 9u32),
+                            (5u32, 57u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 11u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::ConfigurationDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 12u32),
-                        end: (3u32, 17u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::ConfigurationField,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 9u32),
-                        end: (4u32, 12u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::ConfigurationCellWrapper,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 14u32),
-                        end: (4u32, 36u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::ConfigurationCellContent,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 9u32),
-                        end: (5u32, 57u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }

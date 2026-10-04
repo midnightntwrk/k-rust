@@ -15,8 +15,9 @@ use krs_syntax::ProvenanceRole;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use sha2::{Digest, Sha256};
 use support::{Expansion, TOUR_MINIMAL, TestEnvironment, expand_tour_minimal};
+use syn::punctuated::Punctuated;
 use syn::visit::Visit;
-use syn::{Expr, ExprStruct, Lit, Member};
+use syn::{Expr, Lit, Token};
 
 const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 
@@ -180,12 +181,16 @@ impl Anchor {
     }
 }
 
-fn raw_field<'a>(raw: &'a ExprStruct, name: &str) -> &'a Expr {
-    &raw.fields
-        .iter()
-        .find(|field| matches!(&field.member, Member::Named(ident) if ident == name))
-        .unwrap_or_else(|| panic!("raw anchor has {name}"))
-        .expr
+/// The arguments of a `__KrsRawAnchor::new(file, absolute, start, end, exact)` call.
+fn raw_anchor_arguments(raw: &Expr) -> &Punctuated<Expr, Token![,]> {
+    let Expr::Call(call) = raw else {
+        panic!("raw anchor constructor call")
+    };
+    assert!(matches!(
+        call.func.as_ref(),
+        Expr::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "new")
+    ));
+    &call.args
 }
 
 fn u32_literal(expr: &Expr) -> u32 {
@@ -224,26 +229,18 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                     .last()
                     .is_some_and(|segment| segment.ident == "__krs_host_provenance")
             {
-                let authored = match &call.args[3] {
-                    Expr::Reference(authored) => authored.expr.as_ref(),
-                    Expr::Block(block) => {
-                        let value = match block.block.stmts.first() {
-                            Some(syn::Stmt::Item(syn::Item::Const(item))) => item.expr.as_ref(),
-                            Some(syn::Stmt::Local(local)) => local
-                                .init
-                                .as_ref()
-                                .expect("authored binding has an initializer")
-                                .expr
-                                .as_ref(),
-                            _ => panic!("authored binding"),
-                        };
-                        let Expr::Reference(authored) = value else {
-                            panic!("authored binding slice")
-                        };
-                        authored.expr.as_ref()
-                    }
-                    _ => panic!("authored slice"),
+                let Expr::Const(constant) = &call.args[1] else {
+                    panic!("provenance constant")
                 };
+                let Some(syn::Stmt::Item(syn::Item::Const(authored))) =
+                    constant.block.stmts.first()
+                else {
+                    panic!("authored constant item")
+                };
+                let Expr::Reference(authored) = authored.expr.as_ref() else {
+                    panic!("authored slice")
+                };
+                let authored = authored.expr.as_ref();
                 let Expr::Array(authored) = authored else {
                     panic!("authored array")
                 };
@@ -266,12 +263,10 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                         .copied()
                         .find(|role| role.variant_ident() == variant)
                         .expect("generated role belongs to the catalog");
-                    let Expr::Struct(raw) = &tuple.elems[2] else {
-                        panic!("raw anchor")
-                    };
-                    let start = position(raw_field(raw, "start"));
-                    let end = position(raw_field(raw, "end"));
-                    let Expr::Lit(exact) = raw_field(raw, "exact") else {
+                    let raw = raw_anchor_arguments(&tuple.elems[2]);
+                    let start = position(&raw[2]);
+                    let end = position(&raw[3]);
+                    let Expr::Lit(exact) = &raw[4] else {
                         panic!("precision literal")
                     };
                     let Lit::Bool(exact) = &exact.lit else {

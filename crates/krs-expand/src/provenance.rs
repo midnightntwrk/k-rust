@@ -1,4 +1,4 @@
-use krs_ir::DisplayPath;
+use krs_ir::{DisplayPath, HostRawProvenance};
 use krs_syntax::{ProvenanceAnchor, TokenRange, role_tokens};
 use quote::quote;
 
@@ -15,32 +15,20 @@ struct CapturedAnchor {
     exact: bool,
 }
 
+/// Emits the provenance expression of one descriptor factory.
+///
+/// The literal file table and anchors are checked by
+/// `__KrsRawProvenance::new` in a `const` block, so the generated factory has
+/// no runtime check except resolving an absolute display filename against its
+/// Cargo manifest directory. The authored anchors are a named constant item:
+/// a slice of `const fn` calls is not promoted when passed as an argument, and
+/// Clippy's `large_stack_arrays` exempts an array only inside a constant item,
+/// not inside an inline `const` block, so large rule anchor tables need one.
 pub(crate) fn host_provenance(
     env: &dyn MacroEnvironment,
     facade: &syn::Path,
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
-) -> proc_macro2::TokenStream {
-    host_provenance_impl(env, facade, fallback, anchors, false)
-}
-
-/// Place large rule anchor tables in static storage so Clippy does not treat
-/// them as local arrays in generated rule factories.
-pub(crate) fn host_provenance_static(
-    env: &dyn MacroEnvironment,
-    facade: &syn::Path,
-    fallback: TokenRange,
-    anchors: &[ProvenanceAnchor],
-) -> proc_macro2::TokenStream {
-    host_provenance_impl(env, facade, fallback, anchors, true)
-}
-
-fn host_provenance_impl(
-    env: &dyn MacroEnvironment,
-    facade: &syn::Path,
-    fallback: TokenRange,
-    anchors: &[ProvenanceAnchor],
-    static_authored: bool,
 ) -> proc_macro2::TokenStream {
     let invocation = capture_call_site(env)
         .or_else(|| capture(env, fallback, false))
@@ -70,21 +58,18 @@ fn host_provenance_impl(
         quote!("")
     };
 
-    let authored_tokens = if static_authored {
-        quote!({
-            const __KRS_AUTHORED: &[(#facade::ProvenanceRole, u32, #facade::__KrsRawAnchor)] = &[#(#authored),*];
-            __KRS_AUTHORED
-        })
-    } else {
-        quote!(&[#(#authored),*])
-    };
-
     quote! {
         #facade::__krs_host_provenance(
             #manifest_dir,
-            &[#(#files),*],
-            #invocation_tokens,
-            #authored_tokens,
+            const {
+                const __KRS_AUTHORED: &[(#facade::ProvenanceRole, u32, #facade::__KrsRawAnchor)] =
+                    &[#(#authored),*];
+                &#facade::__KrsRawProvenance::new(
+                    &[#(#files),*],
+                    #invocation_tokens,
+                    __KRS_AUTHORED,
+                )
+            },
         )?
     }
 }
@@ -93,15 +78,17 @@ fn host_provenance_impl(
 /// not expose stable source locations. The emitted descriptor remains
 /// fail-closed: collection rejects every `InvocationFallback` authored anchor.
 fn unavailable_invocation(env: &dyn MacroEnvironment, range: TokenRange) -> CapturedAnchor {
-    let file = env.span_file(range.first());
-    let display_file = normalized_display_file(&file);
+    let display_file = normalized_display_file(&env.span_file(range.first()));
+    let absolute_display_file = DisplayPath::is_absolute_spelling(&display_file);
     CapturedAnchor {
-        display_file: if display_file.is_empty() {
-            "<proc-macro-input>".to_owned()
-        } else {
+        display_file: if absolute_display_file
+            || HostRawProvenance::accepts_relative_display_file(&display_file)
+        {
             display_file
+        } else {
+            "<proc-macro-input>".to_owned()
         },
-        absolute_display_file: DisplayPath::is_absolute_spelling(&file),
+        absolute_display_file,
         start_line: 1,
         start_column: 1,
         end_line: 1,
@@ -124,6 +111,12 @@ fn capture(env: &dyn MacroEnvironment, range: TokenRange, exact: bool) -> Option
         return None;
     }
 
+    let display_file = normalized_display_file(&first_file);
+    let absolute_display_file = DisplayPath::is_absolute_spelling(&display_file);
+    if !absolute_display_file && !HostRawProvenance::accepts_relative_display_file(&display_file) {
+        return None;
+    }
+
     let start = env.span_start(first)?;
     let end = env.span_end(last)?;
     let start_line = start.line;
@@ -140,8 +133,8 @@ fn capture(env: &dyn MacroEnvironment, range: TokenRange, exact: bool) -> Option
     }
 
     Some(CapturedAnchor {
-        display_file: normalized_display_file(&first_file),
-        absolute_display_file: DisplayPath::is_absolute_spelling(&first_file),
+        display_file,
+        absolute_display_file,
         start_line,
         start_column,
         end_line,
@@ -173,12 +166,12 @@ fn raw_anchor(
     let end_column = anchor.end_column;
     let exact = anchor.exact;
     quote! {
-        #facade::__KrsRawAnchor {
-            file: #file,
-            absolute: #absolute,
-            start: (#start_line, #start_column),
-            end: (#end_line, #end_column),
-            exact: #exact,
-        }
+        #facade::__KrsRawAnchor::new(
+            #file,
+            #absolute,
+            (#start_line, #start_column),
+            (#end_line, #end_column),
+            #exact
+        )
     }
 }

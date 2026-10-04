@@ -189,10 +189,14 @@ fn __krs_head_rule_descriptor_0123456789abcdef()
                 "/scratch/x", "krs_x", "lookup", ::k::ItemKind::Rule,
                 "").expect("valid"),
         provenance: ::k::__krs_host_provenance(env!("CARGO_MANIFEST_DIR"),
-            &["src/lib.rs"], ::k::__KrsRawAnchor {
-                file: 0usize, absolute: false, start: (12u32, 1u32),
-                end: (14u32, 2u32), exact: true
-            }, &[])?,
+            const {
+                const __KRS_AUTHORED:
+                    &[(::k::ProvenanceRole, u32, ::k::__KrsRawAnchor)] =
+                    &[];
+                &::k::__KrsRawProvenance::new(&["src/lib.rs"],
+                        ::k::__KrsRawAnchor::new(0usize, false, (12u32, 1u32),
+                            (14u32, 2u32), true), __KRS_AUTHORED)
+            })?,
     })
 }
 '''

@@ -23,71 +23,80 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (5u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::AssociativityDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (4u32, 28u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::AssociativitySentence,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 15u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::AssociativityGroupReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 11u32),
+                            (3u32, 15u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::AssociativitySentence,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 27u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::AssociativityGroupReference,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 22u32),
+                            (4u32, 27u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (5u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::AssociativityDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 5u32),
-                        end: (4u32, 28u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::AssociativitySentence,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 5u32),
-                        end: (3u32, 15u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::AssociativityGroupReference,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 11u32),
-                        end: (3u32, 15u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::AssociativitySentence,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 5u32),
-                        end: (4u32, 27u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::AssociativityGroupReference,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 22u32),
-                        end: (4u32, 27u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }

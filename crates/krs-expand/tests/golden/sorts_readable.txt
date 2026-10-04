@@ -40,27 +40,36 @@ fn __krs_sort_descriptor_565187d54f4138cb() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 5u32),
-                        end: (4u32, 17u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -94,82 +103,91 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::BracketDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        2u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketValueReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::BracketDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 18u32),
-                        end: (3u32, 26u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::BracketSyntaxItem,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 18u32),
-                        end: (3u32, 26u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::BracketSyntaxItem,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 18u32),
-                        end: (3u32, 26u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::BracketSyntaxItem,
-                    2u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 18u32),
-                        end: (3u32, 26u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::BracketValueReference,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 18u32),
-                        end: (3u32, 26u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (4u32, 5u32),
-                        end: (4u32, 17u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -218,49 +236,58 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 27u32),
+                            (5u32, 29u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 10u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 27u32),
+                            (5u32, 29u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SubsortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 27u32),
-                        end: (5u32, 29u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSuperSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 10u32),
-                        end: (5u32, 22u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSubSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (5u32, 27u32),
-                        end: (5u32, 29u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -319,49 +346,58 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 5u32),
+                            (7u32, 18u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 20u32),
+                            (7u32, 32u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 35u32),
+                            (7u32, 45u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (7u32, 5u32),
-                        end: (7u32, 18u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (7u32, 20u32),
-                        end: (7u32, 32u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (7u32, 35u32),
-                        end: (7u32, 45u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -410,49 +446,58 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 28u32),
+                            (8u32, 31u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 10u32),
+                            (8u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 28u32),
+                            (8u32, 31u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SubsortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 28u32),
-                        end: (8u32, 31u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSuperSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 10u32),
-                        end: (8u32, 23u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSubSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 28u32),
-                        end: (8u32, 31u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -503,49 +548,58 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 33u32),
+                            (8u32, 37u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 10u32),
+                            (8u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 33u32),
+                            (8u32, 37u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SubsortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 33u32),
-                        end: (8u32, 37u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSuperSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 10u32),
-                        end: (8u32, 23u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSubSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (8u32, 33u32),
-                        end: (8u32, 37u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -593,27 +647,36 @@ fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (10u32, 5u32),
+                            (10u32, 15u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (10u32, 5u32),
-                        end: (10u32, 15u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -663,38 +726,47 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (11u32, 5u32),
+                            (11u32, 16u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (11u32, 18u32),
+                            (11u32, 28u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (11u32, 5u32),
-                        end: (11u32, 16u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (11u32, 18u32),
-                        end: (11u32, 28u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -744,38 +816,47 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (12u32, 5u32),
+                            (12u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (12u32, 19u32),
+                            (12u32, 29u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (12u32, 5u32),
-                        end: (12u32, 17u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (12u32, 19u32),
-                        end: (12u32, 29u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -832,49 +913,58 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 5u32),
+                            (13u32, 12u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 14u32),
+                            (13u32, 25u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 28u32),
+                            (13u32, 40u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (13u32, 5u32),
-                        end: (13u32, 12u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (13u32, 14u32),
-                        end: (13u32, 25u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SortParent,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (13u32, 28u32),
-                        end: (13u32, 40u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }
@@ -923,49 +1013,58 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (15u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 22u32),
+                            (14u32, 25u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 10u32),
+                            (14u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 22u32),
+                            (14u32, 25u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::SubsortDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (14u32, 22u32),
-                        end: (14u32, 25u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSuperSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (14u32, 10u32),
-                        end: (14u32, 17u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::SubsortSubSort,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (14u32, 22u32),
-                        end: (14u32, 25u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }

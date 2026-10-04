@@ -14,7 +14,7 @@ use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermSide, WireSlots};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
-use crate::provenance::host_provenance_static;
+use crate::provenance::host_provenance;
 
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
@@ -69,7 +69,7 @@ fn expand_head_rule(
     let mut anchors = clause.provenance()?;
     anchors.extend(clause.attribute().provenance()?);
     let fallback = TokenRange::for_tokens(rule.item())?;
-    let provenance = host_provenance_static(env, &facade, fallback, &anchors);
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");

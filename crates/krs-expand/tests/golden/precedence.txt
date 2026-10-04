@@ -23,60 +23,69 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::core::result::Result<
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
-            &["src/lib.rs"],
-            ::k::__KrsRawAnchor {
-                file: 0usize,
-                absolute: false,
-                start: (2u32, 1u32),
-                end: (4u32, 2u32),
-                exact: true,
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::PrecedenceDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 18u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceChain,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceGroupReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 9u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceGroupReference,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 12u32),
+                            (3u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (4u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
             },
-            &[
-                (
-                    ::k::ProvenanceRole::PrecedenceDeclaration,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 5u32),
-                        end: (3u32, 18u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::PrecedenceChain,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 5u32),
-                        end: (3u32, 17u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::PrecedenceGroupReference,
-                    0u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 5u32),
-                        end: (3u32, 9u32),
-                        exact: true,
-                    },
-                ),
-                (
-                    ::k::ProvenanceRole::PrecedenceGroupReference,
-                    1u32,
-                    ::k::__KrsRawAnchor {
-                        file: 0usize,
-                        absolute: false,
-                        start: (3u32, 12u32),
-                        end: (3u32, 17u32),
-                        exact: true,
-                    },
-                ),
-            ],
         )?,
     })
 }

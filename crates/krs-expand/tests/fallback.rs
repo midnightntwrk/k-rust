@@ -51,11 +51,12 @@ fn tour_minimal_expands_in_a_fallback_process() {
         .map(|(_, output)| output)
         .collect::<Vec<_>>();
     let sorts = outputs[0].to_string();
-    assert!(sorts.contains(":: k :: __krs_host_provenance (\"\" , & [\"src/lib.rs\"]"));
+    assert!(sorts.contains(":: k :: __krs_host_provenance (\"\" , const { const __KRS_AUTHORED"));
+    assert!(sorts.contains("& :: k :: __KrsRawProvenance :: new (& [\"src/lib.rs\"]"));
     // `k::sorts! { ... }` spans 10:1 through 12:2 of the authored file.
-    assert!(sorts.contains("start : (10u32 , 1u32)"));
-    assert!(sorts.contains("end : (12u32 , 2u32)"));
-    assert!(sorts.contains("exact : true"));
+    assert!(sorts.contains(
+        ":: k :: __KrsRawAnchor :: new (0usize , false , (10u32 , 1u32) , (12u32 , 2u32) , true)"
+    ));
     // The clause range ends on tokens `krs-syntax` re-quotes at the call site;
     // the environment locates them at `k::rules!`, so the nonce is rustc's
     // (native `krs emit-k` build of tour-minimal, display file `src/lib.rs`).

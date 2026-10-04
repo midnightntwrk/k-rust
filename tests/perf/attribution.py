@@ -17,7 +17,7 @@ generated-item prefix, by construct, and by source macro kind:
 - `.text`/`.rodata`/`.data` symbol bytes in the collector binary (`nm`) and
   its section table (`readelf -SW`), including the `.init_array` entry count;
 - `-Zmacro-stats` lines per macro and `expand_proc_macro` time per macro;
-- provenance anchors: expanded lines inside `HostSourceAnchor::new(...)` or `__KrsRawAnchor { ... }` per construct (from `-Zunpretty=expanded`), and a least-squares estimate of LLVM IR lines per anchor line.
+- provenance anchors: expanded lines inside `HostSourceAnchor::new(...)` or `__KrsRawAnchor::new(...)` per construct (from `-Zunpretty=expanded`), and a least-squares estimate of LLVM IR lines per anchor line.
 
 `--registration explicit` (or `both`) repeats the build with the crate-root
 registration table that `RegistrationMode::Explicit` requires (taken from an
@@ -149,8 +149,9 @@ _FACTORY_ID = re.compile(
     r'\s*"((?:[^"\\]|\\.)*)",\s*::\w+::ItemKind::(\w+)')
 _SENTENCE = re.compile(r"::\w+::SentenceKind::(\w+)")
 _ANCHOR = "HostSourceAnchor::new("
-_RAW_ANCHOR = re.compile(r"__KrsRawAnchor\s*\{")
-_POSITION = re.compile(r"(?:HostSourcePosition::new\(|start:\s*\()(\d+)u32,\s*(\d+)u32\)")
+_RAW_ANCHOR = re.compile(r"__KrsRawAnchor::new\(")
+_POSITION = re.compile(
+    r"(?:HostSourcePosition::new\(|__KrsRawAnchor::new\(\s*\d+usize,\s*(?:true|false),\s*\()(\d+)u32,\s*(\d+)u32\)")
 _ITEM_NAME = re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|unsafe\s+|async\s+|extern\s+\"C\"\s+)*"
                         r"(?:fn|struct|enum|trait|type|static|const|mod|union)\s+([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -228,7 +229,7 @@ def expanded_constructs(text: str, crate: str) -> dict[str, Any]:
             anchor_bytes += end - position
             position = chunk.find(_ANCHOR, end)
         for match in _RAW_ANCHOR.finditer(chunk):
-            end = _balanced_end(chunk, match.end(), "{", "}")
+            end = _balanced_end(chunk, match.end())
             anchors += 1
             anchor_lines += chunk.count("\n", match.start(), end) + 1
             anchor_bytes += end - match.start()

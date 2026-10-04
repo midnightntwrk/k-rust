@@ -546,6 +546,259 @@ impl HostProvenance {
     }
 }
 
+/// One literal source anchor emitted by KRS macros: an index into the
+/// provenance file table and one-based, ordered stable-span endpoints.
+///
+/// Generated descriptor factories construct it inside a `const` block, so an
+/// anchor with a zero coordinate, or one that does not end after it starts,
+/// is a compile error rather than a runtime failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostRawAnchor {
+    file: usize,
+    absolute: bool,
+    start: HostSourcePosition,
+    end: HostSourcePosition,
+    precision: AnchorPrecision,
+}
+
+impl HostRawAnchor {
+    /// Creates an anchor into entry `file` of its provenance file table.
+    ///
+    /// `absolute` marks a display filename that is resolved against the Cargo
+    /// manifest directory when the provenance is decoded; `exact` is false for
+    /// an anchor inherited from its containing invocation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a coordinate is zero or `end` does not follow `start`. In the
+    /// `const` block of a generated factory that panic is a compile error.
+    #[must_use]
+    pub const fn new(
+        file: usize,
+        absolute: bool,
+        start: (u32, u32),
+        end: (u32, u32),
+        exact: bool,
+    ) -> Self {
+        let (Ok(start_position), Ok(end_position)) = (
+            crate::Position::new(start.0, start.1),
+            crate::Position::new(end.0, end.1),
+        ) else {
+            panic!("KRS source positions are one-based");
+        };
+        assert!(
+            end.0 > start.0 || (end.0 == start.0 && end.1 > start.1),
+            "a KRS source anchor must end after it starts"
+        );
+        Self {
+            file,
+            absolute,
+            start: HostSourcePosition {
+                position: start_position,
+            },
+            end: HostSourcePosition {
+                position: end_position,
+            },
+            precision: if exact {
+                AnchorPrecision::Exact
+            } else {
+                AnchorPrecision::InvocationFallback
+            },
+        }
+    }
+}
+
+/// The literal provenance of one generated descriptor factory: its display
+/// file table, its invocation anchor, and its authored anchors.
+///
+/// Generated factories construct it inside a `const` block, so every fact that
+/// does not depend on the build machine is checked at compile time.
+/// [`Self::decode`] can fail only when an absolute display filename lies outside
+/// the factory's Cargo package.
+///
+/// ```
+/// use krs_ir::{HostRawAnchor, HostRawProvenance, ProvenanceRole};
+///
+/// const ANCHOR: HostRawAnchor = HostRawAnchor::new(0, false, (1, 1), (1, 2), true);
+/// let provenance = const {
+///     &HostRawProvenance::new(&["src/lib.rs"], ANCHOR, &[(ProvenanceRole::SortDeclaration, 0, ANCHOR)])
+/// };
+/// assert_eq!(provenance.decode("").unwrap().authored().len(), 1);
+/// ```
+///
+/// Provenance without an authored anchor does not compile:
+///
+/// ```compile_fail
+/// use krs_ir::{HostRawAnchor, HostRawProvenance};
+///
+/// const ANCHOR: HostRawAnchor = HostRawAnchor::new(0, false, (1, 1), (1, 2), true);
+/// const _: HostRawProvenance = HostRawProvenance::new(&["src/lib.rs"], ANCHOR, &[]);
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub struct HostRawProvenance {
+    files: &'static [&'static str],
+    invocation: HostRawAnchor,
+    authored: &'static [(ProvenanceRole, u32, HostRawAnchor)],
+}
+
+impl HostRawProvenance {
+    /// Checks the literal provenance of one descriptor factory.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an anchor names a missing file table entry, a display
+    /// filename used by a relative anchor is not
+    /// [accepted](Self::accepts_relative_display_file), `authored` is empty, or
+    /// two authored anchors share a role and ordinal. In the `const` block of a
+    /// generated factory that panic is a compile error.
+    #[must_use]
+    pub const fn new(
+        files: &'static [&'static str],
+        invocation: HostRawAnchor,
+        authored: &'static [(ProvenanceRole, u32, HostRawAnchor)],
+    ) -> Self {
+        check_raw_anchor_file(files, invocation);
+        assert!(
+            !authored.is_empty(),
+            "host provenance requires at least one authored anchor"
+        );
+        let mut index = 0;
+        while index < authored.len() {
+            let (role, ordinal, anchor) = authored[index];
+            check_raw_anchor_file(files, anchor);
+            let mut earlier = 0;
+            while earlier < index {
+                let (earlier_role, earlier_ordinal, _) = authored[earlier];
+                assert!(
+                    earlier_role as usize != role as usize || earlier_ordinal != ordinal,
+                    "two authored anchors share a provenance key"
+                );
+                earlier += 1;
+            }
+            index += 1;
+        }
+        Self {
+            files,
+            invocation,
+            authored,
+        }
+    }
+
+    /// Reports whether a relative display filename can be stored in a
+    /// [`HostSourceAnchor`]: it is not an absolute spelling and contains an
+    /// ASCII character that is not white space, so it is not blank.
+    #[must_use]
+    pub const fn accepts_relative_display_file(spelling: &str) -> bool {
+        if DisplayPath::is_absolute_spelling(spelling) {
+            return false;
+        }
+        let bytes = spelling.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index].is_ascii()
+                && !matches!(
+                    bytes[index],
+                    b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' '
+                )
+            {
+                return true;
+            }
+            index += 1;
+        }
+        false
+    }
+
+    /// Resolves the display filenames against `manifest_dir` and returns the
+    /// validated provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostProvenanceError`] when an absolute display filename is not
+    /// a normalized path inside `manifest_dir`.
+    pub fn decode(&self, manifest_dir: &str) -> Result<HostProvenance, HostProvenanceError> {
+        let mut resolved = vec![None; self.files.len()];
+        let invocation = self.anchor(self.invocation, manifest_dir, &mut resolved)?;
+        let mut authored = Vec::with_capacity(self.authored.len());
+        for &(role, ordinal, raw) in self.authored {
+            authored.push(HostAuthoredAnchor::new(
+                ProvenanceKey::new(role, ordinal),
+                self.anchor(raw, manifest_dir, &mut resolved)?,
+            ));
+        }
+        // `new` checked that the authored anchors are nonempty and uniquely keyed.
+        Ok(HostProvenance {
+            invocation,
+            authored,
+        })
+    }
+
+    fn anchor(
+        &self,
+        raw: HostRawAnchor,
+        manifest_dir: &str,
+        resolved: &mut [Option<String>],
+    ) -> Result<HostSourceAnchor, HostProvenanceError> {
+        let display_file = if raw.absolute {
+            if let Some(file) = &resolved[raw.file] {
+                file.clone()
+            } else {
+                let file = self.package_relative(self.files[raw.file], manifest_dir)?;
+                resolved[raw.file] = Some(file.clone());
+                file
+            }
+        } else {
+            self.files[raw.file].to_owned()
+        };
+        // `HostRawAnchor::new` checked the positions and their order, `new`
+        // checked every relative display filename, and `package_relative`
+        // checks every resolved one.
+        Ok(HostSourceAnchor {
+            display_file,
+            start: raw.start,
+            end: raw.end,
+            precision: raw.precision,
+        })
+    }
+
+    fn package_relative(
+        &self,
+        display_file: &str,
+        manifest_dir: &str,
+    ) -> Result<String, HostProvenanceError> {
+        let outside_package = |path_error| HostProvenanceError {
+            invocation_file: self.files[self.invocation.file].to_owned(),
+            invocation_start: self.invocation.start,
+            display_file: display_file.to_owned(),
+            manifest_dir: manifest_dir.to_owned(),
+            path_error,
+        };
+        let relative = Path::new(display_file)
+            .strip_prefix(manifest_dir)
+            .map_err(|_| outside_package(None))?
+            .to_string_lossy();
+        let path = DisplayPath::new(relative.as_ref())
+            .map_err(|error| outside_package(Some(Box::new(error))))?;
+        // A normalized path can still be blank, such as a single space.
+        if path.as_str().trim().is_empty() {
+            return Err(outside_package(Some(Box::new(DisplayPathError::Empty(
+                relative.into_owned(),
+            )))));
+        }
+        Ok(path.as_str().to_owned())
+    }
+}
+
+const fn check_raw_anchor_file(files: &[&str], anchor: HostRawAnchor) {
+    assert!(
+        anchor.file < files.len(),
+        "a KRS source anchor names a missing display file"
+    );
+    assert!(
+        anchor.absolute || HostRawProvenance::accepts_relative_display_file(files[anchor.file]),
+        "a relative KRS display filename is blank or absolute"
+    );
+}
+
 /// A descriptor factory's display filename could not be validated within its Cargo package.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct HostProvenanceError {
@@ -1087,5 +1340,46 @@ mod tests {
                 .to_string()
                 .contains("unknown provenance role `unknown_role`")
         );
+    }
+
+    #[test]
+    fn accepted_relative_display_files_form_valid_source_anchors() {
+        for byte in 0..=0x7f_u8 {
+            let character = char::from(byte);
+            let spelling = character.to_string();
+            let accepted = HostRawProvenance::accepts_relative_display_file(&spelling);
+            assert_eq!(
+                accepted,
+                !character.is_whitespace() && byte != b'/' && byte != b'\\',
+                "{byte:#04x}"
+            );
+            if accepted {
+                assert!(
+                    HostSourceAnchor::new(
+                        spelling,
+                        position(1, 1),
+                        position(1, 2),
+                        AnchorPrecision::Exact
+                    )
+                    .is_ok()
+                );
+            }
+        }
+        for spelling in [
+            "",
+            " \t",
+            "\u{3000}",
+            "/src/lib.rs",
+            "C:\\lib.rs",
+            "file:lib.rs",
+        ] {
+            assert!(
+                !HostRawProvenance::accepts_relative_display_file(spelling),
+                "{spelling:?}"
+            );
+        }
+        assert!(HostRawProvenance::accepts_relative_display_file(
+            "src/\u{65e5}\u{672c}.rs"
+        ));
     }
 }

@@ -2,41 +2,39 @@
 
 use krs::*;
 
-fn raw(file: usize) -> __KrsRawAnchor {
-    __KrsRawAnchor {
-        file,
-        absolute: false,
-        start: (1, 1),
-        end: (1, 2),
-        exact: true,
-    }
+const fn raw(file: usize) -> __KrsRawAnchor {
+    __KrsRawAnchor::new(file, false, (1, 1), (1, 2), true)
+}
+
+const fn absolute(file: usize) -> __KrsRawAnchor {
+    __KrsRawAnchor::new(file, true, (1, 1), (1, 2), true)
 }
 
 #[test]
 fn compact_provenance_preserves_files_order_and_precision() {
-    let absolute = __KrsRawAnchor {
-        absolute: true,
-        ..raw(1)
-    };
-    let fallback = __KrsRawAnchor {
-        file: 2,
-        absolute: true,
-        exact: false,
-        ..raw(2)
-    };
     let provenance = __krs_host_provenance(
         "/package",
-        &[
-            "src/lib.rs",
-            "/package/src/other.rs",
-            "/package/src\\third.rs",
-        ],
-        raw(0),
-        &[
-            (ProvenanceRole::SortDeclaration, 0, absolute),
-            (ProvenanceRole::SortParent, 1, fallback),
-            (ProvenanceRole::ConstructorDeclaration, 0, absolute),
-        ],
+        const {
+            &__KrsRawProvenance::new(
+                &[
+                    "src/lib.rs",
+                    "/package/src/other.rs",
+                    "/package/src\\third.rs",
+                ],
+                raw(0),
+                const {
+                    &[
+                        (ProvenanceRole::SortDeclaration, 0, absolute(1)),
+                        (
+                            ProvenanceRole::SortParent,
+                            1,
+                            __KrsRawAnchor::new(2, true, (1, 1), (1, 2), false),
+                        ),
+                        (ProvenanceRole::ConstructorDeclaration, 0, absolute(1)),
+                    ]
+                },
+            )
+        },
     )
     .unwrap();
     assert_eq!(provenance.invocation().display_file(), "src/lib.rs");
@@ -57,22 +55,30 @@ fn compact_provenance_preserves_files_order_and_precision() {
 
 #[test]
 fn compact_provenance_rejects_outside_manifest() {
-    for display_file in [
-        "/target/debug/build/package/out/generated.rs",
-        "/elsewhere/lib.rs",
-    ] {
-        let error = __krs_host_provenance(
-            "/package",
-            &[display_file],
-            __KrsRawAnchor {
-                absolute: true,
-                start: (3, 7),
-                end: (3, 8),
-                ..raw(0)
+    const INVOCATION: __KrsRawAnchor = __KrsRawAnchor::new(0, true, (3, 7), (3, 8), true);
+    for (display_file, provenance) in [
+        (
+            "/target/debug/build/package/out/generated.rs",
+            const {
+                &__KrsRawProvenance::new(
+                    &["/target/debug/build/package/out/generated.rs"],
+                    INVOCATION,
+                    &[(ProvenanceRole::SortDeclaration, 0, INVOCATION)],
+                )
             },
-            &[],
-        )
-        .unwrap_err();
+        ),
+        (
+            "/elsewhere/lib.rs",
+            const {
+                &__KrsRawProvenance::new(
+                    &["/elsewhere/lib.rs"],
+                    INVOCATION,
+                    &[(ProvenanceRole::SortDeclaration, 0, INVOCATION)],
+                )
+            },
+        ),
+    ] {
+        let error = __krs_host_provenance("/package", provenance).unwrap_err();
         assert_eq!(
             error,
             HostProvenanceError {
@@ -96,16 +102,13 @@ fn compact_provenance_rejects_outside_manifest() {
 fn compact_provenance_reports_outside_authored_file_and_containing_invocation() {
     let error = __krs_host_provenance(
         "/package",
-        &["src/lib.rs", "/target/out/generated.rs"],
-        raw(0),
-        &[(
-            ProvenanceRole::SortDeclaration,
-            0,
-            __KrsRawAnchor {
-                absolute: true,
-                ..raw(1)
-            },
-        )],
+        const {
+            &__KrsRawProvenance::new(
+                &["src/lib.rs", "/target/out/generated.rs"],
+                raw(0),
+                const { &[(ProvenanceRole::SortDeclaration, 0, absolute(1))] },
+            )
+        },
     )
     .unwrap_err();
     assert_eq!(
@@ -118,12 +121,13 @@ fn compact_provenance_reports_outside_authored_file_and_containing_invocation() 
 fn compact_provenance_rejects_non_normalized_package_relative_path() {
     let error = __krs_host_provenance(
         "/package",
-        &["/package/src/../lib.rs"],
-        __KrsRawAnchor {
-            absolute: true,
-            ..raw(0)
+        const {
+            &__KrsRawProvenance::new(
+                &["/package/src/../lib.rs"],
+                absolute(0),
+                const { &[(ProvenanceRole::SortDeclaration, 0, absolute(0))] },
+            )
         },
-        &[],
     )
     .unwrap_err();
     assert!(matches!(
@@ -140,51 +144,72 @@ fn compact_provenance_rejects_non_normalized_package_relative_path() {
 }
 
 #[test]
-#[should_panic(expected = "stable proc-macro positions are one-based")]
-fn compact_provenance_rejects_zero_position() {
-    let _ = __krs_host_provenance(
+fn compact_provenance_rejects_blank_package_relative_path() {
+    let error = __krs_host_provenance(
         "/package",
-        &["src/lib.rs"],
-        __KrsRawAnchor {
-            start: (0, 1),
-            ..raw(0)
+        const {
+            &__KrsRawProvenance::new(
+                &["src/lib.rs", "/package/ "],
+                raw(0),
+                const { &[(ProvenanceRole::SortDeclaration, 0, absolute(1))] },
+            )
         },
-        &[],
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.path_error.as_deref(),
+        Some(&krs_ir::DisplayPathError::Empty(" ".to_owned()))
     );
 }
 
 #[test]
-#[should_panic(expected = "KRS emits ordered, non-absolute display anchors")]
-fn compact_provenance_rejects_reversed_anchor() {
-    let _ = __krs_host_provenance(
-        "/package",
-        &["src/lib.rs"],
-        __KrsRawAnchor {
-            end: (1, 1),
-            ..raw(0)
-        },
-        &[],
-    );
+#[should_panic(expected = "KRS source positions are one-based")]
+fn raw_anchor_rejects_zero_position() {
+    let _ = __KrsRawAnchor::new(0, false, (0, 1), (1, 2), true);
 }
 
 #[test]
-#[should_panic(expected = "KRS shared parsers emit nonempty, uniquely keyed provenance")]
-fn compact_provenance_rejects_empty_authored() {
-    let _ = __krs_host_provenance("/package", &["src/lib.rs"], raw(0), &[]);
+#[should_panic(expected = "a KRS source anchor must end after it starts")]
+fn raw_anchor_rejects_reversed_anchor() {
+    let _ = __KrsRawAnchor::new(0, false, (1, 2), (1, 1), true);
 }
 
 #[test]
-#[should_panic(expected = "KRS shared parsers emit nonempty, uniquely keyed provenance")]
-fn compact_provenance_rejects_duplicate_key() {
-    let _ = __krs_host_provenance(
-        "/package",
-        &["src/lib.rs"],
-        raw(0),
-        &[
-            (ProvenanceRole::SortDeclaration, 0, raw(0)),
-            (ProvenanceRole::SortDeclaration, 0, raw(0)),
-        ],
-    );
+#[should_panic(expected = "a KRS source anchor must end after it starts")]
+fn raw_anchor_rejects_empty_anchor() {
+    let _ = __KrsRawAnchor::new(0, false, (1, 1), (1, 1), true);
+}
+
+#[test]
+#[should_panic(expected = "host provenance requires at least one authored anchor")]
+fn raw_provenance_rejects_empty_authored() {
+    let _ = __KrsRawProvenance::new(&["src/lib.rs"], raw(0), &[]);
+}
+
+#[test]
+#[should_panic(expected = "two authored anchors share a provenance key")]
+fn raw_provenance_rejects_duplicate_key() {
+    const DUPLICATE: &[(ProvenanceRole, u32, __KrsRawAnchor)] = &[
+        (ProvenanceRole::SortDeclaration, 0, raw(0)),
+        (ProvenanceRole::SortDeclaration, 0, raw(0)),
+    ];
+    let _ = __KrsRawProvenance::new(&["src/lib.rs"], raw(0), DUPLICATE);
+}
+
+#[test]
+#[should_panic(expected = "a KRS source anchor names a missing display file")]
+fn raw_provenance_rejects_missing_file() {
+    const MISSING: &[(ProvenanceRole, u32, __KrsRawAnchor)] =
+        &[(ProvenanceRole::SortDeclaration, 0, raw(1))];
+    let _ = __KrsRawProvenance::new(&["src/lib.rs"], raw(0), MISSING);
+}
+
+#[test]
+#[should_panic(expected = "a relative KRS display filename is blank or absolute")]
+fn raw_provenance_rejects_blank_relative_file() {
+    const AUTHORED: &[(ProvenanceRole, u32, __KrsRawAnchor)] =
+        &[(ProvenanceRole::SortDeclaration, 0, raw(0))];
+    let _ = __KrsRawProvenance::new(&[" "], raw(0), AUTHORED);
 }
 
 #[test]

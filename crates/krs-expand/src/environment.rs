@@ -125,10 +125,26 @@ mod tests {
         let output =
             crate::provenance::host_provenance(&environment, &facade, fallback, &[]).to_string();
         assert!(output.contains("& [\"src/lib.rs\"]"));
-        assert!(output.contains("start : (1u32 , 1u32)"));
-        assert!(output.contains("end : (1u32 , 11u32)"));
-        assert!(output.contains("exact : false"));
+        assert!(output.contains(
+            ":: k :: __KrsRawAnchor :: new (0usize , false , (1u32 , 1u32) , (1u32 , 11u32) , false)"
+        ));
         assert!(!output.contains("CARGO_MANIFEST_DIR"));
+    }
+
+    #[test]
+    fn blank_display_file_takes_the_unavailable_path() {
+        let facade = syn::parse_str("::k").unwrap();
+        let tokens: TokenStream = "alpha beta".parse().unwrap();
+        let fallback = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
+        for file in ["", " \t"] {
+            let environment = FixedEnvironment::new(file, "::k");
+            let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
+                .to_string();
+            assert!(output.contains("& [\"<proc-macro-input>\"]"), "{file:?}");
+            assert!(output.contains(
+                ":: k :: __KrsRawAnchor :: new (0usize , false , (1u32 , 1u32) , (1u32 , 2u32) , false)"
+            ));
+        }
     }
 
     #[test]
