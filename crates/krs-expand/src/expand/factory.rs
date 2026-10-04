@@ -20,7 +20,25 @@ pub(super) struct DescriptorFactory<'a> {
 }
 
 impl DescriptorFactory<'_> {
+    /// Renders the factory function followed by its registration.
     pub fn render(&self) -> TokenStream {
+        let factory_tokens = self.render_unregistered();
+        let Self {
+            facade,
+            factory,
+            attributes,
+            ..
+        } = self;
+        quote! {
+            #factory_tokens
+
+            #attributes
+            #facade::__register_host_descriptor!(#factory);
+        }
+    }
+
+    /// Renders only the factory function, for a caller that lists it in a table instead of registering it.
+    pub fn render_unregistered(&self) -> TokenStream {
         let Self {
             facade,
             factory,
@@ -54,9 +72,6 @@ impl DescriptorFactory<'_> {
                     provenance: #provenance,
                 })
             }
-
-            #attributes
-            #facade::__register_host_descriptor!(#factory);
         }
     }
 }

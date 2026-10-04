@@ -16,8 +16,6 @@ pub use inventory;
 /// the `#[cfg]` attributes of the item that defines it.
 #[doc(hidden)]
 pub struct RegistrationTable {
-    /// `CARGO_MANIFEST_DIR` of the registering crate.
-    pub manifest_dir: &'static str,
     /// Whether any `sorts!` in the crate names `KItem` or `KResult`.
     pub requests_framework: bool,
     /// Pushes each descriptor factory of the crate.

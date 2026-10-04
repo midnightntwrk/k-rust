@@ -120,7 +120,6 @@ pub trait Hidden {}
         assert_eq!(registrations[1]["module_path"], json!(["lesson"]));
         assert_eq!(registrations[1]["cfg"], json!(["#[cfg (any ())]"]));
         let table = result["table"].as_str().unwrap();
-        assert!(table.contains("::core::env!"));
         assert!(table.contains("::k::__private::RegistrationTable"));
         let hidden = registrations[1]["factory"].as_str().unwrap();
         assert!(table.contains(&format!(

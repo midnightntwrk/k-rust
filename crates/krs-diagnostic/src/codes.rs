@@ -257,7 +257,7 @@ register_codes! {
         ORPHAN_HELPER: "krs::expand::orphan-helper" => "A helper attribute is expanded without its required preceding declaration attribute.",
         SORT_PARENT_MISMATCH: "krs::expand::sort-parent-mismatch" => "A reference sort lacks one semantic parent path per Rust marker supertrait.",
         DUPLICATE_MEMBERSHIP_RELATION: "krs::expand::duplicate-membership-relation" => "A readable sort block declares a membership relation more than once.",
-        EMPTY_SORT_REGISTRATION: "krs::expand::empty-sort-registration" => "A framework sort block registers no descriptors.",
+        FRAMEWORK_SORT_ENTRY: "krs::expand::framework-sort-entry" => "A framework sort block contains a membership line or a bracket.",
         EMPTY_SORT_DECLARATION: "krs::expand::empty-sort-declaration" => "A sort declaration contains no descriptor-bearing tokens.",
         EMPTY_SORT_PATH: "krs::expand::empty-sort-path" => "A sort reference contains no path segments.",
         EMPTY_BRACKET: "krs::expand::empty-bracket" => "A bracket template contains no descriptor-bearing tokens.",

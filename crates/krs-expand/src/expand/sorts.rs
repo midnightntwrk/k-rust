@@ -11,7 +11,7 @@ use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange};
-use proc_macro2::{Span, TokenStream, TokenTree};
+use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, ItemTrait, Path, parse_quote};
@@ -217,7 +217,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         match entry {
             krs_syntax::SortsEntry::Sort(sort) => {
                 requests_framework_sorts |= sort.parents().iter().any(is_framework_sort_path);
-                output.push(expand_readable_sort(env, &facade, sort)?);
+                output.push(expand_readable_sort(env, &facade, sort, Registration::Inventory)?.0);
             }
             krs_syntax::SortsEntry::Membership(membership) => {
                 requests_framework_sorts |= is_framework_sort_path(membership.supersort());
@@ -274,27 +274,44 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
 
 /// Expands the facade's own framework sort block and lists its factories.
 ///
-/// The output is exactly the [`sorts`] expansion followed by a crate-private
-/// `FRAMEWORK_FACTORIES` table of that invocation's descriptor factories, so a
-/// collector without linker-section registration can still obtain the
-/// framework descriptors. A procedural macro sees only its own invocation;
-/// this per-invocation table is the only registration table it can write.
+/// Each sort expands as in [`sorts`], except that its descriptor factory is not
+/// registered: the crate-private `FRAMEWORK_FACTORIES` table is the only list
+/// of the framework factories, and both facade entry points run them only when
+/// a definition requests the framework sorts. The block declares only sorts,
+/// so it emits no framework-sort request of its own.
 pub(crate) fn framework_sorts(
     env: &dyn MacroEnvironment,
     input: TokenStream,
 ) -> crate::Result<TokenStream> {
+    let declaration = krs_syntax::SortsDeclaration::parse_tokens(input)?;
     let facade = env.facade_path()?;
-    let expansion = sorts(env, input)?;
-    let factories = registered_factories(&expansion);
-    if factories.is_empty() {
-        return Err(ExpandError::new(
-            expand::EMPTY_SORT_REGISTRATION,
-            Span::call_site(),
-            "framework sort block registered no descriptors",
-        ));
+    let mut output = Vec::new();
+    let mut factories = Vec::new();
+    for entry in declaration.entries() {
+        let sort = match entry {
+            krs_syntax::SortsEntry::Sort(sort) if sort.brackets().is_empty() => sort,
+            krs_syntax::SortsEntry::Sort(sort) => {
+                return Err(ExpandError::new(
+                    expand::FRAMEWORK_SORT_ENTRY,
+                    sort.name().span(),
+                    "a framework sort has no bracket",
+                ));
+            }
+            krs_syntax::SortsEntry::Membership(membership) => {
+                return Err(ExpandError::new(
+                    expand::FRAMEWORK_SORT_ENTRY,
+                    membership.supersort().span(),
+                    "the framework sort block declares only sorts",
+                ));
+            }
+        };
+        let (tokens, factory) =
+            expand_readable_sort(env, &facade, sort, Registration::FrameworkTable)?;
+        output.push(tokens);
+        factories.push(factory);
     }
     Ok(quote! {
-        #expansion
+        #(#output)*
 
         #[doc(hidden)]
         pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> ::core::result::Result<#facade::HostDescriptor, #facade::HostProvenanceError>] =
@@ -302,33 +319,13 @@ pub(crate) fn framework_sorts(
     })
 }
 
-/// Collects the factories of the top-level `__register_host_descriptor!`
-/// invocations in one expansion.
-///
-/// `sorts!` never places `#[cfg]` attributes on readable sort or membership
-/// registrations, so every collected factory is unconditional.
-fn registered_factories(expansion: &TokenStream) -> Vec<Ident> {
-    let tokens = expansion.clone().into_iter().collect::<Vec<_>>();
-    tokens
-        .windows(3)
-        .filter_map(|window| match window {
-            [
-                TokenTree::Ident(name),
-                TokenTree::Punct(bang),
-                TokenTree::Group(arguments),
-            ] if name == "__register_host_descriptor"
-                && bang.as_char() == '!'
-                && arguments.delimiter() == proc_macro2::Delimiter::Parenthesis =>
-            {
-                let mut arguments = arguments.stream().into_iter();
-                match (arguments.next(), arguments.next()) {
-                    (Some(TokenTree::Ident(factory)), None) => Some(factory),
-                    _ => None,
-                }
-            }
-            _ => None,
-        })
-        .collect()
+/// How a readable sort's descriptor factory reaches the collector.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Registration {
+    /// Registered through `__register_host_descriptor!`.
+    Inventory,
+    /// Listed only by the facade's `FRAMEWORK_FACTORIES` table.
+    FrameworkTable,
 }
 
 fn push_local_sort_ancestors(
@@ -365,11 +362,13 @@ fn is_framework_sort_path(path: &Path) -> bool {
         .is_some_and(|segment| matches!(segment.ident.to_string().as_str(), "KItem" | "KResult"))
 }
 
+/// Expands one readable sort and returns its tokens and descriptor factory.
 fn expand_readable_sort(
     env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::SortsSort,
-) -> crate::Result<TokenStream> {
+    registration: Registration,
+) -> crate::Result<(TokenStream, Ident)> {
     let anchors = declaration.provenance()?;
     let fallback = anchors
         .first()
@@ -437,7 +436,7 @@ fn expand_readable_sort(
         .expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
-    let factory_tokens = DescriptorFactory {
+    let descriptor_factory = DescriptorFactory {
         facade,
         factory: &factory,
         name: quote!(#name),
@@ -454,10 +453,13 @@ fn expand_readable_sort(
         attributes: TokenStream::new(),
         provenance: quote!(#provenance),
         prelude: TokenStream::new(),
-    }
-    .render();
+    };
+    let factory_tokens = match registration {
+        Registration::Inventory => descriptor_factory.render(),
+        Registration::FrameworkTable => descriptor_factory.render_unregistered(),
+    };
 
-    Ok(quote! {
+    let tokens = quote! {
         #[doc = concat!("Membership marker generated for the `", #name, "` K sort.")]
         pub trait #marker: #(#parent_markers)+* {}
         #[doc = concat!("Symbolic term type generated for the `", #name, "` K sort.")]
@@ -472,7 +474,8 @@ fn expand_readable_sort(
 
         #factory_tokens
         #(#brackets)*
-    })
+    };
+    Ok((tokens, factory))
 }
 
 fn expand_readable_membership(

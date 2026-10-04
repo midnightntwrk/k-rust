@@ -77,6 +77,24 @@ k::__framework_sorts! {
 ",
     ),
     (
+        "framework_sorts_membership",
+        r"
+k::__framework_sorts! {
+    KItem;
+    impl KItem for Int;
+}
+",
+    ),
+    (
+        "framework_sorts_bracket",
+        r#"
+k::__framework_sorts! {
+    #[k::bracket("(", ")")]
+    KItem;
+}
+"#,
+    ),
+    (
         "subsort",
         r"
 #[k::subsort]

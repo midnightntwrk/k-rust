@@ -447,7 +447,6 @@ pub fn registration_table(
          #[doc(hidden)]\n\
          pub static {REGISTRATION_TABLE}: {facade}::__private::RegistrationTable =\n    \
          {facade}::__private::RegistrationTable {{\n        \
-         manifest_dir: ::core::env!(\"CARGO_MANIFEST_DIR\"),\n        \
          requests_framework: {requests_framework},\n        \
          register: __krs_register_descriptors,\n    \
          }};\n\n\
