@@ -345,9 +345,12 @@ Pinned K assigns names to offsets in unspecified `HashSet` iteration order, so i
 Each backend executes the permutation in its compiled definition; differing concrete values in ordered result positions must remain visible and must not be normalized as alpha-equivalent.
 The `fresh-variables` compilation differential checks a case where the permutations happen to agree, while the focused Rust pass regression pins lexicographic allocation and repeated-name reuse.
 
-Only a rewrite step of the configuration reads and advances the counter cell, so a `!` variable is accepted only in a rule applied as such a step, or in a context, whose heating rule is one.
+Only a rewrite step of the configuration reads and advances the counter cell, so a `!` variable is accepted only in a rule applied as such a step.
 It is rejected with `InvalidFreshConstant` at the sentence in a function, simplification, anywhere, macro or alias rule, each an equation applied to the term its left-hand side matches without the configuration, and in a claim, which states which configurations a path reaches and takes no step of its own.
-A local function (`#fun`, `#let`) inside a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
+Within a rewrite rule the value exists only once the step applies, so a `!` variable may occur only where the rule builds its result: on the right-hand side of a rewrite and in `ensures`.
+It is rejected where the rule matches (the left-hand side of a rewrite, or outside every rewrite), which would compare the subject with a value nothing in it holds yet, and in `requires`, which decides whether the step applies before it allocates anything.
+It is also rejected anywhere in a context: the heating step builds the context's term and the cooling step matches it again, and a value one step allocates is not one the other can match.
+A local function (`#fun`, `#let`) on the right-hand side of a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
 
 ## Anywhere rules
 

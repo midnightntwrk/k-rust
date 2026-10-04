@@ -1,4 +1,4 @@
-//! This definition check traverses each rule and claim once; callers supply the production catalog and no dedicated counter is recorded.
+//! This definition check traverses each rule, claim and context once; callers supply the production catalog and no dedicated counter is recorded.
 //!
 //! Where a fresh variable `!X` has a value.
 //!
@@ -16,10 +16,25 @@
 //!
 //! In each of them `!X` would be a variable that nothing binds, so each is rejected at the
 //! sentence.
+//!
+//! Within a rewrite rule, the value of `!X` exists only once the step applies: the rule relates
+//! the configurations its left-hand side and `requires` clause describe, before the step, to the
+//! ones its right-hand side and `ensures` clause describe, after it. So `!X` may occur only where
+//! the rule builds the result, on the right-hand side of a rewrite and in `ensures`. A term the
+//! rule matches, on the left-hand side of a rewrite or outside every rewrite, would compare the
+//! subject with a value nothing in it holds yet, and a `requires` clause would ask about a value
+//! before the step that allocates it decides to apply; both are rejected at the sentence.
+//!
+//! A context has no such place. It is lowered to two steps: one heats the term the context
+//! describes, and the other matches the heated term again, once evaluated, to cool it back. Every
+//! part of the context is therefore matched by one of them, the right-hand side of a rewrite in
+//! it included, and a value one step allocates is not one the other can match; `!X` is rejected
+//! anywhere in a context.
 
 use std::collections::BTreeSet;
 
 use super::Sentence;
+use super::term_position::{TermPosition, positioned_children};
 use crate::definition::{AttributeKey, LabelHead, ProductionCatalog, match_rule_label};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -45,6 +60,18 @@ pub(super) fn check_fresh_variables(
                 ensures,
                 ..
             } => (body, requires, ensures),
+            Sentence::Context { body, requires, .. } => {
+                for name in fresh_variables([body, requires]) {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidFreshConstant,
+                        format!(
+                            "Fresh variable {name} cannot occur in a context: the context is lowered to a step that heats its term and a step that matches the heated term again to cool it, and a value one step allocates is not one the other can match."
+                        ),
+                        sentence,
+                    ));
+                }
+                continue;
+            }
             Sentence::SyntaxSort { .. }
             | Sentence::SortSynonym { .. }
             | Sentence::SyntaxLexical { .. }
@@ -52,7 +79,6 @@ pub(super) fn check_fresh_variables(
             | Sentence::SyntaxAssociativity { .. }
             | Sentence::SyntaxPriority { .. }
             | Sentence::ContextAlias { .. }
-            | Sentence::Context { .. }
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => continue,
         };
@@ -61,6 +87,7 @@ pub(super) fn check_fresh_variables(
             continue;
         }
         let Some((kind, reason)) = configuration_less(sentence, productions) else {
+            check_rewrite_rule_positions(sentence, body, requires, &mut diagnostics);
             continue;
         };
         for name in fresh {
@@ -121,6 +148,55 @@ fn configuration_less(
         ))
     } else {
         None
+    }
+}
+
+/// Reject each fresh variable of a rewrite rule that the rule matches or that its `requires`
+/// clause mentions (module docs).
+fn check_rewrite_rule_positions(
+    sentence: &Sentence,
+    body: &Term,
+    requires: &Term,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut matched = BTreeSet::new();
+    matched_fresh_variables(body, TermPosition::BODY, &mut matched);
+    let required = fresh_variables([requires]);
+    let places = [
+        (
+            matched,
+            "where a rule matches (the left-hand side of a rewrite, or outside every rewrite)",
+        ),
+        (
+            required,
+            "in the requires clause of a rule, which decides whether the step applies",
+        ),
+    ];
+    for (names, place) in places {
+        for name in names {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidFreshConstant,
+                format!(
+                    "Fresh variable {name} cannot occur {place}: its value is allocated by the step that applies the rule, so it may occur only on the right-hand side of a rewrite or in the ensures clause."
+                ),
+                sentence,
+            ));
+        }
+    }
+}
+
+/// The fresh variables of `term` at positions it matches, `term` being at `position`.
+// Invariant: each recursive call receives a child of `term` with its position, so the size of
+// `term` bounds the calls.
+fn matched_fresh_variables(term: &Term, position: TermPosition, matched: &mut BTreeSet<String>) {
+    if let Term::Variable { name, .. } = term.unannotated() {
+        if position.lhs && name.starts_with('!') {
+            matched.insert(name.clone());
+        }
+        return;
+    }
+    for (child, child_position) in positioned_children(term, position) {
+        matched_fresh_variables(child, child_position, matched);
     }
 }
 

@@ -11652,6 +11652,86 @@ endmodule
 }
 
 #[test]
+fn fresh_variables_occur_only_where_a_rewrite_rule_builds_its_result() {
+    // The value of `!X` is allocated by the step that applies the rule, so it exists only in the
+    // configuration after the step: the right-hand side of a rewrite and `ensures`.
+    for (sentences, place) in [
+        // The generated-input reproducer: a fresh variable as the pattern of a left-hand side.
+        (
+            "  syntax KItem ::= foo(Int)\n  rule foo(!X:Int) => 1",
+            "where a rule matches",
+        ),
+        (
+            "  syntax KItem ::= foo(Int) | \"bar\"\n  rule <k> foo(!X:Int) => bar ...</k>",
+            "where a rule matches",
+        ),
+        // Outside every rewrite the term is both matched and rebuilt.
+        (
+            "  syntax KItem ::= baz(Int, Int)\n  rule baz(!X:Int, I => I +Int 1)",
+            "where a rule matches",
+        ),
+        (
+            "  syntax KItem ::= foo(Int) | \"bar\"\n  rule foo(I) => bar requires !X:Int >Int I",
+            "in the requires clause of a rule",
+        ),
+    ] {
+        let source = format!("module MAIN\n  imports INT\n{sentences}\nendmodule\n");
+        let output = kcompile_source(&source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = 2 + sentences.lines().count();
+        assert!(
+            stderr.contains(&format!(
+                "definition.k:{line}:3: Error[InvalidFreshConstant]: Fresh variable !X cannot occur {place}"
+            )),
+            "{source}\n{stderr}"
+        );
+    }
+
+    // A context is lowered to a heating step that builds its term and a cooling step that
+    // matches it again, so `!X` has no place in it, the right-hand side of its rewrite included.
+    for context in ["pair(HOLE, !X:Int)", "pair(HOLE => tag(HOLE, !X:Int), _)"] {
+        let source = format!(
+            "module MAIN\n  imports INT\n  syntax Exp ::= Int | pair(Exp, Exp) | tag(Exp, Int)\n  syntax KResult ::= Int\n  context {context}\nendmodule\n"
+        );
+        let output = kcompile_source(&source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(
+                "definition.k:5:3: Error[InvalidFreshConstant]: Fresh variable !X cannot occur in a context"
+            ),
+            "{source}\n{stderr}"
+        );
+    }
+
+    // The right-hand side and `ensures` see the allocated values.
+    let stdout = krun_success(
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= start(Int) | done(Int, Int)
+  rule start(I) => done(!X:Int, !Y:Int) ensures !X:Int >=Int I
+endmodule
+"#,
+        &[
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+            "--expression",
+            "start(0)",
+        ],
+    );
+    let compact = stdout.split_whitespace().collect::<String>();
+    assert!(
+        compact.contains(r#"KItem'Unds'Int'Unds'Int{}(\dv{SortInt{}}("0"),\dv{SortInt{}}("1"))"#)
+            && compact.contains(r#"Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("2"))"#),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn heat_and_cool_sentences_without_a_matched_hole_are_rejected() {
     // Heating and cooling apply only when the subterm the sentence matches as HOLE is not yet,
     // or is, a result. A rule that matches no HOLE would test a variable nothing binds, and a
