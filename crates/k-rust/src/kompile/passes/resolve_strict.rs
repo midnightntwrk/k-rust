@@ -28,11 +28,11 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, FlatImport, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, SortCatalog,
+        Attributes, Definition, ProductionCatalog, ProductionItem, ResolvedDefinition, Sentence,
+        SortCatalog,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, Label, Sort, Term, WellKnownModule, parser::parse_sort},
+    kast::{FrontendSort, Label, Sort, Term, parser::parse_sort},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
@@ -195,7 +195,6 @@ pub(crate) fn resolve_strict_pass(
     })?;
     let main = resolved.main_module_id();
     let aliases = labeled_sentences(resolved, main);
-    let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
     let views = resolved.views();
     // The compiled definition is the main module's import closure, so a generated sentence that
     // mentions `isS` needs `isS` there, not in the module that declares the strict production
@@ -244,30 +243,11 @@ pub(crate) fn resolve_strict_pass(
             .local_sentences
             .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
         if !generated.is_empty() {
-            let imports_bool = bool_module.is_some_and(|bool_module| {
-                resolved
-                    .transitive_imports(module_id)
-                    .contains(&bool_module)
-                    || module_id == bool_module
-            });
-            if !imports_bool {
-                if bool_module.is_some() {
-                    module.imports.insert(
-                        0,
-                        FlatImport {
-                            name: WellKnownModule::Bool.as_str().into(),
-                            public: false,
-                        },
-                    );
-                } else {
-                    diagnostics.push(error_at(
-                        format!(
-                            "Strictness-generated contexts require the missing module {}.",
-                            WellKnownModule::Bool.as_str()
-                        ),
-                        &module.attributes,
-                    ));
-                }
+            if !super::import_bool(module, resolved) {
+                diagnostics.push(error_at(
+                    super::missing_bool_message("Strictness"),
+                    &module.attributes,
+                ));
             }
             module
                 .local_sentences

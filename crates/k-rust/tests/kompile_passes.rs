@@ -2077,20 +2077,24 @@ fn lowers_k_non_matching_to_a_negated_predicate_with_owise_rule() {
     };
     let definition = Definition {
         main_module: "MAIN".into(),
-        modules: vec![module(
-            "MAIN",
-            vec![
-                Sentence::SyntaxSort {
-                    parameters: Vec::new(),
-                    sort: Sort::new("Int"),
-                    attributes: Attributes::default(),
-                },
-                rule(
-                    application("_:/=K_", vec![pattern, expression]),
-                    Attributes::default(),
-                ),
-            ],
-        )],
+        // The negated match is a `Bool` formula, so its module is given `BOOL`.
+        modules: vec![
+            module(
+                "MAIN",
+                vec![
+                    Sentence::SyntaxSort {
+                        parameters: Vec::new(),
+                        sort: Sort::new("Int"),
+                        attributes: Attributes::default(),
+                    },
+                    rule(
+                        application("_:/=K_", vec![pattern, expression]),
+                        Attributes::default(),
+                    ),
+                ],
+            ),
+            module("BOOL", Vec::new()),
+        ],
         attributes: Attributes::default(),
     };
 
@@ -2611,6 +2615,8 @@ fn preserves_existing_sentence_ids() {
 #[test]
 fn lowers_heat_and_cool_attributes_to_result_predicates() {
     let source = indoc! {r#"
+        module BOOL
+        endmodule
         module MAIN
           syntax KResult
           syntax Exp ::= "heat" [symbol(heat)]
@@ -2639,6 +2645,46 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
         insta::assert_debug_snapshot!(requires);
     });
     assert_generated_by(&transformed, GeneratingPass::ResolveHeatCool);
+}
+
+/// A heat or cool condition is a `Bool` formula built from `BOOL`'s connectives, so the module
+/// stating the rule is given a private `BOOL` import; a definition without `BOOL` is told so at
+/// the rule.
+#[test]
+fn heat_cool_imports_bool_for_its_condition_or_reports_its_absence() {
+    let main = indoc! {r#"
+        module MAIN
+          syntax KResult
+          syntax Exp ::= "heat" [symbol(heat)]
+          rule heat => heat [heat, result(KResult)]
+        endmodule
+    "#};
+    let transformed =
+        resolve_heat_cool_attributes(&parsed(&format!("module BOOL\nendmodule\n{main}"))).unwrap();
+    assert_eq!(
+        transformed.main_module().unwrap().imports,
+        [FlatImport {
+            name: "BOOL".into(),
+            public: false,
+        }]
+    );
+
+    let error = resolve_heat_cool_attributes(&parsed(main)).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1, "{:?}", error.diagnostics);
+    let diagnostic = &error.diagnostics[0];
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidHeatCool
+    );
+    assert!(
+        diagnostic.message.contains("needs the module BOOL"),
+        "{}",
+        diagnostic.message
+    );
+    assert_eq!(
+        diagnostic.location.map(|location| location.start_line),
+        Some(4)
+    );
 }
 
 #[test]
@@ -2720,6 +2766,8 @@ fn heat_cool_still_rejects_rules_and_contexts_without_result_predicates() {
 #[test]
 fn heat_cool_rejects_a_declared_result_sort_without_a_sort_predicate() {
     let source = indoc! {r#"
+        module BOOL
+        endmodule
         module MAIN
           syntax 8
           syntax #Foo ::= "foo"
@@ -7018,6 +7066,8 @@ fn preserves_repeated_cell_initializers_for_every_collection_shape() {
 #[test]
 fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
     let source = indoc! {r#"
+        module BOOL
+        endmodule
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           syntax Bool ::= "isTopCellFragment" "(" TopCellFragment ")"

@@ -175,10 +175,14 @@ pub(crate) fn resolve_fun_pass(
             labels: &mut labels,
             productions: Vec::new(),
             rules: Vec::new(),
+            negates_match: false,
             diagnostics: &mut diagnostics,
         };
+        // The first sentence of the module whose lowering negates a match, which the module's
+        // `BOOL` import is for; it locates the error when the definition has no `BOOL`.
+        let mut first_negation = None;
         let mut sentences = Vec::with_capacity(module.local_sentences.len());
-        // Invariant: `sentences` holds the transformed form of every sentence of `module.local_sentences` before `sentence`, and `resolver.productions` and `resolver.rules` the lambdas generated from them; each iteration consumes one sentence.
+        // Invariant: `sentences` holds the transformed form of every sentence of `module.local_sentences` before `sentence`, and `resolver.productions` and `resolver.rules` the lambdas generated from them, and `first_negation` locates the first of them whose lowering negates a match; each iteration consumes one sentence.
         for sentence in &module.local_sentences {
             let (productions, rules) = (resolver.productions.len(), resolver.rules.len());
             let transformed = resolver.transform_sentence((**sentence).clone());
@@ -191,11 +195,23 @@ pub(crate) fn resolve_fun_pass(
                     .attributes_mut()
                     .union_input_addresses(transformed.attributes());
             }
+            if resolver.negates_match && first_negation.is_none() {
+                first_negation = Some(Diagnostic::error(
+                    DiagnosticCode::InvalidLocalFunction,
+                    super::missing_bool_message("A `:/=K` match"),
+                    &transformed,
+                ));
+            }
             sentences.push(transformed);
         }
         extend_unique(&mut sentences, resolver.productions);
         extend_unique(&mut sentences, resolver.rules);
         module.local_sentences = sentences.into_iter().map(Arc::new).collect();
+        if let Some(missing_bool) = first_negation
+            && !super::import_bool(module, resolved)
+        {
+            diagnostics.push(missing_bool);
+        }
     }
 
     if diagnostics.is_empty() {
@@ -230,6 +246,8 @@ struct Resolver<'a, 'view, 'definition> {
     labels: &'a mut BTreeSet<String>,
     productions: Vec<Sentence>,
     rules: Vec<Sentence>,
+    /// Whether a `:/=K` match of the module has been lowered to a `notBool_` application.
+    negates_match: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -462,6 +480,7 @@ impl Resolver<'_, '_, '_> {
             arguments: call_arguments,
         };
         if source_label.is(InternalLabel::KNotEqualsK) {
+            self.negates_match = true;
             Term::apply("notBool_", vec![call])
         } else {
             call

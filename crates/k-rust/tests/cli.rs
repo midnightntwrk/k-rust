@@ -11388,3 +11388,132 @@ endmodule []
     }
     fs::remove_dir_all(root).unwrap();
 }
+
+/// Run `krust krun` on `source`, written as the definition of a fresh fixture, with `arguments`
+/// after the definition path; standard input is closed so a definition that reads it never waits.
+fn krun_source(source: &str, arguments: &[&str]) -> Output {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("krun")
+        .arg(&definition)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    output
+}
+
+/// The final `<k>` cell content of a successful `krun`.
+fn krun_success(source: &str, arguments: &[&str]) -> String {
+    let output = krun_source(source, arguments);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn generated_bool_side_conditions_need_no_bool_import() {
+    // Heating, cooling, and `:/=K` are lowered to conditions built from `BOOL`'s connectives;
+    // the module states them without importing `BOOL`.
+    let stdout = krun_success(
+        r#"
+module MAIN
+  syntax KResult ::= Val
+  syntax Val ::= "v" | "w"
+  syntax Exp ::= Val | "e" | wrap(Exp) | "frozen" | "done"
+  rule wrap(HOLE:Exp) => HOLE ~> frozen [heat]
+  rule HOLE:Exp ~> frozen => wrap(HOLE) [cool]
+  rule e => v
+  rule wrap(V:Val) => done requires w :/=K V
+endmodule
+"#,
+        &[
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Exp",
+            "--expression",
+            "wrap(e)",
+        ],
+    );
+    assert!(
+        stdout.contains("Lbldone'Unds'MAIN'Unds'Exp{}()"),
+        "{stdout}"
+    );
+
+    // The generated-input reproducer: a heat rule in a module without `BOOL` compiles.
+    let output = krun_source(
+        r#"
+module MAIN
+  syntax KResult ::= Op
+  syntax Op ::= "a" | "b"
+  rule a => b [heat]
+endmodule
+"#,
+        &["--main-module", "MAIN", "--sort", "Op", "--expression", "b"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn cell_fragment_sort_tests_need_no_bool_import() {
+    const SOURCE: &str = r#"
+module MAIN
+  syntax Foo ::= "a" | "b"
+  configuration <t> <k> $PGM:Foo </k> <mem> a </mem> <x> a </x> </t>
+  rule <t> <k> a => b ... </k> R </t> requires isTCellFragment(R)
+endmodule
+"#;
+    // The fragment test of `R` becomes the conjunction of the sort tests of `<mem>` and `<x>`.
+    let stdout = krun_success(
+        SOURCE,
+        &[
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Foo",
+            "--expression",
+            "a",
+        ],
+    );
+    assert!(
+        stdout.contains(
+            "Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lblb'Unds'MAIN'Unds'Foo{}())"
+        ),
+        "{stdout}"
+    );
+
+    // A search pattern's cast and fragment tests are conjoined too; the compiled definition
+    // has no `BOOL`, so the pattern states each conjunct as its own equation.
+    for pattern in [
+        "<t> <k> X:Foo </k> <mem> Y:Foo </mem> <x> _ </x> </t>",
+        "<t> <k> X:Foo </k> R </t> requires isTCellFragment(R)",
+    ] {
+        let stdout = krun_success(
+            SOURCE,
+            &[
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Foo",
+                "--expression",
+                "a",
+                "--pattern",
+                pattern,
+            ],
+        );
+        assert!(
+            stdout.contains("VarX:SortFoo{}, Lblb'Unds'MAIN'Unds'Foo{}()"),
+            "{pattern}: {stdout}"
+        );
+    }
+}

@@ -19,7 +19,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::definition::{Attributes, ResolvedDefinition, Sentence};
+use crate::definition::{Attributes, LabelHead, ResolvedDefinition, Sentence};
 use crate::inner::{RuleError, parse_rule_content};
 use crate::kast::{Sort, Term, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
@@ -199,37 +199,60 @@ pub fn compile_search_pattern(
     }
     let body = injector.inject(&body, &top)?;
     injector.require_ground(&body, GroundInput::SearchPattern)?;
-    let requires_is_true = is_true(&requires);
-    let requires = (!requires_is_true)
-        .then(|| injector.inject(&requires, &bool_sort))
-        .transpose()?;
-    if let Some(requires) = &requires {
-        injector.require_ground(requires, GroundInput::SearchPattern)?;
-    }
+    // The condition holds when it equals `true`. Cast and cell-fragment resolution conjoin the
+    // sort tests they add with `_andBool_`, which the module declares only when it sees `BOOL`.
+    // Without it, every `_andBool_` on the condition's spine was generated (the user's condition
+    // could not have parsed with one), and `#Equals(A andBool B, true)` holds exactly when both
+    // `#Equals(A, true)` and `#Equals(B, true)` do, so each conjunct becomes its own equation.
+    let and_bool = LabelHead::new(AND_BOOL);
+    let conjuncts = if views
+        .production_catalog(module_id)
+        .productions_for(&and_bool)
+        .is_empty()
+    {
+        let mut conjuncts = Vec::new();
+        split_conjunction(requires, &mut conjuncts);
+        conjuncts
+    } else {
+        vec![requires]
+    };
+    let requires = conjuncts
+        .into_iter()
+        .filter(|conjunct| !is_true(conjunct))
+        .map(|conjunct| {
+            let conjunct = injector.inject(&conjunct, &bool_sort)?;
+            injector.require_ground(&conjunct, GroundInput::SearchPattern)?;
+            Ok(conjunct)
+        })
+        .collect::<Result<Vec<_>, CompileSearchPatternError>>()?;
 
     let converter =
         TermConverter::new_with_generated_anonymous(execution_definition, module, &generated)?;
     let body = converter.convert(&body)?;
     let top_kore = converter.convert_sort(&top)?;
     let bool_kore = converter.convert_sort(&bool_sort)?;
-    let condition = if let Some(requires) = requires {
-        Pattern::Equals {
+    let mut arguments = vec![body];
+    // Invariant: `arguments` holds the body and the equation of every conjunct of `requires`
+    // before `conjunct`; each iteration converts one conjunct.
+    for conjunct in &requires {
+        arguments.push(Pattern::Equals {
             operand_sort: Box::new(bool_kore.clone()),
             result_sort: top_kore.clone(),
-            left: Box::new(converter.convert(&requires)?),
+            left: Box::new(converter.convert(conjunct)?),
             right: Box::new(Pattern::DomainValue {
-                sort: bool_kore,
+                sort: bool_kore.clone(),
                 value: "true".into(),
             }),
-        }
-    } else {
-        Pattern::Top {
+        });
+    }
+    if requires.is_empty() {
+        arguments.push(Pattern::Top {
             sort: top_kore.clone(),
-        }
-    };
+        });
+    }
     let pattern = Pattern::And {
         sort: top_kore,
-        arguments: vec![body, condition],
+        arguments,
     };
 
     let occurring = variable_identities(&pattern);
@@ -242,6 +265,28 @@ pub fn compile_search_pattern(
         pattern,
         generated_anonymous_variables,
     })
+}
+
+/// The label of `BOOL`'s conjunction, with which generated sort tests are conjoined.
+const AND_BOOL: &str = "_andBool_";
+
+/// Push onto `conjuncts`, left to right, the operands of the `_andBool_` applications on the
+/// spine of `term`, or `term` itself when it is no conjunction.
+fn split_conjunction(term: Term, conjuncts: &mut Vec<Term>) {
+    let conjunction = matches!(
+        term.unannotated(),
+        Term::Apply { label, arguments } if label.name == AND_BOOL && arguments.len() == 2
+    );
+    if !conjunction {
+        conjuncts.push(term);
+        return;
+    }
+    let Term::Apply { arguments, .. } = term.into_unannotated() else {
+        unreachable!("a conjunction is an application")
+    };
+    for argument in arguments {
+        split_conjunction(argument, conjuncts);
+    }
 }
 
 fn is_true(term: &Term) -> bool {

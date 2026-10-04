@@ -120,6 +120,59 @@ pub(crate) use subsort_kitem::{
 };
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 
+/// Make the `BOOL` module visible in `module`, which holds a sentence whose generated condition
+/// uses `BOOL`'s connectives (`_andBool_`, `notBool_`).
+///
+/// A rule condition is a `Bool` term, and the side conditions compilation states for a sentence
+/// (the result test of a heating or cooling rule, the negation of a `:/=K` match, the conjunction
+/// of a cell fragment's sort tests) are `Bool` formulas built from those connectives. The sentence
+/// the user wrote means the same whether or not its module imports `BOOL`: the condition is part
+/// of the lowering, not of the user's syntax. So compilation makes the connectives visible where the
+/// generated sentence is checked, by a private import: `BOOL` declares functions over `Bool` only
+/// (the sort itself is already in `BASIC-K`), so the import changes no user sort or production, and
+/// being private it reaches no module that imports `module`. Passes run after rule parsing, so the
+/// import changes no parse either.
+///
+/// Returns `false`, and changes nothing, when the definition has no `BOOL` module (a
+/// `--no-prelude` definition that does not provide one); the caller reports the sentence that
+/// needs it.
+pub(super) fn import_bool(
+    module: &mut crate::definition::FlatModule,
+    resolved: &crate::definition::ResolvedDefinition,
+) -> bool {
+    let name = crate::kast::WellKnownModule::Bool.as_str();
+    let Some(bool_module) = resolved.module_id(name) else {
+        return false;
+    };
+    if module.name == name || module.imports.iter().any(|import| import.name == name) {
+        return true;
+    }
+    let visible = resolved.module_id(&module.name).is_some_and(|module_id| {
+        resolved
+            .transitive_imports(module_id)
+            .contains(&bool_module)
+    });
+    if !visible {
+        module.imports.insert(
+            0,
+            crate::definition::FlatImport {
+                name: name.into(),
+                public: false,
+            },
+        );
+    }
+    true
+}
+
+/// The error message for a sentence whose generated condition needs `BOOL` in a definition
+/// that has no `BOOL` module ([`import_bool`]).
+pub(super) fn missing_bool_message(what: &str) -> String {
+    format!(
+        "{what} generates a Bool side condition, which needs the module {}, but the definition does not contain it.",
+        crate::kast::WellKnownModule::Bool.as_str()
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {
     pub diagnostics: Vec<Diagnostic>,

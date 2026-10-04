@@ -65,7 +65,10 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         let sorts = views.sort_catalog(module_id);
-        // Invariant: every heat or cool rule or context of `module.local_sentences` before `sentence` has its `requires` conjoined with its result predicate on `HOLE` (negated for heat), and `diagnostics` holds one error for each such sentence whose predicate is missing; each iteration consumes one sentence.
+        // The first heat or cool sentence of the module given a condition, which the module's
+        // `BOOL` import is for; it locates the error when the definition has no `BOOL`.
+        let mut first_lowered = None;
+        // Invariant: every heat or cool rule or context of `module.local_sentences` before `sentence` has its `requires` conjoined with its result predicate on `HOLE` (negated for heat), `first_lowered` locates the first of them, and `diagnostics` holds one error for each such sentence whose predicate is missing; each iteration consumes one sentence.
         for sentence in &mut module.local_sentences {
             // Only heat and cool sentences change. Their attributes are checked before taking a
             // mutable sentence, which copies a shared one, so every other sentence stays shared;
@@ -136,6 +139,18 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             };
             let original = mem::replace(requires, Term::Sequence(Vec::new()));
             *requires = Term::apply("_andBool_", vec![original, condition]);
+            if first_lowered.is_none() {
+                first_lowered = Some(Diagnostic::error(
+                    DiagnosticCode::InvalidHeatCool,
+                    super::missing_bool_message("A heat or cool attribute"),
+                    sentence,
+                ));
+            }
+        }
+        if let Some(missing_bool) = first_lowered
+            && !super::import_bool(module, resolved)
+        {
+            diagnostics.push(missing_bool);
         }
     }
     if diagnostics.is_empty() {

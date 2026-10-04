@@ -146,16 +146,34 @@ pub(crate) fn concretize_cells_pass(
                 })?;
             &local_model
         };
+        // The first sentence of the module whose fragment test became a conjunction, which the
+        // module's `BOOL` import is for; it locates the error when the definition has no `BOOL`.
+        let mut first_conjunction = None;
         for sentence in &mut module.local_sentences {
             let original = (**sentence).clone();
-            match Concretizer::new(model, productions).sentence(original) {
-                Ok(transformed) => *crate::definition::sentence_mut(sentence) = transformed,
+            let mut concretizer = Concretizer::new(model, productions);
+            match concretizer.sentence(original) {
+                Ok(transformed) => {
+                    if concretizer.conjoins_fragment && first_conjunction.is_none() {
+                        first_conjunction = Some(Diagnostic::error(
+                            DiagnosticCode::InvalidCellConcretization,
+                            super::missing_bool_message("A cell fragment test"),
+                            &transformed,
+                        ));
+                    }
+                    *crate::definition::sentence_mut(sentence) = transformed;
+                }
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidCellConcretization,
                     message,
                     sentence,
                 )),
             }
+        }
+        if let Some(missing_bool) = first_conjunction
+            && !super::import_bool(module, resolved)
+        {
+            diagnostics.push(missing_bool);
         }
     }
     if diagnostics.is_empty() {
@@ -610,6 +628,9 @@ struct Concretizer<'use_, 'definition> {
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
     fragments: BTreeMap<String, FragmentInfo>,
+    /// Whether a fragment test of the last sentence became a conjunction (`_andBool_`) of the
+    /// sort predicates of two or more cells.
+    conjoins_fragment: bool,
 }
 
 #[derive(Clone)]
@@ -627,6 +648,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
             fragments: BTreeMap::new(),
+            conjoins_fragment: false,
         }
     }
 
@@ -637,6 +659,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
         self.fragments.clear();
+        self.conjoins_fragment = false;
         match sentence {
             Sentence::Rule {
                 body,
@@ -1333,6 +1356,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         || label.name
                             == Label::sort_predicate(&Sort::frontend(FrontendSort::Bag)).name)
                 {
+                    self.conjoins_fragment |= info.split.len() > 1;
                     fragment_predicate(info, self.model)
                 } else if let Some(cell) = self.model.cell_for_label(&label)
                     && !cell.children.is_empty()
