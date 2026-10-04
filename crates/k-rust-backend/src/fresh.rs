@@ -94,7 +94,7 @@ pub(crate) fn freshen_existential(
         &[VariableProvenance::Existential, VariableProvenance::Rule],
     )
     .1
-    .to_owned();
+    .into_owned();
     // Invariant: the trailing counter only grows, so at most |names_to_avoid| + 1 names are tried.
     while !names_to_avoid.insert(name.as_str().into()) {
         name = increment_name_counter(&name);

@@ -148,10 +148,14 @@ impl StatesOutput {
     /// Call `consume` with the source of the result pattern. The states are ordered by
     /// comparing their sources, which reads each pair only up to its first difference.
     pub fn with_source<R>(&self, consume: impl FnOnce(External<'_>) -> R) -> R {
-        let mut states = self
+        let printable = self
             .states
             .iter()
-            .map(External::Constrained)
+            .map(externalize::Printable::pattern)
+            .collect::<Vec<_>>();
+        let mut states = printable
+            .iter()
+            .map(|state| External::Constrained(state.source()))
             .collect::<Vec<_>>();
         states.sort_by(|left, right| compare(*left, *right));
         let source = match states.as_slice() {
@@ -727,9 +731,13 @@ fn run_backend_with_solver(
             .first()
             .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
             .unwrap_or_else(|| output_sort.clone());
-        let leaves = depth_bounded
+        let printable = depth_bounded
             .into_iter()
-            .map(|leaf| External::Constrained(&leaf.pattern))
+            .map(|leaf| externalize::Printable::pattern(&leaf.pattern))
+            .collect::<Vec<_>>();
+        let leaves = printable
+            .iter()
+            .map(|leaf| External::Constrained(leaf.source()))
             .collect::<Vec<_>>();
         // The `\or` of the leaves (of any number), rendered into the file as it is produced from
         // the leaves' terms, so that neither the text nor the KORE tree is held whole.

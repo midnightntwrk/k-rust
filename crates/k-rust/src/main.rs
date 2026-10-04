@@ -3557,8 +3557,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     )?;
                 }
                 let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
+                let printable = externalize::Printable::pattern(&leaf.pattern);
                 KorePrinter::pretty(100)
-                    .write_source(External::Constrained(&leaf.pattern), &mut lines)?;
+                    .write_source(External::Constrained(printable.source()), &mut lines)?;
                 lines
                     .finish()?
                     .into_inner()

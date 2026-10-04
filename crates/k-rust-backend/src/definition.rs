@@ -83,7 +83,8 @@ use crate::{
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, FunctionType, HeadRole,
         ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
-        SymbolType, Term, TermKind, Variable, names::HookName,
+        SymbolType, Term, TermKind, Variable,
+        names::{HookName, variable_name_problems},
     },
 };
 
@@ -827,6 +828,13 @@ pub enum DefinitionError {
     },
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
+    /// A variable whose name is not a KORE identifier (`@` and an identifier for a set
+    /// variable). Textual and JSON KORE cannot spell one; binary KORE and patterns built in
+    /// process can.
+    VariableName {
+        name: String,
+        set: bool,
+    },
     Axiom(AxiomError),
     RulePattern(RulePatternError),
     Claim(ClaimError),
@@ -981,6 +989,18 @@ impl fmt::Display for DefinitionError {
             Self::EmptyAssociativeApplication(symbol) => {
                 write!(formatter, "Associative symbol '{symbol}' has no arguments")
             }
+            Self::VariableName { name, set } => {
+                let problems = variable_name_problems(name, *set)
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let kind = if *set { "set" } else { "element" };
+                write!(
+                    formatter,
+                    "Invalid {kind} variable name '{name}': {problems}"
+                )
+            }
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
             Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
@@ -1000,6 +1020,27 @@ fn display_sort(sort: &Sort) -> String {
 }
 
 impl Error for DefinitionError {}
+
+/// The backend variable a KORE variable denotes: its name verbatim, at `sort`.
+///
+/// Only a KORE identifier is accepted as a name (`@` and an identifier for a set variable). No
+/// identifier contains `#` or `!`, the characters every name the backend makes from another
+/// one adds (`term::names`), so no variable read from KORE is ever a rule variable or a mint
+/// of the backend, whatever it is spelled.
+fn read_variable(variable: &kore::Variable, sort: Sort) -> Result<Variable, DefinitionError> {
+    let set = variable.kind == kore::VariableKind::Set;
+    if !variable_name_problems(&variable.name, set).is_empty() {
+        return Err(DefinitionError::VariableName {
+            name: variable.name.clone(),
+            set,
+        });
+    }
+    Ok(if set {
+        Variable::set(variable.name.as_str(), sort)
+    } else {
+        Variable::new(variable.name.as_str(), sort)
+    })
+}
 
 impl From<MalformedAttribute> for DefinitionError {
     /// `"{name} must contain one string"` and `"{name} must contain one nullary symbol"`, the
@@ -1499,7 +1540,7 @@ impl BackendDefinition {
             .values()
             .flatten()
             .any(|rule| has_term_component(&rule.lhs));
-        result.finite_sort_constructors = collect_finite_sort_constructors(&result);
+        result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
         result.discharge_rewrite_definedness();
         Ok(result)
     }
@@ -1936,10 +1977,7 @@ impl BackendDefinition {
         sort_variables: &[Name],
     ) -> Result<Variable, DefinitionError> {
         let sort = self.internalize_syntax_sort(&variable.sort, sort_variables)?;
-        Ok(match variable.kind {
-            kore::VariableKind::Element => Variable::new(variable.name.as_str(), sort),
-            kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
-        })
+        read_variable(variable, sort)
     }
 
     fn internalize_term_with(
@@ -1957,11 +1995,7 @@ impl BackendDefinition {
             )),
             kore::Pattern::Variable(variable) => {
                 let sort = internalize_sort(&variable.sort, &self.sorts, sort_variables)?;
-                let variable = match variable.kind {
-                    kore::VariableKind::Element => Variable::new(variable.name.as_str(), sort),
-                    kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
-                };
-                Ok(Term::variable(variable))
+                Ok(Term::variable(read_variable(variable, sort)?))
             }
             kore::Pattern::Application { symbol, arguments } => {
                 self.validate_application_shape(symbol, arguments.len())?;
@@ -2330,7 +2364,7 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<ClosedSort> {
 
 fn collect_finite_sort_constructors(
     definition: &BackendDefinition,
-) -> BTreeMap<Sort, FiniteConstructorDomain> {
+) -> Result<BTreeMap<Sort, FiniteConstructorDomain>, DefinitionError> {
     let index = FixedRootSymbols::of(definition);
     let mut domains = BTreeMap::new();
     for axiom in &definition.axioms {
@@ -2370,12 +2404,7 @@ fn collect_finite_sort_constructors(
                             valid = false;
                             break;
                         };
-                        binders.insert(match variable.kind {
-                            kore::VariableKind::Element => {
-                                Variable::new(variable.name.as_str(), sort)
-                            }
-                            kore::VariableKind::Set => Variable::set(variable.name.as_str(), sort),
-                        });
+                        binders.insert(read_variable(variable, sort)?);
                         constructor = body;
                     }
                     if !valid {
@@ -2413,7 +2442,7 @@ fn collect_finite_sort_constructors(
             }
         }
     }
-    domains
+    Ok(domains)
 }
 
 pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
@@ -4740,6 +4769,83 @@ mod tests {
         assert_eq!(
             definition.symbols["hookWins"].attributes.smt,
             Some(SmtType::Hook(SExpr::atom("+")))
+        );
+    }
+
+    /// A variable name read from KORE is kept verbatim and must be a KORE identifier: patterns
+    /// handed over in process (or as binary KORE) cannot spell a marked name of the backend.
+    #[test]
+    fn variable_names_are_read_verbatim_and_must_be_identifiers() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}(), functional{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let sort_s = || kore::Sort::Application {
+            name: "SortS".into(),
+            arguments: Vec::new(),
+        };
+        let variable = |name: &str, kind| {
+            kore::Pattern::Variable(kore::Variable {
+                kind,
+                name: name.into(),
+                sort: sort_s(),
+            })
+        };
+        for (name, kind) in [
+            ("Ex-hX-b0", kore::VariableKind::Element),
+            ("a-x", kore::VariableKind::Element),
+            ("@Rule-hM", kore::VariableKind::Set),
+        ] {
+            let term = definition
+                .internalize_term(&variable(name, kind), &[])
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let TermKind::Variable(read) = term.kind() else {
+                panic!("{name} should read as a variable");
+            };
+            assert_eq!(read.name.as_ref(), name);
+            assert_eq!(read.provenance(), None);
+        }
+        for (name, kind) in [
+            ("Ex#X!0", kore::VariableKind::Element),
+            ("Rule#X", kore::VariableKind::Element),
+            ("X!apart0", kore::VariableKind::Element),
+            ("@M", kore::VariableKind::Element),
+            ("M", kore::VariableKind::Set),
+            ("@Rule#M", kore::VariableKind::Set),
+        ] {
+            let error = definition
+                .internalize_term(&variable(name, kind), &[])
+                .expect_err(name);
+            assert!(
+                matches!(&error, DefinitionError::VariableName { name: read, .. } if read == name),
+                "{name}: {error:?}"
+            );
+        }
+        // A definition carries the same check: its rule variables are marked by the backend.
+        let constrained = |term| kore::Pattern::And {
+            sort: sort_s(),
+            arguments: vec![term, kore::Pattern::Top { sort: sort_s() }],
+        };
+        let mut syntax = syntax;
+        syntax.modules[0].sentences.push(kore::Sentence::Axiom {
+            parameters: Vec::new(),
+            pattern: Box::new(kore::Pattern::Rewrites {
+                sort: sort_s(),
+                left: Box::new(constrained(variable("X!0", kore::VariableKind::Element))),
+                right: Box::new(constrained(variable("X!0", kore::VariableKind::Element))),
+            }),
+            attributes: Default::default(),
+        });
+        let result = BackendDefinition::internalize(&syntax, "MAIN");
+        assert!(
+            matches!(result, Err(DefinitionError::VariableName { .. })),
+            "{:?}",
+            result.err()
         );
     }
 }

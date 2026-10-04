@@ -310,10 +310,22 @@ impl MatchOutput {
     pub fn with_source<R>(&self, consume: impl FnOnce(External<'_>) -> R) -> R {
         let result_sort = &self.result_sort;
         let shape = externalize::ConjunctionShape::LeftNested;
-        let predicates = self
+        let printable = self
             .conditions
             .iter()
             .map(|condition| {
+                condition
+                    .constraints
+                    .iter()
+                    .map(externalize::Printable::predicate)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let predicates = self
+            .conditions
+            .iter()
+            .zip(&printable)
+            .map(|(condition, constraints)| {
                 let sort = &condition.predicate_sort;
                 externalize::ordered_bindings(
                     &condition.substitution,
@@ -325,16 +337,11 @@ impl MatchOutput {
                     value,
                     sort,
                 })
-                .chain(
-                    condition
-                        .constraints
-                        .iter()
-                        .map(|predicate| External::Predicate {
-                            predicate,
-                            sort: ResultSort::Given(sort),
-                            preserve_terms: false,
-                        }),
-                )
+                .chain(constraints.iter().map(|predicate| External::Predicate {
+                    predicate: predicate.source(),
+                    sort: ResultSort::Given(sort),
+                    preserve_terms: false,
+                }))
                 .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -684,7 +691,8 @@ mod tests {
 
     /// Generated and named variables, of the result sort and of `SortBool`, so that one name
     /// occurs at two sorts (one identity); a set variable of a generated name; and two names
-    /// that externalize to one identity (`Rule#X` is written `RuleX`).
+    /// that print as one identity (a request variable spelled `Rule-hX` and the rule variable
+    /// `Rule#X`).
     fn variable() -> impl Strategy<Value = Variable> {
         prop_oneof![
             Just(Variable::new(
@@ -692,7 +700,7 @@ mod tests {
                 BackendSort::simple(RESULT_SORT)
             )),
             Just(Variable::new(
-                "RuleVar'Unds'Gen2",
+                "Rule-hVar'Unds'Gen2",
                 BackendSort::simple(RESULT_SORT)
             )),
             Just(Variable::new(

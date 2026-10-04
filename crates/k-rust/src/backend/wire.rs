@@ -832,11 +832,19 @@ fn encode_predicate<K: WireKore>(
     predicate: &k_rust_backend::rule::Predicate,
     result_sort: &Sort,
 ) -> Result<K, BackendError> {
+    let printable = externalize::Printable::predicate(predicate);
     encode_pattern_source(externalize::External::Predicate {
-        predicate,
+        predicate: printable.source(),
         sort: externalize::ResultSort::Given(result_sort),
         preserve_terms: false,
     })
+}
+
+fn encode_constrained<K: WireKore>(
+    pattern: &k_rust_backend::rewrite::Pattern,
+) -> Result<K, BackendError> {
+    let printable = externalize::Printable::pattern(pattern);
+    encode_pattern_source(externalize::External::Constrained(printable.source()))
 }
 
 fn bindings_output<K: WireKore>(
@@ -920,8 +928,8 @@ fn transition_observation_output<K: WireKore>(
         rule_label: observation.rule_label,
         bindings: bindings_output(observation.bindings)?,
         introduced_predicates: predicates_output(observation.introduced_predicates, &result_sort)?,
-        before: encode_pattern_source(externalize::External::Constrained(&observation.before))?,
-        after: encode_pattern_source(externalize::External::Constrained(&observation.after))?,
+        before: encode_constrained(&observation.before)?,
+        after: encode_constrained(&observation.after)?,
         effects: effects_output(observation.effects),
     })
 }
@@ -934,8 +942,8 @@ fn evaluation_observation_output<K: WireKore>(
         class: evaluation_class_output(observation.class),
         rule_label: observation.rule_label,
         anchor: observation.anchor,
-        before: encode_pattern_source(externalize::External::Constrained(&observation.before))?,
-        after: encode_pattern_source(externalize::External::Constrained(&observation.after))?,
+        before: encode_constrained(&observation.before)?,
+        after: encode_constrained(&observation.after)?,
         effects: effects_output(observation.effects),
     })
 }
@@ -979,7 +987,7 @@ fn search_state_output<K: WireKore>(
 ) -> Result<SearchStateOutput<K>, BackendError> {
     let result_sort = state.pattern.term.sort();
     Ok(SearchStateOutput {
-        state: encode_pattern_source(externalize::External::Constrained(&state.pattern))?,
+        state: encode_constrained(&state.pattern)?,
         diagnostics: diagnostics_output(state.diagnostics, &result_sort)?,
         depth: state.depth,
         trace: state.trace.into_iter().map(trace_entry).collect(),
@@ -994,7 +1002,7 @@ fn path_witness_output<K: WireKore>(
     let result_sort = witness.pattern.term.sort();
     Ok(PathWitnessOutput {
         id: witness.id.into_iter().map(transition_id_output).collect(),
-        state: encode_pattern_source(externalize::External::Constrained(&witness.pattern))?,
+        state: encode_constrained(&witness.pattern)?,
         diagnostics: diagnostics_output(witness.diagnostics, &result_sort)?,
         depth: witness.depth,
         trace: witness.trace.into_iter().map(trace_entry).collect(),
@@ -1208,7 +1216,7 @@ fn candidate_output<K: WireKore>(
 ) -> Result<ExecutionCandidateOutput<K>, BackendError> {
     let result_sort = candidate.pattern.term.sort();
     Ok(ExecutionCandidateOutput {
-        state: encode_pattern_source(externalize::External::Constrained(&candidate.pattern))?,
+        state: encode_constrained(&candidate.pattern)?,
         unique_id: candidate.unique_id,
         label: candidate.label,
         diagnostics: diagnostics_output(candidate.diagnostics, &result_sort)?,
@@ -1220,7 +1228,7 @@ fn remainder_output<K: WireKore>(
 ) -> Result<ExecutionRemainderOutput<K>, BackendError> {
     let result_sort = remainder.pattern.term.sort();
     Ok(ExecutionRemainderOutput {
-        state: encode_pattern_source(externalize::External::Constrained(&remainder.pattern))?,
+        state: encode_constrained(&remainder.pattern)?,
         rule_ids: remainder.rule_ids,
         diagnostics: diagnostics_output(remainder.diagnostics, &result_sort)?,
     })
@@ -1568,9 +1576,7 @@ pub(super) fn execution_response<K: WireKore>(
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
-                    state: encode_pattern_source(externalize::External::Constrained(
-                        &leaf.pattern,
-                    ))?,
+                    state: encode_constrained(&leaf.pattern)?,
                     diagnostics: diagnostics_output(leaf.diagnostics, &result_sort)?,
                     candidates,
                     remainder,

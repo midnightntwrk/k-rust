@@ -806,9 +806,12 @@ impl RpcService {
                     )
                     .map_err(stopped_request)?
                     .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
+                    let printable = externalize::Printable::pattern(&simplified);
                     Ok(RpcValue::object([(
                         "state",
-                        encode_kore_source_raw(externalize::External::Constrained(&simplified))?,
+                        encode_kore_source_raw(externalize::External::Constrained(
+                            printable.source(),
+                        ))?,
                     )]))
                 }
                 PatternOrPredicate::Predicate(predicate, result_sort) => {
@@ -820,10 +823,11 @@ impl RpcService {
                     )
                     .map_err(stopped_request)?
                     .map_err(|error| simplify_fault(error, &result_sort))?;
+                    let printable = externalize::Printable::predicate(&simplified);
                     Ok(RpcValue::object([(
                         "state",
                         encode_kore_source_raw(externalize::External::Predicate {
-                            predicate: &simplified,
+                            predicate: printable.source(),
                             sort: externalize::ResultSort::Given(&result_sort),
                             preserve_terms: true,
                         })?,
@@ -1872,8 +1876,8 @@ fn project_rule_substitution(
     substitution: &Substitution,
     state_substitution: &Substitution,
 ) -> Substitution {
-    // `externalize::external_variable_name` drops the `Rule#`/`Ex#` markers the way Booster's
-    // externaliseRuleMarker does when the bindings are emitted below.
+    // The bindings are emitted below through the shared variable-name printer, which keeps
+    // each rule variable's `Rule#` marker (escaped) apart from every request name.
     substitution
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
@@ -5639,7 +5643,7 @@ endmodule
         .unwrap()
         .unwrap()
         .into_value();
-        assert_eq!(pattern["term"]["first"]["name"], "RuleX");
+        assert_eq!(pattern["term"]["first"]["name"], "Rule-hX");
         assert_eq!(pattern["term"]["second"]["value"], "resolved");
     }
 

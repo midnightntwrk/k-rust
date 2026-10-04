@@ -2975,7 +2975,7 @@ fn rename_concreteness(
             &[VariableProvenance::Rule, VariableProvenance::Equation],
         )
         .1
-        .to_owned()
+        .into_owned()
     };
     let mut renamed = BTreeMap::new();
     for (variable, fresh) in renaming {

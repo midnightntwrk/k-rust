@@ -4332,7 +4332,7 @@ fn kore_exec_prints_fresh_remainder_names_as_kore_identifiers() {
         names.iter().all(|name| is_kore_identifier(name)),
         "{names:?}"
     );
-    assert!(names.contains(&"ExFrame0".to_owned()), "{names:?}");
+    assert!(names.contains(&"Ex-hFrame-b0".to_owned()), "{names:?}");
     assert!(names.contains(&"VarM".to_owned()), "{names:?}");
     assert_eq!(parse_pattern(&parsed.to_string()).unwrap(), parsed);
 

@@ -5049,22 +5049,22 @@ fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
         r")",
     ))
     .unwrap();
-    // Port shape (krust kore-exec): flat conjunctions, the externalized fresh names ExFrame0 and
-    // ExVar'Unds'K1, and the frame quantified inside the negated existential.
+    // Port shape (krust kore-exec): flat conjunctions, the externalized fresh names Ex-hFrame-b0 and
+    // Ex-hVar'Unds'K-b1, and the frame quantified inside the negated existential.
     let actual = parse_pattern(concat!(
         r"\or{S{}}(",
         r"\and{S{}}(top{}(go{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), VarM:Map{}))), ",
         r#"\and{S{}}(\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), VarM:Map{}))), "#,
-        r"\not{S{}}(\exists{S{}}(ExVar'Unds'K1:KI{}, \exists{S{}}(ExVar'Unds'V2:KI{}, \exists{S{}}(ExFrame0:Map{}, ",
-        r"\and{S{}}(\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
-        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(ExVar'Unds'K1:KI{}, ExFrame0:Map{})), "#,
-        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), ExFrame0:Map{})), "#,
-        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{}))))))))), ",
-        r"\and{S{}}(top{}(done{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), ExFrame0:Map{}))), ",
-        r"\and{S{}}(\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{})), ",
-        r"\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
-        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(ExVar'Unds'K1:KI{}, ExFrame0:Map{})), "#,
-        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), ExFrame0:Map{}))))"#,
+        r"\not{S{}}(\exists{S{}}(Ex-hVar'Unds'K-b1:KI{}, \exists{S{}}(Ex-hVar'Unds'V-b2:KI{}, \exists{S{}}(Ex-hFrame-b0:Map{}, ",
+        r"\and{S{}}(\not{S{}}(\equals{KI{}, S{}}(Ex-hVar'Unds'K-b1:KI{}, k1{}())), ",
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(Ex-hVar'Unds'K-b1:KI{}, Ex-hFrame-b0:Map{})), "#,
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), Ex-hFrame-b0:Map{})), "#,
+        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(Ex-hVar'Unds'K-b1:KI{}, Ex-hVar'Unds'V-b2:KI{}), Ex-hFrame-b0:Map{}))))))))), ",
+        r"\and{S{}}(top{}(done{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), Ex-hFrame-b0:Map{}))), ",
+        r"\and{S{}}(\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(Ex-hVar'Unds'K-b1:KI{}, Ex-hVar'Unds'V-b2:KI{}), Ex-hFrame-b0:Map{})), ",
+        r"\not{S{}}(\equals{KI{}, S{}}(Ex-hVar'Unds'K-b1:KI{}, k1{}())), ",
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(Ex-hVar'Unds'K-b1:KI{}, Ex-hFrame-b0:Map{})), "#,
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), Ex-hFrame-b0:Map{}))))"#,
         r")",
     ))
     .unwrap();
@@ -5103,7 +5103,7 @@ fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
 
 #[test]
 fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pattern() {
-    // Injection-narrowing fixture: kore-exec leaves the rule variable I free (VarI), krust prints ExVarI0.
+    // Injection-narrowing fixture: kore-exec leaves the rule variable I free (VarI), krust prints Ex-hVarI-b0.
     let reference = parse_pattern(concat!(
         r"\or{S{}}(",
         r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(VarI:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(VarI:Int{}))), ",
@@ -5112,8 +5112,8 @@ fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pat
     .unwrap();
     let actual = parse_pattern(concat!(
         r"\or{S{}}(",
-        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(VarE:Exp{})), \not{S{}}(\exists{S{}}(ExVarI0:Int{}, \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(ExVarI0:Int{}))))), ",
-        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(ExVarI0:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(ExVarI0:Int{}))))",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(VarE:Exp{})), \not{S{}}(\exists{S{}}(Ex-hVarI-b0:Int{}, \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(Ex-hVarI-b0:Int{}))))), ",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(Ex-hVarI-b0:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(Ex-hVarI-b0:Int{}))))",
     ))
     .unwrap();
     let initial = parse_pattern(r"top{}(inj{Exp{}, KI{}}(VarE:Exp{}))").unwrap();
@@ -5147,7 +5147,7 @@ fn execution_normalizer_preserves_sorts_and_distinctness_of_generated_variables(
     )
     .unwrap();
     let actual = parse_pattern(
-        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame1:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame1:Set{})))",
+        r"\and{S{}}(f{}(Ex-hFrame-b0:Map{}, Ex-hFrame-b1:Set{}), \equals{Map{}, S{}}(Ex-hFrame-b0:Map{}, g{}(Ex-hFrame-b1:Set{})))",
     )
     .unwrap();
     assert_eq!(
@@ -5156,11 +5156,11 @@ fn execution_normalizer_preserves_sorts_and_distinctness_of_generated_variables(
     );
 
     let collapsed = parse_pattern(
-        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame0:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame0:Set{})))",
+        r"\and{S{}}(f{}(Ex-hFrame-b0:Map{}, Ex-hFrame-b0:Set{}), \equals{Map{}, S{}}(Ex-hFrame-b0:Map{}, g{}(Ex-hFrame-b0:Set{})))",
     )
     .unwrap();
     let distinct = parse_pattern(
-        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame1:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame1:Set{})))",
+        r"\and{S{}}(f{}(Ex-hFrame-b0:Map{}, Ex-hFrame-b1:Set{}), \equals{Map{}, S{}}(Ex-hFrame-b0:Map{}, g{}(Ex-hFrame-b1:Set{})))",
     )
     .unwrap();
     assert_ne!(
@@ -5221,6 +5221,11 @@ fn execution_normalizer_keeps_uncounted_existentials_and_pattern_variables_fixed
     assert!(!execution_generated_name("Var'Ques'X"));
     assert!(!execution_generated_name("VarT"));
     assert!(!execution_generated_name("VarT1"));
+    assert!(execution_generated_name("Ex-hFrame-b0"));
+    assert!(execution_generated_name("Rule-hX"));
+    assert!(execution_generated_name("Var'Ques'X-b3"));
+    assert!(!execution_generated_name("ExVarI0"));
+    assert!(!execution_generated_name("a-x"));
     // Definitions keep their Var'Unds' stem semantics: a `?` variable has no stem there.
     assert_eq!(generated_stem("Var'Unds'X1"), Some("X"));
     assert_eq!(generated_stem("Var'Ques'X1"), None);
@@ -5288,8 +5293,8 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     );
     let actual = normalize_execution_pattern(
         parse_pattern(concat!(
-            r#"\and{S{}}(t{}(), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(ExA0:KI{})), "#,
-            r#"\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("true"), in{}(ExB0:Map{}))))"#,
+            r#"\and{S{}}(t{}(), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(Ex-hA-b0:KI{})), "#,
+            r#"\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("true"), in{}(Ex-hB-b0:Map{}))))"#,
         ))
         .unwrap(),
     );
@@ -5477,7 +5482,7 @@ type KoreVariable = k_rust::kore::ast::Variable;
 /// Kore prints a rule variable that survives into a result under its rule name (`VarI`,
 /// `Var'Unds'K`), the NewUnifier's AC remainder as `VarAC<n>'Unds'<counter>`
 /// (NewUnifier.hs:1302, externalizeFreshVariableName) and the port prints the same variables
-/// as `Ex`/`Eq`/`Rule` marker names with the fresh counter appended (externalize.rs). Both print
+/// with encoded `Ex#`/`Eq#`/`Rule#` markers or `!` counters. Both print
 /// an instantiated rule existential as `Var'Ques'<stem><counter>` with their own counters
 /// (`existential_generated_name`). Only the free variables of the initial pattern are fixed names
 /// shared by both engines.
@@ -5524,6 +5529,17 @@ fn is_canonical_free_name(name: &str) -> bool {
 }
 
 fn execution_generated_name(name: &str) -> bool {
+    if let Ok(decoded) = k_rust_backend::term::names::decode_variable_name(name)
+        && (decoded.contains('!')
+            || k_rust_backend::term::names::split_marker(
+                &decoded,
+                &k_rust_backend::term::names::VariableProvenance::ALL,
+            )
+            .0
+            .is_some())
+    {
+        return true;
+    }
     if generated_stem(name).is_some() || existential_generated_name(name) {
         return true;
     }
@@ -5538,25 +5554,16 @@ fn execution_generated_name(name: &str) -> bool {
             return true;
         }
     }
-    // externalize::external_variable_name: the Ex#/Eq#/Rule# markers of Booster/Pattern/Util.hs
-    // lose their `#`; K never emits a user variable without the `Var` prefix.
-    ["Ex", "Eq", "Rule"].iter().any(|marker| {
-        name.strip_prefix(marker)
-            .is_some_and(|rest| rest.starts_with(|character: char| character.is_ascii_uppercase()))
-    })
+    false
 }
 
-/// N4: an instantiated rule existential, `Var'Ques'<stem><digits>`.
+/// N4: a reference engine's instantiated rule existential, `Var'Ques'<stem><digits>`.
 ///
 /// K compiles a rule's `?X` to the KORE variable `Var'Ques'X`. When the rule applies, Kore
 /// refreshes it with a fresh counter and prints the instance by appending the counter's digits to
-/// the base (`Kore.Syntax.Variable.externalizeFreshVariableName`); the port does the same through
-/// `rewrite::fresh_variable` (`term::names::with_fresh_counter`, `Var'Ques'X!3`) and
-/// `externalize::external_variable_name`, which drops the `!`. Both engines therefore print
-/// `Var'Ques'X<counter>`, but the counters and the unification representative each keeps are
-/// engine-chosen: the LAMBDA type inferencer's `composition.lambda` result names its three type
-/// variables `Var'Ques'Tx1`, `Var'Ques'T3`, `Var'Ques'Te1` in the reference and `Var'Ques'T3`,
-/// `Var'Ques'T2`, `Var'Ques'Te1` in the port. A bare `Var'Ques'X` (no counter) is a rule or
+/// the base. The port encodes its `Var'Ques'X!3` as `Var'Ques'X-b3`; that spelling is recognized
+/// by `execution_generated_name`. The counters and the unification representative each keeps
+/// are engine-chosen. A bare `Var'Ques'X` (no counter) is a rule or
 /// search-pattern variable printed under its own name and stays fixed in shapes mode.
 fn existential_generated_name(name: &str) -> bool {
     counted_stem("Var'Ques'", name).is_some()

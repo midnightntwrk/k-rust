@@ -17,7 +17,7 @@ use crate::{
     substitution::Substitution,
     term::{
         CollectionSymbols, Sort, Term, TermKind, Variable,
-        names::{HookName, HookNamespace, VariableProvenance, split_fresh_counter, split_marker},
+        names::{FreshMarker, HookName, HookNamespace, encode_variable_name, with_fresh_marker},
     },
 };
 
@@ -323,7 +323,8 @@ pub fn constrained_pattern(pattern: &Pattern) -> kore::Pattern {
 }
 
 pub fn predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
-    predicate_pattern_with_terms(predicate, result_sort, false)
+    let apart = apart_binders(predicate);
+    predicate_pattern_with_terms(apart.as_ref().unwrap_or(predicate), result_sort, false)
 }
 
 /// Externalize a Booster path constraint through its Boolean term representation.
@@ -580,7 +581,8 @@ fn predicate_as_boolean_term(
 
 /// Externalize a predicate as its direct KORE syntax, preserving bare term patterns.
 pub fn ml_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
-    predicate_pattern_with_terms(predicate, result_sort, true)
+    let apart = apart_binders(predicate);
+    predicate_pattern_with_terms(apart.as_ref().unwrap_or(predicate), result_sort, true)
 }
 
 fn predicate_pattern_with_terms(
@@ -758,41 +760,177 @@ fn variable_pattern(variable: &Variable) -> kore::Variable {
     }
 }
 
-/// Externalize an internal variable name as the KORE identifier the reference engines print.
+/// The KORE spelling of an internal variable name: [`encode_variable_name`].
 ///
-/// Booster keeps the `Rule#`/`Ex#` provenance markers internally and drops the `#` when it
-/// externalizes them (`Booster.Pattern.Util.externaliseRuleMarker`); the backend's `Eq#` equation
-/// marker follows the same rule. Kore stores a fresh name as a base plus a counter and appends the
-/// counter's digits to the base on output (`Kore.Syntax.Variable.externalizeFreshVariableName`);
-/// `fresh_variable` writes that counter as `!N`, so `Ex#Frame!0` externalizes as `ExFrame0`. Any
-/// other character outside the identifier grammar of `Kore/Parser/Lexer.x` (`[a-zA-Z0-9'-]`, a
-/// leading `@` for set variables) is written as the apostrophe-delimited word K's identifier
-/// encoding uses, so the result always lexes. Like the reference's, the mapping is not injective;
-/// the K frontend never produces names starting with `Rule`, `Ex` or `Eq` without the `Var`
-/// prefix, so externalized names do not collide with user variables.
+/// A name read from KORE prints unchanged, and any other name (a rule variable, a mint) is
+/// escaped injectively, so distinct backend names print alike only when a name of the input
+/// is spelled like the escape of another name. A binder whose spelling would capture a
+/// variable it does not bind is renamed by the printer instead (`binder_spelling`).
 pub fn external_variable_name(name: &str) -> String {
-    let (marker, rest) = split_marker(name, &VariableProvenance::ALL);
-    let marker = marker.map_or("", VariableProvenance::external_prefix);
-    let (base, counter) = split_fresh_counter(rest);
-    let mut external = String::with_capacity(name.len());
-    for (index, character) in marker
-        .chars()
-        .chain(base.chars())
-        .chain(counter.chars())
-        .enumerate()
-    {
-        match character {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '\'' | '-' => external.push(character),
-            '@' if index == 0 => external.push(character),
-            '#' => external.push_str("'Hash'"),
-            '!' => external.push_str("'Bang'"),
-            other => {
-                use std::fmt::Write;
-                write!(external, "'{:04x}'", u32::from(other)).expect("writing to a string");
-            }
+    encode_variable_name(name)
+}
+
+/// `predicate` with each binder renamed whose printed spelling equals the spelling of a
+/// variable it does not bind that occurs free in its body; `None` when there is none.
+///
+/// Printing keeps a name read from KORE and escapes every other name
+/// ([`encode_variable_name`]), so two distinct variables print alike exactly when a name of the
+/// input is spelled like the escape of a backend name. Under a binder of that spelling, the
+/// other variable would be read back as bound by it: the printed pattern would state something
+/// else than the internal one. Such a binder is renamed, at every occurrence it binds, to
+/// `{name}!binder{counter}` for the least counter whose spelling is the spelling of no
+/// variable of its body, free or bound; the renaming is alpha-equivalence and captures
+/// nothing. Every other binder keeps its name, so the printed text of a pattern without such
+/// a clash does not change.
+///
+/// Every printer of a predicate goes through this function: [`predicate_pattern`] and
+/// [`ml_pattern`] call it, and the [`External`] sources of a pattern or a predicate are made
+/// from a [`Printable`], which applies it.
+pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
+    fn both(
+        left: &Predicate,
+        right: &Predicate,
+        rebuild: fn(Box<Predicate>, Box<Predicate>) -> Predicate,
+    ) -> Option<Predicate> {
+        match (apart_binders(left), apart_binders(right)) {
+            (None, None) => None,
+            (new_left, new_right) => Some(rebuild(
+                Box::new(new_left.unwrap_or_else(|| left.clone())),
+                Box::new(new_right.unwrap_or_else(|| right.clone())),
+            )),
         }
     }
-    external
+    fn each(items: &[Predicate], rebuild: fn(Vec<Predicate>) -> Predicate) -> Option<Predicate> {
+        let renamed = items.iter().map(apart_binders).collect::<Vec<_>>();
+        renamed.iter().any(Option::is_some).then(|| {
+            rebuild(
+                renamed
+                    .into_iter()
+                    .zip(items)
+                    .map(|(renamed, item)| renamed.unwrap_or_else(|| item.clone()))
+                    .collect(),
+            )
+        })
+    }
+    match predicate {
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..) => None,
+        Predicate::Not(inner) => apart_binders(inner).map(|inner| Predicate::Not(Box::new(inner))),
+        Predicate::And(items) => each(items, Predicate::And),
+        Predicate::Or(items) => each(items, Predicate::Or),
+        Predicate::Implies(left, right) => both(left, right, Predicate::Implies),
+        Predicate::Iff(left, right) => both(left, right, Predicate::Iff),
+        Predicate::Exists(binder, body) | Predicate::Forall(binder, body) => {
+            let rebuild = if matches!(predicate, Predicate::Exists(..)) {
+                Predicate::Exists
+            } else {
+                Predicate::Forall
+            };
+            let renamed_body = apart_binders(body);
+            let body_ref = renamed_body.as_ref().unwrap_or(body);
+            let spelling = encode_variable_name(&binder.name);
+            let captures = body_ref.free_variables().iter().any(|variable| {
+                variable != binder && encode_variable_name(&variable.name) == spelling
+            });
+            if !captures {
+                return renamed_body.map(|body| rebuild(binder.clone(), Box::new(body)));
+            }
+            let mut variables = BTreeSet::new();
+            crate::rule::collect_all_variables(std::slice::from_ref(body_ref), &mut variables);
+            let taken = variables
+                .iter()
+                .map(|variable| encode_variable_name(&variable.name))
+                .collect::<BTreeSet<_>>();
+            // Invariant: the counter only grows, so at most |taken| + 1 names are tried.
+            let fresh = (0_u64..)
+                .map(|counter| {
+                    binder.with_name(with_fresh_marker(
+                        &binder.name,
+                        FreshMarker::Binder,
+                        counter,
+                    ))
+                })
+                .find(|fresh| !taken.contains(&encode_variable_name(&fresh.name)))
+                .expect("an unbounded counter leaves a free spelling");
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "renaming a bound variable to a name of no variable of its body preserves definedness"
+            )]
+            let [body] = crate::rewrite::substitute_predicates(
+                std::slice::from_ref(body_ref),
+                &Substitution::from([(binder.clone(), Term::variable(fresh.clone()))]),
+            )
+            .try_into()
+            .expect("one predicate in, one out");
+            Some(rebuild(fresh, Box::new(body)))
+        }
+    }
+}
+
+/// A pattern or a predicate ready to print as an [`External`] source: its binders renamed
+/// apart where printing would make one capture a variable ([`apart_binders`]). Most patterns
+/// have no such binder and are borrowed unchanged.
+#[derive(Clone, Debug)]
+pub struct Printable<'a, T: Clone>(Cow<'a, T>);
+
+impl<'a> Printable<'a, Pattern> {
+    pub fn pattern(pattern: &'a Pattern) -> Self {
+        let renamed = pattern
+            .constraints
+            .iter()
+            .map(apart_binders)
+            .collect::<Vec<_>>();
+        if renamed.iter().all(Option::is_none) {
+            return Self(Cow::Borrowed(pattern));
+        }
+        Self(Cow::Owned(Pattern {
+            term: pattern.term.clone(),
+            constraints: renamed
+                .into_iter()
+                .zip(&pattern.constraints)
+                .map(|(renamed, constraint)| renamed.unwrap_or_else(|| constraint.clone()))
+                .collect(),
+        }))
+    }
+}
+
+impl<'a> Printable<'a, Predicate> {
+    pub fn predicate(predicate: &'a Predicate) -> Self {
+        Self(apart_binders(predicate).map_or(Cow::Borrowed(predicate), Cow::Owned))
+    }
+}
+
+impl<T: Clone> Printable<'_, T> {
+    /// The printed pattern or predicate, for an [`External`] source.
+    pub fn source(&self) -> Apart<'_, T> {
+        Apart(&self.0)
+    }
+}
+
+/// A pattern or predicate whose binders are apart ([`apart_binders`]); made only by
+/// [`Printable::source`] and, for its parts, by the printer itself.
+#[derive(Debug)]
+pub struct Apart<'t, T>(&'t T);
+
+impl<T> Clone for Apart<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Apart<'_, T> {}
+
+impl<T> std::ops::Deref for Apart<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.0
+    }
 }
 
 fn application(
@@ -872,7 +1010,7 @@ pub enum External<'t> {
     /// The predicate as [`predicate_pattern`] (or, preserving bare terms, [`ml_pattern`])
     /// writes it at `sort`.
     Predicate {
-        predicate: &'t Predicate,
+        predicate: Apart<'t, Predicate>,
         sort: ResultSort<'t>,
         preserve_terms: bool,
     },
@@ -884,9 +1022,9 @@ pub enum External<'t> {
         sort: &'t Sort,
     },
     /// The constrained pattern, as [`constrained_pattern`] writes it.
-    Constrained(&'t Pattern),
+    Constrained(Apart<'t, Pattern>),
     /// The `\and` of the (at least two) constraints of the pattern, at the sort of its term.
-    Constraints(&'t Pattern),
+    Constraints(Apart<'t, Pattern>),
     /// The operands joined in the given shape by `\and` (`and`) or `\or` at `sort`, as
     /// [`conjunction`] and [`disjunction`] join two or more. A `Flat` connective is one node
     /// over its operands, of any number; a nested shape has at least two.
@@ -1062,8 +1200,9 @@ fn predicate_node<'t>(
     result_sort: ResultSort<'t>,
     preserve_terms: bool,
 ) -> PatternNode<'t, External<'t>> {
+    // The parts of a predicate whose binders are apart have binders apart.
     let recurse = |predicate| External::Predicate {
-        predicate,
+        predicate: Apart(predicate),
         sort: result_sort,
         preserve_terms,
     };
@@ -1190,7 +1329,7 @@ impl<'t> PatternSource<'t> for External<'t> {
                 predicate,
                 sort,
                 preserve_terms,
-            } => predicate_node(predicate, sort, preserve_terms),
+            } => predicate_node(predicate.0, sort, preserve_terms),
             Self::Binding {
                 variable,
                 value,
@@ -1221,32 +1360,36 @@ impl<'t> PatternSource<'t> for External<'t> {
                         sort: result_sort(),
                     };
                 }
+                let pattern = pattern.0;
                 let predicate = match pattern.constraints.as_slice() {
                     [] => return term_node(&pattern.term),
                     [predicate] => Self::Predicate {
-                        predicate,
+                        predicate: Apart(predicate),
                         sort: ResultSort::OfTerm(&pattern.term),
                         preserve_terms: false,
                     },
-                    _ => Self::Constraints(pattern),
+                    _ => Self::Constraints(Apart(pattern)),
                 };
                 PatternNode::And {
                     sort: result_sort(),
                     arguments: vec![Self::Term(&pattern.term), predicate],
                 }
             }
-            Self::Constraints(pattern) => PatternNode::And {
-                sort: Cow::Owned(sort(&pattern.term.sort())),
-                arguments: pattern
-                    .constraints
-                    .iter()
-                    .map(|predicate| Self::Predicate {
-                        predicate,
-                        sort: ResultSort::OfTerm(&pattern.term),
-                        preserve_terms: false,
-                    })
-                    .collect(),
-            },
+            Self::Constraints(pattern) => {
+                let pattern = pattern.0;
+                PatternNode::And {
+                    sort: Cow::Owned(sort(&pattern.term.sort())),
+                    arguments: pattern
+                        .constraints
+                        .iter()
+                        .map(|predicate| Self::Predicate {
+                            predicate: Apart(predicate),
+                            sort: ResultSort::OfTerm(&pattern.term),
+                            preserve_terms: false,
+                        })
+                        .collect(),
+                }
+            }
             Self::Connective {
                 and,
                 shape,
@@ -1363,22 +1506,21 @@ mod tests {
         assert_eq!((written, distinct), (2u64.pow(31) - 1, 31));
     }
 
-    /// Kore/Parser/Lexer.x:57 admits `[a-zA-Z][a-zA-Z0-9'\-]*` as an identifier. Booster keeps
-    /// the `Ex#`/`Rule#` provenance markers internally and externalizes them by dropping the `#`
-    /// (Booster/Pattern/Util.hs externaliseRuleMarker); Kore externalizes a fresh name's counter
-    /// by appending its digits to the base (Kore/Syntax/Variable.hs externalizeFreshVariableName).
+    /// A name read from KORE prints unchanged; a rule variable or a mint prints its marker and
+    /// counter escaped, as a KORE identifier the parser reads back.
     #[test]
     fn fresh_and_marked_variable_names_externalize_as_kore_identifiers() {
         let map = Sort::simple("SortMap");
         let item = Sort::simple("SortKItem");
         let cases = [
-            (Variable::new("Ex#Frame!0", map.clone()), "ExFrame0"),
+            (Variable::new("Ex#Frame!0", map.clone()), "Ex-hFrame-b0"),
             (
                 Variable::new("Ex#Var'Unds'K!1", item.clone()),
-                "ExVar'Unds'K1",
+                "Ex-hVar'Unds'K-b1",
             ),
-            (Variable::new("Eq#VarROOT", item.clone()), "EqVarROOT"),
-            (Variable::new("Rule#X", item.clone()), "RuleX"),
+            (Variable::new("Eq#VarROOT", item.clone()), "Eq-hVarROOT"),
+            (Variable::new("Rule#X", item.clone()), "Rule-hX"),
+            (Variable::new("ExFrame0", map.clone()), "ExFrame0"),
             (Variable::new("VarM", map), "VarM"),
             (Variable::new("Var'Unds'Gen0", item), "Var'Unds'Gen0"),
         ];

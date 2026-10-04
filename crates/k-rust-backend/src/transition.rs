@@ -22,8 +22,12 @@ pub struct PatternDigest([u8; 32]);
 impl PatternDigest {
     pub fn of(pattern: &Pattern) -> Self {
         let mut writer = DigestWriter(Sha256::new());
+        let printable = externalize::Printable::pattern(pattern);
         Printer::compact()
-            .write_source(externalize::External::Constrained(pattern), &mut writer)
+            .write_source(
+                externalize::External::Constrained(printable.source()),
+                &mut writer,
+            )
             .expect("writing to a SHA-256 digest cannot fail");
         Self(writer.0.finalize().into())
     }

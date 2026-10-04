@@ -708,10 +708,42 @@ Normalization N17 limits the corresponding differential exception to marked dept
 
 ## Execution results
 
+### Variable names
+
+k-rust keeps a variable name read from KORE verbatim, and accepts only a KORE identifier there: `[A-Za-z][A-Za-z0-9'-]*` for an element variable, `@` followed by one for a set variable.
+The textual and JSON readers cannot spell anything else; binary KORE and patterns handed over in process can, and the backend refuses such a name with `DefinitionError::VariableName`.
+Every name the backend makes from another one adds a `#` provenance marker (`Rule#`, `Eq#`, `Ex#`) or a `!` counter (`X!0`, `X!apart1`, `X!binder0`), so no name read from a request or a definition is ever a rule variable or a mint of the backend, whatever it is spelled.
+
+A name that is a KORE identifier prints unchanged.
+Any other name is escaped, with `-` as the only escape character:
+
+| Internal character | Printed form |
+| --- | --- |
+| letters, digits, `'`, a leading `@` | unchanged |
+| `-` | `--` |
+| `#` | `-h` |
+| `!` | `-b` |
+| `@` after the first position | `-a` |
+| any other character | `-u`, its code point in lowercase hexadecimal, and `-` |
+
+For example, `Ex#Frame!0` prints as `Ex-hFrame-b0`, `X!apart1` as `X-bapart1`, and `@Rule#M` as `@Rule-hM`.
+The escape is injective, so two names the backend made never print alike, and two names read from KORE never do either.
+A name read from KORE and an escaped name print alike only when the former is spelled like the escape of the latter, such as a query variable named `Ex-hFrame-b0` next to the mint `Ex#Frame!0`.
+k-rust keeps such a pair out of every response: the names a rewrite mints skip every spelling of the request, and a printed binder whose spelling is the spelling of another variable free in its body is renamed to a `!binder` name (`apart_binders` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)), so the printed pattern binds what the internal one binds.
+
+Reading a printed result back gives the internal pattern up to a renaming of its escaped names into names of the new request: `Ex-hFrame-b0` is read as a variable of that name, not as the mint `Ex#Frame!0`.
+That renaming is a bijection and the identity on the names the request already had, so identity decisions within one response, and across requests on the request's own names, are unaffected.
+`term::names::decode_variable_name` inverts the escape for tools that classify printed names.
+
+Printing a mint under the spelling of a query variable would identify two variables: map-selection narrowing mints `Ex#Frame!0`, and printed as `ExFrame0` next to a query frame named `ExFrame0`, a leaf stated `ExFrame0 = mapConcat(mapItem(ExKEY1,ExVALUE2), ExFrame0)` about what are two different variables.
+The escaped spelling of generated names therefore differs from the spelling the reference engines print (normalizations N4 and C7), and pattern digests, which hash the printed KORE, change with it.
+
+### Result variables
+
 An execution or search result is a disjunction; each disjunct denotes the configurations one branch reaches, for a valuation of the initial pattern's free variables.
 Those variables are the only names a result shares with the query.
 Any other variable free in a disjunct is read as existentially quantified over that disjunct alone: it names a value the rewrite introduced, such as a `?` variable, which K quantifies existentially at the top of a rewrite rule's right-hand side (`docs/user_manual.md:2443-2444`), a rule variable the match left unbound, or a collection frame.
-k-rust prints a disjunct as its term conjoined with its constraints and leaves these binders implicit (`constrained_pattern` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)); it names the variables with `Ex`, `Rule` or `Eq` prefixes or as `Var'Ques'` names, each with a fresh counter.
+k-rust prints a disjunct as its term conjoined with its constraints and leaves these binders implicit (`constrained_pattern` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)); the variables it introduces carry escaped `Ex#`, `Rule#` or `Eq#` markers and `!` counters, such as `Ex-hFrame-b0`, while a right-hand-side existential prints with its rule name, such as `Var'Ques'X`, or with a bare decimal suffix on collision with a name of the current pattern, such as `Var'Ques'X0`.
 
 A remainder disjunct, the branch on which a rule does not apply, carries the negated applicability condition `\not(\exists V. C)`, where `V` are the variables of `C` that are free in neither the state's term nor its constraints (`quantify_introduced_variables` in [predicates.rs](../crates/k-rust-backend/src/rewrite/predicates.rs)).
 The applicability condition includes a `requires` Boolean term's definedness at instantiation, so an undefined `requires` instance belongs to the remainder; the [symbolic definedness tests](../crates/k-rust/tests/symbolic_definedness.rs) exercise this split with and without Z3.

@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use super::lean_bridge::generators;
 use crate::{
     externalize::{
-        self, ConjunctionShape, External, ResultSort, conjunction, connective_source,
+        self, ConjunctionShape, External, Printable, ResultSort, conjunction, connective_source,
         constrained_pattern, disjunction, ml_pattern, predicate_pattern, sort,
     },
     rewrite::Pattern,
@@ -111,8 +111,9 @@ proptest! {
         preserve_terms in any::<bool>(),
     ) {
         let result_sort = Sort::simple("SortGeneratedTopCell");
+        let printable = Printable::predicate(&predicate);
         let source = External::Predicate {
-            predicate: &predicate,
+            predicate: printable.source(),
             sort: ResultSort::Given(&result_sort),
             preserve_terms,
         };
@@ -134,8 +135,9 @@ proptest! {
     ) {
         let pattern = Pattern { term, constraints };
         let expected = constrained_pattern(&pattern);
-        prop_assert_eq!(&materialize(External::Constrained(&pattern)), &expected);
-        assert_same_text(External::Constrained(&pattern), &expected);
+        let printable = Printable::pattern(&pattern);
+        prop_assert_eq!(&materialize(External::Constrained(printable.source())), &expected);
+        assert_same_text(External::Constrained(printable.source()), &expected);
         let expected_digest: [u8; 32] = Sha256::digest(expected.to_string().as_bytes()).into();
         prop_assert_eq!(PatternDigest::of(&pattern).into_bytes(), expected_digest);
     }
@@ -199,4 +201,84 @@ proptest! {
             prop_assert_eq!(flattened, reference);
         }
     }
+}
+
+fn element(name: &str) -> Variable {
+    Variable::new(name, Sort::simple("SortK"))
+}
+
+/// `\exists binder. binder = free`, the body of which mentions `free` free.
+fn bound_next_to(binder: &str, free: &str) -> Predicate {
+    Predicate::Exists(
+        element(binder),
+        Box::new(Predicate::Equals(
+            Term::variable(element(binder)),
+            Term::variable(element(free)),
+        )),
+    )
+}
+
+/// The printed binder and the printed variables of the body of `\exists` in `pattern`.
+fn printed_binder(pattern: &kore::Pattern) -> (String, Vec<String>) {
+    let kore::Pattern::Exists { variable, body, .. } = pattern else {
+        panic!("expected an existential: {pattern}");
+    };
+    let kore::Pattern::Equals { left, right, .. } = body.as_ref() else {
+        panic!("expected an equality: {pattern}");
+    };
+    let name = |side: &kore::Pattern| match side {
+        kore::Pattern::Variable(variable) => variable.name.clone(),
+        other => panic!("expected a variable: {other}"),
+    };
+    (variable.name.clone(), vec![name(left), name(right)])
+}
+
+/// A binder whose printed spelling is the spelling of another variable free in its body is
+/// renamed by the printer, so the printed pattern binds what the internal one binds: a mint
+/// `Ex#X!0` bound next to a query variable spelled `Ex-hX-b0`, and a query binder spelled
+/// `Ex-hX-b0` next to the free mint.
+#[test]
+fn a_binder_spelled_like_a_free_variable_of_its_body_is_renamed() {
+    let result_sort = Sort::simple("SortK");
+    for (binder, free) in [("Ex#X!0", "Ex-hX-b0"), ("Ex-hX-b0", "Ex#X!0")] {
+        let predicate = bound_next_to(binder, free);
+        let printed = predicate_pattern(&predicate, &result_sort);
+        let (binder_spelling, body) = printed_binder(&printed);
+        assert_ne!(binder_spelling, "Ex-hX-b0", "{printed}");
+        assert_eq!(body, vec![binder_spelling.clone(), "Ex-hX-b0".to_owned()]);
+        // The streaming source agrees with the builder.
+        let printable = Printable::predicate(&predicate);
+        let source = External::Predicate {
+            predicate: printable.source(),
+            sort: ResultSort::Given(&result_sort),
+            preserve_terms: false,
+        };
+        assert_eq!(materialize(source), printed);
+        assert_same_text(source, &printed);
+        let pattern = Pattern {
+            term: Term::variable(element(free)),
+            constraints: vec![predicate],
+        };
+        let printable = Printable::pattern(&pattern);
+        assert_eq!(
+            materialize(External::Constrained(printable.source())),
+            constrained_pattern(&pattern)
+        );
+    }
+}
+
+/// A binder that captures nothing keeps its name, even when it is spelled like a variable free
+/// outside its body or is the free variable itself.
+#[test]
+fn a_binder_that_captures_nothing_keeps_its_name() {
+    let result_sort = Sort::simple("SortK");
+    let predicate = bound_next_to("Ex#X!0", "Y");
+    let (binder, _) = printed_binder(&predicate_pattern(&predicate, &result_sort));
+    assert_eq!(binder, "Ex-hX-b0");
+    let pattern = Pattern {
+        term: Term::variable(element("Ex-hX-b0")),
+        constraints: vec![predicate],
+    };
+    let printable = Printable::pattern(&pattern);
+    assert!(std::ptr::eq(&*printable.source(), &pattern));
 }

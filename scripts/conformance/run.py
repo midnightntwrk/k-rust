@@ -335,13 +335,29 @@ def split_surface_disjunction(text):
     return sorted(branches)
 
 
-# C7 (scripts/reference-normalisations.toml): kprint prints a rule existential (a Var'Ques' name) as
-# `?Name:Sort`; both engines instantiate it through a fresh counter and keep an engine-chosen unification
-# representative, so the names are compared modulo a bijective, sort-preserving renaming. A double-quoted
-# string literal is matched first and left untouched. The canonical `?'KDiff<n>` names start with a
-# quote, which the name class excludes, so they can never collide with a name either engine prints.
-EXISTENTIAL_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\']*)(:[A-Za-z][A-Za-z0-9]*)')
-PATTERN_EXISTENTIAL = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\']*)')
+# C7: kprint uses `?Name:Sort` for a rule existential. Encoded k-rust names can contain
+# hyphens; the complete name must be the key of the sort-preserving renaming. Strings stay fixed.
+EXISTENTIAL_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\'-]*)(:[A-Za-z][A-Za-z0-9]*)')
+PATTERN_EXISTENTIAL = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\'-]*)')
+
+
+def decoded_generated_name(name):
+    """Return the internal spelling when a valid encoded name has a marker or counter."""
+    decoded = []
+    index = 0
+    while index < len(name):
+        char = name[index]
+        if char == '-':
+            if index + 1 == len(name) or name[index + 1] not in '-hba': return None
+            char = {'-': '-', 'h': '#', 'b': '!', 'a': '@'}[name[index + 1]]
+            index += 1
+        decoded.append(char)
+        index += 1
+    decoded = ''.join(decoded)
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9'#!-]*", decoded): return None
+    if any(decoded.startswith(marker) for marker in ('Rule#', 'Ex#', 'Eq#')) or '!' in decoded:
+        return decoded
+    return None
 
 
 def pattern_existentials(pattern):
@@ -355,7 +371,8 @@ def rename_existentials(text, fixed=frozenset()):
     def sub(m):
         name = m.group(1)
         if name is None or name in fixed: return m.group(0)
-        return f"?'KDiff{indices.setdefault(name, len(indices))}{m.group(2)}"
+        key = decoded_generated_name(name) or name
+        return f"?'KDiff{indices.setdefault(key, len(indices))}{m.group(2)}"
     return EXISTENTIAL_TOKEN.sub(sub, text)
 
 
