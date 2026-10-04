@@ -166,32 +166,163 @@ fn definitions_with_deep_patterns_clone_compare_print_and_drop() {
     });
 }
 
-#[test]
-fn deeply_nested_sorts_parse_on_a_one_mebibyte_thread() {
-    let text_pattern = on_stack(1 << 20, || {
-        let mut source = String::from("a{");
-        for _ in 0..DEEP_SORT_LEVELS {
-            source.push_str("S{");
-        }
-        source.push('T');
-        for _ in 0..DEEP_SORT_LEVELS {
-            source.push('}');
-        }
-        source.push_str("}()");
-        parse_pattern(&source).expect("deep textual sort should parse")
-    });
-    on_stack(64 << 20, move || drop(text_pattern));
+fn sort_chain(depth: usize, leaf: &str) -> String {
+    let mut source = String::with_capacity(depth * 3 + leaf.len());
+    for _ in 0..depth {
+        source.push_str("S{");
+    }
+    source.push_str(leaf);
+    for _ in 0..depth {
+        source.push('}');
+    }
+    source
+}
 
-    let json_pattern = on_stack(1 << 20, || {
+#[test]
+fn deeply_nested_sorts_decode_and_drop_on_a_one_mebibyte_thread() {
+    on_stack(1 << 20, || {
+        let source = format!("a{{{}}}()", sort_chain(DEEP_SORT_LEVELS, "T"));
+        let pattern = parse_pattern(&source).expect("deep textual sort should parse");
+        assert_eq!(Printer::compact().print_pattern(&pattern), source);
+
+        let encoded = binary::encode_term(&pattern).expect("deep binary sort should encode");
+        let decoded = binary::decode_term(&encoded).expect("deep binary sort should decode");
+        assert_eq!(decoded, pattern);
+        drop(decoded);
+
+        let encoded = json::to_string(&pattern).expect("deep JSON sort should encode");
+        let decoded = json::from_str(&encoded).expect("deep JSON sort should decode");
+        assert_eq!(decoded, pattern);
+        drop(decoded);
+        drop(pattern);
+
         let mut sort = String::from(r#"{"tag":"SortVar","name":"T"}"#);
         for _ in 0..DEEP_SORT_LEVELS {
             sort = format!(r#"{{"tag":"SortApp","name":"S","args":[{sort}]}}"#);
         }
         let source =
             format!(r#"{{"format":"KORE","version":1,"term":{{"tag":"Top","sort":{sort}}}}}"#);
-        json::from_str(&source).expect("deep JSON sort should parse")
+        drop(json::from_str(&source).expect("deep JSON sort should parse"));
     });
-    on_stack(64 << 20, move || drop(json_pattern));
+}
+
+#[test]
+fn deeply_nested_sorts_clone_compare_format_and_drop_on_a_one_mebibyte_thread() {
+    on_stack(1 << 20, || {
+        let chain = |leaf| {
+            let mut sort = leaf;
+            for _ in 0..DEEP_SORT_LEVELS {
+                sort = Sort::Application {
+                    name: "S".into(),
+                    arguments: vec![sort],
+                };
+            }
+            sort
+        };
+        let sort = chain(Sort::Variable("T".into()));
+        let other = chain(Sort::Application {
+            name: "U".into(),
+            arguments: Vec::new(),
+        });
+
+        let cloned = sort.clone();
+        assert_eq!(cloned, sort);
+        drop(cloned);
+        // A variable precedes an application at the same position.
+        assert_eq!(sort.cmp(&other), Ordering::Less);
+        assert_ne!(sort, other);
+        drop(other);
+
+        let debug = format!("{sort:?}");
+        assert!(debug.starts_with(r#"Application { name: "S", arguments: [Application { "#));
+        assert!(debug.ends_with(&format!(
+            r#"Variable("T"){}"#,
+            "] }".repeat(DEEP_SORT_LEVELS)
+        )));
+        drop(debug);
+        drop(sort);
+    });
+}
+
+#[test]
+fn sort_traits_match_their_derived_forms() {
+    let map = Sort::Application {
+        name: "Map".into(),
+        arguments: vec![Sort::Variable("K".into()), Sort::Variable("V".into())],
+    };
+    let nested = Sort::Application {
+        name: "List".into(),
+        arguments: vec![map.clone()],
+    };
+    assert_eq!(map.clone(), map);
+    assert_eq!(nested.clone(), nested);
+    assert_eq!(
+        format!("{nested:?}"),
+        r#"Application { name: "List", arguments: [Application { name: "Map", arguments: [Variable("K"), Variable("V")] }] }"#
+    );
+    assert_eq!(
+        format!("{map:#?}"),
+        indoc::indoc! {r#"
+        Application {
+            name: "Map",
+            arguments: [
+                Variable(
+                    "K",
+                ),
+                Variable(
+                    "V",
+                ),
+            ],
+        }"#}
+    );
+
+    // Variables precede applications; then names; then arguments left to right; then count.
+    let ordered = [
+        Sort::Variable("A".into()),
+        Sort::Variable("B".into()),
+        Sort::Application {
+            name: "A".into(),
+            arguments: Vec::new(),
+        },
+        Sort::Application {
+            name: "A".into(),
+            arguments: vec![Sort::Variable("X".into())],
+        },
+        Sort::Application {
+            name: "A".into(),
+            arguments: vec![Sort::Variable("X".into()), Sort::Variable("X".into())],
+        },
+        Sort::Application {
+            name: "A".into(),
+            arguments: vec![Sort::Variable("Y".into())],
+        },
+        Sort::Application {
+            name: "A".into(),
+            arguments: vec![Sort::Application {
+                name: "A".into(),
+                arguments: Vec::new(),
+            }],
+        },
+        Sort::Application {
+            name: "B".into(),
+            arguments: Vec::new(),
+        },
+    ];
+    for (index, left) in ordered.iter().enumerate() {
+        for (other, right) in ordered.iter().enumerate() {
+            assert_eq!(
+                left.cmp(right),
+                index.cmp(&other),
+                "{left:?} against {right:?}"
+            );
+        }
+    }
+
+    assert_eq!(nested.into_parts(), ("List".to_owned(), Some(vec![map])));
+    assert_eq!(
+        Sort::Variable("T".into()).into_parts(),
+        ("T".to_owned(), None)
+    );
 }
 
 #[test]
@@ -240,15 +371,4 @@ fn json_writers_keep_serde_compatible_bytes() {
           }
         }"#}
     );
-}
-
-#[test]
-fn sort_exception_is_limited_to_recursive_traits() {
-    // Parsing and every Pattern traversal are iterative. Sort intentionally retains its public
-    // derived Clone/Eq/Ord/Drop traits because real KORE producers keep sort depth below four.
-    let shallow = Sort::Application {
-        name: "Map".into(),
-        arguments: vec![Sort::Variable("K".into()), Sort::Variable("V".into())],
-    };
-    assert_eq!(shallow.clone(), shallow);
 }

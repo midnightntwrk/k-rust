@@ -601,17 +601,17 @@ fn expand<'a, S: PatternSource<'a>>(stack: &mut Vec<SyntaxTask<'a, S>>, task: Sy
                     stack.push(SyntaxTask::Text(name.clone().into()));
                     return;
                 }
-                Cow::Owned(Sort::Variable(name)) => {
-                    stack.push(SyntaxTask::Text(name.into()));
-                    return;
-                }
                 Cow::Borrowed(Sort::Application { name, arguments }) => (
                     Cow::Borrowed(name.as_str()),
                     Cow::Borrowed(arguments.as_slice()),
                 ),
-                Cow::Owned(Sort::Application { name, arguments }) => {
-                    (Cow::Owned(name), Cow::Owned(arguments))
-                }
+                Cow::Owned(sort) => match sort.into_parts() {
+                    (name, None) => {
+                        stack.push(SyntaxTask::Text(name.into()));
+                        return;
+                    }
+                    (name, Some(arguments)) => (Cow::Owned(name), Cow::Owned(arguments)),
+                },
             };
             stack.push(delimited_task("{", "}", sort_arguments(arguments)));
             stack.push(SyntaxTask::Text(owned_text(name)));

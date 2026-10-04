@@ -993,20 +993,31 @@ impl Encoder<'_> {
     }
 
     fn sort(&mut self, sort: &Sort) -> Result<(), BinaryError> {
-        match sort {
-            Sort::Variable(name) => {
-                self.output.push(SORT_VARIABLE);
-                self.identifier(name)
-            }
-            Sort::Application { name, arguments } => {
-                for argument in arguments {
-                    self.sort(argument)?;
+        enum Task<'a> {
+            Sort(&'a Sort),
+            Finish(&'a str, usize),
+        }
+
+        let mut tasks = vec![Task::Sort(sort)];
+        // Invariant: `self.output` ends with the encoding of every task popped so far and `tasks` holds the remaining tasks in reverse emission order; a popped application is replaced by its arguments above its `Task::Finish`, so each sort of `sort` is expanded once and `tasks` empties.
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Sort(Sort::Variable(name)) => {
+                    self.output.push(SORT_VARIABLE);
+                    self.identifier(name)?;
                 }
-                self.output.push(COMPOSITE_SORT);
-                self.length(arguments.len(), 2)?;
-                self.identifier(name)
+                Task::Sort(Sort::Application { name, arguments }) => {
+                    tasks.push(Task::Finish(name, arguments.len()));
+                    tasks.extend(arguments.iter().rev().map(Task::Sort));
+                }
+                Task::Finish(name, count) => {
+                    self.output.push(COMPOSITE_SORT);
+                    self.length(count, 2)?;
+                    self.identifier(name)?;
+                }
             }
         }
+        Ok(())
     }
 
     fn identifier(&mut self, value: &str) -> Result<(), BinaryError> {

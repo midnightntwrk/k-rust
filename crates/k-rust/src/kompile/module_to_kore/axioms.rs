@@ -287,23 +287,22 @@ fn unify_kore_sorts(left: &KoreSort, right: &KoreSort) -> Option<BTreeMap<String
         if left == right {
             continue;
         }
-        match (left, right) {
-            (sort, KoreSort::Variable(name)) | (KoreSort::Variable(name), sort) => {
+        match (left.into_parts(), right.into_parts()) {
+            ((other_name, other_arguments), (name, None))
+            | ((name, None), (other_name, other_arguments)) => {
+                let sort = match other_arguments {
+                    None => KoreSort::Variable(other_name),
+                    Some(arguments) => KoreSort::Application {
+                        name: other_name,
+                        arguments,
+                    },
+                };
                 if kore_sort_contains_variable(&sort, &name) {
                     return None;
                 }
                 substitution.insert(name, sort);
             }
-            (
-                KoreSort::Application {
-                    name: left_name,
-                    arguments: left_arguments,
-                },
-                KoreSort::Application {
-                    name: right_name,
-                    arguments: right_arguments,
-                },
-            ) => {
+            ((left_name, Some(left_arguments)), (right_name, Some(right_arguments))) => {
                 if left_name != right_name || left_arguments.len() != right_arguments.len() {
                     return None;
                 }
@@ -919,7 +918,7 @@ fn generated_sort_parameters(parameters: &[Sort]) -> Vec<String> {
     parameters
         .iter()
         .map(|parameter| {
-            let KoreSort::Variable(name) = encode_kore_sort_with_formals(parameter, parameters)
+            let (name, None) = encode_kore_sort_with_formals(parameter, parameters).into_parts()
             else {
                 unreachable!("production parameters encode as KORE sort variables")
             };

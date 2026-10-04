@@ -376,13 +376,13 @@ fn sort_fields<'a, S>(sort: Cow<'a, Sort>) -> EncodeFields<'a, S> {
     }
     let parts = match sort {
         Cow::Borrowed(Sort::Variable(name)) => Parts::Variable(Cow::Borrowed(name)),
-        Cow::Owned(Sort::Variable(name)) => Parts::Variable(Cow::Owned(name)),
         Cow::Borrowed(Sort::Application { name, arguments }) => {
             Parts::Application(Cow::Borrowed(name), Cow::Borrowed(arguments))
         }
-        Cow::Owned(Sort::Application { name, arguments }) => {
-            Parts::Application(Cow::Owned(name), Cow::Owned(arguments))
-        }
+        Cow::Owned(sort) => match sort.into_parts() {
+            (name, None) => Parts::Variable(Cow::Owned(name)),
+            (name, Some(arguments)) => Parts::Application(Cow::Owned(name), Cow::Owned(arguments)),
+        },
     };
     match parts {
         Parts::Variable(name) => {

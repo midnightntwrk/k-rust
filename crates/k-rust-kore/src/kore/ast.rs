@@ -2,6 +2,8 @@
 
 use std::{fmt, sync::Arc};
 
+use smallvec::SmallVec;
+
 /// The byte sequence carried by a KORE string pattern.
 ///
 /// Text KORE uses `\xNN` escapes for individual bytes and `\u`/`\U` escapes for Unicode
@@ -138,10 +140,183 @@ pub enum Sentence {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Attributes(pub Vec<Pattern>);
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Sort {
     Variable(String),
     Application { name: String, arguments: Vec<Sort> },
+}
+
+impl Sort {
+    /// The sort's name and, for an application, its arguments.
+    ///
+    /// `Sort` implements `Drop`, so a by-value pattern cannot move its fields out; this takes
+    /// them instead.
+    pub fn into_parts(mut self) -> (String, Option<Vec<Sort>>) {
+        match &mut self {
+            Sort::Variable(name) => (std::mem::take(name), None),
+            Sort::Application { name, arguments } => {
+                (std::mem::take(name), Some(std::mem::take(arguments)))
+            }
+        }
+    }
+
+    /// Whether the sort has no sort arguments that themselves have arguments, so its derived
+    /// structural operations would recurse at most one level.
+    fn is_shallow(&self) -> bool {
+        match self {
+            Sort::Variable(_) => true,
+            Sort::Application { arguments, .. } => arguments.iter().all(|argument| {
+                matches!(argument, Sort::Variable(_))
+                    || matches!(argument, Sort::Application { arguments, .. } if arguments.is_empty())
+            }),
+        }
+    }
+
+    /// The variant's rank in declaration order, the first key of [`Ord`].
+    const fn discriminant(&self) -> u8 {
+        match self {
+            Sort::Variable(_) => 0,
+            Sort::Application { .. } => 1,
+        }
+    }
+
+    fn arguments(&self) -> &[Sort] {
+        match self {
+            Sort::Variable(_) => &[],
+            Sort::Application { arguments, .. } => arguments,
+        }
+    }
+}
+
+impl Clone for Sort {
+    fn clone(&self) -> Self {
+        struct Frame<'a> {
+            name: &'a str,
+            arguments: &'a [Sort],
+            built: Vec<Sort>,
+        }
+
+        let Sort::Application { name, arguments } = self else {
+            let Sort::Variable(name) = self else {
+                unreachable!()
+            };
+            return Sort::Variable(name.clone());
+        };
+        let mut stack: SmallVec<[Frame<'_>; 4]> = smallvec::smallvec![Frame {
+            name,
+            arguments,
+            built: Vec::with_capacity(arguments.len()),
+        }];
+        // Invariant: `stack` holds one frame per application on the path from `self` to the sort being copied, and each frame's `built` holds the copies of its first `built.len()` arguments; every application is pushed and popped once, so the loop returns after O(|self|) iterations.
+        loop {
+            let frame = stack
+                .last_mut()
+                .expect("the root frame remains until return");
+            if let Some(argument) = frame.arguments.get(frame.built.len()) {
+                match argument {
+                    Sort::Variable(name) => frame.built.push(Sort::Variable(name.clone())),
+                    Sort::Application { name, arguments } => stack.push(Frame {
+                        name,
+                        arguments,
+                        built: Vec::with_capacity(arguments.len()),
+                    }),
+                }
+                continue;
+            }
+            let frame = stack.pop().expect("the completed frame is present");
+            let sort = Sort::Application {
+                name: frame.name.to_owned(),
+                arguments: frame.built,
+            };
+            match stack.last_mut() {
+                Some(parent) => parent.built.push(sort),
+                None => return sort,
+            }
+        }
+    }
+}
+
+impl PartialEq for Sort {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Sort {}
+
+impl PartialOrd for Sort {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Total order on sorts: variables before applications, variables by name, applications by
+/// name, then arguments left to right, then argument count. This is the order
+/// `#[derive(Ord)]` would give; it is written out with an explicit work list because a derived
+/// comparison recurses once per sort level.
+impl Ord for Sort {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        enum Step<'a> {
+            Compare(&'a Sort, &'a Sort),
+            PrefixLength(Ordering),
+        }
+
+        let mut work: SmallVec<[Step<'_>; 8]> = smallvec::smallvec![Step::Compare(self, other)];
+        // Invariant: every `Compare` popped so far found its two sorts equal in rank and name, and `work` holds, in comparison order, the unvisited argument pairs of the open pairs and each open pair's `PrefixLength`; each `Compare` pairs the sorts at one position common to `self` and `other` and is pushed once, so `work` empties.
+        while let Some(step) = work.pop() {
+            let (left, right) = match step {
+                Step::Compare(left, right) => (left, right),
+                Step::PrefixLength(ordering) if ordering.is_eq() => continue,
+                Step::PrefixLength(ordering) => return ordering,
+            };
+            let ordering = left
+                .discriminant()
+                .cmp(&right.discriminant())
+                .then_with(|| match (left, right) {
+                    (Sort::Variable(left), Sort::Variable(right))
+                    | (
+                        Sort::Application { name: left, .. },
+                        Sort::Application { name: right, .. },
+                    ) => left.cmp(right),
+                    _ => Ordering::Equal,
+                });
+            if !ordering.is_eq() {
+                return ordering;
+            }
+            let (left, right) = (left.arguments(), right.arguments());
+            work.push(Step::PrefixLength(left.len().cmp(&right.len())));
+            for (left, right) in left.iter().zip(right).rev() {
+                work.push(Step::Compare(left, right));
+            }
+        }
+        Ordering::Equal
+    }
+}
+
+impl Drop for Sort {
+    fn drop(&mut self) {
+        if self.is_shallow() {
+            return;
+        }
+        let Sort::Application { arguments, .. } = self else {
+            return;
+        };
+        let mut work = std::mem::take(arguments);
+        // Invariant: `work` holds the detached sorts whose arguments are still attached; each pop detaches one sort's arguments into `work`, so each sort is popped once and is dropped with no arguments left.
+        while let Some(mut sort) = work.pop() {
+            if let Sort::Application { arguments, .. } = &mut sort {
+                work.append(arguments);
+            }
+        }
+    }
+}
+
+/// The output of `#[derive(Debug)]`, written with an explicit work list as for [`Pattern`].
+impl fmt::Debug for Sort {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug::write(formatter, debug::Task::Sort(self))
+    }
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -514,11 +689,13 @@ mod debug {
 
     use smallvec::SmallVec;
 
-    use super::Pattern;
+    use super::{Pattern, Sort};
 
     pub(super) enum Task<'a> {
         Pattern(&'a Pattern),
         Patterns(&'a [Pattern]),
+        Sort(&'a Sort),
+        Sorts(&'a [Sort]),
         Leaf(&'a dyn fmt::Debug),
         Text(&'static str),
         Newline,
@@ -803,6 +980,19 @@ mod debug {
                 Task::Patterns(patterns) => {
                     push_list(&mut work, alternate, patterns.iter().map(Task::Pattern));
                 }
+                Task::Sort(Sort::Variable(name)) => {
+                    push_tuple(&mut work, alternate, "Variable", Task::Leaf(name));
+                }
+                Task::Sort(Sort::Application { name, arguments }) => push_struct(
+                    &mut work,
+                    alternate,
+                    "Application",
+                    smallvec::smallvec![
+                        ("name", Task::Leaf(name)),
+                        ("arguments", Task::Sorts(arguments))
+                    ],
+                ),
+                Task::Sorts(sorts) => push_list(&mut work, alternate, sorts.iter().map(Task::Sort)),
                 Task::Leaf(value) if alternate => write!(output, "{value:#?}")?,
                 Task::Leaf(value) => write!(output, "{value:?}")?,
                 Task::Text(text) => output.write_str(text)?,
