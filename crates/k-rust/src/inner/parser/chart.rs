@@ -52,7 +52,7 @@ use super::forest::{
     Derivation, PackedNode, PackedTerm, build_packed_term, cmp_packed_structurally,
     pack_alternatives,
 };
-use super::{Grammar, ParseError, ParseProvenance};
+use super::{Grammar, ParseError, ParseProvenance, PriorityFilter};
 
 #[cfg(test)]
 thread_local! {
@@ -634,6 +634,7 @@ pub(super) fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
     priority_memos: &RefCell<PackedPriorityMemos>,
+    filter: PriorityFilter,
     cycles: &SameSpanCycles,
 ) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
@@ -674,7 +675,13 @@ pub(super) fn completed_nodes(
                 end,
                 provenance,
             );
-            match grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos) {
+            let filtered = match filter {
+                PriorityFilter::Enforced => {
+                    grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos)
+                }
+                PriorityFilter::Ignored => Ok(Rc::clone(&term)),
+            };
+            match filtered {
                 Ok(term) => {
                     if cycles.contains(state.production)
                         && cycle.is_none()
@@ -901,10 +908,28 @@ mod tests {
         let memos = RefCell::new(PackedPriorityMemos::default());
         let cycles = SameSpanCycles::default();
         let first = completed_nodes(
-            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+            &chart,
+            &grammar,
+            sort_id,
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+            PriorityFilter::Enforced,
+            &cycles,
         );
         let second = completed_nodes(
-            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+            &chart,
+            &grammar,
+            sort_id,
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+            PriorityFilter::Enforced,
+            &cycles,
         );
         assert!(Rc::ptr_eq(&first, &second));
         let first = first
@@ -928,7 +953,16 @@ mod tests {
             )
             .unwrap();
         let after_other_boundary = completed_nodes(
-            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+            &chart,
+            &grammar,
+            sort_id,
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+            PriorityFilter::Enforced,
+            &cycles,
         );
         let after_other_boundary = after_other_boundary
             .nodes
@@ -941,7 +975,16 @@ mod tests {
             .add_chart_state(&mut chart, state, [derivation(variable("B"))])
             .unwrap();
         let after_same_boundary = completed_nodes(
-            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+            &chart,
+            &grammar,
+            sort_id,
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+            PriorityFilter::Enforced,
+            &cycles,
         );
         assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(

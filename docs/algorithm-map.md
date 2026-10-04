@@ -189,7 +189,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.resolve_ambiguity — O(N x h) plus, per alternative, one clone of its… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
 - parser.disambiguation.resolve_applications — O(N x a x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
-- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +2 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
+- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
 - parser.forest.cycle_check — O(N) expected (hashed visited set and build table) — at k-rust/inner/parser/cycles.rs `check_same_span_repetition`
 - parser.forest.order — O(1) unless the fingerprints tie, then O(N) +2 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
 - parser.grammar.build — O(S x I) plus declared relation and… — at k-rust/inner/parser/grammar.rs `Grammar::from_collected_sentences`

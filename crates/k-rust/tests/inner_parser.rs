@@ -1081,6 +1081,69 @@ fn rejects_non_associative_nesting() {
 }
 
 #[test]
+fn a_violation_is_reported_only_for_a_derivation_of_the_whole_input() {
+    // `a => b` completes before `c`, and recognition tries it as the left operand of another
+    // `=>`, which right associativity rules out. No `=>` follows, so that derivation fails anyway
+    // and the input fails at `c`, which nothing can follow `b` with.
+    let mut token_attributes = Attributes::default();
+    token_attributes.insert("token", serde_json::json!(""));
+    let sentences = vec![
+        production(
+            "Exp",
+            vec![ProductionItem::regex("[a-z]")],
+            None,
+            token_attributes,
+        ),
+        production(
+            "Exp",
+            vec![
+                nonterminal("Exp"),
+                ProductionItem::Terminal("=>".into()),
+                nonterminal("Exp"),
+            ],
+            Some("rw"),
+            Attributes::default(),
+        ),
+        production(
+            "Exp",
+            vec![
+                nonterminal("Exp"),
+                ProductionItem::Terminal("<".into()),
+                nonterminal("Exp"),
+            ],
+            Some("lessThan"),
+            Attributes::default(),
+        ),
+        Sentence::SyntaxAssociativity {
+            associativity: Associativity::Right,
+            tags: vec!["rw".into()],
+            attributes: Attributes::default(),
+        },
+        Sentence::SyntaxAssociativity {
+            associativity: Associativity::NonAssoc,
+            tags: vec!["lessThan".into()],
+            attributes: Attributes::default(),
+        },
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+    let error = grammar.parse(&Sort::new("Exp"), "a => b c").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Parse error: unexpected token 'c' following token 'b'.",
+        "{error:?}"
+    );
+
+    // Every derivation of `a < b < c` nests `<` in `<`, which is the reason it fails.
+    let error = grammar.parse(&Sort::new("Exp"), "a < b < c").unwrap_err();
+    assert!(
+        matches!(&error, ParseError::Associativity { parent, child, .. }
+            if parent == "lessThan" && child == "lessThan"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn apply_priority_checks_only_selected_arguments() {
     let mut token_attributes = Attributes::default();
     token_attributes.insert("token", serde_json::json!(""));

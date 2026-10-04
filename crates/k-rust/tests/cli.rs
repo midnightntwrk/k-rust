@@ -11732,6 +11732,29 @@ endmodule
 }
 
 #[test]
+fn a_rule_with_an_operator_out_of_scope_fails_at_the_operator() {
+    // The generated-input reproducer: `==K` is declared in `K-EQUAL`, which the module does not
+    // import, so the rule has no parse and the error names the place it stops. A `=>` that
+    // recognition tried and associativity ruled out on the way is not the reason.
+    let source = r#"module MAIN
+  imports INT
+  syntax KItem ::= foo(Int) | "bar"
+  rule foo(B) => bar requires B ==K B
+endmodule
+"#;
+    let output = kcompile_source(source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:4:33: could not parse rule in module \"MAIN\": Parse error: unexpected token '=' following token 'B'."
+        ),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("#KRewrite"), "{stderr}");
+}
+
+#[test]
 fn heat_and_cool_sentences_without_a_matched_hole_are_rejected() {
     // Heating and cooling apply only when the subterm the sentence matches as HOLE is not yet,
     // or is, a result. A rule that matches no HOLE would test a variable nothing binds, and a

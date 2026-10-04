@@ -1,18 +1,22 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance"]
+//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance"]
 //! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "recognition (the chart loop of parse_attempt)"
+//! mode = "recognition (the chart loop of recognize)"
 //! bound = "O(B x s) chart allocation plus O(p x d)"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
 //! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+//!
+//! [[cost]]
+//! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
+//! bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
 //!
 //! [[cost]]
 //! mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
@@ -189,6 +193,25 @@ struct ParseContext {
 enum PredictionMode {
     Filtered,
     Unfiltered,
+}
+
+/// Whether recognition drops the derivations that the priority and associativity relations rule
+/// out. A violation explains a failed parse only when the input has a derivation that the
+/// violation rules out, so a failed parse that recorded one is recognized once more with the
+/// relations ignored to tell the two apart (`Grammar::parse_attempt`).
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum PriorityFilter {
+    Enforced,
+    Ignored,
+}
+
+/// The outcome of the recognition phase of one parse attempt.
+struct Recognition {
+    charts: Vec<Chart>,
+    /// The completed start productions spanning the whole input.
+    parses: BTreeSet<Rc<PackedTerm>>,
+    /// The first priority or associativity violation that removed a derivation, in chart order.
+    first_violation: Option<ParseError>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1053,6 +1076,156 @@ impl Grammar {
         let _span = measure::algorithm_span(Algorithm::ParserEarleyRecognize);
         measure::bump(Counter::ParserParseAttempts);
         let priority_memos = RefCell::new(PackedPriorityMemos::default());
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let start_position = self.canonical_position(input, 0, &mut scanner_cache);
+        let Some(start_id) = self.sort_id(start) else {
+            let charts = (0..=input.len())
+                .map(|_| Chart::new(self.sorts.len()))
+                .collect::<Vec<_>>();
+            return Err(self.no_parse(
+                input,
+                provenance,
+                diagnostic_provenance,
+                &charts,
+                &mut scanner_cache,
+            ));
+        };
+        let Recognition {
+            charts,
+            parses,
+            first_violation,
+        } = self.recognize(
+            start_id,
+            start_position,
+            input,
+            provenance,
+            prediction_mode,
+            PriorityFilter::Enforced,
+            pruned,
+            &mut scanner_cache,
+            &priority_memos,
+        )?;
+        if parses.is_empty() {
+            return Err(match first_violation {
+                None => self.no_parse(
+                    input,
+                    provenance,
+                    diagnostic_provenance,
+                    &charts,
+                    &mut scanner_cache,
+                ),
+                Some(first_violation) => {
+                    drop(charts);
+                    self.explain_violation(
+                        first_violation,
+                        start_id,
+                        start_position,
+                        input,
+                        context,
+                        prediction_mode,
+                        pruned,
+                        &mut scanner_cache,
+                    )
+                }
+            });
+        }
+        // The chart can retain the whole packed forest through its states. Release it before any
+        // post-parse allocation, then apply the root priority preference while alternatives still
+        // share their descendants. In particular, do not expand losing non-rewrite parses before
+        // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
+        drop(charts);
+        drop(_span);
+        // Packed normalization and inference phase: preserve sharing until losing alternatives
+        // are removed, then materialize exactly the retained inferred trees.
+        // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
+        // preference must therefore run before descending into losing alternatives; filtering
+        // each root independently incorrectly rejects inputs whose winning interpretation is a
+        // top-level rewrite (for example a rewrite inside a competing map-item parse).
+        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
+        // Checked mode compares the engines on an ambiguous forest by what each lowers to.
+        #[cfg(feature = "z3-inference")]
+        if inference::checked_inference_requested()
+            && let Some(checked) =
+                self.checked_ambiguous_parse(&forest, start, is_anywhere, |tree| {
+                    self.lower_inferred(tree, start)
+                })
+        {
+            return checked;
+        }
+        self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
+            self.lower_inferred(tree, start)
+        })
+    }
+
+    /// Why a parse whose recognition removed a derivation for `first_violation` failed.
+    ///
+    /// The violation explains the failure only when some derivation of the whole input breaks
+    /// the priority and associativity relations; a derivation the relations removed while
+    /// recognition explored a reading that fails anyway (for instance `A => B` as the left
+    /// operand of a `=>` that never comes) does not. The input is therefore recognized again
+    /// with the relations ignored: when that recognition also fails, the input has no derivation
+    /// at all and the error is the place where it stops; otherwise the error is a violation of a
+    /// derivation of the whole input.
+    #[allow(clippy::too_many_arguments)]
+    fn explain_violation(
+        &self,
+        first_violation: ParseError,
+        start_id: usize,
+        start_position: usize,
+        input: &str,
+        context: ParseContext,
+        prediction_mode: PredictionMode,
+        pruned: &mut bool,
+        scanner_cache: &mut [ScanCacheEntry],
+    ) -> ParseError {
+        let priority_memos = RefCell::new(PackedPriorityMemos::default());
+        // A recognition error (a cycle) that only the ignored relations let through says nothing
+        // about this input's failure.
+        let Ok(Recognition { charts, parses, .. }) = self.recognize(
+            start_id,
+            start_position,
+            input,
+            context.provenance,
+            prediction_mode,
+            PriorityFilter::Ignored,
+            pruned,
+            scanner_cache,
+            &priority_memos,
+        ) else {
+            return first_violation;
+        };
+        if parses.is_empty() {
+            return self.no_parse(
+                input,
+                context.provenance,
+                context.diagnostic_provenance,
+                &charts,
+                scanner_cache,
+            );
+        }
+        drop(charts);
+        match self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos) {
+            Err(violation) => violation,
+            Ok(_) => first_violation,
+        }
+    }
+
+    /// The recognition phase of a parse attempt: the Earley chart of `input` from the start sort
+    /// and the completed start productions spanning it, dropping the derivations that violate the
+    /// priority and associativity relations when `filter` enforces them.
+    #[allow(clippy::too_many_arguments)]
+    fn recognize(
+        &self,
+        start_id: usize,
+        start_position: usize,
+        input: &str,
+        provenance: ParseProvenance,
+        prediction_mode: PredictionMode,
+        filter: PriorityFilter,
+        pruned: &mut bool,
+        scanner_cache: &mut [ScanCacheEntry],
+        priority_memos: &RefCell<PackedPriorityMemos>,
+    ) -> Result<Recognition, ParseError> {
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
@@ -1063,17 +1236,6 @@ impl Grammar {
         let mut charts = (0..=input.len())
             .map(|_| Chart::new(self.sorts.len()))
             .collect::<Vec<_>>();
-        let mut scanner_cache = vec![None; input.len() + 1];
-        let start_position = self.canonical_position(input, 0, &mut scanner_cache);
-        let Some(start_id) = self.sort_id(start) else {
-            return Err(self.no_parse(
-                input,
-                provenance,
-                diagnostic_provenance,
-                &charts,
-                &mut scanner_cache,
-            ));
-        };
         for production in self.productions_for_id(start_id) {
             self.add_chart_state(
                 &mut charts[start_position],
@@ -1128,9 +1290,8 @@ impl Grammar {
                     derivation_count
                 };
                 let production = &self.productions[state.production];
-                let canonical = *canonical_position.get_or_insert_with(|| {
-                    self.canonical_position(input, position, &mut scanner_cache)
-                });
+                let canonical = *canonical_position
+                    .get_or_insert_with(|| self.canonical_position(input, position, scanner_cache));
                 if state.dot < production.items.len() && canonical != position {
                     #[cfg(test)]
                     record_chart_dispatch(ChartDispatchKind::Relocation, derivation_count, revisit);
@@ -1212,7 +1373,8 @@ impl Grammar {
                             position,
                             input,
                             provenance,
-                            &priority_memos,
+                            priority_memos,
+                            filter,
                             cycles,
                         );
                         if let Some(cycle) = &completed.cycle {
@@ -1224,6 +1386,7 @@ impl Grammar {
                         let completed = self.filter_associative_boundary(
                             state,
                             &completed.nodes,
+                            filter,
                             &mut first_violation,
                         );
                         if !completed.is_empty() {
@@ -1296,9 +1459,13 @@ impl Grammar {
                                 position,
                                 provenance,
                             );
-                            match self
-                                .filter_or_defer_packed_priority(Rc::clone(&term), &priority_memos)
-                            {
+                            match match filter {
+                                PriorityFilter::Enforced => self.filter_or_defer_packed_priority(
+                                    Rc::clone(&term),
+                                    priority_memos,
+                                ),
+                                PriorityFilter::Ignored => Ok(Rc::clone(&term)),
+                            } {
                                 Ok(term) => {
                                     if cycles.contains(state.production) {
                                         check_same_span_repetition(
@@ -1333,6 +1500,7 @@ impl Grammar {
                             let completed = self.filter_associative_boundary(
                                 caller,
                                 &nodes,
+                                filter,
                                 &mut first_violation,
                             );
                             if !completed.is_empty() {
@@ -1393,7 +1561,7 @@ impl Grammar {
             if chart.states.is_empty() {
                 continue;
             }
-            if self.canonical_position(input, position, &mut scanner_cache) != input.len() {
+            if self.canonical_position(input, position, scanner_cache) != input.len() {
                 continue;
             }
             let completed = completed_nodes(
@@ -1404,7 +1572,8 @@ impl Grammar {
                 position,
                 input,
                 provenance,
-                &priority_memos,
+                priority_memos,
+                filter,
                 cycles,
             );
             if let Some(cycle) = &completed.cycle {
@@ -1415,42 +1584,10 @@ impl Grammar {
                 first_violation.clone_from(&completed.violation);
             }
         }
-        if parses.is_empty() {
-            return Err(first_violation.unwrap_or_else(|| {
-                self.no_parse(
-                    input,
-                    provenance,
-                    diagnostic_provenance,
-                    &charts,
-                    &mut scanner_cache,
-                )
-            }));
-        }
-        // The chart can retain the whole packed forest through its states. Release it before any
-        // post-parse allocation, then apply the root priority preference while alternatives still
-        // share their descendants. In particular, do not expand losing non-rewrite parses before
-        // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
-        drop(charts);
-        drop(_span);
-        // Packed normalization and inference phase: preserve sharing until losing alternatives
-        // are removed, then materialize exactly the retained inferred trees.
-        // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
-        // preference must therefore run before descending into losing alternatives; filtering
-        // each root independently incorrectly rejects inputs whose winning interpretation is a
-        // top-level rewrite (for example a rewrite inside a competing map-item parse).
-        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
-        // Checked mode compares the engines on an ambiguous forest by what each lowers to.
-        #[cfg(feature = "z3-inference")]
-        if inference::checked_inference_requested()
-            && let Some(checked) =
-                self.checked_ambiguous_parse(&forest, start, is_anywhere, |tree| {
-                    self.lower_inferred(tree, start)
-                })
-        {
-            return checked;
-        }
-        self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
-            self.lower_inferred(tree, start)
+        Ok(Recognition {
+            charts,
+            parses,
+            first_violation,
         })
     }
 
@@ -1472,12 +1609,16 @@ impl Grammar {
         &self,
         caller: State,
         nodes: &'a BTreeSet<Rc<PackedTerm>>,
+        filter: PriorityFilter,
         first_violation: &mut Option<ParseError>,
     ) -> Cow<'a, BTreeSet<Rc<PackedTerm>>> {
         let production = &self.productions[caller.production];
         let Some(parent) = production.parse_label.as_deref() else {
             return Cow::Borrowed(nodes);
         };
+        if filter == PriorityFilter::Ignored {
+            return Cow::Borrowed(nodes);
+        }
         let (relation, side) = if caller.dot == 0 {
             (&self.associativities.right, "left")
         } else if caller.dot + 1 == production.items.len() {

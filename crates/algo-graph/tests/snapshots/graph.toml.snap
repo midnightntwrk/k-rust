@@ -6356,6 +6356,16 @@ symbol = "Grammar::parse_attempt"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::recognize"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::explain_violation"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::lower_inferred"
 
 [[node.sites]]
@@ -6369,12 +6379,16 @@ file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::parse_with_context_and_diagnostic_provenance"
 
 [[node.cost]]
-mode = "recognition (the chart loop of parse_attempt)"
+mode = "recognition (the chart loop of recognize)"
 bound = "O(B x s) chart allocation plus O(p x d)"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
 bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+
+[[node.cost]]
+mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
+bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
 
 [[node.cost]]
 mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
