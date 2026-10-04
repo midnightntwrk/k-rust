@@ -186,6 +186,20 @@ fn check_rule(
             }
         }
     }
+    // `owise` is itself a priority (the rule applies only where no rule of its group with a
+    // higher priority does), so with `priority` the rule states its rank twice: two different
+    // ranks contradict each other, and equal ones say nothing the single attribute does not.
+    // Every consumer reads one rank per rule, so the pair is rejected whatever the value. On a
+    // simplification rule both are already rejected above.
+    if attributes.has(AttributeKey::Owise)
+        && attributes.has(AttributeKey::Priority)
+        && !attributes.has(AttributeKey::Simplification)
+    {
+        diagnostics.push(invalid_attribute(
+            "owise attribute cannot be combined with a priority attribute: owise already gives the rule its priority.",
+            rule,
+        ));
+    }
     if attributes.has(AttributeKey::Anywhere) && attributes.has(AttributeKey::Symbolic) {
         diagnostics.push(invalid_attribute(
             "anywhere attribute is not supported on symbolic rules.",

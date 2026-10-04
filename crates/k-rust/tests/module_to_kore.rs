@@ -3178,3 +3178,44 @@ fn hooks_on_functions_and_on_undeclared_or_unadmitted_productions_compile_and_lo
         "MAIN",
     );
 }
+
+/// B3 of the generated-input experiment: `owise` is itself a priority, so a rule carrying both
+/// `owise` and `priority` is rejected at the rule, whatever the priority's value.
+#[test]
+fn owise_with_a_priority_is_a_located_error() {
+    for priority in ["51", "200"] {
+        let source = format!(
+            "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | f(Foo) [function, symbol(f)]\n  rule f(X) => X [priority({priority}), owise]\nendmodule\n"
+        );
+        let (start_line, message) = compile_error(&source, "MAIN");
+        assert_eq!(start_line, 3, "{message}");
+        assert!(
+            message.contains("owise") && message.contains("priority"),
+            "{message}"
+        );
+    }
+    // A rewrite rule is held to the same rule.
+    let (start_line, _) = compile_error(
+        indoc! {r#"
+            module MAIN
+              syntax Foo ::= "a" | "b"
+              rule a => b [owise, priority(10)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    assert_eq!(start_line, 3);
+}
+
+/// Each of `owise` and `priority` alone gives a rule its one priority, which the backend reads.
+#[test]
+fn owise_or_a_priority_alone_compiles_and_loads() {
+    for attribute in ["priority(51)", "owise"] {
+        assert_compiles_and_loads(
+            &format!(
+                "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)]\n  rule f(a) => b\n  rule f(X) => X [{attribute}]\nendmodule\n"
+            ),
+            "MAIN",
+        );
+    }
+}
