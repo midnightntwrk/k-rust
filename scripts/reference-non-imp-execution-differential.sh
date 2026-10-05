@@ -187,6 +187,11 @@ for name in "${selected[@]}"; do
   # The oracle is the Haskell backend's krun (kore-exec in its default --strategy all:
   # every applicable rule is explored), so krust runs with --strategy all as well; plain
   # krust krun follows one successor per step; see docs/compatibility.md#search-results.
+  # Both sides run with I/O off and an empty standard input: the I/O mode and the standard
+  # input are part of the initial configuration of a definition that declares $IO or $STDIN
+  # (docs/compatibility.md#backend-scope), so the two results are comparable only when both
+  # sides start from the same one, and neither side then blocks on, or consumes, the input
+  # of the shell that runs the gate.
   mapfile -t programs < <(jq -r '(.programs // [])[]' <<<"$suite")
   for program in "${programs[@]}"; do
     if [[ ! -f "$program" ]]; then
@@ -202,8 +207,9 @@ for name in "${selected[@]}"; do
       --parser "$workspace/scripts/reference-kast-parser.sh" \
       "${configuration_args[@]}" \
       --depth "$execution_depth" \
+      --io off \
       --smt none \
-      --output kore
+      --output kore </dev/null
 
     echo "[$name:$program_name] executing with krust krun"
     set +e
@@ -221,7 +227,7 @@ for name in "${selected[@]}"; do
         --strategy all \
         --io off \
         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
-        >"$work/$name-$program_name.rust.kore"
+        </dev/null >"$work/$name-$program_name.rust.kore"
     )
     rust_status=$?
     set -e
