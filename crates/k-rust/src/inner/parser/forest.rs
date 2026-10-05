@@ -535,9 +535,9 @@ pub(super) fn build_packed_term(
             );
         }
         let token = &input[start..end];
-        // EarleyParser substitutes the digits after the first `p`/`P` of a MINT.literal token
-        // into the parametric production, so `0p32` is an `MInt{32}` whichever declared
-        // instantiation scanned it; the metadata still names the scanning production.
+        // A MINT.literal token spells its width in the digits after its first `p`/`P`, so
+        // `0p32` is an `MInt{32}` whichever declared instantiation scanned it; the metadata
+        // still names the scanning production.
         let sort = if production.is_mint_literal() {
             mint_literal_sort(&production.result, token)
         } else {

@@ -641,10 +641,11 @@ mod tests {
 
     /// regression-new spec-rule-application def62: after `Y2 := X2 -Int 1` the deferred pair
     /// `incPos(Y2) ~ X2` becomes `X2 ~ incPos(X2 -Int 1)`, a cycle through a function symbol.
-    /// Kore's substitution normalization keeps such a "simplifiable" cycle as a denormalized
-    /// predicate (Kore/Unification/SubstitutionNormalization.hs simplifiableCycle) that
-    /// evaluation later discharges (`incPos(X2 -Int 1)` is `X2`); only a cycle through
-    /// constructors is bottom (mixedCtorCycle).
+    /// Such an equation can hold, since a function application may denote any value of its
+    /// sort, `X2`'s included (`incPos(X2 -Int 1)` evaluates to `X2`). It is no contradiction,
+    /// and a substitution cannot bind `X2` to a term containing `X2`, so it stays an equality
+    /// for evaluation to discharge. Only a cycle through free constructors and injections alone
+    /// is bottom: a value they build is never one of its own proper parts.
     #[test]
     fn retains_a_function_cycle_as_an_equality() {
         let cycle = function("f", vec![var("X")]);

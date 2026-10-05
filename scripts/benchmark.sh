@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Every git call below names its repository with `git -C`, which only changes where git
+# discovers a repository: an inherited GIT_DIR, GIT_WORK_TREE or other repository-local
+# variable still names the repository, and `git bisect run` and `git rebase --exec` export
+# GIT_DIR when run in a linked worktree. Clear them so each call reads the checkout it names.
+mapfile -t inherited_git_variables < <(git rev-parse --local-env-vars)
+unset "${inherited_git_variables[@]}"
+
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 script="$workspace/scripts/benchmark.sh"
 manifest="$workspace/scripts/reference-differential.toml"

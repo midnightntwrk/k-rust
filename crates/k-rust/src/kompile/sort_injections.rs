@@ -921,10 +921,11 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
 
     /// Infer a sort before cell terms have been normalized to their generated productions.
     ///
-    /// Java's sort-only inference visits the declared nonterminal prefix and ignores trailing
-    /// syntax children. GuardOrPatterns runs while authored cells still carry their dots and
-    /// aggregate child, so this narrow entry point retains that behavior. Missing declared
-    /// children and every other inference error remain errors.
+    /// An authored cell still carries its dots and aggregate child beyond the nonterminals its
+    /// production declares. They are cell notation, not arguments, and a term's sort is its
+    /// production's result, so this entry point infers from the declared nonterminal prefix
+    /// and ignores trailing syntax children. GuardOrPatterns runs at that stage. Missing
+    /// declared children and every other inference error remain errors.
     pub(crate) fn term_sort_before_shape_normalization(
         &self,
         term: &Term,
@@ -2248,8 +2249,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             .collect::<Vec<_>>();
         let mut bounds = self.subsorts.upper_bounds(&non_parametric);
         if let [sort] = non_parametric.as_slice() {
-            // A relation-free sort is absent from PartialOrder's element set, while Java's
-            // upperBounds includes every supplied element itself.
+            // A single sort is an upper bound of itself, but a relation-free sort is absent from
+            // PartialOrder's element set, so `upper_bounds` omits it.
             bounds.insert(sort.clone());
         }
         let k_bottom = Sort::frontend(FrontendSort::KBott);

@@ -890,12 +890,13 @@ fn search_graph_collecting(
             ),
         }
 
-        // Kore's Simplify primitive turns a false-constrained configuration into a Bottom node,
-        // which has no program state and cannot be selected by a search strategy.
+        // A configuration whose constraint is false denotes no state: it has no instance to
+        // report and none to rewrite, so it is neither a result nor a node to expand.
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             continue;
         }
-        // So is an initial state whose own definedness is refuted: it has no instance.
+        // An initial state whose own definedness is refuted is skipped for the same reason: it
+        // has no instance either.
         match initial_state_is_empty(
             definition,
             &state,
@@ -4819,11 +4820,12 @@ mod tests {
 
     #[test]
     fn search_frontier_recombines_paths_that_reach_a_configuration_at_the_same_depth() {
-        // Kore's execution graph recombines branches that converge to the same configuration
-        // at the same step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search
-        // keeps a visited set; either way a configuration is expanded once per depth, so the
-        // work per step is bounded by the number of distinct configurations, not by the
-        // number of interleavings that reach them.
+        // A search asks for the configurations reachable from the initial one, a set, and the
+        // rewrite steps available from a configuration depend on that configuration alone, not
+        // on the path that reached it. Paths that reach one configuration at the same depth
+        // therefore have the same continuations within the remaining depth bound, so expanding
+        // it once per depth loses no result, and the work per step is bounded by the number of
+        // distinct configurations, not by the number of interleavings that reach them.
         let definition = interleaving_definition();
         let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
 

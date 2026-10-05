@@ -1003,11 +1003,12 @@ fn reference_named_field_projections_parse_in_programs() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled && k/result/bin/kast --definition ref-kompiled --output kast 3.test
     // kast: `project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(`test(_,_,_)_TEST_Foo_Int_Int_Int`(#token("5","Int"),#token("10","Int"),#token("15","Int")))
     // Reduced from regression-new/record-llvm 3.test and 4.test (`foo(test(5, 10, 15))`,
-    // `bar(test(5, 10, 15))`): RuleGrammarGenerator.getProgramsGrammar reaches
-    // getCombinedGrammar, which adds GenerateSortProjections.gen(p) for every production, so
-    // the program grammar has the field projections of every record-shaped production; the
-    // `project:Sort` projections are added only with SORT-PREDICATES, which programs do not
-    // import.
+    // `bar(test(5, 10, 15))`): each named nonterminal of a production declares a field whose
+    // projection is a function of the module, so a program, written in the module's syntax, may
+    // apply it, and the program grammar has the field projections of every record-shaped
+    // production. The sort projections `project:Sort`, like the sort predicates, serve rules
+    // that narrow a term to a sort; the rule grammar adds them for every sort, and the program
+    // grammar does not.
     let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
     let mut resolver = |_: &str, required: &str| {
         k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))

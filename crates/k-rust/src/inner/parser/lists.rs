@@ -429,13 +429,14 @@ impl Grammar {
                 metadata,
             } => {
                 let descriptor = &self.productions[production];
-                // Java's `AddEmptyLists.apply` completes children against the production that
-                // `AddSortInjections.substituteProd` instantiates from the node's expected sort
-                // and its children's sorts, not against the parser's inferred parameters. The
-                // two differ for a binder position such as `#let X = e #in ...`: inference
-                // leaves the child-only `Sort2` at `K`, while the reference instantiates it to
-                // `lub(sort(X), sort(e))`, so an element-sorted `X` bound to a user list is
-                // completed to the singleton list `X .Xs` before ResolveFun reads the binder.
+                // Children are completed against the production instantiated from the node's
+                // expected sort and its children's sorts, not against the parser's inferred
+                // parameters: a parameter stands for the sort of every position it occupies, so
+                // it is the least sort that holds them all. The two differ for a binder position
+                // such as `#let X = e #in ...`: inference leaves the child-only `Sort2` at `K`,
+                // while the binder equates `X` and `e`, so `Sort2` is `lub(sort(X), sort(e))`,
+                // and an element-sorted `X` bound to a user list is completed to the singleton
+                // list `X .Xs` before ResolveFun reads the binder.
                 let expected_children = if let Some(origin) = &descriptor.parametric_origin {
                     self.list_instantiation(
                         origin,
@@ -567,11 +568,12 @@ impl Grammar {
 }
 
 impl Grammar {
-    /// Port of `AddSortInjections.substituteProd` as `AddEmptyLists` uses it: instantiate a
-    /// parametric production from the expected sort of its node and the sorts of its children.
-    /// A parameter that neither the expected sort nor any child constrains keeps the parser's
-    /// inferred instantiation, where Java would keep a fresh sort parameter. A parameter with
-    /// bounds must have the same unique least upper bound that Java requires.
+    /// Instantiate a parametric production from the expected sort of its node and the sorts of
+    /// its children, for list completion: each parameter is the least sort that holds every
+    /// position it occupies. A parameter that neither the expected sort nor any child constrains
+    /// is not determined by the node and keeps the parser's inferred instantiation. A parameter
+    /// with bounds must have a unique least upper bound; otherwise no one instantiation is the
+    /// least that holds them.
     /// Returns the instantiated nonterminal sorts and the instantiated result sort.
     fn list_instantiation(
         &self,
@@ -624,9 +626,9 @@ impl Grammar {
         }
         let mut arguments = Vec::with_capacity(origin.parameters.len());
         for (index, (parameter, fresh)) in origin.parameters.iter().zip(&fresh).enumerate() {
-            // `substituteProd`: a parameter without bounds takes its fresh sort (the expected
-            // sort for the result parameter); a bounded one takes the lub of its bounds, where
-            // the fresh sort only filters the candidate upper bounds and never joins them.
+            // A parameter without bounds takes its fresh sort (the expected sort for the result
+            // parameter); a bounded one takes the lub of its bounds, where the fresh sort only
+            // filters the candidate upper bounds and never joins them.
             // `1 => foo(1)` at a user-list position therefore instantiates `#KRewrite` at `Int`
             // and the parent wraps the whole rewrite, as K does.
             let entries = bounds.get(parameter).cloned().unwrap_or_default();
@@ -666,8 +668,11 @@ impl Grammar {
         ))
     }
 
-    /// Port of `AddEmptyLists.getSort`: the sort of a parse node as the completion pass sees
-    /// it, instantiating a parametric node against its expected sort.
+    /// The sort of a parse node as list completion sees it. An instance of a parametric
+    /// production is instantiated from its expected sort and its children
+    /// ([`Grammar::list_instantiation`]), an expected sort above `K` counting as `K`, the
+    /// largest sort a term can have. Any other node has the sort of its production, token or
+    /// variable, and `K` when it carries none.
     fn list_sort(
         &self,
         term: &ParsedTerm,
@@ -699,8 +704,12 @@ impl Grammar {
     }
 }
 
-/// Port of `AddSortInjections.match`: record which concrete sorts flow into each parameter of
-/// `origin` when a nonterminal declared as `declared` holds a child of sort `actual`.
+/// Record which concrete sorts flow into each parameter of `origin` when a nonterminal declared
+/// as `declared` holds a child of sort `actual`. A parameter declared as the whole sort is
+/// bounded by `actual`, and a sort without parameters records nothing. A sort that applies a head
+/// to parameters, such as `MInt{Width}`, is matched argument by argument against each instance of
+/// that head among `actual` and the sorts below it, the instances a value of sort `actual` in
+/// that position can belong to.
 fn match_parameters(
     origin: &ParametricOrigin,
     declared: &Sort,
@@ -740,10 +749,11 @@ fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
             .any(|parameter| mentions_parameter(parameter, parameters))
 }
 
-/// Port of `AddSortInjections.lub` over the parser's subsort order: the unique minimal common
-/// upper bound that is neither below `KBott` nor above `K`. A non-parametric `expected` sort
-/// discards candidates that do not fit below it, as Java's `expectedSort` argument does. These
-/// admissibility filters apply even when deduplication leaves one input bound.
+/// The least upper bound of `sorts` in the parser's subsort order: the unique minimal common
+/// upper bound that is neither below `KBott` nor above `K`, the range of sorts a term can have.
+/// A non-parametric `expected` sort discards candidates that do not fit below it, since the
+/// node's value must also be a value of the sort its position expects. These admissibility
+/// filters apply even when deduplication leaves one input bound.
 fn least_upper_bound(
     sorts: &[Sort],
     expected: Option<&Sort>,

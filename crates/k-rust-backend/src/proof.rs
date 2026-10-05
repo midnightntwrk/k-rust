@@ -1530,9 +1530,11 @@ fn apply_claim(
         }
         Some(negated)
     };
-    // Kore evaluates the remainder predicate and prunes an unsatisfiable remainder before it
-    // becomes a state (RewriteStep.hs:308-322): the claim then covers the whole subject, and no
-    // bottom successor is left for the vacuity check to reject.
+    // The remainder denotes the subject's states the claim does not apply to: the subject under
+    // the negated application condition. When that condition is unsatisfiable under the
+    // subject's knowledge, the remainder denotes no state: the claim covers the whole subject,
+    // and the remainder is dropped instead of becoming a bottom successor for the vacuity check
+    // to reject.
     let complement = match complement {
         Some(negated) => {
             let unsatisfiable = remainder_is_unsatisfiable(
@@ -1949,7 +1951,10 @@ fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> Stoppable<bool
         ))
 }
 
-/// Kore accepts a bottom initial claim, but rejects bottom successors unless vacuity is allowed.
+/// A claim whose initial pattern is bottom denotes no state, so it holds vacuously and is proven.
+/// A state reached by rewriting that turns out bottom has no instance either, but it holds only
+/// because the path's own conditions contradict each other or its step is undefined; that is
+/// reported as `cause` rather than counted as a proof, unless the caller allows vacuous proofs.
 fn vacuous_outcome(
     state: &ProofState,
     options: ProofOptions,
@@ -2507,10 +2512,9 @@ mod tests {
 
     /// spec-rule-application def032: the trusted claim `mid(Y -Int 1) => end(Y)` unifies with
     /// `mid(X)` under the condition `X = Y + -1` whose complement, once the claim variable `Y`
-    /// is quantified, is `\not(\exists Y. X = Y + -1)`: unsatisfiable over the integers. Kore
-    /// evaluates the remainder predicate and prunes an UNSAT remainder before it becomes a
-    /// state (RewriteStep.hs:308-322), so the reference proves the claim; an unsatisfiable
-    /// remainder must not surface as a vacuous leaf that fails the proof.
+    /// is quantified, is `\not(\exists Y. X = Y + -1)`: unsatisfiable over the integers. The
+    /// remainder then denotes no state, so the claim covers the whole subject and the proof
+    /// holds; an unsatisfiable remainder must not surface as a vacuous leaf that fails the proof.
     #[cfg(feature = "z3")]
     #[test]
     fn prunes_an_unsatisfiable_claim_remainder_instead_of_reporting_it_vacuous() {
@@ -2592,12 +2596,14 @@ mod tests {
 
     /// Reduced from regression-new set_unification (host ratchet runs 13 to 26): the trusted
     /// claim's left-hand side `SetItem(I) F'` unifies with the subject `SetItem(I) F` by binding
-    /// the subject frame `F` to the claim frame `F'`. Kore applies the unifier's whole
-    /// substitution to the claim's right-hand side and keeps the configuration-variable binding
-    /// in the result's condition (RewriteStep.hs:105-190 finalizeAppliedRule, :271
-    /// resetResultPattern), so the successor is expressed over the subject's frame and the outer
-    /// claim's destination `?_ F` covers it. Dropping the binding leaves the freshened claim
-    /// frame free next to the subject frame and refutes the outer claim.
+    /// the subject frame `F` to the claim frame `F'`. The claim's successors are the states of
+    /// its right-hand side under that unifier, so the right-hand side takes the unifier's whole
+    /// substitution and the successor keeps the binding of the subject's variable as a
+    /// condition: the subject's variables are free in the state, and the binding is what
+    /// relates the claim frame to the subject's frame. The successor is then expressed over the
+    /// subject's frame, which the outer claim's destination `?_ F` covers. Dropping the binding
+    /// leaves the freshened claim frame unconstrained next to the subject frame, a successor
+    /// with an arbitrary frame, and refutes the outer claim.
     #[cfg(feature = "z3")]
     #[test]
     fn applies_a_subject_variable_binding_to_the_claim_successor() {
@@ -5688,6 +5694,7 @@ mod tests {
         assert_eq!(result.unexplored_states, 0);
     }
 
+    #[cfg(feature = "z3")]
     fn overlapping_claim_remainder_definition(
         mode: ReachabilityMode,
         reverse_claims: bool,

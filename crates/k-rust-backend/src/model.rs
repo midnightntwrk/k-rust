@@ -43,7 +43,7 @@ use crate::{
 /// # }
 /// ```
 ///
-/// nor through the constructor solver tests use, which exists only in this crate's test build:
+/// nor through the constructor solver tests use, which exists only in this crate's Z3 test build:
 ///
 /// ```compile_fail,E0599
 /// # use k_rust_backend::{model::ModelQuery, rule::Predicate, smt::SmtSolver,
@@ -82,7 +82,8 @@ impl<'a> ModelQuery<'a> {
     }
 
     /// A query on solver inputs chosen by a test, to exercise a solver implementation directly.
-    #[cfg(test)]
+    /// The Z3 solver's tests are its only callers.
+    #[cfg(all(test, feature = "z3"))]
     pub(crate) const fn for_solver_tests(
         predicates: &'a [Predicate],
         substitution: &'a Substitution,

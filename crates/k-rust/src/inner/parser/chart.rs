@@ -242,7 +242,9 @@ pub(super) struct Chart {
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
     pub(super) popped: StateSet,
-    // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
+    // One completed node for each stable (sort, origin, end) chart boundary: every parse of a
+    // sort over one span fits wherever that sort is expected over that span, so the parses share
+    // one packed node.
     pub(super) completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
     // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
     // building production; the entry keeps its node alive so the address stays unique.

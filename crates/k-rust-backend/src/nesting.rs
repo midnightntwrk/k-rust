@@ -8,7 +8,7 @@
 //! grows linearly with the nesting depth of what it reads, and a pattern or module read from a
 //! client can be of any depth, while overflowing the native stack aborts the whole process.
 //!
-//! The depth is measured before the work starts ([`height`]), by a recursion of bounded depth
+//! The depth is measured before the work starts (`height`), by a recursion of bounded depth
 //! that hands deeper subpatterns to explicit work lists, so an operation knows the stack it
 //! needs before it takes any more than a fixed amount. [`with_stack`] runs the work on the
 //! current thread when the thread's remaining stack covers that need, as before, and otherwise
@@ -75,14 +75,14 @@ pub const STACK_LIMIT: usize = 4 << 30;
 #[cfg(not(target_pointer_width = "64"))]
 pub const STACK_LIMIT: usize = 256 << 20;
 
-/// The deepest patterns and sorts, as counted by [`height`], that [`with_stack`] provides the
+/// The deepest patterns and sorts, as counted by `height`, that [`with_stack`] provides the
 /// stack for: about a million levels in a release build and 170,000 in a debug build.
 pub fn max_depth() -> usize {
     (STACK_LIMIT - STACK_RED_ZONE) / STACK_PER_LEVEL
 }
 
 /// The native stack, in bytes, that the backend's passes over patterns `depth` levels deep, as
-/// counted by [`height`], take at most.
+/// counted by `height`, take at most.
 pub fn stack_for_depth(depth: usize) -> usize {
     depth
         .saturating_mul(STACK_PER_LEVEL)
@@ -90,7 +90,7 @@ pub fn stack_for_depth(depth: usize) -> usize {
 }
 
 /// Run `work`, whose recursive passes go over patterns and terms at most `depth` levels deep as
-/// counted by [`height`], on a stack that holds them.
+/// counted by `height`, on a stack that holds them.
 ///
 /// The work runs on the current thread's stack when its remaining stack is unknown or covers
 /// [`stack_for_depth`]`(depth)`, and otherwise on a segment of that size. It is refused with
@@ -506,7 +506,7 @@ pub(crate) fn alias_heights<'a>(
     heights
 }
 
-/// The height ([`height`]) of the deepest pattern or sort of `module` as it is written, its
+/// The height (`height`) of the deepest pattern or sort of `module` as it is written, its
 /// alias applications not unfolded.
 pub fn module_depth(module: &kore::Module) -> usize {
     definition_height(&[module], &Syntactic)

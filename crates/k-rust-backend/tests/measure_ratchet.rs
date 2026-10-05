@@ -9,13 +9,14 @@
 // The counters only count in `measure` builds; the crate's dev-dependencies enable the feature.
 const _: () = assert!(cfg!(feature = "measure"));
 
+#[cfg(feature = "z3")]
+use k_rust_backend::rewrite::{
+    ExecutionBranchMode, ExecutionMode, HaltReason, execute_with_solver,
+};
 use k_rust_backend::{
     definition::BackendDefinition,
     proof::{ProofOptions, ProofStatus, prove_claim},
-    rewrite::{
-        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern, execute,
-        execute_with_solver,
-    },
+    rewrite::{ExecutionOptions, Pattern, execute},
     search::{SearchOptions, SearchType, search_graph},
     smt::NoSolver,
     substitution::Substitution,

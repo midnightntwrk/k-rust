@@ -212,7 +212,14 @@ const SCOPE_LET: [InternalLabel; 7] = [
 ];
 
 impl Grammar {
-    /// Apply Java's pre-inference ambiguity factoring after record and application syntax has
+    /// Factor the forest's ambiguities before inference. Nested ambiguities are flattened into
+    /// their parent. An ambiguity whose alternatives all apply one production (with the same sort
+    /// parameters, for an instantiated production) to children that agree at every position but
+    /// one becomes that production over the shared children and, at that position, an ambiguity
+    /// of the differing children, factored in turn: its trees are exactly the alternatives, and
+    /// inference sees the shared children once. Alternatives that differ at two or more positions
+    /// stay as they are, since an ambiguity at each position would also admit the trees that mix
+    /// the children of different alternatives. Runs after record and application syntax has
     /// already been resolved, retaining identity sharing until the forest is compressed.
     pub(super) fn factor_pre_inference_packed_ambiguities(
         &self,
@@ -742,7 +749,8 @@ impl Grammar {
 
     /// Apply priority and associativity to every packed ambiguity branch.
     ///
-    /// Java's `SetsTransformerWithErrors` removes only the invalid alternatives beneath an
+    /// An ambiguity denotes a set of alternative trees, and priority and associativity judge each
+    /// tree separately, so the filter removes exactly the invalid alternatives beneath an
     /// ambiguity. Treating a packed child as one opaque node either retained invalid associations
     /// or discarded valid siblings, so this transformation performs the same branch-wise filter.
     /// This owned pass is a test-only (`#[cfg(test)]`) counterpart of the packed pass for edges
@@ -753,8 +761,9 @@ impl Grammar {
         match term {
             ParsedTerm::Term(_) => Ok(term),
             ParsedTerm::Ambiguity(mut alternatives) => {
-                // Java's PriorityVisitor gives these three structural forms precedence over
-                // every other top-level interpretation, in this order. This is what makes
+                // A rule body's rewrite, sequence and `#let` scope over the user syntax around
+                // them, so these three structural forms take precedence over every other
+                // top-level interpretation, in this order. This is what makes
                 // `lhs => rhs #And condition` scope as a rewrite whose RHS contains `#And`
                 // instead of retaining the competing `#And(rewrite(lhs, rhs), condition)` tree.
                 for preferred in ["#KRewrite", "#KSequence", "#let"] {
@@ -1104,8 +1113,9 @@ impl Grammar {
         }
     }
 
-    /// Remove the concrete grouping nodes discarded by Scala's final
-    /// `RemoveBracketVisitor`, while retaining semantic and outer casts.
+    /// Remove the nodes that only shaped the parse: a bracket denotes its child, and a syntactic
+    /// cast only restricted the sort the parser chose. Semantic and outer casts constrain the
+    /// term itself and are retained.
     pub(super) fn remove_brackets_and_syntactic_casts(&self, term: ParsedTerm) -> ParsedTerm {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationRemoveBracketsCasts);
         self.remove_brackets_and_syntactic_casts_node(term)
@@ -1665,8 +1675,10 @@ impl Grammar {
         }
     }
 
-    /// Resolve a nullary overloaded production to the unique least production
-    /// with the same label, matching Scala's post-inference terminator pass.
+    /// Resolve a nullary overloaded production to the unique least production with the same
+    /// label. Overloads of one label denote one operation at different sorts; a nullary
+    /// application has no argument to select among them, so it is read at the most specific
+    /// one, whose value injects into every other.
     pub(super) fn resolve_overloaded_terminators(
         &self,
         term: ParsedTerm,
@@ -2061,9 +2073,9 @@ impl Grammar {
             | ParsedTerm::InstantiatedProduction { production, .. } => {
                 self.productions[*production].prefer
             }
-            // Token leaves retain the source production in their metadata. Java treats these
-            // constants as ProductionReferences, so token-level prefer must participate in the
-            // same ambiguity filtering as ordinary production nodes.
+            // Token leaves retain the source production in their metadata. A token is an
+            // application of its token production, so token-level prefer must participate in
+            // the same ambiguity filtering as ordinary production nodes.
             ParsedTerm::Term(term) => term
                 .metadata()
                 .and_then(|metadata| metadata.production)

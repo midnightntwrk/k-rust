@@ -386,8 +386,8 @@ impl Resolver<'_, '_, '_> {
         let right = rewrite_right(&body);
         let lhs_sort = self.term_sort(&left, &attributes);
         let argument_sort = self.term_sort(&argument, &attributes);
-        // Java treats an uncast variable pattern as the unknown `K` sort in this LUB, regardless
-        // of the concrete argument sort.
+        // An uncast variable pattern matches any term, so the parameter takes `K`, the sort of
+        // every term, regardless of the concrete argument sort.
         let parameter_sort = match (lhs_sort, argument_sort) {
             _ if matches!(left.unannotated(), Term::Variable { .. }) => {
                 Sort::builtin(BuiltinSort::K)

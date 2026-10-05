@@ -1746,6 +1746,7 @@ fn symbolic_subject(definition: &BackendDefinition) -> Pattern {
     }
 }
 
+#[cfg(feature = "z3")]
 fn be08_s0_definition() -> BackendDefinition {
     symbolic_remainder_definition(
         r#"
@@ -1781,6 +1782,7 @@ fn be08_s0_definition() -> BackendDefinition {
     )
 }
 
+#[cfg(feature = "z3")]
 fn be08_s1_definition() -> BackendDefinition {
     let mut rules = String::new();
     for index in 0..8 {
@@ -4375,6 +4377,7 @@ fn closed_collection_frame_definition() -> BackendDefinition {
         .expect("closed collection definition should internalize")
 }
 
+#[cfg(feature = "z3")]
 fn opaque_set_narrowing_definition() -> BackendDefinition {
     let syntax = parse_definition(
             r#"[]
@@ -4450,6 +4453,7 @@ fn map_selection_definition() -> BackendDefinition {
     BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
 }
 
+#[cfg(feature = "z3")]
 fn closed_map_narrowing_definition() -> BackendDefinition {
     let syntax = parse_definition(
             r#"[]
@@ -4514,6 +4518,7 @@ fn closed_map_narrowing_definition() -> BackendDefinition {
         .expect("closed map definition should internalize")
 }
 
+#[cfg(feature = "z3")]
 fn symbolic_map_key_definition() -> BackendDefinition {
     let syntax = parse_definition(
             r#"[]
@@ -4550,6 +4555,7 @@ fn symbolic_map_key_definition() -> BackendDefinition {
         .expect("symbolic map-key definition should internalize")
 }
 
+#[cfg(feature = "z3")]
 fn shared_symbolic_map_key_definition() -> BackendDefinition {
     let syntax = parse_definition(
             r#"[]

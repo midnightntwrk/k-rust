@@ -25,17 +25,20 @@
 //! ```
 //!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
-//! priority group (Kore `transitionAllRewrite`), while `Any` mode threads it through the rules
-//! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
-//! modes. Within a priority, `Any` feeds each rule the instances no earlier rule took to a defined
-//! result, so the instances where a rule applies but its result is undefined reach the later rules
-//! of its priority, and only the priority's end excludes every instance one of its rules applies
-//! to. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
-//! plus one SAT check per productive group (`All`) or one predicate simplification per applied
-//! rule and one SAT check per step (`Any`); `Counter::RewriteRulesApplied`. A one-path proof step
-//! also asks `Any` whether it may have dropped a successor (`SequentialDeterminism`): a rule of a
-//! priority that already applied is attempted once more on the whole subject, and the sub-cases of
-//! one priority are compared pairwise for overlap.
+//! priority group, so a configuration's successors are those of every rule of the first priority
+//! that applies to it, while `Any` mode threads it through the rules sequentially, so each instance
+//! follows, among the rules of the first priority that applies to it, the first that gives it a
+//! defined result, and none when each of them that applies gives an undefined one. The returned
+//! remainder is complete in both modes. Within a priority, `Any` feeds each rule the instances no
+//! earlier rule took to a defined result, so the instances where a rule applies but its result is
+//! undefined reach the later rules of its priority, and only the priority's end excludes every
+//! instance one of its rules applies to. O(c) rule attempts per step for the c candidates of
+//! `rule::applicable_rewrite_groups` plus one SAT check per productive group (`All`) or one
+//! predicate simplification per applied rule and one SAT check per step (`Any`);
+//! `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
+//! dropped a successor (`SequentialDeterminism`): a rule of a priority that already applied is
+//! attempted once more on the whole subject, and the sub-cases of one priority are compared
+//! pairwise for overlap.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -430,8 +433,11 @@ struct LowerGroups {
     groups: BTreeMap<u8, Vec<Arc<RewriteRule>>>,
 }
 
-/// Complete Kore's `transitionAllRewrite` fold by feeding the remainder to each lower priority
-/// group once. Applications and trivial sub-cases from later groups are retained in the same step.
+/// Apply each lower priority group once, in priority order, to the remainder. A rule of a lower
+/// priority applies only to the instances to which no rule of a higher priority applies, and the
+/// remainder is exactly those instances of the parent pattern, so each group is offered precisely
+/// the states its priority admits. Applications and trivial sub-cases from later groups are
+/// retained in the same step.
 /// No lower group receives execution IO because a remainder only carries constraints.
 ///
 /// The rule index drops a candidate only when matching it against the term the index keys were

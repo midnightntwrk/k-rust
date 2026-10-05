@@ -926,8 +926,9 @@ impl<'a> Solver<'a> {
                         expected
                     };
                     if is_anonymous_leaf(term) {
-                        // Scala's inferencer treats every anonymous occurrence as having exactly
-                        // the sort required by its context.  A mere upper bound is insufficient
+                        // An anonymous occurrence occurs once, so nothing but its context
+                        // constrains it: it has exactly the sort its context requires, the most
+                        // general sort it can have there.  A mere upper bound is insufficient
                         // for parser sorts such as KItem, whose synthetic hierarchy is not always
                         // represented by an ordinary subsort production.
                         self.constrain(child.clone(), expected.clone())?;

@@ -1354,11 +1354,11 @@ struct OpaqueConcatHead {
 
 /// Cancel opaque chunks which occur on both sides of an AC equation.
 ///
-/// The reference normalizer treats opaque children as a multiset, but retains the greater
-/// multiplicity of a common child in the unified term because duplicate opaque collections may
-/// later normalize to bottom. Rewriting only needs the residual equation, so removing every
-/// occurrence from both differences is equivalent while leaving duplicate-definedness handling to
-/// collection simplification.
+/// The parts of a defined set or map concatenation are disjoint, so wherever both sides are
+/// defined, a chunk occurring on both sides accounts for the same elements of each, and removing
+/// every occurrence of it from both sides leaves an equivalent residual equation. A side that
+/// repeats a nonempty chunk is undefined; that definedness is collection simplification's to
+/// decide, so rewriting needs only the residual equation.
 pub(crate) fn cancel_common_opaque_chunks(
     left: Option<Term>,
     right: Option<Term>,

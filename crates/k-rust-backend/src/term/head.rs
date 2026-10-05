@@ -41,6 +41,8 @@
 #[cfg(feature = "check-normal-forms")]
 pub(crate) mod check;
 
+use std::marker::PhantomData;
+
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
     definition::{BackendDefinition, SelectionComplete},
@@ -472,10 +474,7 @@ pub(crate) enum RootComparison<'t> {
 #[must_use]
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn compare_roots<'t>(left: Fixed<'t>, right: Fixed<'t>) -> RootComparison<'t> {
-    let differ = RootComparison::Distinct(RootsDiffer {
-        left: left.term,
-        right: right.term,
-    });
+    let differ = RootComparison::Distinct(RootsDiffer::new(left.term, right.term));
     match left.root {
         FixedRoot::DomainValue => match right.root {
             FixedRoot::DomainValue => RootComparison::DomainValues,
@@ -538,14 +537,32 @@ fn compare_applications<'t>(left: &'t Term, right: &'t Term) -> Option<RootCompa
     })
 }
 
-/// Witness that the roots of two classified terms differ. Holds the two borrowed handles.
+/// Witness that the roots of two classified terms differ. It borrows the two compared terms in
+/// every build; debug builds keep the borrowed handles, for [`RootsDiffer::release`] to record
+/// which allocations were compared, and release builds, which check nothing, make it zero-sized.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RootsDiffer<'t> {
+    #[cfg(debug_assertions)]
     left: &'t Term,
+    #[cfg(debug_assertions)]
     right: &'t Term,
+    borrow: PhantomData<&'t Term>,
 }
 
-impl RootsDiffer<'_> {
+impl<'t> RootsDiffer<'t> {
+    /// The witness for two terms whose roots [`compare_roots`] found distinct.
+    fn new(left: &'t Term, right: &'t Term) -> Self {
+        #[cfg(not(debug_assertions))]
+        let _ = (left, right);
+        Self {
+            #[cfg(debug_assertions)]
+            left,
+            #[cfg(debug_assertions)]
+            right,
+            borrow: PhantomData,
+        }
+    }
+
     /// The witness without its borrow of the two compared terms, so that their owner can move
     /// its handles of them into [`HeadClash::new`]: a borrowing witness would keep the owner
     /// from moving the handles it borrows, and cloning them instead would cost two reference

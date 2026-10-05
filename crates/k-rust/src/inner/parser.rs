@@ -146,9 +146,10 @@ pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, ScanCacheEntry, ScanWinner};
 
 /// The name under which sort inference treats a leaf as a variable: a `#KVariable` token, or a
-/// `KConfigVar` token such as `$PGM`, which both reference engines treat exactly like a variable
-/// (SortInferencer.java:228 and :563, TypeInferencer.java:636 and :677,
-/// TypeInferenceVisitor.java:221-233) and wrap in `#SemanticCastTo<inferred sort>`.
+/// `KConfigVar` token such as `$PGM`. A configuration variable stands for the value supplied for
+/// it when the configuration is initialized, a term the definition does not fix, so inference
+/// types it exactly like a variable and wraps it in `#SemanticCastTo<inferred sort>`, which
+/// checks the supplied value against that sort.
 pub(crate) fn inferred_variable_name(term: &Term) -> Option<&str> {
     match term.unannotated() {
         Term::Variable { name, .. } => Some(name),
@@ -634,17 +635,21 @@ struct Production {
     record: Option<RecordProduction>,
     parametric_origin: Option<ParametricOrigin>,
     /// Production identity retained in the parse forest after a temporary grammar production
-    /// recognizes its input. Java's Earley parser uses `originalPrd` for this same boundary.
+    /// recognizes its input. The split forms of a user list and the instantiations of a
+    /// parametric production only recognize input: the term they build applies the production
+    /// the definition declares.
     term_production: Option<usize>,
     /// The `hook` attribute of the declaring sentence; a case-2 instantiation carries its
-    /// parametric origin's hook (`EarleyParser.EarleyProduction.isMInt`).
+    /// parametric origin's hook, so an instantiated machine-integer token production is still
+    /// recognized as one.
     hook: Option<String>,
 }
 
 impl Production {
-    /// Whether the production recognizes machine-integer literals, whose sort parameter is the
-    /// width spelled after the `p`/`P` of the token text rather than the instantiation that
-    /// scanned it (`EarleyParser.java:343-359`).
+    /// Whether the production recognizes machine-integer literals. A literal such as `3p8`
+    /// spells its width after the `p`/`P`, so it denotes a value of the machine-integer sort of
+    /// that width: its sort parameter comes from the token text, not from the instantiation that
+    /// scanned it.
     fn is_mint_literal(&self) -> bool {
         self.token
             && (self.hook.as_deref() == Some(MINT_LITERAL_HOOK)
@@ -1132,15 +1137,17 @@ impl Grammar {
         // The chart can retain the whole packed forest through its states. Release it before any
         // post-parse allocation, then apply the root priority preference while alternatives still
         // share their descendants. In particular, do not expand losing non-rewrite parses before
-        // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
+        // the root rewrite/sequence/let preference has selected the corresponding sibling.
         drop(charts);
         drop(_span);
         // Packed normalization and inference phase: preserve sharing until losing alternatives
         // are removed, then materialize exactly the retained inferred trees.
-        // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
-        // preference must therefore run before descending into losing alternatives; filtering
-        // each root independently incorrectly rejects inputs whose winning interpretation is a
-        // top-level rewrite (for example a rewrite inside a competing map-item parse).
+        // A rule body's rewrite, sequence and `#let` scope over the user syntax around them, so
+        // among the readings of the root ambiguity one rooted at them is preferred. That
+        // preference compares the root's alternatives with each other, so it runs on the packed
+        // root ambiguity before descending into losing alternatives; filtering each root
+        // independently incorrectly rejects inputs whose winning interpretation is a top-level
+        // rewrite (for example a rewrite inside a competing map-item parse).
         let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
         // Checked mode compares the engines on an ambiguous forest by what each lowers to.
         #[cfg(feature = "z3-inference")]
@@ -1656,12 +1663,13 @@ impl Grammar {
         )
     }
 
-    /// Cross the shared packed-forest boundary only after Java's pre-inference transforms.
+    /// Cross the shared packed-forest boundary only after the transforms that precede inference.
     ///
     /// Record collapse allocates generated variables against every name in the original forest,
     /// including losing root interpretations. Collect that small context before pruning so the
     /// allocation remains stable without materializing those losing trees. Every transformer
-    /// before inference operates on the identity-shared DAG, matching Java's memoizing visitors.
+    /// before inference operates on the identity-shared DAG, so a subterm that several
+    /// alternatives share is transformed once and stays shared.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
     fn prepare_packed_forest(

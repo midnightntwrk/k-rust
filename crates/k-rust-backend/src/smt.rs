@@ -446,8 +446,8 @@ impl TranslationState {
         name
     }
 
-    /// Like Kore.Rewrite.SMT.Evaluator's SMTDependentAtom, an opaque atom under a
-    /// quantifier must be a function of the bound variables it mentions. A constant
+    /// An opaque atom under a quantifier must be a function of the bound variables it
+    /// mentions, since its value can differ for each value they take. A constant
     /// would erase that dependence and could make a satisfiable formula unsatisfiable.
     /// Cache its template modulo bound-variable spelling, retaining free variables.
     fn abstract_dependent(&mut self, predicate: &Predicate) -> Option<SExpr> {

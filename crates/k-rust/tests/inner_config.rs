@@ -198,9 +198,9 @@ fn configuration_errors_do_not_fabricate_missing_provenance() {
 fn bare_configuration_variable_is_cast_to_its_inferred_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST --output-definition ref (exit 0)
     // parsed.txt: rule initKCell(_0)=>`<k>`(#noDots(.KList),#SemanticCastToK(`project:KItem`(`Map:lookup`(_0,#token("$PGM","KConfigVar")))),#noDots(.KList)) ...
-    // A KConfigVar constant is a variable to both reference inference engines
-    // (SortInferencer.java:228 and :563, TypeInferenceVisitor.java:221-233), so the bare `$PGM`
-    // under `<k>` is cast to its inferred sort K before configuration generation reads it.
+    // A KConfigVar constant stands for the value supplied for it when the configuration is
+    // initialized, so sort inference types it as a variable, and the bare `$PGM` under `<k>` is
+    // cast to its inferred sort K before configuration generation reads it.
     let source = "<k> $PGM </k>";
     let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
     let Sentence::Configuration { body, .. } =
@@ -218,7 +218,7 @@ fn bare_configuration_variable_is_cast_to_its_inferred_sort() {
 #[test]
 fn explicitly_cast_configuration_variable_keeps_its_single_cast() {
     // Control for the inferred cast: `$PGM:Int` already carries its cast and must not be wrapped
-    // again (SortInferencer.insertCasts skips a constant under an existing cast).
+    // again: the explicit cast already fixes the sort an inferred cast would record.
     let source = "<k> $PGM:Int </k>";
     let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
     let Sentence::Configuration { body, .. } =
