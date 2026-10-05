@@ -25,6 +25,31 @@ class VariableNameTests(unittest.TestCase):
             execution_text_diff("?Var'Ques'X1:SortS", "?Ex-hFrame-b0:SortS")[0]
         )
 
+    def test_c7_renames_mints_as_the_pinned_kprint_prints_them(self):
+        # kprint drops the first three characters of a KORE variable name: `Ex-hVar'Ques'Tx-b6`
+        # prints as `hVar?Tx-b6` (measured with the pinned K 7.1.337 kprint).
+        self.assertEqual(
+            rename_existentials("hVar?Tx-b6:Type -> ( hVar?Tx-b6:Type -> hFrame-b0:Map )"),
+            "?'KDiff0:Type -> ( ?'KDiff0:Type -> ?'KDiff1:Map )",
+        )
+        self.assertIsNone(
+            execution_text_diff(
+                "( ?Tx:Type -> ?Ty:Type ) -> ?Tx:Type",
+                "( hVar?Tx-b6:Type -> hVar?Ty-b7:Type ) -> hVar?Tx-b6:Type",
+            )[0]
+        )
+        # Two mints stay two variables, and one reference variable is not two mints.
+        self.assertIsNotNone(
+            execution_text_diff("?A:Type -> ?A:Type", "hVar?T-b1:Type -> hVar?T-b2:Type")[0]
+        )
+        # A string literal is never renamed.
+        self.assertEqual(rename_existentials('"x-b1:Int"'), '"x-b1:Int"')
+        # A declared pattern name stays literal; a mint beside it is renamed.
+        self.assertEqual(
+            rename_existentials("?T:Type hVar?T-b3:Type", fixed=frozenset({"T"})),
+            "?T:Type ?'KDiff0:Type",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

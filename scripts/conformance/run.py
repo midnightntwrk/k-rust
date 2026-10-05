@@ -337,7 +337,16 @@ def split_surface_disjunction(text):
 
 # C7: kprint uses `?Name:Sort` for a rule existential. Encoded k-rust names can contain
 # hyphens; the complete name must be the key of the sort-preserving renaming. Strings stay fixed.
-EXISTENTIAL_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\'-]*)(:[A-Za-z][A-Za-z0-9]*)')
+# The pinned kprint prints a KORE variable by dropping the first three characters of its name (the
+# `Var` of a frontend name) and decoding the rest, so a k-rust rewrite mint `Ex-hVar'Ques'X-b6`
+# prints as `hVar?X-b6`, with no leading `?`. A token ending in the counter escape `-b<digits>` is
+# such a mint (K frontend names never contain `-`), and the whole token is its renaming key: the
+# `Ex-` every rewrite mint starts with is what kprint drops, so distinct mints print distinctly.
+EXISTENTIAL_TOKEN = re.compile(
+    r'"(?:[^"\\]|\\.)*"'
+    r"|(?<![A-Za-z0-9_'?-])([A-Za-z0-9_'?-]*-b[0-9]+)(:[A-Za-z][A-Za-z0-9]*)"
+    r'|\?([A-Za-z_][A-Za-z0-9_\'-]*)(:[A-Za-z][A-Za-z0-9]*)'
+)
 PATTERN_EXISTENTIAL = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\'-]*)')
 
 
@@ -366,13 +375,17 @@ def pattern_existentials(pattern):
 
 
 def rename_existentials(text, fixed=frozenset()):
-    """C7: rename every `?Name:Sort` outside string literals to `?'KDiff<n>:Sort` by first occurrence of Name."""
+    """C7: rename every `?Name:Sort`, and every k-rust mint as kprint prints it (`hVar?X-b6:Sort`), outside
+    string literals to `?'KDiff<n>:Sort` by first occurrence."""
     indices = {}
     def sub(m):
-        name = m.group(1)
+        if m.group(1) is not None:
+            # A k-rust mint as kprint prints it; never a declared pattern name.
+            return f"?'KDiff{indices.setdefault(('mint', m.group(1)), len(indices))}{m.group(2)}"
+        name = m.group(3)
         if name is None or name in fixed: return m.group(0)
         key = decoded_generated_name(name) or name
-        return f"?'KDiff{indices.setdefault(key, len(indices))}{m.group(2)}"
+        return f"?'KDiff{indices.setdefault(key, len(indices))}{m.group(4)}"
     return EXISTENTIAL_TOKEN.sub(sub, text)
 
 
