@@ -1465,7 +1465,8 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
     """C8: after the C7 text comparison failed, re-run the reference recipe with --output kore, simplify both
     that result and krust's with `krust kore-simplify` (reference kompiled definition, main module), and compare
     the simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without
-    K_DIFFERENTIAL_DEFINITION (N4 renaming applies, N15 does not). Returns True only when every stage succeeded
+    K_DIFFERENTIAL_DEFINITION (N4 renaming applies, with the search pattern's `?` variables named so that every
+    other `?` variable is a rule existential; N15 does not). Returns True only when every stage succeeded
     and the comparator accepted the pair; the step then carries SIMPLIFIED_KORE_COMPARISON and keeps the text
     difference as text_divergence. A reference re-run that produces no result returns REFERENCE_ERROR. Every
     other unsuccessful comparison keeps the text mismatch. All unsuccessful outcomes record why in
@@ -1531,6 +1532,9 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
         "K_REFERENCE_EXECUTION": simplified["reference"],
         "K_RUST_EXECUTION": simplified["krust"],
         "K_DIFFERENTIAL_MODULE": case.main_module,
+        # N4: every `?` variable of a result other than the search pattern's is a rule existential,
+        # whatever name each engine gives its instance; C7 reads `?` tokens the same way.
+        "K_DIFFERENTIAL_PATTERN_EXISTENTIALS": " ".join(sorted(pattern_existentials(pattern))),
     }
     trc, tout, terr, timed_out = run_test_binary_result(
         "executed_kore_matches_the_reference_backend", comparison_environment, case.dir)

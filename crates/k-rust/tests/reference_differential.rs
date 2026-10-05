@@ -4258,9 +4258,17 @@ fn executed_kore_matches_the_reference_backend() {
             .unwrap_or_else(|error| panic!("read {}: {error}", Path::new(&path).display()));
         parse_pattern(&source).unwrap()
     });
-    let names = initial
-        .as_ref()
-        .map_or_else(GeneratedNames::shapes, GeneratedNames::fixing);
+    // N4: without an initial pattern, `K_DIFFERENTIAL_PATTERN_EXISTENTIALS` lists the search
+    // pattern's `?` variables (K names without `?`, whitespace-separated); when it is set, every
+    // other `?` variable of a result is a rule existential.
+    let pattern_existentials = env::var("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
+        .ok()
+        .map(|names| names.split_whitespace().map(str::to_owned).collect());
+    let names = match (&initial, pattern_existentials) {
+        (Some(initial), _) => GeneratedNames::fixing(initial),
+        (None, Some(pattern)) => GeneratedNames::shapes_with_pattern_existentials(pattern),
+        (None, None) => GeneratedNames::shapes(),
+    };
     let reference =
         normalize_execution_pattern_with(parse_pattern(&reference_source).unwrap(), &names);
     let actual = normalize_execution_pattern_with(parse_pattern(&actual_source).unwrap(), &names);
@@ -5238,6 +5246,44 @@ fn execution_normalizer_keeps_uncounted_existentials_and_pattern_variables_fixed
 }
 
 #[test]
+fn execution_normalizer_given_the_pattern_renames_every_other_rule_existential() {
+    let pattern = BTreeSet::from(["P".to_owned()]);
+    let names = GeneratedNames::shapes_with_pattern_existentials(pattern.clone());
+    assert!(rule_existential_name("Var'QuesUnds'X", &pattern));
+    assert!(rule_existential_name("Var'Ques'X", &pattern));
+    assert!(!rule_existential_name("Var'Ques'P", &pattern));
+    assert!(!rule_existential_name("VarX", &pattern));
+    assert!(!rule_existential_name("@Var'Ques'X", &pattern));
+    // The reference keeps the rule's name and the port mints one: one variable up to its name.
+    let reference =
+        parse_pattern(r"arrow{}(Var'QuesUnds'X:S{}, arrow{}(Var'QuesUnds'X:S{}, Var'Ques'P:S{}))")
+            .unwrap();
+    let actual = parse_pattern(
+        r"arrow{}(Ex-hVar'QuesUnds'X-b0:S{}, arrow{}(Ex-hVar'QuesUnds'X-b0:S{}, Var'Ques'P:S{}))",
+    )
+    .unwrap();
+    assert_eq!(
+        normalize_execution_pattern_with(reference.clone(), &names),
+        normalize_execution_pattern_with(actual, &names)
+    );
+    // Sharing still counts, and the pattern's own variable stays fixed.
+    let unshared =
+        parse_pattern(r"arrow{}(Var'QuesUnds'X:S{}, arrow{}(Var'QuesUnds'Y:S{}, Var'Ques'P:S{}))")
+            .unwrap();
+    assert_ne!(
+        normalize_execution_pattern_with(reference.clone(), &names),
+        normalize_execution_pattern_with(unshared, &names)
+    );
+    let renamed_pattern =
+        parse_pattern(r"arrow{}(Var'QuesUnds'X:S{}, arrow{}(Var'QuesUnds'X:S{}, Var'Ques'Q:S{}))")
+            .unwrap();
+    assert_ne!(
+        normalize_execution_pattern_with(reference, &names),
+        normalize_execution_pattern_with(renamed_pattern, &names)
+    );
+}
+
+#[test]
 fn execution_normalizer_preserves_sorts_of_rule_existentials() {
     let reference = parse_pattern(r"arrow{}(Var'Ques'A1:S{}, Var'Ques'B1:T{})").unwrap();
     let actual = parse_pattern(r"arrow{}(Var'Ques'A7:S{}, Var'Ques'B7:S{})").unwrap();
@@ -5488,12 +5534,28 @@ type KoreVariable = k_rust::kore::ast::Variable;
 /// shared by both engines.
 struct GeneratedNames {
     fixed: Option<BTreeSet<String>>,
+    /// Without an initial pattern: when given, the K names (without `?`) of the search
+    /// pattern's `?` variables, and every other `?` variable of a result is an instance of a
+    /// rule existential, whatever its name (`rule_existential_name`).
+    pattern_existentials: Option<BTreeSet<String>>,
 }
 
 impl GeneratedNames {
     /// Recognize generated names by their shape only (no initial pattern available).
     fn shapes() -> Self {
-        Self { fixed: None }
+        Self {
+            fixed: None,
+            pattern_existentials: None,
+        }
+    }
+
+    /// Recognize generated names by their shape, and every `?` variable other than the
+    /// search pattern's `pattern_existentials` as a rule existential.
+    fn shapes_with_pattern_existentials(pattern_existentials: BTreeSet<String>) -> Self {
+        Self {
+            fixed: None,
+            pattern_existentials: Some(pattern_existentials),
+        }
     }
 
     /// Every variable that is not free in `initial` is generated.
@@ -5506,6 +5568,7 @@ impl GeneratedNames {
                     .map(|variable| variable.name)
                     .collect(),
             ),
+            pattern_existentials: None,
         }
     }
 
@@ -5515,8 +5578,32 @@ impl GeneratedNames {
         }
         match &self.fixed {
             Some(fixed) => !fixed.contains(&variable.name),
-            None => execution_generated_name(&variable.name),
+            None => {
+                execution_generated_name(&variable.name)
+                    || self
+                        .pattern_existentials
+                        .as_ref()
+                        .is_some_and(|pattern| rule_existential_name(&variable.name, pattern))
+            }
         }
+    }
+}
+
+/// N4 given the search pattern's `?` variables: whether `name` is a K `?` variable
+/// (`Var'Ques'X` for `?X`) that the search pattern does not declare.
+///
+/// A `?` variable of a rule's right-hand side is existentially quantified over the rule's
+/// result, so an instance of it in an execution result is quantified over its disjunct
+/// (docs/compatibility.md#result-variables) whatever name an engine prints it under: under its
+/// rule name `Var'Ques'X` when that name is free, with a counter, or with the port's marker.
+/// The only other `?` variables a result can hold are the search pattern's, which the request
+/// names, so a caller that lists them separates the two.
+fn rule_existential_name(name: &str, pattern_existentials: &BTreeSet<String>) -> bool {
+    match k_rust::kast::identifier::decode_variable(name) {
+        (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => decoded
+            .strip_prefix('?')
+            .is_some_and(|declared| !pattern_existentials.contains(declared)),
+        _ => false,
     }
 }
 

@@ -38,6 +38,7 @@ anchor_helpers = [
   "existential_generated_name",
   "counted_stem",
   "GeneratedNames",
+  "rule_existential_name",
   "normalize_execution_pattern_with",
   "normalize_execution_pattern_fixing",
   "compare_paired_constraints",
@@ -46,7 +47,7 @@ anchor_helpers = [
   "alpha_normalize_bound_variables",
   "is_canonical_free_name",
 ]
-rule = "Alpha-normalize bound variables independently in each scope. Rename remaining generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the reference's Var'Ques'<stem>N instances of rule existentials, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's names whose decoded spelling has an Ex#/Eq#/Rule# marker or a ! counter and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
+rule = "Alpha-normalize bound variables independently in each scope. Rename remaining generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the reference's Var'Ques'<stem>N instances of rule existentials and, when K_DIFFERENTIAL_PATTERN_EXISTENTIALS lists the search pattern's ? variables, every other Var'Ques' variable (a rule existential's instance under its rule name), the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's names whose decoded spelling has an Ex#/Eq#/Rule# marker or a ! counter and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
 justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern; the reference and the port choose different names for the same rule and remainder variables (VarAC1'Unds'1 versus Ex-hFrame-b0, VarI versus Ex-hVarI-b0); K's ? existentials are refreshed with a fresh counter by both engines and the surviving unification representative is engine-chosen (Var'Ques'Tx1 versus Var'Ques'T3 in the LAMBDA type inferencer), and only the initial pattern's variables are names both engines share."
 
 [[normalisation]]
@@ -243,7 +244,7 @@ anchor_helpers = [
   "simplify_kore",
   "SIMPLIFIED_KORE_COMPARISON",
 ]
-rule = "When the C7 text comparison of a krun or search step fails, re-run the reference recipe with --output kore, simplify that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compare the two simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without K_DIFFERENTIAL_DEFINITION, so N4 renaming applies and N15 does not. A step that matches only this way records a distinct comparison label and keeps the text difference; the checked-in .out stays the oracle, so the re-run's result must still print as the .out. An unavailable or failing reference re-run, simplification, or comparison leaves the text mismatch in place."
+rule = "When the C7 text comparison of a krun or search step fails, re-run the reference recipe with --output kore, simplify that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compare the two simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without K_DIFFERENTIAL_DEFINITION, so N4 renaming applies and N15 does not; the driver passes the `?` variables of the recipe's --pattern in K_DIFFERENTIAL_PATTERN_EXISTENTIALS, so N4 renames every other `?` variable as a rule existential, as C7 does for `?` tokens. A step that matches only this way records a distinct comparison label and keeps the text difference; the checked-in .out stays the oracle, so the re-run's result must still print as the .out. An unavailable or failing reference re-run, simplification, or comparison leaves the text mismatch in place."
 justification = "The pinned reference prints a rewrite result before its own simplification is complete: no-junk-macro retains a residual constraint the definition's smt-lemma axioms make valid and concrete-function leaves a function application over a term whose definedness is open unevaluated, while the port's rewriter discharges and applies them; both are equal patterns (docs/compatibility.md#comparison-contract). Simplifying both results with one simplifier makes the represented patterns comparable. The evidence is supplementary because it depends on the port's simplifier, like N15 (docs/testing.md#comparator-evidence)."
 
 [[conformance]]
