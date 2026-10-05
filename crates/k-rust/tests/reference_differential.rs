@@ -4276,6 +4276,11 @@ fn executed_kore_matches_the_reference_backend() {
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
     let definition = definition.as_deref().map(Path::new);
+    let krust = implication_krust();
+    let oracle = definition.map(|definition| ImplicationOracle {
+        krust: &krust,
+        definition,
+    });
     // N26: an any-strategy port result is compared as a member of the reference all-strategy
     // result set; the exclusions are about reference leaves, which membership already tolerates.
     let strategy = env::var("K_DIFFERENTIAL_STRATEGY");
@@ -4285,34 +4290,27 @@ fn executed_kore_matches_the_reference_backend() {
             "K_DIFFERENTIAL_STRATEGY=any cannot be combined with K_DIFFERENTIAL_ORACLE_EXCLUSION"
                 .into(),
         ),
-        (Ok("any"), Err(_)) => compare_execution_any_membership(
-            &reference, &actual, definition, &module,
-        )
-        .map(|unpaired| {
-            let total = execution_disjuncts(&reference).len();
-            println!(
-                "any-strategy: {} of {total} reference leaves reached",
-                total - unpaired
-            );
-        }),
+        (Ok("any"), Err(_)) => {
+            compare_execution_any_membership(&reference, &actual, oracle, &module).map(|unpaired| {
+                let total = execution_disjuncts(&reference).len();
+                println!(
+                    "any-strategy: {} of {total} reference leaves reached",
+                    total - unpaired
+                );
+            })
+        }
         (Ok("all") | Err(_), Ok("gotstuck")) => {
             let stop_path = env::var("K_DIFFERENTIAL_STOP_LEAVES")
                 .expect("K_DIFFERENTIAL_STOP_LEAVES is required for the gotstuck exclusion");
             let stop_source = fs::read_to_string(stop_path).unwrap();
             let stop_leaves = normalize_execution_pattern(parse_pattern(&stop_source).unwrap());
-            compare_execution_modulo_gotstuck(
-                &reference,
-                &actual,
-                &stop_leaves,
-                definition,
-                &module,
-            )
+            compare_execution_modulo_gotstuck(&reference, &actual, &stop_leaves, oracle, &module)
         }
         (Ok("all") | Err(_), Ok(exclusion)) => {
             Err(format!("unknown oracle exclusion: {exclusion}"))
         }
         (Ok("all") | Err(_), Err(_)) => {
-            compare_execution_modulo_implication(&reference, &actual, definition, &module)
+            compare_execution_modulo_implication(&reference, &actual, oracle, &module)
         }
         (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
@@ -5383,18 +5381,15 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     }
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
-    let previous = env::var_os("K_RUST_KRUST");
-    // SAFETY: the differential tests run single-threaded per process invocation of this test;
-    // the variable is restored below.
-    unsafe { env::set_var("K_RUST_KRUST", &oracle) };
-    let result =
-        compare_execution_modulo_implication(&reference, &actual, Some(&definition), "TEST");
-    unsafe {
-        match previous {
-            Some(value) => env::set_var("K_RUST_KRUST", value),
-            None => env::remove_var("K_RUST_KRUST"),
-        }
-    }
+    let result = compare_execution_modulo_implication(
+        &reference,
+        &actual,
+        Some(ImplicationOracle {
+            krust: &oracle,
+            definition: &definition,
+        }),
+        "TEST",
+    );
     result.expect("the aligned bijection pairs the remainders");
     let calls = fs::read_to_string(&calls).unwrap();
     assert!(
@@ -6308,26 +6303,26 @@ fn flatten_collection(symbol: &Symbol, mut pattern: Pattern, output: &mut Vec<Pa
 fn compare_execution_modulo_implication(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
-    compare_execution_disjuncts(reference, actual, definition, module, None)
+    compare_execution_disjuncts(reference, actual, oracle, module, None)
 }
 
 fn compare_execution_modulo_gotstuck(
     reference: &Pattern,
     actual: &Pattern,
     stop_leaves: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
-    compare_execution_disjuncts(reference, actual, definition, module, Some(stop_leaves))
+    compare_execution_disjuncts(reference, actual, oracle, module, Some(stop_leaves))
 }
 
 fn compare_execution_disjuncts(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
     expected_unpaired_actual: Option<&Pattern>,
 ) -> Result<(), String> {
@@ -6347,7 +6342,7 @@ fn compare_execution_disjuncts(
         &reference_disjuncts,
         &actual_disjuncts,
         PairingDriver::Reference,
-        definition,
+        oracle,
         module,
     )?;
     let unpaired_actual = paired_actual
@@ -6391,7 +6386,7 @@ fn compare_execution_disjuncts(
 fn compare_execution_any_membership(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<usize, String> {
     let reference_disjuncts = execution_disjuncts(reference);
@@ -6403,7 +6398,7 @@ fn compare_execution_any_membership(
         &actual_disjuncts,
         &reference_disjuncts,
         PairingDriver::Actual,
-        definition,
+        oracle,
         module,
     )?;
     Ok(paired_reference.iter().filter(|paired| !**paired).count())
@@ -6424,7 +6419,7 @@ fn pair_disjuncts(
     driving: &[&Pattern],
     pool: &[&Pattern],
     driver: PairingDriver,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<Vec<bool>, String> {
     let mut paired = vec![false; pool.len()];
@@ -6451,7 +6446,7 @@ fn pair_disjuncts(
             reference_disjunct,
             &reference_constraints,
             actual_disjunct,
-            definition,
+            oracle,
             module,
         )?;
     }
@@ -6472,7 +6467,7 @@ fn compare_paired_constraints(
     reference_disjunct: &Pattern,
     reference_constraints: &[Pattern],
     actual_disjunct: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
     let (actual_term, _) = split_constrained(actual_disjunct);
@@ -6496,7 +6491,7 @@ fn compare_paired_constraints(
             return Ok(());
         }
     }
-    let Some(definition) = definition else {
+    let Some(oracle) = oracle else {
         return Err(format!(
             "constraints differ for paired disjunct {}; K_DIFFERENTIAL_DEFINITION is not set",
             split_constrained(reference_disjunct).0
@@ -6504,7 +6499,7 @@ fn compare_paired_constraints(
     };
     let mut last_error = None;
     for candidate in &candidates {
-        match prove_implication_both_ways(reference_disjunct, candidate, definition, module) {
+        match prove_implication_both_ways(oracle, reference_disjunct, candidate, module) {
             Ok(()) => return Ok(()),
             Err(error) => last_error = Some(error),
         }
@@ -6814,17 +6809,31 @@ fn is_predicate_pattern(pattern: &Pattern) -> bool {
     }
 }
 
-fn prove_implication_both_ways(
-    reference: &Pattern,
-    actual: &Pattern,
-    definition: &Path,
-    module: &str,
-) -> Result<(), String> {
-    let krust = env::var_os("K_RUST_KRUST")
+/// What the implication fallback (N15) runs: the `krust` executable that proves the claims, and
+/// the definition it proves them in. Both are explicit so a test can substitute a fake `krust`
+/// without touching the process environment, which every concurrently running test reads.
+#[derive(Clone, Copy)]
+struct ImplicationOracle<'a> {
+    krust: &'a Path,
+    definition: &'a Path,
+}
+
+/// The `krust` executable the execution comparison proves implications with: `K_RUST_KRUST`,
+/// else the one Cargo built for this test, else `target/release/krust`.
+fn implication_krust() -> std::path::PathBuf {
+    env::var_os("K_RUST_KRUST")
         .map(std::path::PathBuf::from)
         .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
-        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"));
-    prove_implication_both_ways_with(&krust, reference, actual, definition, module)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"))
+}
+
+fn prove_implication_both_ways(
+    oracle: ImplicationOracle,
+    reference: &Pattern,
+    actual: &Pattern,
+    module: &str,
+) -> Result<(), String> {
+    prove_implication_both_ways_with(oracle.krust, reference, actual, oracle.definition, module)
 }
 
 fn prove_implication_both_ways_with(
