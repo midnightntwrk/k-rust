@@ -55,8 +55,10 @@ use crate::definition::DefinitionError;
 /// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
 /// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
 /// and every later pass over them multiply. One thing is built larger than it is measured: a
-/// binder renamed to avoid capture gets `Alias` and an index added to its name, so a pattern
-/// whose binders, of one-byte names, are all renamed built 2.3 times what it measured. Time grows
+/// binder renamed to avoid capture gets `Alias` and an index added to its name, and the index
+/// grows with the number of binders of that base renamed in the operation, so a pattern whose
+/// binders, of one-byte names, are all renamed built up to about 3.5 times what it measured
+/// within the limit (3.0 times for 50,000 alias bodies of 16 occurrences each). Time grows
 /// with the size too: unfolding builds nothing it does not count, and the size also counts the
 /// capture checks at the binders of the alias bodies it enters, the one part of its work that is
 /// not proportional to what it builds. Each unit is visited or checked once, with map and set
@@ -1314,8 +1316,10 @@ impl Positions<'_> {
 /// no variable built so far spells ([`Expander::rename_to_avoid_capture`]). Each base name's
 /// index only grows through one unfolding, so a candidate is tried at most once: the fresh-name
 /// search costs one try per renamed binder plus one per distinct name of the form
-/// `{base}Alias{digits}` among the variables built and the bodies entered, each name of which the
-/// measure counts.
+/// `{base}Alias{digits}` among the variables built and the bodies entered. The measure counts the
+/// variables built; a name in a body entered is counted by it unless it lies in an argument that a
+/// nested alias drops, so the tries the measure does not count are bounded by the size of the
+/// definition's alias bodies, not by the request.
 struct Expander<'a> {
     aliases: &'a BTreeMap<String, AliasDefinition>,
     /// For each base name, the index of its next fresh-name candidate, `{base}Alias{index}`.
