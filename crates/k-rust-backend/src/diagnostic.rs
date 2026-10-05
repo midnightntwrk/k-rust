@@ -1,19 +1,35 @@
 //! Request-local diagnostics emitted by backend operations.
 
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
 };
 
 use crate::{
     builtin::UnsupportedHookReason,
-    rule::Predicate,
+    rule::{Predicate, collect_all_variables, rename_predicates},
     simplify::{BudgetSubject, ConditionIndeterminacy, SimplificationError},
+    term::{
+        Variable,
+        names::{
+            FreshMarker, encode_variable_name, rule_variable_definition_name, with_fresh_marker,
+        },
+    },
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BackendDiagnostic {
+    /// The condition of an application attempt of the equation `rule_id` was left undecided
+    /// for `reason`, so the equation was not used there. `predicates` are its `requires`
+    /// instantiated by the match: a variable the left-hand side binds is replaced by the term
+    /// it matched, and a variable it does not bind stays a variable of the equation, named
+    /// with the backend's marker (`Eq#Y`, printed `Eq-hY`); [`printable_condition`] names each
+    /// such variable as the definition writes it.
+    ///
+    /// The reasons are a solver that was asked and could not answer (`SmtUnknown`,
+    /// `Untranslatable`, `InconsistentPathCondition`).
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
@@ -49,6 +65,100 @@ pub enum BackendDiagnostic {
         hook: String,
         reason: UnsupportedHookReason,
     },
+}
+
+/// A free variable of an [`BackendDiagnostic::UndecidedCondition`]'s predicates that is a
+/// variable of its equation, which the equation's left-hand side does not bind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConditionRuleVariable {
+    /// The variable as the printable predicates name it.
+    pub variable: Variable,
+    /// Its name as the definition writes it in the equation (`VarY` for `Eq#VarY`).
+    pub definition_name: String,
+}
+
+/// The predicates of an [`BackendDiagnostic::UndecidedCondition`] as a response prints them,
+/// and each variable of the equation among their free variables, with the name the definition
+/// gives it.
+///
+/// Printing keeps a name read from KORE and escapes a backend name (`Eq#Y` prints `Eq-hY`), so
+/// a variable of the request spelled like the escape of a variable of the equation would print
+/// alike in the same predicates. The equation's variable is bound by the equation, so it is
+/// renamed for printing, to `{name}!apart{counter}` with the least counter whose spelling no
+/// variable of the predicates has; the request's variable keeps its name. Without such a
+/// clash the predicates are returned unchanged.
+pub fn printable_condition(
+    predicates: &[Predicate],
+) -> (Cow<'_, [Predicate]>, Vec<ConditionRuleVariable>) {
+    let free = predicates
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect::<BTreeSet<_>>();
+    let rule_variables = free
+        .iter()
+        .filter_map(|variable| {
+            rule_variable_definition_name(&variable.name).map(|name| (variable, name))
+        })
+        .collect::<Vec<_>>();
+    if rule_variables.is_empty() {
+        return (Cow::Borrowed(predicates), Vec::new());
+    }
+    // Another free variable prints alike: distinct names print alike only when one of them is
+    // read from KORE and spelled like the escape of the other.
+    let clashes = |variable: &Variable| {
+        let spelling = encode_variable_name(&variable.name);
+        free.iter().any(|other| {
+            other.name != variable.name && encode_variable_name(&other.name) == spelling
+        })
+    };
+    let mut renaming = BTreeMap::new();
+    if rule_variables.iter().any(|(variable, _)| clashes(variable)) {
+        let mut all = BTreeSet::new();
+        collect_all_variables(predicates, &mut all);
+        let mut taken = all
+            .iter()
+            .map(|variable| encode_variable_name(&variable.name))
+            .collect::<BTreeSet<_>>();
+        let mut counter = 0;
+        for (variable, _) in &rule_variables {
+            if !clashes(variable) {
+                continue;
+            }
+            // The marker and the definition's name, without an earlier `!apart` suffix.
+            let base = variable
+                .name
+                .split_once('!')
+                .map_or(variable.name.as_ref(), |(base, _)| base);
+            let renamed = loop {
+                let name = with_fresh_marker(base, FreshMarker::Apart, counter);
+                counter += 1;
+                if taken.insert(encode_variable_name(&name)) {
+                    break variable.with_name(name);
+                }
+            };
+            renaming.insert((*variable).clone(), renamed);
+        }
+    }
+    let explained = rule_variables
+        .into_iter()
+        .map(|(variable, definition_name)| ConditionRuleVariable {
+            variable: renaming
+                .get(variable)
+                .cloned()
+                .unwrap_or_else(|| variable.clone()),
+            definition_name,
+        })
+        .collect();
+    if renaming.is_empty() {
+        return (Cow::Borrowed(predicates), explained);
+    }
+    let printable = rename_predicates(predicates, |variable| {
+        renaming
+            .get(variable)
+            .cloned()
+            .unwrap_or_else(|| variable.clone())
+    });
+    (Cow::Owned(printable), explained)
 }
 
 /// One emission recorded in a collection, kept in the form it was emitted in so that forwarding
@@ -765,6 +875,83 @@ mod tests {
         );
         assert_eq!(parent.to_vec(), vec![term_exhausted(3)]);
         assert!(parent.empty_like().to_vec().is_empty());
+    }
+
+    fn variable(name: &str) -> Variable {
+        Variable::new(name, crate::term::Sort::simple("SortS"))
+    }
+
+    fn equals(left: &str, right: &str) -> Predicate {
+        Predicate::Equals(
+            crate::term::Term::variable(variable(left)),
+            crate::term::Term::variable(variable(right)),
+        )
+    }
+
+    fn explained(rule_variables: &[ConditionRuleVariable]) -> Vec<(String, String)> {
+        rule_variables
+            .iter()
+            .map(|rule_variable| {
+                (
+                    encode_variable_name(&rule_variable.variable.name),
+                    rule_variable.definition_name.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Each free variable of the equation is listed with its definition name; a variable of
+    /// the request, a mint, and a bound variable are not.
+    #[test]
+    fn a_condition_names_the_equation_variables_it_mentions() {
+        let predicates = [
+            equals("Eq#VarY", "VarZ"),
+            equals("Eq#VarW!apart2", "Rule#X!3"),
+            Predicate::Exists(variable("Eq#VarB"), Box::new(equals("Eq#VarB", "VarZ"))),
+        ];
+        let (printable, rule_variables) = printable_condition(&predicates);
+        assert!(matches!(printable, Cow::Borrowed(_)));
+        assert_eq!(
+            explained(&rule_variables),
+            [
+                ("Eq-hVarW-bapart2".to_owned(), "VarW".to_owned()),
+                ("Eq-hVarY".to_owned(), "VarY".to_owned()),
+            ]
+        );
+
+        let request_only = [equals("VarY", "VarZ")];
+        let (printable, rule_variables) = printable_condition(&request_only);
+        assert!(matches!(printable, Cow::Borrowed(_)));
+        assert!(rule_variables.is_empty());
+    }
+
+    /// A request variable spelled like the escape of an equation variable keeps its name; the
+    /// equation variable is renamed apart for printing, avoiding every spelling in the
+    /// predicates, free or bound.
+    #[test]
+    fn an_equation_variable_printed_like_a_request_variable_is_renamed_apart() {
+        let predicates = [
+            equals("Eq#VarY", "Eq-hVarY"),
+            Predicate::Exists(
+                variable("Eq-hVarY-bapart0"),
+                Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY")),
+            ),
+        ];
+        let (printable, rule_variables) = printable_condition(&predicates);
+        assert_eq!(
+            explained(&rule_variables),
+            [("Eq-hVarY-bapart1".to_owned(), "VarY".to_owned())]
+        );
+        assert_eq!(
+            printable.as_ref(),
+            [
+                equals("Eq#VarY!apart1", "Eq-hVarY"),
+                Predicate::Exists(
+                    variable("Eq-hVarY-bapart0"),
+                    Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY!apart1")),
+                ),
+            ]
+        );
     }
 
     #[test]

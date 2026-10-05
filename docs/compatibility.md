@@ -793,6 +793,7 @@ The static definedness analysis does not use such a ceil equation.
 
 A variable that occurs only in an equation's `requires` never reaches a result.
 It is decided with the rest of the `requires`: the `requires` holds only if it holds for every value of the variable, and it is refuted only if it holds for none.
+In the predicates of an `UndecidedCondition` diagnostic, such a variable keeps the equation's marker and prints escaped (`Eq-hVarY`, or `Eq-hVarY-bapartN` when it was renamed apart from the subject or from a request variable spelled like it); the wire form lists each one in `ruleVariables` with the name the definition gives it (`definitionName`, here `VarY`).
 Kompile accepts a function or simplification rule whose right-hand-side variable occurs in its `requires` or is listed in `unboundVariables`; the backend loads it as above.
 Rewrite rules are not equations: a variable that the left-hand side of a rewrite rule does not bind is minted per application (see [Result variables](#result-variables)).
 

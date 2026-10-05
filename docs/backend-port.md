@@ -220,6 +220,7 @@ When a `Trivial` halt names its responsible rule, `ExecutionLeaf.rule_id` and `r
 Both fields are omitted when no rule is named and on other halt reasons; they do not imply that the undefined step committed a transition.
 A `Trivial` or `Vacuous` leaf whose emptiness comes from an equation of a `total` (or `functional`) symbol that reduced an application of it to `\bottom` also carries `ExecutionLeaf.contradicted_total` (`contradictedTotal`: `symbol` (KORE name), optional `kLabel` (the K label it encodes), `ruleId`, optional `ruleLabel` and `origin`, `application`, `undefined`); it is a diagnostic about the definition and changes neither the reason nor the state (`docs/compatibility.md`, "A contradicted `total` attribute is named, not repaired").
 `UndecidedCondition` and `UndecidedPredicate` diagnostics report a solver that was asked and could not answer, never the absence of a solver.
+The predicates of an `UndecidedCondition` are the equation's instantiated `requires`; its wire form lists in `ruleVariables` each variable of the equation that they name free, by its printed `name` and its `definitionName`.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that

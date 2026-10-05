@@ -475,8 +475,18 @@ export type ConditionIndeterminacy =
   | { kind: 'non-functional-binding' }
   | { kind: 'unbound-result-variables'; variables: string[] }
 
+/** A variable of an equation as an `undecided-condition` diagnostic's predicates spell it (`Eq-hVarY`) and as the definition names it (`VarY`). */
+export type RuleVariable = { name: string; definitionName: string }
+
 export type BackendDiagnostic =
-  | { kind: 'undecided-condition'; ruleId: string; reason: ConditionIndeterminacy; predicates: Kore[] }
+  | {
+      kind: 'undecided-condition'
+      ruleId: string
+      reason: ConditionIndeterminacy
+      predicates: Kore[]
+      /** The equation's variables that `predicates` name free, with their names in the definition. */
+      ruleVariables: RuleVariable[]
+    }
   | { kind: 'undecided-predicate'; predicate: Kore; reason: ConditionIndeterminacy }
   | { kind: 'simplification-budget-exhausted'; limit: number; subject: 'term' | 'predicates' }
   | { kind: 'rule-condition-unsimplified'; ruleId: string; limit: number }

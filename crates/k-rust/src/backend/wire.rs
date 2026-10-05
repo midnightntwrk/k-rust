@@ -12,7 +12,7 @@ use super::{
 use crate::kore::{ast::Pattern as KorePattern, json as kore_json};
 use k_rust_backend::{
     builtin::{BuiltinEffect, BuiltinError},
-    diagnostic::BackendDiagnostic,
+    diagnostic::{self, BackendDiagnostic},
     externalize,
     rewrite::{AppliedRule, HaltReason, IndeterminateReason, RemainderBranch},
     search::{
@@ -450,6 +450,17 @@ pub enum ConditionIndeterminacyOutput<K = Value> {
     },
 }
 
+/// A variable of an equation that an `UndecidedCondition`'s predicates name: `name` is its
+/// spelling there, an escaped backend name (`Eq-hVarY`, or `Eq-hVarY-bapart0` when it was
+/// renamed apart), and `definition_name` its name in the definition (`VarY`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleVariableOutput {
+    pub name: String,
+    #[serde(rename = "definitionName")]
+    pub definition_name: String,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BudgetSubjectOutput {
@@ -461,11 +472,16 @@ pub enum BudgetSubjectOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub enum BackendDiagnosticOutput<K = Value> {
+    /// The equation's condition was left undecided for `reason`, so the equation was not used.
+    /// `predicates` are its instantiated `requires`; each variable of the equation that they
+    /// name free (one its left-hand side does not bind) is listed in `rule_variables`.
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,
         reason: ConditionIndeterminacyOutput<K>,
         predicates: Vec<K>,
+        #[serde(rename = "ruleVariables", default)]
+        rule_variables: Vec<RuleVariableOutput>,
     },
     UndecidedPredicate {
         predicate: K,
@@ -1220,11 +1236,24 @@ fn diagnostic_output<K: WireKore>(
             rule_id,
             reason,
             predicates,
-        } => BackendDiagnosticOutput::UndecidedCondition {
-            rule_id,
-            reason: condition_indeterminacy_output(reason, result_sort)?,
-            predicates: predicates_output(predicates, result_sort)?,
-        },
+        } => {
+            let (predicates, rule_variables) = diagnostic::printable_condition(&predicates);
+            BackendDiagnosticOutput::UndecidedCondition {
+                rule_id,
+                reason: condition_indeterminacy_output(reason, result_sort)?,
+                predicates: predicates
+                    .iter()
+                    .map(|predicate| encode_predicate(predicate, result_sort))
+                    .collect::<Result<_, _>>()?,
+                rule_variables: rule_variables
+                    .into_iter()
+                    .map(|rule_variable| RuleVariableOutput {
+                        name: externalize::external_variable_name(&rule_variable.variable.name),
+                        definition_name: rule_variable.definition_name,
+                    })
+                    .collect(),
+            }
+        }
         BackendDiagnostic::UndecidedPredicate { predicate, reason } => {
             BackendDiagnosticOutput::UndecidedPredicate {
                 predicate: encode_predicate(&predicate, result_sort)?,
@@ -2062,14 +2091,22 @@ mod tests {
             serde_json::json!({"kind":"unsupported-hook-unevaluated","hook":"H.f","reason":"no evaluator"}),
         ];
         for reason in reasons {
-            variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"r","reason":reason,"predicates":[predicate]}));
+            variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"r","reason":reason,"predicates":[predicate],"ruleVariables":[]}));
             variants.push(serde_json::json!({"kind":"undecided-predicate","reason":reason,"predicate":predicate}));
         }
+        variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"r","reason":{"kind":"no-solver"},"predicates":[predicate],"ruleVariables":[{"name":"Eq-hY","definitionName":"Y"}]}));
         for expected in variants {
             let decoded: BackendDiagnosticOutput =
                 serde_json::from_value(expected.clone()).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), expected);
         }
+        assert!(
+            serde_json::from_value::<BackendDiagnosticOutput>(serde_json::json!({
+                "kind":"undecided-condition","ruleId":"r","reason":{"kind":"no-solver"},"predicates":[],
+                "ruleVariables":[{"name":"Eq-hY","definitionName":"Y","extra":true}]
+            }))
+            .is_err()
+        );
         assert!(
             serde_json::from_value::<BackendDiagnosticOutput>(serde_json::json!({
                 "kind":"simplification-budget-exhausted","limit":3,"subject":"term","extra":true
@@ -2162,6 +2199,69 @@ mod tests {
         );
         assert_eq!(expected["format"], "KORE");
         assert_eq!(expected["term"]["tag"], "Top");
+    }
+
+    /// An undecided condition lists the equation variables its predicates name, by their
+    /// printed spelling and their definition name; a request variable spelled like one keeps its
+    /// name and the equation variable is printed renamed apart.
+    #[test]
+    fn undecided_condition_names_its_equation_variables_on_the_wire() {
+        use k_rust_backend::{rule::Predicate, term::Variable};
+
+        let sort = Sort::simple("SortS");
+        let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+        let output = diagnostic_output::<Value>(
+            BackendDiagnostic::UndecidedCondition {
+                rule_id: "r".into(),
+                reason: ConditionIndeterminacy::UnboundResultVariables(vec!["VarY".into()]),
+                predicates: vec![
+                    Predicate::Equals(variable("Eq#VarY"), variable("Eq-hVarY")),
+                    Predicate::Equals(variable("Eq#VarZ"), variable("VarX")),
+                ],
+            },
+            &sort,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value["ruleVariables"],
+            serde_json::json!([
+                {"name": "Eq-hVarY-bapart0", "definitionName": "VarY"},
+                {"name": "Eq-hVarZ", "definitionName": "VarZ"},
+            ])
+        );
+        assert_eq!(
+            value["reason"],
+            serde_json::json!({"kind": "unbound-result-variables", "variables": ["VarY"]})
+        );
+        let names = |predicate: &Value| {
+            [
+                &predicate["term"]["first"]["name"],
+                &predicate["term"]["second"]["name"],
+            ]
+            .map(|name| name.as_str().unwrap().to_owned())
+        };
+        assert_eq!(
+            names(&value["predicates"][0]),
+            ["Eq-hVarY-bapart0", "Eq-hVarY"]
+        );
+        assert_eq!(names(&value["predicates"][1]), ["Eq-hVarZ", "VarX"]);
+        let decoded: BackendDiagnosticOutput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(decoded, output);
+
+        let mut without = value;
+        without.as_object_mut().unwrap().remove("ruleVariables");
+        let BackendDiagnosticOutput::UndecidedCondition { rule_variables, .. } =
+            serde_json::from_value::<BackendDiagnosticOutput>(without).unwrap()
+        else {
+            panic!("an undecided condition");
+        };
+        assert!(rule_variables.is_empty(), "the list defaults to empty");
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "undecided-condition",
+            &["ruleId", "reason", "predicates", "ruleVariables"],
+        );
     }
 
     #[test]

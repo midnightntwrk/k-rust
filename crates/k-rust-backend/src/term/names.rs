@@ -232,6 +232,33 @@ pub fn split_marker<'a>(
         .unwrap_or((None, Cow::Borrowed(name)))
 }
 
+/// The definition's name of a variable of a rewrite rule or an equation, when `name` is the
+/// backend name of one inside the rule: its marker (`Rule#`, `Eq#`) and the definition's name,
+/// possibly renamed apart from an application's scope (`!apart{counter}`, see
+/// `rule::rename_apart`). `Eq#VarY` and `Eq#VarY!apart3` give `VarY`, and `@Rule#M` gives `@M`.
+///
+/// `None` for every other name: a name read from KORE, which has no marker, and every variable
+/// a rewrite introduced into a state, which has another suffix (`Rule#X!3` is a mint of the
+/// unbound rule variable `X`, a variable of the state rather than of the rule).
+pub fn rule_variable_definition_name(name: &str) -> Option<String> {
+    let (provenance, unmarked) = split_marker(
+        name,
+        &[VariableProvenance::Rule, VariableProvenance::Equation],
+    );
+    provenance?;
+    let written = match unmarked.split_once('!') {
+        None => unmarked.as_ref(),
+        Some((written, suffix)) => {
+            let counter = suffix.strip_prefix(FreshMarker::Apart.as_str())?;
+            if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            written
+        }
+    };
+    Some(written.to_owned())
+}
+
 /// The word between the `!` and the counter of a backend-minted fresh name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FreshMarker {
@@ -432,6 +459,33 @@ mod tests {
             (None, "Eq#X".to_owned())
         );
         assert_eq!(split("Ex#X", &[Rule, Equation]), (None, "Ex#X".to_owned()));
+    }
+
+    #[test]
+    fn a_rule_variable_is_named_as_the_definition_writes_it() {
+        for (name, expected) in [
+            ("Eq#VarY", Some("VarY")),
+            ("Eq#VarY!apart3", Some("VarY")),
+            ("Rule#X", Some("X")),
+            ("@Rule#M!apart0", Some("@M")),
+            ("@Eq#M", Some("@M")),
+            // Variables of a state: a name of the input, mints, and a renamed binder.
+            ("VarY", None),
+            ("Eq-hVarY", None),
+            ("Rule#X!3", None),
+            ("Ex#X", None),
+            ("Ex#X!0", None),
+            ("Eq#X!claim0", None),
+            ("Eq#X!binder1", None),
+            ("Eq#X!apart", None),
+            ("Eq#X!apart1!2", None),
+        ] {
+            assert_eq!(
+                rule_variable_definition_name(name).as_deref(),
+                expected,
+                "{name}"
+            );
+        }
     }
 
     #[test]
