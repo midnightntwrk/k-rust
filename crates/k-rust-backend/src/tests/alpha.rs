@@ -1396,15 +1396,21 @@ impl AlphaComparable for BackendDiagnostic {
                     rule_id: li,
                     reason: lr,
                     predicates: lp,
+                    rule_variables: lv,
                 },
                 UndecidedCondition {
                     rule_id: ri,
                     reason: rr,
                     predicates: rp,
+                    rule_variables: rv,
                 },
-            ) if li == ri => {
+            ) if li == ri && lv.len() == rv.len() => {
                 collect_condition_indeterminacy(lr, rr, context)?;
-                collect_slice(lp, rp, context, collect_predicate)
+                collect_slice(lp, rp, context, collect_predicate)?;
+                // The list is in variable order, which a renaming need not keep.
+                collect_unordered(lv, rv, context, |left, right, context| {
+                    context.pair_variable(left, right)
+                })
             }
             (
                 UndecidedPredicate {
@@ -1431,10 +1437,19 @@ impl AlphaComparable for BackendDiagnostic {
                 rule_id,
                 reason,
                 predicates,
+                rule_variables,
             } => UndecidedCondition {
                 rule_id: rule_id.clone(),
                 reason: rename_condition_indeterminacy(reason, context),
                 predicates: rename_predicates(predicates, context),
+                rule_variables: {
+                    let mut renamed = rule_variables
+                        .iter()
+                        .map(|variable| context.renamed_variable(variable))
+                        .collect::<Vec<_>>();
+                    renamed.sort();
+                    renamed
+                },
             },
             UndecidedPredicate { predicate, reason } => UndecidedPredicate {
                 predicate: rename_predicate(predicate, context),

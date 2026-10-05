@@ -1,23 +1,60 @@
 //! Request-local diagnostics emitted by backend operations.
 
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
 };
 
 use crate::{
     builtin::UnsupportedHookReason,
-    rule::Predicate,
+    rule::{Predicate, collect_all_variables, rename_predicates},
     simplify::{BudgetSubject, ConditionIndeterminacy, SimplificationError},
+    term::{
+        Variable,
+        names::{
+            FreshMarker, encode_variable_name, rule_variable_definition_name, with_fresh_marker,
+        },
+    },
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BackendDiagnostic {
+    /// A condition of an application attempt of the equation `rule_id` was left undecided for
+    /// `reason`. `predicates` are the condition as decided, one of two:
+    ///
+    /// - The equation's `requires`, instantiated by the match; the equation is not used on this
+    ///   subject. A variable the left-hand side binds is replaced by the term it matched. A
+    ///   variable it does not bind stays a variable of the equation, named with the backend's
+    ///   marker (`Eq#Y`, printed `Eq-hY`, or `Eq#Y!apart0` when renamed apart from the subject).
+    /// - Once the `requires` held, the definedness of the terms the match bound (`\ceil(t)` for
+    ///   each such term `t`); the equation is used, and its result carries these predicates as
+    ///   constraints.
+    ///
+    /// The reasons are a solver that was asked and could not answer (`SmtUnknown`,
+    /// `Untranslatable`, `InconsistentPathCondition`), for either condition, and, for the
+    /// `requires` only, an equation whose right-hand side or `ensures` has variables its
+    /// left-hand side does not bind (`UnboundResultVariables`) and whose `requires` was not
+    /// refuted: its instance names no value for them, so it is not used.
+    ///
+    /// Like every diagnostic emitted during an equation attempt, it is reported only with an
+    /// outcome the simplification keeps (`buffer`): the equation applied, or the attempt was
+    /// indeterminate and no other equation rewrote the subject, which was left unevaluated. An
+    /// attempt whose `requires` was refuted, one that another equation superseded, and one made
+    /// while simplifying the condition of an enclosing attempt that was itself refuted or
+    /// superseded report nothing.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
         predicates: Vec<Predicate>,
+        /// The variables of the equation that are free in `predicates`, as the attempt names
+        /// them: those its left-hand side does not bind. Membership is a fact of the attempt,
+        /// not of a name's shape; a variable of the subject is never listed, even one that is
+        /// another equation's variable (an enclosing equation's `Eq#Z`, which reached this
+        /// subject while that equation's `requires` was simplified). The definedness of bound
+        /// terms has none. [`printable_condition`] gives each one's name in the definition.
+        rule_variables: Vec<Variable>,
     },
     UndecidedPredicate {
         predicate: Predicate,
@@ -49,6 +86,104 @@ pub enum BackendDiagnostic {
         hook: String,
         reason: UnsupportedHookReason,
     },
+}
+
+/// A free variable of an [`BackendDiagnostic::UndecidedCondition`]'s predicates that is a
+/// variable of its equation, which the equation's left-hand side does not bind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConditionRuleVariable {
+    /// The variable as the printable predicates name it.
+    pub variable: Variable,
+    /// Its name as the definition writes it in the equation (`VarY` for `Eq#VarY`).
+    pub definition_name: String,
+}
+
+/// The predicates of an [`BackendDiagnostic::UndecidedCondition`] as a response prints them,
+/// and each of its `rule_variables` that they name free, with the name the definition gives it.
+///
+/// Printing keeps a name read from KORE and escapes a backend name (`Eq#Y` prints `Eq-hY`), so
+/// a variable of the request spelled like the escape of a variable of the equation would print
+/// alike in the same predicates. The equation's variable is bound by the equation, so it is
+/// renamed for printing, to `{name}!apart{counter}` with the least counter whose spelling no
+/// variable of the predicates has; the request's variable keeps its name. Without such a
+/// clash the predicates are returned unchanged.
+pub fn printable_condition<'a>(
+    predicates: &'a [Predicate],
+    rule_variables: &[Variable],
+) -> (Cow<'a, [Predicate]>, Vec<ConditionRuleVariable>) {
+    if rule_variables.is_empty() {
+        return (Cow::Borrowed(predicates), Vec::new());
+    }
+    let free = predicates
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect::<BTreeSet<_>>();
+    let rule_variables = rule_variables
+        .iter()
+        .filter(|variable| free.contains(*variable))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|variable| (variable, rule_variable_definition_name(&variable.name)))
+        .collect::<Vec<_>>();
+    if rule_variables.is_empty() {
+        return (Cow::Borrowed(predicates), Vec::new());
+    }
+    // Another free variable prints alike: distinct names print alike only when one of them is
+    // read from KORE and spelled like the escape of the other.
+    let clashes = |variable: &Variable| {
+        let spelling = encode_variable_name(&variable.name);
+        free.iter().any(|other| {
+            other.name != variable.name && encode_variable_name(&other.name) == spelling
+        })
+    };
+    let mut renaming = BTreeMap::new();
+    if rule_variables.iter().any(|(variable, _)| clashes(variable)) {
+        let mut all = BTreeSet::new();
+        collect_all_variables(predicates, &mut all);
+        let mut taken = all
+            .iter()
+            .map(|variable| encode_variable_name(&variable.name))
+            .collect::<BTreeSet<_>>();
+        let mut counter = 0;
+        for (variable, _) in &rule_variables {
+            if !clashes(variable) {
+                continue;
+            }
+            // The marker and the definition's name, without an earlier `!apart` suffix.
+            let base = variable
+                .name
+                .split_once('!')
+                .map_or(variable.name.as_ref(), |(base, _)| base);
+            let renamed = loop {
+                let name = with_fresh_marker(base, FreshMarker::Apart, counter);
+                counter += 1;
+                if taken.insert(encode_variable_name(&name)) {
+                    break variable.with_name(name);
+                }
+            };
+            renaming.insert((*variable).clone(), renamed);
+        }
+    }
+    let explained = rule_variables
+        .into_iter()
+        .map(|(variable, definition_name)| ConditionRuleVariable {
+            variable: renaming
+                .get(variable)
+                .cloned()
+                .unwrap_or_else(|| variable.clone()),
+            definition_name,
+        })
+        .collect();
+    if renaming.is_empty() {
+        return (Cow::Borrowed(predicates), explained);
+    }
+    let printable = rename_predicates(predicates, |variable| {
+        renaming
+            .get(variable)
+            .cloned()
+            .unwrap_or_else(|| variable.clone())
+    });
+    (Cow::Owned(printable), explained)
 }
 
 /// One emission recorded in a collection, kept in the form it was emitted in so that forwarding
@@ -312,6 +447,47 @@ fn restore_and_forward(mut enclosing: Option<Sink>) -> Vec<Emission> {
 /// is reported once. Accepted emissions reach the enclosing collector, under its rules, as if
 /// emitted into it directly; without an enclosing collector nothing is recorded either way.
 pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bool) -> T {
+    let (result, buffered) = buffer(action);
+    if keep(&result) {
+        buffered.commit();
+    }
+    result
+}
+
+/// The diagnostics a speculative piece of work emitted, held apart from every collector until
+/// the caller knows whether the work's outcome is kept.
+///
+/// A diagnostic is a claim about the result the work contributes to. While that is undecided
+/// (an equation attempt whose subject another equation may still rewrite, or whose `requires`
+/// belongs to an enclosing attempt that may still be refuted), its diagnostics are held here:
+/// [`Buffered::commit`] records them once the outcome is kept, and dropping the buffer discards
+/// them with the outcome. Buffers nest: one committed while another is open records into it, so
+/// an outcome kept inside an enclosing attempt that is then discarded is discarded with it.
+#[must_use = "a buffer is committed when its outcome is kept and dropped when it is not"]
+pub(crate) struct Buffered(Vec<Emission>);
+
+impl Buffered {
+    /// Record the held emissions in the current collector, under its rules, as if they were
+    /// emitted into it directly, with their original positions; nothing without a collector.
+    pub(crate) fn commit(self) {
+        if self.0.is_empty() {
+            return;
+        }
+        SINK.with(|sink| {
+            if let Some(sink) = sink.borrow_mut().as_mut() {
+                for emission in self.0 {
+                    sink.record(emission);
+                }
+            }
+        });
+    }
+}
+
+/// Run `action` with its emissions held in a [`Buffered`] instead of the current collector.
+///
+/// Without a current collector nothing is recorded either way, and the buffer is empty. If
+/// `action` unwinds, its emissions are discarded and the current collector is restored.
+pub(crate) fn buffer<T>(action: impl FnOnce() -> T) -> (T, Buffered) {
     struct Restore(Option<Sink>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -329,7 +505,7 @@ pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bo
         });
         Some(enclosing)
     }) else {
-        return action();
+        return (action(), Buffered(Vec::new()));
     };
     let mut restore = Restore(Some(enclosing));
     let result = action();
@@ -337,17 +513,12 @@ pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bo
         .with(|sink| sink.borrow_mut().take())
         .map(|inner| inner.emissions)
         .unwrap_or_default();
-    let mut enclosing = restore
+    let enclosing = restore
         .0
         .take()
         .expect("the enclosing collector is restored once");
-    if keep(&result) {
-        for emission in inner {
-            enclosing.record(emission);
-        }
-    }
     SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
-    result
+    (result, Buffered(inner))
 }
 
 /// Append each diagnostic of `diagnostics` that `list` does not hold yet, in order.
@@ -538,6 +709,51 @@ mod tests {
                 alternatives,
             },
         }
+    }
+
+    /// A buffer records its emissions when it is committed, under the collector's rules; a
+    /// dropped buffer records nothing, and neither does a nested buffer committed into it.
+    /// Without a collector a buffer holds nothing.
+    #[test]
+    fn a_buffer_records_its_emissions_only_when_committed() {
+        let ((), recorded) = collect(|| {
+            emit(term_exhausted(1));
+            let ((), kept) = buffer(|| {
+                emit(term_exhausted(2));
+                let ((), inner) = buffer(|| emit(term_exhausted(3)));
+                inner.commit();
+            });
+            let ((), dropped) = buffer(|| {
+                emit(term_exhausted(4));
+                let ((), inner) = buffer(|| emit(term_exhausted(5)));
+                inner.commit();
+            });
+            emit(term_exhausted(6));
+            drop(dropped);
+            kept.commit();
+        });
+        assert_eq!(
+            recorded,
+            [
+                term_exhausted(1),
+                term_exhausted(6),
+                term_exhausted(2),
+                term_exhausted(3)
+            ]
+        );
+
+        let ((), held) = buffer(|| emit(term_exhausted(7)));
+        assert!(held.0.is_empty());
+        let ((), recorded) = collect(|| held.commit());
+        assert!(recorded.is_empty());
+
+        // A committed buffer is forwarded under the collector's rules: an unevaluated hook once.
+        let ((), recorded) = collect(|| {
+            emit(hook("H", UnsupportedHookReason::NotImplemented));
+            let ((), repeated) = buffer(|| emit(hook("H", out_of_range())));
+            repeated.commit();
+        });
+        assert_eq!(recorded, [hook("H", UnsupportedHookReason::NotImplemented)]);
     }
 
     /// Repeated attempts of a rule whose condition fails the same way report one fact; another
@@ -765,6 +981,91 @@ mod tests {
         );
         assert_eq!(parent.to_vec(), vec![term_exhausted(3)]);
         assert!(parent.empty_like().to_vec().is_empty());
+    }
+
+    fn variable(name: &str) -> Variable {
+        Variable::new(name, crate::term::Sort::simple("SortS"))
+    }
+
+    fn equals(left: &str, right: &str) -> Predicate {
+        Predicate::Equals(
+            crate::term::Term::variable(variable(left)),
+            crate::term::Term::variable(variable(right)),
+        )
+    }
+
+    fn explained(rule_variables: &[ConditionRuleVariable]) -> Vec<(String, String)> {
+        rule_variables
+            .iter()
+            .map(|rule_variable| {
+                (
+                    encode_variable_name(&rule_variable.variable.name),
+                    rule_variable.definition_name.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Each variable of the attempt's list that the predicates name free is explained with its
+    /// definition name. Membership comes from the list: a variable of the subject that carries
+    /// an equation's marker (`Eq#VarZ`, another equation's variable), a mint, and a request
+    /// variable are not explained, and a listed variable the predicates only bind is not either.
+    #[test]
+    fn a_condition_names_the_equation_variables_it_mentions() {
+        let predicates = [
+            equals("Eq#VarY", "VarZ"),
+            equals("Eq#VarW!apart2", "Rule#X!3"),
+            equals("Eq#VarZ", "Eq#VarY"),
+            Predicate::Exists(variable("Eq#VarB"), Box::new(equals("Eq#VarB", "VarZ"))),
+        ];
+        let listed = [
+            variable("Eq#VarY"),
+            variable("Eq#VarW!apart2"),
+            variable("Eq#VarB"),
+        ];
+        let (printable, rule_variables) = printable_condition(&predicates, &listed);
+        assert!(matches!(printable, Cow::Borrowed(_)));
+        assert_eq!(
+            explained(&rule_variables),
+            [
+                ("Eq-hVarW-bapart2".to_owned(), "VarW".to_owned()),
+                ("Eq-hVarY".to_owned(), "VarY".to_owned()),
+            ]
+        );
+
+        // Nothing listed: the same predicates explain nothing, whatever their names look like.
+        let (printable, rule_variables) = printable_condition(&predicates, &[]);
+        assert!(matches!(printable, Cow::Borrowed(_)));
+        assert!(rule_variables.is_empty());
+    }
+
+    /// A request variable spelled like the escape of an equation variable keeps its name; the
+    /// equation variable is renamed apart for printing, avoiding every spelling in the
+    /// predicates, free or bound.
+    #[test]
+    fn an_equation_variable_printed_like_a_request_variable_is_renamed_apart() {
+        let predicates = [
+            equals("Eq#VarY", "Eq-hVarY"),
+            Predicate::Exists(
+                variable("Eq-hVarY-bapart0"),
+                Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY")),
+            ),
+        ];
+        let (printable, rule_variables) = printable_condition(&predicates, &[variable("Eq#VarY")]);
+        assert_eq!(
+            explained(&rule_variables),
+            [("Eq-hVarY-bapart1".to_owned(), "VarY".to_owned())]
+        );
+        assert_eq!(
+            printable.as_ref(),
+            [
+                equals("Eq#VarY!apart1", "Eq-hVarY"),
+                Predicate::Exists(
+                    variable("Eq-hVarY-bapart0"),
+                    Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY!apart1")),
+                ),
+            ]
+        );
     }
 
     #[test]

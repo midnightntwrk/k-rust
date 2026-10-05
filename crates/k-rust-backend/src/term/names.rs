@@ -232,6 +232,33 @@ pub fn split_marker<'a>(
         .unwrap_or((None, Cow::Borrowed(name)))
 }
 
+/// The definition's name of `name`, the name of a variable of a rewrite rule or an equation
+/// inside the rule: without its marker (`Rule#`, `Eq#`) and without the suffix of a renaming
+/// apart from an application's scope (`!apart{counter}`, see `rule::rename_apart`). `Eq#VarY`
+/// and `Eq#VarY!apart3` give `VarY`, and `@Rule#M` gives `@M`; a name with neither part, as a
+/// rule built directly rather than loaded may have, is the definition's name itself.
+///
+/// A name does not say whose variable it is: a variable of a state can carry the same marker
+/// (an enclosing equation's `Eq#Z` that reached a subject). The caller knows from the rule that
+/// `name` is the rule's own variable (`ComputedRuleAttributes::unbound_variables`).
+pub fn rule_variable_definition_name(name: &str) -> String {
+    let (_, unmarked) = split_marker(
+        name,
+        &[VariableProvenance::Rule, VariableProvenance::Equation],
+    );
+    let written = unmarked
+        .rsplit_once('!')
+        .filter(|(_, suffix)| {
+            suffix
+                .strip_prefix(FreshMarker::Apart.as_str())
+                .is_some_and(|counter| {
+                    !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit())
+                })
+        })
+        .map_or(unmarked.as_ref(), |(written, _)| written);
+    written.to_owned()
+}
+
 /// The word between the `!` and the counter of a backend-minted fresh name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FreshMarker {
@@ -432,6 +459,25 @@ mod tests {
             (None, "Eq#X".to_owned())
         );
         assert_eq!(split("Ex#X", &[Rule, Equation]), (None, "Ex#X".to_owned()));
+    }
+
+    #[test]
+    fn a_rule_variable_is_named_as_the_definition_writes_it() {
+        for (name, expected) in [
+            ("Eq#VarY", "VarY"),
+            ("Eq#VarY!apart3", "VarY"),
+            ("Rule#X", "X"),
+            ("@Rule#M!apart0", "@M"),
+            ("@Eq#M", "@M"),
+            // A rule built directly names its variables as written.
+            ("X", "X"),
+            ("X!apart2", "X"),
+            // Only a renaming apart is removed.
+            ("Eq#X!apart", "X!apart"),
+            ("Eq#X!binder1", "X!binder1"),
+        ] {
+            assert_eq!(rule_variable_definition_name(name), expected, "{name}");
+        }
     }
 
     #[test]

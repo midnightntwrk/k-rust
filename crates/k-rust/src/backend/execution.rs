@@ -26,7 +26,7 @@ use std::{
 use k_rust_backend::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
-    diagnostic::BackendDiagnostic,
+    diagnostic::{self, BackendDiagnostic},
     externalize::{self, External},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
@@ -34,19 +34,18 @@ use k_rust_backend::{
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status, execute_with_solver,
     },
-    rule::Predicate,
-    rule::RuleOrigin,
+    rule::{ClassifiedAxiom, Predicate, RuleOrigin},
     search::{
         IncompleteSearch, PatternMatchError, SearchEnd, SearchOptions, SearchType,
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     simplify::{
-        BudgetSubject, ContradictedTotal, SimplificationError, SimplificationOptions,
-        simplify_pattern_with_solver,
+        BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationError,
+        SimplificationOptions, simplify_pattern_with_solver,
     },
     smt::SmtSolver,
     stop::StopCause,
-    term::{Term, TermKind, Variable},
+    term::{Sort, Term, TermKind, Variable},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
 };
 use num_bigint::BigInt;
@@ -244,8 +243,127 @@ pub fn k_label(kore_name: &str) -> String {
     crate::kast::identifier::decode_label(kore_name).unwrap_or_else(|_| kore_name.to_owned())
 }
 
+/// How a warning names a rule: its label, or its `UNIQUE_ID` when it has none, and the position
+/// it is written at when the KORE carries one.
+fn rule_description(definition: &BackendDefinition, rule_id: &str) -> String {
+    let attributes = definition
+        .classified_axioms()
+        .iter()
+        .map(ClassifiedAxiom::attributes)
+        .find(|attributes| attributes.unique_id == rule_id);
+    let name = attributes
+        .and_then(|attributes| attributes.label.as_deref())
+        .unwrap_or(rule_id);
+    let position = attributes
+        .and_then(|attributes| attributes.origins.first())
+        .and_then(written_position)
+        .map(|position| format!(" at {position}"))
+        .unwrap_or_default();
+    format!("{name}{position}")
+}
+
+/// A variable as the author wrote it: the K name a KORE variable name encodes (`VarY` is `Y`),
+/// or the KORE name itself when it encodes none.
+fn written_variable(definition_name: &str) -> String {
+    match crate::kast::identifier::decode_variable(definition_name) {
+        (_, Ok(name)) if !name.is_empty() => name,
+        _ => definition_name.to_owned(),
+    }
+}
+
+/// `items` joined as an English list: `A`, `A and B`, `A, B and C`.
+fn english_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    }
+}
+
+/// Predicates as compact KORE, joined by `, `.
+fn printed_predicates(predicates: &[Predicate], result_sort: &Sort) -> String {
+    predicates
+        .iter()
+        .map(|predicate| {
+            KorePrinter::compact()
+                .print_pattern(&externalize::predicate_pattern(predicate, result_sort))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The warning for an `UndecidedCondition` diagnostic of the equation `rule_id`.
+///
+/// Its predicates are printed as KORE, where a variable the equation's left-hand side does not
+/// bind keeps the backend's marker (`Eq-hVarY`); the warning says which variable of the
+/// equation each such name is, as the author wrote it (`Y`). An equation whose result has
+/// variables its left-hand side does not bind is not a solver verdict: the backend reports it
+/// only when no other equation rewrote the term and the attempt was not made while simplifying
+/// the condition of an enclosing attempt that was refuted or superseded, so the warning says
+/// that the term was left unevaluated, and why. A solver verdict may be on the equation's
+/// `requires` or on the definedness of the terms its match bound, so its warning names the
+/// predicates without saying which.
+#[allow(clippy::too_many_arguments)]
+fn undecided_condition_message(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    reason: &ConditionIndeterminacy,
+    predicates: &[Predicate],
+    rule_variables: &[Variable],
+    result_sort: &Sort,
+    depth: u64,
+) -> String {
+    let rule = rule_description(definition, rule_id);
+    let (predicates, rule_variables) = diagnostic::printable_condition(predicates, rule_variables);
+    let explained = rule_variables
+        .iter()
+        .map(|rule_variable| {
+            format!(
+                "{} is the equation's variable {}",
+                externalize::external_variable_name(&rule_variable.variable.name),
+                written_variable(&rule_variable.definition_name)
+            )
+        })
+        .collect::<Vec<_>>();
+    let explained = if explained.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", english_list(&explained))
+    };
+    if let ConditionIndeterminacy::UnboundResultVariables(variables) = reason {
+        let variables = variables
+            .iter()
+            .map(|variable| written_variable(variable))
+            .collect::<Vec<_>>();
+        let shown = predicates
+            .iter()
+            .filter(|predicate| !matches!(predicate, Predicate::True))
+            .cloned()
+            .collect::<Vec<_>>();
+        let requires = if shown.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; its requires on this term is {}{explained}",
+                printed_predicates(&shown, result_sort)
+            )
+        };
+        return format!(
+            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation rewrote the term it matched, which was left unevaluated{requires}",
+            english_list(&variables),
+            if variables.len() == 1 { "it" } else { "them" },
+        );
+    }
+    format!(
+        "condition of equation {rule} remained undecided at depth {depth} ({reason:?}, predicates: [{}]){explained}; the result may retain an unresolved condition",
+        printed_predicates(&predicates, result_sort),
+    )
+}
+
 fn report_diagnostics<'a>(
+    definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
+    result_sort: &Sort,
     depth: u64,
 ) {
     let mut seen = HashSet::new();
@@ -267,11 +385,22 @@ fn report_diagnostics<'a>(
                 rule_id,
                 reason,
                 predicates,
+                rule_variables,
             } => eprintln!(
-                "warning: condition of rule {rule_id} remained undecided at depth {depth} ({reason:?}, predicates: {predicates:?}); the result may retain an unresolved condition"
+                "warning: {}",
+                undecided_condition_message(
+                    definition,
+                    rule_id,
+                    reason,
+                    predicates,
+                    rule_variables,
+                    result_sort,
+                    depth
+                )
             ),
             BackendDiagnostic::UndecidedPredicate { predicate, reason } => eprintln!(
-                "warning: predicate {predicate:?} remained undecided at depth {depth} ({reason:?}); the result may retain an unresolved constraint"
+                "warning: predicate {} remained undecided at depth {depth} ({reason:?}); the result may retain an unresolved constraint",
+                printed_predicates(std::slice::from_ref(predicate), result_sort)
             ),
             BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => eprintln!(
                 "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} after budget {limit} was exhausted"
@@ -622,7 +751,9 @@ fn run_backend_with_solver(
         }
         for matched in &result.matches {
             report_diagnostics(
+                backend,
                 matched.state.diagnostics.iter().chain(&matched.diagnostics),
+                &matched.state.pattern.term.sort(),
                 matched.state.depth,
             );
         }
@@ -726,7 +857,12 @@ fn run_backend_with_solver(
         .into());
     }
     for leaf in &execution.leaves {
-        report_diagnostics(&leaf.diagnostics, leaf.depth);
+        report_diagnostics(
+            backend,
+            &leaf.diagnostics,
+            &leaf.pattern.term.sort(),
+            leaf.depth,
+        );
     }
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution
