@@ -68,6 +68,11 @@ pub fn from_str(input: &str) -> Result<Term, Error> {
     build_term(term)
 }
 
+/// Decode the JSON text of one KAST term, outside an envelope, with explicit work stacks.
+pub(crate) fn term_from_str(input: &str) -> Result<Term, Error> {
+    build_term(json_tree::parse(input)?)
+}
+
 pub fn to_string(term: &Term) -> Result<String, Error> {
     Ok(json_tree::to_string(&envelope_node(term), false))
 }
@@ -577,7 +582,10 @@ impl From<JsonLabel> for Label {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+/// The serialized form of a KAST term inside a definition document. It is only written: a term
+/// is read with explicit work stacks ([`term_from_str`]), since deserializing this tagged enum
+/// recurses once per level of the term.
+#[derive(Serialize)]
 #[serde(tag = "node")]
 pub(crate) enum JsonTerm {
     KToken {
@@ -644,59 +652,5 @@ impl From<&Term> for JsonTerm {
             },
             Term::Annotated { .. } => unreachable!(),
         }
-    }
-}
-
-impl TryFrom<JsonTerm> for Term {
-    type Error = Error;
-
-    fn try_from(term: JsonTerm) -> Result<Self, Self::Error> {
-        fn boxed(term: JsonTerm) -> Result<Box<Term>, Error> {
-            Ok(Box::new(term.try_into()?))
-        }
-        fn terms(values: Vec<JsonTerm>) -> Result<Vec<Term>, Error> {
-            values.into_iter().map(TryInto::try_into).collect()
-        }
-        fn checked(
-            node: &'static str,
-            declared: usize,
-            values: Vec<JsonTerm>,
-        ) -> Result<Vec<Term>, Error> {
-            if declared != values.len() {
-                return Err(Error::InvalidArity {
-                    node,
-                    declared,
-                    actual: values.len(),
-                });
-            }
-            terms(values)
-        }
-
-        Ok(match term {
-            JsonTerm::KToken { sort, token } => Self::Token {
-                token,
-                sort: sort.into(),
-            },
-            JsonTerm::KApply { label, arity, args } => Self::Apply {
-                label: label.into(),
-                arguments: checked("KApply", arity, args)?,
-            },
-            JsonTerm::KSequence { arity, items } => {
-                Self::Sequence(checked("KSequence", arity, items)?)
-            }
-            JsonTerm::KVariable { name, sort } => Self::Variable {
-                name,
-                sort: sort.map(Into::into),
-            },
-            JsonTerm::KRewrite { lhs, rhs } => Self::Rewrite {
-                left: boxed(*lhs)?,
-                right: boxed(*rhs)?,
-            },
-            JsonTerm::KAs { pattern, alias } => Self::As {
-                pattern: boxed(*pattern)?,
-                alias: boxed(*alias)?,
-            },
-            JsonTerm::InjectedKLabel { label } => Self::InjectedLabel(label.into()),
-        })
     }
 }

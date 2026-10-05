@@ -255,6 +255,120 @@ fn decodes_definitions_with_deep_rule_bodies() {
     assert_eq!(json::from_str(&encoded).unwrap(), definition);
 }
 
+/// A definition `k_rust` wrote reads back whatever the depth of its terms: a rule body 300
+/// applications deep, which nests more than serde's recursion limit of JSON levels.
+#[test]
+fn decodes_provenance_definitions_with_deep_rule_bodies() {
+    let definition = deep_rule_definition(300);
+    let encoded = json::to_provenance_string(&definition, &SourceTable::default()).unwrap();
+    assert_eq!(
+        json::from_provenance_str(&encoded).unwrap().definition,
+        definition
+    );
+}
+
+/// The text of `encoded`, a document of [`deep_rule_definition`]`(1)`, with the rule body
+/// replaced by `levels` applications of `wrap` around `X`.
+fn deepen_rule_body(encoded: &str, levels: usize) -> String {
+    let wrap = r#"{"node":"KApply","label":{"node":"KLabel","name":"wrap","params":[]},"arity":1,"args":["#;
+    let leaf = r#"{"node":"KVariable","name":"X"}"#;
+    let one = format!("{wrap}{leaf}]}}");
+    assert_eq!(encoded.matches(&one).count(), 1, "{encoded}");
+    encoded.replace(
+        &one,
+        &format!("{}{leaf}{}", wrap.repeat(levels), "]}".repeat(levels)),
+    )
+}
+
+/// A definition whose one rule's body is `levels` applications of `wrap` around `X`.
+fn deep_rule_definition(levels: usize) -> Definition {
+    let mut body = Term::variable("X");
+    for _ in 0..levels {
+        body = Term::apply("wrap", vec![body]);
+    }
+    complete_definition(vec![Sentence::Rule {
+        body,
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: empty_attributes(),
+    }])
+}
+
+/// The number of applications of `wrap` the rule body of `definition` nests, counted without
+/// recursion.
+fn rule_body_depth(definition: &Definition) -> usize {
+    let Sentence::Rule { body, .. } = definition.modules[0].local_sentences[0].as_ref() else {
+        panic!("the sentence is a rule");
+    };
+    let mut depth = 0;
+    let mut term = body;
+    while let Term::Apply { arguments, .. } = term {
+        depth += 1;
+        term = &arguments[0];
+    }
+    depth
+}
+
+/// Run `work` on a thread of `bytes` of stack.
+fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(bytes)
+        .spawn(work)
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish")
+}
+
+/// Both definition readers decode the terms of a document with explicit work stacks, so a rule
+/// body 100,000 applications deep is read on a 1 MiB thread. The decoded term's own drop
+/// recurses once per level, so it is dropped on a larger thread. Each document takes about
+/// 9 MB, and the test peaks at about 210 MB of resident memory in a debug build.
+#[test]
+fn definitions_of_any_depth_are_read_on_a_small_stack() {
+    let levels = 100_000;
+    let shallow = deep_rule_definition(1);
+    let kast = deepen_rule_body(&json::to_string(&shallow).unwrap(), levels);
+    let provenance = deepen_rule_body(
+        &json::to_provenance_string(&shallow, &SourceTable::default()).unwrap(),
+        levels,
+    );
+    let (from_kast, from_provenance) = on_stack(1 << 20, move || {
+        let from_kast = json::from_str(&kast).expect("the KAST document is read");
+        let from_provenance = json::from_provenance_str(&provenance)
+            .expect("the provenance document is read")
+            .definition;
+        (from_kast, from_provenance)
+    });
+    assert_eq!(rule_body_depth(&from_kast), levels);
+    assert_eq!(rule_body_depth(&from_provenance), levels);
+    on_stack(256 << 20, move || drop((from_kast, from_provenance)));
+}
+
+/// Outside its terms a definition nests only a few levels, so serde's recursion limit stays on
+/// there: an attribute value nested 100,000 levels deep is refused with an ordinary error on a
+/// 1 MiB thread rather than read by recursion.
+#[test]
+fn deep_values_outside_terms_are_refused() {
+    let mut attributes = BTreeMap::new();
+    attributes.insert("nested".to_owned(), value!([]));
+    let mut definition = deep_rule_definition(1);
+    definition.attributes = Attributes::new(attributes);
+    let encoded = json::to_string(&definition).unwrap();
+    assert_eq!(encoded.matches(r#""nested":[]"#).count(), 1, "{encoded}");
+    let levels = 100_000;
+    let deep = encoded.replace(
+        r#""nested":[]"#,
+        &format!(r#""nested":{}{}"#, "[".repeat(levels), "]".repeat(levels)),
+    );
+    let error = on_stack(1 << 20, move || {
+        json::from_str(&deep).map(drop).unwrap_err()
+    });
+    assert!(
+        matches!(&error, json::Error::Json(_)) && error.to_string().contains("recursion limit"),
+        "{error}"
+    );
+}
+
 #[test]
 fn preserves_unknown_and_typed_attributes() {
     let mut entries = BTreeMap::new();
