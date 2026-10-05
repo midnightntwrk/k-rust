@@ -187,8 +187,36 @@ impl Sort {
     }
 }
 
+/// Levels of a sort that [`Clone`], [`PartialEq`], and [`Ord`] handle by recursion, which
+/// allocates nothing; the subsorts below them are handled with explicit work lists. The sorts of
+/// K definitions are a few levels deep, so they never reach the work lists, while the recursion
+/// takes a bounded amount of stack whatever the depth of the sort.
+const SORT_RECURSION_LIMIT: usize = 32;
+
 impl Clone for Sort {
     fn clone(&self) -> Self {
+        self.clone_from_depth(0)
+    }
+}
+
+impl Sort {
+    /// A copy of the sort, which is `depth` levels below the sort being copied.
+    fn clone_from_depth(&self, depth: usize) -> Self {
+        match self {
+            Sort::Variable(name) => Sort::Variable(name.clone()),
+            Sort::Application { .. } if depth >= SORT_RECURSION_LIMIT => self.clone_iteratively(),
+            Sort::Application { name, arguments } => Sort::Application {
+                name: name.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| argument.clone_from_depth(depth + 1))
+                    .collect(),
+            },
+        }
+    }
+
+    /// A copy of the sort, built with an explicit work list.
+    fn clone_iteratively(&self) -> Self {
         struct Frame<'a> {
             name: &'a str,
             arguments: &'a [Sort],
@@ -237,7 +265,68 @@ impl Clone for Sort {
 
 impl PartialEq for Sort {
     fn eq(&self, other: &Self) -> bool {
-        self.cmp(other).is_eq()
+        self.eq_from_depth(other, 0)
+    }
+}
+
+impl Sort {
+    /// Whether the sorts are equal, `depth` levels below the sorts being compared.
+    fn eq_from_depth(&self, other: &Self, depth: usize) -> bool {
+        match (self, other) {
+            (Sort::Variable(left), Sort::Variable(right)) => left == right,
+            (
+                Sort::Application {
+                    name: left_name,
+                    arguments: left,
+                },
+                Sort::Application {
+                    name: right_name,
+                    arguments: right,
+                },
+            ) => {
+                if left_name != right_name || left.len() != right.len() {
+                    false
+                } else if depth >= SORT_RECURSION_LIMIT {
+                    self.cmp_iteratively(other).is_eq()
+                } else {
+                    left.iter()
+                        .zip(right)
+                        .all(|(left, right)| left.eq_from_depth(right, depth + 1))
+                }
+            }
+            (Sort::Variable(_), Sort::Application { .. })
+            | (Sort::Application { .. }, Sort::Variable(_)) => false,
+        }
+    }
+
+    /// [`Ord::cmp`], `depth` levels below the sorts being compared.
+    fn cmp_from_depth(&self, other: &Self, depth: usize) -> std::cmp::Ordering {
+        if depth >= SORT_RECURSION_LIMIT {
+            return self.cmp_iteratively(other);
+        }
+        match (self, other) {
+            (Sort::Variable(left), Sort::Variable(right)) => left.cmp(right),
+            (
+                Sort::Application {
+                    name: left_name,
+                    arguments: left,
+                },
+                Sort::Application {
+                    name: right_name,
+                    arguments: right,
+                },
+            ) => left_name.cmp(right_name).then_with(|| {
+                for (left, right) in left.iter().zip(right) {
+                    let ordering = left.cmp_from_depth(right, depth + 1);
+                    if ordering.is_ne() {
+                        return ordering;
+                    }
+                }
+                left.len().cmp(&right.len())
+            }),
+            (Sort::Variable(_), Sort::Application { .. }) => std::cmp::Ordering::Less,
+            (Sort::Application { .. }, Sort::Variable(_)) => std::cmp::Ordering::Greater,
+        }
     }
 }
 
@@ -251,10 +340,18 @@ impl PartialOrd for Sort {
 
 /// Total order on sorts: variables before applications, variables by name, applications by
 /// name, then arguments left to right, then argument count. This is the order
-/// `#[derive(Ord)]` would give; it is written out with an explicit work list because a derived
-/// comparison recurses once per sort level.
+/// `#[derive(Ord)]` would give; it is written out because a derived comparison recurses once
+/// per sort level, while this one recurses only [`SORT_RECURSION_LIMIT`] levels and compares
+/// the subsorts below them with an explicit work list.
 impl Ord for Sort {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.cmp_from_depth(other, 0)
+    }
+}
+
+impl Sort {
+    /// [`Ord::cmp`] with an explicit work list.
+    fn cmp_iteratively(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
         enum Step<'a> {
