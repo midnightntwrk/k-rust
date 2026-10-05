@@ -2414,6 +2414,25 @@ def validate_work_tree_target(path, workspace, source_tree):
     return str(target)
 
 
+def git_environment_for_checkout():
+    """The environment for a git call that names its repository with `git -C`.
+
+    `-C` only changes the directory git discovers a repository from; an inherited GIT_DIR,
+    GIT_WORK_TREE or other repository-local variable still names the repository, and
+    `git bisect run` and `git rebase --exec` export GIT_DIR when run in a linked worktree.
+    Dropping every variable `git rev-parse --local-env-vars` lists makes the call read the
+    checkout it names.
+    """
+    listed = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    repository_variables = set(listed.stdout.split())
+    return {name: value for name, value in os.environ.items() if name not in repository_variables}
+
+
 def source_tree_marker(source_tree):
     """Identify the immutable K source copied into the persistent driver work tree."""
     source_tree = Path(source_tree).resolve()
@@ -2423,6 +2442,7 @@ def source_tree_marker(source_tree):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        env=git_environment_for_checkout(),
     )
     revision = completed.stdout.strip() if completed.returncode == 0 else ""
     return {"source_tree": str(source_tree), "revision": revision}
