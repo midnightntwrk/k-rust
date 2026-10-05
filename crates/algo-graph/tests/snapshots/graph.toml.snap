@@ -1601,11 +1601,11 @@ symbol = "eliminate_existential_witnesses"
 
 [[node.cost]]
 mode = "one consequent (check_established)"
-bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only when the complete policy grades a failing part, grade_outside)"
+bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to four is_sat queries (the third, after one simplification of the antecedent's knowledge, only when a matched consequent is not shown to hold, empty_unless_consistent; the fourth only when the complete policy grades a failing part, grade_outside)"
 
 [[node.cost]]
 mode = "several consequents (check_disjunctive_implication_with_existentials)"
-bound = "O(r x (c matching problems + c witness eliminations + one check_predicates))"
+bound = "O(r x (c matching problems + c witness eliminations + one check_predicates)), then one simplification of the antecedent's knowledge and one is_sat query when a matched consequent is not shown to hold (empty_unless_consistent)"
 
 [[node]]
 kind = "algorithm"
