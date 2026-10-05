@@ -1232,4 +1232,54 @@ mod tests {
             }
         });
     }
+
+    /// A definition of one module `MAIN` holding `sentences`, a sort `SortS` with a constant `a`,
+    /// a parametric sort `SortL`, a constructor `c` of any sort, and sort injections.
+    fn module_with(sentences: &str) -> String {
+        format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                sort SortL{{A}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol c{{S}}() : S [constructor{{}}(), functional{{}}()]
+                symbol inj{{From, To}}(From) : To [sortInjection{{}}(), injective{{}}()]
+                {sentences}
+            endmodule []"#
+        )
+    }
+
+    /// A load that fails on a sort 20,000 levels deep returns an error that the caller drops,
+    /// formats, and compares on its own small thread: a rule writes an injection from that sort,
+    /// which no subsort declaration licenses. The error holds the sort in its KORE form, whose
+    /// traits use explicit work lists; the internal form's recursive destruction overflowed this
+    /// thread. The sort's text takes about 200 KB.
+    #[test]
+    fn errors_naming_deep_sorts_are_handled_on_any_thread() {
+        let deep = chain(20_000, "SortL{", "SortS{}", "}");
+        let source = module_with(&format!(
+            r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}()),
+                \and{{SortS{{}}}}(inj{{{deep}, SortS{{}}}}(c{{{deep}}}()), \top{{SortS{{}}}}())
+            ) [label{{}}("deep")]"#
+        ));
+        on_stack(SMALL_STACK, move || {
+            let Err(error) = load(&source) else {
+                panic!("the injection is unlicensed");
+            };
+            let DefinitionError::UnlicensedInjection {
+                source: written, ..
+            } = &error
+            else {
+                panic!("the load fails on the injection");
+            };
+            assert_eq!(sort_height(written), 20_001);
+            assert!(error.clone() == error);
+            let text = error.to_string();
+            assert!(text.starts_with("Unlicensed injection from SortL{SortL{"));
+            assert!(text.contains(&deep), "the error names the written sort");
+            assert!(format!("{error:?}").contains(r#"name: "SortL""#));
+            drop(error);
+        });
+    }
 }

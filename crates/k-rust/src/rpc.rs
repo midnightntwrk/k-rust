@@ -1270,7 +1270,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             expected,
             actual,
         } => {
-            let actual_sort = externalize::sort(actual).to_string();
+            let actual_sort = actual.to_string();
             let term = locate_application(
                 pattern,
                 symbol,
@@ -1280,16 +1280,13 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             )
             .and_then(|(_, arguments)| arguments.get(*index));
             (
-                format!(
-                    "Incorrect sort: expected {} but got {actual_sort}",
-                    externalize::sort(expected)
-                ),
+                format!("Incorrect sort: expected {expected} but got {actual_sort}"),
                 term,
             )
         }
         DefinitionError::NotSubsort { source, target } => {
-            let source = externalize::sort(source).to_string();
-            let target = externalize::sort(target).to_string();
+            let source = source.to_string();
+            let target = target.to_string();
             (
                 format!("{source} is not a subsort of {target}"),
                 locate_application(
@@ -1306,8 +1303,8 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             // Report the first application of the refused inj{source,target} pair in this
             // sentence. It is an unlicensed instance in the refused axiom, but may be a
             // matched occurrence rather than the written one.
-            let source = externalize::sort(source).to_string();
-            let target = externalize::sort(target).to_string();
+            let source = source.to_string();
+            let target = target.to_string();
             (
                 error.to_string(),
                 locate_application(

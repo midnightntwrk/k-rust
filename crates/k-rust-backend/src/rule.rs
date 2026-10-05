@@ -434,7 +434,9 @@ pub enum RulePatternError {
     MissingTerm,
     TermDisjunction,
     UnsupportedPredicate(&'static str),
-    BinderSortMismatch(Variable),
+    /// A function argument binder whose variable, as written, has another sort than a term it
+    /// binds. The variable is held in its KORE form, as [`DefinitionError`] holds its sorts.
+    BinderSortMismatch(kore::Variable),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1415,7 +1417,7 @@ pub fn internalize_axiom(
                 for alternative in &alternatives {
                     if variable.sort != alternative.sort() {
                         return Err(DefinitionError::RulePattern(
-                            RulePatternError::BinderSortMismatch(variable),
+                            RulePatternError::BinderSortMismatch(binder.variable.clone()),
                         ));
                     }
                 }
@@ -3904,7 +3906,7 @@ mod tests {
         assert!(matches!(
             error,
             DefinitionError::RulePattern(RulePatternError::BinderSortMismatch(variable))
-                if variable.name.as_ref() == "X"
+                if variable.name == "X"
         ));
     }
 

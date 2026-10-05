@@ -70,6 +70,7 @@ use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
     builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
+    externalize,
     matching::{ClosedSort, SortError, SortGraph},
     rewrite::Pattern,
     rule::{
@@ -745,6 +746,13 @@ fn match_declaration_sort(
     }
 }
 
+/// Why a definition, module, or pattern was refused.
+///
+/// An error outlives the operation that found it, and so the stack that operation was given
+/// (`nesting::with_stack`): the caller drops, formats, and compares it on its own stack. Its
+/// sorts are therefore held in their KORE form, which is cloned, compared, formatted, and
+/// dropped with explicit work lists, so an error naming a sort of any depth is safe to handle on
+/// any thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DefinitionError {
     NoSuchModule(String),
@@ -791,17 +799,17 @@ pub enum DefinitionError {
     IncorrectArgumentSort {
         symbol: String,
         index: usize,
-        expected: Sort,
-        actual: Sort,
+        expected: Box<kore::Sort>,
+        actual: Box<kore::Sort>,
     },
     NotSubsort {
-        source: Sort,
-        target: Sort,
+        source: Box<kore::Sort>,
+        target: Box<kore::Sort>,
     },
     /// An executable axiom would write an injection with no subsort path.
     UnlicensedInjection {
-        source: Sort,
-        target: Sort,
+        source: Box<kore::Sort>,
+        target: Box<kore::Sort>,
         axiom: String,
         /// Declaring module and zero-based position of the representative axiom that failed
         /// in that module's sentence list, counting all sentences, including sorts, symbols
@@ -811,7 +819,7 @@ pub enum DefinitionError {
     InvalidSymbolType(String),
     ConstructorAtFixedSort {
         symbol: String,
-        sort: Sort,
+        sort: Box<kore::Sort>,
     },
     InvalidSortParameter,
     MalformedAttribute(String),
@@ -824,10 +832,10 @@ pub enum DefinitionError {
         count: usize,
     },
     SortWithoutDomainValues {
-        sort: Sort,
+        sort: Box<kore::Sort>,
     },
     InvalidDomainValue {
-        sort: Sort,
+        sort: Box<kore::Sort>,
         value: String,
     },
     ExpectedTerm(&'static str),
@@ -926,16 +934,11 @@ impl fmt::Display for DefinitionError {
                 actual,
             } => write!(
                 formatter,
-                "Argument {index} of symbol '{symbol}' expected sort {} but got {}",
-                display_sort(expected),
-                display_sort(actual)
+                "Argument {index} of symbol '{symbol}' expected sort {expected} but got {actual}"
             ),
-            Self::NotSubsort { source, target } => write!(
-                formatter,
-                "{} is not a subsort of {}",
-                display_sort(source),
-                display_sort(target)
-            ),
+            Self::NotSubsort { source, target } => {
+                write!(formatter, "{source} is not a subsort of {target}")
+            }
             Self::UnlicensedInjection {
                 source,
                 target,
@@ -943,17 +946,14 @@ impl fmt::Display for DefinitionError {
                 ..
             } => write!(
                 formatter,
-                "Unlicensed injection from {} to {} in axiom {axiom}",
-                display_sort(source),
-                display_sort(target)
+                "Unlicensed injection from {source} to {target} in axiom {axiom}"
             ),
             Self::InvalidSymbolType(symbol) => {
                 write!(formatter, "Invalid type for symbol '{symbol}'")
             }
             Self::ConstructorAtFixedSort { symbol, sort } => write!(
                 formatter,
-                "Constructor {symbol} is applied at sort {}, which is hooked or has domain values.",
-                display_sort(sort)
+                "Constructor {symbol} is applied at sort {sort}, which is hooked or has domain values."
             ),
             Self::InvalidSortParameter => write!(formatter, "Invalid sort parameter"),
             Self::MalformedAttribute(attribute) => {
@@ -982,15 +982,10 @@ impl fmt::Display for DefinitionError {
             ),
             Self::SortWithoutDomainValues { sort } => write!(
                 formatter,
-                "Sort {} used with a domain value must have the hasDomainValues attribute.",
-                display_sort(sort)
+                "Sort {sort} used with a domain value must have the hasDomainValues attribute."
             ),
             Self::InvalidDomainValue { sort, value } => {
-                write!(
-                    formatter,
-                    "Invalid domain value {value:?} for sort {}",
-                    display_sort(sort)
-                )
+                write!(formatter, "Invalid domain value {value:?} for sort {sort}")
             }
             Self::ExpectedTerm(pattern) => {
                 write!(
@@ -1025,16 +1020,6 @@ impl fmt::Display for DefinitionError {
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
             Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
             Self::Verification(error) => write!(formatter, "{error}"),
-        }
-    }
-}
-
-fn display_sort(sort: &Sort) -> String {
-    match sort {
-        Sort::Variable(name) => name.to_string(),
-        Sort::Application { name, arguments } => {
-            let arguments = arguments.iter().map(display_sort).collect::<Vec<_>>();
-            format!("{name}{{{}}}", arguments.join(", "))
         }
     }
 }
@@ -2303,24 +2288,28 @@ impl BackendDefinition {
         value: &kore::KoreString,
     ) -> Result<(), DefinitionError> {
         let Sort::Application { name, .. } = sort else {
-            return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
+            return Err(DefinitionError::SortWithoutDomainValues {
+                sort: Box::new(externalize::sort(sort)),
+            });
         };
         let Some(info) = self.sorts.get(name) else {
             return Err(DefinitionError::UnknownSort(name.to_string()));
         };
         if !info.has_domain_values {
-            return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
+            return Err(DefinitionError::SortWithoutDomainValues {
+                sort: Box::new(externalize::sort(sort)),
+            });
         }
         let text = value.as_utf8().ok();
         if info.hook.as_deref() == Some("BOOL.Bool") && !matches!(text, Some("true" | "false")) {
             return Err(DefinitionError::InvalidDomainValue {
-                sort: sort.clone(),
+                sort: Box::new(externalize::sort(sort)),
                 value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
             });
         }
         if info.hook.as_deref() == Some("INT.Int") && !text.is_some_and(is_decimal_integer) {
             return Err(DefinitionError::InvalidDomainValue {
-                sort: sort.clone(),
+                sort: Box::new(externalize::sort(sort)),
                 value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
             });
         }
@@ -2448,7 +2437,7 @@ impl BackendDefinition {
             {
                 return Err(DefinitionError::ConstructorAtFixedSort {
                     symbol: syntax.name.clone(),
-                    sort: result,
+                    sort: Box::new(externalize::sort(&result)),
                 });
             }
         }
@@ -2457,8 +2446,8 @@ impl BackendDefinition {
             && !self.injection_licensed(source, target, injection_role)
         {
             return Err(DefinitionError::NotSubsort {
-                source: source.clone(),
-                target: target.clone(),
+                source: Box::new(externalize::sort(source)),
+                target: Box::new(externalize::sort(target)),
             });
         }
         // Booster's injection branch records the declared source sort directly and does not run
@@ -2477,8 +2466,8 @@ impl BackendDefinition {
                     return Err(DefinitionError::IncorrectArgumentSort {
                         symbol: syntax.name.clone(),
                         index,
-                        expected,
-                        actual,
+                        expected: Box::new(externalize::sort(&expected)),
+                        actual: Box::new(externalize::sort(&actual)),
                     });
                 }
             }
@@ -3944,7 +3933,7 @@ mod tests {
             assert!(matches!(
                 definition.internalize_term(&pattern, &[]),
                 Err(DefinitionError::InvalidDomainValue { sort, value: actual })
-                    if sort == Sort::simple("SortInt") && actual == value
+                    if *sort == crate::externalize::sort(&Sort::simple("SortInt")) && actual == value
             ));
         }
 
@@ -4565,8 +4554,8 @@ mod tests {
                 expected,
                 actual,
             }) if symbol == "box"
-                && expected == Sort::simple("SortKey")
-                && actual == Sort::simple("SortValue")
+                && *expected == crate::externalize::sort(&Sort::simple("SortKey"))
+                && *actual == crate::externalize::sort(&Sort::simple("SortValue"))
         ));
     }
 
@@ -4595,8 +4584,8 @@ mod tests {
         assert_eq!(
             definition.internalize_term(&pattern, &[]).unwrap_err(),
             DefinitionError::NotSubsort {
-                source: Sort::simple("SortValue"),
-                target: Sort::simple("SortKey"),
+                source: Box::new(crate::externalize::sort(&Sort::simple("SortValue"))),
+                target: Box::new(crate::externalize::sort(&Sort::simple("SortKey"))),
             }
         );
     }
