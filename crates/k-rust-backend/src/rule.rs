@@ -434,7 +434,9 @@ pub enum RulePatternError {
     MissingTerm,
     TermDisjunction,
     UnsupportedPredicate(&'static str),
-    BinderSortMismatch(Variable),
+    /// A function argument binder whose variable, as written, has another sort than a term it
+    /// binds. The variable is held in its KORE form, as [`DefinitionError`] holds its sorts.
+    BinderSortMismatch(kore::Variable),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1415,7 +1417,7 @@ pub fn internalize_axiom(
                 for alternative in &alternatives {
                     if variable.sort != alternative.sort() {
                         return Err(DefinitionError::RulePattern(
-                            RulePatternError::BinderSortMismatch(variable),
+                            RulePatternError::BinderSortMismatch(binder.variable.clone()),
                         ));
                     }
                 }
@@ -2477,22 +2479,56 @@ fn distribute_term_or_with_context(
     }
 }
 
+/// Every choice of one alternative per argument, as argument lists, the first argument's choice
+/// varying slowest.
+///
+/// The choices form a product: for `n` arguments and `C` choices the lists hold `C * n`
+/// patterns, and each list is built once from its chosen alternatives, so building them costs
+/// that much and no more. When every argument has a single alternative, as in a wide pattern
+/// with no disjunction below it, the one list is built by moving the alternatives.
 fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<Vec<kore::Pattern>> {
-    let mut combinations = vec![Vec::new()];
-    for argument in arguments {
-        let alternatives = distribute_term_or_with_context(argument, inside_term);
-        combinations = combinations
-            .into_iter()
-            .flat_map(|prefix| {
-                alternatives.iter().cloned().map(move |alternative| {
-                    let mut combined = prefix.clone();
-                    combined.push(alternative);
-                    combined
-                })
-            })
-            .collect();
+    let mut alternatives = arguments
+        .iter()
+        .map(|argument| distribute_term_or_with_context(argument, inside_term))
+        .collect::<Vec<_>>();
+    if alternatives.iter().any(Vec::is_empty) {
+        return Vec::new();
     }
-    combinations
+    if alternatives.iter().all(|choices| choices.len() == 1) {
+        return vec![
+            alternatives
+                .iter_mut()
+                .map(|choices| choices.pop().expect("each argument has one alternative"))
+                .collect(),
+        ];
+    }
+    let mut combinations = Vec::new();
+    // Invariant: `choice[i] < alternatives[i].len()` for every argument `i`, and the list of
+    // every choice that precedes `choice`, in the order where the last argument varies fastest,
+    // has been pushed once. Each pass pushes the list of `choice` and advances it to its
+    // successor, so the loop returns after one pass per choice.
+    let mut choice = vec![0_usize; alternatives.len()];
+    loop {
+        combinations.push(
+            choice
+                .iter()
+                .zip(&alternatives)
+                .map(|(&index, choices)| choices[index].clone())
+                .collect(),
+        );
+        let mut position = choice.len();
+        loop {
+            let Some(previous) = position.checked_sub(1) else {
+                return combinations;
+            };
+            position = previous;
+            choice[position] += 1;
+            if choice[position] < alternatives[position].len() {
+                break;
+            }
+            choice[position] = 0;
+        }
+    }
 }
 
 pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
@@ -3870,7 +3906,7 @@ mod tests {
         assert!(matches!(
             error,
             DefinitionError::RulePattern(RulePatternError::BinderSortMismatch(variable))
-                if variable.name.as_ref() == "X"
+                if variable.name == "X"
         ));
     }
 
@@ -4626,6 +4662,84 @@ mod tests {
             ["wrap-z", "any-top"]
         );
         assert!(candidate_labels(&definition, &open_key).contains(&"w0".to_owned()));
+    }
+
+    /// A wide pattern is distributed in time proportional to the patterns it distributes into:
+    /// a conjunction of a disjunction of two constants and 20,000 further constants becomes two
+    /// conjunctions of 20,001 constants each. Copying each growing prefix of the argument list
+    /// once per argument took 400 million copies of a constant here, which is about a minute in
+    /// a debug build; building each list once takes 40,000 copies. The patterns are flat and
+    /// take a few MB.
+    #[test]
+    fn wide_disjunctions_are_distributed_in_linear_time() {
+        let sort = || kore::Sort::Application {
+            name: "SortS".into(),
+            arguments: Vec::new(),
+        };
+        let constant = |name: &str| kore::Pattern::Application {
+            symbol: kore::Symbol {
+                name: name.into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let width = 20_000;
+        let mut arguments = vec![kore::Pattern::Or {
+            sort: sort(),
+            arguments: vec![constant("b"), constant("c")],
+        }];
+        arguments.extend(std::iter::repeat_with(|| constant("a")).take(width));
+        let pattern = kore::Pattern::And {
+            sort: sort(),
+            arguments,
+        };
+
+        let disjuncts = term_disjuncts(&pattern);
+
+        let heads = disjuncts
+            .iter()
+            .map(|disjunct| {
+                let kore::Pattern::And { arguments, .. } = disjunct else {
+                    panic!("each disjunct is a conjunction");
+                };
+                assert_eq!(arguments.len(), width + 1);
+                assert!(
+                    arguments[1..]
+                        .iter()
+                        .all(|argument| *argument == constant("a"))
+                );
+                arguments[0].clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(heads, [constant("b"), constant("c")]);
+    }
+
+    /// Distribution chooses one alternative per argument, the first argument's choice varying
+    /// slowest, and an argument with no alternative leaves no choice.
+    #[test]
+    fn distribution_enumerates_every_choice_in_order() {
+        let pattern = k_rust_kore::kore::parser::parse_pattern(
+            r"p{}(\or{SortS{}}(a{}(), b{}()), c{}(), \or{SortS{}}(d{}(), e{}(), f{}()))",
+        )
+        .unwrap();
+        let printed = distribute_term_or(&pattern)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            printed,
+            [
+                "p{}(a{}(), c{}(), d{}())",
+                "p{}(a{}(), c{}(), e{}())",
+                "p{}(a{}(), c{}(), f{}())",
+                "p{}(b{}(), c{}(), d{}())",
+                "p{}(b{}(), c{}(), e{}())",
+                "p{}(b{}(), c{}(), f{}())",
+            ]
+        );
+        let empty =
+            k_rust_kore::kore::parser::parse_pattern(r"p{}(a{}(), \or{SortS{}}())").unwrap();
+        assert!(distribute_term_or(&empty).is_empty());
     }
 }
 

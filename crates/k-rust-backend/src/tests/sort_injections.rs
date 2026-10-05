@@ -134,8 +134,8 @@ fn claim_written_injection_is_refused() {
     assert_eq!(
         error,
         DefinitionError::NotSubsort {
-            source: Sort::simple("SortA"),
-            target: Sort::simple("SortB"),
+            source: Box::new(crate::externalize::sort(&Sort::simple("SortA"))),
+            target: Box::new(crate::externalize::sort(&Sort::simple("SortB"))),
         },
     );
 }
@@ -202,8 +202,8 @@ fn dead_membership_is_false_only_inside_axioms() {
             UnlicensedInjectionSite::Refuse
         ),
         Err(DefinitionError::NotSubsort {
-            source: Sort::simple("SortL"),
-            target: Sort::simple("SortKItem"),
+            source: Box::new(crate::externalize::sort(&Sort::simple("SortL"))),
+            target: Box::new(crate::externalize::sort(&Sort::simple("SortKItem"))),
         }),
     );
 }
@@ -246,8 +246,8 @@ endmodule []"#,
             UnlicensedInjectionSite::InAxiomMatched,
         ),
         Err(DefinitionError::NotSubsort {
-            source: Sort::simple("SortA"),
-            target: Sort::simple("SortB"),
+            source: Box::new(crate::externalize::sort(&Sort::simple("SortA"))),
+            target: Box::new(crate::externalize::sort(&Sort::simple("SortB"))),
         }),
     );
 

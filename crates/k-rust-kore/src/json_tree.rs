@@ -359,14 +359,20 @@ impl Parser<'_> {
     fn string(&mut self) -> Result<String, Error> {
         let start = self.cursor;
         self.expect(b'"', "expected a string")?;
+        let mut escaped = false;
         while let Some(byte) = self.input.as_bytes().get(self.cursor).copied() {
             match byte {
                 b'"' => {
                     self.cursor += 1;
+                    // Without an escape, the string is the text between its quotes.
+                    if !escaped {
+                        return Ok(self.input[start + 1..self.cursor - 1].to_owned());
+                    }
                     return serde_json::from_str(&self.input[start..self.cursor])
                         .map_err(|error| self.error(error.to_string()));
                 }
                 b'\\' => {
+                    escaped = true;
                     self.cursor += 1;
                     if self.cursor == self.input.len() {
                         return Err(self.error("unterminated escape sequence"));
@@ -522,6 +528,27 @@ mod tests {
             node.into_value(),
             serde_json::from_str::<serde_json::Value>(source).unwrap()
         );
+    }
+
+    #[test]
+    fn reads_strings_as_serde_json_does() {
+        for source in [
+            r#""""#,
+            r#""plain text""#,
+            "\"\u{e9}\u{263a} unescaped\"",
+            r#""café""#,
+            r#""tab\tquote\"slash\/""#,
+        ] {
+            let text = parse(source).unwrap().into_string().unwrap();
+            assert_eq!(
+                text,
+                serde_json::from_str::<String>(source).unwrap(),
+                "{source}"
+            );
+        }
+        assert!(parse("\"a\u{1}b\"").is_err());
+        assert!(parse(r#""a\qb""#).is_err());
+        assert!(parse(r#""unterminated"#).is_err());
     }
 
     #[test]
