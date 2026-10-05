@@ -11818,11 +11818,10 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
                 assigned_frame,
             ))
     );
-    let first = internal_term(&definition, first);
-    let second = internal_term(&definition, second);
+    let first_element = internal_term(&definition, first);
+    let second_element = internal_term(&definition, second);
     let fresh_element_term = Term::variable(fresh_element.clone());
-    let fresh_frame_term = Term::variable(fresh_frame.clone());
-    for explicit in [&first, &second] {
+    for explicit in [&first_element, &second_element] {
         assert!(frame_branch.pattern.constraints.iter().any(|predicate| {
             matches!(predicate, Predicate::Not(inner)
                     if matches!(inner.as_ref(), Predicate::Equals(left, right)
@@ -11830,15 +11829,22 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
                             || (left == &fresh_element_term && right == explicit)))
         }));
     }
-    for element in [&first, &second, &fresh_element_term] {
+    // The definition declares no `SET.in` function, so each element's absence from the frame
+    // is stated as the definedness of the element joined to the frame.
+    for element in [first, second, "RULEELEMENT:SortElement{}"] {
+        let joined = substitute(
+            &internal_term(
+                &definition,
+                &format!("setConcat{{}}(setItem{{}}({element}), FRAME:SortSet{{}})"),
+            ),
+            &fresh_terms,
+        );
         assert!(
             frame_branch
                 .pattern
                 .constraints
-                .contains(&Predicate::Not(Box::new(Predicate::In(
-                    element.clone(),
-                    fresh_frame_term.clone()
-                ),)))
+                .contains(&Predicate::Ceil(joined)),
+            "{element}"
         );
     }
     assert!(remainder.is_some());
@@ -12284,7 +12290,6 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
     let first = internal_term(&definition, first_key);
     let second = internal_term(&definition, second_key);
     let fresh_key_term = Term::variable(fresh_key.clone());
-    let fresh_frame_term = Term::variable(fresh_frame.clone());
     for explicit in [&first, &second] {
         assert!(frame_branch.pattern.constraints.iter().any(|predicate| {
             matches!(predicate, Predicate::Not(inner)
@@ -12293,15 +12298,26 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
                             || (left == &fresh_key_term && right == explicit)))
         }));
     }
-    for key in [&first, &second, &fresh_key_term] {
+    // The definition declares no `MAP.in_keys` function, so each key's absence from the frame
+    // is stated as the definedness of its entry joined to the frame.
+    for (key, value) in [
+        (first_key, first_value),
+        (second_key, second_value),
+        ("RULEKEY:SortKey{}", "RULEVALUE:SortValue{}"),
+    ] {
+        let joined = substitute(
+            &internal_term(
+                &definition,
+                &format!("mapConcat{{}}(mapItem{{}}({key}, {value}), FRAME:SortMap{{}})"),
+            ),
+            &fresh_terms,
+        );
         assert!(
             frame_branch
                 .pattern
                 .constraints
-                .contains(&Predicate::Not(Box::new(Predicate::In(
-                    key.clone(),
-                    fresh_frame_term.clone()
-                ),)))
+                .contains(&Predicate::Ceil(joined)),
+            "{key}"
         );
     }
     let remainder = remainder.expect("symbolic selection should retain a complement");
@@ -12335,7 +12351,6 @@ fn emits_frame_definedness_on_the_single_entry_path() {
     let definition = map_selection_definition();
     let first_key = r#"\dv{SortKey{}}("first")"#;
     let first_value = r#"\dv{SortValue{}}("first-value")"#;
-    let subject_rest = internal_term(&definition, "SUBJECTREST:SortMap{}");
     let subject = Pattern {
         term: internal_term(
             &definition,
@@ -12365,14 +12380,18 @@ fn emits_frame_definedness_on_the_single_entry_path() {
         .iter()
         .find(|branch| branch.pattern.term == explicit_term)
         .expect("one branch should select the explicit entry");
+    // Without a `MAP.in_keys` function, the selected key's absence from the rest is the
+    // definedness of the subject's map.
     assert!(
         explicit
             .pattern
             .constraints
-            .contains(&Predicate::Not(Box::new(Predicate::In(
-                internal_term(&definition, first_key),
-                subject_rest
-            ),)))
+            .contains(&Predicate::Ceil(internal_term(
+                &definition,
+                &format!(
+                    "mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), SUBJECTREST:SortMap{{}})"
+                ),
+            )))
     );
 }
 

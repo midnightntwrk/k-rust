@@ -1356,9 +1356,10 @@ mod tests {
 
     #[test]
     fn abstracts_symbolic_membership_as_a_stable_boolean() {
+        // `\in{S1,S2}(P1:S1, P2:S1)`: both operands have the operand sort.
         let element = Term::variable(Variable::new("X", Sort::simple("SortElement")));
-        let collection = Term::variable(Variable::new("S", Sort::simple("SortSet")));
-        let membership = Predicate::In(element, collection);
+        let pattern = Term::variable(Variable::new("P", Sort::simple("SortElement")));
+        let membership = Predicate::In(element, pattern);
         let negated = Predicate::Not(Box::new(membership.clone()));
         let mut translation = TranslationState::new();
 

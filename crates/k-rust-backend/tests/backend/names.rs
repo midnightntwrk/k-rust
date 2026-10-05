@@ -151,10 +151,12 @@ fn reparse(label: &str, printed: &kore::Pattern) -> (String, kore::Pattern) {
     (text, parsed)
 }
 
-/// The printed pattern read back as a consumer that trusts the backend's output reads it.
+/// The printed pattern read back as a consumer reads it: verified as a standalone pattern of the
+/// definition, then internalized.
 fn read_back(label: &str, definition: &BackendDefinition, printed: &kore::Pattern) -> Pattern {
     definition
-        .admit_unverified(printed, &[])
+        .verify_standalone_pattern(printed, &[])
+        .unwrap_or_else(|error| panic!("{label}: {printed:?} does not verify: {error}"))
         .internalize_pattern()
         .unwrap_or_else(|error| panic!("{label}: {printed:?} does not re-internalize: {error}"))
 }
@@ -214,7 +216,8 @@ fn assert_round_trips(
 fn assert_term_round_trips(label: &str, definition: &BackendDefinition, term: &Term) {
     let (text, printed_term) = reparse(label, &externalize::term(term));
     let back = definition
-        .admit_unverified(&printed_term, &[])
+        .verify_standalone_pattern(&printed_term, &[])
+        .unwrap_or_else(|error| panic!("{label}: {text} does not verify: {error}"))
         .internalize_term()
         .unwrap_or_else(|error| panic!("{label}: {text} does not re-internalize: {error}"));
     let renamed = term
