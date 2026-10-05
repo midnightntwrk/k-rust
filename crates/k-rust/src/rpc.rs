@@ -71,7 +71,9 @@ use k_rust_backend::{
     substitution::{Substitution, extract_substitution, substitute},
     term::{
         Name as BackendName, Sort as BackendSort, Term, Variable,
-        names::{VariableProvenance, split_marker},
+        names::{
+            FreshMarker, VariableProvenance, encode_variable_name, split_marker, with_fresh_marker,
+        },
     },
 };
 #[cfg(feature = "measure")]
@@ -1864,7 +1866,16 @@ fn execute_applied_state(
         configuration_variables,
         definition.sort_graph(),
     );
-    let substitution = project_rule_substitution(&applied.rule_substitution, &state_substitution);
+    let response_variables = configuration_variables
+        .iter()
+        .chain(&pattern_variables(&applied.pattern))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let substitution = project_rule_substitution(
+        &applied.rule_substitution,
+        &state_substitution,
+        &response_variables,
+    );
     if let Some(value) = encode_substitution_source(
         &substitution,
         &applied.pattern.term.sort(),
@@ -1875,15 +1886,61 @@ fn execute_applied_state(
     Ok(state)
 }
 
+/// The rule substitution of an applied rule as the response prints it: each rule variable
+/// bound to its value under the state's substitution.
+///
+/// The bindings are one predicate, so a rule variable and a variable of a value must print
+/// apart, or the predicate would equate two variables under one name. A rule variable prints
+/// with its `Rule#` marker escaped (`Rule-hX`), which only a name read from KORE spelled that
+/// way can print like. When a variable of a value, or of the response (`response_variables`:
+/// the request's and the next state's), prints like a rule variable, that rule variable is
+/// renamed apart to the first `{name}!apart{N}` that prints like none of them and like no
+/// other key (`Rule-hX-bapart0`); its rule name is still the part before the `!`.
 fn project_rule_substitution(
     substitution: &Substitution,
     state_substitution: &Substitution,
+    response_variables: &BTreeSet<Variable>,
 ) -> Substitution {
-    // The bindings are emitted below through the shared variable-name printer, which keeps
-    // each rule variable's `Rule#` marker (escaped) apart from every request name.
-    substitution
+    let projected = substitution
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
+        .collect::<Vec<_>>();
+    let mut taken = response_variables
+        .iter()
+        .chain(
+            projected
+                .iter()
+                .flat_map(|(_, value)| value.attributes().variables.iter()),
+        )
+        .map(|variable| encode_variable_name(&variable.name))
+        .collect::<BTreeSet<_>>();
+    let clashing = projected
+        .iter()
+        .filter(|(variable, _)| taken.contains(&encode_variable_name(&variable.name)))
+        .map(|(variable, _)| variable.clone())
+        .collect::<BTreeSet<_>>();
+    taken.extend(
+        projected
+            .iter()
+            .map(|(variable, _)| encode_variable_name(&variable.name)),
+    );
+    projected
+        .into_iter()
+        .map(|(variable, value)| {
+            if !clashing.contains(&variable) {
+                return (variable, value);
+            }
+            // Invariant: `counter` only grows, so at most |taken| + 1 names are tried.
+            let mut counter = 0;
+            let name = loop {
+                let name = with_fresh_marker(&variable.name, FreshMarker::Apart, counter);
+                counter += 1;
+                if taken.insert(encode_variable_name(&name)) {
+                    break name;
+                }
+            };
+            (variable.with_name(name), value)
+        })
         .collect()
 }
 
@@ -5653,7 +5710,8 @@ endmodule
         let state_substitution =
             Substitution::from([(state_variable, Term::domain_value(sort.clone(), "resolved"))]);
 
-        let substitution = project_rule_substitution(&rule_substitution, &state_substitution);
+        let substitution =
+            project_rule_substitution(&rule_substitution, &state_substitution, &BTreeSet::new());
         let pattern = encode_substitution_source(
             &substitution,
             &sort,
@@ -5664,6 +5722,56 @@ endmodule
         .into_value();
         assert_eq!(pattern["term"]["first"]["name"], "Rule-hX");
         assert_eq!(pattern["term"]["second"]["value"], "resolved");
+    }
+
+    /// A rule substitution is one predicate: a request variable spelled `Rule-hX`, the printed
+    /// spelling of the rule variable `Rule#X`, must not print under the same name as the rule
+    /// variable it is bound to, so the rule variable is renamed apart while a rule variable
+    /// that clashes with nothing keeps its spelling.
+    #[test]
+    fn execute_prints_a_rule_variable_apart_from_a_request_variable_spelled_like_it() {
+        let syntax = parse_definition(
+            r#"[]
+                module TEST
+                  sort SortS{} []
+                  symbol a{}() : SortS{} [constructor{}(), functional{}()]
+                  symbol start{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+                  symbol fin{}(SortS{}, SortS{}) : SortS{} [constructor{}(), functional{}()]
+                  axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+                    fin{}(X:SortS{}, a{}())
+                  ) [UNIQUE'Unds'ID{}("left-rule")]
+                  axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+                    fin{}(a{}(), X:SortS{})
+                  ) [UNIQUE'Unds'ID{}("right-rule")]
+                endmodule []"#,
+        )
+        .expect("definition should parse");
+        let mut service = RpcService::new(BackendSession::new(syntax, "TEST"));
+        for (id, (variable, key)) in [("Rule-hX", "Rule-hX-bapart0"), ("V", "Rule-hX")]
+            .into_iter()
+            .enumerate()
+        {
+            let state =
+                encode_kore(&parse_pattern(&format!("start{{}}({variable}:SortS{{}})")).unwrap())
+                    .unwrap();
+            let response = request(
+                &mut service,
+                id as u64 + 1,
+                "execute",
+                json!({ "state": state, "max-depth": 1 }),
+            );
+            assert_eq!(response["result"]["reason"], "branching", "{response:#}");
+            let next_states = response["result"]["next-states"].as_array().unwrap();
+            assert_eq!(next_states.len(), 2, "{response:#}");
+            for next in next_states {
+                let binding = &next["rule-substitution"]["term"];
+                assert_eq!(binding["tag"], "Equals", "{response:#}");
+                assert_eq!(binding["first"]["name"], key, "{response:#}");
+                assert_eq!(binding["second"]["name"], variable, "{response:#}");
+            }
+        }
     }
 
     #[test]
@@ -5684,7 +5792,8 @@ endmodule
             ),
         ]);
 
-        let substitution = project_rule_substitution(&substitution, &Substitution::new());
+        let substitution =
+            project_rule_substitution(&substitution, &Substitution::new(), &BTreeSet::new());
         let pattern = encode_substitution_source(
             &substitution,
             &sort,

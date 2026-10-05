@@ -21,7 +21,8 @@
 //! contains `-h` or `-b`, so two distinct names of the backend print alike only when one is a
 //! name of the input spelled like the escape of the other. The backend keeps such a pair out
 //! of every response (`crate::fresh::FreshCounter`, and the binder renaming of
-//! `crate::externalize`).
+//! `crate::externalize`); the RPC server renames a rule variable of a `rule-substitution`
+//! apart from a request variable spelled like it.
 
 use std::{borrow::Cow, fmt};
 
