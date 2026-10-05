@@ -1655,9 +1655,10 @@ fn execute_failed_rewrite_logs(reason: &HaltReason) -> Vec<Value> {
     let Some(failure) = failed_rewrite_log(reason) else {
         return Vec::new();
     };
-    // Booster first attempts the unsimplified term, then simplifies and retries a stuck or
-    // indeterminate match. The Rust executor simplifies before its attempt, so reproduce the two
-    // externally observable failures here without repeating the backend work.
+    // The RPC failed-rewrite log of a stuck or match-undecided step carries two failure entries:
+    // one for the attempt on the term as received and one for the retry after simplification.
+    // The Rust executor simplifies before its single attempt, so it emits both entries here
+    // without repeating the backend work.
     if matches!(
         reason,
         HaltReason::Stuck

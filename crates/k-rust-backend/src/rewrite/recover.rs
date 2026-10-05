@@ -466,9 +466,14 @@ pub(super) fn freshen_unbound_rule_variables(
     mut substitution: Substitution,
     fresh_counter: &mut FreshCounter,
 ) -> (Substitution, BTreeSet<Variable>) {
-    // Kore's checkSubstitutionCoverage permits narrowing only when the whole initial term is
-    // not constructor-like. Keep concrete rule variables available for requires to bind, then
-    // check coverage before constructing the successor in apply_rule_with_match.
+    // Narrowing turns a rule variable the match left unbound into an existential constrained by
+    // the match's remaining conditions, so the successor covers every value that makes them hold
+    // for some instance of the configuration. A configuration concrete after normalization is
+    // one state: a left-hand side built from constructors fixes each of its variables there, so
+    // an unbound one only means the matcher has not computed it yet, and an existential would
+    // stand for a value the state already determines. Keep such variables free for a `requires`
+    // equality to bind; apply_rule_with_match reports the step as undetermined
+    // (`IndeterminateReason::Instantiation`) when the substitution still leaves one unbound.
     if pattern.term.concrete_after_normalization() {
         return (substitution, BTreeSet::new());
     }

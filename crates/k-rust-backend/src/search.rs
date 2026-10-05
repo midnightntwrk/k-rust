@@ -890,12 +890,13 @@ fn search_graph_collecting(
             ),
         }
 
-        // Kore's Simplify primitive turns a false-constrained configuration into a Bottom node,
-        // which has no program state and cannot be selected by a search strategy.
+        // A configuration whose constraint is false denotes no state: it has no instance to
+        // report and none to rewrite, so it is neither a result nor a node to expand.
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             continue;
         }
-        // So is an initial state whose own definedness is refuted: it has no instance.
+        // An initial state whose own definedness is refuted is skipped for the same reason: it
+        // has no instance either.
         match initial_state_is_empty(
             definition,
             &state,

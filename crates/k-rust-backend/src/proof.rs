@@ -1951,7 +1951,10 @@ fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> Stoppable<bool
         ))
 }
 
-/// Kore accepts a bottom initial claim, but rejects bottom successors unless vacuity is allowed.
+/// A claim whose initial pattern is bottom denotes no state, so it holds vacuously and is proven.
+/// A state reached by rewriting that turns out bottom has no instance either, but it holds only
+/// because the path's own conditions contradict each other or its step is undefined; that is
+/// reported as `cause` rather than counted as a proof, unless the caller allows vacuous proofs.
 fn vacuous_outcome(
     state: &ProofState,
     options: ProofOptions,

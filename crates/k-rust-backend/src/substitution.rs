@@ -272,9 +272,11 @@ fn extract_substitution_with(
 
 /// Extract substitutions whose keys are restricted to `bindable` variables.
 ///
-/// Equal sort injections are peeled before orientation so implication and claim witnesses use the
-/// same binding shape as Kore's injection simplifier. Predicates which cannot define a bindable
-/// variable are preserved unchanged.
+/// An injection is injective, so `inj{S,T}(a) = inj{S,T}(b)` holds exactly when `a = b`. Equal
+/// sort injections are peeled before orientation, so a variable under one binds at its own sort
+/// (`X:S = b`) and implication and claim witnesses bind the variable itself rather than leaving
+/// the equality unoriented. Predicates which cannot define a bindable variable are preserved
+/// unchanged.
 pub(crate) fn extract_substitution_for(
     constraints: &[Predicate],
     bindable: &BTreeSet<Variable>,

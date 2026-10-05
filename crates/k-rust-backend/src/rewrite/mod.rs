@@ -239,8 +239,9 @@ pub(crate) enum TrivialKind {
     Carried,
 }
 
-/// A rule application whose rewritten result is bottom on some instances. Kore retains its
-/// unifier in the priority-group remainder, so lower priorities never see those instances.
+/// A rule application whose rewritten result is bottom on some instances. Its applicability
+/// condition still removes those instances from the priority group's remainder, so lower
+/// priorities never see them.
 ///
 /// Such an instance is not stuck, since a rule applies to it and blocks the lower priorities,
 /// and it has no successor from this rule: its step is undefined.
@@ -860,7 +861,10 @@ pub fn rewrite_step_with_solver(
 
 /// Apply rewrite rules sequentially, feeding each rule only the remainder left by earlier rules.
 ///
-/// This is Kore's `applyRewriteRulesSequence`, used for one-path reachability proofs.
+/// Each instance of the configuration takes the successors of one rule, the first in priority
+/// then definition order that gives it a defined result (`ExecutionMode::Any`). A one-path
+/// reachability claim needs some path to reach its target, so following one applicable rule per
+/// instance is enough to establish it.
 pub fn rewrite_step_sequential_with_solver(
     definition: &BackendDefinition,
     pattern: &Pattern,

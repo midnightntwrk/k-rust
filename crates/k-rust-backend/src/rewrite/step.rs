@@ -25,9 +25,10 @@
 //! ```
 //!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
-//! priority group (Kore `transitionAllRewrite`), while `Any` mode threads it through the rules
-//! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
-//! modes. Within a priority, `Any` feeds each rule the instances no earlier rule took to a defined
+//! priority group, so a configuration's successors are those of every rule of the first priority
+//! that applies to it, while `Any` mode threads it through the rules sequentially, so each
+//! instance follows the first rule that gives it a defined result. The returned remainder is
+//! complete in both modes. Within a priority, `Any` feeds each rule the instances no earlier rule took to a defined
 //! result, so the instances where a rule applies but its result is undefined reach the later rules
 //! of its priority, and only the priority's end excludes every instance one of its rules applies
 //! to. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
@@ -430,8 +431,11 @@ struct LowerGroups {
     groups: BTreeMap<u8, Vec<Arc<RewriteRule>>>,
 }
 
-/// Complete Kore's `transitionAllRewrite` fold by feeding the remainder to each lower priority
-/// group once. Applications and trivial sub-cases from later groups are retained in the same step.
+/// Apply each lower priority group once, in priority order, to the remainder. A rule of a lower
+/// priority applies only to the instances to which no rule of a higher priority applies, and the
+/// remainder is exactly those instances of the parent pattern, so each group is offered precisely
+/// the states its priority admits. Applications and trivial sub-cases from later groups are
+/// retained in the same step.
 /// No lower group receives execution IO because a remainder only carries constraints.
 ///
 /// The rule index drops a candidate only when matching it against the term the index keys were
