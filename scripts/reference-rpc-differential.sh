@@ -328,6 +328,29 @@ normalize_backend_error_class() {
          else . end'
 }
 
+# N40: the keys of a `rule-substitution` are the variables of the applied rule, each printed with
+# the engine's marker that keeps it apart from the state's variables in the one predicate: the
+# port escapes its `Rule#` marker (`Rule-hX`), Booster drops the `#` (`RuleX`). Both are mapped
+# to `Rule#X`, X the rule variable's name in the definition; the bound values are compared as
+# printed.
+normalize_rule_substitution_keys() {
+  local rule_variable='def rule_variable:
+      (if startswith("@") then "@" else "" end) as $at
+      | ltrimstr("@") as $name
+      | if ($name | startswith("Rule-h")) then
+          $at + "Rule#" + ($name | ltrimstr("Rule-h")
+            | gsub("-(?<c>[-hba])"; {"-": "-", "h": "#", "b": "!", "a": "@"}[.c]))
+        elif ($name | startswith("Rule")) then $at + "Rule#" + ($name | ltrimstr("Rule"))
+        else . end;'
+  jq "$rule_variable"'
+    walk(if type == "object" and has("rule-substitution")
+         then .["rule-substitution"] |= walk(
+                if type == "object" and .tag == "Equals"
+                   and (.first | type) == "object" and (.first.tag == "EVar" or .first.tag == "SVar")
+                then .first.name |= rule_variable else . end)
+         else . end)'
+}
+
 normalize_rpc_response() {
   local response=$1
   local input=$2
@@ -337,15 +360,17 @@ normalize_rpc_response() {
   local next_states='def canonical: walk(if type == "object" then to_entries | sort_by(.key) | from_entries else . end) | tojson;
     if (.result? | type) == "object" and (.result["next-states"]? | type) == "array"
     then .result["next-states"] |= sort_by(canonical) else . end'
+  # N40 runs first: the N27 sort key includes the rule-substitution keys.
+  normalize_rule_substitution_keys <"$input" |
   case "$response" in
     error-add-module-malformed)
-      jq -S "$next_states | .error.data.error |= type" "$input"
+      jq -S "$next_states | .error.data.error |= type"
       ;;
     error-execute-bad-symbol)
-      jq -S "$next_states | .error.data |= map({error: (.error | type)})" "$input"
+      jq -S "$next_states | .error.data |= map({error: (.error | type)})"
       ;;
     *)
-      jq -S "$next_states" "$input"
+      jq -S "$next_states"
       ;;
   esac | normalize_backend_error_class
 }

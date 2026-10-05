@@ -342,6 +342,14 @@ rule = "For a backend error response (error.code in 1..9), compare code, message
 justification = "The context lines are Kore's error-context stack and Claim.hs diagnostic framing, and the extra simplify detail is Booster's two-interpretation attempt order; pyk joins context into an exception message and no client parses it. The class of a rejection (code, message, error sentence) is the contract, as C3 states for the conformance driver. See docs/compatibility.md#rpc-behavior."
 
 [[normalisation]]
+id = "N40"
+gate = "rpc"
+anchor = "scripts/reference-rpc-differential.sh:rule-substitution"
+anchor_symbol = "normalize_rule_substitution_keys"
+rule = "In every rule-substitution of a response, before N27, map the name of the variable on the left of each equality, the applied rule's variable, from the port's escaped marker spelling Rule-h<X> (with -- read as -, -h as #, -b as !, -a as @) and from Booster's Rule<X> to Rule#<X>, keeping a leading @ of a set variable. The bound values and every other name are compared as printed."
+justification = "A rule-substitution relates the variables of the applied rule to terms over the state's variables in one predicate, so each engine prints a rule variable with a marker that keeps it apart from a state variable of the same name in the definition. Which marker spelling an engine uses is not part of the contract; the rule variable it denotes, the definition's name X, is. The port's spelling is the injective escape of docs/compatibility.md#variable-names; Booster's drops the #. See docs/compatibility.md#rpc-behavior."
+
+[[normalisation]]
 id = "N30"
 gate = "compile"
 anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_no_confusion_pairs"
