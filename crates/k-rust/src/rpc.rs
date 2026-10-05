@@ -79,7 +79,7 @@ use k_rust_backend::{
 #[cfg(feature = "measure")]
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value, json, value::RawValue};
 
 #[cfg(test)]
 use k_rust_backend::session::BackendSession;
@@ -130,6 +130,7 @@ pub(super) struct RpcService {
     backend: Backend,
 }
 
+#[derive(Debug)]
 enum RpcValue {
     Plain(Value),
     Raw(String),
@@ -210,7 +211,7 @@ impl RpcValue {
 struct RpcFault {
     code: i64,
     message: String,
-    data: Option<Value>,
+    data: Option<RpcValue>,
 }
 
 /// `Kore.JsonRpc.Error.JsonRpcBackendError`; the discriminant is the wire code.
@@ -360,7 +361,7 @@ impl RpcFault {
         Self {
             code: -32000,
             message: "Request cancelled".into(),
-            data: Some(Value::Null),
+            data: Some(Value::Null.into()),
         }
     }
 
@@ -372,7 +373,7 @@ impl RpcFault {
         }
     }
 
-    fn invalid_request(data: Option<Value>) -> Self {
+    fn invalid_request(data: Option<RpcValue>) -> Self {
         Self {
             code: -32600,
             message: "Invalid request".into(),
@@ -380,7 +381,7 @@ impl RpcFault {
         }
     }
 
-    fn invalid_params(data: Option<Value>) -> Self {
+    fn invalid_params(data: Option<RpcValue>) -> Self {
         Self {
             code: -32602,
             message: "Invalid params".into(),
@@ -392,7 +393,7 @@ impl RpcFault {
         Self {
             code: kind as i64,
             message: kind.message().into(),
-            data: Some(data),
+            data: Some(data.into()),
         }
     }
 
@@ -425,7 +426,7 @@ impl RpcFault {
         Self {
             code: -32002,
             message: "Runtime error".into(),
-            data: Some(Value::Object(data)),
+            data: Some(Value::Object(data).into()),
         }
     }
 
@@ -452,15 +453,27 @@ impl RpcFault {
         Self::backend_error(BackendErrorKind::DuplicateModuleName, Value::String(module))
     }
 
-    fn into_value(self, id: Value) -> Value {
-        let mut error = Map::from_iter([
-            ("code".into(), Value::from(self.code)),
-            ("message".into(), Value::String(self.message)),
-        ]);
+    fn into_response(self, id: RpcValue) -> RpcValue {
+        let mut error = vec![
+            ("code", RpcValue::Plain(Value::from(self.code))),
+            ("message", RpcValue::Plain(Value::String(self.message))),
+        ];
         if let Some(data) = self.data {
-            error.insert("data".into(), data);
+            error.push(("data", data));
         }
-        json!({ "jsonrpc": JSON_RPC_VERSION, "id": id, "error": error })
+        RpcValue::object([
+            ("error", RpcValue::object(error)),
+            ("id", id),
+            (
+                "jsonrpc",
+                RpcValue::Plain(Value::String(JSON_RPC_VERSION.into())),
+            ),
+        ])
+    }
+
+    #[cfg(test)]
+    fn data_value(self) -> Option<Value> {
+        self.data.map(RpcValue::into_value)
     }
 }
 
@@ -513,38 +526,37 @@ impl RpcService {
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
     #[cfg(test)]
     pub(super) fn handle_line(&mut self, line: &str) -> Option<String> {
-        self.handle_parsed(parse_json_value(line).ok())
+        self.handle_parsed(serde_json::from_str::<Box<RawValue>>(line).ok().as_deref())
     }
 
-    fn handle_parsed(&mut self, message: Option<Value>) -> Option<String> {
-        let message = match message {
-            Some(message) => message,
-            None => {
-                let error = RpcFault {
-                    code: -32700,
-                    message: "Parse error".into(),
-                    data: None,
-                };
-                return Some(
-                    serde_json::to_string(&error.into_value(Value::Null))
-                        .expect("JSON-RPC errors are serializable"),
-                );
-            }
+    /// Answers one framed message, `None` when it was not valid JSON.
+    ///
+    /// The message is never built into a JSON value: the envelope members the server reads are
+    /// taken as raw text, `params` is decoded into the method's typed parameters, and a request
+    /// echoed in an error is copied as text. So a message of any depth is answered or rejected
+    /// without native recursion over the client's input.
+    fn handle_parsed(&mut self, message: Option<&RawValue>) -> Option<String> {
+        let Some(message) = message else {
+            let error = RpcFault {
+                code: -32700,
+                message: "Parse error".into(),
+                data: None,
+            };
+            return Some(error.into_response(Value::Null.into()).to_json_string());
         };
-        let response = match message {
-            Value::Array(requests) if requests.is_empty() => Some(
-                RpcFault::invalid_request(Some(json!([])))
-                    .into_value(Value::Null)
-                    .into(),
+        let response = match json_elements(message) {
+            Some(requests) if requests.is_empty() => Some(
+                RpcFault::invalid_request(Some(RpcValue::Raw("[]".into())))
+                    .into_response(Value::Null.into()),
             ),
-            Value::Array(requests) => {
+            Some(requests) => {
                 let responses = requests
-                    .into_iter()
+                    .iter()
                     .filter_map(|request| self.handle_request(request))
                     .collect::<Vec<_>>();
                 (!responses.is_empty()).then_some(RpcValue::Array(responses))
             }
-            request => self.handle_request(request),
+            None => self.handle_request(message),
         };
         response.map(|response| {
             #[cfg(feature = "measure")]
@@ -553,31 +565,28 @@ impl RpcService {
         })
     }
 
-    fn handle_request(&mut self, request: Value) -> Option<RpcValue> {
-        let Some(object) = request.as_object() else {
-            return Some(
-                RpcFault::invalid_request(Some(request))
-                    .into_value(Value::Null)
-                    .into(),
-            );
+    fn handle_request(&mut self, request: &RawValue) -> Option<RpcValue> {
+        let invalid = || {
+            Some(RpcFault::invalid_request(Some(echo(request))).into_response(Value::Null.into()))
         };
-        let id_present = object.contains_key("id");
-        let id = object.get("id").cloned().unwrap_or(Value::Null);
-        let valid_id = id.is_null() || id.is_number() || id.is_string();
-        let method = object.get("method").and_then(Value::as_str);
-        if object.get("jsonrpc").and_then(Value::as_str) != Some(JSON_RPC_VERSION)
-            || method.is_none()
-            || !valid_id
-        {
-            return Some(
-                RpcFault::invalid_request(Some(request))
-                    .into_value(Value::Null)
-                    .into(),
-            );
+        let Some([jsonrpc, method, id, params]) =
+            object_members(request, ["jsonrpc", "method", "id", "params"])
+        else {
+            return invalid();
+        };
+        let id_present = id.is_some();
+        let id = match id.as_deref() {
+            None => Some(Value::Null),
+            Some(id) => request_id(id),
+        };
+        let method = method.as_deref().and_then(json_string);
+        let (Some(id), Some(method)) = (id, method) else {
+            return invalid();
+        };
+        if jsonrpc.as_deref().and_then(json_string).as_deref() != Some(JSON_RPC_VERSION) {
+            return invalid();
         }
-        let method = method.expect("checked above");
-        let params = object.get("params").cloned().unwrap_or(Value::Null);
-        let result = self.dispatch(method, params);
+        let result = self.dispatch(&method, params.as_deref());
         if !id_present {
             return None;
         }
@@ -590,21 +599,21 @@ impl RpcService {
                 ),
                 ("result", result),
             ]),
-            Err(error) => error.into_value(id).into(),
+            Err(error) => error.into_response(id.into()),
         })
     }
 
-    fn dispatch(&mut self, method: &str, params: Value) -> Result<RpcValue, RpcFault> {
+    fn dispatch(&mut self, method: &str, params: Option<&RawValue>) -> Result<RpcValue, RpcFault> {
         // A request stopped before it starts does not run. Once it runs, each method reports a
         // stop of its work as the stop's own fault, never by reinterpreting its result.
         stop::check().map_err(stopped_request)?;
         let requested_logs = params
-            .get("haskell-logging")
-            .and_then(Value::as_array)
+            .and_then(|params| object_members(params, ["haskell-logging"]))
+            .and_then(|[logs]| logs)
+            .and_then(|logs| json_elements(&logs))
             .into_iter()
             .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
+            .filter_map(|entry| json_string(&entry))
             .collect::<Vec<_>>();
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
@@ -616,7 +625,7 @@ impl RpcService {
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
-                data: Some(Value::String(method.into())),
+                data: Some(Value::String(method.into()).into()),
             }),
         };
         result.map(|mut result| {
@@ -1703,11 +1712,126 @@ fn legacy_log_selected(requested: &[String], contexts: &[&str]) -> bool {
         .any(|context| requested.iter().any(|requested| requested == context))
 }
 
-fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFault> {
+/// Decodes a method's typed parameters from their JSON text, with serde's recursion limit on:
+/// KORE fields are decoded iteratively by [`KoreJson`], and no other parameter nests.
+/// An absent `params` decodes as `null`.
+fn decode_params<T: for<'de> Deserialize<'de>>(params: Option<&RawValue>) -> Result<T, RpcFault> {
     #[cfg(feature = "measure")]
     let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
-    let data = (!params.is_null()).then_some(params.clone());
-    serde_json::from_value(params).map_err(|_| RpcFault::invalid_params(data))
+    let text = params.map_or("null", RawValue::get);
+    serde_json::from_str(text).map_err(|_| {
+        RpcFault::invalid_params((text != "null").then(|| RpcValue::Raw(compact_json(text))))
+    })
+}
+
+/// The first byte of a JSON text, which names its kind: `{`, `[`, `"`, a digit or `-`, or the
+/// first letter of `true`, `false`, or `null`.
+fn json_kind(json: &RawValue) -> Option<u8> {
+    json.get().trim_start().bytes().next()
+}
+
+/// The elements of a JSON array as raw text, or `None` when `json` is not an array. The
+/// elements are scanned with an explicit stack and never built into JSON values.
+fn json_elements(json: &RawValue) -> Option<Vec<Box<RawValue>>> {
+    (json_kind(json) == Some(b'['))
+        .then(|| serde_json::from_str(json.get()).ok())
+        .flatten()
+}
+
+/// The value of a JSON string, or `None` when `json` is not a string.
+fn json_string(json: &RawValue) -> Option<String> {
+    (json_kind(json) == Some(b'"'))
+        .then(|| serde_json::from_str(json.get()).ok())
+        .flatten()
+}
+
+/// A request id that JSON-RPC permits (null, a number, or a string), or `None` for any other
+/// JSON value.
+fn request_id(id: &RawValue) -> Option<Value> {
+    matches!(json_kind(id), Some(b'n' | b'"' | b'-' | b'0'..=b'9'))
+        .then(|| serde_json::from_str(id.get()).ok())
+        .flatten()
+}
+
+/// The raw text of the named members of a JSON object, or `None` when `json` is not an object.
+/// Other members are skipped by serde_json's explicit-stack scanner, and a repeated member keeps
+/// its last occurrence, as it does in a JSON object value.
+fn object_members<const N: usize>(
+    json: &RawValue,
+    names: [&str; N],
+) -> Option<[Option<Box<RawValue>>; N]> {
+    use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, Visitor};
+
+    struct Members<'a, const N: usize>(&'a [&'a str; N]);
+
+    impl<'de, const N: usize> DeserializeSeed<'de> for Members<'_, N> {
+        type Value = [Option<Box<RawValue>>; N];
+
+        fn deserialize<D: serde::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_map(self)
+        }
+    }
+
+    impl<'de, const N: usize> Visitor<'de> for Members<'_, N> {
+        type Value = [Option<Box<RawValue>>; N];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut members = std::array::from_fn(|_| None);
+            while let Some(key) = map.next_key::<String>()? {
+                match self.0.iter().position(|name| *name == key) {
+                    Some(index) => members[index] = Some(map.next_value()?),
+                    None => {
+                        map.next_value::<IgnoredAny>()?;
+                    }
+                }
+            }
+            Ok(members)
+        }
+    }
+
+    if json_kind(json) != Some(b'{') {
+        return None;
+    }
+    let mut deserializer = serde_json::Deserializer::from_str(json.get());
+    let members = Members(&names).deserialize(&mut deserializer).ok()?;
+    deserializer.end().ok()?;
+    Some(members)
+}
+
+/// A client's JSON echoed in a response, as its text without the whitespace between tokens.
+fn echo(json: &RawValue) -> RpcValue {
+    RpcValue::Raw(compact_json(json.get()))
+}
+
+/// Valid JSON text without the whitespace between its tokens, so an echoed message cannot break
+/// the newline framing of responses: JSON whitespace is space, tab, line feed, and carriage
+/// return, and JSON strings cannot contain any of them unescaped except space.
+fn compact_json(json: &str) -> String {
+    let mut output = String::with_capacity(json.len());
+    let (mut in_string, mut escaped) = (false, false);
+    for character in json.chars() {
+        if in_string {
+            output.push(character);
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+        } else if !matches!(character, ' ' | '\t' | '\n' | '\r') {
+            in_string = character == '"';
+            output.push(character);
+        }
+    }
+    output
 }
 
 #[cfg(test)]
@@ -2122,7 +2246,7 @@ fn serve_connection(
                 break;
             }
         };
-        if message.value.as_ref().is_some_and(is_standalone_cancel) {
+        if message.value.as_deref().is_some_and(is_standalone_cancel) {
             if let Some(active) = session.active()?
                 && active.cancel()
                 && let Some(response) = active.cancellation_response()
@@ -2163,7 +2287,7 @@ mod session {
     };
 
     use k_rust_backend::stop::CancellationToken;
-    use serde_json::Value;
+    use serde_json::value::RawValue;
 
     use super::{CONNECTION_STACK_SIZE, RpcService, cancellation_response, write_response};
 
@@ -2180,7 +2304,7 @@ mod session {
     }
 
     impl RequestControl {
-        fn new(message: Option<&Value>) -> Self {
+        fn new(message: Option<&RawValue>) -> Self {
             Self {
                 token: CancellationToken::new(),
                 state: AtomicU8::new(REQUEST_PENDING),
@@ -2229,7 +2353,7 @@ mod session {
     }
 
     type Controls = Arc<Mutex<VecDeque<Arc<RequestControl>>>>;
-    type Admitted = (Option<Value>, Arc<RequestControl>);
+    type Admitted = (Option<Box<RawValue>>, Arc<RequestControl>);
     type Worker = thread::JoinHandle<io::Result<()>>;
 
     fn queue_poisoned() -> io::Error {
@@ -2284,7 +2408,7 @@ mod session {
                                         if control.is_cancelled() {
                                             None
                                         } else {
-                                            service.handle_parsed(message)
+                                            service.handle_parsed(message.as_deref())
                                         }
                                     })
                             })?
@@ -2311,8 +2435,8 @@ mod session {
 
         /// Admits one request and queues it for the worker; `Ok(false)` when the worker has
         /// stopped and nothing more can be served.
-        pub(super) fn admit(&self, message: Option<Value>) -> io::Result<bool> {
-            let control = Arc::new(RequestControl::new(message.as_ref()));
+        pub(super) fn admit(&self, message: Option<Box<RawValue>>) -> io::Result<bool> {
+            let control = Arc::new(RequestControl::new(message.as_deref()));
             self.controls
                 .lock()
                 .map_err(|_| queue_poisoned())?
@@ -2403,7 +2527,13 @@ mod session {
             let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
             let service = Arc::new(Mutex::new(looping_service()));
             let session = ConnectionSession::start(writer, Arc::clone(&service)).unwrap();
-            assert!(session.admit(Some(divergent_execute())).unwrap());
+            assert!(
+                session
+                    .admit(Some(
+                        RawValue::from_string(divergent_execute().to_string()).unwrap()
+                    ))
+                    .unwrap()
+            );
             let control = session.active().unwrap().expect("the admitted request");
 
             // The request runs once the worker holds the service lock.
@@ -2502,7 +2632,8 @@ fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
 }
 
 struct FramedMessage {
-    value: Option<Value>,
+    /// The message's JSON text, or `None` when the frame was not valid JSON.
+    value: Option<Box<RawValue>>,
     #[cfg(test)]
     raw: String,
 }
@@ -2561,9 +2692,10 @@ fn read_json_message(
                 offset: 0,
                 chunk_end: &mut chunk_end,
             };
-            let mut deserializer = serde_json::Deserializer::from_reader(input);
-            deserializer.disable_recursion_limit();
-            let mut values = deserializer.into_iter::<Value>();
+            // A raw value is scanned with an explicit stack and no recursion limit, so a frame
+            // of any depth is either a message or malformed.
+            let mut values =
+                serde_json::Deserializer::from_reader(input).into_iter::<Box<RawValue>>();
             let parsed = values.next();
             (parsed, values.byte_offset())
         };
@@ -2618,36 +2750,35 @@ fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::R
     writer.flush()
 }
 
-fn is_standalone_cancel(message: &Value) -> bool {
-    let Value::Object(request) = message else {
+fn is_standalone_cancel(message: &RawValue) -> bool {
+    let Some([jsonrpc, method, id]) = object_members(message, ["jsonrpc", "method", "id"]) else {
         return false;
     };
-    request.get("jsonrpc").and_then(Value::as_str) == Some(JSON_RPC_VERSION)
-        && request.get("method").and_then(Value::as_str) == Some("cancel")
-        && request
-            .get("id")
-            .is_none_or(|id| id.is_null() || id.is_number() || id.is_string())
+    jsonrpc.as_deref().and_then(json_string).as_deref() == Some(JSON_RPC_VERSION)
+        && method.as_deref().and_then(json_string).as_deref() == Some("cancel")
+        && id.as_deref().is_none_or(|id| request_id(id).is_some())
 }
 
-fn cancellation_response(message: &Value) -> Option<String> {
-    let response = match message {
-        Value::Object(request) => cancellation_error_for_request(request),
-        Value::Array(requests) => {
+fn cancellation_response(message: &RawValue) -> Option<String> {
+    let response = match json_elements(message) {
+        Some(requests) => {
             let responses = requests
                 .iter()
-                .filter_map(Value::as_object)
-                .filter_map(cancellation_error_for_request)
+                .filter_map(|request| cancellation_error_for_request(request))
                 .collect::<Vec<_>>();
-            (!responses.is_empty()).then_some(Value::Array(responses))
+            (!responses.is_empty()).then_some(RpcValue::Array(responses))
         }
-        _ => None,
+        None => cancellation_error_for_request(message),
     }?;
-    serde_json::to_string(&response).ok()
+    Some(response.to_json_string())
 }
 
-fn cancellation_error_for_request(request: &Map<String, Value>) -> Option<Value> {
-    let id = request.get("id")?.clone();
-    Some(RpcFault::cancelled().into_value(id))
+/// The cancelled fault for an object request with an `id` member, echoing that member as sent.
+fn cancellation_error_for_request(request: &RawValue) -> Option<RpcValue> {
+    let [id] = object_members(request, ["id"])?;
+    let id = id?;
+    let id = request_id(&id).map_or_else(|| echo(&id), RpcValue::Plain);
+    Some(RpcFault::cancelled().into_response(id))
 }
 
 #[cfg(test)]
@@ -2700,7 +2831,7 @@ mod tests {
             (-32002, "Runtime error")
         );
         assert_eq!(
-            fault.data.unwrap()["error"],
+            fault.data_value().unwrap()["error"],
             StopCause::StackExhausted.to_string()
         );
 
@@ -3936,13 +4067,14 @@ endmodule
 
         assert_eq!(fault.code, 6);
         assert_eq!(fault.message, "Aborted");
+        let debug = format!("{fault:#?}");
         assert!(
             fault
-                .data
+                .data_value()
                 .as_ref()
                 .and_then(Value::as_str)
                 .is_some_and(|error| error.contains("IterationLimit")),
-            "{fault:#?}"
+            "{debug}"
         );
     }
 
@@ -4606,11 +4738,201 @@ endmodule
         }
     }
 
+    const DEEP_LEVELS: usize = 200_000;
+
+    /// A KORE JSON `\not` chain `levels` deep, built without a JSON value.
+    fn deep_kore_json(levels: usize) -> String {
+        let sort = r#"{"tag":"SortApp","name":"SortState","args":[]}"#;
+        let mut json = String::from(r#"{"format":"KORE","version":1,"term":"#);
+        for _ in 0..levels {
+            json.push_str(&format!(r#"{{"tag":"Not","sort":{sort},"arg":"#));
+        }
+        json.push_str(&format!(r#"{{"tag":"Top","sort":{sort}}}"#));
+        json.push_str(&"}".repeat(levels + 1));
+        json
+    }
+
+    fn deep_array(levels: usize) -> String {
+        format!("{}{}", "[".repeat(levels), "]".repeat(levels))
+    }
+
+    /// A service answers ordinary requests after the deep ones.
+    fn assert_still_serving(service: &mut RpcService) {
+        let response = request(service, 3, "missing", Value::Null);
+        assert_eq!(response["error"]["code"], -32601);
+    }
+
     #[test]
-    fn protocol_parser_accepts_deep_json_without_serde_recursion_limits() {
-        let depth = 300;
-        let source = format!("{}null{}", "[".repeat(depth), "]".repeat(depth));
-        assert!(parse_json_value(&source).is_ok());
+    fn framing_reads_deep_frames_on_the_test_thread() {
+        let valid = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"execute","params":{{"state":{}}}}}"#,
+            deep_kore_json(DEEP_LEVELS)
+        );
+        let malformed = format!(r#"{{"jsonrpc":{}}}"#, "[".repeat(DEEP_LEVELS));
+        let mut reader = Chunks(
+            format!(
+                "{malformed}\n{valid}\n{{\"id\":2}}\n{}",
+                "[".repeat(DEEP_LEVELS)
+            )
+            .into_bytes()
+            .chunks(4096)
+            .map(<[u8]>::to_vec)
+            .collect(),
+        );
+        let mut buffer = Vec::new();
+
+        let message = read_json_message(&mut reader, &mut buffer)
+            .unwrap()
+            .unwrap();
+        assert!(message.value.is_none());
+        assert_eq!(message.raw, format!("{malformed}\n"));
+        let message = read_json_message(&mut reader, &mut buffer)
+            .unwrap()
+            .unwrap();
+        assert_eq!(message.value.unwrap().get(), valid);
+        let message = read_json_message(&mut reader, &mut buffer)
+            .unwrap()
+            .unwrap();
+        assert_eq!(message.value.unwrap().get(), r#"{"id":2}"#);
+        let message = read_json_message(&mut reader, &mut buffer)
+            .unwrap()
+            .unwrap();
+        assert!(
+            message.value.is_none(),
+            "an unfinished frame at EOF is malformed"
+        );
+        assert!(
+            read_json_message(&mut reader, &mut buffer)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn deep_requests_are_answered_on_the_test_thread() {
+        let mut service = service();
+        let deep = deep_array(DEEP_LEVELS);
+
+        // A deep valid state is decoded into a pattern and dropped; the missing module is the
+        // request's fault.
+        let response = service
+            .handle_line(&format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"execute","params":{{"state":{},"module":"MISSING"}}}}"#,
+                deep_kore_json(DEEP_LEVELS)
+            ))
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&response).unwrap(),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": { "code": 3, "message": "Could not find module", "data": "MISSING" },
+            })
+        );
+
+        // A deep id, deep params of the wrong type, and a deep batch element are rejected with
+        // the request echoed as sent.
+        for (request, code) in [
+            (
+                format!(r#"{{"jsonrpc":"2.0","id":{deep},"method":"execute"}}"#),
+                -32600,
+            ),
+            (
+                format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"execute","params":{{"state":{deep}}}}}"#
+                ),
+                -32602,
+            ),
+            (
+                format!(r#"{{"jsonrpc":"2.0","id":2,"method":"execute","params":{deep}}}"#),
+                -32602,
+            ),
+            (format!("[{deep}]"), -32600),
+        ] {
+            let response = service.handle_line(&request).unwrap();
+            assert!(response.contains(&format!(r#""code":{code}"#)), "{code}");
+            assert!(response.contains(&deep), "{code}: the request is echoed");
+            assert!(!response.contains('\n'));
+        }
+
+        // Members the server does not read are skipped, whatever their depth.
+        let response = service
+            .handle_line(&format!(
+                r#"{{"jsonrpc":"2.0","id":4,"method":"missing","extra":{deep},"params":{{"haskell-logging":{deep}}}}}"#
+            ))
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&response).unwrap()["error"]["code"],
+            -32601
+        );
+
+        assert_still_serving(&mut service);
+    }
+
+    #[test]
+    fn deep_cancellations_are_recognized_and_answered_on_the_test_thread() {
+        let deep = deep_array(DEEP_LEVELS);
+        let cancel = |id: &str| {
+            RawValue::from_string(format!(
+                r#"{{"jsonrpc":"2.0","method":"cancel","id":{id},"extra":{deep}}}"#
+            ))
+            .unwrap()
+        };
+        assert!(is_standalone_cancel(&cancel("7")));
+        assert!(!is_standalone_cancel(&cancel(&deep)));
+
+        let execute = RawValue::from_string(format!(
+            r#"[{{"jsonrpc":"2.0","method":"execute","id":{deep}}},{{"id":"x"}},{deep}]"#
+        ))
+        .unwrap();
+        let response = cancellation_response(&execute).unwrap();
+        assert!(
+            response.starts_with(r#"[{"error":{"code":-32000"#),
+            "{}",
+            &response[..80]
+        );
+        assert!(response.contains(&format!(r#""id":{deep}"#)));
+        assert!(response.ends_with(r#""id":"x","jsonrpc":"2.0"}]"#));
+    }
+
+    #[test]
+    fn echoed_requests_lose_only_the_whitespace_between_tokens() {
+        assert_eq!(
+            compact_json("{ \"a b\" :\n [ 1 ,\t\"x\\\" \\n y\" ]\r\n}"),
+            r#"{"a b":[1,"x\" \n y"]}"#
+        );
+        let mut service = service();
+        let response = service
+            .handle_line("{ \"jsonrpc\" : \"1.0\" ,\n \"id\" : 1 , \"method\" : \"execute\" }")
+            .unwrap();
+        assert_eq!(
+            response,
+            r#"{"error":{"code":-32600,"data":{"jsonrpc":"1.0","id":1,"method":"execute"},"message":"Invalid request"},"id":null,"jsonrpc":"2.0"}"#
+        );
+    }
+
+    #[test]
+    fn a_connection_keeps_serving_after_deep_frames() {
+        let (address, done) = spawn_server(service(), 1);
+        let mut client = TcpStream::connect(address).unwrap();
+        let deep = deep_array(DEEP_LEVELS);
+        write!(
+            client,
+            "{{\"jsonrpc\":{}}}\n{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"execute\",\"params\":{{\"state\":{},\"module\":\"MISSING\"}}}}\n{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"missing\",\"params\":{deep}}}\n",
+            "[".repeat(DEEP_LEVELS),
+            deep_kore_json(DEEP_LEVELS),
+        )
+        .unwrap();
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        let mut codes = Vec::new();
+        for _ in 0..3 {
+            let mut line = String::new();
+            responses.read_line(&mut line).unwrap();
+            codes.push(serde_json::from_str::<Value>(&line).unwrap()["error"]["code"].clone());
+        }
+        assert_eq!(codes, [json!(-32700), json!(3), json!(-32601)]);
+        client.shutdown(Shutdown::Write).unwrap();
+        done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
     }
 
     #[test]
@@ -4999,7 +5321,8 @@ endmodule
             },
             &sort,
         )
-        .into_value(json!(1));
+        .into_response(json!(1).into())
+        .into_value();
 
         assert_eq!(fault["error"]["code"], 6, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Aborted", "{fault:#}");
