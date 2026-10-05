@@ -4819,11 +4819,12 @@ mod tests {
 
     #[test]
     fn search_frontier_recombines_paths_that_reach_a_configuration_at_the_same_depth() {
-        // Kore's execution graph recombines branches that converge to the same configuration
-        // at the same step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search
-        // keeps a visited set; either way a configuration is expanded once per depth, so the
-        // work per step is bounded by the number of distinct configurations, not by the
-        // number of interleavings that reach them.
+        // A search asks for the configurations reachable from the initial one, a set, and the
+        // rewrite steps available from a configuration depend on that configuration alone, not
+        // on the path that reached it. Paths that reach one configuration at the same depth
+        // therefore have the same continuations within the remaining depth bound, so expanding
+        // it once per depth loses no result, and the work per step is bounded by the number of
+        // distinct configurations, not by the number of interleavings that reach them.
         let definition = interleaving_definition();
         let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
 

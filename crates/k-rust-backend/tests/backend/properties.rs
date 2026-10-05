@@ -191,9 +191,10 @@ proptest! {
     /// whole substitution, or
     /// returned untouched among the remaining predicates (the cycle-breaking equality of each
     /// cycle stays there in its input form). An equality whose right-hand side mentions its
-    /// own variable (`X = X`, `X = c1(X)`) is never a binding, as the reference backend drops
-    /// `X = X` as trivial and rejects `X = c1(X)` by occurs check; such an equality may still
-    /// saturate to the chosen value, so it is not a source of that binding.
+    /// own variable (`X = X`, `X = c1(X)`) is never a binding: `X = X` holds trivially and
+    /// determines nothing, and an idempotent substitution cannot bind `X` to a term containing
+    /// `X`; such an equality may still saturate to the chosen value, so it is not a source of
+    /// that binding.
     #[test]
     fn extracted_substitution_is_idempotent_and_accounts_for_every_equality(
         equalities in prop::collection::vec((0u8..3, term_s(true)), 1..5),

@@ -775,8 +775,9 @@ fn search_symbolic_map_key_matches(
     }
 }
 
-/// Decompose the Boolean unification cases used by the pinned backend: conjunction with `true`,
-/// disjunction with `false`, and negation with either Boolean value.
+/// Decompose the Boolean equations that are equivalent to equations on their operands:
+/// a conjunction is `true` exactly when every operand is, a disjunction is `false` exactly when
+/// every operand is, and a negation is a Boolean value exactly when its operand is the other.
 pub(super) fn recover_boolean_matches(
     definition: &BackendDefinition,
     mut substitution: Substitution,
@@ -1014,7 +1015,7 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
 ///
 /// The true case delegates to ordinary unification of the operands so useful substitutions are
 /// retained. The false case is the complement of operand equality and therefore remains a path
-/// condition. This is the same normalization used by the pinned backend's `unifyEq` hook.
+/// condition.
 pub(super) fn recover_equality_matches(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -1150,8 +1151,9 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
 ///
 /// Concrete conditions are handled by the builtin evaluator. When the condition remains
 /// symbolic, each ITE branch is matched independently and guarded by the Boolean value which
-/// selects it. This mirrors the pinned backend's `unifyIfThenElse` behavior without teaching the
-/// syntax-directed matcher about branching.
+/// selects it: an `ite` application denotes its first branch where the condition is `true` and
+/// its second where it is `false`, so the two guarded matches cover exactly its values, without
+/// teaching the syntax-directed matcher about branching.
 pub(super) fn recover_ite_matches(
     definition: &BackendDefinition,
     substitution: Substitution,

@@ -137,11 +137,12 @@ impl Default for SimplificationOptions {
 }
 
 impl SimplificationOptions {
-    /// Evaluate to a fixed point without Booster's equation-iteration bound.
+    /// Evaluate to a fixed point with no bound on equation iterations.
     ///
-    /// This mirrors the legacy Kore simplifier used as the complete fallback by
-    /// `kore-rpc-booster`. Cancellation tokens and step deadlines still interrupt
-    /// evaluation; the iteration counter itself does not.
+    /// The default bound ([`DEFAULT_MAX_SIMPLIFICATION_ITERATIONS`]) stops a lineage that needs
+    /// more counted rounds, even when its evaluation would terminate; this mode reaches the
+    /// normal form whenever evaluation terminates. Cancellation tokens and step deadlines still
+    /// interrupt evaluation; the iteration counter itself does not.
     pub const fn unbounded() -> Self {
         Self {
             max_iterations: usize::MAX,

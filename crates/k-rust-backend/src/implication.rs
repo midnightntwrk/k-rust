@@ -2046,9 +2046,10 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 }
 
 /// Solve the collection pairs of a match remainder with the collection solver that rule
-/// application uses (`solve_collection_pairs_in_definition`): common opaque chunks
-/// cancel and a destination frame is bound to the subject's leftover, as Kore's AC unifier binds
-/// the sole remaining opaque variable (AssociativeCommutative.hs matchUnifyEqualsNormalizedAc).
+/// application uses (`solve_collection_pairs_in_definition`): opaque chunks common to both
+/// sides cancel, since the parts of a defined concatenation are disjoint, and a destination
+/// frame that is the sole remaining opaque term is bound to the subject's leftover, the one
+/// value that makes the two sides equal.
 /// A solution is taken only when it is unique and binds destination existentials alone; any
 /// other outcome leaves the pairs as equality obligations.
 fn solve_collection_remainder_pairs(
@@ -2980,10 +2981,11 @@ mod tests {
     }
 
     /// Reduced from regression-new set_unification: the state `SetItem(I) (G2 F)` reached
-    /// through a trusted claim must imply the destination `?G F`. Kore's AC unifier cancels the
-    /// opaque frame F shared by both sides and binds the sole remaining opaque variable ?G to the
-    /// leftover `SetItem(I) G2` (AssociativeCommutative.hs matchUnifyEqualsNormalizedAc); the
-    /// existential frame is a witness found by collection solving, not by an equality conjunct.
+    /// through a trusted claim must imply the destination `?G F`. Both sides contain the opaque
+    /// frame F, which cancels because the parts of a defined set concatenation are disjoint,
+    /// and the equation left binds the sole remaining opaque variable ?G to the leftover
+    /// `SetItem(I) G2`; the existential frame is a witness found by collection solving, not by
+    /// an equality conjunct.
     #[test]
     fn solves_an_existential_set_frame_against_the_shared_subject_frame() {
         let definition = set_frame_definition();
@@ -3047,10 +3049,11 @@ mod tests {
     }
 
     /// regression-new issue-2287-simpl-rules-in-kprovex a5: `claim <k> c => 2 #And n +Int n </k>`
-    /// with `rule n +Int n => #Top [simplification]`. Kore simplifies a claim's right-hand side
-    /// with the definition's equations under the left-hand side's condition before checking the
-    /// implication (Kore/Reachability/Claim.hs simplifyRightHandSide, Pattern.makeEvaluate), so
-    /// `2 #And \top` is `2` and the reference proves the claim (#Top).
+    /// with `rule n +Int n => #Top [simplification]`. A simplification rule is an equation of the
+    /// definition's theory, so the consequent denotes what its simplified form denotes: under it
+    /// `n +Int n` is `\top`, and `2 #And \top` is `2`, which the state `2` implies. The
+    /// consequent is simplified with the definition's equations, under the antecedent's
+    /// condition, before matching, and the claim holds (#Top).
     #[test]
     fn simplifies_the_consequent_with_the_definition_before_matching() {
         let definition = top_simplification_definition();

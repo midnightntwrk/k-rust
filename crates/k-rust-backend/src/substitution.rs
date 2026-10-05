@@ -161,9 +161,10 @@ pub fn compose(new: &Substitution, old: &Substitution) -> Substitution {
 
 /// Extract every unambiguous, acyclic variable equality as a saturated substitution.
 ///
-/// Duplicate bindings remain predicates. For each dependency cycle, the lexicographically first
-/// variable is retained as an equality, matching the reference backend's deterministic cycle
-/// breaking while allowing the rest of the component to become substitutions.
+/// Duplicate bindings remain predicates. A dependency cycle cannot be all bindings of an
+/// idempotent substitution, so for each cycle the lexicographically first variable is retained
+/// as an equality: choosing by name makes the result independent of the order of the
+/// constraints, and the rest of the component becomes substitutions.
 pub fn extract_substitution(
     constraints: &[Predicate],
     sorts: &SortGraph,
