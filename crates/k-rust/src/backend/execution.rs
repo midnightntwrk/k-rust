@@ -28,6 +28,7 @@ use k_rust_backend::{
     definition::BackendDefinition,
     diagnostic::BackendDiagnostic,
     externalize::{self, External},
+    fresh::RequestNames,
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
         HaltReason, Pattern,
@@ -575,13 +576,14 @@ fn run_backend_with_solver(
         }
         let target = match match_target.take() {
             Some(target) => target,
-            None => BackendMatchTarget {
-                pattern: match search.pattern {
-                    Some(path) => load_backend_pattern(backend, &path, "search")?,
-                    None => default_search_pattern(&initial)
+            None => match search.pattern {
+                Some(path) => load_backend_target(backend, &path, "search")?,
+                None => BackendMatchTarget {
+                    pattern: default_search_pattern(&initial)
                         .ok_or_else(|| io::Error::other("initial pattern has no live disjuncts"))?,
+                    generated_anonymous_variables: BTreeSet::new(),
+                    request_names: RequestNames::default(),
                 },
-                generated_anonymous_variables: BTreeSet::new(),
             },
         };
         let result = search_pattern_disjunction_with_solver(
@@ -594,6 +596,7 @@ fn run_backend_with_solver(
                 max_breadth: options.breadth_limit,
                 max_results: search.bound,
                 max_simplification_iterations: options.max_simplification_iterations,
+                request_names: target.request_names.clone(),
             },
             solver,
         );
@@ -657,7 +660,11 @@ fn run_backend_with_solver(
         // spelled like a variable of the target either.
         request_names: match_target
             .as_ref()
-            .map(|target| k_rust_backend::fresh::RequestNames::of(&[&target.pattern]))
+            .map(|target| {
+                let mut names = RequestNames::of(&[&target.pattern]);
+                names.extend(&target.request_names);
+                names
+            })
             .unwrap_or_default(),
         ..ExecutionOptions::default()
     };
@@ -1031,7 +1038,7 @@ pub fn term_exit_code(term: &Term) -> Option<u8> {
 /// `None` when there is no initial pattern.
 pub fn default_search_pattern(initial: &[Pattern]) -> Option<Pattern> {
     let sort = initial.first()?.term.sort();
-    let request = k_rust_backend::fresh::RequestNames::of(&initial.iter().collect::<Vec<_>>());
+    let request = RequestNames::of(&initial.iter().collect::<Vec<_>>());
     let name = std::iter::once("VarResult".to_owned())
         .chain((0_u64..).map(|index| format!("VarResult{index}")))
         .find(|name| !request.spells(name))?;
@@ -1041,17 +1048,23 @@ pub fn default_search_pattern(initial: &[Pattern]) -> Option<Pattern> {
     })
 }
 
-fn load_backend_pattern(
+/// The search target read from `path`, with the spellings of the target as read, which
+/// unfolding its aliases may drop from the internalized pattern.
+fn load_backend_target(
     definition: &BackendDefinition,
     path: &Path,
     purpose: &str,
-) -> Result<Pattern, Box<dyn Error>> {
+) -> Result<BackendMatchTarget, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
-    definition
+    let pattern = definition
         .verify_standalone_pattern(&syntax, &[])?
-        .internalize_pattern()
-        .map_err(Into::into)
+        .internalize_pattern()?;
+    Ok(BackendMatchTarget {
+        pattern,
+        generated_anonymous_variables: BTreeSet::new(),
+        request_names: RequestNames::of_received(&[&syntax]),
+    })
 }
 
 fn load_backend_patterns(

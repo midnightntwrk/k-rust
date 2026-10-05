@@ -4,6 +4,10 @@
 //! at sort `SortS`. If the execution's counter did not skip the target's spellings, the match
 //! would report two distinct variables under one name, at two sorts.
 //!
+//! The target's names are its spellings as received: an alias that drops an argument removes the
+//! argument's variables from the internalized target, yet the client wrote them, so no mint takes
+//! their spelling either.
+//!
 //! A search without a target pattern matches a target the facade makes itself, one variable
 //! spelled like the reference's `VarResult`. That variable is part of the request, so it is
 //! named apart from every variable of the initial states.
@@ -15,7 +19,7 @@ use k_rust::backend::{
     execution::{BackendRunOptions, SearchRunOptions},
     search::BackendMatchTarget,
 };
-use k_rust_backend::{rewrite::ExecutionMode, search::SearchType};
+use k_rust_backend::{fresh::RequestNames, rewrite::ExecutionMode, search::SearchType};
 use k_rust_kore::kore::{
     ast::Pattern as KorePattern,
     parser::{parse_definition, parse_pattern},
@@ -31,15 +35,16 @@ module TEST
   symbol t{}() : SortT{} [constructor{}(), functional{}()]
   symbol start{}() : SortState{} [constructor{}(), functional{}()]
   symbol pair{}(SortS{}, SortT{}) : SortState{} [constructor{}(), functional{}()]
+  alias ignore{}(SortT{}) : SortT{} where ignore{}(V:SortT{}) := t{}() []
   axiom{} \rewrites{SortState{}}(
     \and{SortState{}}(start{}(), \top{SortState{}}()),
     \and{SortState{}}(pair{}(X:SortS{}, t{}()), \top{SortState{}}())
   ) [label{}("mint")]
 endmodule []"#;
 
-/// The printed response of `start()` run one step and matched against `pair(Y, <name>:SortT)`,
-/// by execution then match, or by search (which already reserved the target's names).
-fn matched(name: &str, searching: bool) -> String {
+/// The printed response of `start()` run one step and matched against `target`, by execution then
+/// match, or by search (which already reserved the target's names).
+fn matched(target: &str, searching: bool) -> String {
     let mut backend = Backend::from_definition(
         parse_definition(DEFINITION).unwrap(),
         "TEST",
@@ -49,13 +54,14 @@ fn matched(name: &str, searching: bool) -> String {
     let definition = backend.select_definition(None).unwrap();
     let read = |source: &str| {
         let syntax = parse_pattern(source).unwrap();
-        definition
+        let pattern = definition
             .verify_standalone_pattern(&syntax, &[])
             .and_then(|admitted| admitted.internalize_pattern())
-            .unwrap()
+            .unwrap();
+        (pattern, RequestNames::of_received(&[&syntax]))
     };
-    let initial = read("start{}()");
-    let target = read(&format!("pair{{}}(Y:SortS{{}}, {name}:SortT{{}})"));
+    let (initial, _) = read("start{}()");
+    let (target, request_names) = read(target);
     let result = backend
         .run_cli(
             None,
@@ -76,6 +82,7 @@ fn matched(name: &str, searching: bool) -> String {
                 match_target: Some(BackendMatchTarget {
                     pattern: target,
                     generated_anonymous_variables: BTreeSet::new(),
+                    request_names,
                 }),
                 function_symbols: BTreeSet::new(),
                 stop_leaves: None,
@@ -92,7 +99,7 @@ fn matched(name: &str, searching: bool) -> String {
 #[test]
 fn execution_then_match_mints_apart_from_the_target() {
     for searching in [false, true] {
-        let printed = matched("Ex-hX-b0", searching);
+        let printed = matched("pair{}(Y:SortS{}, Ex-hX-b0:SortT{})", searching);
         let parsed = parse_pattern(&printed).unwrap();
         let mut backend =
             Backend::new(DEFINITION, "TEST", BackendOptions::default()).expect("definition");
@@ -106,6 +113,24 @@ fn execution_then_match_mints_apart_from_the_target() {
         assert!(
             !printed.contains("Ex-hX-b0:SortS{}"),
             "search {searching}: the mint took the target's name: {printed}"
+        );
+    }
+}
+
+/// A target that wraps `Ex-hX-b0` in an alias that ignores its argument internalizes to a pattern
+/// without it, but the client wrote it: the execution's or search's mint for `X` is still not
+/// spelled `Ex-hX-b0`.
+#[test]
+fn mints_avoid_the_spellings_an_alias_drops_from_the_target() {
+    for searching in [false, true] {
+        let printed = matched("pair{}(Y:SortS{}, ignore{}(Ex-hX-b0:SortT{}))", searching);
+        assert!(
+            printed.contains("Ex-hX-b"),
+            "search {searching}: the target should match a mint: {printed}"
+        );
+        assert!(
+            !printed.contains("Ex-hX-b0"),
+            "search {searching}: the mint took a spelling of the target: {printed}"
         );
     }
 }

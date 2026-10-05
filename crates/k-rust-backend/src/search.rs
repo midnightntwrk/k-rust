@@ -148,13 +148,18 @@ pub enum ResultModality {
     PathSet,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchOptions {
     pub search_type: SearchType,
     pub max_depth: u64,
     pub max_breadth: Option<usize>,
     pub max_results: Option<usize>,
     pub max_simplification_iterations: usize,
+    /// Further names of the request: the spellings of its patterns as the caller received them
+    /// (`RequestNames::of_received`), which unfolding their aliases may have dropped from the
+    /// internalized patterns. The search mints no name spelled like one of them, nor like a
+    /// variable of its initial patterns or target (`fresh::FreshCounter`).
+    pub request_names: RequestNames,
 }
 
 impl Default for SearchOptions {
@@ -165,6 +170,7 @@ impl Default for SearchOptions {
             max_breadth: None,
             max_results: None,
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+            request_names: RequestNames::default(),
         }
     }
 }
@@ -690,6 +696,7 @@ fn search_graph_collecting(
     let mut fresh_counter = {
         let mut names = RequestNames::of(&initial.iter().collect::<Vec<_>>());
         names.extend(&request);
+        names.extend(&options.request_names);
         FreshCounter::for_request_names(names)
     };
     // The search is over states, not over paths. Two work states at one depth whose simplified
@@ -963,7 +970,7 @@ fn search_graph_collecting(
                     definition,
                     &state,
                     is_rewritable,
-                    options,
+                    &options,
                     fresh_counter,
                     solver,
                 )
@@ -1001,7 +1008,7 @@ fn search_graph_collecting(
             &state.pattern,
             kind,
             &mut fresh_counter,
-            options,
+            &options,
             solver,
         );
         // A stopped step has no successor set: the state's entry carries the step's work.
@@ -1254,7 +1261,7 @@ fn step_search_state(
     pattern: &Pattern,
     kind: QueuedStateKind,
     fresh_counter: &mut FreshCounter,
-    options: SearchOptions,
+    options: &SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (Stoppable<RewriteResult>, Vec<BackendDiagnostic>) {
     diagnostic::collect(|| match kind {
@@ -1498,6 +1505,7 @@ fn search_paths_collecting(
     let mut fresh_counter = {
         let mut names = RequestNames::of(&[&initial]);
         names.extend(&request);
+        names.extend(&options.request_names);
         FreshCounter::for_request_names(names)
     };
 
@@ -1694,7 +1702,7 @@ fn search_paths_collecting(
                 definition,
                 &mut witnesses,
                 &path,
-                options,
+                &options,
                 solver,
                 &mut effects,
                 &mut incomplete,
@@ -1721,7 +1729,7 @@ fn search_paths_collecting(
                             definition,
                             &path.state,
                             is_rewritable,
-                            options,
+                            &options,
                             &mut fresh_counter,
                             solver,
                         )
@@ -1752,7 +1760,7 @@ fn search_paths_collecting(
             &path.state.pattern,
             path.kind.clone(),
             &mut fresh_counter,
-            options,
+            &options,
             solver,
         );
         // A stopped step has no successor set: the path's entry carries the step's work.
@@ -1774,7 +1782,7 @@ fn search_paths_collecting(
                         definition,
                         &mut witnesses,
                         &path,
-                        options,
+                        &options,
                         solver,
                         &mut effects,
                         &mut incomplete,
@@ -2061,7 +2069,7 @@ fn search_pattern_using(
     }
     let graph_options = SearchOptions {
         max_results: None,
-        ..options
+        ..options.clone()
     };
     let mut matches = Vec::new();
     // The `RequestNames::solution_key` of every match in `matches`, over the names of the
@@ -2070,6 +2078,7 @@ fn search_pattern_using(
     let request = {
         let mut names = RequestNames::of(&[target]);
         names.extend(&RequestNames::of(&initial.iter().collect::<Vec<_>>()));
+        names.extend(&options.request_names);
         names
     };
     let mut match_incomplete = Vec::new();
@@ -2080,7 +2089,7 @@ fn search_pattern_using(
             target,
             &state.pattern,
             &output_variables,
-            options,
+            &options,
             solver,
         );
         let found = match found {
@@ -2218,7 +2227,7 @@ fn search_pattern_paths_using(
     }
     let graph_options = SearchOptions {
         max_results: None,
-        ..options
+        ..options.clone()
     };
     let mut matches = Vec::new();
     let mut match_incomplete = Vec::new();
@@ -2229,7 +2238,7 @@ fn search_pattern_paths_using(
             target,
             &witness.pattern,
             &output_variables,
-            options,
+            &options,
             solver,
         );
         let found = match found {
@@ -2290,7 +2299,7 @@ fn match_search_result(
     target: &Pattern,
     subject: &Pattern,
     output_variables: &BTreeSet<crate::term::Variable>,
-    options: SearchOptions,
+    options: &SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (
     Stoppable<Result<Option<PatternMatch>, PatternMatchError>>,
@@ -2619,7 +2628,7 @@ fn mentions_variable(predicate: &Predicate, variable: &crate::term::Variable) ->
     found
 }
 
-fn simplification_options(options: SearchOptions) -> SimplificationOptions {
+fn simplification_options(options: &SearchOptions) -> SimplificationOptions {
     SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
@@ -2642,7 +2651,7 @@ fn state_may_expand(
     definition: &BackendDefinition,
     state: &SearchState,
     is_rewritable: bool,
-    options: SearchOptions,
+    options: &SearchOptions,
     fresh_counter: &mut FreshCounter,
     solver: &dyn SmtSolver,
 ) -> bool {
@@ -3334,7 +3343,7 @@ mod tests {
                 max_results: Some(max_results),
                 ..SearchOptions::default()
             };
-            let bounded = search_graph(&definition, initial(&definition), options);
+            let bounded = search_graph(&definition, initial(&definition), options.clone());
             if bounded.is_complete() {
                 let unbounded = search_graph(
                     &definition,
@@ -3363,7 +3372,7 @@ mod tests {
                 max_results: Some(max_results),
                 ..SearchOptions::default()
             };
-            let bounded = search_pattern(&definition, initial(&definition), &target, options);
+            let bounded = search_pattern(&definition, initial(&definition), &target, options.clone());
             if bounded.is_complete() {
                 let unbounded = search_pattern(
                     &definition,
@@ -3445,7 +3454,7 @@ mod tests {
                 max_results: Some(max_results),
                 ..SearchOptions::default()
             };
-            let bounded = search_graph(&definition, initial(&definition), options);
+            let bounded = search_graph(&definition, initial(&definition), options.clone());
             if bounded.is_complete() {
                 let unbounded = search_graph(
                     &definition,
@@ -3470,7 +3479,7 @@ mod tests {
                 max_results: Some(max_results),
                 ..SearchOptions::default()
             };
-            let bounded = search_paths(&definition, initial(&definition), options);
+            let bounded = search_paths(&definition, initial(&definition), options.clone());
             if bounded.is_complete() {
                 let unbounded = search_paths(
                     &definition,
@@ -3555,7 +3564,7 @@ mod tests {
             &target,
             SearchOptions {
                 max_results: Some(2),
-                ..options
+                ..options.clone()
             },
         );
 
@@ -3792,7 +3801,7 @@ mod tests {
             &definition,
             initial(&definition),
             &target,
-            options,
+            options.clone(),
             &ObservationOptions::all(),
         );
         let paths = search_pattern_paths_observed(
@@ -4204,7 +4213,8 @@ mod tests {
                 search_type,
                 ..SearchOptions::default()
             };
-            let graph = search_graph_with_solver(&definition, initial.clone(), options, &solver);
+            let graph =
+                search_graph_with_solver(&definition, initial.clone(), options.clone(), &solver);
             assert!(graph.incomplete.is_empty(), "{search_type:?}: {graph:#?}");
             assert_eq!(
                 graph
@@ -4330,7 +4340,7 @@ mod tests {
             max_results: Some(0),
             ..SearchOptions::default()
         };
-        let graph = search_graph(&definition, initial(&definition), options);
+        let graph = search_graph(&definition, initial(&definition), options.clone());
         assert!(graph.states.is_empty());
         assert_eq!(graph.incomplete, []);
         assert!(
@@ -4343,7 +4353,7 @@ mod tests {
             term: Term::variable(Variable::new("Result", Sort::simple("SortS"))),
             constraints: Vec::new(),
         };
-        let pattern = search_pattern(&definition, initial(&definition), &target, options);
+        let pattern = search_pattern(&definition, initial(&definition), &target, options.clone());
         assert!(pattern.matches.is_empty());
         assert_eq!(pattern.incomplete, []);
         assert!(
@@ -4376,7 +4386,7 @@ mod tests {
             let graph = search_graph_disjunction_with_solver_and_observer(
                 &definition,
                 Vec::new(),
-                options,
+                options.clone(),
                 &NoSolver,
                 |_| {},
             );
@@ -4387,7 +4397,7 @@ mod tests {
                 &definition,
                 Vec::new(),
                 &target,
-                options,
+                options.clone(),
                 &NoSolver,
             );
             assert!(pattern.matches.is_empty());
@@ -4526,7 +4536,7 @@ mod tests {
             &definition,
             pattern(&definition, "loop{}(zero{}())"),
             &target,
-            options,
+            options.clone(),
         );
         assert_eq!(states.matches.len(), 5);
         assert_eq!(
@@ -4548,7 +4558,7 @@ mod tests {
             &definition,
             pattern(&definition, "loop{}(zero{}())"),
             &target,
-            options,
+            options.clone(),
         );
         assert_eq!(paths.matches.len(), 5);
         assert_eq!(
@@ -5167,7 +5177,11 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        let graph = search_graph(&definition, pattern(&definition, "start{}()"), options);
+        let graph = search_graph(
+            &definition,
+            pattern(&definition, "start{}()"),
+            options.clone(),
+        );
         assert!(graph.incomplete.is_empty(), "{:?}", graph.incomplete);
         let [state] = graph.states.as_slice() else {
             panic!("expected one final state, found {:?}", graph.states);
@@ -5175,7 +5189,11 @@ mod tests {
         assert_eq!(state.pattern, expected, "{state:#?}");
         assert_eq!(simplification_ids(&state.trace), Vec::<String>::new());
 
-        let paths = search_paths(&definition, pattern(&definition, "start{}()"), options);
+        let paths = search_paths(
+            &definition,
+            pattern(&definition, "start{}()"),
+            options.clone(),
+        );
         assert!(paths.incomplete.is_empty(), "{:?}", paths.incomplete);
         let [witness] = paths.witnesses.as_slice() else {
             panic!("expected one witness, found {:?}", paths.witnesses);

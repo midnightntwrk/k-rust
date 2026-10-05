@@ -8922,8 +8922,12 @@ fn search_graph_observation_preserves_solver_queries_and_results() {
         ..SearchOptions::default()
     };
     let baseline_solver = solver_observation_script();
-    let baseline =
-        search_graph_with_solver(&definition, initial.clone(), options, &baseline_solver);
+    let baseline = search_graph_with_solver(
+        &definition,
+        initial.clone(),
+        options.clone(),
+        &baseline_solver,
+    );
     let baseline_queries = baseline_solver.transcript.borrow().clone();
     assert_solver_observation_transcript(&baseline_queries);
     assert_eq!(baseline.states.len(), 2, "{baseline:#?}");
@@ -8948,7 +8952,7 @@ fn search_graph_observation_preserves_solver_queries_and_results() {
         let mut observed = search_graph_observed_with_solver(
             &definition,
             initial.clone(),
-            options,
+            options.clone(),
             &solver,
             &observation,
         );
@@ -8988,8 +8992,12 @@ fn search_paths_observation_preserves_solver_queries_and_results() {
         ..SearchOptions::default()
     };
     let baseline_solver = solver_observation_script();
-    let baseline =
-        search_paths_with_solver(&definition, initial.clone(), options, &baseline_solver);
+    let baseline = search_paths_with_solver(
+        &definition,
+        initial.clone(),
+        options.clone(),
+        &baseline_solver,
+    );
     let baseline_queries = baseline_solver.transcript.borrow().clone();
     assert_solver_observation_transcript(&baseline_queries);
     assert_eq!(baseline.witnesses.len(), 2, "{baseline:#?}");
@@ -9014,7 +9022,7 @@ fn search_paths_observation_preserves_solver_queries_and_results() {
         let mut observed = search_paths_observed_with_solver(
             &definition,
             initial.clone(),
-            options,
+            options.clone(),
             &solver,
             &observation,
         );
