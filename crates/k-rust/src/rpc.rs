@@ -160,9 +160,13 @@ impl RpcValue {
         serde_json::from_str(&self.to_json_string()).unwrap()
     }
 
+    /// The compact JSON text of this value, written with an explicit work stack: a response
+    /// carries KORE of any depth, also as plain JSON values, whose own serialization recurses.
+    /// The text is what `serde_json` writes for the same values.
     fn to_json_string(&self) -> String {
         enum Task<'a> {
             Value(&'a RpcValue),
+            Json(&'a Value),
             Text(&'static [u8]),
             Key(&'a str),
         }
@@ -175,10 +179,34 @@ impl RpcValue {
                 Task::Key(key) => {
                     serde_json::to_writer(&mut output, key).expect("writing to a Vec cannot fail");
                 }
-                Task::Value(Self::Plain(value)) => {
-                    serde_json::to_writer(&mut output, value)
-                        .expect("JSON-RPC responses are serializable");
-                }
+                Task::Value(Self::Plain(value)) | Task::Json(value) => match value {
+                    Value::Array(values) => {
+                        stack.push(Task::Text(b"]"));
+                        for (index, value) in values.iter().enumerate().rev() {
+                            stack.push(Task::Json(value));
+                            if index != 0 {
+                                stack.push(Task::Text(b","));
+                            }
+                        }
+                        stack.push(Task::Text(b"["));
+                    }
+                    Value::Object(fields) => {
+                        stack.push(Task::Text(b"}"));
+                        for (index, (key, value)) in fields.iter().enumerate().rev() {
+                            stack.push(Task::Json(value));
+                            stack.push(Task::Text(b":"));
+                            stack.push(Task::Key(key));
+                            if index != 0 {
+                                stack.push(Task::Text(b","));
+                            }
+                        }
+                        stack.push(Task::Text(b"{"));
+                    }
+                    Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                        serde_json::to_writer(&mut output, value)
+                            .expect("JSON-RPC responses are serializable");
+                    }
+                },
                 Task::Value(Self::Raw(json)) => output.extend_from_slice(json.as_bytes()),
                 Task::Value(Self::Array(values)) => {
                     stack.push(Task::Text(b"]"));
@@ -205,6 +233,37 @@ impl RpcValue {
             }
         }
         String::from_utf8(output).expect("JSON serialization emits UTF-8")
+    }
+
+    /// Drop this value with an explicit work stack: dropping a plain JSON value recurses once
+    /// per level of it.
+    fn release(self) {
+        enum Part {
+            Value(RpcValue),
+            Json(Value),
+        }
+
+        let mut stack = vec![Part::Value(self)];
+        // Each pop moves the children of the popped value onto the stack and drops it without
+        // them, so every drop is shallow and the loop ends when every part has been dropped.
+        while let Some(part) = stack.pop() {
+            match part {
+                Part::Value(Self::Plain(value)) | Part::Json(value) => match value {
+                    Value::Array(values) => stack.extend(values.into_iter().map(Part::Json)),
+                    Value::Object(fields) => {
+                        stack.extend(fields.into_iter().map(|(_, value)| Part::Json(value)));
+                    }
+                    Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+                },
+                Part::Value(Self::Raw(_)) => {}
+                Part::Value(Self::Array(values)) => {
+                    stack.extend(values.into_iter().map(Part::Value));
+                }
+                Part::Value(Self::Object(fields)) => {
+                    stack.extend(fields.into_values().map(Part::Value));
+                }
+            }
+        }
     }
 }
 
@@ -562,7 +621,9 @@ impl RpcService {
         response.map(|response| {
             #[cfg(feature = "measure")]
             let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
-            response.to_json_string()
+            let text = response.to_json_string();
+            response.release();
+            text
         })
     }
 
@@ -589,6 +650,10 @@ impl RpcService {
         }
         let result = self.dispatch(&method, params.as_deref());
         if !id_present {
+            match result {
+                Ok(result) => result.release(),
+                Err(error) => error.data.into_iter().for_each(RpcValue::release),
+            }
             return None;
         }
         Some(match result {
@@ -5037,6 +5102,66 @@ endmodule
         );
         client.shutdown(Shutdown::Write).unwrap();
         done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
+    }
+
+    /// A response that carries deep KORE as JSON values is written and dropped on a 1 MiB
+    /// thread, which the values' own recursive serialization and destruction overflow in a
+    /// debug build: an implication whose antecedent constrains `next` by 3,001 negations of
+    /// `\top`, which is `\bottom`, is vacuously valid and echoes the antecedent as written.
+    #[test]
+    fn deep_responses_are_written_without_recursion() {
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(|| {
+                let mut service = service();
+                let levels = 3_001;
+                let sort = r#"{"tag":"SortApp","name":"SortState","args":[]}"#;
+                let next = r#"{"tag":"App","name":"next","sorts":[],"args":[]}"#;
+                let negations = format!(
+                    "{}{{\"tag\":\"Top\",\"sort\":{sort}}}{}",
+                    format!(r#"{{"tag":"Not","sort":{sort},"arg":"#).repeat(levels),
+                    "}".repeat(levels)
+                );
+                let antecedent = format!(
+                    r#"{{"format":"KORE","version":1,"term":{{"tag":"And","sort":{sort},"patterns":[{next},{negations}]}}}}"#
+                );
+                let consequent = format!(r#"{{"format":"KORE","version":1,"term":{next}}}"#);
+                let response = service
+                    .handle_line(&format!(
+                        r#"{{"jsonrpc":"2.0","id":1,"method":"implies","params":{{"antecedent":{antecedent},"consequent":{consequent}}}}}"#
+                    ))
+                    .unwrap();
+                assert!(response.contains(r#""status":"valid""#), "{}", &response[..200]);
+                assert_eq!(response.matches(r#""tag":"Not""#).count(), levels);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Responses are written as `serde_json` writes the same values.
+    #[test]
+    fn responses_are_written_as_serde_json_writes_them() {
+        let value = json!({
+            "b": [1, -2.5, "x\"\n\u{1}", null, true, [], {}],
+            "a": { "nested": [{ "k": "v" }, [[[]]]] },
+            "\u{e9}": false,
+        });
+        let response = RpcValue::object([
+            ("plain", RpcValue::Plain(value.clone())),
+            ("raw", RpcValue::Raw(r#"{"z":1,"a":2}"#.into())),
+            (
+                "list",
+                RpcValue::Array(vec![RpcValue::Plain(value.clone())]),
+            ),
+        ]);
+        let text = response.to_json_string();
+        response.release();
+        let plain = serde_json::to_string(&value).unwrap();
+        assert_eq!(
+            text,
+            format!(r#"{{"list":[{plain}],"plain":{plain},"raw":{{"z":1,"a":2}}}}"#)
+        );
     }
 
     #[test]
