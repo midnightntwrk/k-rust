@@ -18,25 +18,25 @@
 //! bound = """\
 //! O(r) matching problems and antecedent simplifications, then one discharge with one \
 //! check_predicates (up to three solver subqueries) and up to four is_sat queries (the third, \
-//! after one simplification of the antecedent's knowledge, only when a matched consequent is not \
-//! shown to hold, empty_unless_consistent; the fourth only when the complete policy grades a \
-//! failing part, grade_outside)"""
+//! after one simplification of the antecedent's knowledge, only when a matched consequent is \
+//! refuted, undecided or unprepared, empty_unless_consistent; the fourth only when the complete \
+//! policy grades a failing part, grade_outside)"""
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
 //! bound = """\
 //! O(r x (c matching problems + c witness eliminations + one check_predicates)), then one \
 //! simplification of the antecedent's knowledge and one is_sat query when a matched consequent is \
-//! not shown to hold (empty_unless_consistent)"""
+//! refuted, undecided or unprepared (empty_unless_consistent)"""
 //! ```
 //!
 //! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
 //! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
 //! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
 //! one `Counter::SmtQueries` per solver call (an antecedent satisfiability check, up to three
-//! validity subqueries for the residual, a refutation check, and, for a match not shown to hold, a
-//! satisfiability check of the antecedent's knowledge), `Counter::ProofImplicationChecks` at the
-//! caller.
+//! validity subqueries for the residual, a refutation check, and, for a match refuted, undecided
+//! or unprepared, a satisfiability check of the antecedent's knowledge),
+//! `Counter::ProofImplicationChecks` at the caller.
 //!
 //! The check is policy-neutral: it records what it established about the antecedent's
 //! instances (`Established`), and each policy grades that value once. The proof policy asks
@@ -1411,12 +1411,24 @@ fn check_established(
 /// M)` has no instance, since the concatenation is defined only where `1` is not a key of `M`. On
 /// contradictory knowledge the simplifier and the solver may refute any obligation, and every such
 /// refutation, like every other statement about the instances, holds vacuously. The verdict that
-/// is true there is that the antecedent has no instance, so before a refuted, contingent,
-/// undecided or unprepared match is graded, the knowledge is decided (`knowledge_is_contradictory`).
+/// is true there is that the antecedent has no instance, so before a refuted, undecided or
+/// unprepared match is graded, the knowledge is decided (`knowledge_is_contradictory`).
 ///
 /// `Holds` and `AntecedentEmpty` need no such decision, and `TermMismatch` decided no obligation:
 /// it is kept as established, so a state whose term does not match the destination, which a proof
 /// meets at every step before reaching it, costs no further simplification.
+///
+/// `Contingent` is kept too: the check has already searched a stronger set of facts for a
+/// contradiction. The solver answered it for the obligations `o` on the knowledge as written, with
+/// `knowledge ∧ o` and `knowledge ∧ ¬o` both satisfiable, and `refuted_by_simplification`
+/// simplified `knowledge ∧ ¬o` as one conjunction and found it neither `false` nor `Unsat`. Every
+/// fact of the knowledge is among those, so a contradiction between them is one of that
+/// conjunction, which the same simplifier and solver did not find. Deciding the knowledge again
+/// would repeat that search on fewer facts, at the cost of one more simplification of the whole
+/// knowledge and one more solver query on every contingent step of a proof. What is lost is a
+/// contradiction the simplifier exposes only without `¬o`, or one behind a failed simplification
+/// of the conjunction: such a state stays `Contingent`, which, like every statement about an
+/// empty state, holds.
 fn empty_unless_consistent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -1425,13 +1437,11 @@ fn empty_unless_consistent(
     solver: &dyn SmtSolver,
 ) -> Stoppable<Established> {
     match &established {
-        Established::Holds(_) | Established::AntecedentEmpty | Established::TermMismatch => {
-            Ok(established)
-        }
-        Established::Refuted { .. }
-        | Established::Contingent { .. }
-        | Established::Undecided { .. }
-        | Established::Unprepared => {
+        Established::Holds(_)
+        | Established::AntecedentEmpty
+        | Established::TermMismatch
+        | Established::Contingent { .. } => Ok(established),
+        Established::Refuted { .. } | Established::Undecided { .. } | Established::Unprepared => {
             let knowledge = pattern_knowledge(definition, antecedent);
             Ok(
                 if knowledge_is_contradictory(definition, &knowledge, options, solver)? {
@@ -4647,5 +4657,112 @@ mod tests {
         check(&NoSolver);
         #[cfg(feature = "z3")]
         check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
+    /// constraints contradictory, has no instance; the solver, reading `h` as an uninterpreted
+    /// function, answers its consequent condition `X <=Int 5` contingent on the knowledge as
+    /// written. The check's refutation by simplification decides `knowledge ∧ ¬(X <=Int 5)`
+    /// after evaluating `h`, finds it contradictory and so shows the consequent to hold: a
+    /// contradiction of the knowledge that only the simplifier exposes is found before a
+    /// contingent answer is graded, which is why a contingent match is not decided again for
+    /// emptiness.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_antecedent_contradictory_only_once_simplified_is_covered_before_it_is_contingent() {
+        let definition = partial_definition_with(
+            r#"symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        h{}(X:SortInt{}),
+                        \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("identity-h"), simplification{}()]"#,
+        );
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(h{}(X:SortInt{}), \dv{SortInt{}}("0"))"#,
+        ));
+        antecedent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(\dv{SortInt{}}("1"), X:SortInt{})"#,
+        ));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(X:SortInt{}, \dv{SortInt{}}("5"))"#,
+        ));
+        assert_eq!(
+            solver
+                .check_predicates(
+                    &pattern_knowledge(&definition, &antecedent),
+                    &Substitution::new(),
+                    &consequent.constraints,
+                )
+                .expect("the query does not stop"),
+            Ok(Validity::Contingent)
+        );
+        let result = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert!(covers_every_instance(&result), "{result:#?}");
+        let result = check_complete(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    /// A contingent match is graded as the check established it: the antecedent's knowledge is
+    /// not simplified and decided again. The solver answers every satisfiability query `Sat`
+    /// and the consequent condition contingent; the check asks for the satisfiability of the
+    /// constraints, then for that of the knowledge with the negated condition (the refutation by
+    /// simplification), and nothing more.
+    #[test]
+    fn a_contingent_match_is_not_decided_again_for_emptiness() {
+        struct Counting {
+            is_sat: std::cell::Cell<usize>,
+        }
+        impl SmtSolver for Counting {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<Satisfiability, SmtError>> {
+                self.is_sat.set(self.is_sat.get() + 1);
+                Ok(Ok(Satisfiability::Sat))
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Contingent))
+            }
+        }
+        let definition = definition();
+        let solver = Counting {
+            is_sat: std::cell::Cell::new(0),
+        };
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Equals(
+                term(&definition, "X:SortInt{}"),
+                int(&definition, "7"),
+            ))));
+        let obligation = Predicate::Equals(int(&definition, "0"), term(&definition, "X:SortInt{}"));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent.constraints.push(obligation.clone());
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(Coverage::Contingent(CoverageCondition::contingent(
+                Bindings::default(),
+                vec![obligation],
+            )))
+        );
+        assert_eq!(solver.is_sat.get(), 2);
     }
 }
