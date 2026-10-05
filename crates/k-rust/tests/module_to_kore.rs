@@ -3315,53 +3315,74 @@ fn an_associativity_attribute_on_an_unrelated_argument_is_a_located_error() {
 /// there, so the attribute has an effect and compiles; with `left`, `t ~ t ~ t` parses as
 /// `(t ~ t) ~ t`. A module of the definition that imports the production without being imported
 /// by the main module parses its own rules in such a grammar too.
-#[test]
-fn an_associativity_attribute_made_effective_by_an_importing_module_compiles_and_loads() {
-    for (production, attribute, rule) in [
-        (
+///
+/// `production` with `attribute`, declared in `DECL`, compiles and loads when the main module
+/// imports `DECL` and adds the subsort (with `rule` beside it), and when only another module does.
+fn assert_made_effective_by_an_importing_module(production: &str, attribute: &str, rule: &str) {
+    let declaring = format!(
+        "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" | {production} [symbol(tilde), {attribute}]\nendmodule\n"
+    );
+    assert_compiles_and_loads(
+        &format!(
+            "{declaring}module MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\"{rule}\nendmodule\n"
+        ),
+        "MAIN",
+    );
+    assert_compiles_and_loads(
+        &format!(
+            "{declaring}module OTHER\n  imports DECL\n  syntax Foo ::= Ty\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= \"f\"\nendmodule\n"
+        ),
+        "MAIN",
+    );
+}
+
+/// One test per production of [`assert_made_effective_by_an_importing_module`], and one for the
+/// nesting the `left` attribute selects.
+mod an_associativity_attribute_made_effective_by_an_importing_module_compiles_and_loads {
+    use super::{assert_made_effective_by_an_importing_module, compile_for_backend};
+
+    #[test]
+    fn left() {
+        assert_made_effective_by_an_importing_module(
             r#"Ty "~" Foo"#,
             "left",
             "\n  rule <k> go => t ~ t ~ t ... </k>",
-        ),
-        (
+        );
+    }
+
+    #[test]
+    fn right() {
+        assert_made_effective_by_an_importing_module(
             r#"Foo "~" Ty"#,
             "right",
             "\n  rule <k> go => t ~ t ~ t ... </k>",
-        ),
-        (r#"Foo "~" Foo"#, "non-assoc", ""),
-    ] {
-        let declaring = format!(
-            "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" | {production} [symbol(tilde), {attribute}]\nendmodule\n"
-        );
-        assert_compiles_and_loads(
-            &format!(
-                "{declaring}module MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\"{rule}\nendmodule\n"
-            ),
-            "MAIN",
-        );
-        assert_compiles_and_loads(
-            &format!(
-                "{declaring}module OTHER\n  imports DECL\n  syntax Foo ::= Ty\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= \"f\"\nendmodule\n"
-            ),
-            "MAIN",
         );
     }
-    let artifacts = compile_for_backend(
-        "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" [symbol(t)] | Ty \"~\" Foo [symbol(tilde), left]\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\" [symbol(go)]\n  rule <k> go => t ~ t ~ t ... </k>\nendmodule\n",
-        "MAIN",
-    )
-    .expect("the left-associative production compiles");
-    let compact = artifacts
-        .definition_kore
-        .split_whitespace()
-        .collect::<String>();
-    assert!(
-        compact.contains(
-            "Lbltilde{}(Lbltilde{}(Lblt{}(),inj{SortTy{},SortFoo{}}(Lblt{}())),inj{SortTy{},SortFoo{}}(Lblt{}()))"
-        ),
-        "{}",
-        artifacts.definition_kore
-    );
+
+    #[test]
+    fn non_assoc() {
+        assert_made_effective_by_an_importing_module(r#"Foo "~" Foo"#, "non-assoc", "");
+    }
+
+    #[test]
+    fn left_nests_to_the_left() {
+        let artifacts = compile_for_backend(
+            "module DECL\n  syntax Foo\n  syntax Ty ::= \"t\" [symbol(t)] | Ty \"~\" Foo [symbol(tilde), left]\nendmodule\nmodule MAIN\n  imports DECL\n  syntax Foo ::= Ty\n  syntax KItem ::= \"go\" [symbol(go)]\n  rule <k> go => t ~ t ~ t ... </k>\nendmodule\n",
+            "MAIN",
+        )
+        .expect("the left-associative production compiles");
+        let compact = artifacts
+            .definition_kore
+            .split_whitespace()
+            .collect::<String>();
+        assert!(
+            compact.contains(
+                "Lbltilde{}(Lbltilde{}(Lblt{}(),inj{SortTy{},SortFoo{}}(Lblt{}())),inj{SortTy{},SortFoo{}}(Lblt{}()))"
+            ),
+            "{}",
+            artifacts.definition_kore
+        );
+    }
 }
 
 /// The attribute is still an error at its production when no module that sees the production
@@ -3420,25 +3441,38 @@ fn a_priority_that_names_no_rank_is_a_located_error() {
 }
 
 /// The ranks the backend reads compile and load, and a macro rule's priority, which orders
-/// macro expansion during compilation, keeps its integer range.
-#[test]
-fn readable_priorities_and_macro_priorities_compile_and_load() {
-    for rule in [
-        "a => b [priority(0)]",
-        "a => b [priority(254)]",
-        "f(X) => X [priority(007)]",
-        "f(a) => b [simplification]",
-        "f(a) => b [simplification(254)]",
-        "m(X) => X [priority(300)]",
-        "m(X) => X [priority(-1)]",
-    ] {
-        assert_compiles_and_loads(
-            &format!(
-                "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)] | m(Foo) [macro, symbol(m)]\n  rule {rule}\nendmodule\n"
-            ),
-            "MAIN",
-        );
-    }
+/// macro expansion during compilation, keeps its integer range: `rule` compiles and loads.
+fn assert_readable_priority_compiles_and_loads(rule: &str) {
+    assert_compiles_and_loads(
+        &format!(
+            "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)] | m(Foo) [macro, symbol(m)]\n  rule {rule}\nendmodule\n"
+        ),
+        "MAIN",
+    );
+}
+
+/// One test per rule of [`assert_readable_priority_compiles_and_loads`].
+macro_rules! readable_priorities_and_macro_priorities_compile_and_load {
+    ($($name:ident: $rule:literal,)*) => {
+        mod readable_priorities_and_macro_priorities_compile_and_load {
+            $(
+                #[test]
+                fn $name() {
+                    super::assert_readable_priority_compiles_and_loads($rule);
+                }
+            )*
+        }
+    };
+}
+
+readable_priorities_and_macro_priorities_compile_and_load! {
+    lowest_rank: "a => b [priority(0)]",
+    highest_rank_below_owise: "a => b [priority(254)]",
+    leading_zeros_on_a_function_rule: "f(X) => X [priority(007)]",
+    simplification_without_a_rank: "f(a) => b [simplification]",
+    simplification_rank: "f(a) => b [simplification(254)]",
+    macro_rank_above_owise: "m(X) => X [priority(300)]",
+    negative_macro_rank: "m(X) => X [priority(-1)]",
 }
 
 /// G3 of the generated-input experiment: `KSEQ` spells `#EmptyK` twice (`.K` and `.`) and gives

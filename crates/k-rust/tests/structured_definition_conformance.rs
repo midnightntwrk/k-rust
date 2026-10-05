@@ -595,81 +595,120 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
     }
 }
 
-#[test]
-fn load_structured_semantic_downcast_equation_matches_the_source_projection_cast() {
-    for (name, lookup, collection, key, source_rule) in [
-        (
-            "f",
-            "List:get",
-            "List",
-            "Int",
-            "rule f(C, K) => {C[K]}:>Int",
-        ),
-        (
-            "g",
-            "Map:lookup",
-            "Map",
-            "KItem",
-            "rule g(C, K) => {C[K]}:>Int",
-        ),
-    ] {
-        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
-            let options = LoadOptions {
-                implicit_sources: vec![embedded("prelude.md").unwrap()],
-                excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
-                ..LoadOptions::default()
-            };
-            let compile_options = || CompileOptions {
-                backend,
-                ..CompileOptions::default()
-            };
-            let structured = load_structured(
-                Definition {
-                    main_module: "MAIN".into(),
-                    modules: vec![FlatModule {
-                        name: "MAIN".into(),
-                        imports: vec![k_rust::definition::FlatImport {
-                            name: "DOMAINS".into(),
-                            public: true,
-                        }],
-                        local_sentences: vec![
-                            collection_function(name, collection, key),
-                            semantic_downcast_equation(name, lookup, collection, key),
-                        ]
-                        .into_iter()
-                        .map(std::sync::Arc::new)
-                        .collect(),
-                        attributes: Attributes::default(),
-                    }],
-                    attributes: Attributes::default(),
-                },
-                &options,
-            )
-            .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
-            let structured = compile_loaded_definition(&structured, compile_options())
-                .unwrap_or_else(|error| panic!("{backend} rejected {lookup}: {error}"));
+/// A structured semantic downcast equation of `name` over `lookup` emits the equation the source
+/// projection cast `source_rule` emits, on `backend`.
+fn assert_semantic_downcast_equation_matches_the_source_projection_cast(
+    backend: CompilationBackend,
+    (name, lookup, collection, key, source_rule): (&str, &str, &str, &str, &str),
+) {
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").unwrap()],
+        excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+        ..LoadOptions::default()
+    };
+    let compile_options = || CompileOptions {
+        backend,
+        ..CompileOptions::default()
+    };
+    let structured = load_structured(
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: vec![k_rust::definition::FlatImport {
+                    name: "DOMAINS".into(),
+                    public: true,
+                }],
+                local_sentences: vec![
+                    collection_function(name, collection, key),
+                    semantic_downcast_equation(name, lookup, collection, key),
+                ]
+                .into_iter()
+                .map(std::sync::Arc::new)
+                .collect(),
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        },
+        &options,
+    )
+    .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
+    let structured = compile_loaded_definition(&structured, compile_options())
+        .unwrap_or_else(|error| panic!("{backend} rejected {lookup}: {error}"));
 
-            let source = format!(
-                "module MAIN\n  imports DOMAINS\n  syntax Int ::= \"{name}(\" {collection} \",\" {key} \")\" [function, symbol({name})]\n  {source_rule}\nendmodule\n"
-            );
-            let mut resolver = |_: &str, required: &str| {
-                embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-            };
-            let from_source = load_with_options(
-                ResolvedSource::new("source.k", &source),
-                "MAIN",
-                &mut resolver,
-                &options,
-            )
-            .unwrap_or_else(|error| panic!("{backend} rejected source loading: {error}"));
-            let from_source = compile_loaded_definition(&from_source, compile_options())
-                .unwrap_or_else(|error| panic!("{backend} rejected {source_rule}: {error}"));
+    let source = format!(
+        "module MAIN\n  imports DOMAINS\n  syntax Int ::= \"{name}(\" {collection} \",\" {key} \")\" [function, symbol({name})]\n  {source_rule}\nendmodule\n"
+    );
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let from_source = load_with_options(
+        ResolvedSource::new("source.k", &source),
+        "MAIN",
+        &mut resolver,
+        &options,
+    )
+    .unwrap_or_else(|error| panic!("{backend} rejected source loading: {error}"));
+    let from_source = compile_loaded_definition(&from_source, compile_options())
+        .unwrap_or_else(|error| panic!("{backend} rejected {source_rule}: {error}"));
 
-            let structured = equation_patterns(&structured.definition_kore, name);
-            let from_source = equation_patterns(&from_source.definition_kore, name);
-            assert_eq!(structured.len(), 1, "{backend} {lookup}: {structured:#?}");
-            assert_eq!(structured, from_source, "{backend} {lookup}");
-        }
+    let structured = equation_patterns(&structured.definition_kore, name);
+    let from_source = equation_patterns(&from_source.definition_kore, name);
+    assert_eq!(structured.len(), 1, "{backend} {lookup}: {structured:#?}");
+    assert_eq!(structured, from_source, "{backend} {lookup}");
+}
+
+/// One test per lookup and backend.
+mod load_structured_semantic_downcast_equation_matches_the_source_projection_cast {
+    use super::{
+        CompilationBackend, assert_semantic_downcast_equation_matches_the_source_projection_cast,
+    };
+
+    const LIST_GET: (&str, &str, &str, &str, &str) = (
+        "f",
+        "List:get",
+        "List",
+        "Int",
+        "rule f(C, K) => {C[K]}:>Int",
+    );
+    const MAP_LOOKUP: (&str, &str, &str, &str, &str) = (
+        "g",
+        "Map:lookup",
+        "Map",
+        "KItem",
+        "rule g(C, K) => {C[K]}:>Int",
+    );
+
+    #[test]
+    fn list_get_rust() {
+        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+            CompilationBackend::Rust,
+            LIST_GET,
+        );
+    }
+
+    #[test]
+    fn list_get_llvm() {
+        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+            CompilationBackend::Llvm,
+            LIST_GET,
+        );
+    }
+
+    #[test]
+    fn map_lookup_rust() {
+        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+            CompilationBackend::Rust,
+            MAP_LOOKUP,
+        );
+    }
+
+    #[test]
+    fn map_lookup_llvm() {
+        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+            CompilationBackend::Llvm,
+            MAP_LOOKUP,
+        );
     }
 }
 
