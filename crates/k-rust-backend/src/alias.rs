@@ -1,39 +1,43 @@
 //! ```toml algorithm
 //! id = "backend.alias.unfold"
 //! name = "capture-avoiding alias unfolding"
-//! sites = ["expand", "expand_within", "expand_with", "collect", "measure_aliases", "unfolded_size", "measure_node", "visit_associative"]
-//! variable = "p = pattern size; o = expanded output size, at most p + UNFOLDING_LIMIT, since the unfolding is measured before it is built; b = binders visited; r = total size of the parameter map at a binder; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+//! sites = ["expand", "expand_within", "collect", "measure_aliases", "unfolded_size", "measure_node", "visit_associative", "lay_out", "Expander::expand", "Expander::enter", "Expander::expand_binder"]
+//! variable = "p = pattern size; o = what the unfolding builds: the unfolded pattern, and for each alias application it unfolds the application and one unit per argument, at most p + UNFOLDING_LIMIT since it is measured before it is built; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 //! counters = []
-//! no_counter = "alias unfolding has no dedicated counter; each alias body is measured once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
+//! no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one expand call"
-//! bound = "O(p + o + b x (p + r)); O(p) for a pattern that applies no alias, which is returned as it is"
+//! bound = "O(p + o log o): every node it visits is built once, as output or as an alias application it enters, with map and set operations of logarithmic cost; O(p) for a pattern that applies no alias, which is returned as it is"
 //!
 //! [[cost]]
 //! mode = "definition load (measure_aliases)"
-//! bound = "O(B + A) to measure each body once, top down, as a function of its parameters, then one expand call per axiom, whose outputs together exceed the axioms by at most UNFOLDING_LIMIT"
+//! bound = "O(B log B + A) to measure and lay out each body once, then one expand call per axiom, whose builds together exceed the axioms by at most UNFOLDING_LIMIT"
 //! ```
 //!
-//! Capture-avoiding alias unfolding with a cycle stack, linear in the expanded output plus a clone
-//! of the parameter map and a free-variable scan of the body and of the captured replacements at
-//! each binder, at load time and per internalized request; no counter; the loops are the
-//! cycle-stack recursion, the per-binder free-variable scans, the work lists of the size
-//! measurement, and the fresh-name retry.
+//! Capture-avoiding alias unfolding, measured before it is built; no counter; the loops are the
+//! work lists of the measurement and of the layout of the alias bodies, the recursion over the
+//! pattern and the bodies it enters, and the fresh-name retry.
 //!
 //! An alias body may apply further aliases and use a parameter several times, so the unfolding of
 //! a pattern can be exponentially larger than the pattern and the definition: a chain of `n`
 //! aliases, each applying the next twice, unfolds to `2^n` nodes. Loading therefore does not
-//! unfold the aliases to check them. It measures, once per alias, the size of the body's
-//! unfolding as an affine function of the sizes of the alias's arguments ([`Size`]), in one top
-//! down pass over the body that counts the copies the unfolding holds of each node, so the
-//! measures compose along the chain in time linear in the definition. Every pattern is measured
-//! the same way before it is unfolded, and the unfolding is built only when what it adds fits in
-//! the budget of its operation ([`UnfoldingBudget`]).
+//! unfold the aliases to check them. It measures, once per alias, the size of what unfolding an
+//! application of it builds, as an affine function of the sizes of its arguments ([`Size`]), in
+//! one top down pass over the body that counts the copies the unfolding holds of each node, so
+//! the measures compose along the chain in time linear in the definition. Every pattern is
+//! measured the same way before it is unfolded, and the unfolding is built only when what it
+//! adds fits in the budget of its operation ([`UnfoldingBudget`]).
+//!
+//! Unfolding builds exactly what is measured ([`Expander`]): an argument is unfolded once, only
+//! when the alias keeps a copy of it, and moved into its last copy, so every node it builds is a
+//! node of the result, except the alias applications it enters, which the measure counts too.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
+use std::sync::Arc;
 
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::measure::{self, Algorithm};
@@ -43,14 +47,20 @@ use crate::definition::DefinitionError;
 /// The most that unfolding aliases may add to the size ([`Size`]) of the patterns of one
 /// operation: one request pattern, or every axiom of a definition being loaded together.
 ///
-/// The size counts each pattern and sort node and each byte of the names they own, and a cloned
-/// node allocates its own names, so memory grows with it: about 10 bytes per unit for nodes with
-/// short names, and at most about 60 for nodes with one-byte names, on a 64-bit target. The limit,
-/// 2^22 (4,194,304), therefore bounds the unfolded pattern of one operation to a few hundred MiB
-/// at worst, which the internal terms built from it and every later pass over them multiply. A
-/// pattern that large is too large to execute or prove anything about, while the aliases of
-/// generated definitions (the modalities of claims, which unfold to their argument) add nothing,
-/// and the patterns a client sends are not counted, only what unfolding adds to them.
+/// The size counts what unfolding builds: each pattern and sort node and each byte of the names
+/// they own, of the unfolded pattern and of each alias application it enters, plus one unit for
+/// each argument of such an application. A cloned node allocates its own names, so memory grows
+/// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes
+/// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
+/// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
+/// and every later pass over them multiply. Time grows with it too: unfolding builds nothing it
+/// does not count and visits each unit once, with map and set operations of logarithmic cost,
+/// which took 20 to 40 ns per unit in a release build on alias chains that duplicate their
+/// argument or nest binders around it, so an operation that spends the whole limit unfolds in a
+/// fraction of a second. A pattern that large is too large to execute or prove anything about,
+/// while the aliases of generated definitions (the modalities of claims, which unfold to their
+/// argument) add next to nothing, and the patterns a client sends are not counted, only what
+/// unfolding adds to them.
 pub(crate) const UNFOLDING_LIMIT: u64 = 1 << 22;
 
 #[derive(Clone, Debug)]
@@ -65,32 +75,76 @@ pub(crate) struct AliasDefinition {
     pub(crate) depth: usize,
     /// The height of `right` with every alias in it unfolded (`nesting::alias_heights`).
     pub(crate) height: usize,
-    /// The size of `right` with every alias in it unfolded, as a function of the sizes of the
-    /// arguments of an application: `Some` once [`collect`] has measured it.
+    /// The size of what unfolding an application of the alias builds, as a function of the sizes
+    /// of its arguments: `Some` once [`collect`] has measured it.
     pub(crate) size: Option<Size>,
+    /// Where in `right` unfolding substitutes each parameter, laid out by [`collect`].
+    layout: Layout,
 }
 
 /// The size of a pattern is one for each pattern node and each sort node, plus the length of each
 /// symbol, sort, and variable name, as the pattern is written: names are owned strings that every
 /// copy of a node copies, while string and domain values are shared and count as one node.
 ///
-/// A `Size` is the size of the unfolding of an alias body, as an affine function of the sizes of
-/// the arguments and sort arguments of an application of the alias: `constant`, plus each
-/// argument's size times its coefficient in `terms`, plus each sort argument's size times its
-/// coefficient in `sorts`, with one coefficient for each parameter and each sort parameter. A
-/// coefficient is the number of copies of that argument the unfolding holds. The arithmetic
-/// saturates: a saturated size exceeds every budget.
+/// A `Size` is the size of what unfolding an application of an alias builds, as an affine
+/// function of the arguments and sort arguments of the application, in two parts.
+///
+/// The unfolded body, of which each copy of the application's unfolding holds one copy: `constant`,
+/// plus each argument's size times its coefficient in `terms`, plus each sort argument's size
+/// times its coefficient in `sorts`, with one coefficient for each parameter and each sort
+/// parameter. A term coefficient is the number of copies of that argument the unfolding builds;
+/// it is zero exactly when the body keeps no copy of the argument, which is then not unfolded at
+/// all.
+///
+/// The alias applications that unfolding the body enters, each counted as the application node
+/// with its sorts substituted plus one unit for each of its arguments: `entered`, plus each sort
+/// argument's size times its coefficient in `entered_sorts`. Unfolding enters each application of
+/// a body once each time it enters the body, since an argument is unfolded once and then copied,
+/// so this part is built once per entry, however many copies of the result are made.
+///
+/// The arithmetic saturates: a saturated size exceeds every budget.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Size {
     constant: u64,
     terms: Vec<u64>,
     sorts: Vec<u64>,
+    entered: u64,
+    entered_sorts: Vec<u64>,
 }
 
 impl Size {
+    /// The size of the alias body's own unfolding, as a constant and sort coefficients.
+    fn body(&mut self) -> Part<'_> {
+        Part {
+            constant: &mut self.constant,
+            sorts: &mut self.sorts,
+        }
+    }
+
+    /// The size of the applications its unfolding enters, as a constant and sort coefficients.
+    fn entries(&mut self) -> Part<'_> {
+        Part {
+            constant: &mut self.entered,
+            sorts: &mut self.entered_sorts,
+        }
+    }
+
+    /// The whole size of a pattern, which has no parameters.
+    fn total(&self) -> u64 {
+        self.constant.saturating_add(self.entered)
+    }
+}
+
+/// One part of a [`Size`]: a constant and a coefficient for each sort parameter.
+struct Part<'s> {
+    constant: &'s mut u64,
+    sorts: &'s mut [u64],
+}
+
+impl Part<'_> {
     /// Add `copies` copies of something of size `value`.
     fn add_constant(&mut self, copies: u64, value: u64) {
-        self.constant = self.constant.saturating_add(copies.saturating_mul(value));
+        *self.constant = self.constant.saturating_add(copies.saturating_mul(value));
     }
 }
 
@@ -120,7 +174,7 @@ fn size(pattern: &kore::Pattern) -> u64 {
 /// position in `sort_parameters`) standing for the sort argument of that position, and return the
 /// size of `sort` as written.
 fn add_sort(
-    size: &mut Size,
+    size: &mut Part<'_>,
     copies: u64,
     sort: &kore::Sort,
     sort_parameters: &BTreeMap<&str, usize>,
@@ -154,11 +208,17 @@ fn add_sort(
     written
 }
 
+/// The size of `sort` as written.
+#[cfg(test)]
+fn sort_size(sort: &kore::Sort) -> u64 {
+    add_sort(&mut Size::default().body(), 0, sort, &BTreeMap::new())
+}
+
 /// Add `copies` copies of `pattern`'s own node, without its subpatterns, to `size`: the node, its
 /// name, the variable of a binder, and the sorts it carries, substituted as [`add_sort`] does.
 /// Return the size of that node as written.
 fn add_own(
-    size: &mut Size,
+    size: &mut Part<'_>,
     copies: u64,
     pattern: &kore::Pattern,
     sort_parameters: &BTreeMap<&str, usize>,
@@ -199,7 +259,7 @@ fn add_own(
 
 /// The size of `pattern`'s own node as written, without its subpatterns.
 fn written_size(pattern: &kore::Pattern) -> u64 {
-    add_own(&mut Size::default(), 0, pattern, &BTreeMap::new())
+    add_own(&mut Size::default().body(), 0, pattern, &BTreeMap::new())
 }
 
 /// What unfolding may still add to the patterns of one operation ([`UNFOLDING_LIMIT`]).
@@ -227,7 +287,8 @@ impl UnfoldingBudget {
 }
 
 /// The aliases declared in `modules`, with the unfolded heights of their bodies from `heights`
-/// (`nesting::alias_heights`) and the unfolded sizes measured by [`measure_aliases`].
+/// (`nesting::alias_heights`), the sizes measured by [`measure_aliases`], and the layouts that
+/// unfolding reads.
 pub(crate) fn collect(
     modules: &[&kore::Module],
     heights: &BTreeMap<String, usize>,
@@ -309,6 +370,7 @@ pub(crate) fn collect(
                 depth: crate::nesting::height(right, &crate::nesting::Syntactic),
                 height: heights.get(&alias.name).copied().unwrap_or(1),
                 size: None,
+                layout: Layout::default(),
             };
             if aliases.insert(alias.name.clone(), definition).is_some() {
                 return Err(DefinitionError::DuplicateAlias(alias.name.clone()));
@@ -325,29 +387,42 @@ fn first_duplicate<'a>(values: impl IntoIterator<Item = &'a String>) -> Option<&
 }
 
 /// Measure the unfolded size of every alias body into its `size`, refusing a definition whose
-/// unfolding cannot terminate.
+/// unfolding cannot terminate, then lay out every body for unfolding ([`lay_out`]).
 ///
 /// Every alias body is measured once, entering the body of an alias it applies before that
 /// application's arguments, so an application anywhere in a body that is malformed for its alias
 /// (`WrongAliasSortArgumentCount`, `WrongAliasArity`) or that applies an alias whose body is being
 /// measured (`AliasCycle`, which unfolding would repeat forever) is refused without building the
-/// unfolding. The size of an alias is not checked against [`UNFOLDING_LIMIT`] here: it depends on
-/// the arguments it is applied to, so only the patterns that apply it are checked, before they
-/// are unfolded.
+/// unfolding. Unfolding relies on this: it applies only aliases measured here, to patterns
+/// measured before they are unfolded, and checks neither again. The size of an alias is not
+/// checked against [`UNFOLDING_LIMIT`] here: it depends on the arguments it is applied to, so
+/// only the patterns that apply it are checked, before they are unfolded.
 fn measure_aliases(aliases: &mut BTreeMap<String, AliasDefinition>) -> Result<(), DefinitionError> {
-    let mut measured = BTreeMap::new();
+    let mut measured = Measured::default();
     for (name, alias) in aliases.iter() {
-        if !measured.contains_key(name.as_str()) {
+        if !measured.sizes.contains_key(name.as_str()) {
             unfolded_size(Frame::alias(name, alias), aliases, &mut measured)?;
         }
     }
-    let measured = measured
+    let Measured { mut sizes, order } = measured;
+    let measured = order
         .into_iter()
-        .map(|(name, size)| (name.to_owned(), size))
+        .map(|name| (name.to_owned(), sizes.remove(name)))
+        .collect::<Vec<_>>();
+    let order = measured
+        .iter()
+        .map(|(name, _)| name.clone())
         .collect::<Vec<_>>();
     for (name, size) in measured {
         if let Some(alias) = aliases.get_mut(&name) {
-            alias.size = Some(size);
+            alias.size = size;
+        }
+    }
+    // A body is laid out after every alias it applies, which finished its measurement first.
+    for name in &order {
+        let layout = lay_out(&aliases[name], aliases);
+        if let Some(alias) = aliases.get_mut(name) {
+            alias.layout = layout;
         }
     }
     Ok(())
@@ -355,8 +430,8 @@ fn measure_aliases(aliases: &mut BTreeMap<String, AliasDefinition>) -> Result<()
 
 /// One step of the size measurement of a pattern.
 enum Visit<'a> {
-    /// Measure this pattern, of which the unfolding holds this many copies: zero for an argument
-    /// that an alias drops, which is still checked as unfolding checks it.
+    /// Measure this pattern, of which the unfolding builds this many copies: zero for an argument
+    /// that an alias drops, which is checked although unfolding never unfolds it.
     Enter(&'a kore::Pattern, u64),
     /// Leave a binder of the parameter at this position.
     Unbind(usize),
@@ -373,7 +448,7 @@ struct Frame<'a> {
     /// itself rather than for its argument.
     shadowed: Vec<usize>,
     pending: Vec<Visit<'a>>,
-    /// The size of the unfolding of what has been visited, as a function of the arguments.
+    /// The size of what unfolding what has been visited builds, as a function of the arguments.
     unfolded: Size,
     /// The size of what has been visited, as written.
     written: u64,
@@ -398,12 +473,7 @@ impl<'a> Frame<'a> {
     fn alias(name: &'a str, alias: &'a AliasDefinition) -> Self {
         Self {
             alias: Some(name),
-            parameters: alias
-                .parameters
-                .iter()
-                .enumerate()
-                .map(|(index, parameter)| (parameter, index))
-                .collect(),
+            parameters: parameter_positions(alias),
             sort_parameters: alias
                 .sort_parameters
                 .iter()
@@ -416,6 +486,8 @@ impl<'a> Frame<'a> {
                 constant: 0,
                 terms: vec![0; alias.parameters.len()],
                 sorts: vec![0; alias.sort_parameters.len()],
+                entered: 0,
+                entered_sorts: vec![0; alias.sort_parameters.len()],
             },
             written: 0,
             applies_alias: false,
@@ -432,6 +504,16 @@ impl<'a> Frame<'a> {
         );
         self.pending[start..].reverse();
     }
+}
+
+/// The position of each parameter of `alias`.
+fn parameter_positions(alias: &AliasDefinition) -> BTreeMap<&kore::Variable, usize> {
+    alias
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| (parameter, index))
+        .collect()
 }
 
 /// The aliases whose bodies are being measured, outermost first.
@@ -471,9 +553,24 @@ impl<'a> Entered<'a> {
     }
 }
 
+/// The alias bodies measured by one measurement, in the order their measurements finished: the
+/// body of an alias after the bodies of the aliases it applies.
+#[derive(Default)]
+struct Measured<'a> {
+    sizes: BTreeMap<&'a str, Size>,
+    order: Vec<&'a str>,
+}
+
+impl<'a> Measured<'a> {
+    fn insert(&mut self, name: &'a str, size: Size) {
+        self.sizes.insert(name, size);
+        self.order.push(name);
+    }
+}
+
 /// The result of measuring a pattern or an alias body.
 struct Measurement {
-    /// The size of its unfolding, as a function of the arguments of the alias.
+    /// The size of what its unfolding builds, as a function of the arguments of the alias.
     unfolded: Size,
     /// Its size as written.
     written: u64,
@@ -486,18 +583,19 @@ struct Measurement {
 /// measured first and added to `measured`.
 ///
 /// Every node is visited once, top down, with the number of copies of it that the unfolding
-/// holds: a node of an argument of an alias application has as many copies as the application
+/// builds: a node of an argument of an alias application has as many copies as the application
 /// times the alias's coefficient for that argument. So the measurement takes time linear in what
 /// it visits, plus the parameters of the bodies it measures, whatever the number of parameters
-/// and their occurrences. It reports a malformed alias application and an alias cycle as
-/// unfolding would, entering the body of an alias before the arguments of its application.
+/// and their occurrences. It refuses a malformed alias application and an alias cycle anywhere
+/// in what it visits, dropped arguments included, entering the body of an alias before the
+/// arguments of its application; unfolding checks neither again.
 ///
 /// Every frame, pattern, and sort is measured with explicit work lists, so the stack it takes is
 /// bounded whatever the depth of the patterns and of the chains of aliases.
 fn unfolded_size<'a>(
     root: Frame<'a>,
     aliases: &'a BTreeMap<String, AliasDefinition>,
-    measured: &mut BTreeMap<&'a str, Size>,
+    measured: &mut Measured<'a>,
 ) -> Result<Measurement, DefinitionError> {
     // Invariant: `stack` names the aliases of `frames`, whose bodies are being measured, in
     // order; an application of one of them is a cycle.
@@ -530,7 +628,7 @@ fn unfolded_size<'a>(
         };
         let callee = match visit {
             Visit::Enter(pattern, copies) => {
-                measure_node(frame, pattern, copies, aliases, measured, &stack)?
+                measure_node(frame, pattern, copies, aliases, &measured.sizes, &stack)?
             }
             Visit::Unbind(index) => {
                 frame.shadowed[index] -= 1;
@@ -545,9 +643,9 @@ fn unfolded_size<'a>(
     unreachable!("the measurement returns when it finishes its root frame")
 }
 
-/// Add `copies` copies of the unfolding of `pattern`'s own node to the measurement of `frame`, and
-/// push its subpatterns with the copies the unfolding holds of each, or name the alias whose body
-/// must be measured first.
+/// Add `copies` copies of what unfolding `pattern`'s own node builds to the measurement of
+/// `frame`, and push its subpatterns with the copies the unfolding builds of each, or name the
+/// alias whose body must be measured first.
 fn measure_node<'a>(
     frame: &mut Frame<'a>,
     pattern: &'a kore::Pattern,
@@ -568,9 +666,18 @@ fn measure_node<'a>(
                 }
             };
             frame.applies_alias = true;
-            frame.written = frame.written.saturating_add(written_size(pattern));
-            frame.unfolded.add_constant(copies, body.constant);
-            add_sort_arguments(frame, copies, symbol, body);
+            // Unfolding enters the body once per entry of this frame, if it reaches the
+            // application at all: the application with its sorts substituted, the substitution
+            // of its arguments, and what the body enters.
+            let entries = u64::from(copies > 0);
+            let written = add_own(
+                &mut frame.unfolded.entries(),
+                entries,
+                pattern,
+                &frame.sort_parameters,
+            );
+            frame.written = frame.written.saturating_add(written);
+            enter_body(frame, copies, entries, length_of(arguments), symbol, body);
             frame.enter_in_order(
                 arguments
                     .iter()
@@ -616,16 +723,27 @@ fn measure_node<'a>(
         }
         _ => {}
     }
-    let written = add_own(&mut frame.unfolded, copies, pattern, &frame.sort_parameters);
+    let written = add_own(
+        &mut frame.unfolded.body(),
+        copies,
+        pattern,
+        &frame.sort_parameters,
+    );
     frame.written = frame.written.saturating_add(written);
     let (first, second) = crate::nesting::children(pattern);
     frame.enter_in_order(first.iter().chain(second).map(|child| (child, copies)));
     Ok(None)
 }
 
+fn length_of<T>(items: &[T]) -> u64 {
+    u64::try_from(items.len()).unwrap_or(u64::MAX)
+}
+
 /// Measure an associative application of an alias as the chain of binary applications it folds
 /// into: for `n` arguments, `n - 1` applications of the alias, each nested in the first argument
-/// (left associative) or the second (right associative) of the one around it.
+/// (left associative) or the second (right associative) of the one around it. A link that the
+/// alias drops (its coefficient is zero) is measured with no copies, as are the links and
+/// arguments inside it.
 #[allow(clippy::too_many_arguments)]
 fn visit_associative<'a>(
     frame: &mut Frame<'a>,
@@ -644,7 +762,7 @@ fn visit_associative<'a>(
         // Unfolding leaves it as written.
         [] => {
             frame.written = frame.written.saturating_add(written);
-            frame.unfolded.add_constant(copies, written);
+            frame.unfolded.body().add_constant(copies, written);
             return Ok(None);
         }
         // Unfolding replaces it by its argument.
@@ -665,15 +783,20 @@ fn visit_associative<'a>(
     frame.written = frame.written.saturating_add(written);
     let (left, right) = (body.terms[0], body.terms[1]);
     // `chain` counts the copies of the application at the current link, outermost first; `links`
-    // their total.
+    // their total, and `entered` the links that unfolding enters, those with any copy.
     let mut chain = copies;
     let mut links = 0_u64;
+    let mut entered = 0_u64;
     let mut steps = Vec::with_capacity(arguments.len());
+    let mut link = |chain: u64| {
+        links = links.saturating_add(chain);
+        entered += u64::from(chain > 0);
+    };
     match associativity {
         kore::Associativity::Left => {
             // f(f(f(a0, a1), a2), a3): the outermost link takes the last argument second.
             for argument in arguments[1..].iter().rev() {
-                links = links.saturating_add(chain);
+                link(chain);
                 steps.push((argument, chain.saturating_mul(right)));
                 chain = chain.saturating_mul(left);
             }
@@ -683,26 +806,55 @@ fn visit_associative<'a>(
         kore::Associativity::Right => {
             // f(a0, f(a1, f(a2, a3))): the outermost link takes the first argument first.
             for argument in &arguments[..arguments.len() - 1] {
-                links = links.saturating_add(chain);
+                link(chain);
                 steps.push((argument, chain.saturating_mul(left)));
                 chain = chain.saturating_mul(right);
             }
             steps.push((last, chain));
         }
     }
-    frame.unfolded.add_constant(links, body.constant);
-    add_sort_arguments(frame, links, symbol, body);
+    // Each link that unfolding enters builds the associative node's symbol with its sorts
+    // substituted, and the substitution of its two arguments.
+    add_own(
+        &mut frame.unfolded.entries(),
+        entered,
+        pattern,
+        &frame.sort_parameters,
+    );
+    enter_body(frame, links, entered, 2, symbol, body);
     frame.enter_in_order(steps);
     Ok(None)
 }
 
-/// Add `copies` copies of what the sort arguments of `symbol` contribute to an unfolding of its
-/// alias, whose body unfolds to `body`.
-fn add_sort_arguments(frame: &mut Frame<'_>, copies: u64, symbol: &kore::Symbol, body: &Size) {
-    for (sort, coefficient) in symbol.sort_parameters.iter().zip(&body.sorts) {
+/// Add to `frame` what `copies` copies of the unfolding of an application of the alias `symbol`,
+/// whose body measures `body`, hold, and what entering its body `entries` times builds: the
+/// substitution of its `arity` arguments and the applications the body enters.
+fn enter_body(
+    frame: &mut Frame<'_>,
+    copies: u64,
+    entries: u64,
+    arity: u64,
+    symbol: &kore::Symbol,
+    body: &Size,
+) {
+    frame.unfolded.body().add_constant(copies, body.constant);
+    let mut part = frame.unfolded.entries();
+    part.add_constant(entries, arity);
+    part.add_constant(entries, body.entered);
+    for (sort, (coefficient, entered)) in symbol
+        .sort_parameters
+        .iter()
+        .zip(body.sorts.iter().zip(&body.entered_sorts))
+    {
         add_sort(
-            &mut frame.unfolded,
+            &mut frame.unfolded.body(),
             copies.saturating_mul(*coefficient),
+            sort,
+            &frame.sort_parameters,
+        );
+        add_sort(
+            &mut frame.unfolded.entries(),
+            entries.saturating_mul(*entered),
             sort,
             &frame.sort_parameters,
         );
@@ -750,6 +902,207 @@ fn callee<'a: 'm, 'm>(
     })
 }
 
+/// Where in an alias body unfolding substitutes each parameter, and what it needs to know there.
+///
+/// The nodes of the body are numbered in pre-order, the order in which unfolding walks them, as
+/// [`crate::nesting::children`] lists the subpatterns of a node; a node's subpatterns are the
+/// positions after it, up to the end of its subtree.
+#[derive(Clone, Debug, Default)]
+struct Layout {
+    /// The number of nodes in the subtree of each position.
+    subtree: Vec<usize>,
+    /// For each parameter, in increasing order, the positions of the occurrences that unfolding
+    /// substitutes: those that no binder in the body shadows and no alias in it drops. Unfolding
+    /// copies the argument once for each.
+    occurrences: Vec<Vec<usize>>,
+    /// For each parameter, whether unfolding asks for the free variables of its argument's
+    /// unfolding: an occurrence is under a binder of the body, which must not capture them, or in
+    /// an argument whose own free variables are asked for.
+    needs_free: Vec<bool>,
+    /// The name of every variable of the body, its parameters included, which a binder renamed
+    /// to avoid capture never takes.
+    names: BTreeSet<String>,
+}
+
+/// One step of laying out an alias body.
+enum Place<'a> {
+    /// Number this pattern and its subpatterns: whether unfolding substitutes its parameter
+    /// occurrences (no alias around it drops it), and whether it asks for their free variables.
+    Enter(&'a kore::Pattern, bool, bool),
+    /// The subtree of the node at this position ends here.
+    Exit(usize),
+    /// Leave a binder of the parameter at this position.
+    Unbind(usize),
+}
+
+/// Lay out the body of `alias` ([`Layout`]), whose size and the sizes and layouts of the aliases
+/// it applies are known, with a work list over the body.
+fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>) -> Layout {
+    use kore::Pattern;
+
+    let parameters = parameter_positions(alias);
+    let mut layout = Layout {
+        subtree: Vec::new(),
+        occurrences: vec![Vec::new(); alias.parameters.len()],
+        needs_free: vec![false; alias.parameters.len()],
+        names: alias
+            .parameters
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect(),
+    };
+    let mut shadowed = vec![0_usize; alias.parameters.len()];
+    let mut pending = vec![Place::Enter(&alias.right, true, false)];
+    // Each `Enter` pushes `Enter`s only for proper subpatterns, so the loop terminates.
+    while let Some(place) = pending.pop() {
+        let (pattern, substituted, asked) = match place {
+            Place::Enter(pattern, substituted, asked) => (pattern, substituted, asked),
+            Place::Exit(position) => {
+                layout.subtree[position] = layout.subtree.len() - position;
+                continue;
+            }
+            Place::Unbind(index) => {
+                shadowed[index] -= 1;
+                continue;
+            }
+        };
+        let position = layout.subtree.len();
+        layout.subtree.push(1);
+        pending.push(Place::Exit(position));
+        let start = pending.len();
+        match pattern {
+            Pattern::Variable(variable) => {
+                layout.names.insert(variable.name.clone());
+                if let Some(&index) = parameters.get(variable)
+                    && shadowed[index] == 0
+                    && substituted
+                {
+                    layout.occurrences[index].push(position);
+                    layout.needs_free[index] |= asked;
+                }
+            }
+            Pattern::Application { symbol, arguments } if aliases.contains_key(&symbol.name) => {
+                let callee = &aliases[&symbol.name];
+                let terms = &callee
+                    .size
+                    .as_ref()
+                    .expect("callees are measured first")
+                    .terms;
+                pending.extend(arguments.iter().enumerate().map(|(index, argument)| {
+                    Place::Enter(
+                        argument,
+                        substituted && terms[index] > 0,
+                        asked || callee.layout.needs_free[index],
+                    )
+                }));
+            }
+            Pattern::AssociativeApplication {
+                associativity,
+                symbol,
+                arguments,
+            } if aliases.contains_key(&symbol.name) && arguments.len() >= 2 => {
+                let callee = &aliases[&symbol.name];
+                let links = Links::of(callee, *associativity, arguments.len());
+                pending.extend(arguments.iter().enumerate().map(|(index, argument)| {
+                    let (kept, argument_asked) = links.argument(index, asked);
+                    Place::Enter(argument, substituted && kept, argument_asked)
+                }));
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                layout.names.insert(variable.name.clone());
+                if let Some(&index) = parameters.get(variable.as_ref()) {
+                    shadowed[index] += 1;
+                    pending.push(Place::Unbind(index));
+                }
+                // The binder asks for the free variables of every argument substituted under it.
+                pending.push(Place::Enter(body, substituted, true));
+                continue;
+            }
+            _ => {
+                let (first, second) = crate::nesting::children(pattern);
+                pending.extend(
+                    first
+                        .iter()
+                        .chain(second)
+                        .map(|child| Place::Enter(child, substituted, asked)),
+                );
+            }
+        }
+        pending[start..].reverse();
+    }
+    layout
+}
+
+/// Which links of the chain that an associative application of an alias folds into
+/// ([`visit_associative`]) unfolding enters, and what it asks of their arguments.
+#[derive(Clone, Copy)]
+struct Links {
+    associativity: kore::Associativity,
+    /// The number of arguments, at least two.
+    arguments: usize,
+    /// Whether the alias keeps a copy of its first and of its second argument.
+    keeps: (bool, bool),
+    /// Whether it asks for the free variables of its first and of its second argument.
+    asks: (bool, bool),
+}
+
+impl Links {
+    fn of(alias: &AliasDefinition, associativity: kore::Associativity, arguments: usize) -> Self {
+        let terms = &alias.size.as_ref().expect("aliases are measured").terms;
+        Self {
+            associativity,
+            arguments,
+            keeps: (terms[0] > 0, terms[1] > 0),
+            asks: (alias.layout.needs_free[0], alias.layout.needs_free[1]),
+        }
+    }
+
+    /// Whether unfolding enters link `link` (numbered as its last argument for a left
+    /// associative chain, `f(link_{k-1}, a_k)`, and as its first for a right associative one,
+    /// `f(a_k, link_{k+1})`), and whether it asks for the free variables of that link's unfolding,
+    /// given whether the free variables of the whole chain are asked for.
+    fn link(self, link: usize, asked: bool) -> (bool, bool) {
+        let outermost = match self.associativity {
+            kore::Associativity::Left => link + 1 == self.arguments,
+            kore::Associativity::Right => link == 0,
+        };
+        // An inner link is the first argument (left associative) or the second (right
+        // associative) of the link around it.
+        let (keeps, asks) = match self.associativity {
+            kore::Associativity::Left => (self.keeps.0, self.asks.0),
+            kore::Associativity::Right => (self.keeps.1, self.asks.1),
+        };
+        if outermost {
+            (true, asked)
+        } else {
+            (keeps, asked || asks)
+        }
+    }
+
+    /// Whether unfolding unfolds argument `index` of the chain, and whether it asks for the free
+    /// variables of its unfolding.
+    fn argument(self, index: usize, asked: bool) -> (bool, bool) {
+        let last = self.arguments - 1;
+        // The link the argument is an argument of, and whether it is that link's first argument.
+        let (link, first) = match self.associativity {
+            kore::Associativity::Left if index == 0 => (1, true),
+            kore::Associativity::Left => (index, false),
+            kore::Associativity::Right if index == last => (last - 1, false),
+            kore::Associativity::Right => (index, true),
+        };
+        let (entered, link_asked) = self.link(link, asked);
+        let (keeps, asks) = if first {
+            (self.keeps.0, self.asks.0)
+        } else {
+            (self.keeps.1, self.asks.1)
+        };
+        (entered && keeps, link_asked || asks)
+    }
+}
+
 /// Unfold the aliases of `pattern` with a budget of its own.
 pub(crate) fn expand<'p>(
     pattern: &'p kore::Pattern,
@@ -758,9 +1111,9 @@ pub(crate) fn expand<'p>(
     expand_within(pattern, aliases, &mut UnfoldingBudget::new())
 }
 
-/// Unfold the aliases of `pattern`, after measuring what that adds to its size and spending it
-/// from `budget`, so an unfolding too large to use is refused before it is built. A pattern that
-/// applies no alias is its own unfolding, and is returned as it is.
+/// Unfold the aliases of `pattern`, after measuring what that builds and spending what it adds to
+/// the pattern from `budget`, so an unfolding too large to use is refused before it is built. A
+/// pattern that applies no alias is its own unfolding, and is returned as it is.
 pub(crate) fn expand_within<'p>(
     pattern: &'p kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
@@ -770,322 +1123,903 @@ pub(crate) fn expand_within<'p>(
     if aliases.is_empty() {
         return Ok(Cow::Borrowed(pattern));
     }
-    let measurement = unfolded_size(Frame::pattern(pattern), aliases, &mut BTreeMap::new())?;
+    let measurement = unfolded_size(Frame::pattern(pattern), aliases, &mut Measured::default())?;
     if !measurement.applies_alias {
         return Ok(Cow::Borrowed(pattern));
     }
     budget.spend(
         measurement
             .unfolded
-            .constant
+            .total()
             .saturating_sub(measurement.written),
     )?;
-    expand_with(
-        pattern,
-        aliases,
-        &BTreeMap::new(),
-        &BTreeMap::new(),
-        &mut Vec::new(),
-    )
-    .map(Cow::Owned)
+    let mut expander = Expander::new(aliases);
+    expander
+        .expand(&mut Scope::pattern(), pattern, 0, false)
+        .map(|(unfolded, _)| Cow::Owned(unfolded))
 }
 
-/// Expands `pattern` under the sort and term substitutions of the enclosing alias bodies.
+/// The free variables of a pattern unfolding built, where unfolding asks for them: `None` when
+/// it has none. The free variables of an argument are shared by its copies.
+type Free = Option<Arc<BTreeSet<kore::Variable>>>;
+
+/// What a variable of the pattern being unfolded stands for in a [`Scope`].
+enum Binding {
+    /// A parameter of the alias, and the unfolding of its argument: built once, copied for each
+    /// occurrence that unfolding substitutes, and moved into the last (`remaining` counts the
+    /// occurrences left). `free` holds its free variables when the layout asks for them.
+    Argument {
+        parameter: usize,
+        value: Option<kore::Pattern>,
+        remaining: usize,
+        free: Free,
+    },
+    /// A binder of the body renamed to avoid capturing a free variable of an argument.
+    Renamed(kore::Variable),
+}
+
+/// The free variables of the arguments of a [`Scope`], with the positions where unfolding
+/// substitutes them, built the first time a binder of the scope asks.
+#[derive(Default)]
+struct Capture {
+    /// For each free variable of an argument, the positions of the occurrences of every
+    /// parameter whose argument has it, in increasing order.
+    by_variable: BTreeMap<kore::Variable, Vec<usize>>,
+    /// The same, for each name of such a variable.
+    by_name: BTreeMap<String, Vec<usize>>,
+}
+
+/// Whether some position of `positions`, in increasing order, is in `range`.
+fn any_within(positions: &[usize], range: &Range<usize>) -> bool {
+    positions
+        .get(positions.partition_point(|&position| position < range.start))
+        .is_some_and(|&position| position < range.end)
+}
+
+/// The pattern being unfolded, or the body of one application of an alias.
+struct Scope<'a> {
+    /// The alias whose body this is, `None` for the pattern being unfolded.
+    alias: Option<&'a AliasDefinition>,
+    /// The sort argument of each sort parameter.
+    sorts: BTreeMap<&'a str, kore::Sort>,
+    /// What each parameter, and each renamed binder around the current position, stands for.
+    terms: BTreeMap<&'a kore::Variable, Binding>,
+    capture: Option<Capture>,
+    /// The names of the renamed binders around the current position.
+    renamed: BTreeSet<String>,
+}
+
+impl<'a> Scope<'a> {
+    fn pattern() -> Self {
+        Self {
+            alias: None,
+            sorts: BTreeMap::new(),
+            terms: BTreeMap::new(),
+            capture: None,
+            renamed: BTreeSet::new(),
+        }
+    }
+
+    /// The positions of the subpatterns of the node at `position`, which follow it: each is the
+    /// previous one plus the size of its subtree. Positions are not tracked outside alias bodies.
+    fn children(&self, position: usize) -> Positions<'a> {
+        Positions {
+            subtree: self.alias.map(|alias| alias.layout.subtree.as_slice()),
+            next: position + 1,
+        }
+    }
+}
+
+/// The positions of the subpatterns of one node, in order ([`Scope::children`]).
+struct Positions<'s> {
+    subtree: Option<&'s [usize]>,
+    next: usize,
+}
+
+impl Positions<'_> {
+    fn next(&mut self) -> usize {
+        let position = self.next;
+        if let Some(subtree) = self.subtree {
+            self.next += subtree[position];
+        }
+        position
+    }
+}
+
+/// Builds the unfolding of a pattern measured by [`unfolded_size`].
 ///
-/// The recursion descends once per level of the pattern, so the stack held by one level bounds
-/// how deep a term can be internalized. Applications, the constructor that nests with term
-/// depth, are expanded in `expand_application`, whose frame holds only that case; every other
-/// constructor goes through `expand_connective`. Both return straight into this frame's result,
-/// so one level of an application spine costs this dispatch plus one application frame rather
-/// than the temporaries of every constructor case.
-fn expand_with(
-    pattern: &kore::Pattern,
-    aliases: &BTreeMap<String, AliasDefinition>,
-    sorts: &BTreeMap<String, kore::Sort>,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-    stack: &mut Vec<String>,
-) -> Result<kore::Pattern, DefinitionError> {
-    match pattern {
-        kore::Pattern::Application { symbol, arguments } => {
-            expand_application(symbol, arguments, aliases, sorts, terms, stack)
-        }
-        _ => expand_connective(pattern, aliases, sorts, terms, stack),
-    }
+/// It builds exactly what the measure counts. Arguments are unfolded once, before the body of
+/// their alias is entered, and only when the alias keeps a copy ([`Size`]): an argument the body
+/// drops, or only uses under a binder that shadows its parameter, is never unfolded, so nothing
+/// it would have unfolded to is built, and the measurement has already checked it. The unfolded
+/// argument is copied for each occurrence the body substitutes but its last, into which it is
+/// moved, so every node built for it is a node of the result. The links of an associative
+/// application that the alias drops are not entered either.
+///
+/// A binder of a body is renamed when an argument substituted under it has its variable free.
+/// The free variables of an argument are computed while it is unfolded, and only for the
+/// parameters whose layout asks for them, so each node's are computed once, from its
+/// subpatterns'; at a binder, the occurrences of the parameters whose arguments have the binder
+/// variable free are looked up by position ([`Capture`]). No pattern is rescanned.
+struct Expander<'a> {
+    aliases: &'a BTreeMap<String, AliasDefinition>,
+    /// What the unfolding built besides its result: one unit per argument and the application
+    /// node of each alias application it entered ([`Size`]).
+    #[cfg(test)]
+    entered: u64,
+    /// The operations on free variables, capture positions, and fresh names it performed.
+    #[cfg(test)]
+    steps: u64,
 }
 
-fn expand_application(
-    symbol: &kore::Symbol,
-    arguments: &[kore::Pattern],
-    aliases: &BTreeMap<String, AliasDefinition>,
-    sorts: &BTreeMap<String, kore::Sort>,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-    stack: &mut Vec<String>,
-) -> Result<kore::Pattern, DefinitionError> {
-    let symbol = substitute_symbol(symbol, sorts);
-    let mut expanded = Vec::with_capacity(arguments.len());
-    for argument in arguments {
-        expanded.push(expand_with(argument, aliases, sorts, terms, stack)?);
-    }
-    let arguments = expanded;
-    let Some(alias) = aliases.get(&symbol.name) else {
-        return Ok(kore::Pattern::Application { symbol, arguments });
-    };
-    if symbol.sort_parameters.len() != alias.sort_parameters.len() {
-        return Err(DefinitionError::WrongAliasSortArgumentCount {
-            alias: symbol.name,
-            expected: alias.sort_parameters.len(),
-            actual: symbol.sort_parameters.len(),
-        });
-    }
-    if arguments.len() != alias.parameters.len() {
-        return Err(DefinitionError::WrongAliasArity {
-            alias: symbol.name,
-            expected: alias.parameters.len(),
-            actual: arguments.len(),
-        });
-    }
-    if let Some(start) = stack.iter().position(|name| name == &symbol.name) {
-        let mut cycle = stack[start..].to_vec();
-        cycle.push(symbol.name);
-        return Err(DefinitionError::AliasCycle(cycle));
-    }
-    let alias_sorts = alias
-        .sort_parameters
-        .iter()
-        .cloned()
-        .zip(symbol.sort_parameters)
-        .collect::<BTreeMap<_, _>>();
-    let alias_terms = alias
-        .parameters
-        .iter()
-        .cloned()
-        .zip(arguments)
-        .collect::<BTreeMap<_, _>>();
-    // The body is unfolded below the frames of every alias body and pattern level enclosing this
-    // application, and an alias body can apply further aliases. An operation provides the stack
-    // for the whole unfolding up front (`nesting::height` counts each alias at its unfolded
-    // height), and each body is also given the stack for its own levels where it is entered,
-    // so an unfolding run without that provision cannot overflow either: the recursion over the
-    // body's levels, and the helpers that rescan them, fit in it, and every deeper descent
-    // enters another body.
-    // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
-    stack.push(symbol.name);
-    let result = crate::nesting::with_stack(alias.depth, || {
-        expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack)
-    });
-    stack.pop();
-    result?
-}
-
-fn expand_connective(
-    pattern: &kore::Pattern,
-    aliases: &BTreeMap<String, AliasDefinition>,
-    sorts: &BTreeMap<String, kore::Sort>,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-    stack: &mut Vec<String>,
-) -> Result<kore::Pattern, DefinitionError> {
-    use kore::Pattern;
-
-    let recurse = |pattern: &Pattern, stack: &mut Vec<String>| {
-        expand_with(pattern, aliases, sorts, terms, stack)
-    };
-    match pattern {
-        Pattern::String(value) => Ok(Pattern::String(value.clone())),
-        Pattern::Variable(variable) => Ok(terms
-            .get(variable)
-            .cloned()
-            .unwrap_or_else(|| Pattern::Variable(substitute_variable(variable, sorts)))),
-        Pattern::Application { symbol, arguments } => {
-            expand_application(symbol, arguments, aliases, sorts, terms, stack)
+impl<'a> Expander<'a> {
+    fn new(aliases: &'a BTreeMap<String, AliasDefinition>) -> Self {
+        Self {
+            aliases,
+            #[cfg(test)]
+            entered: 0,
+            #[cfg(test)]
+            steps: 0,
         }
-        Pattern::Top { sort } => Ok(Pattern::Top {
-            sort: substitute_sort(sort, sorts),
-        }),
-        Pattern::Bottom { sort } => Ok(Pattern::Bottom {
-            sort: substitute_sort(sort, sorts),
-        }),
-        Pattern::And { sort, arguments } => Ok(Pattern::And {
-            sort: substitute_sort(sort, sorts),
-            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
-        }),
-        Pattern::Or { sort, arguments } => Ok(Pattern::Or {
-            sort: substitute_sort(sort, sorts),
-            arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
-        }),
-        Pattern::Not { sort, argument } => Ok(Pattern::Not {
-            sort: substitute_sort(sort, sorts),
-            argument: Box::new(recurse(argument, stack)?),
-        }),
-        Pattern::Next { sort, argument } => Ok(Pattern::Next {
-            sort: substitute_sort(sort, sorts),
-            argument: Box::new(recurse(argument, stack)?),
-        }),
-        Pattern::Implies { sort, left, right } => Ok(Pattern::Implies {
-            sort: substitute_sort(sort, sorts),
-            left: Box::new(recurse(left, stack)?),
-            right: Box::new(recurse(right, stack)?),
-        }),
-        Pattern::Iff { sort, left, right } => Ok(Pattern::Iff {
-            sort: substitute_sort(sort, sorts),
-            left: Box::new(recurse(left, stack)?),
-            right: Box::new(recurse(right, stack)?),
-        }),
-        Pattern::Rewrites { sort, left, right } => Ok(Pattern::Rewrites {
-            sort: substitute_sort(sort, sorts),
-            left: Box::new(recurse(left, stack)?),
-            right: Box::new(recurse(right, stack)?),
-        }),
-        Pattern::Exists {
-            sort,
-            variable,
-            body,
-        } => expand_binder(
-            BinderKind::Exists,
-            Some(sort),
-            variable,
-            body,
-            aliases,
-            sorts,
-            terms,
-            stack,
-        ),
-        Pattern::Forall {
-            sort,
-            variable,
-            body,
-        } => expand_binder(
-            BinderKind::Forall,
-            Some(sort),
-            variable,
-            body,
-            aliases,
-            sorts,
-            terms,
-            stack,
-        ),
-        Pattern::Mu { variable, body } => expand_binder(
-            BinderKind::Mu,
-            None,
-            variable,
-            body,
-            aliases,
-            sorts,
-            terms,
-            stack,
-        ),
-        Pattern::Nu { variable, body } => expand_binder(
-            BinderKind::Nu,
-            None,
-            variable,
-            body,
-            aliases,
-            sorts,
-            terms,
-            stack,
-        ),
-        Pattern::Ceil {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Ok(Pattern::Ceil {
-            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
-            result_sort: substitute_sort(result_sort, sorts),
-            argument: Box::new(recurse(argument, stack)?),
-        }),
-        Pattern::Floor {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Ok(Pattern::Floor {
-            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
-            result_sort: substitute_sort(result_sort, sorts),
-            argument: Box::new(recurse(argument, stack)?),
-        }),
-        Pattern::Equals {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => Ok(Pattern::Equals {
-            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
-            result_sort: substitute_sort(result_sort, sorts),
-            left: Box::new(recurse(left, stack)?),
-            right: Box::new(recurse(right, stack)?),
-        }),
-        Pattern::In {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => Ok(Pattern::In {
-            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
-            result_sort: substitute_sort(result_sort, sorts),
-            left: Box::new(recurse(left, stack)?),
-            right: Box::new(recurse(right, stack)?),
-        }),
-        Pattern::DomainValue { sort, value } => Ok(Pattern::DomainValue {
-            sort: substitute_sort(sort, sorts),
-            value: value.clone(),
-        }),
-        Pattern::AssociativeApplication {
-            associativity,
-            symbol,
-            arguments,
-        } => {
-            if aliases.contains_key(&symbol.name) {
-                let Some(application) = associative_application(*associativity, symbol, arguments)
-                else {
-                    return Ok(pattern.clone());
-                };
-                return recurse(&application, stack);
+    }
+
+    fn step(&mut self, _count: usize) {
+        #[cfg(test)]
+        {
+            self.steps += _count as u64;
+        }
+    }
+
+    /// Unfold `pattern`, at `position` of the body of `scope`, and when `asked` its free
+    /// variables.
+    ///
+    /// The recursion descends once per level of the pattern, so the stack held by one level bounds
+    /// how deep a term can be internalized. Applications, the constructor that nests with term
+    /// depth, are unfolded in [`Expander::expand_application`], whose frame holds only that case;
+    /// every other constructor goes through [`Expander::expand_connective`]. Both return straight
+    /// into this frame's result, so one level of an application spine costs this dispatch plus one
+    /// application frame rather than the temporaries of every constructor case.
+    fn expand(
+        &mut self,
+        scope: &mut Scope<'a>,
+        pattern: &'a kore::Pattern,
+        position: usize,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        match pattern {
+            kore::Pattern::Application { symbol, arguments } => {
+                self.expand_application(scope, symbol, arguments, position, asked)
             }
-            Ok(Pattern::AssociativeApplication {
-                associativity: *associativity,
-                symbol: substitute_symbol(symbol, sorts),
-                arguments: expand_many(arguments, aliases, sorts, terms, stack)?,
+            _ => self.expand_connective(scope, pattern, position, asked),
+        }
+    }
+
+    fn expand_application(
+        &mut self,
+        scope: &mut Scope<'a>,
+        symbol: &'a kore::Symbol,
+        arguments: &'a [kore::Pattern],
+        position: usize,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        let Some(alias) = self.aliases.get(&symbol.name) else {
+            let (arguments, free) = self.expand_many(scope, arguments, position, asked)?;
+            return Ok((
+                kore::Pattern::Application {
+                    symbol: substitute_symbol(symbol, &scope.sorts),
+                    arguments,
+                },
+                free,
+            ));
+        };
+        let terms = &alias
+            .size
+            .as_ref()
+            .expect("collect measures every alias")
+            .terms;
+        let mut positions = scope.children(position);
+        let mut values = Vec::with_capacity(arguments.len());
+        for (index, argument) in arguments.iter().enumerate() {
+            let position = positions.next();
+            values.push(if terms[index] == 0 {
+                None
+            } else {
+                let asked = asked || alias.layout.needs_free[index];
+                Some(self.expand(scope, argument, position, asked)?)
+            });
+        }
+        let sorts = substitute_sorts(&symbol.sort_parameters, &scope.sorts);
+        self.enter(alias, &symbol.name, sorts, values, asked)
+    }
+
+    /// Unfold the body of `alias` applied to the sort arguments `sorts` and to the unfolded
+    /// arguments `values`, `None` for each argument the body keeps no copy of.
+    fn enter(
+        &mut self,
+        alias: &'a AliasDefinition,
+        _name: &str,
+        sorts: Vec<kore::Sort>,
+        values: Vec<Option<(kore::Pattern, Free)>>,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        #[cfg(test)]
+        {
+            self.entered +=
+                1 + length(_name) + sorts.iter().map(sort_size).sum::<u64>() + length_of(&values);
+        }
+        let terms = alias
+            .parameters
+            .iter()
+            .zip(values)
+            .enumerate()
+            .filter_map(|(parameter, (variable, value))| {
+                let (value, free) = value?;
+                Some((
+                    variable,
+                    Binding::Argument {
+                        parameter,
+                        value: Some(value),
+                        remaining: alias.layout.occurrences[parameter].len(),
+                        free,
+                    },
+                ))
             })
+            .collect();
+        let mut scope = Scope {
+            alias: Some(alias),
+            sorts: alias
+                .sort_parameters
+                .iter()
+                .map(String::as_str)
+                .zip(sorts)
+                .collect(),
+            terms,
+            capture: None,
+            renamed: BTreeSet::new(),
+        };
+        // The body is unfolded below the frames of every alias body and pattern level enclosing
+        // this application, and an alias body can apply further aliases. An operation provides
+        // the stack for the whole unfolding up front (`nesting::height` counts each alias at its
+        // unfolded height), and each body is also given the stack for its own levels where it is
+        // entered, so an unfolding run without that provision cannot overflow either: the
+        // recursion over the body's levels fits in it, and every deeper descent enters another
+        // body. The measurement found no alias cycle, so the recursion through bodies ends.
+        crate::nesting::with_stack(alias.depth, || {
+            self.expand(&mut scope, &alias.right, 0, asked)
+        })?
+    }
+
+    fn expand_many(
+        &mut self,
+        scope: &mut Scope<'a>,
+        patterns: &'a [kore::Pattern],
+        position: usize,
+        asked: bool,
+    ) -> Result<(Vec<kore::Pattern>, Free), DefinitionError> {
+        let mut positions = scope.children(position);
+        let mut free = None;
+        let mut unfolded = Vec::with_capacity(patterns.len());
+        for pattern in patterns {
+            let position = positions.next();
+            let (pattern, pattern_free) = self.expand(scope, pattern, position, asked)?;
+            unfolded.push(pattern);
+            if asked {
+                free = self.union(free, pattern_free);
+            }
+        }
+        Ok((unfolded, free))
+    }
+
+    /// Unfold the two subpatterns of a node at `position`.
+    fn expand_pair(
+        &mut self,
+        scope: &mut Scope<'a>,
+        left: &'a kore::Pattern,
+        right: &'a kore::Pattern,
+        position: usize,
+        asked: bool,
+    ) -> Result<(Box<kore::Pattern>, Box<kore::Pattern>, Free), DefinitionError> {
+        let mut positions = scope.children(position);
+        let left_position = positions.next();
+        let right_position = positions.next();
+        let (left, left_free) = self.expand(scope, left, left_position, asked)?;
+        let (right, right_free) = self.expand(scope, right, right_position, asked)?;
+        let free = if asked {
+            self.union(left_free, right_free)
+        } else {
+            None
+        };
+        Ok((Box::new(left), Box::new(right), free))
+    }
+
+    fn expand_connective(
+        &mut self,
+        scope: &mut Scope<'a>,
+        pattern: &'a kore::Pattern,
+        position: usize,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        use kore::Pattern;
+
+        self.step(1);
+        let sort = |sort: &kore::Sort, scope: &Scope<'a>| substitute_sort(sort, &scope.sorts);
+        Ok(match pattern {
+            Pattern::String(value) => (Pattern::String(value.clone()), None),
+            Pattern::Variable(variable) => return Ok(self.expand_variable(scope, variable, asked)),
+            Pattern::Application { symbol, arguments } => {
+                return self.expand_application(scope, symbol, arguments, position, asked);
+            }
+            Pattern::Top { sort: top } => (
+                Pattern::Top {
+                    sort: sort(top, scope),
+                },
+                None,
+            ),
+            Pattern::Bottom { sort: bottom } => (
+                Pattern::Bottom {
+                    sort: sort(bottom, scope),
+                },
+                None,
+            ),
+            Pattern::And {
+                sort: and,
+                arguments,
+            } => {
+                let (arguments, free) = self.expand_many(scope, arguments, position, asked)?;
+                (
+                    Pattern::And {
+                        sort: sort(and, scope),
+                        arguments,
+                    },
+                    free,
+                )
+            }
+            Pattern::Or {
+                sort: or,
+                arguments,
+            } => {
+                let (arguments, free) = self.expand_many(scope, arguments, position, asked)?;
+                (
+                    Pattern::Or {
+                        sort: sort(or, scope),
+                        arguments,
+                    },
+                    free,
+                )
+            }
+            Pattern::Not {
+                sort: not,
+                argument,
+            } => {
+                let (argument, free) = self.expand(scope, argument, position + 1, asked)?;
+                (
+                    Pattern::Not {
+                        sort: sort(not, scope),
+                        argument: Box::new(argument),
+                    },
+                    free,
+                )
+            }
+            Pattern::Next {
+                sort: next,
+                argument,
+            } => {
+                let (argument, free) = self.expand(scope, argument, position + 1, asked)?;
+                (
+                    Pattern::Next {
+                        sort: sort(next, scope),
+                        argument: Box::new(argument),
+                    },
+                    free,
+                )
+            }
+            Pattern::Implies {
+                sort: implies,
+                left,
+                right,
+            } => {
+                let (left, right, free) = self.expand_pair(scope, left, right, position, asked)?;
+                (
+                    Pattern::Implies {
+                        sort: sort(implies, scope),
+                        left,
+                        right,
+                    },
+                    free,
+                )
+            }
+            Pattern::Iff {
+                sort: iff,
+                left,
+                right,
+            } => {
+                let (left, right, free) = self.expand_pair(scope, left, right, position, asked)?;
+                (
+                    Pattern::Iff {
+                        sort: sort(iff, scope),
+                        left,
+                        right,
+                    },
+                    free,
+                )
+            }
+            Pattern::Rewrites {
+                sort: rewrites,
+                left,
+                right,
+            } => {
+                let (left, right, free) = self.expand_pair(scope, left, right, position, asked)?;
+                (
+                    Pattern::Rewrites {
+                        sort: sort(rewrites, scope),
+                        left,
+                        right,
+                    },
+                    free,
+                )
+            }
+            Pattern::Exists {
+                sort,
+                variable,
+                body,
+            } => {
+                return self.expand_binder(
+                    scope,
+                    BinderKind::Exists,
+                    Some(sort),
+                    variable,
+                    body,
+                    position,
+                    asked,
+                );
+            }
+            Pattern::Forall {
+                sort,
+                variable,
+                body,
+            } => {
+                return self.expand_binder(
+                    scope,
+                    BinderKind::Forall,
+                    Some(sort),
+                    variable,
+                    body,
+                    position,
+                    asked,
+                );
+            }
+            Pattern::Mu { variable, body } => {
+                return self.expand_binder(
+                    scope,
+                    BinderKind::Mu,
+                    None,
+                    variable,
+                    body,
+                    position,
+                    asked,
+                );
+            }
+            Pattern::Nu { variable, body } => {
+                return self.expand_binder(
+                    scope,
+                    BinderKind::Nu,
+                    None,
+                    variable,
+                    body,
+                    position,
+                    asked,
+                );
+            }
+            Pattern::Ceil {
+                operand_sort,
+                result_sort,
+                argument,
+            } => {
+                let (argument, free) = self.expand(scope, argument, position + 1, asked)?;
+                (
+                    Pattern::Ceil {
+                        operand_sort: Box::new(sort(operand_sort, scope)),
+                        result_sort: sort(result_sort, scope),
+                        argument: Box::new(argument),
+                    },
+                    free,
+                )
+            }
+            Pattern::Floor {
+                operand_sort,
+                result_sort,
+                argument,
+            } => {
+                let (argument, free) = self.expand(scope, argument, position + 1, asked)?;
+                (
+                    Pattern::Floor {
+                        operand_sort: Box::new(sort(operand_sort, scope)),
+                        result_sort: sort(result_sort, scope),
+                        argument: Box::new(argument),
+                    },
+                    free,
+                )
+            }
+            Pattern::Equals {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            } => {
+                let (left, right, free) = self.expand_pair(scope, left, right, position, asked)?;
+                (
+                    Pattern::Equals {
+                        operand_sort: Box::new(sort(operand_sort, scope)),
+                        result_sort: sort(result_sort, scope),
+                        left,
+                        right,
+                    },
+                    free,
+                )
+            }
+            Pattern::In {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            } => {
+                let (left, right, free) = self.expand_pair(scope, left, right, position, asked)?;
+                (
+                    Pattern::In {
+                        operand_sort: Box::new(sort(operand_sort, scope)),
+                        result_sort: sort(result_sort, scope),
+                        left,
+                        right,
+                    },
+                    free,
+                )
+            }
+            Pattern::DomainValue {
+                sort: domain,
+                value,
+            } => (
+                Pattern::DomainValue {
+                    sort: sort(domain, scope),
+                    value: value.clone(),
+                },
+                None,
+            ),
+            Pattern::AssociativeApplication {
+                associativity,
+                symbol,
+                arguments,
+            } => {
+                if let Some(alias) = self.aliases.get(&symbol.name) {
+                    return self.expand_associative(
+                        scope,
+                        pattern,
+                        alias,
+                        *associativity,
+                        symbol,
+                        arguments,
+                        position,
+                        asked,
+                    );
+                }
+                let (arguments, free) = self.expand_many(scope, arguments, position, asked)?;
+                (
+                    Pattern::AssociativeApplication {
+                        associativity: *associativity,
+                        symbol: substitute_symbol(symbol, &scope.sorts),
+                        arguments,
+                    },
+                    free,
+                )
+            }
+        })
+    }
+
+    fn expand_variable(
+        &mut self,
+        scope: &mut Scope<'a>,
+        variable: &'a kore::Variable,
+        asked: bool,
+    ) -> (kore::Pattern, Free) {
+        match scope.terms.get_mut(variable) {
+            Some(Binding::Argument {
+                value,
+                remaining,
+                free,
+                ..
+            }) => {
+                *remaining -= 1;
+                let unfolded = if *remaining == 0 {
+                    value.take()
+                } else {
+                    value.clone()
+                };
+                let unfolded =
+                    unfolded.expect("an argument is substituted once for each counted occurrence");
+                (unfolded, if asked { free.clone() } else { None })
+            }
+            Some(Binding::Renamed(renamed)) => {
+                let free = asked.then(|| self.single(renamed.clone())).flatten();
+                (kore::Pattern::Variable(renamed.clone()), free)
+            }
+            None => {
+                let variable = substitute_variable(variable, &scope.sorts);
+                let free = asked.then(|| self.single(variable.clone())).flatten();
+                (kore::Pattern::Variable(variable), free)
+            }
         }
     }
-}
 
-fn associative_application(
-    associativity: kore::Associativity,
-    symbol: &kore::Symbol,
-    arguments: &[kore::Pattern],
-) -> Option<kore::Pattern> {
-    let application = |arguments| kore::Pattern::Application {
-        symbol: symbol.clone(),
-        arguments,
-    };
-    match associativity {
-        kore::Associativity::Left => {
-            let mut arguments = arguments.iter().cloned();
-            let first = arguments.next()?;
-            Some(arguments.fold(first, |left, right| application(vec![left, right])))
+    /// Unfold an associative application of an alias as the chain of binary applications it
+    /// folds into ([`visit_associative`]), entering only the links unfolding keeps and unfolding
+    /// only the arguments they keep ([`Links`]).
+    #[allow(clippy::too_many_arguments)]
+    fn expand_associative(
+        &mut self,
+        scope: &mut Scope<'a>,
+        pattern: &'a kore::Pattern,
+        alias: &'a AliasDefinition,
+        associativity: kore::Associativity,
+        symbol: &'a kore::Symbol,
+        arguments: &'a [kore::Pattern],
+        position: usize,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        match arguments {
+            // Unfolding leaves it as written; it has no variables.
+            [] => return Ok((pattern.clone(), None)),
+            [argument] => return self.expand(scope, argument, position + 1, asked),
+            _ => {}
         }
-        kore::Associativity::Right => {
-            let (last, rest) = arguments.split_last()?;
-            Some(
-                rest.iter()
-                    .rev()
-                    .cloned()
-                    .fold(last.clone(), |right, left| application(vec![left, right])),
+        let links = Links::of(alias, associativity, arguments.len());
+        let mut positions = scope.children(position);
+        let mut values = Vec::with_capacity(arguments.len());
+        for (index, argument) in arguments.iter().enumerate() {
+            let position = positions.next();
+            let (kept, argument_asked) = links.argument(index, asked);
+            values.push(if kept {
+                Some(self.expand(scope, argument, position, argument_asked)?)
+            } else {
+                None
+            });
+        }
+        let sorts = substitute_sorts(&symbol.sort_parameters, &scope.sorts);
+        let last = arguments.len() - 1;
+        let mut chain;
+        match associativity {
+            kore::Associativity::Left => {
+                chain = values[0].take();
+                for (link, value) in values.iter_mut().enumerate().skip(1) {
+                    let (entered, link_asked) = links.link(link, asked);
+                    if entered {
+                        let applied = vec![chain.take(), value.take()];
+                        chain = Some(self.enter(
+                            alias,
+                            &symbol.name,
+                            sorts.clone(),
+                            applied,
+                            link_asked,
+                        )?);
+                    }
+                }
+            }
+            kore::Associativity::Right => {
+                chain = values[last].take();
+                for link in (0..last).rev() {
+                    let (entered, link_asked) = links.link(link, asked);
+                    if entered {
+                        let applied = vec![values[link].take(), chain.take()];
+                        chain = Some(self.enter(
+                            alias,
+                            &symbol.name,
+                            sorts.clone(),
+                            applied,
+                            link_asked,
+                        )?);
+                    }
+                }
+            }
+        }
+        Ok(chain.expect("the outermost link is always entered"))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn expand_binder(
+        &mut self,
+        scope: &mut Scope<'a>,
+        kind: BinderKind,
+        sort: Option<&kore::Sort>,
+        variable: &'a kore::Variable,
+        body: &'a kore::Pattern,
+        position: usize,
+        asked: bool,
+    ) -> Result<(kore::Pattern, Free), DefinitionError> {
+        let substituted = substitute_variable(variable, &scope.sorts);
+        let renamed = self.rename_to_avoid_capture(scope, variable, &substituted, position);
+        // The binder shadows what its variable stood for around it.
+        let shadowed = scope.terms.remove(variable);
+        let bound = match renamed {
+            Some(renamed) => {
+                scope.renamed.insert(renamed.name.clone());
+                scope
+                    .terms
+                    .insert(variable, Binding::Renamed(renamed.clone()));
+                renamed
+            }
+            None => substituted,
+        };
+        let unfolded = self.expand(scope, body, position + 1, asked);
+        if let Some(Binding::Renamed(renamed)) = scope.terms.remove(variable) {
+            scope.renamed.remove(&renamed.name);
+        }
+        if let Some(shadowed) = shadowed {
+            scope.terms.insert(variable, shadowed);
+        }
+        let (body, free) = unfolded?;
+        let free = if asked {
+            self.without(free, &bound)
+        } else {
+            None
+        };
+        let variable = Box::new(bound);
+        let body = Box::new(body);
+        let result_sort = || {
+            substitute_sort(
+                sort.expect("exists and forall have a result sort"),
+                &scope.sorts,
             )
-        }
+        };
+        Ok((
+            match kind {
+                BinderKind::Exists => kore::Pattern::Exists {
+                    sort: result_sort(),
+                    variable,
+                    body,
+                },
+                BinderKind::Forall => kore::Pattern::Forall {
+                    sort: result_sort(),
+                    variable,
+                    body,
+                },
+                BinderKind::Mu => kore::Pattern::Mu { variable, body },
+                BinderKind::Nu => kore::Pattern::Nu { variable, body },
+            },
+            free,
+        ))
     }
-}
 
-fn expand_many(
-    patterns: &[kore::Pattern],
-    aliases: &BTreeMap<String, AliasDefinition>,
-    sorts: &BTreeMap<String, kore::Sort>,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-    stack: &mut Vec<String>,
-) -> Result<Vec<kore::Pattern>, DefinitionError> {
-    patterns
-        .iter()
-        .map(|pattern| expand_with(pattern, aliases, sorts, terms, stack))
-        .collect()
+    /// The fresh variable that the binder of `variable` at `position` of the body of `scope` is
+    /// renamed to, when an argument substituted under it has `substituted` (the binder variable
+    /// with its sort substituted) free, which the binder would otherwise capture.
+    ///
+    /// ```toml algorithm-site
+    /// id = "backend.fresh.variables"
+    /// role = "variant"
+    /// sites = ["Expander::rename_to_avoid_capture"]
+    /// ```
+    fn rename_to_avoid_capture(
+        &mut self,
+        scope: &mut Scope<'a>,
+        variable: &kore::Variable,
+        substituted: &kore::Variable,
+        position: usize,
+    ) -> Option<kore::Variable> {
+        let alias = scope.alias?;
+        let range = position + 1..position + alias.layout.subtree[position];
+        if scope.capture.is_none() {
+            let capture = self.capture(scope, alias);
+            scope.capture = Some(capture);
+        }
+        let capture = scope.capture.as_ref()?;
+        if !capture
+            .by_variable
+            .get(substituted)
+            .is_some_and(|positions| any_within(positions, &range))
+        {
+            return None;
+        }
+        // The fresh name is not the name of a variable of the body, so no binder of the body
+        // captures its occurrences and it captures none of the body's; it is not the name of a
+        // free variable of an argument substituted under the binder, nor of a renamed binder
+        // around it. Nothing else can be free under the binder: an alias body has no free
+        // variable but its parameters (verification refuses others), so the aliases it applies
+        // bring in only the free variables of their arguments, which come from these.
+        for index in 0_u64.. {
+            self.step(1);
+            let name = format!("{}Alias{index}", variable.name);
+            if alias.layout.names.contains(&name)
+                || scope.renamed.contains(&name)
+                || capture
+                    .by_name
+                    .get(&name)
+                    .is_some_and(|positions| any_within(positions, &range))
+            {
+                continue;
+            }
+            return Some(kore::Variable {
+                kind: variable.kind,
+                name,
+                sort: substitute_sort(&variable.sort, &scope.sorts),
+            });
+        }
+        unreachable!("the finite names around a binder cannot exhaust every suffix")
+    }
+
+    /// The free variables of the arguments of `scope`, by the positions their parameters are
+    /// substituted at. An argument moved into its last occurrence is not substituted again, so
+    /// it need not be counted.
+    fn capture(&mut self, scope: &Scope<'a>, alias: &AliasDefinition) -> Capture {
+        let mut capture = Capture::default();
+        for binding in scope.terms.values() {
+            let Binding::Argument {
+                parameter,
+                value: Some(_),
+                free: Some(free),
+                ..
+            } = binding
+            else {
+                continue;
+            };
+            let positions = &alias.layout.occurrences[*parameter];
+            for variable in free.iter() {
+                self.step(positions.len());
+                capture
+                    .by_variable
+                    .entry(variable.clone())
+                    .or_default()
+                    .extend(positions);
+                capture
+                    .by_name
+                    .entry(variable.name.clone())
+                    .or_default()
+                    .extend(positions);
+            }
+        }
+        for positions in capture
+            .by_variable
+            .values_mut()
+            .chain(capture.by_name.values_mut())
+        {
+            positions.sort_unstable();
+        }
+        capture
+    }
+
+    fn single(&mut self, variable: kore::Variable) -> Free {
+        self.step(1);
+        Some(Arc::new(BTreeSet::from([variable])))
+    }
+
+    /// The union of two sets of free variables, inserting the smaller into the larger.
+    fn union(&mut self, left: Free, right: Free) -> Free {
+        let (Some(left), Some(right)) = (&left, &right) else {
+            return left.or(right);
+        };
+        if Arc::ptr_eq(left, right) {
+            return Some(left.clone());
+        }
+        let (mut larger, smaller) = if left.len() >= right.len() {
+            (left.clone(), right.clone())
+        } else {
+            (right.clone(), left.clone())
+        };
+        self.step(smaller.len());
+        let set = Arc::make_mut(&mut larger);
+        match Arc::try_unwrap(smaller) {
+            Ok(smaller) => set.extend(smaller),
+            Err(smaller) => set.extend(smaller.iter().cloned()),
+        }
+        Some(larger)
+    }
+
+    /// `free` without `variable`.
+    fn without(&mut self, free: Free, variable: &kore::Variable) -> Free {
+        let mut free = free?;
+        self.step(1);
+        if free.contains(variable) {
+            Arc::make_mut(&mut free).remove(variable);
+        }
+        (!free.is_empty()).then_some(free)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1096,257 +2030,26 @@ enum BinderKind {
     Nu,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn expand_binder(
-    kind: BinderKind,
-    sort: Option<&kore::Sort>,
-    variable: &kore::Variable,
-    body: &kore::Pattern,
-    aliases: &BTreeMap<String, AliasDefinition>,
-    sorts: &BTreeMap<String, kore::Sort>,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-    stack: &mut Vec<String>,
-) -> Result<kore::Pattern, DefinitionError> {
-    let mut body_terms = terms.clone();
-    body_terms.remove(variable);
-    let substituted_variable = substitute_variable(variable, sorts);
-    // The replacements are unfolded arguments, of any depth, so they and the body are scanned by
-    // `Pattern::free_variables`, which reads them with an explicit work list.
-    let body_free = body.free_variables();
-    let (variable, body) = if body_terms.iter().any(|(parameter, replacement)| {
-        body_free.contains(parameter)
-            && replacement.free_variables().contains(&substituted_variable)
-    }) {
-        let fresh = fresh_variable(variable, body, &body_terms);
-        let body = rename_bound_occurrences(body, variable, &fresh);
-        (substitute_variable(&fresh, sorts), body)
-    } else {
-        (substituted_variable, body.clone())
-    };
-    let body = Box::new(expand_with(&body, aliases, sorts, &body_terms, stack)?);
-    Ok(match kind {
-        BinderKind::Exists => kore::Pattern::Exists {
-            sort: substitute_sort(sort.expect("exists has a result sort"), sorts),
-            variable: Box::new(variable),
-            body,
-        },
-        BinderKind::Forall => kore::Pattern::Forall {
-            sort: substitute_sort(sort.expect("forall has a result sort"), sorts),
-            variable: Box::new(variable),
-            body,
-        },
-        BinderKind::Mu => kore::Pattern::Mu {
-            variable: Box::new(variable),
-            body,
-        },
-        BinderKind::Nu => kore::Pattern::Nu {
-            variable: Box::new(variable),
-            body,
-        },
-    })
-}
-
-/// ```toml algorithm-site
-/// id = "backend.fresh.variables"
-/// role = "variant"
-/// sites = ["fresh_variable"]
-/// ```
-fn fresh_variable(
-    variable: &kore::Variable,
-    body: &kore::Pattern,
-    terms: &BTreeMap<kore::Variable, kore::Pattern>,
-) -> kore::Variable {
-    // The replacements are unfolded arguments, of any depth; `Pattern::variables` reads them
-    // with an explicit work list.
-    let mut names = BTreeSet::new();
-    names.extend(body.variables().into_iter().map(|variable| variable.name));
-    for (parameter, replacement) in terms {
-        names.insert(parameter.name.clone());
-        names.extend(
-            replacement
-                .variables()
-                .into_iter()
-                .map(|variable| variable.name),
-        );
-    }
-    // Invariant: `index` only grows, so at most |names| + 1 candidates are tried.
-    for index in 0usize.. {
-        let name = format!("{}Alias{index}", variable.name);
-        if names.insert(name.clone()) {
-            return kore::Variable {
-                kind: variable.kind,
-                name,
-                sort: variable.sort.clone(),
-            };
-        }
-    }
-    unreachable!("the set of finite variable names cannot exhaust every suffix")
-}
-
-fn rename_bound_occurrences(
-    pattern: &kore::Pattern,
-    old: &kore::Variable,
-    new: &kore::Variable,
-) -> kore::Pattern {
-    use kore::Pattern;
-
-    let recurse = |pattern: &Pattern| rename_bound_occurrences(pattern, old, new);
-    match pattern {
-        Pattern::String(value) => Pattern::String(value.clone()),
-        Pattern::Variable(variable) => Pattern::Variable(if variable == old {
-            new.clone()
-        } else {
-            variable.clone()
-        }),
-        Pattern::Application { symbol, arguments } => Pattern::Application {
-            symbol: symbol.clone(),
-            arguments: arguments.iter().map(recurse).collect(),
-        },
-        Pattern::Top { sort } => Pattern::Top { sort: sort.clone() },
-        Pattern::Bottom { sort } => Pattern::Bottom { sort: sort.clone() },
-        Pattern::And { sort, arguments } => Pattern::And {
-            sort: sort.clone(),
-            arguments: arguments.iter().map(recurse).collect(),
-        },
-        Pattern::Or { sort, arguments } => Pattern::Or {
-            sort: sort.clone(),
-            arguments: arguments.iter().map(recurse).collect(),
-        },
-        Pattern::Not { sort, argument } => Pattern::Not {
-            sort: sort.clone(),
-            argument: Box::new(recurse(argument)),
-        },
-        Pattern::Next { sort, argument } => Pattern::Next {
-            sort: sort.clone(),
-            argument: Box::new(recurse(argument)),
-        },
-        Pattern::Implies { sort, left, right } => Pattern::Implies {
-            sort: sort.clone(),
-            left: Box::new(recurse(left)),
-            right: Box::new(recurse(right)),
-        },
-        Pattern::Iff { sort, left, right } => Pattern::Iff {
-            sort: sort.clone(),
-            left: Box::new(recurse(left)),
-            right: Box::new(recurse(right)),
-        },
-        Pattern::Rewrites { sort, left, right } => Pattern::Rewrites {
-            sort: sort.clone(),
-            left: Box::new(recurse(left)),
-            right: Box::new(recurse(right)),
-        },
-        Pattern::Exists {
-            sort,
-            variable,
-            body,
-        } => Pattern::Exists {
-            sort: sort.clone(),
-            variable: variable.clone(),
-            body: if variable.as_ref() == old {
-                body.clone()
-            } else {
-                Box::new(recurse(body))
-            },
-        },
-        Pattern::Forall {
-            sort,
-            variable,
-            body,
-        } => Pattern::Forall {
-            sort: sort.clone(),
-            variable: variable.clone(),
-            body: if variable.as_ref() == old {
-                body.clone()
-            } else {
-                Box::new(recurse(body))
-            },
-        },
-        Pattern::Mu { variable, body } => Pattern::Mu {
-            variable: variable.clone(),
-            body: if variable.as_ref() == old {
-                body.clone()
-            } else {
-                Box::new(recurse(body))
-            },
-        },
-        Pattern::Nu { variable, body } => Pattern::Nu {
-            variable: variable.clone(),
-            body: if variable.as_ref() == old {
-                body.clone()
-            } else {
-                Box::new(recurse(body))
-            },
-        },
-        Pattern::Ceil {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Pattern::Ceil {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            argument: Box::new(recurse(argument)),
-        },
-        Pattern::Floor {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Pattern::Floor {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            argument: Box::new(recurse(argument)),
-        },
-        Pattern::Equals {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => Pattern::Equals {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            left: Box::new(recurse(left)),
-            right: Box::new(recurse(right)),
-        },
-        Pattern::In {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => Pattern::In {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            left: Box::new(recurse(left)),
-            right: Box::new(recurse(right)),
-        },
-        Pattern::DomainValue { sort, value } => Pattern::DomainValue {
-            sort: sort.clone(),
-            value: value.clone(),
-        },
-        Pattern::AssociativeApplication {
-            associativity,
-            symbol,
-            arguments,
-        } => Pattern::AssociativeApplication {
-            associativity: *associativity,
-            symbol: symbol.clone(),
-            arguments: arguments.iter().map(recurse).collect(),
-        },
-    }
-}
-
-fn substitute_symbol(symbol: &kore::Symbol, sorts: &BTreeMap<String, kore::Sort>) -> kore::Symbol {
+fn substitute_symbol(symbol: &kore::Symbol, sorts: &BTreeMap<&str, kore::Sort>) -> kore::Symbol {
     kore::Symbol {
         name: symbol.name.clone(),
-        sort_parameters: symbol
-            .sort_parameters
-            .iter()
-            .map(|sort| substitute_sort(sort, sorts))
-            .collect(),
+        sort_parameters: substitute_sorts(&symbol.sort_parameters, sorts),
     }
+}
+
+fn substitute_sorts(
+    sorts: &[kore::Sort],
+    parameters: &BTreeMap<&str, kore::Sort>,
+) -> Vec<kore::Sort> {
+    sorts
+        .iter()
+        .map(|sort| substitute_sort(sort, parameters))
+        .collect()
 }
 
 fn substitute_variable(
     variable: &kore::Variable,
-    sorts: &BTreeMap<String, kore::Sort>,
+    sorts: &BTreeMap<&str, kore::Sort>,
 ) -> kore::Variable {
     kore::Variable {
         kind: variable.kind,
@@ -1355,9 +2058,12 @@ fn substitute_variable(
     }
 }
 
-fn substitute_sort(sort: &kore::Sort, sorts: &BTreeMap<String, kore::Sort>) -> kore::Sort {
+fn substitute_sort(sort: &kore::Sort, sorts: &BTreeMap<&str, kore::Sort>) -> kore::Sort {
     match sort {
-        kore::Sort::Variable(name) => sorts.get(name).cloned().unwrap_or_else(|| sort.clone()),
+        kore::Sort::Variable(name) => sorts
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_else(|| sort.clone()),
         kore::Sort::Application { name, arguments } => kore::Sort::Application {
             name: name.clone(),
             arguments: arguments
@@ -1497,8 +2203,22 @@ mod tests {
         pattern: &kore::Pattern,
         aliases: &BTreeMap<String, AliasDefinition>,
     ) -> Result<u64, DefinitionError> {
-        unfolded_size(Frame::pattern(pattern), aliases, &mut BTreeMap::new())
-            .map(|measurement| measurement.unfolded.constant)
+        unfolded_size(Frame::pattern(pattern), aliases, &mut Measured::default())
+            .map(|measurement| measurement.unfolded.total())
+    }
+
+    /// What unfolding `pattern`, which must measure without error, builds: the unfolded pattern,
+    /// what it built besides (the alias applications it entered), and the operations it counted
+    /// on free variables, capture positions, and fresh names.
+    fn unfold(
+        pattern: &kore::Pattern,
+        aliases: &BTreeMap<String, AliasDefinition>,
+    ) -> (kore::Pattern, u64, u64) {
+        let mut expander = Expander::new(aliases);
+        let (unfolded, _) = expander
+            .expand(&mut Scope::pattern(), pattern, 0, false)
+            .expect("the pattern should unfold");
+        (unfolded, expander.entered, expander.steps)
     }
 
     /// A chain of `length` aliases over `S{}`, each applying the next to its parameter twice, so
@@ -1525,10 +2245,11 @@ mod tests {
         source
     }
 
-    /// The measured size of every unfolding is the size of the pattern `expand` builds: through
-    /// parameters used several times or not at all, sort parameters, nested and associative
-    /// applications, and binders that shadow a parameter. (Binders that need renaming are left
-    /// out: the fresh name is longer than the one measured.)
+    /// The measured size of every unfolding is the size of what unfolding builds, the pattern
+    /// `expand` returns and the alias applications it enters: through parameters used several
+    /// times or not at all, sort parameters, nested and associative applications, associative
+    /// links that the alias drops, and binders that shadow a parameter. (Binders that need
+    /// renaming are left out: the fresh name is longer than the one measured.)
     #[test]
     fn measures_the_size_of_the_unfolding_without_building_it() {
         let aliases = aliases_of(indoc! {r#"
@@ -1554,6 +2275,10 @@ mod tests {
                         X:S{},
                         \exists{S{}}(X:S{}, f{}(X:S{}, X:S{}))
                     ) []
+                alias first{}(S{}, S{}) : S{} where first{}(X:S{}, Y:S{}) := X:S{} []
+                alias second{}(S{}, S{}) : S{} where second{}(X:S{}, Y:S{}) := Y:S{} []
+                alias bind{}(S{}) : S{}
+                    where bind{}(X:S{}) := \exists{S{}}(Y:S{}, f{}(X:S{}, twice{}(X:S{}))) []
             endmodule []
         "#});
         for source in [
@@ -1569,15 +2294,33 @@ mod tests {
             r"\left-assoc{}(pair{}(twice{}(a{}())))",
             r"\left-assoc{}(f{}(twice{}(a{}()), b{}()))",
             r"\exists{S{}}(X:S{}, \and{S{}}(twice{}(X:S{}), drop{}(X:S{})))",
+            r"\left-assoc{}(first{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
+            r"\left-assoc{}(second{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
+            r"\right-assoc{}(first{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
+            r"\right-assoc{}(second{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
+            "bind{}(twice{}(f{}(Z:S{}, a{}())))",
         ] {
             let pattern = parse_pattern(source).expect("pattern should parse");
             let expanded = expand(&pattern, &aliases).expect("pattern should unfold");
+            let (unfolded, entered, _) = unfold(&pattern, &aliases);
+            assert_eq!(unfolded, *expanded, "{source}");
             assert_eq!(
                 measured(&pattern, &aliases),
-                Ok(size(&expanded)),
+                Ok(size(&expanded) + entered),
                 "{source}"
             );
         }
+        // An associative link that the alias drops is not entered, and the arguments inside it
+        // are not unfolded.
+        let dropped = |source: &str| unfold(&parse_pattern(source).unwrap(), &aliases);
+        let (unfolded, entered, _) =
+            dropped(r"\left-assoc{}(second{}(twice{}(a{}()), b{}(), twice{}(c{}())))");
+        assert_eq!(unfolded, parse_pattern("f{}(c{}(), c{}())").unwrap());
+        // One link of `second` (7 for the node, 2 for its arguments) and one of `twice` (6, 1).
+        assert_eq!(entered, 9 + 7);
+        let (unfolded, _, _) =
+            dropped(r"\right-assoc{}(first{}(twice{}(a{}()), b{}(), twice{}(c{}())))");
+        assert_eq!(unfolded, parse_pattern("f{}(a{}(), a{}())").unwrap());
     }
 
     /// Loading measures each body once, as a function of its arguments, and never unfolds one:
@@ -1600,9 +2343,13 @@ mod tests {
 
         let aliases = aliases_of(&doubling_chain(18));
         let application = parse_pattern("al0{}(X:S{})").unwrap();
-        // 2^18 occurrences of `X:S{}` (4 each) and 2^18 - 1 `pair` nodes (5 each).
+        // 2^18 occurrences of `X:S{}` (4 each) and 2^18 - 1 `pair` nodes (5 each), and 2^k
+        // entries into `al{k}`: the node and its name, and its one argument.
         let unfolded = (1_u64 << 18) * 4 + ((1 << 18) - 1) * 5;
-        assert_eq!(measured(&application, &aliases), Ok(unfolded));
+        let entered = (0..18_u64)
+            .map(|k| (1 << k) * (2 + length(&format!("al{k}"))))
+            .sum::<u64>();
+        assert_eq!(measured(&application, &aliases), Ok(unfolded + entered));
     }
 
     /// Whether an alias loads, or a pattern unfolds, does not depend on the names of the alias's
@@ -1771,5 +2518,169 @@ mod tests {
             "#}),
             DefinitionError::AliasCycle(vec!["a2".into(), "a3".into(), "a2".into()])
         );
+    }
+
+    /// An argument that an alias keeps no copy of is not unfolded, so it adds nothing and costs
+    /// nothing, however large its unfolding: on the 64-alias doubling chain, whose `al0{}(a{}())`
+    /// would unfold to 2^64 nodes, `drop` (which ignores its parameter), `shadow` (which only uses
+    /// it under a binder that shadows it), an alias whose body drops an application of `al0`, and
+    /// associative links that drop it unfold at once, entering only the aliases they keep.
+    #[test]
+    fn arguments_an_alias_drops_are_not_unfolded() {
+        let mut source = doubling_chain(64);
+        source.truncate(source.rfind("endmodule").unwrap());
+        source.push_str(indoc! {r#"
+                symbol a{}() : S{} []
+                alias drop{}(S{}) : S{} where drop{}(X:S{}) := a{}() []
+                alias shadow{}(S{}) : S{} where shadow{}(X:S{}) := \exists{S{}}(X:S{}, X:S{}) []
+                alias hide{}(S{}) : S{} where hide{}(X:S{}) := drop{}(al0{}(X:S{})) []
+                alias second{}(S{}, S{}) : S{} where second{}(X:S{}, Y:S{}) := Y:S{} []
+            endmodule []
+        "#});
+        let aliases = aliases_of(&source);
+        for (applied, unfolded, entered) in [
+            ("drop{}(al0{}(a{}()))", "a{}()", 1 + 4 + 1),
+            (
+                "shadow{}(al0{}(a{}()))",
+                r"\exists{S{}}(X:S{}, X:S{})",
+                1 + 6 + 1,
+            ),
+            ("hide{}(a{}())", "a{}()", (1 + 4 + 1) + (1 + 4 + 1)),
+            (
+                r"\left-assoc{}(second{}(al0{}(a{}()), al0{}(a{}()), a{}()))",
+                "a{}()",
+                1 + 6 + 2,
+            ),
+        ] {
+            let pattern = parse_pattern(applied).unwrap();
+            let expected = parse_pattern(unfolded).unwrap();
+            assert_eq!(
+                measured(&pattern, &aliases),
+                Ok(size(&expected) + entered),
+                "{applied}"
+            );
+            assert_eq!(
+                expand(&pattern, &aliases).map(Cow::into_owned),
+                Ok(expected.clone()),
+                "{applied}"
+            );
+            let (unfolded, built, _) = unfold(&pattern, &aliases);
+            assert_eq!((unfolded, built), (expected, entered), "{applied}");
+        }
+    }
+
+    /// Entering an alias body is counted as building the application, so a chain that applies
+    /// the next alias twice to its parameter and ends in the identity, whose unfolding is no
+    /// larger than its argument but which unfolding would enter 2^64 times, is refused before
+    /// any body is entered; so is a chain that doubles a sort argument that the last alias drops.
+    #[test]
+    fn entering_alias_bodies_counts_against_the_budget() {
+        let chain = |length: usize, body: &dyn Fn(usize) -> String| {
+            let mut source = String::from(indoc! {r#"
+                []
+                module MAIN
+                    sort S{} []
+                    sort P{A, B} []
+                    symbol a{}() : S{} []
+            "#});
+            for index in 0..length {
+                source.push_str(&body(index));
+            }
+            source.push_str("endmodule []\n");
+            aliases_of(&source)
+        };
+        let identity = |length: usize| {
+            chain(length, &move |index| {
+                let body = if index + 1 == length {
+                    "X:S{}".to_owned()
+                } else {
+                    let next = index + 1;
+                    format!("c{next}{{}}(c{next}{{}}(X:S{{}}))")
+                };
+                format!(
+                    "    alias c{index}{{}}(S{{}}) : S{{}} where c{index}{{}}(X:S{{}}) := {body} []\n"
+                )
+            })
+        };
+        let refused = |aliases: &BTreeMap<String, AliasDefinition>, source: &str| {
+            matches!(
+                expand(&parse_pattern(source).unwrap(), aliases),
+                Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+            )
+        };
+        assert!(refused(&identity(64), "c0{}(a{}())"));
+        let aliases = identity(10);
+        let pattern = parse_pattern("c0{}(a{}())").unwrap();
+        let (unfolded, entered, _) = unfold(&pattern, &aliases);
+        assert_eq!(unfolded, parse_pattern("a{}()").unwrap());
+        assert_eq!(measured(&pattern, &aliases), Ok(size(&unfolded) + entered));
+        // 2^10 - 1 entries of 4 (the node, its name, its argument).
+        assert_eq!(entered, ((1 << 10) - 1) * 4);
+
+        let sorts = |length: usize| {
+            chain(length, &move |index| {
+                let body = if index + 1 == length {
+                    "a{}()".to_owned()
+                } else {
+                    format!("s{}{{P{{T, T}}}}()", index + 1)
+                };
+                format!("    alias s{index}{{T}}() : S{{}} where s{index}{{T}}() := {body} []\n")
+            })
+        };
+        assert!(refused(&sorts(64), "s0{S{}}()"));
+        let aliases = sorts(8);
+        let pattern = parse_pattern("s0{S{}}()").unwrap();
+        let (unfolded, entered, _) = unfold(&pattern, &aliases);
+        assert_eq!(unfolded, parse_pattern("a{}()").unwrap());
+        assert_eq!(measured(&pattern, &aliases), Ok(size(&unfolded) + entered));
+    }
+
+    /// The binder chain `c_i(X) := c_{i+1}(c_{i+1}(X))`, `c_{n-1}(X) := \exists(Y, X)` unfolds
+    /// `c0` into 2^(n-1) nested binders around its argument. The free variables of each argument
+    /// are computed once, from those of its parts, so unfolding takes work proportional to what
+    /// it builds: adding one alias doubles the unfolding and at most doubles the operations on
+    /// free variables, capture positions, and fresh names, whether the argument is closed, has a
+    /// free variable, or has one that every binder would capture and is renamed to avoid.
+    #[test]
+    fn nested_binders_unfold_in_linear_time() {
+        let chain = |length: usize| {
+            let mut source = String::from(indoc! {r#"
+                []
+                module MAIN
+                    sort S{} []
+                    symbol a{}() : S{} []
+                    symbol f{}(S{}, S{}) : S{} []
+            "#});
+            for index in 0..length {
+                let body = if index + 1 == length {
+                    r"\exists{S{}}(Y:S{}, X:S{})".to_owned()
+                } else {
+                    let next = index + 1;
+                    format!("c{next}{{}}(c{next}{{}}(X:S{{}}))")
+                };
+                source.push_str(&format!(
+                    "    alias c{index}{{}}(S{{}}) : S{{}} where c{index}{{}}(X:S{{}}) := {body} []\n"
+                ));
+            }
+            source.push_str("endmodule []\n");
+            aliases_of(&source)
+        };
+        let small = chain(2);
+        let (unfolded, _, _) = unfold(&parse_pattern("c0{}(Y:S{})").unwrap(), &small);
+        assert_eq!(
+            unfolded,
+            parse_pattern(r"\exists{S{}}(YAlias0:S{}, \exists{S{}}(YAlias0:S{}, Y:S{}))").unwrap()
+        );
+        let (shorter, longer) = (chain(11), chain(12));
+        for argument in ["a{}()", "f{}(Z:S{}, a{}())", "f{}(Y:S{}, a{}())"] {
+            let pattern = parse_pattern(&format!("c0{{}}({argument})")).unwrap();
+            let (shorter_unfolded, _, shorter_steps) = unfold(&pattern, &shorter);
+            let (longer_unfolded, _, longer_steps) = unfold(&pattern, &longer);
+            assert!(size(&longer_unfolded) > 2 * size(&shorter_unfolded) - 20);
+            assert!(
+                longer_steps <= 2 * shorter_steps + 16,
+                "{argument}: {shorter_steps} then {longer_steps}"
+            );
+        }
     }
 }

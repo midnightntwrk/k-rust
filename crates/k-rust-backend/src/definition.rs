@@ -4782,6 +4782,39 @@ mod tests {
         ));
     }
 
+    /// An alias argument that the alias keeps no copy of is not unfolded at all: an axiom and a
+    /// request that wrap the 64-alias chain in `drop`, which ignores its parameter, or in
+    /// `shadow`, which only uses it under a binder that shadows it, load and internalize at
+    /// once, and so does an alias whose body drops an application of the chain.
+    #[test]
+    fn alias_arguments_that_are_dropped_are_never_unfolded() {
+        let aliases = indoc! {r#"
+            alias drop{}(S{}) : S{} where drop{}(X:S{}) := a{}() []
+            alias shadow{}(S{}) : S{} where shadow{}(X:S{}) := \exists{S{}}(X:S{}, X:S{}) []
+            alias hide{}(S{}) : S{} where hide{}(X:S{}) := drop{}(al0{}(X:S{})) []
+        "#};
+        for applied in ["drop{}(al0{}(X:S{}))", "hide{}(X:S{})"] {
+            let axiom = format!(
+                "axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}({applied}, \\top{{S{{}}}}()), a{{}}()) []\n"
+            );
+            BackendDefinition::internalize(
+                &doubling_alias_chain(64, &format!("{aliases}{axiom}")),
+                "MAIN",
+            )
+            .unwrap_or_else(|error| panic!("{applied}: {error}"));
+        }
+        let definition = BackendDefinition::internalize(&doubling_alias_chain(64, aliases), "MAIN")
+            .expect("the chain should load");
+        let pattern = parse_pattern("drop{}(al0{}(a{}()))").unwrap();
+        assert!(definition.internalize_pattern(&pattern, &[]).is_ok());
+        // `\exists{S{}}(X:S{}, X:S{})` is no term, which internalization refuses once unfolded.
+        let pattern = parse_pattern("shadow{}(al0{}(a{}()))").unwrap();
+        assert!(matches!(
+            definition.internalize_pattern(&pattern, &[]),
+            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm))
+        ));
+    }
+
     #[test]
     fn rejects_recursive_alias_expansion_with_the_cycle() {
         let syntax = parse_definition(indoc! {r#"
