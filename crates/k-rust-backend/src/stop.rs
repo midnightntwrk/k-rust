@@ -330,8 +330,8 @@ pub fn check() -> Result<(), Stop> {
 /// twice the whole simplification.
 /// The zone is also a floor below which a thread simplifies nothing, so it stays well under the
 /// smallest thread stacks embedders commonly run (512 KiB, the macOS default for secondary
-/// threads). The stack admission of patterns and definitions (`nesting`) keeps the same zone
-/// beyond the stack it reserves for the recursive passes over them.
+/// threads). The stack that `nesting` provides for the recursive passes over patterns and
+/// definitions keeps the same zone beyond what those passes take.
 pub(crate) const STACK_RED_ZONE: usize = 128 * 1024;
 
 /// Bytes of native stack left on the current thread, when they are known.

@@ -59,6 +59,7 @@ use k_rust_backend::{
     },
     matching::SortGraph,
     model::model_of,
+    nesting,
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, substitute_predicates,
@@ -652,9 +653,9 @@ impl RpcService {
         } = params;
         let _booster_only = booster_only;
         self.ensure_module(module.as_deref())?;
+        let syntax = state.0;
         self.backend
-            .with_solver(module.as_deref(), |definition, solver| {
-                let syntax = state.0;
+            .with_solver_over(module.as_deref(), &[&syntax], |definition, solver| {
                 definition
                     .validate_executable_pattern(&syntax)
                     .map_err(|error| pattern_fault(error, &syntax))?;
@@ -801,8 +802,9 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
-        self.backend.with_solver(
+        self.backend.with_solver_over(
             params.module.as_deref(),
+            &[&syntax],
             |definition, solver| match definition
                 .admit_unverified(&syntax, &[])
                 .internalize_pattern_or_predicate()
@@ -852,11 +854,26 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         let module = parse_module(&params.module)
             .map_err(|error| RpcFault::invalid_module(ErrorDetail::message(error.to_string())))?;
+        // Loading the module provides the stack for its own passes; locating and encoding the
+        // pattern an error names recurses over the module's patterns too.
+        let depth = nesting::module_depth(&module);
+        nesting::with_stack(depth, || {
+            self.add_parsed_module(params.module, module, params.name_as_id)
+        })
+        .map_err(|error| RpcFault::invalid_module(ErrorDetail::message(error.to_string())))?
+    }
+
+    fn add_parsed_module(
+        &mut self,
+        source: String,
+        module: k_rust::kore::ast::Module,
+        name_as_id: bool,
+    ) -> Result<Value, RpcFault> {
         let mut error_module = module.clone();
-        error_module.name = module_id(&params.module);
+        error_module.name = module_id(&source);
         let id = self
             .backend
-            .add_parsed_module(&params.module, module, params.name_as_id)
+            .add_parsed_module(&source, module, name_as_id)
             .map_err(|error| match error {
                 SessionError::Definition(DefinitionError::NoSuchModule(module)) => {
                     RpcFault::invalid_module(ErrorDetail::message(format!(
@@ -890,8 +907,10 @@ impl RpcService {
         let _haskell_logging = params.haskell_logging;
         self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
-        self.backend
-            .with_solver(params.module.as_deref(), |definition, solver| {
+        self.backend.with_solver_over(
+            params.module.as_deref(),
+            &[&syntax],
+            |definition, solver| {
                 let Some((predicate, result_sort)) = definition
                     .admit_unverified(&syntax, &[])
                     .internalize_model_predicate()
@@ -915,7 +934,8 @@ impl RpcService {
                     ModelResult::Unsat => Ok(json!({ "satisfiable": "Unsat" })),
                     ModelResult::Unknown(_) => Ok(json!({ "satisfiable": "Unknown" })),
                 }
-            })
+            },
+        )
     }
 
     fn implies(&mut self, params: ImpliesParams) -> Result<Value, RpcFault> {
@@ -927,8 +947,10 @@ impl RpcService {
         self.ensure_module(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
-        self.backend
-            .with_solver(params.module.as_deref(), |definition, solver| {
+        self.backend.with_solver_over(
+            params.module.as_deref(),
+            &[&antecedent, &consequent],
+            |definition, solver| {
         if let Err(request_error) = validate_request(definition, &antecedent, &consequent) {
             return Err(match request_error {
                 ImplicationRequestError::MacroOrAlias { side, name } => {
@@ -987,23 +1009,22 @@ impl RpcService {
                 .admit_unverified(&antecedent, &sort_variables)
                 .internalize_predicate()
                 .map_err(|error| pattern_fault(error, &antecedent))?;
-            let consequent = if matches!(
+            if matches!(
                 consequent.strip_exists(),
                 KorePattern::Top { .. } | KorePattern::Bottom { .. }
             ) {
-                consequent
-            } else {
-                let (consequent_pattern, _) = definition
-                    .admit_unverified(&consequent, &sort_variables)
-                    .internalize_implication_pattern()
-                    .map_err(|error| pattern_fault(error, &consequent))?;
-                simplified_implication_response_syntax(
-                    definition,
-                    &consequent,
-                    &consequent_pattern,
-                    solver,
-                )?
-            };
+                return implication_result(&antecedent, &consequent, &result_sort, verdict);
+            }
+            let (consequent_pattern, _) = definition
+                .admit_unverified(&consequent, &sort_variables)
+                .internalize_implication_pattern()
+                .map_err(|error| pattern_fault(error, &consequent))?;
+            let consequent = simplified_implication_response_syntax(
+                definition,
+                &consequent,
+                &consequent_pattern,
+                solver,
+            )?;
             return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
@@ -1070,24 +1091,21 @@ impl RpcService {
             solver,
         ))?;
         let vacuous_antecedent = matches!(verdict, ImplicationVerdict::VacuouslyValid);
-        let (antecedent, consequent) = if vacuous_antecedent {
-            (antecedent, consequent)
-        } else {
-            (
-                simplified_implication_response_syntax(
-                    definition,
-                    &antecedent,
-                    &antecedent_pattern,
-                    solver,
-                )?,
-                simplified_implication_response_syntax(
-                    definition,
-                    &consequent,
-                    &consequent_pattern,
-                    solver,
-                )?,
-            )
-        };
+        if vacuous_antecedent {
+            return implication_result(&antecedent, &consequent, &result_sort, verdict);
+        }
+        let antecedent = simplified_implication_response_syntax(
+            definition,
+            &antecedent,
+            &antecedent_pattern,
+            solver,
+        )?;
+        let consequent = simplified_implication_response_syntax(
+            definition,
+            &consequent,
+            &consequent_pattern,
+            solver,
+        )?;
         implication_result(&antecedent, &consequent, &result_sort, verdict)
             })
     }
@@ -4935,23 +4953,17 @@ endmodule
         done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
     }
 
-    /// A deep state that decodes but is not a pattern of the definition (a `\not` chain over a
-    /// symbol the definition does not declare) is answered with an error by the pattern
-    /// methods and by `add-module` as an axiom, on the 64 MiB worker thread, and the connection
-    /// keeps serving: the pattern is refused for want of stack before any recursive pass over it
-    /// runs, rather than overflowing the worker and aborting the server. One 200,000-level frame is held at a time, and the
-    /// test peaks at about 400 MB of resident memory and finishes in about 12 s in a debug build.
-    #[test]
-    fn deep_invalid_patterns_are_answered_and_the_connection_keeps_serving() {
-        let (address, done) = spawn_server(service(), 1);
-        let mut client = TcpStream::connect(address).unwrap();
-        let deep = deep_kore_json(DEEP_LEVELS).replacen(
+    /// The deep invalid frames of `deep_invalid_frames_are_answered_and_the_connection_keeps_serving`:
+    /// a `\not` chain `levels` deep over a symbol the definition does not declare, sent to
+    /// every pattern method and to `add-module` as an axiom.
+    fn deep_invalid_frames(levels: usize) -> Vec<String> {
+        let deep = deep_kore_json(levels).replacen(
             r#"{"tag":"Top","sort":{"tag":"SortApp","name":"SortState","args":[]}}"#,
             r#"{"tag":"App","name":"undefined","sorts":[],"args":[]}"#,
             1,
         );
         let shallow = r#"{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"SortState","args":[]}}}"#;
-        let frames = [
+        vec![
             format!(r#""method":"execute","params":{{"state":{deep},"max-depth":0}}"#),
             format!(r#""method":"simplify","params":{{"state":{deep}}}"#),
             format!(r#""method":"get-model","params":{{"state":{deep}}}"#),
@@ -4960,28 +4972,65 @@ endmodule
                 r#""method":"add-module","params":{{"module":{}}}"#,
                 serde_json::to_string(&format!(
                     r"module EXTRA import TEST [] axiom{{}} \rewrites{{SortState{{}}}}(\and{{SortState{{}}}}(next{{}}(), {}undefined{{}}(){}), \and{{SortState{{}}}}(next{{}}(), \top{{SortState{{}}}}())) [] endmodule []",
-                    r"\not{SortState{}}(".repeat(DEEP_LEVELS),
-                    ")".repeat(DEEP_LEVELS)
+                    r"\not{SortState{}}(".repeat(levels),
+                    ")".repeat(levels)
                 ))
                 .unwrap()
             ),
-        ];
-        drop(deep);
+        ]
+    }
+
+    /// A deep state that decodes but is not a pattern of the definition (a `\not` chain over a
+    /// symbol the definition does not declare) is answered on the 64 MiB worker thread by the
+    /// pattern methods and by `add-module` as an axiom, and the connection keeps serving. At
+    /// 8,000 levels, beyond what the worker holds for the passes in a debug build, each method
+    /// answers as it does one level deep, its passes run on the stack the backend provides; at
+    /// the depth beyond the largest stack the backend provides (about 175,000 levels in a debug
+    /// build), each is refused for want of stack before any pass runs. One
+    /// frame is held at a time; in a debug build the test peaks at about 400 MB of resident
+    /// memory and finishes in about 12 s.
+    #[test]
+    fn deep_invalid_frames_are_answered_and_the_connection_keeps_serving() {
+        let (address, done) = spawn_server(service(), 1);
+        let mut client = TcpStream::connect(address).unwrap();
         let mut responses = BufReader::new(client.try_clone().unwrap());
-        for (id, frame) in frames.iter().enumerate() {
+        let mut exchange = |id: usize, frame: &str| {
             writeln!(client, r#"{{"jsonrpc":"2.0","id":{id},{frame}}}"#).unwrap();
             let mut line = String::new();
             responses.read_line(&mut line).unwrap();
             let response = serde_json::from_str::<Value>(&line).unwrap();
             assert_eq!(response["id"], id, "{line}");
-            assert!(
-                line.contains("levels deep; reading it needs about"),
-                "{line}"
-            );
+            line
+        };
+        // What each method answers for the same fault one level deep.
+        let shallow = deep_invalid_frames(1)
+            .iter()
+            .map(|frame| {
+                let line = exchange(0, frame);
+                let response = serde_json::from_str::<Value>(&line).unwrap();
+                (
+                    response["error"]["code"].clone(),
+                    response["result"].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut id = 0;
+        for (levels, refused) in [(8_000, false), (nesting::max_depth() + 1, true)] {
+            for (frame, (code, result)) in deep_invalid_frames(levels).into_iter().zip(&shallow) {
+                id += 1;
+                let line = exchange(id, &frame);
+                drop(frame);
+                let refusal = line.contains("InsufficientStack")
+                    || line.contains("the backend provides for one operation");
+                assert_eq!(refusal, refused, "{line}");
+                if !refused {
+                    let response = serde_json::from_str::<Value>(&line).unwrap();
+                    assert_eq!(&response["error"]["code"], code, "{line}");
+                    assert_eq!(&response["result"], result, "{line}");
+                }
+            }
         }
-        writeln!(client, r#"{{"jsonrpc":"2.0","id":9,"method":"missing"}}"#).unwrap();
-        let mut line = String::new();
-        responses.read_line(&mut line).unwrap();
+        let line = exchange(0, r#""method":"missing""#);
         assert_eq!(
             serde_json::from_str::<Value>(&line).unwrap()["error"]["code"],
             -32601

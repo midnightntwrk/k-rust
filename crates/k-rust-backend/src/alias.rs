@@ -36,13 +36,18 @@ pub(crate) struct AliasDefinition {
     pub(crate) result_sort: kore::Sort,
     pub(crate) parameters: Vec<kore::Variable>,
     pub(crate) right: kore::Pattern,
-    /// The nesting depth of `right` (`nesting::nesting_depth`), against which the stack left
-    /// where the body is unfolded is admitted.
+    /// The height of `right` itself (`nesting::height`, aliases in it not unfolded): the levels
+    /// that unfolding descends through within this body before it enters another.
     pub(crate) depth: usize,
+    /// The height of `right` with every alias in it unfolded (`nesting::alias_heights`).
+    pub(crate) height: usize,
 }
 
+/// The aliases declared in `modules`, with the unfolded heights of their bodies from `heights`
+/// (`nesting::alias_heights`).
 pub(crate) fn collect(
     modules: &[&kore::Module],
+    heights: &BTreeMap<String, usize>,
 ) -> Result<BTreeMap<String, AliasDefinition>, DefinitionError> {
     let mut aliases = BTreeMap::new();
     for module in modules {
@@ -118,7 +123,8 @@ pub(crate) fn collect(
                 result_sort: result_sort.clone(),
                 parameters,
                 right: (**right).clone(),
-                depth: crate::nesting::nesting_depth(right),
+                depth: crate::nesting::height(right, &crate::nesting::Syntactic),
+                height: heights.get(&alias.name).copied().unwrap_or(1),
             };
             if aliases.insert(alias.name.clone(), definition).is_some() {
                 return Err(DefinitionError::DuplicateAlias(alias.name.clone()));
@@ -244,16 +250,19 @@ fn expand_application(
         .zip(arguments)
         .collect::<BTreeMap<_, _>>();
     // The body is unfolded below the frames of every alias body and pattern level enclosing this
-    // application, and an alias body can apply further aliases, so the depth of an unfolding is
-    // known only as it proceeds. Each body is therefore admitted where it is entered, against
-    // the stack left there: the recursion over the body's own levels, and the helpers that
-    // rescan them, fit in what is admitted, and every deeper descent enters another body.
-    crate::nesting::ensure_depth_stack(alias.depth)?;
+    // application, and an alias body can apply further aliases. An operation provides the stack
+    // for the whole unfolding up front (`nesting::height` counts each alias at its unfolded
+    // height), and each body is also given the stack for its own levels where it is entered,
+    // so an unfolding run without that provision cannot overflow either: the recursion over the
+    // body's levels, and the helpers that rescan them, fit in it, and every deeper descent
+    // enters another body.
     // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
     stack.push(symbol.name);
-    let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
+    let result = crate::nesting::with_stack(alias.depth, || {
+        expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack)
+    });
     stack.pop();
-    result
+    result?
 }
 
 fn expand_connective(
@@ -769,7 +778,8 @@ mod tests {
         "#})
         .expect("alias definition should parse");
         let modules = definition.modules.iter().collect::<Vec<_>>();
-        let aliases = collect(&modules).expect("alias definition should validate");
+        let aliases =
+            collect(&modules, &BTreeMap::new()).expect("alias definition should validate");
         let application = parse_pattern(indoc! {r#"
             bind{}(
                 \and{SortValue{}}(Y:SortValue{}, YAlias0:SortValue{})
@@ -808,7 +818,8 @@ mod tests {
         "#})
         .expect("alias definition should parse");
         let modules = definition.modules.iter().collect::<Vec<_>>();
-        let aliases = collect(&modules).expect("alias definition should validate");
+        let aliases =
+            collect(&modules, &BTreeMap::new()).expect("alias definition should validate");
         let application =
             parse_pattern("bind{}(Y:SortValue{})").expect("alias application should parse");
         let expected = parse_pattern(indoc! {r#"
@@ -841,7 +852,8 @@ mod tests {
         "#})
         .expect("alias definition should parse");
         let modules = definition.modules.iter().collect::<Vec<_>>();
-        let aliases = collect(&modules).expect("alias definition should validate");
+        let aliases =
+            collect(&modules, &BTreeMap::new()).expect("alias definition should validate");
         let left = parse_pattern(r"\left-assoc{}(pair{}(a{}(), b{}(), c{}()))")
             .expect("left-associative alias application should parse");
         let right = parse_pattern(r"\right-assoc{}(pair{}(a{}(), b{}(), c{}()))")

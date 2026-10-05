@@ -1,261 +1,339 @@
-//! Stack admission for the backend's recursive passes over KORE patterns and definitions.
+//! Native stack for the backend's recursive passes over KORE patterns, definitions, and the
+//! terms built from them.
 //!
-//! Standalone verification, alias expansion, and internalization each descend once per level of
-//! the pattern they read, and the helpers they call at a level rescan the levels below it the
-//! same way; loading a definition runs these and further passes over its sentences. Their stack
-//! therefore grows linearly with the nesting depth of the patterns and sorts they read, and a
-//! pattern or module read from a client can be of any depth. Overflowing the native stack aborts
-//! the whole process, which on a persistent host ends every other request it serves.
+//! Standalone verification, alias expansion, and internalization descend once per level of the
+//! pattern they read, and so do the passes over the internal terms they build: matching,
+//! simplification, rewriting, externalization, and the destruction of the terms. Loading a
+//! definition runs the same passes over its sentences. The stack an operation takes therefore
+//! grows linearly with the nesting depth of what it reads, and a pattern or module read from a
+//! client can be of any depth, while overflowing the native stack aborts the whole process.
 //!
-//! Before those passes run, [`ensure_stack`] for a pattern and [`ensure_definition_stack`] for
-//! the modules of a definition measure the nesting depth with explicit work lists and compare
-//! the stack the passes need for it with what is left on the current thread. Input that does not
-//! fit is refused with [`DefinitionError::InsufficientStack`], an ordinary error, whether or not
-//! it is otherwise well formed. The bound is the thread's stack, not a fixed depth: the same
-//! pattern is admitted on a thread with more stack.
+//! The depth is measured before the work starts, with explicit work lists ([`height`]), so an
+//! operation knows the stack it needs before it takes any. [`with_stack`] runs the work on the
+//! current thread when the thread's remaining stack covers that need, as before, and otherwise
+//! on a new stack segment of the needed size, which `stacker` maps for the duration of the work
+//! and unmaps afterwards. A segment is address space: its pages are committed only as the work
+//! touches them, so the memory an operation uses is the stack it actually descends through, as it
+//! would be on a thread that large. Because a segment is only provided when the thread has less
+//! than the measured need, the work always has at least the stack it would have had on the thread.
 //!
-//! Alias expansion descends through the bodies of the aliases it unfolds, each below the ones
-//! that apply it, so how deep it goes is known only as it proceeds; it admits each alias body
-//! with [`ensure_depth_stack`] where it enters it, both when a definition is loaded and when a
-//! request is internalized.
+//! The segment is bounded by [`STACK_LIMIT`], a fixed reservation far above any thread an
+//! embedder runs the backend on; work that would need more is refused with
+//! [`DefinitionError::InsufficientStack`] before any of it runs. Mapping a segment can also fail
+//! when the system refuses the reservation, which is refused the same way.
 //!
-//! The remaining stack is unknown on wasm32, where the engine's call-stack limit is invisible to
-//! the module, and on a native thread whose bounds cannot be read; there every pattern is
-//! admitted and the passes stay bounded by the stack, as the simplifier's own guard is
-//! (`stop::remaining_stack`).
+//! The work must include everything that recurses over the deep terms: an operation returns only
+//! external results built inside the segment, and its internal terms are dropped inside it.
+//!
+//! On wasm32 the engine's call-stack limit is invisible to the module and its stack cannot be
+//! switched, and on a native thread whose bounds `stacker` cannot read the remaining stack is
+//! unknown; there the work runs on the current stack unchanged, bounded by that stack as the
+//! simplifier's own guard is (`stop::remaining_stack`).
+
+use std::collections::BTreeMap;
 
 use k_rust_kore::kore::ast as kore;
 
 use crate::definition::DefinitionError;
-use crate::stop::{STACK_RED_ZONE, remaining_stack};
+use crate::stop::STACK_RED_ZONE;
 
-/// Upper bound on the native stack that verification, alias expansion, internalization, and the
-/// loading of a definition take per level of the patterns and sorts they read.
+/// Upper bound on the native stack that verification, alias expansion, internalization, the
+/// passes over the internal terms, and the loading of a definition take per level of the
+/// patterns and sorts they read, as counted by [`height`].
 ///
-/// Measured by painting the stack below the caller and running each admitted internalization
-/// entry point on chains of every pattern constructor, on mixed chains, and on deep sorts: the
+/// Measured by painting the stack below the caller and running each internalization entry
+/// point on chains of every pattern constructor, on mixed chains, and on deep sorts: the
 /// deepest level took 19,184 bytes in a debug build and 2,192 bytes in a release build, both at
-/// an `\and` or `\or` level. The release bound keeps a wider margin because inlining, including
-/// link-time inlining in the `dist` profile, moves frame sizes more than the unoptimized build
-/// does. The fixed cost below the first level, at most 62 KiB in a debug build, is within
-/// `STACK_RED_ZONE`, which also holds the non-recursive work done at the deepest level.
-/// `tests::admitted_depths_fit_on_the_thread` and
-/// `tests::admitted_definition_depths_fit_on_the_thread` run every measured pattern shape and
-/// deep definition at the deepest depth this bound admits on a small thread.
+/// an `\and` or `\or` level. Whole facade operations (execution, simplification, and
+/// implication over application chains, and simplification of a negation chain), measured by
+/// the pages they touched on a fresh segment, took at most 18.9 KiB per level in a debug build
+/// and 2.7 KiB in a release build, both simplifying the negation chain. The release bound keeps
+/// a wider margin because inlining, including link-time inlining in the `dist` profile, moves
+/// frame sizes more than the unoptimized build does. The fixed cost below the first level, at most 62 KiB in a debug
+/// build, is within `STACK_RED_ZONE`, which also holds the non-recursive work done at the
+/// deepest level. `tests::every_shape_runs_on_the_stack_it_is_given` and
+/// `tests::every_deep_definition_loads_on_the_stack_it_is_given` run every measured shape on a
+/// stack of exactly the size this bound gives, so a pass whose frames outgrow it overflows there.
 #[cfg(debug_assertions)]
 const STACK_PER_LEVEL: usize = 24 * 1024;
 #[cfg(not(debug_assertions))]
 const STACK_PER_LEVEL: usize = 4 * 1024;
 
-/// Refuse `pattern` with [`DefinitionError::InsufficientStack`] when the current thread's
-/// remaining stack, if known, cannot hold the recursive passes over a pattern of its nesting
-/// depth.
-pub(crate) fn ensure_stack(pattern: &kore::Pattern) -> Result<(), DefinitionError> {
-    ensure_stack_with(|| nesting_depth(pattern))
+/// The largest stack segment [`with_stack`] maps for one piece of work.
+///
+/// A segment is reserved address space whose pages are committed only when touched, so the
+/// limit bounds the reservation, not the memory used. 4 GiB is 64 times the 64 MiB worker threads
+/// of the CLI and RPC server and 512 times Node's main thread, so no input that ran on such a
+/// thread is refused; it admits about a million levels in a release build and about 170,000 in a
+/// debug build. It stays well under the address space of a 64-bit process and under the
+/// physical memory and swap that Linux's default overcommit heuristic compares a single
+/// reservation against. A 32-bit process has a few GiB of address space in all, so its limit is
+/// 256 MiB, four times the largest thread above.
+#[cfg(target_pointer_width = "64")]
+pub const STACK_LIMIT: usize = 4 << 30;
+#[cfg(not(target_pointer_width = "64"))]
+pub const STACK_LIMIT: usize = 256 << 20;
+
+/// The deepest patterns and sorts, as counted by [`height`], that [`with_stack`] provides the
+/// stack for: about a million levels in a release build and 170,000 in a debug build.
+pub fn max_depth() -> usize {
+    (STACK_LIMIT - STACK_RED_ZONE) / STACK_PER_LEVEL
 }
 
-/// Refuse the `modules` of a definition with [`DefinitionError::InsufficientStack`] when the
-/// current thread's remaining stack, if known, cannot hold the recursive passes over their
-/// deepest pattern or sort: the patterns of their sentences and attributes, and the sorts of
-/// their declarations.
-pub(crate) fn ensure_definition_stack(modules: &[&kore::Module]) -> Result<(), DefinitionError> {
-    ensure_stack_with(|| {
-        let attributes = |attributes: &kore::Attributes| {
-            attributes.0.iter().map(nesting_depth).max().unwrap_or(0)
-        };
-        let sorts = |sorts: &[kore::Sort]| sorts.iter().map(sort_depth).max().unwrap_or(0);
-        let mut deepest = 0;
-        for module in modules {
-            deepest = deepest.max(attributes(&module.attributes));
-            for sentence in &module.sentences {
-                let depth = match sentence {
-                    kore::Sentence::Import {
-                        attributes: own, ..
-                    }
-                    | kore::Sentence::SortDeclaration {
-                        attributes: own, ..
-                    } => attributes(own),
-                    kore::Sentence::SymbolDeclaration {
-                        symbol,
-                        argument_sorts,
-                        result_sort,
-                        attributes: own,
-                        ..
-                    } => attributes(own)
-                        .max(sorts(&symbol.sort_parameters))
-                        .max(sorts(argument_sorts))
-                        .max(sort_depth(result_sort)),
-                    kore::Sentence::AliasDeclaration {
-                        alias,
-                        argument_sorts,
-                        result_sort,
-                        left,
-                        right,
-                        attributes: own,
-                    } => attributes(own)
-                        .max(sorts(&alias.sort_parameters))
-                        .max(sorts(argument_sorts))
-                        .max(sort_depth(result_sort))
-                        .max(nesting_depth(left))
-                        .max(nesting_depth(right)),
-                    kore::Sentence::Axiom {
-                        pattern,
-                        attributes: own,
-                        ..
-                    }
-                    | kore::Sentence::Claim {
-                        pattern,
-                        attributes: own,
-                        ..
-                    } => attributes(own).max(nesting_depth(pattern)),
-                };
-                deepest = deepest.max(depth);
-            }
-        }
-        deepest
-    })
-}
-
-/// Refuse with [`DefinitionError::InsufficientStack`] when the current thread's remaining stack,
-/// if known, cannot hold the recursive passes over a pattern `depth` levels deep, such as an
-/// alias body about to be unfolded at the current point of an unfolding.
-pub(crate) fn ensure_depth_stack(depth: usize) -> Result<(), DefinitionError> {
-    ensure_stack_with(|| depth)
-}
-
-fn ensure_stack_with(depth: impl FnOnce() -> usize) -> Result<(), DefinitionError> {
-    let Some(remaining) = remaining_stack() else {
-        return Ok(());
-    };
-    let depth = depth();
-    let required = depth
+/// The native stack, in bytes, that the backend's passes over patterns `depth` levels deep, as
+/// counted by [`height`], take at most.
+pub fn stack_for_depth(depth: usize) -> usize {
+    depth
         .saturating_mul(STACK_PER_LEVEL)
-        .saturating_add(STACK_RED_ZONE);
-    if required <= remaining {
-        Ok(())
-    } else {
-        Err(DefinitionError::InsufficientStack {
+        .saturating_add(STACK_RED_ZONE)
+}
+
+/// Run `work`, whose recursive passes go over patterns and terms at most `depth` levels deep as
+/// counted by [`height`], on a stack that holds them.
+///
+/// The work runs on the current thread's stack when its remaining stack is unknown or covers
+/// [`stack_for_depth`]`(depth)`, and otherwise on a segment of that size. It is refused with
+/// [`DefinitionError::InsufficientStack`], without running, when the segment would exceed
+/// [`STACK_LIMIT`] or cannot be mapped.
+pub fn with_stack<R>(depth: usize, work: impl FnOnce() -> R) -> Result<R, DefinitionError> {
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = depth;
+        Ok(work())
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let required = stack_for_depth(depth);
+        let Some(remaining) = crate::stop::remaining_stack() else {
+            return Ok(work());
+        };
+        if required <= remaining {
+            return Ok(work());
+        }
+        let refused = || DefinitionError::InsufficientStack {
             depth,
             required,
-            remaining,
-        })
+            limit: STACK_LIMIT.max(remaining),
+        };
+        if required > STACK_LIMIT {
+            return Err(refused());
+        }
+        // `stacker` maps the segment before it runs the work and panics when the mapping
+        // fails. A panic before `work` started is that failure, an ordinary refusal; a panic
+        // from `work` itself continues to unwind as it would have without the segment.
+        let mut started = false;
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            stacker::grow(required, || {
+                started = true;
+                work()
+            })
+        }));
+        match outcome {
+            Ok(result) => Ok(result),
+            Err(_) if !started => Err(refused()),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 }
 
-/// The number of nodes on the longest path from `pattern` to a leaf, counting a sort's nodes
-/// below the pattern node that carries it, computed without recursion.
+/// What [`height`] knows about the definition a pattern is read in: which applications unfold
+/// into deeper patterns, and how deep the chains that associative applications fold into are.
+pub(crate) trait Unfolding {
+    /// The height of the body of alias `name` with every alias in it unfolded, counting each of
+    /// its parameters as a leaf; `None` when `name` is not an alias.
+    fn alias_height(&self, name: &str) -> Option<usize>;
+
+    /// The number of levels the chain that an associative application of `symbol` to
+    /// `arguments` folds into adds above its arguments.
+    fn associative_levels(&self, symbol: &kore::Symbol, arguments: &[kore::Pattern]) -> usize {
+        let _ = symbol;
+        arguments.len()
+    }
+}
+
+/// A pattern read without a definition: no application unfolds, and an associative application
+/// of `n` arguments is a chain of `n` levels.
+pub(crate) struct Syntactic;
+
+impl Unfolding for Syntactic {
+    fn alias_height(&self, _name: &str) -> Option<usize> {
+        None
+    }
+}
+
+/// Aliases whose unfolded heights are known, read without the rest of a definition.
+pub(crate) struct Aliases<'a>(pub(crate) &'a BTreeMap<String, usize>);
+
+impl Unfolding for Aliases<'_> {
+    fn alias_height(&self, name: &str) -> Option<usize> {
+        self.0.get(name).copied()
+    }
+}
+
+/// The number of levels of `pattern`, as the backend's passes descend through it: an upper
+/// bound on the depth of `pattern` with its aliases unfolded and of every internal term or
+/// predicate internalized from it, computed with explicit work lists.
 ///
-/// An associative application of `n` arguments counts as `n` levels above its arguments, since
-/// it stands for a chain of `n - 1` binary applications.
-pub(crate) fn nesting_depth(pattern: &kore::Pattern) -> usize {
+/// A node carrying sorts is one level above the deepest of them. An alias application is the
+/// unfolded height of the alias body above its deepest argument or sort argument, since the
+/// arguments replace parameters inside the body. An `\and` with `k` arguments that have term
+/// components, which internalization folds into a chain of `k - 1` binary conjunctions, is `k`
+/// levels; its predicate arguments are internalized side by side. An associative application is
+/// as many levels as `unfolding` says the chain it folds into has, and an associative
+/// application of an alias unfolds that many alias applications, one in the other.
+pub(crate) fn height(pattern: &kore::Pattern, unfolding: &impl Unfolding) -> usize {
     use kore::Pattern;
 
-    let mut deepest = 0;
-    let mut sorts: Vec<&kore::Sort> = Vec::new();
-    let mut pending = vec![(pattern, 1_usize)];
-    // Each pop pushes only proper subpatterns of the popped one, so the loop terminates.
-    // Invariant: `deepest` is the greatest depth found among the nodes popped so far.
-    while let Some((pattern, depth)) = pending.pop() {
-        let mut below = depth.saturating_add(1);
-        let children: &[Pattern] = match pattern {
-            Pattern::String(_) => &[],
-            Pattern::Variable(variable) => {
-                sorts.push(&variable.sort);
-                &[]
-            }
-            Pattern::Application { symbol, arguments } => {
-                sorts.extend(&symbol.sort_parameters);
-                arguments
-            }
-            Pattern::AssociativeApplication {
-                symbol, arguments, ..
-            } => {
-                sorts.extend(&symbol.sort_parameters);
-                below = depth.saturating_add(arguments.len());
-                arguments
-            }
-            Pattern::Top { sort }
-            | Pattern::Bottom { sort }
-            | Pattern::DomainValue { sort, .. } => {
-                sorts.push(sort);
-                &[]
-            }
-            Pattern::And { sort, arguments } | Pattern::Or { sort, arguments } => {
-                sorts.push(sort);
-                arguments
-            }
-            Pattern::Not { sort, argument } | Pattern::Next { sort, argument } => {
-                sorts.push(sort);
-                std::slice::from_ref(&**argument)
-            }
-            Pattern::Implies { sort, left, right }
-            | Pattern::Iff { sort, left, right }
-            | Pattern::Rewrites { sort, left, right } => {
-                sorts.push(sort);
-                pending.push((left, below));
-                std::slice::from_ref(&**right)
-            }
-            Pattern::Exists {
-                sort,
-                variable,
-                body,
-            }
-            | Pattern::Forall {
-                sort,
-                variable,
-                body,
-            } => {
-                sorts.push(sort);
-                sorts.push(&variable.sort);
-                std::slice::from_ref(&**body)
-            }
-            Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
-                sorts.push(&variable.sort);
-                std::slice::from_ref(&**body)
-            }
-            Pattern::Ceil {
-                operand_sort,
-                result_sort,
-                argument,
-            }
-            | Pattern::Floor {
-                operand_sort,
-                result_sort,
-                argument,
-            } => {
-                sorts.push(operand_sort);
-                sorts.push(result_sort);
-                std::slice::from_ref(&**argument)
-            }
-            Pattern::Equals {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            }
-            | Pattern::In {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            } => {
-                sorts.push(operand_sort);
-                sorts.push(result_sort);
-                pending.push((left, below));
-                std::slice::from_ref(&**right)
-            }
-        };
-        deepest = deepest.max(depth);
-        for sort in sorts.drain(..) {
-            deepest = deepest.max(depth.saturating_add(sort_depth(sort)));
-        }
-        pending.extend(children.iter().map(|child| (child, below)));
+    enum Visit<'a> {
+        Enter(&'a Pattern),
+        Exit(&'a Pattern),
     }
-    deepest
+
+    // Invariant: after the `Exit` of a node is handled, `done` ends with that node's
+    // (height, whether it has a term component), and the entries of its children, pushed in
+    // order before it, have been replaced by it.
+    let mut done: Vec<(usize, bool)> = Vec::new();
+    let mut pending = vec![Visit::Enter(pattern)];
+    // Each `Enter` pushes one `Exit` and an `Enter` per proper subpattern, so the loop
+    // terminates.
+    while let Some(visit) = pending.pop() {
+        match visit {
+            Visit::Enter(pattern) => {
+                pending.push(Visit::Exit(pattern));
+                let (first, second) = children(pattern);
+                pending.extend(first.iter().chain(second).rev().map(Visit::Enter));
+            }
+            Visit::Exit(pattern) => {
+                let (first, second) = children(pattern);
+                let below = done.split_off(done.len() - first.len() - second.len());
+                let deepest_child = below.iter().map(|(height, _)| *height).max().unwrap_or(0);
+                let term_children = below.iter().filter(|(_, term)| *term).count();
+                let deepest_sort = sorts(pattern).map(sort_height).max().unwrap_or(0);
+                let below = deepest_child.max(deepest_sort);
+                let (levels, term) = match pattern {
+                    Pattern::Application { symbol, .. } => {
+                        (unfolding.alias_height(&symbol.name).unwrap_or(1), true)
+                    }
+                    Pattern::AssociativeApplication {
+                        symbol, arguments, ..
+                    } => {
+                        let levels = match unfolding.alias_height(&symbol.name) {
+                            Some(alias) => alias.saturating_mul(arguments.len()),
+                            None => unfolding.associative_levels(symbol, arguments),
+                        };
+                        (levels, true)
+                    }
+                    Pattern::String(_) | Pattern::Variable(_) | Pattern::DomainValue { .. } => {
+                        (1, true)
+                    }
+                    Pattern::And { .. } => (term_children.max(1), term_children > 0),
+                    Pattern::Exists { .. } | Pattern::Forall { .. } => (1, term_children > 0),
+                    Pattern::Top { .. }
+                    | Pattern::Bottom { .. }
+                    | Pattern::Or { .. }
+                    | Pattern::Not { .. }
+                    | Pattern::Next { .. }
+                    | Pattern::Implies { .. }
+                    | Pattern::Iff { .. }
+                    | Pattern::Rewrites { .. }
+                    | Pattern::Mu { .. }
+                    | Pattern::Nu { .. }
+                    | Pattern::Ceil { .. }
+                    | Pattern::Floor { .. }
+                    | Pattern::Equals { .. }
+                    | Pattern::In { .. } => (1, false),
+                };
+                done.push((levels.max(1).saturating_add(below), term));
+            }
+        }
+    }
+    done.pop().map_or(0, |(height, _)| height)
+}
+
+/// The direct subpatterns of `pattern`, in order.
+fn children(pattern: &kore::Pattern) -> (&[kore::Pattern], &[kore::Pattern]) {
+    use kore::Pattern;
+    use std::slice::from_ref;
+
+    match pattern {
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => (&[], &[]),
+        Pattern::Application { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. } => (arguments, &[]),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => (from_ref(&**argument), &[]),
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => (from_ref(&**body), &[]),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => (from_ref(&**left), from_ref(&**right)),
+    }
+}
+
+/// The sorts that `pattern` carries itself, not those of its subpatterns.
+fn sorts(pattern: &kore::Pattern) -> impl Iterator<Item = &kore::Sort> {
+    use kore::Pattern;
+    use std::slice::from_ref;
+
+    let (first, second): (&[kore::Sort], &[kore::Sort]) = match pattern {
+        Pattern::String(_) => (&[], &[]),
+        Pattern::Variable(variable) => (from_ref(&variable.sort), &[]),
+        Pattern::Application { symbol, .. } | Pattern::AssociativeApplication { symbol, .. } => {
+            (&symbol.sort_parameters, &[])
+        }
+        Pattern::Top { sort }
+        | Pattern::Bottom { sort }
+        | Pattern::DomainValue { sort, .. }
+        | Pattern::And { sort, .. }
+        | Pattern::Or { sort, .. }
+        | Pattern::Not { sort, .. }
+        | Pattern::Next { sort, .. }
+        | Pattern::Implies { sort, .. }
+        | Pattern::Iff { sort, .. }
+        | Pattern::Rewrites { sort, .. } => (from_ref(sort), &[]),
+        Pattern::Exists { sort, variable, .. } | Pattern::Forall { sort, variable, .. } => {
+            (from_ref(sort), from_ref(&variable.sort))
+        }
+        Pattern::Mu { variable, .. } | Pattern::Nu { variable, .. } => {
+            (from_ref(&variable.sort), &[])
+        }
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | Pattern::Floor {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | Pattern::Equals {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | Pattern::In {
+            operand_sort,
+            result_sort,
+            ..
+        } => (from_ref(&**operand_sort), from_ref(result_sort)),
+    };
+    first.iter().chain(second)
 }
 
 /// The number of nodes on the longest path from `sort` to a leaf, computed without recursion.
-fn sort_depth(sort: &kore::Sort) -> usize {
+pub(crate) fn sort_height(sort: &kore::Sort) -> usize {
     let mut deepest = 0;
     let mut pending = vec![(sort, 1_usize)];
     // Each pop pushes only proper subsorts of the popped one, so the loop terminates.
@@ -269,12 +347,148 @@ fn sort_depth(sort: &kore::Sort) -> usize {
     deepest
 }
 
+/// The unfolded height ([`Unfolding::alias_height`]) of each alias of `aliases`, given as its
+/// name and body, with associative applications counted by `unfolding` and every other alias
+/// unknown to it.
+///
+/// Each body is measured after the bodies of the aliases it applies, in a topological order of
+/// the application relation found with explicit work lists. The body of an alias on a cycle,
+/// which loading refuses (`alias::collect`), is measured with the aliases on the cycle counted
+/// as one level.
+pub(crate) fn alias_heights<'a>(
+    aliases: impl IntoIterator<Item = (&'a str, &'a kore::Pattern)>,
+) -> BTreeMap<String, usize> {
+    let aliases = aliases.into_iter().collect::<Vec<_>>();
+    let index = aliases
+        .iter()
+        .enumerate()
+        .map(|(position, (name, _))| (*name, position))
+        .collect::<BTreeMap<_, _>>();
+    let mut dependents = vec![Vec::new(); aliases.len()];
+    let mut waiting = vec![0_usize; aliases.len()];
+    for (position, (_, body)) in aliases.iter().enumerate() {
+        let mut applied = std::collections::BTreeSet::new();
+        let mut pending = vec![*body];
+        // Each pop pushes only proper subpatterns of the popped one, so the loop terminates.
+        while let Some(pattern) = pending.pop() {
+            if let kore::Pattern::Application { symbol, .. }
+            | kore::Pattern::AssociativeApplication { symbol, .. } = pattern
+                && let Some(&callee) = index.get(symbol.name.as_str())
+            {
+                applied.insert(callee);
+            }
+            let (first, second) = children(pattern);
+            pending.extend(first.iter().chain(second));
+        }
+        waiting[position] = applied.len();
+        for callee in applied {
+            dependents[callee].push(position);
+        }
+    }
+    let mut heights = BTreeMap::new();
+    let mut ready = (0..aliases.len())
+        .filter(|&position| waiting[position] == 0)
+        .collect::<Vec<_>>();
+    // Invariant: every alias in `ready` has all the aliases its body applies in `heights`, and
+    // each alias enters `ready` at most once, when its last callee is measured.
+    while let Some(position) = ready.pop() {
+        let (name, body) = aliases[position];
+        let measured = height(body, &Aliases(&heights));
+        heights.insert(name.to_owned(), measured);
+        for &dependent in &dependents[position] {
+            waiting[dependent] -= 1;
+            if waiting[dependent] == 0 {
+                ready.push(dependent);
+            }
+        }
+    }
+    // The aliases left are on or below a cycle.
+    for (position, (name, body)) in aliases.iter().enumerate() {
+        if waiting[position] > 0 {
+            let measured = height(body, &Aliases(&heights));
+            heights.insert((*name).to_owned(), measured);
+        }
+    }
+    heights
+}
+
+/// The height ([`height`]) of the deepest pattern or sort of `module` as it is written, its
+/// alias applications not unfolded.
+pub fn module_depth(module: &kore::Module) -> usize {
+    definition_height(&[module], &Syntactic)
+}
+
+/// The height of the deepest pattern or sort in `modules`, the modules of a definition: the
+/// patterns of their sentences and attributes, with the aliases of `aliases` unfolded, and the
+/// sorts of their declarations.
+pub(crate) fn definition_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
+    let attributes = |attributes: &kore::Attributes| {
+        attributes
+            .0
+            .iter()
+            .map(|pattern| height(pattern, aliases))
+            .max()
+            .unwrap_or(0)
+    };
+    let sorts = |sorts: &[kore::Sort]| sorts.iter().map(sort_height).max().unwrap_or(0);
+    let mut deepest = 0;
+    for module in modules {
+        deepest = deepest.max(attributes(&module.attributes));
+        for sentence in &module.sentences {
+            let depth = match sentence {
+                kore::Sentence::Import {
+                    attributes: own, ..
+                }
+                | kore::Sentence::SortDeclaration {
+                    attributes: own, ..
+                } => attributes(own),
+                kore::Sentence::SymbolDeclaration {
+                    symbol,
+                    argument_sorts,
+                    result_sort,
+                    attributes: own,
+                    ..
+                } => attributes(own)
+                    .max(sorts(&symbol.sort_parameters))
+                    .max(sorts(argument_sorts))
+                    .max(sort_height(result_sort)),
+                kore::Sentence::AliasDeclaration {
+                    alias,
+                    argument_sorts,
+                    result_sort,
+                    left,
+                    right,
+                    attributes: own,
+                } => attributes(own)
+                    .max(sorts(&alias.sort_parameters))
+                    .max(sorts(argument_sorts))
+                    .max(sort_height(result_sort))
+                    .max(height(left, aliases))
+                    .max(height(right, aliases)),
+                kore::Sentence::Axiom {
+                    pattern,
+                    attributes: own,
+                    ..
+                }
+                | kore::Sentence::Claim {
+                    pattern,
+                    attributes: own,
+                    ..
+                } => attributes(own).max(height(pattern, aliases)),
+            };
+            deepest = deepest.max(depth);
+        }
+    }
+    deepest
+}
+
 #[cfg(test)]
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
     use crate::definition::BackendDefinition;
+    use crate::stop::remaining_stack;
 
     const DEFINITION: &str = r#"[]
         module MAIN
@@ -467,93 +681,157 @@ mod tests {
         }
     }
 
-    /// Whether `outcome` refuses the pattern for want of stack. An implication side is first
-    /// checked for alias applications, without recursion, so an alias chain is rejected there
-    /// before any stack is needed.
-    fn refused(entry: &str, outcome: Result<(), DefinitionError>) -> bool {
-        match outcome {
-            Err(DefinitionError::InsufficientStack {
-                depth,
-                required,
-                remaining,
-            }) => {
-                assert!(required > remaining, "{entry}: {depth} levels");
-                true
-            }
-            Err(DefinitionError::MacroOrAliasInImplication(_)) => {
-                assert_eq!(entry, "implication pattern");
-                true
-            }
-            Ok(()) | Err(_) => false,
-        }
-    }
-
-    fn on_stack(bytes: usize, work: impl FnOnce() + Send + 'static) {
+    fn on_stack<R: Send + 'static>(bytes: usize, work: impl FnOnce() -> R + Send + 'static) -> R {
         std::thread::Builder::new()
             .stack_size(bytes)
             .spawn(work)
             .expect("worker should spawn")
             .join()
-            .expect("worker should finish");
+            .expect("worker should finish")
+    }
+
+    /// The stack of the threads the tests below run on, far below what their patterns need:
+    /// 512 KiB, the smallest stack embedders commonly give a thread. It is more than four times
+    /// the 64 KiB thread of `stop::tests`, so glibc never hands one of these stacks, cached when
+    /// its thread exits, to that thread.
+    const SMALL_STACK: usize = 512 * 1024;
+
+    /// Levels of the shapes and definitions that the tests below run: deep enough that their
+    /// passes need several times `SMALL_STACK` in either build, which they are given on a
+    /// segment of exactly the size `stack_for_depth` gives.
+    const LEVELS: usize = if cfg!(debug_assertions) { 300 } else { 1_500 };
+
+    #[test]
+    fn height_counts_levels_as_the_passes_descend_through_them() {
+        let syntactic = |source: &str| height(&parse_pattern(source).unwrap(), &Syntactic);
+        assert_eq!(syntactic("a{}()"), 1);
+        assert_eq!(syntactic("X:SortS{}"), 2);
+        assert_eq!(syntactic(r"\top{SortL{SortL{SortS{}}}}()"), 4);
+        assert_eq!(syntactic("wrap{}(wrap{}(a{}()))"), 3);
+        assert_eq!(
+            syntactic(r"\implies{SortS{}}(wrap{}(wrap{}(a{}())), \top{SortS{}}())"),
+            4
+        );
+        assert_eq!(
+            syntactic(r"\exists{SortS{}}(X:SortL{SortL{SortS{}}}, a{}())"),
+            4
+        );
+        // An associative application folds into a chain as long as its arguments.
+        assert_eq!(
+            syntactic(r"\left-assoc{}(c{}(a{}(), wrap{}(a{}()), a{}()))"),
+            5
+        );
+        // A conjunction folds its term arguments into a chain and keeps predicates beside it.
+        assert_eq!(
+            syntactic(r#"\and{SortS{}}(a{}(), wrap{}(\dv{SortS{}}("1")))"#),
+            5
+        );
+        assert_eq!(
+            syntactic(r"\and{SortS{}}(a{}(), \top{SortS{}}(), \top{SortS{}}(), a{}(), a{}())"),
+            5
+        );
+        assert_eq!(
+            syntactic(r"\and{SortS{}}(\top{SortS{}}(), \top{SortS{}}(), \top{SortS{}}())"),
+            3
+        );
+        let conjuncts = vec!["a{}()"; 1000].join(", ");
+        assert_eq!(syntactic(&format!(r"\and{{SortS{{}}}}({conjuncts})")), 1001);
+
+        // An alias application counts the unfolded height of the alias body, its parameter a
+        // two-level leaf, above its argument.
+        let definition = definition();
+        let unfolded = |source: &str| height(&parse_pattern(source).unwrap(), &definition);
+        assert_eq!(unfolded("same{}(a{}())"), 3);
+        assert_eq!(unfolded("twice{}(wrap{}(a{}()))"), 6);
+        assert_eq!(unfolded("twice{}(twice{}(a{}()))"), 9);
     }
 
     #[test]
-    fn nesting_depth_counts_patterns_sorts_and_associative_chains() {
-        let depth = |source: &str| nesting_depth(&parse_pattern(source).unwrap());
-        assert_eq!(depth("a{}()"), 1);
-        assert_eq!(depth("X:SortS{}"), 2);
-        assert_eq!(depth(r"\top{SortL{SortL{SortS{}}}}()"), 4);
-        assert_eq!(depth("wrap{}(wrap{}(a{}()))"), 3);
-        assert_eq!(
-            depth(r#"\and{SortS{}}(a{}(), wrap{}(\dv{SortS{}}("1")))"#),
-            4
-        );
-        assert_eq!(
-            depth(r"\implies{SortS{}}(wrap{}(wrap{}(a{}())), \top{SortS{}}())"),
-            4
-        );
-        assert_eq!(
-            depth(r"\exists{SortS{}}(X:SortL{SortL{SortS{}}}, a{}())"),
-            4
-        );
-        assert_eq!(depth(r"\left-assoc{}(c{}(a{}(), wrap{}(a{}()), a{}()))"), 5);
+    fn alias_heights_unfold_the_aliases_their_bodies_apply() {
+        let syntax = parse_definition(&alias_chain(3, 10)).unwrap();
+        let module = &syntax.modules[0];
+        let heights = alias_heights(module.sentences.iter().filter_map(
+            |sentence| match sentence {
+                kore::Sentence::AliasDeclaration { alias, right, .. } => {
+                    Some((alias.name.as_str(), right.as_ref()))
+                }
+                _ => None,
+            },
+        ));
+        // `al2` is 10 levels of `wrap` over its parameter, a leaf two levels high with its sort.
+        // An application counts the unfolded height of the alias over its argument, here the
+        // parameter of the alias above, so each alias above adds 12 levels to the one it applies.
+        assert_eq!(heights["al2"], 12);
+        assert_eq!(heights["al1"], 24);
+        assert_eq!(heights["al0"], 36);
     }
 
-    /// Every shape the bound was measured on, at the deepest depth that each entry point admits
-    /// on a thread sized for about 160 levels, runs to completion; a pattern one level deeper is
-    /// refused. A shape whose passes outgrew `STACK_PER_LEVEL` overflows here and aborts the
-    /// test binary. The thread has under 4 MiB of stack, and the patterns take a few MB of heap.
+    /// Work runs on the current stack when it fits there, and otherwise on a segment of the
+    /// size measured for it, whatever stack its thread has.
     #[test]
-    fn admitted_depths_fit_on_the_thread() {
-        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
-        on_stack(STACK, || {
+    fn work_gets_the_stack_measured_for_it() {
+        on_stack(SMALL_STACK, || {
+            let before = remaining_stack().unwrap();
+            let fits = with_stack(1, || remaining_stack().unwrap()).unwrap();
+            assert!(
+                fits < before && before - fits < 64 * 1024,
+                "{before} {fits}"
+            );
+            let depth = 1000;
+            let given = with_stack(depth, || remaining_stack().unwrap()).unwrap();
+            assert!(given > before, "{before} {given}");
+            assert!(given <= stack_for_depth(depth), "{given}");
+            assert!(given + 64 * 1024 > stack_for_depth(depth), "{given}");
+            // The thread's own stack is used again afterwards.
+            assert!(remaining_stack().unwrap() <= before + 64 * 1024);
+        });
+    }
+
+    /// Work deeper than the largest segment is refused before it runs; a panic in the work on
+    /// a segment unwinds to the caller as it would on the thread.
+    #[test]
+    fn work_too_deep_for_any_segment_is_refused_and_panics_propagate() {
+        on_stack(SMALL_STACK, || {
+            let depth = max_depth();
+            assert!(stack_for_depth(depth) <= STACK_LIMIT);
+            assert!(stack_for_depth(depth + 1) > STACK_LIMIT);
+            let mut ran = false;
+            let outcome = with_stack(depth + 1, || ran = true);
+            assert!(!ran);
+            assert!(matches!(
+                outcome,
+                Err(DefinitionError::InsufficientStack { depth: refused, required, limit })
+                    if refused == depth + 1 && required > limit && limit == STACK_LIMIT
+            ));
+            let panic = std::panic::catch_unwind(|| with_stack(1000, || panic!("from the work")));
+            let payload = panic.expect_err("the work's panic propagates");
+            assert_eq!(payload.downcast_ref::<&str>(), Some(&"from the work"));
+        });
+    }
+
+    /// Every shape the bound was measured on runs every entry point on a thread whose stack
+    /// is far smaller than the shape needs, on a segment of exactly the size `stack_for_depth`
+    /// gives for its height: a pass whose frames outgrew `STACK_PER_LEVEL` overflows the segment
+    /// and aborts the test binary. The segments take under 10 MB each, of which the work touches
+    /// at most about half, and the test takes a few seconds.
+    #[test]
+    fn every_shape_runs_on_the_stack_it_is_given() {
+        on_stack(SMALL_STACK, || {
             let definition = definition();
-            let most = STACK / STACK_PER_LEVEL + 1;
-            let refused_at = |shape: usize, entry: &str, levels: usize| {
-                let (_, source) = shapes(levels).swap_remove(shape);
+            for (name, source) in shapes(LEVELS) {
                 let pattern = parse_pattern(&source).expect("shape should parse");
-                refused(entry, run(&definition, entry, &pattern))
-            };
-            for (shape, (name, _)) in shapes(2).into_iter().enumerate() {
+                let depth = height(&pattern, &definition);
+                assert!(stack_for_depth(depth) > 2 * SMALL_STACK, "{name}");
                 for entry in ENTRY_POINTS {
-                    if *entry == "implication pattern" && name.contains("alias") {
-                        continue;
+                    let outcome = definition
+                        .with_stack_for(&[&pattern], || run(&definition, entry, &pattern))
+                        .unwrap_or_else(|error| panic!("{name} by {entry}: {error}"));
+                    if let Err(error) = outcome {
+                        assert!(
+                            !matches!(error, DefinitionError::InsufficientStack { .. }),
+                            "{name} by {entry}: {error}"
+                        );
                     }
-                    assert!(
-                        refused_at(shape, entry, most),
-                        "{name} at {most} levels is admitted by {entry}"
-                    );
-                    // Invariant: `low` is admitted, or 0, and `high` is refused.
-                    let (mut low, mut high) = (0, most);
-                    while high - low > 1 {
-                        let middle = low + (high - low) / 2;
-                        if refused_at(shape, entry, middle) {
-                            high = middle;
-                        } else {
-                            low = middle;
-                        }
-                    }
-                    assert!(low > 2, "{name} is refused by {entry} at {high} levels");
                 }
             }
         });
@@ -644,49 +922,32 @@ mod tests {
         ]
     }
 
-    /// Every deep definition shape, at the deepest depth that loading admits on a thread sized
-    /// for about 160 levels, loads to completion; one level deeper is refused. The thread has
-    /// under 4 MiB of stack, and the definitions take a few MB of heap.
+    /// Every deep definition shape loads, and is dropped, on a thread whose stack is far
+    /// smaller than its sentences need: loading measures them and provides the stack. The
+    /// definitions take a few MB of heap.
     #[test]
-    fn admitted_definition_depths_fit_on_the_thread() {
-        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
-        on_stack(STACK, || {
-            let most = STACK / STACK_PER_LEVEL + 1;
-            let refused_at = |shape: usize, levels: usize| {
-                let (_, source) = deep_definitions(levels).swap_remove(shape);
+    fn every_deep_definition_loads_on_the_stack_it_is_given() {
+        on_stack(SMALL_STACK, || {
+            for (name, source) in deep_definitions(LEVELS) {
                 let syntax = parse_definition(&source).expect("definition should parse");
-                match BackendDefinition::internalize(&syntax, "MAIN") {
-                    Err(DefinitionError::InsufficientStack {
-                        required,
-                        remaining,
-                        ..
-                    }) => {
-                        assert!(required > remaining);
-                        true
-                    }
-                    Ok(_) | Err(_) => false,
-                }
-            };
-            for (shape, (name, _)) in deep_definitions(2).into_iter().enumerate() {
-                let syntax = parse_definition(&deep_definitions(2).swap_remove(shape).1).unwrap();
-                if let Err(error) = BackendDefinition::internalize(&syntax, "MAIN") {
-                    panic!("{name} at 2 levels: {error}");
-                }
-                assert!(
-                    refused_at(shape, most),
-                    "{name} at {most} levels is admitted"
-                );
-                // Invariant: `low` is admitted and `high` is refused.
-                let (mut low, mut high) = (2, most);
-                while high - low > 1 {
-                    let middle = low + (high - low) / 2;
-                    if refused_at(shape, middle) {
-                        high = middle;
-                    } else {
-                        low = middle;
-                    }
-                }
+                let definition = BackendDefinition::internalize(&syntax, "MAIN")
+                    .unwrap_or_else(|error| panic!("{name}: {error}"));
+                assert!(stack_for_depth(definition.operation_depth(&[])) > 2 * SMALL_STACK);
+                drop(definition);
             }
+        });
+    }
+
+    /// A definition whose rule is 6,000 levels deep is loaded and dropped on a thread whose
+    /// stack holds neither: the internal rule's destruction recurses once per level, and the
+    /// definition provides the stack for it when it is dropped. In a debug build the load
+    /// touches about 80 MB of stack and takes a second or two.
+    #[test]
+    fn deep_definitions_are_dropped_on_the_stack_they_need() {
+        on_stack(SMALL_STACK, || {
+            let (_, source) = deep_definitions(6_000).swap_remove(0);
+            let definition = load(&source).expect("the definition should load");
+            drop(definition);
         });
     }
 
@@ -725,96 +986,112 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN")
     }
 
-    /// Every sentence of a chain of 20 aliases, each body 100 levels deep, fits on a thread
-    /// sized for about 160 levels, but checking that the first alias unfolds descends through
-    /// all 2,000 levels. Loading the module there is refused once an alias body no longer fits
-    /// below the ones that enclose it, instead of overflowing the thread. A chain whose whole
-    /// unfolding fits still loads and unfolds. The modules take well under 1 MB of heap.
+    /// A chain of 20 aliases, each body 100 levels deep, unfolds into 2,000 levels: it loads,
+    /// and a request applying it, alone or under 100 further levels, internalizes, on a thread
+    /// whose stack holds about 20 levels in a debug build. The modules take well under
+    /// 1 MB of heap; the unfolding touches about 25 MB of stack in a debug build.
     #[test]
-    fn alias_chains_are_admitted_as_they_unfold_at_load() {
-        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
-        on_stack(STACK, || {
-            assert!(matches!(
-                load(&alias_chain(20, 100)),
-                Err(DefinitionError::InsufficientStack { .. })
-            ));
-            let definition = load(&alias_chain(3, 20)).expect("a shallow chain should load");
-            let pattern = parse_pattern("al0{}(a{}())").unwrap();
-            run(&definition, "term", &pattern).expect("a shallow chain should unfold");
-        });
-    }
-
-    /// A chain of 20 aliases, each body 100 levels deep, loads on a 64 MiB thread (under 50 MB
-    /// of stack in a debug build). Unfolding `al0` in a request on a thread sized for about 160
-    /// levels is refused once an alias body no longer fits below the ones enclosing it, as is
-    /// the same request under 100 further levels, which the request's own admission accepts.
-    /// The definition takes well under 1 MB of heap.
-    #[test]
-    fn alias_chains_are_admitted_as_they_unfold_in_requests() {
-        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
-        let definition = std::thread::Builder::new()
-            .stack_size(64 << 20)
-            .spawn(|| load(&alias_chain(20, 100)).expect("the chain should load"))
-            .expect("loader should spawn")
-            .join()
-            .expect("loader should finish");
-        on_stack(STACK, move || {
+    fn alias_chains_get_the_stack_of_their_unfolding() {
+        on_stack(SMALL_STACK, || {
+            let definition = load(&alias_chain(20, 100)).expect("the chain should load");
             for source in [
                 "al0{}(a{}())".to_owned(),
                 chain(100, "wrap{}(", "al0{}(a{}())", ")"),
             ] {
                 let pattern = parse_pattern(&source).unwrap();
-                // Standalone verification reads alias applications without unfolding them.
+                assert!(definition.operation_depth(&[&pattern]) > 2_000);
                 for entry in &ENTRY_POINTS[1..] {
-                    assert!(refused(entry, run(&definition, entry, &pattern)), "{entry}");
+                    if *entry == "implication pattern" {
+                        continue;
+                    }
+                    definition
+                        .with_stack_for(&[&pattern], || run(&definition, entry, &pattern))
+                        .unwrap()
+                        .unwrap_or_else(|error| panic!("{entry}: {error}"));
                 }
             }
         });
     }
 
-    /// Alias bodies inline their arguments without descending into them, so 200 nested
-    /// applications of an alias whose body is 200 levels deep unfold, on a thread sized for
-    /// about 400 levels, into a 40,000-level argument of `bind`. Placing it under `bind`'s
-    /// existential scans its free variables, which stays within the thread, and the
-    /// 40,000-level expansion is then refused. The unfolding clones about 4 million nodes; the
-    /// test peaks under 100 MB of resident memory and takes about 1 s in a debug build.
+    /// Unfolding an alias chain provides the stack for each body where it enters it, so the
+    /// unfolding alone, run without the stack an operation measures for it, does not overflow
+    /// a small thread either.
     #[test]
-    fn deep_alias_arguments_are_scanned_without_recursion() {
-        const STACK: usize = STACK_RED_ZONE + 400 * STACK_PER_LEVEL;
-        on_stack(STACK, || {
-            let definition = load(&alias_chain(1, 200)).expect("the alias should load");
-            let source = format!("bind{{}}({})", chain(200, "al0{}(", "a{}()", ")"));
+    fn alias_bodies_get_their_stack_where_unfolding_enters_them() {
+        let definition = load(&alias_chain(20, 100)).expect("the chain should load");
+        let definition = std::sync::Arc::new(definition);
+        let shared = definition.clone();
+        let expanded = on_stack(SMALL_STACK, move || {
+            let pattern = parse_pattern("al0{}(a{}())").unwrap();
+            let expanded =
+                crate::alias::expand(&pattern, shared.aliases()).expect("the chain should unfold");
+            height(&expanded, &Syntactic)
+        });
+        assert_eq!(expanded, 2_001);
+        drop(definition);
+    }
+
+    /// Alias bodies inline their arguments without descending into them, so 40 nested
+    /// applications of an alias whose body is 40 levels deep unfold into a 1,600-level argument
+    /// of `bind`, whose free variables are scanned without recursion. The unfolding, and every
+    /// entry point over it, runs on the stack measured for it.
+    #[test]
+    fn deep_alias_arguments_unfold_on_the_stack_measured_for_them() {
+        on_stack(SMALL_STACK, || {
+            let definition = load(&alias_chain(1, 40)).expect("the alias should load");
+            let source = format!("bind{{}}({})", chain(40, "al0{}(", "a{}()", ")"));
             let pattern = parse_pattern(&source).unwrap();
-            let outcome = run(&definition, "pattern", &pattern);
-            assert!(
-                matches!(outcome, Err(DefinitionError::InsufficientStack { depth, .. }) if depth > 40_000),
-                "{outcome:?}"
-            );
+            let depth = definition.operation_depth(&[&pattern]);
+            let expanded = definition
+                .with_stack_for(&[&pattern], || {
+                    crate::alias::expand(&pattern, definition.aliases())
+                        .map(|expanded| height(&expanded, &Syntactic))
+                })
+                .unwrap()
+                .expect("the aliases should unfold");
+            assert!(expanded > 1_600 && expanded <= depth, "{expanded} {depth}");
+            for entry in &ENTRY_POINTS[1..] {
+                let outcome = definition
+                    .with_stack_for(&[&pattern], || run(&definition, entry, &pattern))
+                    .unwrap();
+                assert!(
+                    !matches!(outcome, Err(DefinitionError::InsufficientStack { .. })),
+                    "{entry}"
+                );
+            }
         });
     }
 
-    /// A pattern far deeper than the thread could recurse over is refused before any recursive
-    /// pass runs, by every entry point, whatever it would otherwise be rejected for. One
-    /// 200,000-level pattern is held at a time; the nesting tests together peak under 200 MB of
-    /// resident memory and finish in about 3 s in a debug build.
+    /// A pattern deeper than the largest segment provides for is refused before any pass over
+    /// it runs, whatever it would otherwise be rejected for. One pattern about 175,000 levels
+    /// deep (a million in a release build) is held at a time; the test peaks under 200 MB of
+    /// resident memory in a debug build.
     #[test]
-    fn deep_patterns_are_refused_before_any_recursive_pass() {
-        on_stack(8 << 20, || {
+    fn patterns_deeper_than_any_segment_are_refused_before_any_pass() {
+        on_stack(SMALL_STACK, || {
             let definition = definition();
-            let levels = 200_000;
+            let levels = max_depth() + 1;
             for source in [
                 chain(levels, r"\not{SortS{}}(", "undefined{}()", ")"),
                 chain(levels, "nosuch{}(", "a{}()", ")"),
-                chain(levels, "wrap{}(", "V:SortMissing{}", ")"),
                 format!(
                     r"\top{{{}}}()",
                     chain(levels, "SortMissing{", "SortS{}", "}")
                 ),
-                chain(levels, "same{}(", "a{}()", ")"),
+                chain(levels / 2, "same{}(", "a{}()", ")"),
             ] {
                 let pattern = parse_pattern(&source).expect("deep pattern should parse");
                 for entry in ENTRY_POINTS {
-                    assert!(refused(entry, run(&definition, entry, &pattern)), "{entry}");
+                    let mut ran = false;
+                    let outcome = definition.with_stack_for(&[&pattern], || {
+                        ran = true;
+                        run(&definition, entry, &pattern)
+                    });
+                    assert!(!ran, "{entry}");
+                    assert!(
+                        matches!(outcome, Err(DefinitionError::InsufficientStack { .. })),
+                        "{entry}"
+                    );
                 }
             }
         });

@@ -67,7 +67,7 @@ use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
-    alias::{AliasDefinition, collect as collect_aliases},
+    alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
     builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::{ClosedSort, SortError, SortGraph},
@@ -595,6 +595,10 @@ pub struct BackendDefinition {
     /// on first use by `normal_form_catalog`.
     #[cfg(feature = "check-normal-forms")]
     normal_form_catalog: OnceLock<crate::term::head::check::Catalog>,
+    /// The height (`nesting::height`) of the deepest pattern or sort of the loaded modules, with
+    /// their aliases unfolded: the depth below which the internal rules, claims, and sorts of
+    /// the definition lie, and above which an operation's own patterns can be substituted.
+    deepest: usize,
 }
 
 /// Minted only by `BackendDefinition::equation_selection_complete`: equation selection reaches
@@ -835,12 +839,13 @@ pub enum DefinitionError {
         name: String,
         set: bool,
     },
-    /// The current thread's remaining stack cannot hold the recursive passes over a pattern or
-    /// sort nested `depth` levels deep, which need about `required` bytes (`nesting`).
+    /// The recursive passes over patterns and sorts nested `depth` levels deep need about
+    /// `required` bytes of stack, more than the `limit` that the backend provides for one
+    /// operation (`nesting::with_stack`).
     InsufficientStack {
         depth: usize,
         required: usize,
-        remaining: usize,
+        limit: usize,
     },
     Axiom(AxiomError),
     RulePattern(RulePatternError),
@@ -1011,10 +1016,10 @@ impl fmt::Display for DefinitionError {
             Self::InsufficientStack {
                 depth,
                 required,
-                remaining,
+                limit,
             } => write!(
                 formatter,
-                "A pattern or sort is nested {depth} levels deep; reading it needs about {required} bytes of stack, but this thread has {remaining} left"
+                "Patterns and sorts nested {depth} levels deep need about {required} bytes of stack, more than the {limit} bytes the backend provides for one operation"
             ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
@@ -1022,22 +1027,6 @@ impl fmt::Display for DefinitionError {
             Self::Verification(error) => write!(formatter, "{error}"),
         }
     }
-}
-
-/// Expand the aliases of `pattern` for internalization.
-///
-/// Every internalization of a KORE pattern starts here, so this is where the recursive passes
-/// over a pattern are admitted to the thread's stack: the pattern before alias expansion, each
-/// alias body as the expansion enters it (`alias::expand`), and again the expansion, which can be
-/// deeper than the input by the depth of the alias bodies it inlines.
-fn expand_aliases(
-    pattern: &kore::Pattern,
-    aliases: &BTreeMap<String, AliasDefinition>,
-) -> Result<kore::Pattern, DefinitionError> {
-    crate::nesting::ensure_stack(pattern)?;
-    let expanded = crate::alias::expand(pattern, aliases)?;
-    crate::nesting::ensure_stack(&expanded)?;
-    Ok(expanded)
 }
 
 fn display_sort(sort: &Sort) -> String {
@@ -1082,6 +1071,102 @@ impl From<MalformedAttribute> for DefinitionError {
             malformed.attribute.as_str(),
             malformed.expected
         ))
+    }
+}
+
+impl crate::nesting::Unfolding for BackendDefinition {
+    fn alias_height(&self, name: &str) -> Option<usize> {
+        self.aliases.get(name).map(|alias| alias.height)
+    }
+
+    /// An associative application of a collection symbol folds its entries into one flat
+    /// collection; only the arguments that are not an element or unit of the collection can
+    /// stay as the collection's opaque rest, a chain of binary concatenations. Any other
+    /// symbol folds into a chain of binary applications, one per argument.
+    fn associative_levels(&self, symbol: &kore::Symbol, arguments: &[kore::Pattern]) -> usize {
+        let Some(collection) = self
+            .symbols
+            .get(symbol.name.as_str())
+            .and_then(|symbol| symbol.attributes.collection.as_ref())
+        else {
+            return arguments.len();
+        };
+        let symbols = match collection {
+            CollectionMetadata::Map(definition) => &definition.symbols,
+            CollectionMetadata::List(definition) | CollectionMetadata::Set(definition) => {
+                &definition.symbols
+            }
+        };
+        let opaque = arguments
+            .iter()
+            .filter(|argument| {
+                !matches!(
+                    argument,
+                    kore::Pattern::Application { symbol, .. }
+                        if *symbols.element == *symbol.name || *symbols.unit == *symbol.name
+                )
+            })
+            .count();
+        1 + opaque
+    }
+}
+
+/// Drops the parts of a definition that hold its internal terms and sorts on a stack measured
+/// for them, as loading built them on (`nesting`): their destruction recurses once per level.
+impl Drop for BackendDefinition {
+    fn drop(&mut self) {
+        let parts = (
+            std::mem::take(&mut self.symbols),
+            std::mem::take(&mut self.sort_graph),
+            std::mem::take(&mut self.overloads),
+            std::mem::take(&mut self.axioms),
+            std::mem::take(&mut self.classified_axioms),
+            std::mem::take(&mut self.claims),
+            std::mem::take(&mut self.reachability_claims),
+            std::mem::take(&mut self.rewrite_theory),
+            std::mem::take(&mut self.function_theory),
+            std::mem::take(&mut self.simplification_theory),
+            std::mem::take(&mut self.predicate_simplification_theory),
+            std::mem::take(&mut self.ceil_theory),
+            std::mem::take(&mut self.finite_sort_constructors),
+            std::mem::take(&mut self.inhabited_sorts),
+        );
+        // A refusal drops the parts here, on the current stack. Only a definition deeper than
+        // any segment holds is refused, and only a thread with more stack than that loads one.
+        let _ = crate::nesting::with_stack(self.deepest, move || drop(parts));
+    }
+}
+
+impl BackendDefinition {
+    /// The aliases of the definition, by name.
+    #[cfg(test)]
+    pub(crate) fn aliases(&self) -> &BTreeMap<String, AliasDefinition> {
+        &self.aliases
+    }
+
+    /// The depth that the recursive passes of an operation over `patterns` in this definition
+    /// descend to, as counted by `nesting::height`: the deepest of the patterns with its aliases
+    /// unfolded, above the deepest pattern of the definition, since a rule of the definition
+    /// can place the operation's terms below its own.
+    pub fn operation_depth(&self, patterns: &[&kore::Pattern]) -> usize {
+        patterns
+            .iter()
+            .map(|pattern| crate::nesting::height(pattern, self))
+            .max()
+            .unwrap_or(0)
+            .saturating_add(self.deepest)
+    }
+
+    /// Run `work`, an operation of this definition over `patterns`, with everything it does to
+    /// them and to the internal terms built from them, on a stack that holds the recursion
+    /// over [`Self::operation_depth`] levels (`nesting::with_stack`). The work's result must
+    /// hold no internal term built from `patterns`, since it is dropped outside that stack.
+    pub fn with_stack_for<R>(
+        &self,
+        patterns: &[&kore::Pattern],
+        work: impl FnOnce() -> R,
+    ) -> Result<R, DefinitionError> {
+        crate::nesting::with_stack(self.operation_depth(patterns), work)
     }
 }
 
@@ -1295,12 +1380,51 @@ impl BackendDefinition {
             &mut visited,
             &mut ordered,
         )?;
-        crate::nesting::ensure_definition_stack(&ordered)?;
+        // Every later pass recurses over the sentences, with their aliases unfolded, and over
+        // the internal terms built from them, so the whole load runs on a stack measured for the
+        // deepest of them before any of it starts (`nesting`).
+        let alias_heights = crate::nesting::alias_heights(ordered.iter().flat_map(|module| {
+            module
+                .sentences
+                .iter()
+                .filter_map(|sentence| match sentence {
+                    kore::Sentence::AliasDeclaration { alias, right, .. } => {
+                        Some((alias.name.as_str(), right.as_ref()))
+                    }
+                    kore::Sentence::Import { .. }
+                    | kore::Sentence::SortDeclaration { .. }
+                    | kore::Sentence::SymbolDeclaration { .. }
+                    | kore::Sentence::Axiom { .. }
+                    | kore::Sentence::Claim { .. } => None,
+                })
+        }));
+        let deepest =
+            crate::nesting::definition_height(&ordered, &crate::nesting::Aliases(&alias_heights));
+        crate::nesting::with_stack(deepest, || {
+            Self::internalize_modules(
+                definition,
+                &module_map,
+                main_module,
+                &ordered,
+                &alias_heights,
+                deepest,
+            )
+        })?
+    }
 
-        let aliases = collect_aliases(&ordered)?;
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn internalize_modules(
+        definition: &kore::Definition,
+        module_map: &BTreeMap<&str, &kore::Module>,
+        main_module: &str,
+        ordered: &[&kore::Module],
+        alias_heights: &BTreeMap<String, usize>,
+        deepest: usize,
+    ) -> Result<Self, DefinitionError> {
+        let aliases = collect_aliases(ordered, alias_heights)?;
 
         let mut sorts = BTreeMap::new();
-        for module in &ordered {
+        for module in ordered {
             for sentence in &module.sentences {
                 let kore::Sentence::SortDeclaration {
                     name,
@@ -1324,10 +1448,10 @@ impl BackendDefinition {
                 }
             }
         }
-        validate_alias_declarations(&ordered, &sorts)?;
+        validate_alias_declarations(ordered, &sorts)?;
 
         let mut algebraic_facts = BTreeMap::<Name, AlgebraicAxioms>::new();
-        for module in &ordered {
+        for module in ordered {
             for sentence in &module.sentences {
                 let kore::Sentence::Axiom {
                     pattern,
@@ -1348,7 +1472,7 @@ impl BackendDefinition {
         }
 
         let mut symbols = BTreeMap::new();
-        for module in &ordered {
+        for module in ordered {
             for sentence in &module.sentences {
                 let kore::Sentence::SymbolDeclaration {
                     symbol,
@@ -1400,13 +1524,7 @@ impl BackendDefinition {
         }
 
         attach_collection_metadata(&sorts, &mut symbols)?;
-        crate::verify::verify_definition(
-            &ordered,
-            &definition.modules,
-            &sorts,
-            &symbols,
-            &aliases,
-        )?;
+        crate::verify::verify_definition(ordered, &definition.modules, &sorts, &symbols, &aliases)?;
 
         let mut axioms = Vec::new();
         let mut claims = Vec::new();
@@ -1422,7 +1540,7 @@ impl BackendDefinition {
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
-        visit_modules_preorder(main_module, &module_map, &import_orders, &mut axiom_modules)?;
+        visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
             for &index in &rule_orders[module.name.as_str()] {
                 let sentence = &module.sentences[index];
@@ -1518,6 +1636,7 @@ impl BackendDefinition {
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             term_equation_in_predicate_theory: false,
+            deepest,
             #[cfg(feature = "check-normal-forms")]
             normal_form_catalog: OnceLock::new(),
         };
@@ -1793,7 +1912,6 @@ impl BackendDefinition {
         pattern: &'a kore::Pattern,
         sort_variables: &'a [Name],
     ) -> Result<Admitted<'a>, DefinitionError> {
-        crate::nesting::ensure_stack(pattern)?;
         crate::verify::verify_standalone(
             &self.main_module,
             pattern,

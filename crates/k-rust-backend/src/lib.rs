@@ -3,7 +3,7 @@
 mod alias;
 mod instance_normal;
 mod ite;
-mod nesting;
+pub mod nesting;
 mod verify;
 
 pub mod builtin;

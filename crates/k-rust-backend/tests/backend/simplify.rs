@@ -204,20 +204,8 @@ fn free_application_equality_decomposes_multiple_argument_pairs() {
     assert_eq!(simplify_predicate(&definition, &predicate), expected,);
 }
 
-/// The 100-level spines are internalized on an 8 MiB thread: a debug build admits a pattern to
-/// internalization only when the thread's remaining stack covers 24 KiB per level, which a
-/// default 2 MiB test thread does not for 100 levels.
 #[test]
 fn free_application_equality_flattens_a_deep_defined_binary_spine() {
-    std::thread::Builder::new()
-        .stack_size(8 << 20)
-        .spawn(flatten_a_deep_defined_binary_spine)
-        .expect("worker should spawn")
-        .join()
-        .expect("worker should finish");
-}
-
-fn flatten_a_deep_defined_binary_spine() {
     let definition = free_application_definition();
     let depth = 100;
     let spine = |prefix| {

@@ -80,8 +80,21 @@ impl Backend {
         syntax: &KorePattern,
         admission: Admission,
     ) -> Result<KorePattern, BackendError> {
-        self.with_solver(module, |definition, solver| {
-            match admit(definition, syntax, &[], admission, "KORE pattern")?
+        self.simplify_kore_with(module, syntax, admission, Ok)
+    }
+
+    /// [`Self::simplify_kore`], with `finish` turning the simplified pattern into the
+    /// operation's result inside the operation, on the stack that the backend provides for
+    /// `syntax` (`Backend::with_solver_over`).
+    pub fn simplify_kore_with<T>(
+        &mut self,
+        module: Option<&str>,
+        syntax: &KorePattern,
+        admission: Admission,
+        finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_over(module, &[syntax], |definition, solver| {
+            let simplified = match admit(definition, syntax, &[], admission, "KORE pattern")?
                 .internalize_pattern_or_predicate()
                 .map_err(error("could not internalize KORE pattern"))?
             {
@@ -94,7 +107,7 @@ impl Backend {
                     )
                     .map_err(stopped_operation)?
                     .map_err(error("could not simplify KORE pattern"))?;
-                    Ok(externalize::constrained_pattern(&simplified))
+                    externalize::constrained_pattern(&simplified)
                 }
                 PatternOrPredicate::Predicate(predicate, result_sort) => {
                     let simplified = simplify_and_decide_predicate_with_solver(
@@ -106,14 +119,18 @@ impl Backend {
                     )
                     .map_err(stopped_operation)?
                     .map_err(error("could not simplify KORE predicate"))?;
-                    Ok(externalize::ml_pattern(&simplified, &result_sort))
+                    externalize::ml_pattern(&simplified, &result_sort)
                 }
-            }
+            };
+            finish(simplified)
         })
     }
 
     /// Ask for a model of `syntax`, a predicate without sort variables, admitted as `admission`
     /// decides.
+    ///
+    /// The model and the sort hold internal terms and sorts built from `syntax`, which the
+    /// caller drops on its own stack; [`Self::model_for_with`] reads them inside the operation.
     #[cfg(feature = "z3-inference")]
     pub fn model_for(
         &mut self,
@@ -121,18 +138,32 @@ impl Backend {
         syntax: &KorePattern,
         admission: Admission,
     ) -> Result<(ModelResult, Option<Sort>), BackendError> {
-        self.with_solver(module, |definition, solver| {
+        self.model_for_with(module, syntax, admission, |model, sort| Ok((model, sort)))
+    }
+
+    /// [`Self::model_for`], with `finish` turning the model and the predicate's sort into the
+    /// operation's result inside the operation, on the stack that the backend provides for
+    /// `syntax` (`Backend::with_solver_over`), where they are also dropped.
+    #[cfg(feature = "z3-inference")]
+    pub fn model_for_with<T>(
+        &mut self,
+        module: Option<&str>,
+        syntax: &KorePattern,
+        admission: Admission,
+        finish: impl FnOnce(ModelResult, Option<Sort>) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_over(module, &[syntax], |definition, solver| {
             let Some((predicate, result_sort)) =
                 admit(definition, syntax, &[], admission, "model predicate")?
                     .internalize_model_predicate()
                     .map_err(error("could not internalize model predicate"))?
             else {
-                return Ok((ModelResult::Unknown("no predicate".into()), None));
+                return finish(ModelResult::Unknown("no predicate".into()), None);
             };
             let result = model_of(definition, &predicate, solver)
                 .map_err(stopped_operation)?
                 .map_err(BackendError::from)?;
-            Ok((result, Some(result_sort)))
+            finish(result, Some(result_sort))
         })
     }
 }

@@ -732,7 +732,8 @@ impl Backend {
             ));
         }
         let syntax = request.state;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+        let module = request.module_name.as_deref();
+        self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
@@ -793,7 +794,8 @@ impl Backend {
         let schema_version = request.schema_version;
         let options = search_options(&request);
         let syntax = request.state;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+        let module = request.module_name.as_deref();
+        self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
@@ -841,7 +843,8 @@ impl Backend {
         let schema_version = request.schema_version;
         let options = search_options(&request);
         let syntax = request.state;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+        let module = request.module_name.as_deref();
+        self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
@@ -890,7 +893,9 @@ impl Backend {
         let options = pattern_search_options(&request);
         let initial_syntax = request.state;
         let target_syntax = request.pattern;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+        let module = request.module_name.as_deref();
+        let patterns = [&initial_syntax, &target_syntax];
+        self.with_solver_over(module, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(error("invalid executable state"))?;
@@ -944,7 +949,9 @@ impl Backend {
         let options = pattern_search_options(&request);
         let initial_syntax = request.state;
         let target_syntax = request.pattern;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
+        let module = request.module_name.as_deref();
+        let patterns = [&initial_syntax, &target_syntax];
+        self.with_solver_over(module, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(error("invalid executable state"))?;
@@ -1057,54 +1064,97 @@ impl Backend {
     }
 
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
+        self.simplify_with(request, |pattern| encode_pattern(&pattern))
+    }
+
+    /// [`Self::simplify`] as JSON text, written inside the operation, on the stack it runs on.
+    pub fn simplify_json(&mut self, request: PatternRequest) -> Result<String, BackendError> {
+        self.simplify_with(request, |pattern| {
+            serialize_wire(&encode_pattern(&pattern)?)
+        })
+    }
+
+    fn simplify_with<T>(
+        &mut self,
+        request: PatternRequest,
+        finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         let syntax = request.state;
-        let output = self.simplify_kore(
+        self.simplify_kore_with(
             request.module_name.as_deref(),
             &syntax,
             Admission::Unverified,
-        )?;
-        encode_pattern(&output)
+            finish,
+        )
     }
 
     pub fn implies(
         &mut self,
         request: ImplicationRequest,
     ) -> Result<ImplicationResult, BackendError> {
+        self.implies_with(request, Ok)
+    }
+
+    /// [`Self::implies`] as JSON text, written inside the operation, on the stack it runs on.
+    pub fn implies_json(&mut self, request: ImplicationRequest) -> Result<String, BackendError> {
+        self.implies_with(request, |result| serialize_wire(&result))
+    }
+
+    fn implies_with<T>(
+        &mut self,
+        request: ImplicationRequest,
+        finish: impl FnOnce(ImplicationResult) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         let antecedent = request.antecedent;
         let consequent = request.consequent;
-        let (verdict, result_sort) = self.implies_kore(
+        self.implies_kore_with(
             request.module_name.as_deref(),
             &antecedent,
             &consequent,
             Admission::Unverified,
-        )?;
-        Ok(ImplicationResult {
-            schema_version: IMPLICATION_SCHEMA_VERSION,
-            status: match verdict.status() {
-                ImplicationStatus::Valid => "valid",
-                ImplicationStatus::Invalid => "invalid",
-                ImplicationStatus::Indeterminate => "unknown",
-            }
-            .into(),
-            failure: verdict.failure().map(|failure| format!("{failure:?}")),
-            condition: verdict
-                .into_condition()
-                .as_ref()
-                .map(|condition| condition_pattern(condition, &result_sort))
-                .transpose()?,
-        })
+            |verdict, result_sort| {
+                finish(ImplicationResult {
+                    schema_version: IMPLICATION_SCHEMA_VERSION,
+                    status: match verdict.status() {
+                        ImplicationStatus::Valid => "valid",
+                        ImplicationStatus::Invalid => "invalid",
+                        ImplicationStatus::Indeterminate => "unknown",
+                    }
+                    .into(),
+                    failure: verdict.failure().map(|failure| format!("{failure:?}")),
+                    condition: verdict
+                        .into_condition()
+                        .as_ref()
+                        .map(|condition| condition_pattern(condition, &result_sort))
+                        .transpose()?,
+                })
+            },
+        )
     }
 
     pub fn get_model(
         &mut self,
         request: PatternRequest,
     ) -> Result<ModelResultOutput, BackendError> {
+        self.get_model_with(request, Ok)
+    }
+
+    /// [`Self::get_model`] as JSON text, written inside the operation, on the stack it runs on.
+    pub fn get_model_json(&mut self, request: PatternRequest) -> Result<String, BackendError> {
+        self.get_model_with(request, |result| serialize_wire(&result))
+    }
+
+    fn get_model_with<T>(
+        &mut self,
+        request: PatternRequest,
+        finish: impl FnOnce(ModelResultOutput) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(not(feature = "z3-inference"))]
         {
-            let _ = request;
+            let _ = (request, finish);
             Err(BackendError(
                 "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3".into(),
             ))
@@ -1112,37 +1162,39 @@ impl Backend {
         #[cfg(feature = "z3-inference")]
         {
             let syntax = request.state;
-            let (result, result_sort) = self.model_for(
+            self.model_for_with(
                 request.module_name.as_deref(),
                 &syntax,
                 Admission::Unverified,
-            )?;
-            match result {
-                ModelResult::Sat(substitution) => Ok(ModelResultOutput {
-                    satisfiable: "sat".into(),
-                    substitution: result_sort
-                        .as_ref()
-                        .and_then(|sort| model_substitution(&substitution, sort))
-                        .as_ref()
-                        .map(encode_pattern)
-                        .transpose()?,
-                    reason: None,
-                }),
-                ModelResult::Unsat => Ok(ModelResultOutput {
-                    satisfiable: "unsat".into(),
-                    substitution: None,
-                    reason: None,
-                }),
-                ModelResult::Unknown(reason) => Ok(ModelResultOutput {
-                    satisfiable: "unknown".into(),
-                    substitution: None,
-                    reason: Some(if result_sort.is_none() {
-                        "the pattern contains no model predicate".into()
-                    } else {
-                        reason
-                    }),
-                }),
-            }
+                |result, result_sort| {
+                    finish(match result {
+                        ModelResult::Sat(substitution) => ModelResultOutput {
+                            satisfiable: "sat".into(),
+                            substitution: result_sort
+                                .as_ref()
+                                .and_then(|sort| model_substitution(&substitution, sort))
+                                .as_ref()
+                                .map(encode_pattern)
+                                .transpose()?,
+                            reason: None,
+                        },
+                        ModelResult::Unsat => ModelResultOutput {
+                            satisfiable: "unsat".into(),
+                            substitution: None,
+                            reason: None,
+                        },
+                        ModelResult::Unknown(reason) => ModelResultOutput {
+                            satisfiable: "unknown".into(),
+                            substitution: None,
+                            reason: Some(if result_sort.is_none() {
+                                "the pattern contains no model predicate".into()
+                            } else {
+                                reason
+                            }),
+                        },
+                    })
+                },
+            )
         }
     }
 
@@ -1232,9 +1284,33 @@ impl Backend {
     /// it, and a prelude failure found while it runs is its result even when `operation`
     /// returned. Such a stop reaches the caller as its [`StopCause`], through `E`'s
     /// `From<StopCause>`.
+    ///
+    /// The operation runs on a stack that holds the definition's recursive passes over its own
+    /// patterns and terms (`BackendDefinition::with_stack_for`); an operation over a request's
+    /// patterns uses [`Self::with_solver_over`].
     pub fn with_solver<T, E>(
         &mut self,
         module: Option<&str>,
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError> + From<StopCause>,
+    {
+        self.with_solver_over(module, &[], operation)
+    }
+
+    /// [`Self::with_solver`] for an operation over the KORE `patterns` of a request.
+    ///
+    /// The whole operation, from preparing the solver to the result it returns, runs on a stack
+    /// that holds the backend's recursive passes over `patterns` with their aliases unfolded,
+    /// over the definition, and over the internal terms built from them
+    /// (`BackendDefinition::with_stack_for`), so it must return only external results and drop
+    /// its internal terms itself. Patterns too deep for the largest stack the backend provides
+    /// are refused with `InsufficientStack` before the operation runs.
+    pub fn with_solver_over<T, E>(
+        &mut self,
+        module: Option<&str>,
+        patterns: &[&KorePattern],
         operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
     ) -> Result<T, E>
     where
@@ -1245,7 +1321,10 @@ impl Backend {
             .definition(module)
             .map_err(error("could not select backend module"))
             .map_err(E::from)?;
-        self.run_with_solver(definition, operation)
+        let depth = definition.operation_depth(patterns);
+        k_rust_backend::nesting::with_stack(depth, || self.run_with_solver(definition, operation))
+            .map_err(error("the request is too deep for the backend"))
+            .map_err(E::from)?
     }
 
     #[cfg(feature = "z3-inference")]
@@ -3383,108 +3462,296 @@ endmodule
         ]
     }
 
-    /// A deep request that decodes but is not a pattern of the definition is an ordinary error
-    /// on every route of the facade the Node-API and WebAssembly hosts call, on an 8 MiB thread
-    /// like Node's main thread: the pattern is refused for want of stack before any recursive
-    /// pass over it runs. One 200,000-level term is decoded at a time, and the test peaks under
-    /// 300 MB of resident memory and finishes in about 5 s in a debug build.
-    #[test]
-    fn deep_invalid_requests_are_ordinary_errors_on_every_route() {
+    /// The stack of Node's main thread, which the Node-API binding runs the facade on.
+    const NODE_MAIN_STACK: usize = 8 << 20;
+
+    /// Levels beyond what `NODE_MAIN_STACK` holds for the facade's passes in either build: a
+    /// state of applications overflows such a thread at about 600 levels in a debug build and
+    /// 8,000 in a release build when the passes run on it directly.
+    const BEYOND_THE_THREAD: usize = 10_000;
+
+    fn on_thread<R: Send + 'static>(stack: usize, work: impl FnOnce() -> R + Send + 'static) -> R {
         std::thread::Builder::new()
-            .stack_size(8 << 20)
-            .spawn(|| {
-                let shallow = kore("a{}()");
-                let mut backend = backend();
-                for deep in deep_invalid_kore_json(DEEP_REQUEST_LEVELS) {
-                    let execute = deserialize_request::<ExecuteRequest>(&format!(
-                        r#"{{"state":{deep},"maxDepth":0}}"#
-                    ))
-                    .unwrap();
-                    drop(deep);
-                    let deep = execute.state.clone();
-                    let errors = vec![
-                        backend.execute(execute).map(drop),
-                        backend.search(SearchRequest::new(deep.clone())).map(drop),
-                        backend
-                            .search_pattern(SearchPatternRequest::new(
-                                deep.clone(),
-                                shallow.clone(),
-                            ))
-                            .map(drop),
-                        backend
-                            .search_pattern(SearchPatternRequest::new(
-                                shallow.clone(),
-                                deep.clone(),
-                            ))
-                            .map(drop),
-                        backend
-                            .simplify(PatternRequest::new(deep.clone()))
-                            .map(drop),
-                        backend
-                            .implies(ImplicationRequest::new(deep.clone(), shallow.clone()))
-                            .map(drop),
-                        backend
-                            .implies(ImplicationRequest::new(shallow.clone(), deep.clone()))
-                            .map(drop),
-                    ];
-                    // Without Z3, model generation reports its capability boundary before it
-                    // reads the pattern.
-                    #[cfg(feature = "z3-inference")]
-                    let errors = errors
-                        .into_iter()
-                        .chain([backend.get_model(PatternRequest::new(deep)).map(drop)]);
-                    for error in errors {
-                        let error = error.expect_err("a deep invalid request is an error");
-                        assert!(error.to_string().contains("InsufficientStack"), "{error}");
-                    }
-                }
-                // The backend still serves ordinary requests.
-                let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
-                assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
-            })
-            .unwrap()
+            .stack_size(stack)
+            .spawn(work)
+            .expect("worker should spawn")
             .join()
-            .unwrap();
+            .expect("worker should finish")
     }
 
-    /// A module whose axiom is a 200,000-level `\not` chain is refused as an ordinary error,
-    /// whether the chain is over a symbol the definition does not declare or a well-formed
-    /// predicate, on an 8 MiB thread: loading the extended definition checks its depth against
-    /// the thread's stack before any recursive pass over it runs. One module of about 2 MB of
-    /// text is held at a time; the test peaks under 200 MB of resident memory and finishes in
-    /// about a second in a debug build.
+    /// Every route of the facade that the Node-API and WebAssembly hosts call, run on `deep`,
+    /// each with a shallow pattern where the route takes two.
+    fn every_route(backend: &mut Backend, deep: &KorePattern) -> Vec<Result<(), BackendError>> {
+        let shallow = kore("a{}()");
+        let routes = vec![
+            backend
+                .execute_json(ExecuteRequest {
+                    max_depth: Some(0),
+                    ..ExecuteRequest::new(deep.clone())
+                })
+                .map(drop),
+            backend
+                .search_json(SearchRequest::new(deep.clone()))
+                .map(drop),
+            backend
+                .search_pattern_json(SearchPatternRequest::new(deep.clone(), shallow.clone()))
+                .map(drop),
+            backend
+                .search_pattern_json(SearchPatternRequest::new(shallow.clone(), deep.clone()))
+                .map(drop),
+            backend
+                .simplify_json(PatternRequest::new(deep.clone()))
+                .map(drop),
+            backend
+                .implies_json(ImplicationRequest::new(deep.clone(), shallow.clone()))
+                .map(drop),
+            backend
+                .implies_json(ImplicationRequest::new(shallow, deep.clone()))
+                .map(drop),
+        ];
+        // Without Z3, model generation reports its capability boundary before it reads the
+        // pattern.
+        #[cfg(feature = "z3-inference")]
+        let routes = routes
+            .into_iter()
+            .chain([backend
+                .get_model_json(PatternRequest::new(deep.clone()))
+                .map(drop)])
+            .collect();
+        routes
+    }
+
+    /// A request beyond what Node's main thread holds that decodes but is not a pattern of the
+    /// definition is answered on every route of the facade as a shallow one is, with the
+    /// ordinary error its fault calls for where the route reads the fault, never with a refusal
+    /// for want of stack: the backend provides the stack its passes need. One
+    /// 10,000-level term is held at a time; in a debug build each request touches about 120 MB
+    /// of stack, and the test takes a few seconds.
     #[test]
-    fn deep_modules_are_ordinary_errors() {
-        std::thread::Builder::new()
-            .stack_size(8 << 20)
-            .spawn(|| {
-                let mut backend = backend();
-                for leaf in ["undefined{}()", r"\top{SortS{}}()"] {
-                    let condition = format!(
-                        "{}{leaf}{}",
-                        r"\not{SortS{}}(".repeat(DEEP_REQUEST_LEVELS),
-                        ")".repeat(DEEP_REQUEST_LEVELS)
-                    );
-                    let module = format!(
-                        r"module EXTRA import MAIN []
-                            axiom{{}} \rewrites{{SortS{{}}}}(
-                                \and{{SortS{{}}}}(c{{}}(), {condition}),
-                                \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}())
-                            ) []
-                        endmodule []"
-                    );
-                    drop(condition);
-                    for name_as_id in [true, false] {
-                        let error = backend.add_module(&module, name_as_id).unwrap_err();
-                        assert!(error.to_string().contains("InsufficientStack"), "{error}");
+    fn deep_invalid_requests_are_ordinary_errors_on_every_route() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend = backend();
+            for (term, deep) in deep_invalid_kore_json(BEYOND_THE_THREAD).iter().enumerate() {
+                let deep = deserialize_request::<PatternRequest>(&format!(r#"{{"state":{deep}}}"#))
+                    .unwrap()
+                    .state;
+                let outcomes = every_route(&mut backend, &deep);
+                assert!(outcomes[0].is_err(), "term {term} executes");
+                for (route, outcome) in outcomes.into_iter().enumerate() {
+                    if let Err(error) = outcome {
+                        assert!(
+                            !error.to_string().contains("InsufficientStack"),
+                            "term {term} route {route}: {error}"
+                        );
                     }
                 }
-                let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
-                assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
-            })
+            }
+            // The backend still serves ordinary requests.
+            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+        });
+    }
+
+    /// A request deeper than the largest stack the backend provides is refused with
+    /// `InsufficientStack` on every route before any pass over it runs. One term about 175,000
+    /// levels deep (a million in a release build) is held at a time; in a debug build the test
+    /// peaks under 300 MB of resident memory and takes a few seconds.
+    #[test]
+    fn requests_deeper_than_the_backend_provides_for_are_refused() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend = backend();
+            for deep in deep_invalid_kore_json(k_rust_backend::nesting::max_depth() + 1) {
+                let deep = deserialize_request::<PatternRequest>(&format!(r#"{{"state":{deep}}}"#))
+                    .unwrap()
+                    .state;
+                for error in every_route(&mut backend, &deep) {
+                    let error = error.expect_err("a request too deep is refused");
+                    assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                }
+            }
+            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+        });
+    }
+
+    /// A module whose axiom is a `\not` chain beyond what Node's main thread holds is added
+    /// when the chain is a well-formed predicate and is the ordinary error of its fault when it
+    /// is over a symbol the definition does not declare; a chain deeper than the backend
+    /// provides for is refused with `InsufficientStack`. One module of a few MB of text is held
+    /// at a time; in a debug build the test peaks under 300 MB of resident memory and takes a
+    /// few seconds.
+    #[test]
+    fn deep_modules_are_loaded_or_ordinary_errors() {
+        on_thread(NODE_MAIN_STACK, || {
+            let module = |levels: usize, leaf: &str| {
+                let condition = format!(
+                    "{}{leaf}{}",
+                    r"\not{SortS{}}(".repeat(levels),
+                    ")".repeat(levels)
+                );
+                format!(
+                    r"module EXTRA import MAIN []
+                        axiom{{}} \rewrites{{SortS{{}}}}(
+                            \and{{SortS{{}}}}(c{{}}(), {condition}),
+                            \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}())
+                        ) []
+                    endmodule []"
+                )
+            };
+            let mut backend = backend();
+            let too_deep = k_rust_backend::nesting::max_depth() + 1;
+            for (levels, leaf, refused) in [
+                (BEYOND_THE_THREAD, "undefined{}()", false),
+                (too_deep, "undefined{}()", true),
+                (too_deep, r"\top{SortS{}}()", true),
+            ] {
+                let error = backend
+                    .add_module(&module(levels, leaf), false)
+                    .unwrap_err();
+                assert_eq!(
+                    error.to_string().contains("InsufficientStack"),
+                    refused,
+                    "{error}"
+                );
+            }
+            let id = backend
+                .add_module(&module(BEYOND_THE_THREAD, r"\top{SortS{}}()"), false)
+                .expect("a deep well-formed module is added");
+            // An operation in the extended definition runs on the stack its deep rule needs.
+            let execution = backend
+                .execute(ExecuteRequest {
+                    module_name: Some(id),
+                    max_depth: Some(1),
+                    ..ExecuteRequest::new(kore("c{}()"))
+                })
+                .unwrap();
+            assert_eq!(text(execution.leaves[0].state.clone()), "a{}()");
+            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+        });
+    }
+
+    /// A definition whose rule `step` adds one `wrap` level under `go` each step.
+    const DEEP_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol a{}() : SortS{} [constructor{}(), functional{}()]
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            symbol go{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(go{}(X:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(go{}(wrap{}(X:SortS{})), \top{SortS{}}())
+            ) [label{}("step")]
+        endmodule []"#;
+
+    /// KORE JSON for `go` over `levels` applications of `wrap` over `a`, or the `wrap` chain
+    /// alone.
+    fn wrap_json(levels: usize, go: bool) -> String {
+        let wrap = r#"{"tag":"App","name":"wrap","sorts":[],"args":["#;
+        let leaf = r#"{"tag":"App","name":"a","sorts":[],"args":[]}"#;
+        let chain = format!("{}{leaf}{}", wrap.repeat(levels), "]}".repeat(levels));
+        let term = if go {
+            format!(r#"{{"tag":"App","name":"go","sorts":[],"args":[{chain}]}}"#)
+        } else {
+            chain
+        };
+        format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#)
+    }
+
+    /// Whether two KORE JSON texts denote the same pattern, compared without printing them.
+    fn same_kore(left: &str, right: &str) -> bool {
+        k_rust_kore::kore::json::from_str(left).unwrap()
+            == k_rust_kore::kore::json::from_str(right).unwrap()
+    }
+
+    /// The states of the leaves of an execution response, as the KORE JSON text they carry.
+    fn leaf_states(response: &str) -> Vec<String> {
+        #[derive(Deserialize)]
+        struct Response {
+            leaves: Vec<Leaf>,
+        }
+        #[derive(Deserialize)]
+        struct Leaf {
+            state: Box<RawValue>,
+        }
+        serde_json::from_str::<Response>(response)
             .unwrap()
-            .join()
+            .leaves
+            .into_iter()
+            .map(|leaf| leaf.state.get().to_owned())
+            .collect()
+    }
+
+    /// A state of 6,000 applications, which ran on Node's main thread when the passes ran on
+    /// the thread directly in a release build, still executes there: the backend provides the
+    /// stack measured for it instead of refusing it. In a debug build the request touches about
+    /// 70 MB of stack and takes well under a second.
+    #[test]
+    fn a_deep_state_executes_on_node_s_main_thread() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend =
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+            let request = deserialize_request::<ExecuteRequest>(&format!(
+                r#"{{"state":{},"maxDepth":0}}"#,
+                wrap_json(6_000, false)
+            ))
             .unwrap();
+            let response = backend.execute_json(request).unwrap();
+            let [state] = leaf_states(&response).try_into().unwrap();
+            assert!(same_kore(&state, &wrap_json(6_000, false)));
+        });
+    }
+
+    /// The state an execution returns is accepted as the next request's state: `go` over 1,900
+    /// applications steps 300 times on Node's main thread, and its 2,200-level result steps
+    /// again from there.
+    #[test]
+    fn a_returned_state_is_accepted_again() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend =
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+            let mut state = wrap_json(1_900, true);
+            for levels in [2_200, 2_500] {
+                let request = deserialize_request::<ExecuteRequest>(&format!(
+                    r#"{{"state":{state},"maxDepth":300}}"#
+                ))
+                .unwrap();
+                let [leaf] = leaf_states(&backend.execute_json(request).unwrap())
+                    .try_into()
+                    .unwrap();
+                assert!(same_kore(&leaf, &wrap_json(levels, true)), "{levels}");
+                state = leaf;
+            }
+        });
+    }
+
+    /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary
+    /// conjunctions, so a wide request is deep inside the backend: 50,000 conjuncts execute on
+    /// Node's main thread, and 200,000 execute as well where the backend provides the stack
+    /// for them (a release build) and are otherwise refused, never overflowing the thread. In a
+    /// debug build the requests take about 10 MB of text each, the test touches about 15 MB of
+    /// stack, and takes a few seconds.
+    #[test]
+    fn wide_conjunctions_execute_or_are_refused() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend =
+                Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+            let constant = r#"{"tag":"App","name":"a","sorts":[],"args":[]}"#;
+            for conjuncts in [50_000, 200_000] {
+                let request = deserialize_request::<ExecuteRequest>(&format!(
+                    r#"{{"state":{{"format":"KORE","version":1,"term":{{"tag":"And","sort":{{"tag":"SortApp","name":"SortS","args":[]}},"patterns":[{}]}}}},"maxDepth":0}}"#,
+                    vec![constant; conjuncts].join(",")
+                ))
+                .unwrap();
+                let outcome = backend.execute_json(request);
+                if conjuncts <= k_rust_backend::nesting::max_depth() {
+                    outcome.unwrap_or_else(|error| panic!("{conjuncts}: {error}"));
+                } else {
+                    let error = outcome.unwrap_err();
+                    assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                }
+            }
+        });
     }
 
     #[cfg(not(feature = "z3-inference"))]

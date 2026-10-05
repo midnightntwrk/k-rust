@@ -48,6 +48,9 @@ impl Backend {
     /// The sort variables of the two patterns are parameters of the implication, so each side is
     /// admitted, as `admission` decides, under the sort variables of both: the context it is
     /// internalized with.
+    ///
+    /// The verdict holds internal terms built from the two patterns, which the caller drops on
+    /// its own stack; [`Self::implies_kore_with`] reads the verdict inside the operation.
     pub fn implies_kore(
         &mut self,
         module: Option<&str>,
@@ -55,108 +58,138 @@ impl Backend {
         consequent: &Pattern,
         admission: Admission,
     ) -> Result<(ImplicationVerdict, Sort), BackendError> {
-        self.with_solver(module, |definition, solver| {
-            validate_request(definition, antecedent, consequent).map_err(|request_error| {
-                BackendError(match request_error {
-                    ImplicationRequestError::MacroOrAlias { side, name } => format!(
-                        "invalid implication {}: {}",
-                        match side {
-                            Side::Antecedent => "antecedent",
-                            Side::Consequent => "consequent",
-                        },
-                        DefinitionError::MacroOrAliasInImplication(name)
-                    ),
-                    ImplicationRequestError::NonFunctionLikeAntecedent => {
-                        "implication antecedent must be function-like".into()
-                    }
-                    ImplicationRequestError::NonSingletonConsequent => {
-                        "implication consequent must contain exactly one pattern".into()
-                    }
-                    ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
-                        "consequent existentials capture antecedent variables: {}",
-                        captured.join(", ")
-                    ),
-                    ImplicationRequestError::SortMismatch {
-                        antecedent,
-                        consequent,
-                    } => format!(
-                        "antecedent and consequent sorts differ: {antecedent} and {consequent}"
-                    ),
-                })
-            })?;
-            let sort_variables = antecedent
-                .sort_variables()
-                .into_iter()
-                .chain(consequent.sort_variables())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(Name::from)
-                .collect::<Vec<_>>();
-            let antecedent_admitted = admit(
-                definition,
-                antecedent,
-                &sort_variables,
-                admission,
-                "implication antecedent",
-            )?;
-            let consequent_admitted = admit(
-                definition,
-                consequent,
-                &sort_variables,
-                admission,
-                "implication consequent",
-            )?;
-            if let Some(verdict) = bottom_antecedent(antecedent) {
-                let (_, result_sort) = antecedent_admitted
-                    .internalize_predicate()
-                    .map_err(error("could not internalize implication antecedent"))?;
-                return Ok((verdict, result_sort));
-            }
-            let (antecedent_pattern, antecedent_existentials) = antecedent_admitted
-                .internalize_implication_pattern()
-                .map_err(error("could not internalize implication antecedent"))?;
-            let result_sort = antecedent_pattern.term.sort();
-            let verdict = match special_consequent(consequent) {
-                Some(SpecialConsequent::Top) => ImplicationVerdict::Valid(Bindings::default()),
-                Some(SpecialConsequent::Bottom) => {
-                    grade_bottom_consequent(definition, &antecedent_pattern, solver)
-                        .map_err(stopped_operation)?
-                }
-                Some(SpecialConsequent::Not) => check_negated_consequent(
-                    definition,
-                    &antecedent_pattern,
-                    &antecedent_existentials,
-                    consequent_admitted,
-                    solver,
-                )
-                .map_err(stopped_operation)?
-                .map_err(error("could not internalize implication consequent"))?,
-                None => {
-                    let (consequent_pattern, consequent_existentials) = consequent_admitted
-                        .internalize_implication_pattern()
-                        .map_err(error("could not internalize implication consequent"))?;
-                    if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
-                        return Err(BackendError(format!(
-                            "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
-                            antecedent_pattern.term.sort(),
-                            consequent_pattern.term.sort()
-                        )));
-                    }
-                    check_implication_with_existentials_complete(
-                        definition,
-                        &antecedent_pattern,
-                        &antecedent_existentials,
-                        &consequent_pattern,
-                        &consequent_existentials,
-                        solver,
-                    )
-                    .map_err(stopped_operation)?
-                    .map_err(error("could not check implication"))?
-                }
-            };
-            Ok((verdict, result_sort))
+        self.implies_kore_with(
+            module,
+            antecedent,
+            consequent,
+            admission,
+            |verdict, sort| Ok((verdict, sort)),
+        )
+    }
+
+    /// [`Self::implies_kore`], with `finish` turning the verdict and the result sort into the
+    /// operation's result inside the operation, on the stack that the backend provides for the
+    /// two patterns (`Backend::with_solver_over`), where the verdict is also dropped.
+    pub fn implies_kore_with<T>(
+        &mut self,
+        module: Option<&str>,
+        antecedent: &Pattern,
+        consequent: &Pattern,
+        admission: Admission,
+        finish: impl FnOnce(ImplicationVerdict, Sort) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_over(module, &[antecedent, consequent], |definition, solver| {
+            let (verdict, sort) =
+                check_kore(definition, solver, antecedent, consequent, admission)?;
+            finish(verdict, sort)
         })
     }
+}
+
+fn check_kore(
+    definition: &k_rust_backend::definition::BackendDefinition,
+    solver: &dyn k_rust_backend::smt::SmtSolver,
+    antecedent: &Pattern,
+    consequent: &Pattern,
+    admission: Admission,
+) -> Result<(ImplicationVerdict, Sort), BackendError> {
+    validate_request(definition, antecedent, consequent).map_err(|request_error| {
+        BackendError(match request_error {
+            ImplicationRequestError::MacroOrAlias { side, name } => format!(
+                "invalid implication {}: {}",
+                match side {
+                    Side::Antecedent => "antecedent",
+                    Side::Consequent => "consequent",
+                },
+                DefinitionError::MacroOrAliasInImplication(name)
+            ),
+            ImplicationRequestError::NonFunctionLikeAntecedent => {
+                "implication antecedent must be function-like".into()
+            }
+            ImplicationRequestError::NonSingletonConsequent => {
+                "implication consequent must contain exactly one pattern".into()
+            }
+            ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
+                "consequent existentials capture antecedent variables: {}",
+                captured.join(", ")
+            ),
+            ImplicationRequestError::SortMismatch {
+                antecedent,
+                consequent,
+            } => format!("antecedent and consequent sorts differ: {antecedent} and {consequent}"),
+        })
+    })?;
+    let sort_variables = antecedent
+        .sort_variables()
+        .into_iter()
+        .chain(consequent.sort_variables())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(Name::from)
+        .collect::<Vec<_>>();
+    let antecedent_admitted = admit(
+        definition,
+        antecedent,
+        &sort_variables,
+        admission,
+        "implication antecedent",
+    )?;
+    let consequent_admitted = admit(
+        definition,
+        consequent,
+        &sort_variables,
+        admission,
+        "implication consequent",
+    )?;
+    if let Some(verdict) = bottom_antecedent(antecedent) {
+        let (_, result_sort) = antecedent_admitted
+            .internalize_predicate()
+            .map_err(error("could not internalize implication antecedent"))?;
+        return Ok((verdict, result_sort));
+    }
+    let (antecedent_pattern, antecedent_existentials) = antecedent_admitted
+        .internalize_implication_pattern()
+        .map_err(error("could not internalize implication antecedent"))?;
+    let result_sort = antecedent_pattern.term.sort();
+    let verdict = match special_consequent(consequent) {
+        Some(SpecialConsequent::Top) => ImplicationVerdict::Valid(Bindings::default()),
+        Some(SpecialConsequent::Bottom) => {
+            grade_bottom_consequent(definition, &antecedent_pattern, solver)
+                .map_err(stopped_operation)?
+        }
+        Some(SpecialConsequent::Not) => check_negated_consequent(
+            definition,
+            &antecedent_pattern,
+            &antecedent_existentials,
+            consequent_admitted,
+            solver,
+        )
+        .map_err(stopped_operation)?
+        .map_err(error("could not internalize implication consequent"))?,
+        None => {
+            let (consequent_pattern, consequent_existentials) = consequent_admitted
+                .internalize_implication_pattern()
+                .map_err(error("could not internalize implication consequent"))?;
+            if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
+                return Err(BackendError(format!(
+                    "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
+                    antecedent_pattern.term.sort(),
+                    consequent_pattern.term.sort()
+                )));
+            }
+            check_implication_with_existentials_complete(
+                definition,
+                &antecedent_pattern,
+                &antecedent_existentials,
+                &consequent_pattern,
+                &consequent_existentials,
+                solver,
+            )
+            .map_err(stopped_operation)?
+            .map_err(error("could not check implication"))?
+        }
+    };
+    Ok((verdict, result_sort))
 }
 
 /// Render the CLI implication contract while the surface retains only file and stdout handling.
