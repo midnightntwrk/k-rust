@@ -36,9 +36,14 @@ pub enum BackendDiagnostic {
     /// `Untranslatable`, `InconsistentPathCondition`), for either condition, and, for the
     /// `requires` only, an equation whose right-hand side or `ensures` has variables its
     /// left-hand side does not bind (`UnboundResultVariables`) and whose `requires` was not
-    /// refuted: its instance names no value for them, so it is not used. That reason is
-    /// reported only when no other equation rewrote the subject, which is therefore kept as it
-    /// is.
+    /// refuted: its instance names no value for them, so it is not used.
+    ///
+    /// Like every diagnostic emitted during an equation attempt, it is reported only with an
+    /// outcome the simplification keeps (`buffer`): the equation applied, or the attempt was
+    /// indeterminate and no other equation rewrote the subject, which was left unevaluated. An
+    /// attempt whose `requires` was refuted, one that another equation superseded, and one made
+    /// while simplifying the condition of an enclosing attempt that was itself refuted or
+    /// superseded report nothing.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
@@ -442,6 +447,47 @@ fn restore_and_forward(mut enclosing: Option<Sink>) -> Vec<Emission> {
 /// is reported once. Accepted emissions reach the enclosing collector, under its rules, as if
 /// emitted into it directly; without an enclosing collector nothing is recorded either way.
 pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bool) -> T {
+    let (result, buffered) = buffer(action);
+    if keep(&result) {
+        buffered.commit();
+    }
+    result
+}
+
+/// The diagnostics a speculative piece of work emitted, held apart from every collector until
+/// the caller knows whether the work's outcome is kept.
+///
+/// A diagnostic is a claim about the result the work contributes to. While that is undecided
+/// (an equation attempt whose subject another equation may still rewrite, or whose `requires`
+/// belongs to an enclosing attempt that may still be refuted), its diagnostics are held here:
+/// [`Buffered::commit`] records them once the outcome is kept, and dropping the buffer discards
+/// them with the outcome. Buffers nest: one committed while another is open records into it, so
+/// an outcome kept inside an enclosing attempt that is then discarded is discarded with it.
+#[must_use = "a buffer is committed when its outcome is kept and dropped when it is not"]
+pub(crate) struct Buffered(Vec<Emission>);
+
+impl Buffered {
+    /// Record the held emissions in the current collector, under its rules, as if they were
+    /// emitted into it directly, with their original positions; nothing without a collector.
+    pub(crate) fn commit(self) {
+        if self.0.is_empty() {
+            return;
+        }
+        SINK.with(|sink| {
+            if let Some(sink) = sink.borrow_mut().as_mut() {
+                for emission in self.0 {
+                    sink.record(emission);
+                }
+            }
+        });
+    }
+}
+
+/// Run `action` with its emissions held in a [`Buffered`] instead of the current collector.
+///
+/// Without a current collector nothing is recorded either way, and the buffer is empty. If
+/// `action` unwinds, its emissions are discarded and the current collector is restored.
+pub(crate) fn buffer<T>(action: impl FnOnce() -> T) -> (T, Buffered) {
     struct Restore(Option<Sink>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -459,7 +505,7 @@ pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bo
         });
         Some(enclosing)
     }) else {
-        return action();
+        return (action(), Buffered(Vec::new()));
     };
     let mut restore = Restore(Some(enclosing));
     let result = action();
@@ -467,17 +513,12 @@ pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bo
         .with(|sink| sink.borrow_mut().take())
         .map(|inner| inner.emissions)
         .unwrap_or_default();
-    let mut enclosing = restore
+    let enclosing = restore
         .0
         .take()
         .expect("the enclosing collector is restored once");
-    if keep(&result) {
-        for emission in inner {
-            enclosing.record(emission);
-        }
-    }
     SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
-    result
+    (result, Buffered(inner))
 }
 
 /// Append each diagnostic of `diagnostics` that `list` does not hold yet, in order.
@@ -668,6 +709,51 @@ mod tests {
                 alternatives,
             },
         }
+    }
+
+    /// A buffer records its emissions when it is committed, under the collector's rules; a
+    /// dropped buffer records nothing, and neither does a nested buffer committed into it.
+    /// Without a collector a buffer holds nothing.
+    #[test]
+    fn a_buffer_records_its_emissions_only_when_committed() {
+        let ((), recorded) = collect(|| {
+            emit(term_exhausted(1));
+            let ((), kept) = buffer(|| {
+                emit(term_exhausted(2));
+                let ((), inner) = buffer(|| emit(term_exhausted(3)));
+                inner.commit();
+            });
+            let ((), dropped) = buffer(|| {
+                emit(term_exhausted(4));
+                let ((), inner) = buffer(|| emit(term_exhausted(5)));
+                inner.commit();
+            });
+            emit(term_exhausted(6));
+            drop(dropped);
+            kept.commit();
+        });
+        assert_eq!(
+            recorded,
+            [
+                term_exhausted(1),
+                term_exhausted(6),
+                term_exhausted(2),
+                term_exhausted(3)
+            ]
+        );
+
+        let ((), held) = buffer(|| emit(term_exhausted(7)));
+        assert!(held.0.is_empty());
+        let ((), recorded) = collect(|| held.commit());
+        assert!(recorded.is_empty());
+
+        // A committed buffer is forwarded under the collector's rules: an unevaluated hook once.
+        let ((), recorded) = collect(|| {
+            emit(hook("H", UnsupportedHookReason::NotImplemented));
+            let ((), repeated) = buffer(|| emit(hook("H", out_of_range())));
+            repeated.commit();
+        });
+        assert_eq!(recorded, [hook("H", UnsupportedHookReason::NotImplemented)]);
     }
 
     /// Repeated attempts of a rule whose condition fails the same way report one fact; another

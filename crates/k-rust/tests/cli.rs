@@ -1883,6 +1883,65 @@ endmodule
     }
 }
 
+/// A call left unevaluated only inside the `requires` of an enclosing equation that is then
+/// refuted is not in the result, so it is not reported. `f(3)` is attempted while the requires
+/// of `k1` on `k(3)` is simplified, since the arguments of `andBool` are simplified before it
+/// short-circuits; `k1` is refuted and `k2` evaluates the call. The same holds at each of the 200
+/// steps of a loop. A call the result keeps is still reported: in the `<k>` cell, as the untaken
+/// branch of `#if`, and as the argument of an equation that drops it, whose definedness the
+/// result carries in both cases.
+#[test]
+fn krun_reports_a_call_left_unevaluated_only_where_the_result_keeps_it() {
+    let source = |configuration: &str| {
+        format!(
+            r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Int ::= f(Int) [function, symbol(f)]
+  syntax Int ::= k(Int) [function, symbol(k)]
+  syntax Int ::= drop(Int) [function, symbol(drop)]
+  syntax KItem ::= done(Int) [symbol(done)]
+  syntax KItem ::= step(Int) [symbol(step)]
+  configuration <k> {configuration} </k>
+  rule [fu]: f(X) => Y requires Y ==Int X +Int 1
+  rule [k1]: k(X) => 1 requires X <Int 0 andBool f(X) ==Int 4
+  rule [k2]: k(_) => 2 [owise]
+  rule drop(_) => 0
+  rule <k> step(N) => step(N +Int k(N) -Int 1) </k> requires N <Int 200
+  rule <k> step(N) => done(N) </k> requires N >=Int 200
+endmodule
+"#
+        )
+    };
+    for (configuration, result) in [("done(k(3))", "2"), ("step(0)", "200")] {
+        let (stdout, warnings) = krun_equation_warnings(&source(configuration));
+        assert!(
+            stdout.contains(&format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{result}"))"#)),
+            "{configuration}: {stdout}"
+        );
+        assert!(warnings.is_empty(), "{configuration}: {warnings:?}");
+    }
+    for configuration in [
+        "done(f(3))",
+        "done(#if true #then 7 #else f(3) #fi)",
+        "done(drop(f(3)))",
+    ] {
+        let (stdout, warnings) = krun_equation_warnings(&source(configuration));
+        assert!(stdout.contains("Lblf{}"), "{configuration}: {stdout}");
+        assert_eq!(warnings.len(), 1, "{configuration}: {warnings:?}");
+        assert!(
+            warnings[0].starts_with("warning: equation MAIN.fu ")
+                && warnings[0].contains(
+                    "no other equation rewrote the term it matched, which was left unevaluated"
+                ),
+            "{configuration}: {}",
+            warnings[0]
+        );
+    }
+}
+
 #[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();

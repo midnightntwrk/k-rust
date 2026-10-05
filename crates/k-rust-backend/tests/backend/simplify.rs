@@ -5074,6 +5074,158 @@ fn a_passed_over_equation_names_only_its_own_variables() {
     }
 }
 
+/// The `f` equations of [`a_call_kept_only_inside_a_refuted_requires_is_not_reported`], each of
+/// which leaves `f(pos)` unevaluated with a diagnostic: `fu`, whose result `Y` its left-hand side
+/// does not bind, and `fc`, whose requires-only `Z` the solver leaves undecided.
+const KEPT_CALL_EQUATIONS: [(&str, &str); 2] = [
+    (
+        "fu",
+        r#"axiom{R} \implies{R}(
+            \and{R}(\equals{SortS{}, R}(Y:SortS{}, wrap{}(X:SortS{})),
+                \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+            \equals{SortS{}, R}(f{}(K0:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+            [label{}("fu")]"#,
+    ),
+    (
+        "fc",
+        r#"axiom{R} \implies{R}(
+            \and{R}(\equals{SortS{}, R}(Z:SortS{}, \dv{SortS{}}("zero")),
+                \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+            \equals{SortS{}, R}(f{}(K0:SortS{}), \and{SortS{}}(X:SortS{}, \top{SortS{}}())))
+            [label{}("fc")]"#,
+    ),
+];
+
+/// `k(X) = one requires R` (`k1`) and `k(X) = two` at a lower priority (`k2`), after `f_equation`.
+fn kept_call_definition(f_equation: &str, k1_requires: &str) -> BackendDefinition {
+    definition(&format!(
+        r#"symbol k{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+        {f_equation}
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}({k1_requires},
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                k{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("one"), \top{{SortS{{}}}}())))
+            [label{{}}("k1")]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                k{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("two"), \top{{SortS{{}}}}())))
+            [label{{}}("k2"), priority{{}}("200")]"#
+    ))
+}
+
+/// The rule ids of the `UndecidedCondition` diagnostics of `diagnostics`, in order.
+fn undecided_rule_ids(diagnostics: &[BackendDiagnostic]) -> Vec<&str> {
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnostic::UndecidedCondition { rule_id, .. } => Some(rule_id.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A diagnostic raised while an equation's `requires` is simplified belongs to that attempt.
+/// `f(pos)` is left unevaluated, with a diagnostic, while the requires of `k1` on `k(pos)` is
+/// simplified. When another conjunct refutes that requires, `k2` evaluates `k(pos)`, no `f`
+/// occurs in the result, and nothing is reported, whether `f`'s diagnostic is an equation passed
+/// over for its unbound result variable or a condition the solver could not decide. When the
+/// requires stays open, `k(pos)` is kept and both `f`'s and `k1`'s diagnostics are reported.
+#[test]
+fn a_call_kept_only_inside_a_refuted_requires_is_not_reported() {
+    let f_call = r#"\equals{SortS{}, R}(f{}(X:SortS{}), \dv{SortS{}}("four"))"#;
+    let refuted = format!(
+        r#"\and{{R}}({f_call}, \equals{{SortS{{}}, R}}(X:SortS{{}}, \dv{{SortS{{}}}}("neg")))"#
+    );
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    for (label, f_equation) in KEPT_CALL_EQUATIONS {
+        let definition = kept_call_definition(f_equation, &refuted);
+        let input = term(&definition, r#"k{}(\dv{SortS{}}("pos"))"#);
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        let result = result.unwrap();
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("two")"#),
+            "{label}"
+        );
+        assert_eq!(result.applied_rules, ["k2"], "{label}");
+        assert!(diagnostics.is_empty(), "{label}: {diagnostics:?}");
+
+        let definition = kept_call_definition(f_equation, f_call);
+        let input = term(&definition, r#"k{}(\dv{SortS{}}("pos"))"#);
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        assert_eq!(result.unwrap().term, input, "{label}");
+        let reported = undecided_rule_ids(&diagnostics);
+        assert!(reported.contains(&label), "{label}: {diagnostics:?}");
+        assert!(reported.contains(&"k1"), "{label}: {diagnostics:?}");
+    }
+}
+
+/// An undecided attempt is superseded when another equation rewrites its subject: by a function
+/// equation of the same priority, or by a simplification after the function equations were
+/// blocked. Its solver-unknown diagnostic is then not reported, as the result does not keep the
+/// subject; with neither, the subject is kept and the diagnostic is reported.
+#[test]
+fn an_undecided_attempt_superseded_by_another_equation_is_not_reported() {
+    let (_, fc) = KEPT_CALL_EQUATIONS[1];
+    let sibling = r#"axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+        \equals{SortS{}, R}(f{}(K0:SortS{}), \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}())))
+        [label{}("sibling")]"#;
+    let simplification = r#"axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+        f{}(X:SortS{}), \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}())))
+        [label{}("simplification"), simplification{}()]"#;
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    for (other, applied) in [
+        (sibling, Some("sibling")),
+        (simplification, Some("simplification")),
+        ("", None),
+    ] {
+        let definition = definition(&format!("{fc}\n{other}"));
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("pos"))"#);
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        let result = result.unwrap();
+        if let Some(applied) = applied {
+            assert_eq!(
+                result.term,
+                term(&definition, r#"wrap{}(\dv{SortS{}}("pos"))"#),
+                "{applied}"
+            );
+            assert_eq!(result.applied_rules, [applied]);
+            assert!(diagnostics.is_empty(), "{applied}: {diagnostics:?}");
+        } else {
+            assert_eq!(result.term, input);
+            assert_eq!(undecided_rule_ids(&diagnostics), ["fc"], "{diagnostics:?}");
+        }
+    }
+}
+
 /// A simplification equation whose result has a variable its left-hand side does not bind is
 /// passed over; a lower-priority simplification still applies, as after an open `requires`.
 /// The term is evaluated, so the passed-over equation is not reported; without the other

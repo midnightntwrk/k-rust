@@ -89,8 +89,8 @@ pub(crate) mod scan;
 use result::{Accumulated, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
-    EquationAttempt, FunctionTheory, GroupScan, PassedOver, SimplificationTheory, TermTheory,
-    TheoryScan, scan_group, scan_term_theory,
+    EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
+    TermTheory, TheoryScan, scan_group, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -1018,8 +1018,8 @@ pub enum ConditionIndeterminacy {
     /// spells them, that its left-hand side does not bind
     /// (`ComputedRuleAttributes::unbound_result_variables`), and its `requires` is not refuted.
     /// Matching fixes no value for them, so the instance is not a term of the request; see
-    /// `evaluate_equation_condition`. It is reported as an `UndecidedCondition` diagnostic when
-    /// no other equation rewrites the subject (`scan::PassedOver`).
+    /// `evaluate_equation_condition`, which reports it as an `UndecidedCondition` diagnostic of
+    /// the attempt.
     UnboundResultVariables(Vec<String>),
 }
 
@@ -1037,9 +1037,6 @@ enum EquationCondition {
     Satisfied(MatchedEquation),
     Refuted,
     Indeterminate(ConditionIndeterminacy),
-    /// `Indeterminate(UnboundResultVariables)`, with the `UndecidedCondition` diagnostic that
-    /// explains the subject if no other equation rewrites it (`scan::PassedOver`).
-    PassedOver(BackendDiagnostic),
 }
 
 /// Decide the `requires` of an equation `instance` under the path condition. It is simplified
@@ -1055,9 +1052,11 @@ enum EquationCondition {
 /// holds for no value of them and the equation says nothing about the subject, as for any
 /// equation; otherwise the verdict is `Indeterminate(UnboundResultVariables)`, which keeps the
 /// subject, and for a function blocks the lower-priority equations, as an open `requires` does.
-/// That verdict is `PassedOver`, with an `UndecidedCondition` diagnostic of `rule_id` and the
-/// decided `requires`, for the caller to report if the subject is kept.
-/// Every caller that uses an equation's result reaches it through `Satisfied`.
+/// That verdict is reported as an `UndecidedCondition` diagnostic of `rule_id` with the decided
+/// `requires`. Every caller that uses an equation's result reaches it through `Satisfied`.
+///
+/// The diagnostics emitted here belong to the attempt: its caller buffers them and keeps them
+/// only with an outcome that is kept (`scan::scan_group`, `matches_top_equation`).
 ///
 /// `rule_variables` are the variables of the equation, as renamed apart for this attempt, that
 /// its left-hand side does not bind (`ComputedRuleAttributes::unbound_variables`). Renaming
@@ -1137,13 +1136,15 @@ fn evaluate_equation_condition(
             RuleCondition::Satisfied | RuleCondition::Indeterminate(_)
                 if !unbound_result.is_empty() =>
             {
-                let rule_variables = condition_rule_variables(&predicates, rule_variables);
-                EquationCondition::PassedOver(BackendDiagnostic::UndecidedCondition {
+                let reason =
+                    ConditionIndeterminacy::UnboundResultVariables(unbound_result.to_vec());
+                diagnostic::emit(BackendDiagnostic::UndecidedCondition {
                     rule_id: rule_id.to_owned(),
-                    reason: ConditionIndeterminacy::UnboundResultVariables(unbound_result.to_vec()),
+                    reason: reason.clone(),
+                    rule_variables: condition_rule_variables(&predicates, rule_variables),
                     predicates,
-                    rule_variables,
-                })
+                });
+                EquationCondition::Indeterminate(reason)
             }
             RuleCondition::Satisfied => EquationCondition::Satisfied(matched),
             RuleCondition::Indeterminate(reason) => EquationCondition::Indeterminate(reason),
@@ -1701,9 +1702,9 @@ fn simplify_predicate_with_budget(
     if assumptions.contains(&Predicate::Not(Box::new(simplified.clone()))) {
         return Ok(Predicate::False);
     }
-    // The ceil and predicate equations passed over for their unbound result variables, reported
-    // only if neither theory rewrites the predicate.
-    let mut passed_over = PassedOver::default();
+    // The diagnostics of the indeterminate ceil and predicate equation attempts, committed only
+    // if neither theory rewrites the predicate.
+    let mut indeterminate = IndeterminateAttempts::default();
     if let Some(simplified) = apply_ceil_theory(
         definition,
         &simplified,
@@ -1714,7 +1715,7 @@ fn simplify_predicate_with_budget(
         },
         active_conditions,
         solver,
-        &mut passed_over,
+        &mut indeterminate,
     )? {
         if *remaining == 0 {
             return Err(SimplificationError::PredicateIterationLimit {
@@ -1745,10 +1746,10 @@ fn simplify_predicate_with_budget(
         },
         active_conditions,
         solver,
-        &mut passed_over,
+        &mut indeterminate,
     )?
     else {
-        passed_over.emit();
+        indeterminate.commit();
         return Ok(simplified);
     };
     if *remaining == 0 {
@@ -1806,8 +1807,8 @@ fn with_simplification_constraints(
 }
 
 /// Rewrite `\ceil(t)` by the first ceil equation that applies, in priority order; `None` when
-/// none does. An equation passed over for its unbound result variables is recorded in
-/// `passed_over`, which the caller reports if the predicate is kept.
+/// none does. The diagnostics of the indeterminate attempts are held in `indeterminate`, which
+/// the caller commits if the predicate is kept.
 #[allow(clippy::too_many_arguments)]
 fn apply_ceil_theory(
     definition: &BackendDefinition,
@@ -1816,14 +1817,14 @@ fn apply_ceil_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-    passed_over: &mut PassedOver,
+    indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<Option<Predicate>> {
     let Predicate::Ceil(term) = predicate else {
         return Ok(None);
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
     for rules in groups.values() {
-        match scan_group(rules, passed_over, |rule| {
+        match scan_group(rules, indeterminate, |rule| {
             apply_ceil_equation(
                 definition,
                 rule,
@@ -1918,7 +1919,6 @@ fn apply_ceil_equation(
         EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-        EquationCondition::PassedOver(report) => return Ok(EquationAttempt::PassedOver(report)),
     };
 
     let RuleRhs::Predicates(rhs) = &rule.rhs else {
@@ -1947,8 +1947,8 @@ fn apply_ceil_equation(
 }
 
 /// Rewrite `predicate` by the first predicate equation that applies, in priority order; `None`
-/// when none does. An equation passed over for its unbound result variables is recorded in
-/// `passed_over`, which the caller reports if the predicate is kept.
+/// when none does. The diagnostics of the indeterminate attempts are held in `indeterminate`,
+/// which the caller commits if the predicate is kept.
 #[allow(clippy::too_many_arguments)]
 fn apply_predicate_theory(
     definition: &BackendDefinition,
@@ -1957,10 +1957,10 @@ fn apply_predicate_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-    passed_over: &mut PassedOver,
+    indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<Option<Predicate>> {
     for rules in definition.predicate_simplification_theory().values() {
-        match scan_group(rules, passed_over, |rule| {
+        match scan_group(rules, indeterminate, |rule| {
             apply_predicate_equation(
                 definition,
                 rule,
@@ -2040,7 +2040,6 @@ fn apply_predicate_equation(
         EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-        EquationCondition::PassedOver(report) => return Ok(EquationAttempt::PassedOver(report)),
     };
     // The equation `p[X] = q[X] requires R[X]` is an axiom over every element `X`, and the
     // subject `p[t]` equals `\ceil(t) /\ q[t]` only when `p` is strict in `X`, that is
@@ -3035,41 +3034,52 @@ fn matches_top_equation(
                 continue;
             }
             let instance = EquationInstance::new(definition, &rule.requires, substitution);
-            // An equation passed over for its unbound result variables is reported, if at all,
-            // by the scan of the conjunct's own simplification, which attempts it again.
-            let EquationCondition::Satisfied(matched) = evaluate_equation_condition(
-                definition,
-                &rule.attributes.unique_id,
-                &rule.computed_attributes.unbound_result_variables,
-                &rule.computed_attributes.unbound_variables,
-                Some(term),
-                instance,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
-            )?
-            else {
-                continue;
-            };
-            // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to an
-            // element variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`: an open
-            // obligation becomes a constraint of the conjunction and a refuted one makes it
-            // `\bottom`.
-            let constraints = match decide_equation_bindings(
-                definition,
-                &rule.attributes.unique_id,
-                Some(term),
-                matched,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
-            )? {
-                DecidedEquation::Defined(defined) => defined.into_carried().into_predicates(),
-                DecidedEquation::Refuted(_) => vec![Predicate::False],
-            };
-            return Ok(Some((rule.attributes.unique_id.clone(), constraints)));
+            // The attempt is speculative: its diagnostics are kept only if the equation is used.
+            // An equation not used here is attempted again when the conjunct is simplified as a
+            // child, and that attempt's diagnostics follow the child's own scan.
+            let used = diagnostic::attempt(
+                || {
+                    let EquationCondition::Satisfied(matched) = evaluate_equation_condition(
+                        definition,
+                        &rule.attributes.unique_id,
+                        &rule.computed_attributes.unbound_result_variables,
+                        &rule.computed_attributes.unbound_variables,
+                        Some(term),
+                        instance,
+                        known_predicates,
+                        options,
+                        active_conditions,
+                        solver,
+                    )?
+                    else {
+                        return Ok(None);
+                    };
+                    // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to
+                    // an element variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`:
+                    // an open obligation becomes a constraint of the conjunction and a refuted
+                    // one makes it `\bottom`.
+                    let constraints = match decide_equation_bindings(
+                        definition,
+                        &rule.attributes.unique_id,
+                        Some(term),
+                        matched,
+                        known_predicates,
+                        options,
+                        active_conditions,
+                        solver,
+                    )? {
+                        DecidedEquation::Defined(defined) => {
+                            defined.into_carried().into_predicates()
+                        }
+                        DecidedEquation::Refuted(_) => vec![Predicate::False],
+                    };
+                    Ok(Some(constraints))
+                },
+                |used: &SimplifyResult<Option<Vec<Predicate>>>| !matches!(used, Ok(None)),
+            )?;
+            if let Some(constraints) = used {
+                return Ok(Some((rule.attributes.unique_id.clone(), constraints)));
+            }
         }
     }
     Ok(None)
@@ -3327,9 +3337,9 @@ fn simplify_root(
             ));
         }
     };
-    // The equations of either theory passed over for their unbound result variables, reported
-    // only if neither theory rewrites the term.
-    let mut passed_over = PassedOver::default();
+    // The diagnostics of the indeterminate equation attempts of either theory, committed only if
+    // neither theory rewrites the term.
+    let mut indeterminate = IndeterminateAttempts::default();
     let function_scan = match apply_theory::<FunctionTheory>(
         definition,
         term,
@@ -3337,7 +3347,7 @@ fn simplify_root(
         options,
         active_conditions,
         solver,
-        &mut passed_over,
+        &mut indeterminate,
     )? {
         TheoryScan::Applied(result, rule) => {
             let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
@@ -3356,13 +3366,13 @@ fn simplify_root(
         options,
         active_conditions,
         solver,
-        &mut passed_over,
+        &mut indeterminate,
     )? {
         TheoryScan::Applied(result, rule) => return Ok((result, RootStep::Other, Some(rule))),
         scan => scan,
     };
-    // No equation rewrote the term, which is kept: each passed-over equation explains why.
-    passed_over.emit();
+    // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
+    indeterminate.commit();
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -3511,9 +3521,9 @@ fn apply_theory<K: TermTheory>(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-    passed_over: &mut PassedOver,
+    indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<TheoryScan<K>> {
-    scan_term_theory::<K>(definition, term, passed_over, |rule| {
+    scan_term_theory::<K>(definition, term, indeterminate, |rule| {
         apply_equation(
             definition,
             rule,
@@ -3695,7 +3705,6 @@ fn apply_equation(
         EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-        EquationCondition::PassedOver(report) => return Ok(EquationAttempt::PassedOver(report)),
     };
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
@@ -4056,7 +4065,7 @@ mod tests {
             SimplificationOptions::default(),
             &BTreeSet::new(),
             &NoSolver,
-            &mut PassedOver::default(),
+            &mut IndeterminateAttempts::default(),
         )
         .expect("the first applicable ceil equation should win")
         .expect("the first ceil equation should apply");
@@ -4297,7 +4306,7 @@ mod tests {
                 SimplificationOptions::default(),
                 &BTreeSet::new(),
                 solver,
-                &mut PassedOver::default(),
+                &mut IndeterminateAttempts::default(),
             )
             .expect("the ceil equation should not fail")
         };
@@ -4339,7 +4348,7 @@ mod tests {
                 SimplificationOptions::default(),
                 &BTreeSet::new(),
                 &NoSolver,
-                &mut PassedOver::default(),
+                &mut IndeterminateAttempts::default(),
             )
             .expect("an indeterminate ceil equation should not fail"),
             None

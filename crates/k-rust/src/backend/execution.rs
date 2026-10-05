@@ -298,9 +298,11 @@ fn printed_predicates(predicates: &[Predicate], result_sort: &Sort) -> String {
 /// bind keeps the backend's marker (`Eq-hVarY`); the warning says which variable of the
 /// equation each such name is, as the author wrote it (`Y`). An equation whose result has
 /// variables its left-hand side does not bind is not a solver verdict: the backend reports it
-/// only when no other equation rewrote the term, and the warning says that the term is kept,
-/// and why. A solver verdict may be on the equation's `requires` or on the definedness of the
-/// terms its match bound, so its warning names the predicates without saying which.
+/// only when no other equation rewrote the term and the attempt was not made while simplifying
+/// the condition of an enclosing attempt that was refuted or superseded, so the warning says
+/// that the term was left unevaluated, and why. A solver verdict may be on the equation's
+/// `requires` or on the definedness of the terms its match bound, so its warning names the
+/// predicates without saying which.
 #[allow(clippy::too_many_arguments)]
 fn undecided_condition_message(
     definition: &BackendDefinition,
@@ -347,7 +349,7 @@ fn undecided_condition_message(
             )
         };
         return format!(
-            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation applied, so the term it matched is kept unevaluated{requires}",
+            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation rewrote the term it matched, which was left unevaluated{requires}",
             english_list(&variables),
             if variables.len() == 1 { "it" } else { "them" },
         );
