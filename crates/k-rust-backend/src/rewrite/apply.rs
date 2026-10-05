@@ -1570,7 +1570,7 @@ fn apply_rhs_alternative(
     // repeats are not restated).
     let mut rhs_definedness = None;
     if !rule.computed_attributes.undefined_symbols.is_empty() {
-        let obligations = RhsDefinedness::of(definition, &rhs, &condition_knowledge);
+        let obligations = RhsDefinedness::of(definition, &rhs);
         let reported_obligation = undefined_term
             .map(Predicate::Ceil)
             .unwrap_or_else(|| conjunction(obligations.as_slice()));

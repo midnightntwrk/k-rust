@@ -11714,6 +11714,35 @@ fn narrows_a_closed_list_pattern_into_an_empty_subject_frame() {
     );
 }
 
+/// The absence of the one key of `joined`, a single-entry map or single-element set beside a
+/// rest, from that rest: the obligation a definition without a membership function states for
+/// the entry.
+#[cfg(feature = "z3")]
+fn absence_in(joined: &Term) -> Predicate {
+    use k_rust_backend::rule::{Absence, KeyedCollection};
+    match joined.kind() {
+        TermKind::Map {
+            definition,
+            entries,
+            rest: Some(rest),
+        } if entries.len() == 1 => Absence::predicate(
+            KeyedCollection::Map(definition.clone()),
+            entries[0].0.clone(),
+            rest.clone(),
+        ),
+        TermKind::Set {
+            definition,
+            elements,
+            rest: Some(rest),
+        } if elements.len() == 1 => Absence::predicate(
+            KeyedCollection::Set(definition.clone()),
+            elements[0].clone(),
+            rest.clone(),
+        ),
+        _ => panic!("one entry beside a rest: {joined:?}"),
+    }
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
@@ -11830,7 +11859,7 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
         }));
     }
     // The definition declares no `SET.in` function, so each element's absence from the frame
-    // is stated as the definedness of the element joined to the frame.
+    // is the absence atom.
     for element in [first, second, "RULEELEMENT:SortElement{}"] {
         let joined = substitute(
             &internal_term(
@@ -11843,7 +11872,7 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
             frame_branch
                 .pattern
                 .constraints
-                .contains(&Predicate::Ceil(joined)),
+                .contains(&absence_in(&joined)),
             "{element}"
         );
     }
@@ -12299,7 +12328,7 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
         }));
     }
     // The definition declares no `MAP.in_keys` function, so each key's absence from the frame
-    // is stated as the definedness of its entry joined to the frame.
+    // is the absence atom, whatever the value.
     for (key, value) in [
         (first_key, first_value),
         (second_key, second_value),
@@ -12316,7 +12345,7 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
             frame_branch
                 .pattern
                 .constraints
-                .contains(&Predicate::Ceil(joined)),
+                .contains(&absence_in(&joined)),
             "{key}"
         );
     }
@@ -12381,12 +12410,12 @@ fn emits_frame_definedness_on_the_single_entry_path() {
         .find(|branch| branch.pattern.term == explicit_term)
         .expect("one branch should select the explicit entry");
     // Without a `MAP.in_keys` function, the selected key's absence from the rest is the
-    // definedness of the subject's map.
+    // absence atom.
     assert!(
         explicit
             .pattern
             .constraints
-            .contains(&Predicate::Ceil(internal_term(
+            .contains(&absence_in(&internal_term(
                 &definition,
                 &format!(
                     "mapConcat{{}}(mapItem{{}}({first_key}, {first_value}), SUBJECTREST:SortMap{{}})"
@@ -12472,12 +12501,12 @@ fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
 }
 
 /// The same absence stated by the path rather than by the rule's left-hand side: the state
-/// knows `\ceil(a |-> zero() R)`, and a rule whose left-hand side holds no map builds
-/// `a |-> succ(zero()) R`. Its right-hand side's absence obligation is the path's fact with
-/// another value, so it is discharged and not carried.
+/// knows `\ceil(a |-> zero() R)`, which is the absence of `a` from `R`, and a rule whose
+/// left-hand side holds no map builds `a |-> succ(zero()) R`. Its right-hand side's absence
+/// obligation is that fact, whatever the value, so it is neither branched on nor restated.
 #[cfg(feature = "z3")]
 #[test]
-fn a_path_fact_discharges_the_absence_obligation_of_an_updated_value() {
+fn a_path_fact_states_the_absence_obligation_of_an_updated_value() {
     let syntax = parse_definition(
         r#"[]
             module MAIN
@@ -12542,7 +12571,209 @@ fn a_path_fact_discharges_the_absence_obligation_of_an_updated_value() {
             r#"mapState{}(mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), succ{}(zero{}())), R:SortMap{}))"#,
         )
     );
-    assert_eq!(leaf.pattern.constraints, vec![fact]);
+    // The fact as the path keeps it once simplified: `zero()` is defined, so what remains is
+    // the absence.
+    assert_eq!(
+        leaf.pattern.constraints,
+        vec![absence_in(match &fact {
+            Predicate::Ceil(joined) => joined,
+            _ => unreachable!(),
+        })]
+    );
+}
+
+/// A map sort without `MAP.in_keys` and three rules that update the value bound to the key
+/// `a` beside an opaque rest, each through another path to the right-hand side's definedness:
+/// a `requires` clause over the updated map (`sReq`), hooked functions whose arguments hold the
+/// map (`sHook`), and the map beside an undefined partial application (`sOther`).
+#[cfg(feature = "z3")]
+fn absence_update_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol mapUpdate{}(SortMap{}, SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.update")]
+                hooked-symbol mapLookup{}(SortMap{}, SortKey{}) : SortValue{}
+                    [function{}(), hook{}("MAP.lookup")]
+                symbol zero{}() : SortValue{} [constructor{}()]
+                symbol succ{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol ok{}(SortMap{}) : SortBool{} [function{}(), total{}()]
+                symbol inc{}(SortValue{}) : SortValue{} [function{}()]
+                symbol sReq{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol sHook{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol sOther{}(SortMap{}, SortValue{}) : SortState{} [constructor{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortBool{}, R}(
+                        ok{}(M:SortMap{}),
+                        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                    )
+                ) [label{}("ok"), simplification{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        sReq{}(mapConcat{}(
+                            mapItem{}(\dv{SortKey{}}("a"), VALUE:SortValue{}),
+                            REST:SortMap{}
+                        )),
+                        \equals{SortBool{}, SortState{}}(
+                            ok{}(mapConcat{}(
+                                mapItem{}(\dv{SortKey{}}("a"), succ{}(VALUE:SortValue{})),
+                                REST:SortMap{}
+                            )),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    sReq{}(mapConcat{}(
+                        mapItem{}(\dv{SortKey{}}("a"), succ{}(VALUE:SortValue{})),
+                        REST:SortMap{}
+                    ))
+                ) [label{}("req")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(sHook{}(M:SortMap{}), \top{SortState{}}()),
+                    sHook{}(mapUpdate{}(
+                        M:SortMap{},
+                        \dv{SortKey{}}("a"),
+                        succ{}(mapLookup{}(M:SortMap{}, \dv{SortKey{}}("a")))
+                    ))
+                ) [label{}("hook")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        sOther{}(
+                            mapConcat{}(
+                                mapItem{}(\dv{SortKey{}}("a"), VALUE:SortValue{}),
+                                REST:SortMap{}
+                            ),
+                            X:SortValue{}
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    sOther{}(
+                        mapConcat{}(
+                            mapItem{}(\dv{SortKey{}}("a"), succ{}(VALUE:SortValue{})),
+                            REST:SortMap{}
+                        ),
+                        inc{}(X:SortValue{})
+                    )
+                ) [label{}("other")]
+            endmodule []"#,
+    )
+    .expect("map definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize")
+}
+
+/// The halt reason, depth and constraint count of each leaf of executing `state` over
+/// `a |-> zero() R` (`sOther` also holding `zero()`) to depth 8, and the most absence atoms
+/// one leaf's path condition holds.
+#[cfg(feature = "z3")]
+fn absence_update_leaves(
+    state: &str,
+    assume_initial_defined: bool,
+) -> (Vec<(String, u64, usize)>, usize) {
+    let definition = absence_update_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let map = r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{})"#;
+    let term = if state == "sOther" {
+        format!("sOther{{}}({map}, zero{{}}())")
+    } else {
+        format!("{state}{{}}({map})")
+    };
+    let subject = Pattern {
+        term: internal_term(&definition, &term),
+        constraints: Vec::new(),
+    };
+    let result = execute_with_solver(
+        &definition,
+        subject,
+        ExecutionOptions {
+            max_depth: 8,
+            assume_initial_defined,
+            ..ExecutionOptions::default()
+        },
+        &solver,
+    );
+    let leaves = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            let reason = format!("{:?}", leaf.halt_reason);
+            let kind = reason
+                .split(|character: char| !character.is_alphanumeric())
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            (kind, leaf.depth, leaf.pattern.constraints.len())
+        })
+        .collect();
+    let absences = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            leaf.pattern
+                .constraints
+                .iter()
+                .filter(|predicate| matches!(predicate, Predicate::Absent(_)))
+                .count()
+        })
+        .max()
+        .unwrap_or_default();
+    (leaves, absences)
+}
+
+/// Updating the value at a key beside an opaque rest restates one absence, whichever path
+/// states the right-hand side's definedness: the `requires` clause's definedness and the
+/// hooked functions' argument definedness meet the absence the path already holds, so no step
+/// branches on it and the path condition does not grow with the depth. The leaves are those of
+/// the backend that stated the absence with an ill-sorted `\in`, which was value-free too:
+/// `sReq` and `sHook` reach the depth bound in one leaf (beside the initial state's own `Stuck`
+/// remainder when its definedness is not assumed), and `sOther`, whose undefined `inc` application leaves a `Trivial` remainder and one
+/// more obligation at every step, keeps exactly that shape and no more than one absence.
+#[cfg(feature = "z3")]
+#[test]
+fn updating_a_value_through_requires_or_hooks_restates_one_absence() {
+    let leaves = |cases: &[(&str, u64, usize)]| {
+        cases
+            .iter()
+            .map(|(kind, depth, constraints)| ((*kind).to_owned(), *depth, *constraints))
+            .collect::<Vec<_>>()
+    };
+    let unassumed = leaves(&[("DepthBound", 8, 1), ("Stuck", 0, 1)]);
+    let assumed = leaves(&[("DepthBound", 8, 0)]);
+    for state in ["sReq", "sHook"] {
+        assert_eq!(
+            absence_update_leaves(state, false),
+            (unassumed.clone(), 1),
+            "{state}"
+        );
+        assert_eq!(
+            absence_update_leaves(state, true),
+            (assumed.clone(), 0),
+            "{state}"
+        );
+    }
+    let other = |first: usize| {
+        let mut cases = (0..8)
+            .map(|depth| {
+                let constraints = if depth == 0 { 1 } else { depth + first };
+                ("Trivial".to_owned(), depth as u64, constraints)
+            })
+            .collect::<Vec<_>>();
+        cases.push(("DepthBound".to_owned(), 8, 7 + first - 1));
+        cases
+    };
+    assert_eq!(absence_update_leaves("sOther", false), (other(2), 1));
+    assert_eq!(absence_update_leaves("sOther", true), (other(1), 0));
 }
 
 #[cfg(feature = "z3")]

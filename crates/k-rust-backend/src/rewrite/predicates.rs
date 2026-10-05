@@ -247,6 +247,7 @@ fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> P
             substitute(left, substitution),
             substitute(right, substitution),
         ),
+        Predicate::Absent(absence) => absence.map_terms(|term| substitute(term, substitution)),
         Predicate::Not(inner) => {
             Predicate::Not(Box::new(substitute_predicate(inner, substitution)))
         }
@@ -455,6 +456,7 @@ fn predicate_truth(predicate: &Predicate) -> Truth {
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
+        | Predicate::Absent(_)
         | Predicate::Exists(..)
         | Predicate::Forall(..) => Truth::Unknown,
     }

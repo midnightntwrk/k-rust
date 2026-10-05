@@ -331,9 +331,9 @@ structure Oracles where
   /-- The sort graph's answer for two injections with different sources or targets
   (definedness.rs `terms_apart`). -/
   injectionsDistinct : Term → Term → Bool
-  /-- `not_in_collection` (definedness.rs): the hook, the key or element, the rest, and the
-  single-entry collection over the rest that its `joined` argument builds. -/
-  notInCollection : String → Term → Term → Term → Pred
+  /-- `not_in_collection` (definedness.rs): the hook, the map or set definition, the key or
+  element, and the rest; no entry value, as the absence it states does not depend on one. -/
+  notInCollection : String → String → Term → Term → Pred
   /-- `deduplicate` (definedness.rs:307-310). -/
   dedup           : List Pred → List Pred
   /-- Hypothesis: `deduplicate` of an empty vector is empty (`retain` on an empty vector).
@@ -352,10 +352,10 @@ def normDistinct (O : Oracles) (l r : Term) : Bool :=
 (definedness.rs:135-147). -/
 def mapSide (O : Oracles) (d : String) : List (Term × Term) → Option Term → List Pred
   | [], _ => []
-  | (k, v) :: es, rest =>
+  | (k, _) :: es, rest =>
       (es.filterMap fun e => if normDistinct O k e.1 then none else some (.notEq k e.1))
       ++ (match rest with
-          | some r => [O.notInCollection "MAP.in_keys" k r (.map d [(k, v)] (some r))]
+          | some r => [O.notInCollection "MAP.in_keys" d k r]
           | none   => [])
       ++ mapSide O d es rest
 
@@ -365,7 +365,7 @@ def setSide (O : Oracles) (d : String) : List Term → Option Term → List Pred
   | k :: es, rest =>
       (es.filterMap fun k' => if normDistinct O k k' then none else some (.notEq k k'))
       ++ (match rest with
-          | some r => [O.notInCollection "SET.in" k r (.set d [k] (some r))]
+          | some r => [O.notInCollection "SET.in" d k r]
           | none   => [])
       ++ setSide O d es rest
 

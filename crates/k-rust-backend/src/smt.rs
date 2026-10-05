@@ -330,7 +330,8 @@ impl TranslationState {
             )),
             Predicate::Ceil(term) if term.attributes().constructor_like => Ok(SExpr::atom("true")),
             predicate @ Predicate::Ceil(_) => Ok(self.abstract_predicate(predicate)),
-            predicate @ (Predicate::Floor(_) | Predicate::In(..)) => {
+            // An absence is opaque to the solver: one Boolean per key and rest.
+            predicate @ (Predicate::Floor(_) | Predicate::In(..) | Predicate::Absent(_)) => {
                 Ok(self.abstract_predicate(predicate))
             }
             Predicate::Exists(variable, inner) => {
@@ -1378,6 +1379,48 @@ mod tests {
             "(not SMT-1)"
         );
         assert_eq!(translation.predicate_mappings.len(), 1);
+    }
+
+    /// The absence of one key from one rest is one Boolean, wherever it was stated, and
+    /// another key or rest is another Boolean.
+    #[test]
+    fn abstracts_an_absence_as_one_boolean_per_key_and_rest() {
+        use std::sync::Arc;
+
+        use crate::rule::{Absence, KeyedCollection};
+        use crate::term::{CollectionSymbols, MapDefinition};
+
+        let map = KeyedCollection::Map(Arc::new(MapDefinition {
+            symbols: CollectionSymbols {
+                unit: "mapUnit".into(),
+                element: "mapItem".into(),
+                concat: "mapConcat".into(),
+            },
+            key_sort: "SortKey".into(),
+            value_sort: "SortValue".into(),
+            map_sort: "SortMap".into(),
+        }));
+        let variable =
+            |name: &str, sort: &str| Term::variable(Variable::new(name, Sort::simple(sort)));
+        let absence = |key: &str, rest: &str| {
+            Absence::predicate(
+                map.clone(),
+                variable(key, "SortKey"),
+                variable(rest, "SortMap"),
+            )
+        };
+        let mut translation = TranslationState::new();
+        let mut translate = |predicate: Predicate| {
+            translation
+                .translate_predicate(&predicate)
+                .unwrap()
+                .to_string()
+        };
+
+        assert_eq!(translate(absence("K", "M")), "SMT-1");
+        assert_eq!(translate(absence("K", "M")), "SMT-1");
+        assert_eq!(translate(absence("J", "M")), "SMT-2");
+        assert_eq!(translate(absence("K", "N")), "SMT-3");
     }
 
     #[test]

@@ -3274,7 +3274,8 @@ fn has_term_component(predicate: &Predicate) -> bool {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => false,
+        | Predicate::In(..)
+        | Predicate::Absent(_) => false,
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
             has_term_component(inner)
         }

@@ -67,8 +67,8 @@ use crate::{
         retain_substitution_predicates, violates_finite_constructor_domain,
     },
     rule::{
-        Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs, applicable_groups,
-        rename_apart, rename_predicate_rule_apart, term_index,
+        Absence, Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs,
+        applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     stop::{self, Layered, Stoppable, Unwind},
@@ -1548,6 +1548,49 @@ fn simplify_predicate_with_budget(
             constraints.extend(right.conditions);
             with_simplification_constraints(constraints, Predicate::In(left.term, right.term))
         }
+        Predicate::Absent(absence) => {
+            // The absence is the definedness of its joined collection, whose value, if any, is
+            // a variable: `ceil_term` of it states the same fact through the key and the rest
+            // alone. Over an opaque rest that is the atom again beside the key's and the rest's
+            // own obligations; over a rest that has become a collection with entries it is the
+            // key's disequalities from those entries and its absence from their rest.
+            let key = simplify_term(absence.key())?.into_parts();
+            let rest = simplify_term(absence.rest())?.into_parts();
+            let mut constraints = key.conditions.into_predicates();
+            constraints.extend(rest.conditions);
+            let simplified = Absence::predicate(absence.collection(), key.term, rest.term);
+            let joined = match &simplified {
+                Predicate::Absent(absence) => absence.joined(),
+                Predicate::Ceil(joined) => joined,
+                _ => unreachable!("an absence is an atom or the ceil of its joined set"),
+            };
+            let mut expanded = ceil_term(definition, joined);
+            // As for `\ceil` above: an opaque atom remains a conjunct of its expansion.
+            expanded.retain(|predicate| !assumptions.contains(predicate));
+            if expanded.as_slice() == std::slice::from_ref(&simplified) {
+                with_simplification_constraints(constraints, simplified)
+            } else {
+                constraints.extend(expanded);
+                let conjunction = Predicate::And(constraints);
+                if *remaining == 0 {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction,
+                    }
+                    .into());
+                }
+                *remaining -= 1;
+                return simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                );
+            }
+        }
         Predicate::Not(inner) => {
             let mut inner_remaining = *remaining;
             Predicate::Not(Box::new(simplify_predicate_with_budget(
@@ -2081,6 +2124,14 @@ fn strict_variables(
             .union(&right.attributes().variables)
             .cloned()
             .collect(),
+        // The absence of an undefined key, or from an undefined rest, is false.
+        Predicate::Absent(absence) => absence
+            .key()
+            .attributes()
+            .variables
+            .union(&absence.rest().attributes().variables)
+            .cloned()
+            .collect(),
         Predicate::Equals(left, right) => {
             let mut strict = BTreeSet::new();
             if provably_defined(right) {
@@ -2250,7 +2301,8 @@ fn has_quantifier(predicate: &Predicate) -> bool {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => false,
+        | Predicate::In(..)
+        | Predicate::Absent(_) => false,
     }
 }
 
@@ -2288,6 +2340,7 @@ fn rename_binders_apart(
         Predicate::Floor(inner) => Predicate::Floor(term(inner, scope)),
         Predicate::Equals(left, right) => Predicate::Equals(term(left, scope), term(right, scope)),
         Predicate::In(left, right) => Predicate::In(term(left, scope), term(right, scope)),
+        Predicate::Absent(absence) => absence.map_terms(|inner| term(inner, scope)),
         Predicate::Not(inner) => Predicate::Not(recurse(inner, scope)),
         Predicate::And(inner) => {
             Predicate::And(inner.iter().map(|inner| *recurse(inner, scope)).collect())
@@ -2347,6 +2400,13 @@ fn collect_predicate_term_pairs<'a>(
             pairs.push((left_b, right_b));
             true
         }
+        (Predicate::Absent(left), Predicate::Absent(right))
+            if left.collection() == right.collection() =>
+        {
+            pairs.push((left.key(), right.key()));
+            pairs.push((left.rest(), right.rest()));
+            true
+        }
         (Predicate::Not(left), Predicate::Not(right)) => {
             collect_predicate_term_pairs(left, right, pairs, binders)
         }
@@ -2385,6 +2445,7 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
         Predicate::True | Predicate::False => None,
         Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => Some(term),
         Predicate::Equals(left, _) | Predicate::In(left, _) => Some(left),
+        Predicate::Absent(absence) => Some(absence.key()),
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
             first_predicate_term(inner)
         }

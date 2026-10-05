@@ -57,7 +57,10 @@ fn bound_names_of(predicate: &Predicate, names: &mut BTreeSet<String>) {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => {}
+        | Predicate::In(..)
+        // An absence prints with a binder of its own (`Absence::binder`), named apart from
+        // its key and rest; it reads back as the absence, not as a quantifier.
+        | Predicate::Absent(_) => {}
         Predicate::Not(inner) => bound_names_of(inner, names),
         Predicate::And(inner) | Predicate::Or(inner) => {
             for predicate in inner {

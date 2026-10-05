@@ -126,6 +126,10 @@ pub fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeS
             variables.extend(left.attributes().variables.iter().cloned());
             variables.extend(right.attributes().variables.iter().cloned());
         }
+        Predicate::Absent(absence) => {
+            variables.extend(absence.key().attributes().variables.iter().cloned());
+            variables.extend(absence.rest().attributes().variables.iter().cloned());
+        }
         Predicate::Not(inner) => collect_predicate_variables(inner, variables),
         Predicate::And(inner) | Predicate::Or(inner) => {
             for predicate in inner {
