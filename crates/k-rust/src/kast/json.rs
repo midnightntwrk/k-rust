@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use k_rust_kore::json_tree::{self, Node};
 
-use super::ast::{Label, Sort, Term};
+use super::ast::{DeepDrop, Label, Sort, Term};
 use super::sort_role::{NumeralSpelling, numeral_spelling};
 
 pub const FORMAT: &str = "KAST";
@@ -193,7 +193,14 @@ fn build_sort(root: Node) -> Result<Sort, Error> {
     let mut stack = vec![Frame::new(root)?];
     loop {
         if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
-            stack.push(Frame::new(child)?);
+            match Frame::new(child) {
+                Ok(frame) => stack.push(frame),
+                Err(error) => {
+                    // The sorts built so far may nest to any depth.
+                    DeepDrop::drop_sorts(stack.into_iter().flat_map(|frame| frame.built));
+                    return Err(error);
+                }
+            }
             continue;
         }
         let frame = stack.pop().expect("the root sort frame remains");
@@ -254,14 +261,27 @@ fn build_label(node: Node) -> Result<Label, Error> {
             "unknown variant `{node}`, expected `KLabel`"
         )));
     }
+    let name = fields.string("name")?;
     Ok(Label {
-        name: fields.string("name")?,
-        parameters: fields
-            .array("params")?
-            .into_iter()
-            .map(build_sort)
-            .collect::<Result<_, _>>()?,
+        name,
+        parameters: build_sorts(fields.array("params")?)?,
     })
+}
+
+/// Build each sort of `nodes`. When one is refused, the sorts built before it, which may nest to
+/// any depth, are dropped with explicit work lists.
+fn build_sorts(nodes: Vec<Node>) -> Result<Vec<Sort>, Error> {
+    let mut sorts = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match build_sort(node) {
+            Ok(sort) => sorts.push(sort),
+            Err(error) => {
+                DeepDrop::drop_sorts(sorts);
+                return Err(error);
+            }
+        }
+    }
+    Ok(sorts)
 }
 
 fn label_node(label: &Label) -> Node {
@@ -277,33 +297,40 @@ fn label_node(label: &Label) -> Node {
 
 enum TermHead {
     Token(Sort, String),
-    Apply(Label, usize),
-    Sequence(usize),
+    Apply(Label),
+    Sequence,
     Variable(String, Option<Sort>),
     Rewrite,
     As,
     InjectedLabel(Label),
 }
 
+/// Read the head of a term node and its children.
+///
+/// The members that cannot nest are read, and an application's or sequence's arity checked,
+/// before the sort or label of the head is built, which may nest to any depth: once it is built,
+/// nothing in this node can fail.
 fn term_head(node: Node) -> Result<(TermHead, Vec<Node>), Error> {
     let mut fields = Fields::new(node)?;
     let node = fields.string("node")?;
     let mut children = Vec::new();
     let head = match node.as_str() {
-        "KToken" => TermHead::Token(
-            build_sort(fields.required("sort")?)?,
-            fields.string("token")?,
-        ),
+        "KToken" => {
+            let token = fields.string("token")?;
+            TermHead::Token(build_sort(fields.required("sort")?)?, token)
+        }
         "KApply" => {
-            let label = build_label(fields.required("label")?)?;
-            let arity = fields.usize("arity")?;
+            let label = fields.required("label")?;
+            let declared = fields.usize("arity")?;
             children = fields.array("args")?;
-            TermHead::Apply(label, arity)
+            check_arity("KApply", declared, &children)?;
+            TermHead::Apply(build_label(label)?)
         }
         "KSequence" => {
-            let arity = fields.usize("arity")?;
+            let declared = fields.usize("arity")?;
             children = fields.array("items")?;
-            TermHead::Sequence(arity)
+            check_arity("KSequence", declared, &children)?;
+            TermHead::Sequence
         }
         "KVariable" => TermHead::Variable(
             fields.string("name")?,
@@ -330,6 +357,18 @@ fn term_head(node: Node) -> Result<(TermHead, Vec<Node>), Error> {
     Ok((head, children))
 }
 
+fn check_arity(node: &'static str, declared: usize, children: &[Node]) -> Result<(), Error> {
+    if declared == children.len() {
+        Ok(())
+    } else {
+        Err(Error::InvalidArity {
+            node,
+            declared,
+            actual: children.len(),
+        })
+    }
+}
+
 fn build_term(root: Node) -> Result<Term, Error> {
     struct Frame {
         head: TermHead,
@@ -347,32 +386,15 @@ fn build_term(root: Node) -> Result<Term, Error> {
             })
         }
 
-        fn finish(self) -> Result<Term, Error> {
+        fn finish(self) -> Term {
             let mut children = self.built.into_iter();
-            let result = match self.head {
+            match self.head {
                 TermHead::Token(sort, token) => Term::Token { token, sort },
-                TermHead::Apply(label, declared) => {
-                    let arguments: Vec<_> = children.collect();
-                    if declared != arguments.len() {
-                        return Err(Error::InvalidArity {
-                            node: "KApply",
-                            declared,
-                            actual: arguments.len(),
-                        });
-                    }
-                    Term::Apply { label, arguments }
-                }
-                TermHead::Sequence(declared) => {
-                    let items: Vec<_> = children.collect();
-                    if declared != items.len() {
-                        return Err(Error::InvalidArity {
-                            node: "KSequence",
-                            declared,
-                            actual: items.len(),
-                        });
-                    }
-                    Term::Sequence(items)
-                }
+                TermHead::Apply(label) => Term::Apply {
+                    label,
+                    arguments: children.collect(),
+                },
+                TermHead::Sequence => Term::Sequence(children.collect()),
                 TermHead::Variable(name, sort) => Term::Variable { name, sort },
                 TermHead::Rewrite => Term::Rewrite {
                     left: Box::new(children.next().expect("KRewrite has a left child")),
@@ -383,18 +405,37 @@ fn build_term(root: Node) -> Result<Term, Error> {
                     alias: Box::new(children.next().expect("KAs has an alias child")),
                 },
                 TermHead::InjectedLabel(label) => Term::InjectedLabel(label),
-            };
-            Ok(result)
+            }
+        }
+
+        /// Hand what this frame has built, which may nest to any depth, to `rubble`.
+        fn discard(self, rubble: &mut DeepDrop) {
+            rubble.terms(self.built);
+            match self.head {
+                TermHead::Token(sort, _) => rubble.sort(sort),
+                TermHead::Variable(_, sort) => rubble.sorts(sort),
+                TermHead::Apply(label) | TermHead::InjectedLabel(label) => rubble.label(label),
+                TermHead::Sequence | TermHead::Rewrite | TermHead::As => {}
+            }
         }
     }
 
     let mut stack = vec![Frame::new(root)?];
     loop {
         if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
-            stack.push(Frame::new(child)?);
+            match Frame::new(child) {
+                Ok(frame) => stack.push(frame),
+                Err(error) => {
+                    let mut rubble = DeepDrop::default();
+                    for frame in stack {
+                        frame.discard(&mut rubble);
+                    }
+                    return Err(error);
+                }
+            }
             continue;
         }
-        let term = stack.pop().expect("the root term frame remains").finish()?;
+        let term = stack.pop().expect("the root term frame remains").finish();
         if let Some(parent) = stack.last_mut() {
             parent.built.push(term);
         } else {

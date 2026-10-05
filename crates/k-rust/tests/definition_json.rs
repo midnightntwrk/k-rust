@@ -344,29 +344,256 @@ fn definitions_of_any_depth_are_read_on_a_small_stack() {
     on_stack(256 << 20, move || drop((from_kast, from_provenance)));
 }
 
+/// The JSON text of a KAST term: `levels` applications of `wrap` around the variable `X`.
+fn deep_term_text(levels: usize) -> String {
+    let wrap = r#"{"node":"KApply","label":{"node":"KLabel","name":"wrap","params":[]},"arity":1,"args":["#;
+    let leaf = r#"{"node":"KVariable","name":"X"}"#;
+    format!("{}{leaf}{}", wrap.repeat(levels), "]}".repeat(levels))
+}
+
+/// The JSON text of a KAST sort: `levels` applications of the sort constructor `S`.
+fn deep_sort_text(levels: usize) -> String {
+    let sort = r#"{"node":"KSort","name":"S","params":["#;
+    let leaf = r#"{"node":"KSort","name":"S","params":[]}"#;
+    format!("{}{leaf}{}", sort.repeat(levels), "]}".repeat(levels))
+}
+
+const BOGUS: &str = r#"{"node":"Bogus"}"#;
+
+/// Read each case's document with `read` on a 1 MiB thread and check that it is refused with an
+/// error whose text contains the case's expected text. A document that is read is leaked, not
+/// dropped, so that only the reader's own work is on the small stack.
+fn assert_refused_on_a_small_stack<T: 'static, E: std::fmt::Display + 'static>(
+    read: fn(&str) -> Result<T, E>,
+    cases: Vec<(&'static str, String, &'static str)>,
+) {
+    for (case, document, expected) in cases {
+        let error = on_stack(1 << 20, move || match read(&document) {
+            Ok(value) => {
+                std::mem::forget(value);
+                None
+            }
+            Err(error) => Some(error.to_string()),
+        });
+        let error = error.unwrap_or_else(|| panic!("{case}: the document is read"));
+        assert!(error.contains(expected), "{case}: {error}");
+    }
+}
+
+/// A refused KAST term document is refused without recursing over the depth of what the reader
+/// built before it found the error: each document below builds a term or sort 50,000 levels
+/// deep (about 5 MB of text) before it fails, and each is refused on a 1 MiB thread.
+#[test]
+fn malformed_terms_of_any_depth_are_refused_on_a_small_stack() {
+    let levels = 50_000;
+    let term = deep_term_text(levels);
+    let sort = deep_sort_text(levels);
+    let label = |params: &str| format!(r#"{{"node":"KLabel","name":"f","params":[{params}]}}"#);
+    let envelope = |term: String| format!(r#"{{"format":"KAST","version":4,"term":{term}}}"#);
+    let apply = |label: String, arity: &str, args: String| {
+        envelope(format!(
+            r#"{{"node":"KApply","label":{label},{arity}"args":[{args}]}}"#
+        ))
+    };
+    assert_refused_on_a_small_stack(
+        k_rust::kast::json::from_str,
+        vec![
+            (
+                "a malformed sibling of a deep term",
+                apply(label(""), r#""arity":2,"#, format!("{term},{BOGUS}")),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "an arity that does not count a deep argument",
+                apply(label(""), r#""arity":2,"#, term.clone()),
+                "declares arity 2, but contains 1 children",
+            ),
+            (
+                "a malformed sibling of a variable of a deep sort",
+                apply(
+                    label(""),
+                    r#""arity":2,"#,
+                    format!(r#"{{"node":"KVariable","name":"X","sort":{sort}}},{BOGUS}"#),
+                ),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "a token of a deep sort without its text",
+                envelope(format!(r#"{{"node":"KToken","sort":{sort}}}"#)),
+                "missing field `token`",
+            ),
+            (
+                "a malformed sibling of a deep sort parameter",
+                envelope(format!(
+                    r#"{{"node":"KToken","token":"t","sort":{{"node":"KSort","name":"S","params":[{sort},{BOGUS}]}}}}"#
+                )),
+                "unknown variant `Bogus`, expected `KSort`",
+            ),
+            (
+                "a malformed sibling of a deep label parameter",
+                apply(
+                    label(&format!("{sort},{BOGUS}")),
+                    r#""arity":0,"#,
+                    String::new(),
+                ),
+                "unknown variant `Bogus`, expected `KSort`",
+            ),
+            (
+                "an application of a deeply parametric label without its arity",
+                apply(label(&sort), "", String::new()),
+                "missing field `arity`",
+            ),
+        ],
+    );
+}
+
+/// The definition readers, and the module list reader, drop the terms they decoded with explicit
+/// work stacks when a later part of the document is refused: a malformed sibling, another field
+/// of the same sentence, a later sentence or module, or a check of the whole definition. Each
+/// document below holds a term 50,000 levels deep and is refused on a 1 MiB thread.
+#[test]
+fn definitions_refused_after_a_deep_term_are_refused_on_a_small_stack() {
+    let levels = 50_000;
+    let one = deep_term_text(1);
+    let deep = deep_term_text(levels);
+    // An outermost application of arity 2 whose second argument is malformed.
+    let malformed_sibling = format!(
+        r#"{{"node":"KApply","label":{{"node":"KLabel","name":"wrap","params":[]}},"arity":2,"args":[{},{BOGUS}]}}"#,
+        deep_term_text(levels - 1)
+    );
+    let requires = r#"{"node":"KVariable","name":"R"}"#;
+    let later = r#"{"node":"KVariable","name":"L"}"#;
+    let other = r#"{"node":"KVariable","name":"M"}"#;
+
+    // `MAIN` holds a rule whose body is `wrap(X)` and whose requires is `R`, then a rule whose
+    // body is `L`; a module `LATER` follows, whose one rule's body is `L` too.
+    let later_rule = || Sentence::Rule {
+        body: Term::variable("L"),
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: empty_attributes(),
+    };
+    let mut definition = complete_definition(vec![
+        Sentence::Rule {
+            body: Term::apply("wrap", vec![Term::variable("X")]),
+            requires: Term::variable("R"),
+            ensures: bool_token("true"),
+            attributes: empty_attributes(),
+        },
+        later_rule(),
+    ]);
+    definition.modules.push(FlatModule {
+        name: "LATER".into(),
+        imports: Vec::new(),
+        local_sentences: vec![Arc::new(later_rule())],
+        attributes: empty_attributes(),
+    });
+    // Apply each edit to its first occurrence, after checking how often it occurs.
+    let edit = |text: &str, edits: &[(&str, &str, usize)]| {
+        edits
+            .iter()
+            .fold(text.to_owned(), |text, (from, to, count)| {
+                assert_eq!(text.matches(from).count(), *count, "{from}");
+                text.replacen(from, to, 1)
+            })
+    };
+    let kast = json::to_string(&definition).unwrap();
+    let provenance = json::to_provenance_string(&definition, &SourceTable::default()).unwrap();
+    let main = r#""mainModule":"MAIN""#;
+    let missing_main = r#""mainModule":"NOPE""#;
+    let cases = |text: &str| {
+        vec![
+            (
+                "a malformed sibling inside the deep body",
+                edit(text, &[(&one, &malformed_sibling, 1)]),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "a malformed requires of the deep rule",
+                edit(text, &[(&one, &deep, 1), (requires, BOGUS, 1)]),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "a malformed later rule",
+                edit(text, &[(&one, &deep, 1), (later, BOGUS, 2)]),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "a malformed rule in a later module",
+                edit(
+                    text,
+                    &[(&one, &deep, 1), (later, other, 2), (later, BOGUS, 1)],
+                ),
+                "unknown variant `Bogus`",
+            ),
+            (
+                "a missing main module",
+                edit(text, &[(&one, &deep, 1), (main, missing_main, 1)]),
+                "\"NOPE\"",
+            ),
+        ]
+    };
+    assert_refused_on_a_small_stack(json::from_str, cases(&kast));
+    assert_refused_on_a_small_stack(json::from_provenance_str, cases(&provenance));
+
+    let list = edit(
+        &kast,
+        &[
+            (&one, &deep, 1),
+            (r#""node":"KDefinition""#, r#""node":"KFlatModuleList""#, 1),
+            (r#""modules":"#, r#""term":"#, 1),
+            (main, missing_main, 1),
+        ],
+    );
+    assert_refused_on_a_small_stack(
+        json::module_list_from_str,
+        vec![("a module list without its main module", list, "\"NOPE\"")],
+    );
+}
+
 /// Outside its terms a definition nests only a few levels, so serde's recursion limit stays on
-/// there: an attribute value nested 100,000 levels deep is refused with an ordinary error on a
-/// 1 MiB thread rather than read by recursion.
+/// there: an attribute value, or the sort of a production, nested 100,000 levels deep is refused
+/// with an ordinary error on a 1 MiB thread rather than read by recursion. A declaration's sort
+/// nests at most two levels in a definition that passes the sort checks, which reject nested
+/// parametric sorts.
 #[test]
 fn deep_values_outside_terms_are_refused() {
+    let levels = 100_000;
     let mut attributes = BTreeMap::new();
     attributes.insert("nested".to_owned(), value!([]));
     let mut definition = deep_rule_definition(1);
     definition.attributes = Attributes::new(attributes);
+    definition.modules[0]
+        .local_sentences
+        .push(Arc::new(Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("Declared"),
+            items: Vec::new(),
+            attributes: empty_attributes(),
+        }));
     let encoded = json::to_string(&definition).unwrap();
-    assert_eq!(encoded.matches(r#""nested":[]"#).count(), 1, "{encoded}");
-    let levels = 100_000;
-    let deep = encoded.replace(
+    let edit = |from: &str, to: &str| {
+        assert_eq!(encoded.matches(from).count(), 1, "{encoded}");
+        encoded.replace(from, to)
+    };
+    let deep_attribute = edit(
         r#""nested":[]"#,
         &format!(r#""nested":{}{}"#, "[".repeat(levels), "]".repeat(levels)),
     );
-    let error = on_stack(1 << 20, move || {
-        json::from_str(&deep).map(drop).unwrap_err()
-    });
-    assert!(
-        matches!(&error, json::Error::Json(_)) && error.to_string().contains("recursion limit"),
-        "{error}"
+    let deep_production_sort = edit(
+        r#"{"node":"KSort","name":"Declared","params":[]}"#,
+        &deep_sort_text(levels),
     );
+    for deep in [deep_attribute, deep_production_sort] {
+        let error = on_stack(1 << 20, move || {
+            json::from_str(&deep).map(drop).unwrap_err()
+        });
+        assert!(
+            matches!(&error, json::Error::Json(_)) && error.to_string().contains("recursion limit"),
+            "{error}"
+        );
+    }
 }
 
 #[test]

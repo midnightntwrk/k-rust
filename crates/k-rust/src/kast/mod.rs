@@ -10,6 +10,7 @@ pub mod printer;
 pub(crate) mod sort_role;
 pub(crate) mod string;
 
+pub(crate) use ast::DeepDrop;
 pub use ast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 pub use names::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, WellKnownModule};
 pub(crate) use sort_role::SortRole;
