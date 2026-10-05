@@ -27,6 +27,7 @@ use std::{
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize::{self, External, ResultSort},
+    fresh::RequestNames,
     rewrite::Pattern,
     rule::Predicate,
     search::{PatternMatch, PatternSearchResult, match_disjunction},
@@ -51,6 +52,10 @@ use super::{Backend, BackendError};
 pub struct BackendMatchTarget {
     pub pattern: Pattern,
     pub generated_anonymous_variables: BTreeSet<Variable>,
+    /// The spellings of the target as received, before its aliases were unfolded
+    /// (`RequestNames::of_received`): names of the request that the execution or search
+    /// matched against it mints none of.
+    pub request_names: RequestNames,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -214,6 +219,7 @@ pub fn prepare_backend_match_target(
     Ok(BackendMatchTarget {
         pattern,
         generated_anonymous_variables,
+        request_names: RequestNames::of_received(&[&compiled.pattern]),
     })
 }
 

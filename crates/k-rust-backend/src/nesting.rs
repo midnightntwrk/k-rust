@@ -323,7 +323,7 @@ fn level(
 }
 
 /// The direct subpatterns of `pattern`, in order.
-fn children(pattern: &kore::Pattern) -> (&[kore::Pattern], &[kore::Pattern]) {
+pub(crate) fn children(pattern: &kore::Pattern) -> (&[kore::Pattern], &[kore::Pattern]) {
     use kore::Pattern;
     use std::slice::from_ref;
 
@@ -354,7 +354,7 @@ fn children(pattern: &kore::Pattern) -> (&[kore::Pattern], &[kore::Pattern]) {
 }
 
 /// The sorts that `pattern` carries itself, not those of its subpatterns.
-fn sorts(pattern: &kore::Pattern) -> impl Iterator<Item = &kore::Sort> {
+pub(crate) fn sorts(pattern: &kore::Pattern) -> impl Iterator<Item = &kore::Sort> {
     use kore::Pattern;
     use std::slice::from_ref;
 

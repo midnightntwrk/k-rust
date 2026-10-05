@@ -209,7 +209,7 @@ pub(super) fn retain_witness(
     definition: &BackendDefinition,
     witnesses: &mut Vec<PathWitness>,
     path: &PathSearchState,
-    options: SearchOptions,
+    options: &SearchOptions,
     solver: &dyn SmtSolver,
     effects: &mut Vec<BuiltinEffect>,
     incomplete: &mut Vec<IncompleteSearch>,

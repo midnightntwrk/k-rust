@@ -67,7 +67,10 @@ use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
-    alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
+    alias::{
+        AliasDefinition, UnfoldingBudget, collect as collect_aliases, expand as expand_aliases,
+        expand_within as expand_aliases_within,
+    },
     builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     externalize,
@@ -826,6 +829,14 @@ pub enum DefinitionError {
     MalformedCollection(String),
     MalformedAlias(String),
     AliasCycle(Vec<String>),
+    /// Unfolding the aliases of a request pattern, or of the axioms of a definition, would add
+    /// `added` to the size of what is unfolded (`alias::Size`: its pattern and sort nodes and the
+    /// bytes of their names), more than the `available` part of the limit
+    /// (`alias::UNFOLDING_LIMIT`) that its operation has left.
+    AliasUnfoldingTooLarge {
+        added: u64,
+        available: u64,
+    },
     MacroOrAliasInImplication(String),
     MacroOrAliasInExecutablePattern(String),
     PredicateInTermPosition {
@@ -965,6 +976,13 @@ impl fmt::Display for DefinitionError {
             Self::MalformedAlias(error) => write!(formatter, "Malformed alias: {error}"),
             Self::AliasCycle(aliases) => {
                 write!(formatter, "Alias cycle: {}", aliases.join(" -> "))
+            }
+            Self::AliasUnfoldingTooLarge { added, available } => {
+                write!(
+                    formatter,
+                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of the limit of {} on what alias unfolding may add",
+                    crate::alias::UNFOLDING_LIMIT
+                )
             }
             Self::MacroOrAliasInImplication(symbol) => {
                 write!(
@@ -1570,6 +1588,8 @@ impl BackendDefinition {
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
+        // The axioms of a definition are unfolded together, within one budget.
+        let mut unfolding = UnfoldingBudget::new();
         visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
             for &index in &rule_orders[module.name.as_str()] {
@@ -1604,7 +1624,7 @@ impl BackendDefinition {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     pattern: if expand {
-                        expand_aliases(pattern, &aliases)?
+                        expand_aliases_within(pattern, &aliases, &mut unfolding)?.into_owned()
                     } else {
                         (**pattern).clone()
                     },
@@ -2030,7 +2050,7 @@ impl BackendDefinition {
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
         self.validate_implication_pattern(pattern)?;
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        let mut body = &pattern;
+        let mut body = &*pattern;
         let mut existentials = BTreeSet::new();
         while let kore::Pattern::Exists {
             variable,
@@ -4693,6 +4713,107 @@ mod tests {
                 .internalize_term(&parse_pattern("state{}(value{}())").unwrap(), &[])
                 .unwrap()
         );
+    }
+
+    /// A module of `aliases` chained as `al{i}(X) := pair(al{i+1}(X), al{i+1}(X))`, so that
+    /// `al0` unfolds to `2^aliases` occurrences of its argument, and of `axioms`.
+    fn doubling_alias_chain(aliases: usize, axioms: &str) -> kore::Definition {
+        let mut source = String::from(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol pair{}(S{}, S{}) : S{} [constructor{}()]
+                symbol a{}() : S{} [constructor{}()]
+        "#});
+        for index in 0..aliases {
+            let body = if index + 1 == aliases {
+                "pair{}(X:S{}, X:S{})".to_owned()
+            } else {
+                let next = index + 1;
+                format!("pair{{}}(al{next}{{}}(X:S{{}}), al{next}{{}}(X:S{{}}))")
+            };
+            source.push_str(&format!(
+                "    alias al{index}{{}}(S{{}}) : S{{}} where al{index}{{}}(X:S{{}}) := {body} []\n"
+            ));
+        }
+        source.push_str(axioms);
+        source.push_str("endmodule []\n");
+        parse_definition(&source).expect("the chain should parse")
+    }
+
+    /// Alias unfolding can be exponential in the definition: a module of a few kilobytes can
+    /// imply an unfolding of 2^64 nodes. Loading measures the aliases without unfolding them, and
+    /// refuses the axioms or request patterns whose unfolding would be too large to build.
+    #[test]
+    fn refuses_alias_unfoldings_too_large_to_use_before_building_them() {
+        // The aliases alone load: what an alias unfolds to depends on what it is applied to.
+        let definition = BackendDefinition::internalize(&doubling_alias_chain(64, ""), "MAIN")
+            .expect("the chain should load");
+        let pattern = parse_pattern("al0{}(a{}())").unwrap();
+        assert!(matches!(
+            definition.internalize_pattern(&pattern, &[]),
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
+        assert!(matches!(
+            BackendDefinition::internalize(
+                &doubling_alias_chain(64, "axiom{} \\equals{S{}, S{}}(a{}(), al0{}(a{}())) []\n"),
+                "MAIN"
+            ),
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
+
+        // `al0` of an 18-alias chain adds about 2.4 million to an application, within the limit,
+        // and twice that is beyond it.
+        let axiom = indoc! {r#"
+            axiom{} \rewrites{S{}}(
+                \and{S{}}(pair{}(al0{}(X:S{}), al0{}(X:S{})), \top{S{}}()),
+                a{}()
+            ) []
+        "#};
+        assert!(matches!(
+            BackendDefinition::internalize(&doubling_alias_chain(18, axiom), "MAIN"),
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
+        let definition = BackendDefinition::internalize(&doubling_alias_chain(18, ""), "MAIN")
+            .expect("the chain should load");
+        let pattern = parse_pattern("pair{}(al0{}(X:S{}), al0{}(X:S{}))").unwrap();
+        assert!(matches!(
+            definition.internalize_pattern(&pattern, &[]),
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
+    }
+
+    /// An alias argument that the alias keeps no copy of is not unfolded at all: an axiom and a
+    /// request that wrap the 64-alias chain in `drop`, which ignores its parameter, or in
+    /// `shadow`, which only uses it under a binder that shadows it, load and internalize at
+    /// once, and so does an alias whose body drops an application of the chain.
+    #[test]
+    fn alias_arguments_that_are_dropped_are_never_unfolded() {
+        let aliases = indoc! {r#"
+            alias drop{}(S{}) : S{} where drop{}(X:S{}) := a{}() []
+            alias shadow{}(S{}) : S{} where shadow{}(X:S{}) := \exists{S{}}(X:S{}, X:S{}) []
+            alias hide{}(S{}) : S{} where hide{}(X:S{}) := drop{}(al0{}(X:S{})) []
+        "#};
+        for applied in ["drop{}(al0{}(X:S{}))", "hide{}(X:S{})"] {
+            let axiom = format!(
+                "axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}({applied}, \\top{{S{{}}}}()), a{{}}()) []\n"
+            );
+            BackendDefinition::internalize(
+                &doubling_alias_chain(64, &format!("{aliases}{axiom}")),
+                "MAIN",
+            )
+            .unwrap_or_else(|error| panic!("{applied}: {error}"));
+        }
+        let definition = BackendDefinition::internalize(&doubling_alias_chain(64, aliases), "MAIN")
+            .expect("the chain should load");
+        let pattern = parse_pattern("drop{}(al0{}(a{}()))").unwrap();
+        assert!(definition.internalize_pattern(&pattern, &[]).is_ok());
+        // `\exists{S{}}(X:S{}, X:S{})` is no term, which internalization refuses once unfolded.
+        let pattern = parse_pattern("shadow{}(al0{}(a{}()))").unwrap();
+        assert!(matches!(
+            definition.internalize_pattern(&pattern, &[]),
+            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm))
+        ));
     }
 
     #[test]

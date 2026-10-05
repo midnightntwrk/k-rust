@@ -24,6 +24,7 @@ use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::{Admission, Admitted, BackendDefinition},
     externalize,
+    fresh::RequestNames,
     implication::ImplicationStatus,
     proof::{ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
@@ -761,7 +762,9 @@ impl Backend {
                 assume_initial_defined: request.assume_state_defined,
                 result_modality: request.result_modality.into(),
                 retain_trace: true,
-                request_names: Default::default(),
+                // The state as received, before its aliases are unfolded: none here, since an
+                // executable state has none, but every path names its request the same way.
+                request_names: RequestNames::of_received(&[&syntax]),
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -792,8 +795,9 @@ impl Backend {
     ) -> Result<SearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
-        let options = search_options(&request);
+        let mut options = search_options(&request);
         let syntax = request.state;
+        options.request_names = RequestNames::of_received(&[&syntax]);
         let module = request.module_name.as_deref();
         self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
@@ -841,8 +845,9 @@ impl Backend {
     ) -> Result<PathSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
-        let options = search_options(&request);
+        let mut options = search_options(&request);
         let syntax = request.state;
+        options.request_names = RequestNames::of_received(&[&syntax]);
         let module = request.module_name.as_deref();
         self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
@@ -890,9 +895,12 @@ impl Backend {
     ) -> Result<PatternSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
-        let options = pattern_search_options(&request);
+        let mut options = pattern_search_options(&request);
         let initial_syntax = request.state;
         let target_syntax = request.pattern;
+        // The target is internalized without the executable check, so it may apply aliases that
+        // drop variables the client wrote; the search mints no name spelled like one of them.
+        options.request_names = RequestNames::of_received(&[&initial_syntax, &target_syntax]);
         let module = request.module_name.as_deref();
         let patterns = [&initial_syntax, &target_syntax];
         self.with_solver_over(module, &patterns, |definition, solver| {
@@ -946,9 +954,12 @@ impl Backend {
     ) -> Result<PathPatternSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
-        let options = pattern_search_options(&request);
+        let mut options = pattern_search_options(&request);
         let initial_syntax = request.state;
         let target_syntax = request.pattern;
+        // The target is internalized without the executable check, so it may apply aliases that
+        // drop variables the client wrote; the search mints no name spelled like one of them.
+        options.request_names = RequestNames::of_received(&[&initial_syntax, &target_syntax]);
         let module = request.module_name.as_deref();
         let patterns = [&initial_syntax, &target_syntax];
         self.with_solver_over(module, &patterns, |definition, solver| {
@@ -1404,6 +1415,7 @@ fn bounded_search_options(
         max_breadth,
         max_results,
         max_simplification_iterations,
+        request_names: RequestNames::default(),
     }
 }
 
@@ -2755,6 +2767,38 @@ mod tests {
                 .iter()
                 .all(|found| found.witness.id.len() == 2)
         );
+    }
+
+    /// The target of a pattern search is internalized without the executable check, so it may
+    /// apply an alias that drops a variable the client wrote. The search still mints no name
+    /// spelled like it: the rule's existential `Y` is first minted `Ex#Y!0`, which is spelled
+    /// `Ex-hY-b0` like the variable the target's `ignore` drops.
+    #[test]
+    fn pattern_searches_mint_apart_from_target_variables_an_alias_drops() {
+        const DEFINITION: &str = r#"[]
+module DROP
+  sort S{} []
+  symbol a{}() : S{} [constructor{}(), functional{}()]
+  symbol c{}(S{}) : S{} [constructor{}(), functional{}()]
+  symbol pair{}(S{}, S{}) : S{} [constructor{}(), functional{}()]
+  alias ignore{}(S{}) : S{} where ignore{}(V:S{}) := a{}() []
+  axiom{} \rewrites{S{}}(
+    \and{S{}}(c{}(Z:S{}), \top{S{}}()),
+    \and{S{}}(pair{}(Y:S{}, a{}()), \top{S{}}())
+  ) [label{}("mint")]
+endmodule []"#;
+        let mut backend = Backend::new(DEFINITION, "DROP", BackendOptions::default()).unwrap();
+        let request = SearchPatternRequest::new(
+            kore("c{}(a{}())"),
+            kore("pair{}(W:S{}, ignore{}(Ex-hY-b0:S{}))"),
+        );
+        let states =
+            serde_json::to_string(&backend.search_pattern(request.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_string(&backend.search_pattern_paths(request).unwrap()).unwrap();
+        for response in [states, paths] {
+            assert!(response.contains("Ex-hY-b"), "{response}");
+            assert!(!response.contains("Ex-hY-b0"), "{response}");
+        }
     }
 
     #[test]

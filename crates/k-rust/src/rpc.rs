@@ -52,6 +52,7 @@ use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
+    fresh::RequestNames,
     implication::{
         Bindings, ImplicationError, ImplicationRequestError, ImplicationStatus, ImplicationVerdict,
         Side, SpecialConsequent, bottom_antecedent, check_negated_consequent,
@@ -745,6 +746,9 @@ impl RpcService {
                         step_timeout: step_timeout.map(Duration::from_millis),
                         moving_average_timeout: moving_average_step_timeout,
                         assume_initial_defined: assume_state_defined,
+                        // The state as received: an executable state applies no alias, but every
+                        // path names its request the same way.
+                        request_names: RequestNames::of_received(&[&syntax]),
                         ..ExecutionOptions::default()
                     },
                     solver,

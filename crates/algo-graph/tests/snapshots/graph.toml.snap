@@ -1111,8 +1111,8 @@ id = "backend.alias.unfold"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding alias unfolding"
-variable = "p = pattern size; o = expanded output size, which multiplies by the repeat count of a parameter at each nested alias level; b = binders visited; r = total size of the parameter map at a binder; n = aliases in the definition"
-no_counter = "alias unfolding has no dedicated counter; it runs once per alias at load and once per internalize_term or internalize_pattern request"
+variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendAliasUnfold"
@@ -1130,7 +1130,7 @@ symbol = "expand"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/alias.rs"
-symbol = "expand_with"
+symbol = "expand_within"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1140,15 +1140,50 @@ symbol = "collect"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/alias.rs"
-symbol = "validate_expansions"
+symbol = "measure_aliases"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "unfolded_size"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "measure_node"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "visit_associative"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "lay_out"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "Expander::expand"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "Expander::enter"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "Expander::expand_binder"
 
 [[node.cost]]
 mode = "one expand call"
-bound = "O(o + b x (p + r))"
+bound = "O(p + o log^2 o + v log o): every node it visits is built once, as output or as an alias application it enters, and every capture check is counted, with map and set operations of logarithmic cost; free-variable sets are merged smaller into larger, O(o log o) insertions, and copied only with a copy of their argument; a renamed binder resumes the fresh-name search of its base name where the last one stopped, so each candidate is tried at most once, and a rejected one is the name of a variable built or one of the v; O(p) for a pattern that applies no alias, which is returned as it is"
 
 [[node.cost]]
-mode = "definition load (validate_expansions)"
-bound = "n expand calls, each O(o + b x (p + r))"
+mode = "definition load (measure_aliases)"
+bound = "O(B log B + A) to measure and lay out each body once, then one expand call per axiom, whose builds together exceed the axioms by at most UNFOLDING_LIMIT"
 
 [[node]]
 kind = "algorithm"
@@ -1491,7 +1526,7 @@ symbol = "FreshCounter::mint"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/alias.rs"
-symbol = "fresh_variable"
+symbol = "Expander::rename_to_avoid_capture"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1537,7 +1572,7 @@ mode = "local counter"
 bound = "O(c) per name, amortized O(1)"
 
 [[node.cost]]
-mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart, alias fresh_variable)"
+mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the names of the form {base}Alias{digits} of the variables the unfolding has built, recorded as it builds them, one lookup each, and resumes from the last candidate of its base name, so each candidate is tried once per unfolding (alias Expander::rename_to_avoid_capture)"
 bound = "O(v log v) per call before the retry loop"
 
 [[node.cost]]

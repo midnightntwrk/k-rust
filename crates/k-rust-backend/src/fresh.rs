@@ -16,7 +16,7 @@
 //! bound = "O(c) per name, amortized O(1)"
 //!
 //! [[cost]]
-//! mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart, alias fresh_variable)"
+//! mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the names of the form {base}Alias{digits} of the variables the unfolding has built, recorded as it builds them, one lookup each, and resumes from the last candidate of its base name, so each candidate is tried once per unfolding (alias Expander::rename_to_avoid_capture)"
 //! bound = "O(v log v) per call before the retry loop"
 //!
 //! [[cost]]
@@ -56,6 +56,7 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::kore::ast as kore;
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -84,6 +85,28 @@ impl RequestNames {
         let mut names = Self::default();
         for pattern in patterns {
             names.add_pattern(pattern);
+        }
+        names
+    }
+
+    /// The spellings of every variable, free or bound, of the patterns of a request as it was
+    /// received, before its aliases were unfolded.
+    ///
+    /// Unfolding an alias drops the variables of an argument that the alias ignores, so the
+    /// internal patterns of a request ([`RequestNames::of`]) may lack spellings that the client
+    /// wrote, and a mint spelled like one of them would print as a variable of the request. A
+    /// caller that internalizes a request's patterns passes these names along with them
+    /// (`ExecutionOptions::request_names`, `SearchOptions::request_names`).
+    pub fn of_received(patterns: &[&kore::Pattern]) -> Self {
+        let mut names = Self::default();
+        let spellings = Arc::make_mut(&mut names.0);
+        for pattern in patterns {
+            spellings.extend(
+                pattern
+                    .variable_occurrences()
+                    .into_keys()
+                    .map(|(_, name)| encode_variable_name(&name)),
+            );
         }
         names
     }

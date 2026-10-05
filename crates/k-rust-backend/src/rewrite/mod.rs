@@ -475,8 +475,10 @@ pub struct ExecutionOptions {
     /// Retain the full path trace in each result leaf. Callers that only consume the final
     /// configuration can discard previous entries while keeping the latest rewrite for halts.
     pub retain_trace: bool,
-    /// The names of the request's patterns other than the initial ones, such as a target the
-    /// caller matches the results against. The execution mints no name spelled like one of
+    /// Further names of the request: the spellings of its patterns as the caller received them
+    /// (`RequestNames::of_received`), which unfolding their aliases may have dropped from the
+    /// internalized patterns, and of its patterns other than the initial ones, such as a target
+    /// the caller matches the results against. The execution mints no name spelled like one of
     /// them, nor like a variable of the initial patterns (`fresh::FreshCounter`).
     pub request_names: RequestNames,
 }
