@@ -2,14 +2,14 @@
 //! id = "backend.alias.unfold"
 //! name = "capture-avoiding alias unfolding"
 //! sites = ["expand", "expand_within", "collect", "measure_aliases", "unfolded_size", "measure_node", "visit_associative", "lay_out", "Expander::expand", "Expander::enter", "Expander::expand_binder"]
-//! variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+//! variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 //! counters = []
 //! no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one expand call"
-//! bound = "O(p + o log^2 o): every node it visits is built once, as output or as an alias application it enters, and every capture check is counted, with map and set operations of logarithmic cost; free-variable sets are merged smaller into larger, O(o log o) insertions, and copied only with a copy of their argument; O(p) for a pattern that applies no alias, which is returned as it is"
+//! bound = "O(p + o log^2 o + v log o): every node it visits is built once, as output or as an alias application it enters, and every capture check is counted, with map and set operations of logarithmic cost; free-variable sets are merged smaller into larger, O(o log o) insertions, and copied only with a copy of their argument; a renamed binder resumes the fresh-name search of its base name where the last one stopped, so each candidate is tried at most once, and a rejected one is the name of a variable built or one of the v; O(p) for a pattern that applies no alias, which is returned as it is"
 //!
 //! [[cost]]
 //! mode = "definition load (measure_aliases)"
@@ -54,14 +54,22 @@ use crate::definition::DefinitionError;
 /// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes
 /// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
 /// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
-/// and every later pass over them multiply. Time grows with it too: unfolding builds nothing it
-/// does not count, and the size also counts the capture checks at the binders of the alias bodies
-/// it enters, the one part of its work that is not proportional to what it builds. Each unit is
-/// visited or checked once, with map and set operations of logarithmic cost, whatever the number
-/// of free variables of the arguments, which took 30 to 200 ns per unit in a release build on
-/// alias chains that duplicate their argument, nest binders around it, rebuild it at each level,
-/// or check many parameters at many binders, so an operation that spends the whole limit unfolds
-/// in under a second. A pattern that large is too large to execute or prove anything about,
+/// and every later pass over them multiply. One thing is built larger than it is measured: a
+/// binder renamed to avoid capture gets `Alias` and an index added to its name, so a pattern
+/// whose binders, of one-byte names, are all renamed built 2.3 times what it measured. Time grows
+/// with the size too: unfolding builds nothing it does not count, and the size also counts the
+/// capture checks at the binders of the alias bodies it enters, the one part of its work that is
+/// not proportional to what it builds. Each unit is visited or checked once, with map and set
+/// operations of logarithmic cost, whatever the number of free variables of the arguments. The
+/// fresh names a renamed binder tries are not counted, but each candidate is tried at most once
+/// per operation, so the tries are one per renamed binder and one per name of the form of a
+/// fresh name among the variables built and those of the alias bodies entered ([`Expander`]).
+/// With the stack provided up front, as operations provide it, a release build took 18 to 150 ns
+/// per measured unit on alias chains that duplicate their argument, nest binders around it, pass
+/// it through 256,000 nested bodies, or rename every binder they nest around it, on a body of
+/// 64,000 nested binders that are all renamed, and on a chain of 64,000 renamed binders around an
+/// argument whose free variables spell the first 64,000 candidates; unfolding 98% of the limit
+/// took 0.55 s. A pattern that large is too large to execute or prove anything about,
 /// while the aliases of generated definitions (the modalities of claims, which unfold to their
 /// argument) add next to nothing, and the patterns a client sends are not counted, only what
 /// unfolding adds to them.
@@ -1224,21 +1232,11 @@ enum Binding {
     Renamed(kore::Variable),
 }
 
-/// Whether `free` has a variable named `name`, of either kind and any sort: sets of variables are
-/// ordered by kind, then name, then sort, and a sort variable with the empty name is the least sort.
-fn has_name(free: &BTreeSet<kore::Variable>, name: &str) -> bool {
-    [kore::VariableKind::Element, kore::VariableKind::Set]
-        .into_iter()
-        .any(|kind| {
-            let least = kore::Variable {
-                kind,
-                name: name.to_owned(),
-                sort: kore::Sort::Variable(String::new()),
-            };
-            free.range(least..)
-                .next()
-                .is_some_and(|found| found.kind == kind && found.name == name)
-        })
+/// Whether `name` has the form of a fresh name, `{base}Alias{digits}`
+/// ([`Expander::rename_to_avoid_capture`]).
+fn spells_fresh(name: &str) -> bool {
+    let base = name.trim_end_matches(|character: char| character.is_ascii_digit());
+    base.len() < name.len() && base.ends_with("Alias")
 }
 
 /// Whether some position of `positions`, in increasing order, is in `range`.
@@ -1256,8 +1254,6 @@ struct Scope<'a> {
     sorts: BTreeMap<&'a str, kore::Sort>,
     /// What each parameter, and each renamed binder around the current position, stands for.
     terms: BTreeMap<&'a kore::Variable, Binding>,
-    /// The names of the renamed binders around the current position.
-    renamed: BTreeSet<String>,
 }
 
 impl<'a> Scope<'a> {
@@ -1266,7 +1262,6 @@ impl<'a> Scope<'a> {
             alias: None,
             sorts: BTreeMap::new(),
             terms: BTreeMap::new(),
-            renamed: BTreeSet::new(),
         }
     }
 
@@ -1314,16 +1309,28 @@ impl Positions<'_> {
 /// body ([`Layout::captured`]): whether it has an occurrence in the binder's range, and whether
 /// its argument's set has the binder variable, so the check takes one lookup per parameter
 /// whatever the number of free variables, and no pattern or set is rescanned.
+///
+/// A renamed binder takes the next fresh name of its base name that no variable of its body and
+/// no variable built so far spells ([`Expander::rename_to_avoid_capture`]). Each base name's
+/// index only grows through one unfolding, so a candidate is tried at most once: the fresh-name
+/// search costs one try per renamed binder plus one per distinct name of the form
+/// `{base}Alias{digits}` among the variables built and the bodies entered, each name of which the
+/// measure counts.
 struct Expander<'a> {
     aliases: &'a BTreeMap<String, AliasDefinition>,
+    /// For each base name, the index of its next fresh-name candidate, `{base}Alias{index}`.
+    fresh: BTreeMap<String, u64>,
+    /// The names of the variables built so far that have the form of a fresh name
+    /// ([`spells_fresh`]).
+    built: BTreeSet<String>,
     /// What the unfolding built besides its result, one unit per argument and the application
     /// node of each alias application it entered, and the capture checks of the binders of the
     /// bodies it entered ([`Size`]).
     #[cfg(test)]
     entered: u64,
     /// The other operations it performed: the elements it inserted into or copied between sets
-    /// of free variables, the variables it removed from them, and the fresh-name candidates it
-    /// tried, each with one lookup per argument set.
+    /// of free variables, the variables it removed from them, the fresh-name candidates it tried,
+    /// and the names it recorded in [`Expander::built`].
     #[cfg(test)]
     steps: u64,
 }
@@ -1332,6 +1339,8 @@ impl<'a> Expander<'a> {
     fn new(aliases: &'a BTreeMap<String, AliasDefinition>) -> Self {
         Self {
             aliases,
+            fresh: BTreeMap::new(),
+            built: BTreeSet::new(),
             #[cfg(test)]
             entered: 0,
             #[cfg(test)]
@@ -1449,7 +1458,6 @@ impl<'a> Expander<'a> {
                 .zip(sorts)
                 .collect(),
             terms,
-            renamed: BTreeSet::new(),
         };
         // The body is unfolded below the frames of every alias body and pattern level enclosing
         // this application, and an alias body can apply further aliases. An operation provides
@@ -1820,6 +1828,7 @@ impl<'a> Expander<'a> {
             }
             None => {
                 let variable = substitute_variable(variable, &scope.sorts);
+                self.record(&variable.name);
                 let free = asked.then(|| self.single(variable.clone())).flatten();
                 (kore::Pattern::Variable(variable), free)
             }
@@ -1916,7 +1925,6 @@ impl<'a> Expander<'a> {
         let shadowed = scope.terms.remove(variable);
         let bound = match renamed {
             Some(renamed) => {
-                scope.renamed.insert(renamed.name.clone());
                 scope
                     .terms
                     .insert(variable, Binding::Renamed(renamed.clone()));
@@ -1925,9 +1933,7 @@ impl<'a> Expander<'a> {
             None => substituted,
         };
         let unfolded = self.expand(scope, body, position + 1, asked);
-        if let Some(Binding::Renamed(renamed)) = scope.terms.remove(variable) {
-            scope.renamed.remove(&renamed.name);
-        }
+        scope.terms.remove(variable);
         if let Some(shadowed) = shadowed {
             scope.terms.insert(variable, shadowed);
         }
@@ -2005,27 +2011,42 @@ impl<'a> Expander<'a> {
             return None;
         }
         // The fresh name is not the name of a variable of the body, so no binder of the body
-        // captures its occurrences and it captures none of the body's; it is not the name of a
-        // free variable of an argument substituted under the binder, nor of a renamed binder
-        // around it. Nothing else can be free under the binder: an alias body has no free
-        // variable but its parameters (verification refuses others), so the aliases it applies
-        // bring in only the free variables of their arguments, which come from these.
-        for index in 0_u64.. {
-            self.step(1 + free.len());
+        // captures its occurrences and it captures none of the body's. It is not the name of a
+        // variable free in an argument substituted under the binder: those arguments were
+        // unfolded before the body was entered, and the free variables of their unfoldings are
+        // variables built since the unfolding began, whose names `built` records when they could
+        // be fresh names, or renamed binders. Fresh names never repeat within one unfolding: the
+        // digits after the last `Alias` give the index, what precedes it the base name, and each
+        // base name's index only grows.
+        // Nothing else can be free under the binder: an alias body has no free variable but its
+        // parameters (verification refuses others), so the aliases it applies bring in only the
+        // free variables of their arguments, which come from these. A rejected candidate is
+        // never tried again in this unfolding, because the next search for the same base name
+        // starts after it.
+        let mut index = self.fresh.get(&variable.name).copied().unwrap_or(0);
+        let name = loop {
+            self.step(1);
             let name = format!("{}Alias{index}", variable.name);
-            if alias.layout.names.contains(&name)
-                || scope.renamed.contains(&name)
-                || free.iter().any(|free| has_name(free, &name))
-            {
-                continue;
+            index += 1;
+            if !alias.layout.names.contains(&name) && !self.built.contains(&name) {
+                break name;
             }
-            return Some(kore::Variable {
-                kind: variable.kind,
-                name,
-                sort: substitute_sort(&variable.sort, &scope.sorts),
-            });
+        };
+        self.fresh.insert(variable.name.clone(), index);
+        Some(kore::Variable {
+            kind: variable.kind,
+            name,
+            sort: substitute_sort(&variable.sort, &scope.sorts),
+        })
+    }
+
+    /// Record `name`, of a variable unfolding built, when it has the form of a fresh name, which
+    /// a binder renamed later must then not take.
+    fn record(&mut self, name: &str) {
+        if spells_fresh(name) && !self.built.contains(name) {
+            self.step(1);
+            self.built.insert(name.to_owned());
         }
-        unreachable!("the finite names around a binder cannot exhaust every suffix")
     }
 
     fn single(&mut self, variable: kore::Variable) -> Free {
@@ -2707,7 +2728,10 @@ mod tests {
     /// what the measure counts, however many free variables the arguments have: a binder over an
     /// argument with many free variables; chains that pass such an argument through many binder
     /// bodies, nested in each other or entered side by side; and a chain that rebuilds an
-    /// argument around it at each level.
+    /// argument around it at each level. So are the fresh-name tries, however many renamed
+    /// binders take a name of one base, or free variables of the argument spell candidates: a
+    /// body whose nested binders are all renamed, entered several times; and a chain of binder
+    /// bodies, each renamed, around an argument whose free variables spell the first candidates.
     #[test]
     fn unfolding_work_is_bounded_by_the_measure() {
         let definition = |aliases: &str| {
@@ -2748,14 +2772,28 @@ mod tests {
             format!("\\and{{S{{}}}}({variables})")
         };
         let many = variables(1000);
+        let nested = format!(
+            "{}X:S{{}}{}",
+            r"\exists{S{}}(Y:S{}, ".repeat(300),
+            ")".repeat(300)
+        );
+        let candidates = format!(
+            "\\and{{S{{}}}}(Y:S{{}}, {})",
+            (0..300)
+                .map(|index| format!("YAlias{index}:S{{}}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         let cases = [
             (
                 "a binder over many free variables",
+                false,
                 definition(&alias("c0", &["X"], r"\exists{S{}}(Y:S{}, X:S{})")),
                 format!("c0{{}}({many})"),
             ),
             (
                 "binders entered side by side",
+                false,
                 definition(&chain(
                     10,
                     &["X"],
@@ -2766,6 +2804,7 @@ mod tests {
             ),
             (
                 "nested binders",
+                false,
                 definition(&chain(
                     200,
                     &["X"],
@@ -2776,6 +2815,7 @@ mod tests {
             ),
             (
                 "an argument rebuilt at each level",
+                false,
                 definition(&chain(
                     200,
                     &["X", "W"],
@@ -2784,18 +2824,64 @@ mod tests {
                 )),
                 format!("c0{{}}({many}, Z:S{{}})"),
             ),
+            (
+                "nested binders all renamed, entered 8 times",
+                true,
+                definition(&alias("c0", &["X"], &nested)),
+                format!("\\and{{S{{}}}}({})", ["c0{}(Y:S{})"; 8].join(", ")),
+            ),
+            (
+                "renamed binders around candidates the argument spells",
+                true,
+                definition(&chain(
+                    300,
+                    &["X"],
+                    &|next| format!("\\exists{{S{{}}}}(Y:S{{}}, {next}{{}}(X:S{{}}))"),
+                    r"\exists{S{}}(Y:S{}, X:S{})",
+                )),
+                format!("c0{{}}({candidates})"),
+            ),
         ];
         let mut exceeded = Vec::new();
-        for (shape, aliases, source) in cases {
+        for (shape, renames, aliases, source) in cases {
             let pattern = parse_pattern(&source).unwrap();
             let measured = measured(&pattern, &aliases).unwrap();
             let (unfolded, entered, steps) = unfold(&pattern, &aliases);
-            assert_eq!(measured, size(&unfolded) + entered, "{shape}");
+            // A renamed binder is longer than the one measured.
+            if renames {
+                assert!(measured < size(&unfolded) + entered, "{shape}");
+            } else {
+                assert_eq!(measured, size(&unfolded) + entered, "{shape}");
+            }
             if steps > measured {
                 exceeded.push(format!("{shape}: {steps} steps for {measured}"));
             }
         }
         assert!(exceeded.is_empty(), "{exceeded:#?}");
+    }
+
+    /// A renamed binder takes the next fresh name of its base name that no variable of its body
+    /// or built so far spells: candidates the argument spells are skipped once, and every later
+    /// binder renamed from the same base name continues after the last fresh name.
+    #[test]
+    fn fresh_names_continue_after_the_last_one_taken() {
+        let aliases = aliases_of(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                alias c0{}(S{}) : S{} where c0{}(X:S{}) := \exists{S{}}(Y:S{}, c1{}(X:S{})) []
+                alias c1{}(S{}) : S{} where c1{}(X:S{}) := \exists{S{}}(Y:S{}, X:S{}) []
+            endmodule []
+        "#});
+        let pattern = parse_pattern(r"c0{}(\and{S{}}(Y:S{}, YAlias0:S{}))").unwrap();
+        let (unfolded, _, _) = unfold(&pattern, &aliases);
+        assert_eq!(
+            unfolded,
+            parse_pattern(
+                r"\exists{S{}}(YAlias1:S{}, \exists{S{}}(YAlias2:S{}, \and{S{}}(Y:S{}, YAlias0:S{})))"
+            )
+            .unwrap()
+        );
     }
 
     /// The binder chain `c_i(X) := c_{i+1}(c_{i+1}(X))`, `c_{n-1}(X) := \exists(Y, X)` unfolds
@@ -2832,7 +2918,7 @@ mod tests {
         let (unfolded, _, _) = unfold(&parse_pattern("c0{}(Y:S{})").unwrap(), &small);
         assert_eq!(
             unfolded,
-            parse_pattern(r"\exists{S{}}(YAlias0:S{}, \exists{S{}}(YAlias0:S{}, Y:S{}))").unwrap()
+            parse_pattern(r"\exists{S{}}(YAlias1:S{}, \exists{S{}}(YAlias0:S{}, Y:S{}))").unwrap()
         );
         let (shorter, longer) = (chain(11), chain(12));
         for argument in ["a{}()", "f{}(Z:S{}, a{}())", "f{}(Y:S{}, a{}())"] {
