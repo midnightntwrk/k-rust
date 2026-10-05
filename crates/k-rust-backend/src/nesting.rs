@@ -8,8 +8,9 @@
 //! grows linearly with the nesting depth of what it reads, and a pattern or module read from a
 //! client can be of any depth, while overflowing the native stack aborts the whole process.
 //!
-//! The depth is measured before the work starts, with explicit work lists ([`height`]), so an
-//! operation knows the stack it needs before it takes any. [`with_stack`] runs the work on the
+//! The depth is measured before the work starts ([`height`]), by a recursion of bounded depth
+//! that hands deeper subpatterns to explicit work lists, so an operation knows the stack it
+//! needs before it takes any more than a fixed amount. [`with_stack`] runs the work on the
 //! current thread when the thread's remaining stack covers that need, as before, and otherwise
 //! on a new stack segment of the needed size, which `stacker` maps for the duration of the work
 //! and unmaps afterwards. A segment is address space: its pages are committed only as the work
@@ -172,7 +173,7 @@ impl Unfolding for Aliases<'_> {
 
 /// The number of levels of `pattern`, as the backend's passes descend through it: an upper
 /// bound on the depth of `pattern` with its aliases unfolded and of every internal term or
-/// predicate internalized from it, computed with explicit work lists.
+/// predicate internalized from it.
 ///
 /// A node carrying sorts is one level above the deepest of them. An alias application is the
 /// unfolded height of the alias body above its deepest argument or sort argument, since the
@@ -181,7 +182,40 @@ impl Unfolding for Aliases<'_> {
 /// levels; its predicate arguments are internalized side by side. An associative application is
 /// as many levels as `unfolding` says the chain it folds into has, and an associative
 /// application of an alias unfolds that many alias applications, one in the other.
+///
+/// Loading measures every sentence of a definition this way, so the walk must cost no more than
+/// visiting each node: the top [`RECURSION_LIMIT`] levels are measured by recursion, which
+/// allocates nothing, and each subpattern below them with explicit work lists, so the stack the
+/// measurement takes is bounded whatever the depth of `pattern`.
 pub(crate) fn height(pattern: &kore::Pattern, unfolding: &impl Unfolding) -> usize {
+    measure(pattern, unfolding, 0).0
+}
+
+/// Levels of a pattern or sort measured by recursion before the rest is measured with explicit
+/// work lists. A recursive level takes well under 1 KiB of stack in a debug build, so the
+/// recursion stays within a small fraction of `STACK_RED_ZONE`, and almost every pattern and
+/// sort a definition holds is measured without allocating.
+const RECURSION_LIMIT: usize = 64;
+
+/// The (height, whether it has a term component) of `pattern`, `depth` levels below where the
+/// measurement started.
+fn measure(pattern: &kore::Pattern, unfolding: &impl Unfolding, depth: usize) -> (usize, bool) {
+    if depth >= RECURSION_LIMIT {
+        return measure_iteratively(pattern, unfolding);
+    }
+    let (first, second) = children(pattern);
+    let mut deepest_child = 0;
+    let mut term_children = 0;
+    for child in first.iter().chain(second) {
+        let (height, term) = measure(child, unfolding, depth + 1);
+        deepest_child = deepest_child.max(height);
+        term_children += usize::from(term);
+    }
+    level(pattern, unfolding, deepest_child, term_children)
+}
+
+/// [`measure`] with explicit work lists, for a subpattern of any depth.
+fn measure_iteratively(pattern: &kore::Pattern, unfolding: &impl Unfolding) -> (usize, bool) {
     use kore::Pattern;
 
     enum Visit<'a> {
@@ -205,49 +239,63 @@ pub(crate) fn height(pattern: &kore::Pattern, unfolding: &impl Unfolding) -> usi
             }
             Visit::Exit(pattern) => {
                 let (first, second) = children(pattern);
-                let below = done.split_off(done.len() - first.len() - second.len());
+                let start = done.len() - first.len() - second.len();
+                let below = &done[start..];
                 let deepest_child = below.iter().map(|(height, _)| *height).max().unwrap_or(0);
                 let term_children = below.iter().filter(|(_, term)| *term).count();
-                let deepest_sort = sorts(pattern).map(sort_height).max().unwrap_or(0);
-                let below = deepest_child.max(deepest_sort);
-                let (levels, term) = match pattern {
-                    Pattern::Application { symbol, .. } => {
-                        (unfolding.alias_height(&symbol.name).unwrap_or(1), true)
-                    }
-                    Pattern::AssociativeApplication {
-                        symbol, arguments, ..
-                    } => {
-                        let levels = match unfolding.alias_height(&symbol.name) {
-                            Some(alias) => alias.saturating_mul(arguments.len()),
-                            None => unfolding.associative_levels(symbol, arguments),
-                        };
-                        (levels, true)
-                    }
-                    Pattern::String(_) | Pattern::Variable(_) | Pattern::DomainValue { .. } => {
-                        (1, true)
-                    }
-                    Pattern::And { .. } => (term_children.max(1), term_children > 0),
-                    Pattern::Exists { .. } | Pattern::Forall { .. } => (1, term_children > 0),
-                    Pattern::Top { .. }
-                    | Pattern::Bottom { .. }
-                    | Pattern::Or { .. }
-                    | Pattern::Not { .. }
-                    | Pattern::Next { .. }
-                    | Pattern::Implies { .. }
-                    | Pattern::Iff { .. }
-                    | Pattern::Rewrites { .. }
-                    | Pattern::Mu { .. }
-                    | Pattern::Nu { .. }
-                    | Pattern::Ceil { .. }
-                    | Pattern::Floor { .. }
-                    | Pattern::Equals { .. }
-                    | Pattern::In { .. } => (1, false),
-                };
-                done.push((levels.max(1).saturating_add(below), term));
+                done.truncate(start);
+                done.push(level(pattern, unfolding, deepest_child, term_children));
             }
         }
     }
-    done.pop().map_or(0, |(height, _)| height)
+    done.pop().unwrap_or((0, false))
+}
+
+/// The (height, whether it has a term component) of `pattern`, whose deepest direct
+/// subpattern is `deepest_child` levels high and `term_children` of whose direct subpatterns
+/// have term components.
+fn level(
+    pattern: &kore::Pattern,
+    unfolding: &impl Unfolding,
+    deepest_child: usize,
+    term_children: usize,
+) -> (usize, bool) {
+    use kore::Pattern;
+
+    let deepest_sort = sorts(pattern).map(sort_height).max().unwrap_or(0);
+    let below = deepest_child.max(deepest_sort);
+    let (levels, term) = match pattern {
+        Pattern::Application { symbol, .. } => {
+            (unfolding.alias_height(&symbol.name).unwrap_or(1), true)
+        }
+        Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            let levels = match unfolding.alias_height(&symbol.name) {
+                Some(alias) => alias.saturating_mul(arguments.len()),
+                None => unfolding.associative_levels(symbol, arguments),
+            };
+            (levels, true)
+        }
+        Pattern::String(_) | Pattern::Variable(_) | Pattern::DomainValue { .. } => (1, true),
+        Pattern::And { .. } => (term_children.max(1), term_children > 0),
+        Pattern::Exists { .. } | Pattern::Forall { .. } => (1, term_children > 0),
+        Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::Or { .. }
+        | Pattern::Not { .. }
+        | Pattern::Next { .. }
+        | Pattern::Implies { .. }
+        | Pattern::Iff { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. }
+        | Pattern::Ceil { .. }
+        | Pattern::Floor { .. }
+        | Pattern::Equals { .. }
+        | Pattern::In { .. } => (1, false),
+    };
+    (levels.max(1).saturating_add(below), term)
 }
 
 /// The direct subpatterns of `pattern`, in order.
@@ -332,8 +380,30 @@ fn sorts(pattern: &kore::Pattern) -> impl Iterator<Item = &kore::Sort> {
     first.iter().chain(second)
 }
 
-/// The number of nodes on the longest path from `sort` to a leaf, computed without recursion.
+/// The number of nodes on the longest path from `sort` to a leaf: by recursion for the top
+/// [`RECURSION_LIMIT`] levels, as almost every sort is, and with an explicit work list below.
 pub(crate) fn sort_height(sort: &kore::Sort) -> usize {
+    sort_height_from(sort, 0)
+}
+
+/// [`sort_height`] of `sort`, `depth` levels below where the measurement started.
+fn sort_height_from(sort: &kore::Sort, depth: usize) -> usize {
+    let kore::Sort::Application { arguments, .. } = sort else {
+        return 1;
+    };
+    if depth >= RECURSION_LIMIT {
+        return sort_height_iteratively(sort);
+    }
+
+    1 + arguments
+        .iter()
+        .map(|argument| sort_height_from(argument, depth + 1))
+        .max()
+        .unwrap_or(0)
+}
+
+/// [`sort_height`] computed without recursion, for a sort of any depth.
+fn sort_height_iteratively(sort: &kore::Sort) -> usize {
     let mut deepest = 0;
     let mut pending = vec![(sort, 1_usize)];
     // Each pop pushes only proper subsorts of the popped one, so the loop terminates.
@@ -744,6 +814,35 @@ mod tests {
         assert_eq!(unfolded("same{}(a{}())"), 3);
         assert_eq!(unfolded("twice{}(wrap{}(a{}()))"), 6);
         assert_eq!(unfolded("twice{}(twice{}(a{}()))"), 9);
+    }
+
+    /// The recursion that measures the top levels hands each subpattern and subsort below them
+    /// to the work lists, and both give every shape the same height, whichever level the
+    /// handover happens at.
+    #[test]
+    fn recursion_and_work_lists_measure_alike() {
+        let definition = definition();
+        for (name, source) in shapes(3 * RECURSION_LIMIT) {
+            let pattern = parse_pattern(&source).expect("shape should parse");
+            let iterative = measure_iteratively(&pattern, &definition);
+            for start in [0, RECURSION_LIMIT / 2, RECURSION_LIMIT - 1, RECURSION_LIMIT] {
+                assert_eq!(measure(&pattern, &definition, start), iterative, "{name}");
+            }
+            for sort in sorts(&pattern) {
+                let iterative = sort_height_iteratively(sort);
+                for start in [0, RECURSION_LIMIT - 1, RECURSION_LIMIT] {
+                    assert_eq!(sort_height_from(sort, start), iterative, "{name}");
+                }
+            }
+        }
+        let deep_sort = parse_pattern(&format!(
+            r"\top{{{}}}()",
+            chain(3 * RECURSION_LIMIT, "SortL{", "SortS{}", "}")
+        ))
+        .unwrap();
+        let sort = sorts(&deep_sort).next().unwrap();
+        assert_eq!(sort_height(sort), 3 * RECURSION_LIMIT + 1);
+        assert_eq!(sort_height_iteratively(sort), 3 * RECURSION_LIMIT + 1);
     }
 
     #[test]
