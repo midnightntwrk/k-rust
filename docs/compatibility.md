@@ -744,6 +744,7 @@ Its condition prints that name as `X`, the consequent's own binder, unless a fre
 Reading a printed result back gives the internal pattern up to a renaming of its escaped names into names of the new request: `Ex-hFrame-b0` is read as a variable of that name, not as the mint `Ex#Frame!0`.
 That renaming is a bijection and the identity on the names the request already had, so identity decisions within one response, and across requests on the request's own names, are unaffected.
 `term::names::decode_variable_name` inverts the escape for tools that classify printed names.
+The contract is versioned by `term::names::VARIABLE_IDENTITY`, which is 3 since names are read verbatim; versions 1 and 2 decoded `-h` and `-b` back into the markers on reading, and its documentation in [names.rs](../crates/k-rust-backend/src/term/names.rs) states what each version promises.
 
 Printing a mint under the spelling of a query variable would identify two variables: map-selection narrowing mints `Ex#Frame!0`, and printed as `ExFrame0` next to a query frame named `ExFrame0`, a leaf stated `ExFrame0 = mapConcat(mapItem(ExKEY1,ExVALUE2), ExFrame0)` about what are two different variables.
 The escaped spelling of generated names therefore differs from the spelling the reference engines print (normalizations N4 and C7), and pattern digests, which hash the printed KORE, change with it.

@@ -30,16 +30,32 @@ use k_rust_kore::kore::lexical::{self, Problem};
 use super::Variable;
 
 /// The variable-name contract of the backend's responses, for consumers that depend on it.
+/// A consumer that guards on this value notices every change of how a name is read or printed.
 ///
-/// 1: names read from KORE are kept verbatim and printed unchanged; every other name the
-/// backend prints is escaped by [`encode_variable_name`]; a printed binder never captures a
-/// variable it did not bind.
+/// 1 (9e07ed10): printing through [`encode_variable_name`] and reading through
+/// [`decode_variable_name`] are a bijection on the accepted names: a reader decodes `-h` and
+/// `-b` back into the `#` and `!` markers, so a printed mint read back is that mint.
 ///
-/// 2: in addition, every variable a rewrite introduces into a state (a right-hand-side
+/// 2 (9494bb48, the integration K-in-K2 tested): version 1, and every free variable a rewrite
+/// mints is drawn from one counter per request, seeded or reserved against the request's
+/// names, so each mint is unique in the request, never reused on a path, and distinct from
+/// every name of the request.
+///
+/// 3: names are read verbatim, not decoded. A variable name read from KORE must be a KORE
+/// identifier ([`variable_name_problems`]) and is kept as it is spelled, so `Ex-hX-b0` read back
+/// is a variable of that name, not the mint `Ex#X!0`; a printed response read back is the
+/// internal one up to a bijective renaming that is the identity on the request's names. A name
+/// that is a KORE identifier prints unchanged, every other name the backend prints is escaped
+/// injectively by [`encode_variable_name`], and a printed binder never captures a variable it
+/// did not bind. Every variable a rewrite introduces into a state (a right-hand-side
 /// existential, a rule variable the match left unbound, a narrowed frame) is minted from one
-/// counter per request (`crate::fresh::FreshCounter`): it is unique in the request, never
-/// reused along a path, and spelled like no variable of the request.
-pub const VARIABLE_IDENTITY: u32 = 2;
+/// counter per request (`crate::fresh::FreshCounter`), which only grows and skips every
+/// spelling of the request's variables: it is unique in the request, never reused along a
+/// path, and printed like no variable of the request. Since those names differ between two
+/// branches, results equal up to an injective renaming of the variables the request does not
+/// name are one result: a search reports one state or solution, and a state-set execution one
+/// leaf, for each class (`crate::fresh::RequestNames::state_key`).
+pub const VARIABLE_IDENTITY: u32 = 3;
 
 /// Whether `name` is a variable name a KORE reader accepts: an identifier, or `@` followed by
 /// an identifier for a set variable.
