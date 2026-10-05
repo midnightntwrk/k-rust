@@ -232,6 +232,15 @@ The check applies to every rule-like sentence `compile_loaded_definition` emits,
 It types in the order injection runs in, where every user sort is declared below `KItem`; it reports no sort for `#cells`, `#dots`, `#noDots`, and variables nothing types, places an authored cell's body at its content sort, and reports a cast operand's requirement as the cast's sort (below a downcast the operand's own sort is above it).
 [Typing-view tests](../crates/k-rust/tests/sentence_typing.rs) check it on hand-picked positions, on every loaded rule of the prelude, and against the injections the compiled definition contains.
 
+## Bracket productions
+
+A production with the `bracket` attribute is concrete syntax only: every parser, the generated Bison parsers included, replaces a bracket node by its child before a term exists, so no program, rule, claim, configuration or search-pattern term contains a bracket's symbol.
+`definition.kore` therefore declares nothing for a bracket production, whether it is unlabelled, labelled in source (`"(" Exp ")" [bracket, symbol(paren)]`) or labelled in structured input: its symbol occurs nowhere in that file, in no declaration, functional, no-confusion or no-junk axiom.
+A no-junk alternative for it would assert that its sort has values no term can build, and the backend reads the no-junk axiom as the sort's finite set of constructors, so a constraint excluding every real constructor would no longer simplify to `\bottom`.
+`syntaxDefinition.kore`, the signature of concrete syntax, declares the bracket under its label, or under its `bracketLabel` when it has none, with `bracket` and `format` for unparsing and, when labelled, the priority and associativity relations that use the label as their tag.
+There it keeps `constructor`, `functional` and `injective`: in a concrete parse tree a bracket node is a free constructor.
+[Structured-definition tests](../crates/k-rust/tests/structured_definition_conformance.rs) check the source and the structured forms, and that the bracket stays out of the backend's constructor domain.
+
 ## Generated parser coercions
 
 Generated Bison parsers use the compiler's licensed outer placement plans.
