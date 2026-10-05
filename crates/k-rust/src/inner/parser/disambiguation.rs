@@ -212,11 +212,15 @@ const SCOPE_LET: [InternalLabel; 7] = [
 ];
 
 impl Grammar {
-    /// Factor the forest's ambiguities before inference: nested ambiguities are flattened, and
-    /// alternatives that apply one production and differ only below it become that production
-    /// over child ambiguities, so the set of trees is unchanged while inference sees the shared
-    /// part once. Runs after record and application syntax has already been resolved, retaining
-    /// identity sharing until the forest is compressed.
+    /// Factor the forest's ambiguities before inference. Nested ambiguities are flattened into
+    /// their parent. An ambiguity whose alternatives all apply one production (with the same sort
+    /// parameters, for an instantiated production) to children that agree at every position but
+    /// one becomes that production over the shared children and, at that position, an ambiguity
+    /// of the differing children, factored in turn: its trees are exactly the alternatives, and
+    /// inference sees the shared children once. Alternatives that differ at two or more positions
+    /// stay as they are, since an ambiguity at each position would also admit the trees that mix
+    /// the children of different alternatives. Runs after record and application syntax has
+    /// already been resolved, retaining identity sharing until the forest is compressed.
     pub(super) fn factor_pre_inference_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
