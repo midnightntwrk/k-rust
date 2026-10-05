@@ -19,6 +19,7 @@ const RPC_SCRIPT: &str = include_str!("../../../scripts/reference-rpc-differenti
 const MIR_EXECUTION_SCRIPT: &str =
     include_str!("../../../scripts/reference-mir-execution-differential.sh");
 const SYMBOLIC_EXECUTION_SCRIPT_PATH: &str = "scripts/reference-symbolic-execution-differential.sh";
+const DIFFERENTIAL_WORKFLOW: &str = include_str!("../../../.github/workflows/differential.yml");
 const SECTIONS: [&str; 6] = ["compile", "kast", "execution", "proof", "rpc", "symbolic"];
 const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     COMPILE_SCRIPT,
@@ -1645,32 +1646,41 @@ fi
 
 #[test]
 fn manual_certification_protocol_names_required_gates() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let certification = manifest["gate"]
+        .as_array()
+        .expect("gate sets")
+        .iter()
+        .filter(|gate| gate["run"].as_str() == Some("certification"))
+        .map(|gate| gate["command"].as_str().expect("gate command"))
+        .collect::<BTreeSet<_>>();
     for command in [
-        "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
-        "# scripts/reference-differential.sh fun-int-list-config",
-        "# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4",
-        "# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
-        "# scripts/reference-kast-differential.sh wasm mir evm-equivalence",
-        "# scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",
-        "# scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution",
-        "# scripts/reference-proof-differential.sh mini-proof",
-        "# scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof",
-        "# scripts/reference-rpc-differential.sh imp",
-        "# scripts/reference-rpc-differential.sh bounded-search",
-        "# scripts/reference-rpc-differential.sh trivial-result-rpc",
-        "# scripts/reference-mir-execution-differential.sh",
-        "# scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise",
-        "# scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs",
+        "scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
+        "scripts/reference-differential.sh fun-int-list-config",
+        "scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4",
+        "REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
+        "scripts/reference-kast-differential.sh wasm mir evm-equivalence",
+        "scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",
+        "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution",
+        "scripts/reference-proof-differential.sh mini-proof",
+        "scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof",
+        "scripts/reference-rpc-differential.sh imp",
+        "scripts/reference-rpc-differential.sh bounded-search",
+        "scripts/reference-rpc-differential.sh trivial-result-rpc",
+        "scripts/reference-mir-execution-differential.sh",
+        "scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise",
+        "scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs",
     ] {
         assert!(
-            MANIFEST.lines().any(|line| line == command),
+            certification.contains(command),
             "manual certification protocol must name `{command}`",
         );
     }
 
     for requirement in [
+        r#"# Run the command of every [[gate]] below whose run is "certification" after a change to frontend, definition, kompile, or KORE emission behavior."#,
         "# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):",
-        "#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
+        "#   1. the certification gate commands below that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
         "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)",
         "#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh",
     ] {
@@ -1679,6 +1689,311 @@ fn manual_certification_protocol_names_required_gates() {
             "manual certification protocol must require `{requirement}`",
         );
     }
+}
+
+/// The gate scripts that take manifest case names as arguments, and the section they read them
+/// from. Without arguments a script runs every runnable case of its section.
+const CASE_SCRIPTS: [(&str, &str); 6] = [
+    ("scripts/reference-differential.sh", "compile"),
+    ("scripts/reference-kast-differential.sh", "kast"),
+    (
+        "scripts/reference-non-imp-execution-differential.sh",
+        "execution",
+    ),
+    ("scripts/reference-proof-differential.sh", "proof"),
+    ("scripts/reference-rpc-differential.sh", "rpc"),
+    (
+        "scripts/reference-symbolic-execution-differential.sh",
+        "symbolic",
+    ),
+];
+
+/// A runnable case is one whose requirements the gates can satisfy: a `semantics-support`
+/// requirement withholds the case from every script's default selection and rejects it by name.
+fn is_runnable_case(entry: &Value) -> bool {
+    !entry["requires"].as_array().is_some_and(|requirements| {
+        requirements
+            .iter()
+            .any(|requirement| requirement.as_str() == Some("semantics-support"))
+    })
+}
+
+/// Every inconsistency between the manifest's `[[gate]]` sets and its cases.
+///
+/// A gate command is `[NAME=value ...] script [argument ...]`, run from the workspace root. For a
+/// script of `CASE_SCRIPTS` the arguments are case names of its section, every one of which must
+/// be runnable there (the script refuses any other name before it does work), and no arguments
+/// select every runnable case. A runnable case must be selected by some gate or carry
+/// `manual = "<reason>"`; a case that some gate selects must not also claim to be manual.
+fn gate_model_failures(manifest: &Value, workspace: &Path) -> Vec<String> {
+    let mut failures = Vec::new();
+    let mut gated = BTreeSet::<(&str, &str)>::new();
+    let mut names = BTreeSet::new();
+    let Some(gates) = manifest.get("gate").and_then(Value::as_array) else {
+        return vec!["the manifest has no [[gate]] sets".into()];
+    };
+    for gate in gates {
+        let Some(table) = gate.as_table() else {
+            failures.push("a [[gate]] entry is not a table".into());
+            continue;
+        };
+        let name = table.get("name").and_then(Value::as_str).unwrap_or("");
+        if name.is_empty() || !names.insert(name) {
+            failures.push(format!("gate name `{name}` is empty or not unique"));
+        }
+        let keys = table.keys().map(String::as_str).collect::<BTreeSet<_>>();
+        if keys != BTreeSet::from(["command", "name", "run"]) {
+            failures.push(format!(
+                "gate {name} has keys {keys:?}, not command, name and run"
+            ));
+        }
+        let run = table.get("run").and_then(Value::as_str).unwrap_or("");
+        if !matches!(run, "certification" | "weekly") {
+            failures.push(format!(
+                "gate {name} has run `{run}`, not certification or weekly"
+            ));
+        }
+        let command = table.get("command").and_then(Value::as_str).unwrap_or("");
+        let mut words = command
+            .split_whitespace()
+            .skip_while(|word| {
+                word.split_once('=').is_some_and(|(variable, _)| {
+                    !variable.is_empty()
+                        && variable
+                            .bytes()
+                            .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+                })
+            })
+            .peekable();
+        let Some(script) = words.next() else {
+            failures.push(format!("gate {name} has no command"));
+            continue;
+        };
+        if !script.starts_with("scripts/") || !workspace.join(script).is_file() {
+            failures.push(format!(
+                "gate {name} runs `{script}`, which is not a workspace script"
+            ));
+        }
+        let Some(&(_, section)) = CASE_SCRIPTS.iter().find(|(path, _)| *path == script) else {
+            continue;
+        };
+        let runnable = manifest
+            .get(section)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|entry| is_runnable_case(entry))
+            .filter_map(|entry| entry["name"].as_str())
+            .collect::<BTreeSet<_>>();
+        if words.peek().is_none() {
+            gated.extend(runnable.iter().map(|case| (section, *case)));
+        }
+        for case in words {
+            if runnable.contains(case) {
+                gated.insert((section, case));
+            } else {
+                failures.push(format!(
+                    "gate {name} names `{case}`, which is not a runnable {section} case"
+                ));
+            }
+        }
+    }
+
+    for section in SECTIONS {
+        for entry in manifest
+            .get(section)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = entry["name"].as_str().unwrap_or("");
+            let manual = entry.get("manual");
+            if manual.is_some_and(|reason| {
+                reason
+                    .as_str()
+                    .is_none_or(|reason| reason.trim().is_empty())
+            }) {
+                failures.push(format!("{section} case {name} has an empty manual reason"));
+            }
+            match (gated.contains(&(section, name)), manual.is_some()) {
+                (true, true) => failures.push(format!(
+                    "{section} case {name} is run by a gate but carries a manual reason"
+                )),
+                (false, false) if is_runnable_case(entry) => failures.push(format!(
+                    "{section} case {name} is in no [[gate]] and carries no manual reason"
+                )),
+                _ => {}
+            }
+        }
+    }
+    failures
+}
+
+/// A case that no gate runs rots unnoticed: nothing executes it until someone reads the
+/// manifest. So every runnable case is in a named gate set or says why it is run by hand.
+#[test]
+fn every_runnable_case_belongs_to_a_gate_or_is_manual() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let failures = gate_model_failures(&manifest, &workspace);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+
+    let mut unlisted = manifest.clone();
+    let mut probe = unlisted["compile"][0].clone();
+    probe["name"] = Value::String("unlisted-probe".into());
+    unlisted["compile"]
+        .as_array_mut()
+        .unwrap()
+        .push(probe.clone());
+    assert_eq!(
+        gate_model_failures(&unlisted, &workspace),
+        ["compile case unlisted-probe is in no [[gate]] and carries no manual reason"],
+    );
+
+    let mut manual = unlisted.clone();
+    let entries = manual["compile"].as_array_mut().unwrap();
+    entries.last_mut().unwrap().as_table_mut().unwrap().insert(
+        "manual".into(),
+        Value::String("the probe is run by hand".into()),
+    );
+    assert!(gate_model_failures(&manual, &workspace).is_empty());
+
+    let mut blocked = unlisted.clone();
+    blocked["compile"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap()["requires"] = Value::Array(vec![Value::String("semantics-support".into())]);
+    assert!(
+        gate_model_failures(&blocked, &workspace).is_empty(),
+        "a case no script can run needs no gate"
+    );
+
+    let mut falsely_manual = manifest.clone();
+    falsely_manual["compile"][0]
+        .as_table_mut()
+        .unwrap()
+        .insert("manual".into(), Value::String("stale".into()));
+    let first = manifest["compile"][0]["name"].as_str().unwrap();
+    assert_eq!(
+        gate_model_failures(&falsely_manual, &workspace),
+        [format!(
+            "compile case {first} is run by a gate but carries a manual reason"
+        )],
+    );
+
+    let mut misnamed = manifest.clone();
+    let gate = misnamed["gate"]
+        .as_array_mut()
+        .unwrap()
+        .first_mut()
+        .unwrap();
+    let command = format!("{} no-such-case", gate["command"].as_str().unwrap());
+    gate["command"] = Value::String(command);
+    let gate_name = manifest["gate"][0]["name"].as_str().unwrap();
+    assert_eq!(
+        gate_model_failures(&misnamed, &workspace),
+        [format!(
+            "gate {gate_name} names `no-such-case`, which is not a runnable compile case"
+        )],
+    );
+
+    let mut all_cases = unlisted.clone();
+    all_cases["gate"].as_array_mut().unwrap().push(Value::Table(
+        [
+            ("name".to_owned(), Value::String("compile-all".into())),
+            ("run".to_owned(), Value::String("certification".into())),
+            (
+                "command".to_owned(),
+                Value::String("scripts/reference-differential.sh".into()),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    ));
+    assert!(
+        gate_model_failures(&all_cases, &workspace).is_empty(),
+        "a case script without arguments runs every runnable case of its section"
+    );
+}
+
+/// The `scripts/` commands of a GitHub workflow's `run:` steps, each with its whitespace collapsed:
+/// a plain `run: command` line, or the lines of a `run: >-` folded block, which YAML joins with
+/// spaces. Literal `run: |` blocks are shell scripts, not gate commands, and are skipped.
+fn workflow_script_commands(workflow: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut lines = workflow.lines().peekable();
+    while let Some(line) = lines.next() {
+        let Some((indent, value)) = line.split_once("run:") else {
+            continue;
+        };
+        if !indent.trim().is_empty() && indent.trim() != "-" {
+            continue;
+        }
+        let value = value.trim();
+        let command = if value == ">-" {
+            let mut folded = Vec::new();
+            let step_indent = indent.len();
+            while let Some(next) = lines.peek() {
+                let next_indent = next.len() - next.trim_start().len();
+                if next.trim().is_empty() || next_indent <= step_indent {
+                    break;
+                }
+                folded.push(next.trim());
+                lines.next();
+            }
+            folded.join(" ")
+        } else {
+            value.to_owned()
+        };
+        if command.starts_with("scripts/") {
+            commands.push(command.split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+    }
+    commands
+}
+
+/// The weekly gate sets are the differential workflow's gate steps, so the manifest stays the one
+/// record of which case runs where until the workflow reads its case lists from the manifest.
+#[test]
+fn weekly_gates_are_the_differential_workflow_steps() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let mut weekly = manifest["gate"]
+        .as_array()
+        .expect("gate sets")
+        .iter()
+        .filter(|gate| gate["run"].as_str() == Some("weekly"))
+        .map(|gate| gate["command"].as_str().expect("gate command").to_owned())
+        .collect::<Vec<_>>();
+    let mut workflow = workflow_script_commands(DIFFERENTIAL_WORKFLOW);
+    assert!(
+        !workflow.is_empty(),
+        "the differential workflow runs no gate script"
+    );
+    weekly.sort();
+    workflow.sort();
+    assert_eq!(
+        workflow, weekly,
+        "every gate step of .github/workflows/differential.yml must be a weekly [[gate]] with the same command, and every weekly gate a step"
+    );
+}
+
+#[test]
+fn workflow_script_commands_reads_folded_and_plain_steps() {
+    let workflow = "jobs:\n  local:\n    steps:\n      - name: Build\n        run: cargo build\n\n      - name: Compile\n        run: >-\n          scripts/reference-differential.sh\n          append casts\n\n      - name: Install\n        run: |\n          scripts/not-a-gate.sh\n          other\n\n      - name: Proof\n        run: scripts/reference-proof-differential.sh mini-proof\n";
+    assert_eq!(
+        workflow_script_commands(workflow),
+        [
+            "scripts/reference-differential.sh append casts",
+            "scripts/reference-proof-differential.sh mini-proof",
+        ]
+    );
 }
 
 #[test]
