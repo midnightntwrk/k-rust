@@ -1542,7 +1542,7 @@ bound = "O(v log v) per call before the retry loop"
 
 [[node.cost]]
 mode = "state and solution keys (RequestNames::state_key, RequestNames::solution_key)"
-bound = "O(n + v log v) for a pattern of n nodes and v variables, plus O(k log k) blind comparisons for each map or set of k elements holding a variable not yet met, each at most the size of the smaller element, plus sorting the c constraints, O(c log c) comparisons"
+bound = "per refinement pass O(n + v log v) for an object of n nodes and v variables, plus labelling and sorting each map, set, conjunction or disjunction of k elements holding a variable not yet numbered, O(size + k log k); at most v + 1 passes, usually one or two; where passes leave tied elements, a search that numbers one more variable and refines again, at most v times along a path, completing at most 32 numberings (LEAF_BUDGET) with an O(n) key each, and checking at most 1024 exchanges of two variables (EXCHANGE_CHECKS), O(n) each"
 
 [[node.cost]]
 mode = "freshen_existentials"

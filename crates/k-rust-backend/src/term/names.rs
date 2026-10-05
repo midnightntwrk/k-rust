@@ -55,7 +55,10 @@ use super::Variable;
 /// path, and printed like no variable of the request. Since those names differ between two
 /// branches, results equal up to an injective renaming of the variables the request does not
 /// name are one result: a search reports one state or solution, and a state-set execution one
-/// leaf, for each class (`crate::fresh::RequestNames::state_key`).
+/// leaf, for each class (`crate::fresh::RequestNames::state_key`). The exception is a result
+/// whose canonical numbering needs more than the 32 complete numberings that
+/// `crate::fresh::RequestNames::canonical` builds; it can be reported once for each of
+/// several of its renamings.
 pub const VARIABLE_IDENTITY: u32 = 3;
 
 /// Whether `name` is a variable name a KORE reader accepts: an identifier, or `@` followed by

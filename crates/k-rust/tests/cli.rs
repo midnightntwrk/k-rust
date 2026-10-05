@@ -4158,6 +4158,77 @@ fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
     assert!(bounded.is_subset(&unbounded));
 }
 
+/// Each step of `go(M, L, N)` adds a new variable `?K` to the map and the list, by any of three
+/// equal rules, so the states at one depth are renamings of each other: their map entries
+/// differ only in the names of their keys, which store in different orders once the
+/// request's counter reaches two digits (`!10` before `!3`), while the list fixes which entry
+/// is which. Each depth is one state, so the search reports five states, the final one once,
+/// and no renaming takes a `--search-bound` slot from another state. A few small states; the
+/// debug run takes a few seconds.
+#[test]
+fn krun_search_reports_renamings_of_one_state_once() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module T
+  imports INT
+  imports MAP
+  imports LIST
+  configuration <k> $PGM:KItem </k>
+  syntax KItem ::= go(Map, List, Int)
+  rule [ra]: <k> go(M, L, N) => go(M (?K:Int |-> 0), L ListItem(?K), N -Int 1) </k> requires N >Int 0
+  rule [rb]: <k> go(M, L, N) => go(M (?K:Int |-> 0), L ListItem(?K), N -Int 1) </k> requires N >Int 0
+  rule [rc]: <k> go(M, L, N) => go(M (?K:Int |-> 0), L ListItem(?K), N -Int 1) </k> requires N >Int 0
+endmodule
+"#,
+    )
+    .unwrap();
+    let run = |search: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "T",
+                "--syntax-module",
+                "T",
+                "--sort",
+                "KItem",
+                "--expression",
+                "go(.Map, .List, 4)",
+            ])
+            .args(search)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        // Each result's `<k>` cell is `go(_, _, N) ~> .K`: the counter is the literal before the
+        // `go` application closes ahead of `dotk`.
+        stdout
+            .match_indices("dotk{}()")
+            .map(|(end, _)| {
+                let before = stdout[..end].trim_end();
+                let before = before.strip_suffix(',').unwrap().trim_end();
+                let before = before.strip_suffix(')').unwrap().trim_end();
+                let before = before.strip_suffix("\")").unwrap();
+                before[before.rfind('"').unwrap() + 1..].to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(run(&["--search-final"]), ["0"]);
+    let mut all = run(&["--search-all"]);
+    all.sort();
+    assert_eq!(all, ["0", "1", "2", "3", "4"]);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn undeclared_config_variables_are_rejected_by_name() {
     let (root, definition) = fixture();

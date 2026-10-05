@@ -78,7 +78,7 @@
 //!
 //! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
 //! deduplication, the pattern compared up to the names of the variables the request did not
-//! name (`RequestNames::state_key`, one walk of the pattern per state), O(distinct states per
+//! name (`RequestNames::state_key`, a canonical numbering per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
 //! simple paths with a per-path visited list of the same keys, exponential in branching plus
 //! O(depth) per pop; pattern search over the result set. A state result, and a pattern
