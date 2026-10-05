@@ -138,3 +138,40 @@ fn implies_orients_an_escaped_antecedent_variable_like_a_plain_one() {
         }
     }
 }
+
+/// The antecedent's leading existentials are variables of the check too, and the condition
+/// binds the consequent's existentials to terms over them. A consequent existential named like
+/// one of them is another variable, so the condition prints it apart (`X-bexists0`) rather
+/// than as `X = X`, which would read as a tautology about one variable.
+#[test]
+fn implies_prints_a_consequent_existential_apart_from_an_antecedent_existential() {
+    for antecedent in [
+        r#"\exists{SortK{}}(X:SortK{}, X:SortK{})"#,
+        r#"\exists{SortK{}}(Z:SortK{}, \exists{SortK{}}(X:SortK{}, X:SortK{}))"#,
+    ] {
+        let (status, output) =
+            two_values_implication(antecedent, r#"\exists{SortK{}}(X:SortK{}, X:SortK{})"#);
+        assert_eq!(status, "valid", "{output:#}");
+        let substitution = &output["condition"]["substitution"]["term"];
+        assert_eq!(substitution["tag"], "Equals", "{output:#}");
+        let mut names = [
+            substitution["first"]["name"].as_str().unwrap(),
+            substitution["second"]["name"].as_str().unwrap(),
+        ];
+        names.sort_unstable();
+        assert_eq!(names, ["X", "X-bexists0"], "{output:#}");
+    }
+    // The control: a consequent existential with its own name prints as that name.
+    let (status, output) = two_values_implication(
+        r#"\exists{SortK{}}(X:SortK{}, X:SortK{})"#,
+        r#"\exists{SortK{}}(Y:SortK{}, Y:SortK{})"#,
+    );
+    assert_eq!(status, "valid", "{output:#}");
+    let substitution = &output["condition"]["substitution"]["term"];
+    let mut names = [
+        substitution["first"]["name"].as_str().unwrap(),
+        substitution["second"]["name"].as_str().unwrap(),
+    ];
+    names.sort_unstable();
+    assert_eq!(names, ["X", "Y"], "{output:#}");
+}

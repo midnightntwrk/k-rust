@@ -221,14 +221,18 @@ pub fn cli_condition_output(
 /// The check renames each existential `X` of the consequent to a local name `X!exists{N}`,
 /// which no name read from KORE can be (KORE identifiers contain no `!`). The printer writes
 /// such a name back as its binder `X`, so the condition names the consequent's own variable,
-/// unless `X` is also the name of a free variable of either side: that is another variable,
-/// and the binding would then read as an equation about it. The local name is then printed
-/// escaped (`X-bexists0`), a spelling the check gives no variable of the request.
+/// unless `X` is also the name of another variable the condition can mention: a free variable
+/// of either side, or a leading existential of the antecedent, which the check holds as a
+/// variable of the antecedent and binds the consequent's existentials to terms over. The
+/// binding would then read as an equation about that other variable, so the local name is
+/// printed escaped (`X-bexists0`), a spelling the check gives no variable of the request.
 #[derive(Clone, Debug, Default)]
 pub struct ImplicationSides {
     /// The antecedent's variable when the antecedent is one variable under its existentials.
     antecedent_variable: Option<String>,
-    free_names: BTreeSet<String>,
+    /// The names of the variables other than the consequent's existentials that a condition
+    /// can mention: the free variables of both sides and the antecedent's leading existentials.
+    other_names: BTreeSet<String>,
     consequent_binders: BTreeSet<k_rust_kore::kore::ast::Variable>,
 }
 
@@ -244,11 +248,18 @@ impl ImplicationSides {
         };
         Self {
             antecedent_variable,
-            free_names: antecedent
+            other_names: antecedent
                 .free_variables()
                 .into_iter()
                 .chain(consequent.free_variables())
                 .map(|variable| variable.name)
+                .chain(
+                    antecedent
+                        .leading_existentials()
+                        .1
+                        .into_iter()
+                        .map(|variable| variable.name.clone()),
+                )
                 .collect(),
             consequent_binders: consequent
                 .leading_existentials()
@@ -266,7 +277,7 @@ impl ImplicationSides {
         if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
             return None;
         }
-        if self.free_names.contains(name) {
+        if self.other_names.contains(name) {
             return None;
         }
         let KorePattern::Variable(ref binder) =

@@ -739,7 +739,7 @@ A name read from KORE and an escaped name print alike only when the former is sp
 k-rust keeps such a pair out of every response: the names a rewrite mints skip every spelling of the request, and a printed binder whose spelling is the spelling of another variable free in its body is renamed to a `!binder` name (`apart_binders` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)), so the printed pattern binds what the internal one binds.
 
 An implication check renames each existential `X` of the consequent to a local name `X!exists{N}`, spelled like no variable of either side.
-Its condition prints that name as `X`, the consequent's own binder, unless a free variable of either side is also named `X`: that is another variable, so the binding then keeps the escaped local name, such as `X-bexists0` (`ImplicationSides` in [implication.rs](../crates/k-rust/src/backend/implication.rs)).
+Its condition prints that name as `X`, the consequent's own binder, unless a free variable of either side or a leading existential of the antecedent is also named `X`: that is another variable the condition can mention, so the binding then keeps the escaped local name, such as `X-bexists0` (`ImplicationSides` in [implication.rs](../crates/k-rust/src/backend/implication.rs)).
 
 Reading a printed result back gives the internal pattern up to a renaming of its escaped names into names of the new request: `Ex-hFrame-b0` is read as a variable of that name, not as the mint `Ex#Frame!0`.
 That renaming is a bijection and the identity on the names the request already had, so identity decisions within one response, and across requests on the request's own names, are unaffected.
