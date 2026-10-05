@@ -3183,7 +3183,10 @@ mod chart_tests {
             name: "_".to_owned(),
             sort: None,
         });
-        let depth = 12;
+        // Unpacking the DAG into an owned tree visits 2^(depth + 2) - 3 nodes and the pruned
+        // path depth + 2: 4093 against 12 here. A deeper DAG separates them no further and only
+        // makes the owned Z3 baseline exponentially slower to solve.
+        let depth = 10;
         for _ in 0..depth {
             shared = PackedTerm::ambiguity(BTreeSet::from([
                 PackedTerm::production(0, vec![Rc::clone(&shared)], TermMetadata::default()),
