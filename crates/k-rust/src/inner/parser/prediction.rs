@@ -188,7 +188,8 @@ impl PredictionAnalysis {
             }
         }
 
-        // Adapt Java EarleyParser.markNullable: a newly nullable sort wakes its callers.
+        // Nullable sorts, as a least fixed point: a sort is nullable when one of its productions
+        // consists of nullable nonterminals only, so a newly nullable sort wakes only its callers.
         // Each nonterminal occurrence counts separately (e.g. S ::= N N).
         // Regexes, including zero-width regexes, are mandatory scanner transitions, not epsilon.
         let mut epsilon = vec![false; grammar.sorts.len()];
@@ -227,7 +228,8 @@ impl PredictionAnalysis {
             }
         }
 
-        // Java computeFirstSet's monotone unions, scheduled only for changed child sorts.
+        // FIRST sets, as a least fixed point of monotone unions over each production's leading
+        // items, rescheduled only for the sorts whose child sorts changed.
         let mut first = vec![LexemeSet::default(); grammar.sorts.len()];
         let mut dependents = vec![BTreeSet::new(); grammar.sorts.len()];
         for (result, items) in &productions {

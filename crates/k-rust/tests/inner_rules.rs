@@ -4080,9 +4080,9 @@ fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
 #[test]
 fn mint_literal_width_comes_from_the_token_text() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module CHECKMINTLITERAL --syntax-module CHECKMINTLITERAL --output-definition ref-kompiled (exit 113)
-    // EarleyParser substitutes the digits after the first `p`/`P` of a MINT.literal token into
-    // the parametric production, so `0p32` is an `MInt{32}` even when the `MInt{6}` instantiation
-    // scanned it, and the ordinary `<=Sort` check against `foo(MInt{6})` then fails.
+    // A MINT.literal token spells its width in the digits after its first `p`/`P`, so `0p32` is
+    // an `MInt{32}` even when the `MInt{6}` instantiation scanned it, and the ordinary subsort
+    // check against `foo(MInt{6})` then fails.
     let source = include_str!("fixtures/reference/inner/mint3/test.k");
     let Err(error) = load_with_prelude(source, "checkMIntLiteral.k", "CHECKMINTLITERAL") else {
         panic!(
@@ -4229,9 +4229,10 @@ fn reference_withconfig_function_rule_casts_the_variable_at_the_function_sort() 
 #[cfg(feature = "z3-inference")]
 #[test]
 fn withconfig_function_rule_agrees_under_checked_inference() {
-    // TypeInferencer.java:592 treats a `#RuleBody`-expected node as a top-sort node, so at :640
-    // the `#withConfig` production bounds its rewrite child by the function sort exactly as
-    // `#RuleContent` does for a bare rewrite; both engines must instantiate the rewrite at Int.
+    // A node expected at `#RuleBody` is a rule body just as one at `#RuleContent` is, and a
+    // function rule's rewrite has the function's result sort, so the `#withConfig` production
+    // bounds its rewrite child by the function sort exactly as `#RuleContent` does for a bare
+    // rewrite; both engines must instantiate the rewrite at Int.
     assert_test_passes_under_checked_inference(
         "reference_withconfig_function_rule_casts_the_variable_at_the_function_sort",
     );
@@ -4268,7 +4269,7 @@ fn reference_bare_variable_alias_body_is_cast_to_k() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
     // parsed.txt: context alias #SemanticCastToK(HERE) requires isFoo(#SemanticCastToK(HOLE)) [label(foo), ...]
     // Reduced from regression-new/context-alias-3 (test.k:7): the rule body is a bare variable,
-    // which the reference grammar reaches through `#RuleBody ::= K` (kast.md:343).
+    // which K's rule grammar reaches through `#RuleBody ::= K` (kast.md:343).
     let source = include_str!("fixtures/reference/inner/alias-bare-variable/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a context alias whose body is a bare variable");
@@ -4281,9 +4282,9 @@ fn reference_bare_variable_alias_body_is_cast_to_k() {
 #[cfg(feature = "z3-inference")]
 #[test]
 fn bare_variable_alias_body_agrees_under_checked_inference() {
-    // The reference's Z3 encoder bounds HERE by K through the `#RuleBody ::= K` production
-    // (TypeInferencer.java:644 `expectedSort = nt.sort()` for that node), and SimpleSub bounds
-    // every variable by K on creation (InferenceDriver.java:49-53); one solution, cast to K.
+    // The bare body HERE stands at the `K` nonterminal of K's `#RuleBody ::= K` production, so
+    // it is bounded by K, and K is also the largest sort a variable can have; one solution,
+    // cast to K.
     assert_test_passes_under_checked_inference("reference_bare_variable_alias_body_is_cast_to_k");
 }
 
@@ -4333,10 +4334,10 @@ fn reference_exists_binder_variable_is_inferred_at_k() {
 #[cfg(feature = "z3-inference")]
 #[test]
 fn exists_binder_variable_agrees_under_checked_inference() {
-    // The reference's Z3 encoder declares every variable and sort parameter over the datatype
-    // of real sorts (TypeInferencer.isRealSort: no parser sort except K, KItem and KLabel, plus
-    // Nat and parametric sorts), so the bound variable Y and the sort parameters of #Exists and
-    // #Equals never range over KList; one maximal model, at K.
+    // Variables and sort parameters range over the sorts a term can have: of the parser's own
+    // sorts only K, KItem and KLabel are among them, while KList is the sort of argument lists,
+    // so the bound variable Y and the sort parameters of #Exists and #Equals never range over
+    // KList; one maximal model, at K.
     assert_test_passes_under_checked_inference("reference_exists_binder_variable_is_inferred_at_k");
 }
 
@@ -4425,10 +4426,10 @@ fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sor
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/llvm, verbatim, exit 0)
     // parsed.txt: rule `foo()_TEST_Foo`(.KList)=>`bar()_TEST_Foo`(.KList) requires #token("true","Bool") ensures #token("true","Bool") [anywhere, ..., priority(20)]
     //             rule `foo()_TEST_Foo`(.KList)=>`baz()_TEST_Foo`(.KList) requires #token("true","Bool") ensures #token("true","Bool")
-    // For an anywhere rule `isFunction(t, isAnywhere)` (TypeInferencer.java:413-421) holds
-    // regardless of the left-hand side's production, so at :640 the `#RuleContent` node bounds
-    // its rewrite child by `getFunctionSort` (:429), the sort of `foo()`: the rewrite is
-    // instantiated at Foo, as the portable engine's anywhere bound already does.
+    // An anywhere rule rewrites its left-hand side in place wherever that term occurs, so its
+    // rewrite has the left-hand side's sort regardless of the production: the `#RuleContent`
+    // node bounds its rewrite child by the sort of `foo()`, and the rewrite is instantiated at
+    // Foo, as the portable engine's anywhere bound already does.
     let source = include_str!("fixtures/reference/inner/anywhere-nullary/test.k");
     let loaded = load_with_prelude_for_llvm(source, "test.k", "TEST")
         .expect("the reference accepts the anywhere rule over a nullary constructor");
@@ -4458,8 +4459,8 @@ fn anywhere_rule_over_a_nullary_constructor_agrees_under_checked_inference() {
 fn reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/check, verbatim, exit 0; with -w2e -w all the same kompile exits 113 at the later `Removed anywhere rule for Haskell backend execution` check, after parsing)
     // parsed.txt: rule #token("1","Int")=>#token("2","Int") requires #token("true","Bool") ensures #token("true","Bool") [anywhere, ...]
-    // `getFunction` (TypeInferencer.java:380-404) returns the token `1` itself: a `Constant` is a
-    // `ProductionReference`, so the rewrite of an anywhere rule is bounded by the token's sort.
+    // The left-hand side is the token `1` itself, an application of its token production, so
+    // the rewrite of an anywhere rule is bounded by the token's sort.
     let source = include_str!("fixtures/reference/inner/anywhere-token/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference parses the anywhere rule over a token");
@@ -4520,13 +4521,13 @@ fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width()
     // parsed.txt: rule `testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`{64}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{256}(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p256","MInt{256}")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`{256}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int"))))))) requires #token("true","Bool") ensures #token("true","Bool")
     //             rule `testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}"))),#token("0p64","MInt{64}"))) requires #token("true","Bool") ensures #token("true","Bool")
     // The rule grammar instantiates `{Width} Bool ::= MInt{Width} "==MInt" MInt{Width}` with the
-    // placeholder `MInt{K}` and bridges it with `MInt{K} ::= MInt{64}` (RuleGrammarGenerator
-    // :629-637), but that bridge is added to the parsing module only, after disambProds is
-    // captured (:627): the TypeInferencer's `<=Sort` relation has no `MInt{64} <= MInt{K}` pair,
-    // so the widths of `bytesString2[2p64]` and `Int2MInt(...)` are forced to the declared
-    // instance the token or cast anchors, never to `K`. The loaded rule carries no label
-    // parameter; sort injection instantiates each symbol's `{SortWidth}` from its arguments and
-    // position.
+    // placeholder `MInt{K}` and bridges it with `MInt{K} ::= MInt{64}` so the parser accepts a
+    // width-64 argument there. The bridge is a parsing device, not a subsort: an `MInt{64}`
+    // value is no value of another width, so the subsort order inference reads has no
+    // `MInt{64} <= MInt{K}` pair, and the widths of `bytesString2[2p64]` and `Int2MInt(...)` are
+    // forced to the declared instance the token or cast anchors, never to `K`. The loaded rule
+    // carries no label parameter; sort injection instantiates each symbol's `{SortWidth}` from
+    // its arguments and position.
     let source = include_str!("fixtures/reference/inner/mint-bridge/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a parametric result in the MInt{K} slot of ==MInt");

@@ -79,7 +79,7 @@ impl std::error::Error for ConfigError {}
 
 /// Replace local `config` bubbles with structured configuration sentences.
 ///
-/// This corresponds to the parsing half of Java's `resolveConfigBubbles`.
+/// This is the parsing half of configuration resolution.
 /// Generating cell productions and initializer rules remains a subsequent
 /// compilation pass.
 pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definition, ConfigError> {
@@ -554,10 +554,10 @@ pub(super) fn add_k_syntax(
         false,
         false,
     )?;
-    // KSEQ retains `.` as a deprecated spelling of the empty K sequence. It is
-    // deliberately parse-only in the reference frontend (`unparseAvoid`), so
-    // both spellings lower to the same KAST node and printers continue to emit
-    // the canonical `.K` form.
+    // KSEQ retains `.` as a deprecated spelling of the empty K sequence. K's
+    // KSEQ declares it `unparseAvoid`, a spelling for parsing only, so both
+    // spellings lower to the same KAST node and printers continue to emit the
+    // canonical `.K` form.
     grammar.add(
         Sort::new("K"),
         vec![ProductionItem::Terminal(".".into())],

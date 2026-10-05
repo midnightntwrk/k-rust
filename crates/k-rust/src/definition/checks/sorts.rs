@@ -534,7 +534,10 @@ fn synonym_location(sentence: &Sentence) -> String {
     }
 }
 
-/// Java `Module.checkUserLists` (`outer.scala:518-534`).
+/// Reject a sort declared as a user list by two declarations from different origins. A user
+/// list sort takes its constructor, terminator and element sort from its declaration, so a
+/// second one would give the sort two list structures; one declaration seen through several
+/// imports keeps one origin and is accepted.
 pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 

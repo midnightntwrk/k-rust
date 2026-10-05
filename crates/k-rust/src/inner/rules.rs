@@ -154,8 +154,8 @@ pub fn parse_rule_content(
 
 /// Replace local rule, claim, context, and context-alias bubbles with KAST sentences.
 ///
-/// This is the syntax-only first slice of Java's non-configuration bubble
-/// resolution. Priority and associativity filter the concrete parse forest;
+/// This is the syntax-only first slice of non-configuration bubble resolution.
+/// Priority and associativity filter the concrete parse forest;
 /// inputs that remain genuinely ambiguous are reported explicitly.
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;

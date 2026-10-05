@@ -2854,9 +2854,9 @@ fn krun_exits_111_on_divergent_exit_values_when_exploring_all_rules() {
 
 #[test]
 fn krun_exits_with_the_first_rules_exit_value_by_default() {
-    // K's krun follows one successor per step: the first applicable rule by priority and
-    // definition order (the LLVM backend's choice; kore-exec `--strategy any`), so the second
-    // rule never fires and the exit cell holds the first rule's value.
+    // krun runs the program once: it follows one successor per step, that of the first
+    // applicable rule by priority and definition order, so the second rule never fires and the
+    // exit cell holds the first rule's value. Every successor is what `--search` enumerates.
     let (root, definition) = divergent_exit_fixture();
     let output = divergent_exit_krun(&definition, &[]);
 
@@ -3103,8 +3103,8 @@ endmodule
 #[test]
 fn krun_heats_a_strict_production_in_one_order_by_default_and_search_enumerates_both() {
     // Two unevaluated arguments of a `strict` production have two heating rules with equal
-    // priority. K's krun (LLVM backend; kore-exec `--strategy any`) heats the first argument
-    // and follows that single successor, so the pending frontier stays one state per step;
+    // priority. krun runs the program once, so it heats the first argument and follows that
+    // single successor, and the pending frontier stays one state per step;
     // exploring both orders is exponential in the number of such heatings and is what
     // `--search` is for.
     let (root, definition) = fixture();
@@ -6695,8 +6695,8 @@ fn kprove_filters_claims_imported_into_the_specification_module() {
     // reference (k/result/bin, split.k kompiled with --backend haskell, imported-spec.k with
     // --depth 10): --exclude SPLIT-LEMMAS.fail1 --exclude SPLIT-LEMMAS.fail2 exits 0 (#Top);
     // --trusted SPLIT-LEMMAS.fail1 --trusted SPLIT-LEMMAS.fail2 exits 0 (#Top); no flags exits 1
-    // stuck on fail1 (imported-spec.k:5); excluding all three claims exits 113 with kore-exec's
-    // "Unexpected empty set of claims." (Kore/Exec.hs:989). Recorded in split/reference.toml.
+    // stuck on fail1 (imported-spec.k:5); excluding all three claims exits 113 with
+    // "Unexpected empty set of claims.". Recorded in split/reference.toml.
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
     let specification = fixtures.join("imported-spec.k");
@@ -6813,7 +6813,8 @@ fn kprove_filters_claims_imported_into_the_specification_module() {
             );
         }
 
-        // Excluding every claim leaves the reference backend with an empty claim set, an error.
+        // Excluding every claim leaves nothing to prove: no claim's validity could be reported,
+        // so an empty claim set is an error rather than a vacuous success.
         let emptied = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args(&common)
             .args([

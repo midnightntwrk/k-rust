@@ -947,9 +947,11 @@ impl Grammar {
                 Item::Terminal(_) | Item::Regex { .. } => None,
             })
             .collect::<Vec<_>>();
-        // Java's `Production.isSyntacticSubsort` is purely shape-based; unlike `isSubsort`,
-        // it does not require the production to be unlabeled. Priority filtering uses the
-        // former, while the semantic subsort relation uses the latter.
+        // A production with one nonterminal and no terminal is a syntactic subsort whether or
+        // not it is labelled: it puts a phrase of its nonterminal's sort where its result sort
+        // is expected, which priority filtering looks through. Only an unlabelled one is a
+        // semantic subsort; a labelled one is a constructor whose argument values are not
+        // values of its result sort.
         let syntactic_subsort =
             !options.bracket && matches!(items.as_slice(), [Item::NonTerminal(_)]);
         let parse_label = label

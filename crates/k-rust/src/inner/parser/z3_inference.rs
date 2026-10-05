@@ -693,7 +693,7 @@ impl LivenessGraph {
     }
 }
 
-/// One constraint of the incremental replay (`TypeInferencer.Constraint`).
+/// One constraint of the incremental replay.
 struct ReplayConstraint {
     constraint: Bool,
     subject: ReplaySubject,
@@ -840,16 +840,18 @@ impl Grammar {
         }
     }
 
-    /// The function or macro left-hand side that bounds the first child of a top-sort node, as
-    /// `getFunction` (TypeInferencer.java:380-404) finds it: brackets are stripped, a `#KRewrite`
-    /// contributes its left-hand side, and the rule wrappers are not looked through. A top-sort
-    /// node is one whose result is `#RuleContent` or `#RuleBody` (TypeInferencer.java:592-593),
-    /// so `#withConfig` bounds its rewrite exactly as `#RuleContent` bounds a bare rewrite. For an
-    /// anywhere rule `isFunction(t, isAnywhere)` (TypeInferencer.java:413-421) holds for every
-    /// left-hand side `getFunction` returns, so a constructor such as `foo()` or a token such as
-    /// `1` (a `Constant` is a `ProductionReference`) bounds the rewrite by its own sort
-    /// (`getFunctionSort`, :429); a variable left-hand side keeps the ordinary bound. The returned
-    /// path locates the left-hand side relative to `child_path`.
+    /// The function or macro left-hand side that bounds the first child of a top-sort node. A
+    /// rule whose left-hand side applies a function or a macro defines that function or macro at
+    /// its result sort, so the rule's rewrite has that sort rather than `K`. Brackets only group,
+    /// so they are stripped; a `#KRewrite` contributes its left-hand side; the rule wrappers are
+    /// not looked through. A top-sort node is one whose result is `#RuleContent` or `#RuleBody`,
+    /// the sorts K's rule grammar parses a rule body at, so `#withConfig` bounds its rewrite
+    /// exactly as `#RuleContent` bounds a bare rewrite. An anywhere rule rewrites its left-hand
+    /// side in place wherever that term occurs, so its rewrite has the left-hand side's own sort
+    /// whatever the production: a constructor such as `foo()` or a token such as `1` (a token is
+    /// an application of its token production) bounds the rewrite by its own sort, and a variable
+    /// left-hand side keeps the ordinary bound. The returned path locates the left-hand side
+    /// relative to `child_path`.
     fn body_function_lhs<'t>(
         &self,
         child: &'t ParsedTerm,
@@ -1908,8 +1910,8 @@ impl<'a> Encoding<'a> {
         }
     }
 
-    /// `TypeInferencer.isBadNatSort`: a numeric sort name the grammar never declared as a
-    /// parameter of an instantiated sort, at any depth.
+    /// Whether `sort` mentions, at any depth, a numeric sort name the grammar never declared as a
+    /// parameter of an instantiated sort. Such a sort is not a sort of the grammar.
     fn is_bad_nat_sort(&self, sort: &Sort) -> bool {
         (sort.role() == SortRole::Nat && !self.declared_nat_sorts.contains(&sort.name))
             || sort
@@ -1925,10 +1927,9 @@ impl<'a> Encoding<'a> {
         expected: &Datatype,
         cast_context: CastContext,
     ) -> Result<Bool, ParseError> {
-        // The reference grammar reaches a variable under rule scaffolding only through
-        // `#RuleBody ::= K` (kast.md:343), a production k-rust's forest collapses, so the
-        // scaffolding sort bounds the variable by `K` (TypeInferencer.java:644 with that
-        // production's nonterminal; InferenceDriver.java:49-53 for SimpleSub).
+        // K's rule grammar reaches a variable under rule scaffolding only through
+        // `#RuleBody ::= K` (kast.md:343), a production k-rust's forest collapses. The variable
+        // stands at that production's `K` nonterminal, so the scaffolding sort bounds it by `K`.
         let scaffolding_bound = (cast_context == CastContext::Parser)
             .then(|| self.scaffolding_variable_bound())
             .transpose()?
@@ -1938,8 +1939,9 @@ impl<'a> Encoding<'a> {
             None => (expected, cast_context),
         };
         let constraint = match (is_anonymous(name), cast_context) {
-            // Anonymous occurrences are independent variables, but each one has the
-            // exact sort demanded by its context in the reference inferencer.
+            // Anonymous occurrences are independent variables, each occurring once: nothing
+            // but its context constrains one, so it takes exactly the sort the context demands,
+            // the most general sort it can have there.
             (true, _) | (_, CastContext::Strict) => variable.eq(expected),
             (false, CastContext::Parser) => Bool::from_bool(true),
             (false, CastContext::None | CastContext::Semantic) => {
@@ -1977,8 +1979,9 @@ impl<'a> Encoding<'a> {
         cast_context: CastContext,
     ) -> Result<Bool, ParseError> {
         if self.is_bad_nat_sort(sort) {
-            // `pushConstraint` writes `false` for an undeclared Nat instantiation before any
-            // cast context applies (TypeInferencer.java:729-731).
+            // A token of an undeclared Nat instantiation has a sort the grammar does not have,
+            // so no context or cast can make it well-sorted: its constraint is `false` before
+            // any cast context applies.
             self.ill_sorted_ground = true;
             let constraint = Bool::from_bool(false);
             if self.incremental {
@@ -2167,9 +2170,8 @@ impl<'a> Encoding<'a> {
         explained.unwrap_or_else(|_| z3_error(UNSAT_MESSAGE))
     }
 
-    /// `TypeInferencer.push`/`replayConstraints`: assert the recorded constraints one at a time,
-    /// variable bounds first, and name the first one that is unsatisfiable together with the
-    /// sorts of the last satisfiable model.
+    /// Assert the recorded constraints one at a time, variable bounds first, and name the first
+    /// one that is unsatisfiable together with the sorts of the last satisfiable model.
     fn replay_constraints(&self) -> Result<ParseError, ParseError> {
         let solver = self.domain_solver()?;
         let mut constraints = self.replay.iter().collect::<Vec<_>>();
@@ -2331,13 +2333,14 @@ impl<'a> Encoding<'a> {
         Ok(formula)
     }
 
-    /// Seed maximal-model search with the reference's soft `K`/`KItem`/`Bag` preferences.
+    /// The soft preferences that put each selected inference constant at or above `K`, `KItem`
+    /// and `Bag`, the largest sorts of computations, items and cells.
     ///
-    /// The cardinality assertion is scoped to this first model. Maximal-model enumeration runs
+    /// Inference keeps the maximal typings, so a seed model that satisfies as many of these as
+    /// the hard constraints allow starts the search at a typing no smaller than it must be.
+    /// The cardinality assertion is scoped to that first model. Maximal-model enumeration runs
     /// after the pop with only hard constraints, so an incomparable model with fewer preferred
     /// assignments cannot be pruned.
-    /// The reference's soft `K`/`KItem`/`Bag` preferences (TypeInferencer.java:364-370) for the
-    /// selected inference constants.
     fn top_preferences(&self, select: impl Fn(&str) -> bool) -> Result<Vec<Bool>, ParseError> {
         let mut constraints = Vec::new();
         for preferred in [
@@ -3512,12 +3515,14 @@ fn production_result(production: &Production) -> &Sort {
         .map_or(&production.result, |origin| &origin.result)
 }
 
-/// TypeInferenceVisitor.java:278-293 (`hasParametricSort`): a parametric production is wrapped
-/// in the cast of its instantiated sort only when the *original* production declares a
-/// parametric-headed sort as its result or as a nonterminal (`{Width} MInt{Width} ::= ...`,
-/// `{Width} Bool ::= MInt{Width} "==MInt" MInt{Width}`). The instantiated result of a sort-variable
-/// production such as `{Sort} Sort ::= Sort "=>" Sort` does not count even when the model
-/// instantiates it at a parametric instance like `MInt{64}`.
+/// Whether an application of `production` is wrapped in the cast of its instantiated sort: only
+/// when the *original* production declares a parametric-headed sort as its result or as a
+/// nonterminal (`{Width} MInt{Width} ::= ...`, `{Width} Bool ::= MInt{Width} "==MInt"
+/// MInt{Width}`). Its parameter then selects one member of a sort family, and the cast records
+/// in the term which one the model chose. A production over a bare sort variable, such as
+/// `{Sort} Sort ::= Sort "=>" Sort`, is polymorphic over every sort and takes its sort from its
+/// context and arguments; it does not count even when the model instantiates it at a parametric
+/// instance like `MInt{64}`.
 fn declares_parametric_sort(production: &Production) -> bool {
     production.parametric_origin.is_some()
         && (!production_result(production).parameters.is_empty()
@@ -3874,15 +3879,15 @@ fn is_real_sort<'a>(sort: &Sort, formals: impl Iterator<Item = &'a Sort>) -> boo
     formals.into_iter().any(|formal| formal == sort) || sort.in_inference_domain()
 }
 
-/// Whether a production's first child is bounded by a function left-hand side: the reference
-/// treats a node expected at `#RuleContent` or `#RuleBody` as a top-sort node
-/// (TypeInferencer.java:592-593, :640). k-rust's forest collapses `#RuleBody ::= K`, so the
-/// `#RuleBody`-sorted node that survives is `#withConfig`.
-/// A token leaf that is not a variable: the only leaf `getFunction` can return with a real sort.
+/// A token leaf that is not a variable: the only leaf `Grammar::body_function_lhs` can return
+/// with a real sort.
 fn is_token_leaf(leaf: &Term) -> bool {
     inferred_variable_name(leaf).is_none() && matches!(leaf.unannotated(), Term::Token { .. })
 }
 
+/// Whether a production's first child is bounded by a function left-hand side: a node expected
+/// at `#RuleContent` or `#RuleBody` is a rule body, the top of a rule's term. k-rust's forest
+/// collapses `#RuleBody ::= K`, so the `#RuleBody`-sorted node that survives is `#withConfig`.
 fn is_top_sort_production(production: &Production) -> bool {
     [FrontendSort::RuleContent, FrontendSort::RuleBody]
         .iter()
@@ -6124,9 +6129,9 @@ endmodule
 
     #[test]
     fn undeclared_mint_width_is_ill_sorted() {
-        // TypeInferencer.isBadNatSort: a numeric parameter sort whose head the module does not
-        // define is written to Z3 as `false`, so `foo(0p32)` over `foo(MInt{6})` is unsat even
-        // though no variable takes part (checks/checkMIntLiteral.k).
+        // A numeric parameter sort whose head the module does not define is no sort of the
+        // module, so it is written to Z3 as `false`, and `foo(0p32)` over `foo(MInt{6})` is
+        // unsat even though no variable takes part (checks/checkMIntLiteral.k).
         fn mint(width: &str) -> Sort {
             Sort::with_parameters("MInt", vec![Sort::new(width)])
         }
