@@ -1914,17 +1914,6 @@ fn compact_json(json: &str) -> String {
     output
 }
 
-#[cfg(test)]
-fn parse_json_value(source: &str) -> serde_json::Result<Value> {
-    #[cfg(feature = "measure")]
-    let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
-    let mut deserializer = serde_json::Deserializer::from_str(source);
-    deserializer.disable_recursion_limit();
-    let value = Value::deserialize(&mut deserializer)?;
-    deserializer.end()?;
-    Ok(value)
-}
-
 fn encode_kore_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
     pattern: &KorePattern,
     source: S,
@@ -5214,9 +5203,32 @@ endmodule
                 let response = service
                     .handle_line(&request)
                     .expect("execute requests receive a response");
-                let response = parse_json_value(&response).unwrap();
-                assert!(response.get("error").is_none(), "{response}");
-                assert_eq!(response["result"]["depth"], 0);
+                // The response is read with serde's recursion limit on: its deep state is kept
+                // as raw text and decoded by the iterative KORE JSON codec.
+                #[derive(Deserialize)]
+                struct Response {
+                    result: Option<Executed>,
+                    error: Option<Box<RawValue>>,
+                }
+                #[derive(Deserialize)]
+                struct Executed {
+                    depth: u64,
+                    state: State,
+                }
+                #[derive(Deserialize)]
+                struct State {
+                    term: Box<RawValue>,
+                }
+                let response = serde_json::from_str::<Response>(&response).unwrap();
+                assert!(response.error.is_none(), "{:?}", response.error);
+                let result = response.result.expect("execute answers with a result");
+                assert_eq!(result.depth, 0);
+                let state = kore_json::from_str(result.state.term.get()).unwrap();
+                let written = kore_json::from_str(&format!(
+                    r#"{{"format":"KORE","version":1,"term":{term}}}"#
+                ))
+                .unwrap();
+                assert!(state == written, "the stuck state is the request's");
             })
             .unwrap()
             .join()
