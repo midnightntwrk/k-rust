@@ -1,13 +1,13 @@
 //! ```toml algorithm
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
-//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_chain", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Chain::repeats"]
-//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
-//! counters = ["KompileMacroApplications"]
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Chain::repeats"]
+//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+//! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits"]
 //!
 //! [[cost]]
 //! mode = "one sentence, no macro rule with a parametric head"
-//! bound = "O((N + W x S) x R)"
+//! bound = "O((N + W x (P + U)) x R + W x S)"
 //!
 //! [[cost]]
 //! mode = "one sentence, some macro rule with a parametric head (typed in place)"
@@ -22,6 +22,7 @@
 //! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings; each round and each re-expansion of a substituted result clones and compares subterms along paths of length at most h.
 //!
 //! An application is rewritten at its root in a loop (`Expander::expand_chain`, `Expander::try_rules`) until no rule applies, so a long chain of root rewrites takes no native stack.
+//! Without a parametric head, the result of a rewrite is expanded except where it copies a binding that the expansion of the subject's arguments found settled (`Known`): such a copy is kept as it is, so a rewrite visits (`KompileMacroExpansionVisits`) the nodes of the right side and the copies of unsettled bindings, O(P + U), while copying the bindings, measuring depths and checking for a repeat stay O(S).
 //! Only `macro-rec` and `alias-rec` rules may apply again on a path, so only their rewrites can make expansion diverge; `Expander::record_rewrite` accounts for those alone and reports, at the macro rule, a chain that returns to a subject it already rewrote (`Chain::repeats`, Brent's cycle finding), more than `MAX_RECURSIVE_REWRITES` recursive rewrites in one sentence, and a path whose recursive rewrites have added more depth than `growth_allowance` (the larger of `MIN_RECURSIVE_GROWTH` and the input's depth).
 //! The expansion of a sentence or standalone term, and each level of its recursion, runs with a stack red zone in proportion to the deepest term it may hold (`stack_zone`), on a heap-grown segment when the thread's stack runs low (`with_stack`).
 //!
@@ -766,34 +767,70 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         applied: &BTreeSet<usize>,
         grown: usize,
     ) -> Result<Term, Diagnostic> {
-        with_stack(self.red_zone, || self.expand_chain(term, applied, grown))
+        self.expand_known(term, Known::Unknown, applied, grown)
+            .map(|(term, _)| term)
+    }
+
+    /// [`Self::expand_term`] for a term of which `known` tells which parts are settled
+    /// expansion results, which are kept as they are; with whether the result is settled.
+    fn expand_known(
+        &mut self,
+        term: Term,
+        known: Known,
+        applied: &BTreeSet<usize>,
+        grown: usize,
+    ) -> Result<(Term, bool), Diagnostic> {
+        if matches!(known, Known::Settled) {
+            return Ok((term, true));
+        }
+        with_stack(self.red_zone, || {
+            self.expand_chain(term, known, applied, grown)
+        })
     }
 
     /// Expand the arguments of `term`, then rewrite it at its root until no rule applies,
-    /// expanding the arguments of each result before trying the rules again.
+    /// expanding the arguments of each result before trying the rules again; with whether
+    /// the result is settled.
     ///
     /// The root rewrites form a [`Chain`] and are made in a loop, so a long chain takes no
-    /// native stack; only a rewrite inside an argument of a result nests.
+    /// native stack; only a rewrite inside an argument of a result nests. The parts of a
+    /// result that a rule's variables bound to settled subterms of its subject are kept as
+    /// they are ([`Known`]), so a recursive rule that carries a large settled argument along
+    /// expands only what its right side builds around it.
     fn expand_chain(
         &mut self,
         term: Term,
+        known: Known,
         applied: &BTreeSet<usize>,
         grown: usize,
-    ) -> Result<Term, Diagnostic> {
+    ) -> Result<(Term, bool), Diagnostic> {
         let mut chain = Chain::default();
         let mut grown = grown;
         let mut term = term;
+        let mut known = known;
         let mut chain_applied = None::<BTreeSet<usize>>;
-        // Invariant: `term` is the result of the chain's last rewrite (the original term before any), and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
+        // Invariant: `term` is the result of the chain's last rewrite (the original term before any), `known` tells which of its parts are settled, and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
         loop {
+            if matches!(known, Known::Settled) {
+                return Ok((term, true));
+            }
             let applied = chain_applied.as_ref().unwrap_or(applied);
-            let (subject, rules) = self.expand_arguments(term, applied, grown)?;
+            let Expanded {
+                term: subject,
+                rules,
+                settled,
+            } = self.expand_arguments(term, known, applied, grown)?;
             let Some(rules) = rules else {
-                return Ok(subject);
+                let settled = settled.iter().all(|settled| *settled);
+                return Ok((subject, settled));
             };
-            let Some((index, substituted)) = self.select_rule(&subject, &rules, applied, None)?
+            let Some(Rewritten {
+                index,
+                result,
+                known: result_known,
+            }) = self.select_rule(&subject, &rules, &settled, applied, None)?
             else {
-                return Ok(subject);
+                return Ok((subject, false));
             };
             let rule = &rules[index];
             self.record_rewrite(
@@ -802,77 +839,84 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 &subject,
                 applied.len(),
                 &mut grown,
-                &substituted,
+                &result,
             )?;
             let mut next_applied = applied.clone();
             next_applied.insert(rule.id);
             chain_applied = Some(next_applied);
-            term = substituted;
+            term = result;
+            known = result_known;
         }
     }
 
-    /// `term` with its arguments expanded under `applied` and `grown`, and the macro rules of
-    /// its head when it is an application or a token that some rule may rewrite.
+    /// `term` with its children expanded under `applied` and `grown`, the parts `known` marks
+    /// settled kept as they are; with the macro rules of its head when it is an application
+    /// or a token that some rule may rewrite, and whether each child is settled.
     fn expand_arguments(
         &mut self,
         term: Term,
+        known: Known,
         applied: &BTreeSet<usize>,
         grown: usize,
-    ) -> Result<(Term, Option<Vec<MacroRule>>), Diagnostic> {
+    ) -> Result<Expanded, Diagnostic> {
+        measure::bump(Counter::KompileMacroExpansionVisits);
         let below = grown;
         let metadata = term.metadata().cloned();
-        match term.into_unannotated() {
+        let mut children = match known {
+            Known::Children(children) => children.into_iter(),
+            Known::Unknown | Known::Settled => Vec::new().into_iter(),
+        };
+        let mut next = move || children.next().unwrap_or(Known::Unknown);
+        let mut settled = Vec::new();
+        let mut expand = |expander: &mut Self, child: Term| {
+            let (child, child_settled) = expander.expand_known(child, next(), applied, below)?;
+            settled.push(child_settled);
+            Ok::<_, Diagnostic>(child)
+        };
+        let (term, rules) = match term.into_unannotated() {
             Term::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
-                    .map(|argument| self.expand_term(argument, applied, below))
+                    .map(|argument| expand(self, argument))
                     .collect::<Result<Vec<_>, _>>()?;
                 let rules = self.macros.get(&LabelHead::from(&label)).cloned();
-                let application = with_metadata(Term::Apply { label, arguments }, metadata);
-                Ok((application, rules))
+                (Term::Apply { label, arguments }, rules)
             }
             Term::Token { token, sort } => {
                 let rules = self.token_macros.get(&sort).cloned();
-                let token = with_metadata(Term::Token { token, sort }, metadata);
-                Ok((token, rules))
+                (Term::Token { token, sort }, rules)
             }
-            Term::Rewrite { left, right } => Ok((
-                with_metadata(
-                    Term::Rewrite {
-                        left: Box::new(self.expand_term(*left, applied, below)?),
-                        right: Box::new(self.expand_term(*right, applied, below)?),
-                    },
-                    metadata,
+            Term::Rewrite { left, right } => (
+                Term::Rewrite {
+                    left: Box::new(expand(self, *left)?),
+                    right: Box::new(expand(self, *right)?),
+                },
+                None,
+            ),
+            Term::As { pattern, alias } => (
+                Term::As {
+                    pattern: Box::new(expand(self, *pattern)?),
+                    alias: Box::new(expand(self, *alias)?),
+                },
+                None,
+            ),
+            Term::Sequence(items) => (
+                Term::Sequence(
+                    items
+                        .into_iter()
+                        .map(|item| expand(self, item))
+                        .collect::<Result<_, _>>()?,
                 ),
                 None,
-            )),
-            Term::As { pattern, alias } => Ok((
-                with_metadata(
-                    Term::As {
-                        pattern: Box::new(self.expand_term(*pattern, applied, below)?),
-                        alias: Box::new(self.expand_term(*alias, applied, below)?),
-                    },
-                    metadata,
-                ),
-                None,
-            )),
-            Term::Sequence(items) => Ok((
-                with_metadata(
-                    Term::Sequence(
-                        items
-                            .into_iter()
-                            .map(|item| self.expand_term(item, applied, below))
-                            .collect::<Result<_, _>>()?,
-                    ),
-                    metadata,
-                ),
-                None,
-            )),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. }) => {
-                Ok((with_metadata(leaf, metadata), None))
-            }
+            ),
+            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. }) => (leaf, None),
             Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
-        }
+        };
+        Ok(Expanded {
+            term: with_metadata(term, metadata),
+            rules,
+            settled,
+        })
     }
 
     /// Account for the rewrite of `subject`, selected under `applied` earlier rules, by `rule`
@@ -950,14 +994,16 @@ impl<'view, 'definition> Expander<'view, 'definition> {
 
     /// The index in `rules` of the first rule that applies to `subject` (its head instance
     /// agreeing with `instance`, its left side matching, and it recursive or absent from
-    /// `applied`), with its substituted right side.
+    /// `applied`), with its substituted right side. `settled` tells, per argument of an
+    /// application subject, whether it is settled; it may be empty, when nothing is known.
     fn select_rule(
         &mut self,
         subject: &Term,
         rules: &[MacroRule],
+        settled: &[bool],
         applied: &BTreeSet<usize>,
         instance: Option<&Instance>,
-    ) -> Result<Option<(usize, Term)>, Diagnostic> {
+    ) -> Result<Option<Rewritten>, Diagnostic> {
         // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule is returned with its substituted right side.
         for (index, rule) in rules.iter().enumerate() {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
@@ -973,12 +1019,22 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             if !instances_agree(rule.head_instance.as_deref(), instance) {
                 continue;
             }
-            let mut substitution = BTreeMap::new();
-            let matched = self.matches(&mut substitution, &rule.left, subject)?;
+            let mut bindings = BTreeMap::new();
+            let matched = self.matches(&mut bindings, &rule.left, subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
                 measure::bump(Counter::KompileMacroApplications);
-                let substituted = self.substitute(rule.right.clone(), &mut substitution);
-                return Ok(Some((index, substituted)));
+                let settled = settled_variables(&rule.left, settled);
+                let (result, known) = self.substitute(
+                    rule.right.clone(),
+                    &bindings,
+                    &settled,
+                    &mut BTreeMap::new(),
+                );
+                return Ok(Some(Rewritten {
+                    index,
+                    result,
+                    known,
+                }));
             }
         }
         Ok(None)
@@ -1025,6 +1081,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         applied: &BTreeSet<usize>,
         grown: usize,
     ) -> Result<(), Diagnostic> {
+        measure::bump(Counter::KompileMacroExpansionVisits);
         with_stack(self.red_zone, || {
             self.expand_children(site, path, applied, grown)?;
             self.try_rules(site, path, applied, grown)
@@ -1166,12 +1223,12 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             },
             _ => return Ok(None),
         };
-        if let Some((index, substituted)) =
-            self.select_rule(&subject, &rules, applied, instance.as_ref())?
+        if let Some(Rewritten { index, result, .. }) =
+            self.select_rule(&subject, &rules, &[], applied, instance.as_ref())?
         {
             let rule = &rules[index];
-            self.record_rewrite(chain, rule, &subject, applied.len(), grown, &substituted)?;
-            site.replace(path, substituted);
+            self.record_rewrite(chain, rule, &subject, applied.len(), grown, &result)?;
+            site.replace(path, result);
             let mut next_applied = applied.clone();
             next_applied.insert(rule.id);
             return Ok(Some(next_applied));
@@ -1207,19 +1264,21 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"
     )]
-    fn matches(
+    /// Whether `pattern` matches `subject`, extending `bindings` with the subterm of `subject`
+    /// each of its variables stands for.
+    fn matches<'pattern, 'subject>(
         &self,
-        substitution: &mut BTreeMap<String, Term>,
-        pattern: &Term,
-        subject: &Term,
+        bindings: &mut BTreeMap<&'pattern str, &'subject Term>,
+        pattern: &'pattern Term,
+        subject: &'subject Term,
     ) -> Result<bool, Diagnostic> {
         let metadata_sort = pattern
             .metadata()
             .and_then(|metadata| metadata.sort.as_ref());
         match pattern.unannotated() {
             Term::Variable { name, sort } => {
-                if let Some(existing) = substitution.get(name) {
-                    return Ok(existing == subject);
+                if let Some(existing) = bindings.get(name.as_str()) {
+                    return Ok(*existing == subject);
                 }
                 if let Some(pattern_sort) = sort.as_ref().or(metadata_sort) {
                     let subject_sort = self
@@ -1230,7 +1289,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                         return Ok(false);
                     }
                 }
-                substitution.insert(name.clone(), subject.clone());
+                bindings.insert(name, subject);
                 Ok(true)
             }
             Term::Apply {
@@ -1253,7 +1312,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     return Ok(false);
                 }
                 for (pattern, subject) in pattern_arguments.iter().zip(subject_arguments) {
-                    if !self.matches(substitution, pattern, subject)? {
+                    if !self.matches(bindings, pattern, subject)? {
                         return Ok(false);
                     }
                 }
@@ -1291,15 +1350,33 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         self.overloads.order().greater_than(pattern, subject)
     }
 
-    fn substitute(&mut self, term: Term, substitution: &mut BTreeMap<String, Term>) -> Term {
+    /// `term`, a rule's right side, with each variable bound by the match replaced by a copy
+    /// of its binding and each other variable but `#Configuration` by a fresh one, the same
+    /// fresh variable for every occurrence of a name; with what is known of the result: a
+    /// copy of a binding in `settled` is settled.
+    fn substitute(
+        &mut self,
+        term: Term,
+        bindings: &BTreeMap<&str, &Term>,
+        settled: &BTreeSet<&str>,
+        fresh: &mut BTreeMap<String, Term>,
+    ) -> (Term, Known) {
         let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated() {
+        let (rebuilt, known) = match term.into_unannotated() {
             Term::Variable { name, sort } => {
-                if let Some(term) = substitution.get(&name) {
-                    return term.clone();
+                if let Some(bound) = bindings.get(name.as_str()) {
+                    let known = if settled.contains(name.as_str()) {
+                        Known::Settled
+                    } else {
+                        Known::Unknown
+                    };
+                    return ((*bound).clone(), known);
+                }
+                if let Some(variable) = fresh.get(&name) {
+                    return (variable.clone(), Known::Unknown);
                 }
                 if name == "#Configuration" {
-                    Term::Variable { name, sort }
+                    (Term::Variable { name, sort }, Known::Unknown)
                 } else {
                     let generated_name = self.fresh.mint("_Gen");
                     self.generated
@@ -1308,39 +1385,136 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                         name: generated_name,
                         sort,
                     };
-                    substitution.insert(name, variable.clone());
-                    variable
+                    fresh.insert(name, variable.clone());
+                    (variable, Known::Unknown)
                 }
             }
-            Term::Apply { label, arguments } => Term::Apply {
-                label,
-                arguments: arguments
+            Term::Apply { label, arguments } => {
+                let (arguments, known) = arguments
                     .into_iter()
-                    .map(|argument| self.substitute(argument, substitution))
-                    .collect(),
-            },
-            Term::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.substitute(*left, substitution)),
-                right: Box::new(self.substitute(*right, substitution)),
-            },
-            Term::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.substitute(*pattern, substitution)),
-                alias: Box::new(self.substitute(*alias, substitution)),
-            },
-            Term::Sequence(items) => Term::Sequence(
-                items
+                    .map(|argument| self.substitute(argument, bindings, settled, fresh))
+                    .unzip();
+                (Term::Apply { label, arguments }, Known::Children(known))
+            }
+            Term::Rewrite { left, right } => {
+                let (left, left_known) = self.substitute(*left, bindings, settled, fresh);
+                let (right, right_known) = self.substitute(*right, bindings, settled, fresh);
+                (
+                    Term::Rewrite {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    Known::Children(vec![left_known, right_known]),
+                )
+            }
+            Term::As { pattern, alias } => {
+                let (pattern, pattern_known) = self.substitute(*pattern, bindings, settled, fresh);
+                let (alias, alias_known) = self.substitute(*alias, bindings, settled, fresh);
+                (
+                    Term::As {
+                        pattern: Box::new(pattern),
+                        alias: Box::new(alias),
+                    },
+                    Known::Children(vec![pattern_known, alias_known]),
+                )
+            }
+            Term::Sequence(items) => {
+                let (items, known) = items
                     .into_iter()
-                    .map(|item| self.substitute(item, substitution))
-                    .collect(),
-            ),
-            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
+                    .map(|item| self.substitute(item, bindings, settled, fresh))
+                    .unzip();
+                (Term::Sequence(items), Known::Children(known))
+            }
+            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => (leaf, Known::Unknown),
             Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
-        match metadata {
+        let rebuilt = match metadata {
             Some(metadata) => rebuilt.with_metadata(metadata),
             None => rebuilt,
+        };
+        (rebuilt, known)
+    }
+}
+
+/// What expansion knows of a term before expanding it.
+///
+/// A term is settled when no subterm of it is an application or a token that some macro
+/// rule of the expander has as its head: expanding it tries no rule anywhere, so it makes
+/// no rewrite, mints no variable and reports nothing, whatever the rules applied above it.
+/// Expansion still rebuilds every node, keeping the outermost metadata of each node on one
+/// annotation layer; a result of expansion is already in that form, so expanding it again
+/// gives it back unchanged. A settled result of expansion is therefore kept as it is.
+///
+/// The arguments of a subject are expanded before its rules are tried, so a variable of the
+/// rule that matched an argument the expansion found settled is bound to a subterm of a
+/// settled result, which is itself one; its copies in the rule's result are settled too
+/// ([`Expander::substitute`]). Nothing else is known of the result: the right side's own
+/// nodes and the other bindings are expanded as before.
+enum Known {
+    /// Nothing is known: the term is expanded in full.
+    Unknown,
+    /// The term is a settled result of expansion and is kept as it is.
+    Settled,
+    /// The children of the term, in the order expansion visits them, are known as listed.
+    Children(Vec<Known>),
+}
+
+/// A term whose children have been expanded: the macro rules of its head when it has some,
+/// and whether each child is settled ([`Known`]), in the order expansion visits them.
+struct Expanded {
+    term: Term,
+    rules: Option<Vec<MacroRule>>,
+    settled: Vec<bool>,
+}
+
+/// The rule selected for a subject, by its index among the subject's rules, with the
+/// substituted right side and what is known of it.
+struct Rewritten {
+    index: usize,
+    result: Term,
+    known: Known,
+}
+
+/// The variables of `pattern`, the left side of a rule, that occur in an argument `settled`
+/// marks settled: after a match, each is bound to a subterm of a settled argument.
+fn settled_variables<'pattern>(
+    pattern: &'pattern Term,
+    settled: &[bool],
+) -> BTreeSet<&'pattern str> {
+    fn collect<'pattern>(term: &'pattern Term, names: &mut BTreeSet<&'pattern str>) {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only variables and their containers are visited"
+        )]
+        match term.unannotated() {
+            Term::Variable { name, .. } => {
+                names.insert(name.as_str());
+            }
+            Term::Apply { arguments, .. } | Term::Sequence(arguments) => {
+                for argument in arguments {
+                    collect(argument, names);
+                }
+            }
+            Term::Rewrite { left, right } => {
+                collect(left, names);
+                collect(right, names);
+            }
+            Term::As { pattern, alias } => {
+                collect(pattern, names);
+                collect(alias, names);
+            }
+            _ => {}
         }
     }
+    let mut names = BTreeSet::new();
+    if let Term::Apply { arguments, .. } = pattern.unannotated() {
+        for (argument, settled) in arguments.iter().zip(settled) {
+            if *settled {
+                collect(argument, &mut names);
+            }
+        }
+    }
+    names
 }
 
 /// The context an application is expanded in: the rules applied above it, and the depth
