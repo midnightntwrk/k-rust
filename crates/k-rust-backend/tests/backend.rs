@@ -5,6 +5,8 @@
 mod anywhere_matching;
 #[path = "backend/matching.rs"]
 mod matching;
+#[path = "backend/names.rs"]
+mod names;
 #[path = "backend/overloaded_list_owise.rs"]
 mod overloaded_list_owise;
 #[path = "backend/partial_equation_heads.rs"]
