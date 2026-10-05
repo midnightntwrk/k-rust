@@ -2,7 +2,7 @@
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
 //! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
-//! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
+//! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 //! span = "per call"
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -39,7 +39,10 @@ use crate::{
         match_terms_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
-    rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
+    rule::{
+        Absence, KeyedCollection, Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart,
+        term_index,
+    },
     simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
     smt::{NoSolver, SmtSolver},
     stop::Stoppable,
@@ -129,7 +132,11 @@ fn ceil_term_node(
             predicates
         }
         TermKind::Injection { term, .. } => recurse(definition, term),
-        TermKind::Map { entries, rest, .. } => {
+        TermKind::Map {
+            definition: map,
+            entries,
+            rest,
+        } => {
             let mut predicates = entries
                 .iter()
                 .flat_map(|(key, value)| {
@@ -153,7 +160,13 @@ fn ceil_term_node(
                     }
                 }
                 if let Some(rest) = rest {
-                    predicates.push(not_in_collection(definition, "MAP.in_keys", left, rest));
+                    predicates.push(not_in_collection(
+                        definition,
+                        "MAP.in_keys",
+                        KeyedCollection::Map(map.clone()),
+                        left,
+                        rest,
+                    ));
                 }
             }
             predicates
@@ -166,7 +179,11 @@ fn ceil_term_node(
             )
             .flat_map(|term| recurse(definition, term))
             .collect(),
-        TermKind::Set { elements, rest, .. } => {
+        TermKind::Set {
+            definition: set,
+            elements,
+            rest,
+        } => {
             let mut predicates = elements
                 .iter()
                 .flat_map(|element| recurse(definition, element))
@@ -186,7 +203,13 @@ fn ceil_term_node(
                     }
                 }
                 if let Some(rest) = rest {
-                    predicates.push(not_in_collection(definition, "SET.in", left, rest));
+                    predicates.push(not_in_collection(
+                        definition,
+                        "SET.in",
+                        KeyedCollection::Set(set.clone()),
+                        left,
+                        rest,
+                    ));
                 }
             }
             predicates
@@ -588,7 +611,8 @@ fn nested_condition_definedness(
         | Predicate::False
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => predicate.clone(),
+        | Predicate::In(..)
+        | Predicate::Absent(_) => predicate.clone(),
         Predicate::Term(_) | Predicate::Equals(..) => {
             let Some(term) = condition_atom_term(definition, predicate, known) else {
                 return predicate.clone();
@@ -660,6 +684,8 @@ fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<
             .into_iter()
             .chain(ceil_term(definition, right))
             .collect(),
+        // An absence is the `\ceil` of its joined collection, whose value is a variable.
+        Predicate::Absent(absence) => ceil_term(definition, absence.joined()),
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
             ceil_predicate(definition, inner)
         }
@@ -676,25 +702,36 @@ fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<
     }
 }
 
+/// The definedness obligation that `element` is not a key (`MAP.in_keys`) or an element
+/// (`SET.in`) of `rest`, the rest of a map or set of `collection` that also binds `element`.
+///
+/// A function the definition hooks to `hook` at exactly these argument sorts states it as
+/// `\not(hook(element, rest) = true)`. Without one, the obligation is the atom
+/// [`Absence`]: the definedness of `element` joined to `rest`, whatever value a map entry
+/// binds to it. It is a fact about `element` and `rest` alone, so a rule that only changes the
+/// value bound to a key restates the obligation its left-hand side or its path already holds.
+/// KORE's `\in{S1,S2}(P1:S1, P2:S1)` is no substitute: it relates two patterns of one sort,
+/// while a key or element and the collection have different sorts.
 fn not_in_collection(
     definition: &BackendDefinition,
     hook: &str,
+    collection: KeyedCollection,
     element: &Term,
-    collection: &Term,
+    rest: &Term,
 ) -> Predicate {
     let application = definition.symbols().values().find_map(|symbol| {
         (symbol.attributes.hook.as_deref() == Some(hook)
-            && symbol.argument_sorts.as_slice() == [element.sort(), collection.sort()])
+            && symbol.argument_sorts.as_slice() == [element.sort(), rest.sort()])
         .then(|| {
             Term::application(
                 symbol.clone(),
                 Vec::new(),
-                vec![element.clone(), collection.clone()],
+                vec![element.clone(), rest.clone()],
             )
         })
     });
     application.map_or_else(
-        || Predicate::Not(Box::new(Predicate::In(element.clone(), collection.clone()))),
+        || Absence::predicate(collection, element.clone(), rest.clone()),
         |application| Predicate::Not(Box::new(Predicate::Term(application))),
     )
 }
@@ -901,6 +938,305 @@ mod tests {
                 condition_definedness(&definition, vec![condition.clone()], &[]),
                 vec![condition]
             );
+        }
+    }
+
+    /// A map and a set over an opaque rest, with a partial function on keys; `membership`
+    /// declares further symbols.
+    fn collection_definition(membership: &str) -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                sort SortState{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                hooked-symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                hooked-symbol setItem{}(SortKey{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}()]
+                symbol pick{}(SortKey{}) : SortKey{} [function{}()]
+                symbol state{}(SortMap{}, SortSet{}) : SortState{} [constructor{}()]
+                $MEMBERSHIP
+            endmodule []"#
+            .replace("$MEMBERSHIP", membership);
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// `ceil_term` of the state holding `map` and `set`, after the definedness of `pick(K)`.
+    fn collection_obligations(
+        definition: &BackendDefinition,
+        map: &str,
+        set: &str,
+    ) -> (Vec<Predicate>, Predicate) {
+        let state = format!("state{{}}({map}, {set})");
+        let term = definition
+            .internalize_term(&parse_pattern(&state).unwrap(), &[])
+            .unwrap();
+        let pick = definition
+            .internalize_term(&parse_pattern("pick{}(K:SortKey{})").unwrap(), &[])
+            .unwrap();
+        (ceil_term(definition, &term), Predicate::Ceil(pick))
+    }
+
+    fn internal(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(&parse_pattern(source).unwrap(), &[])
+            .unwrap()
+    }
+
+    /// The map and the set collections of [`collection_definition`].
+    fn keyed_collections(definition: &BackendDefinition) -> (KeyedCollection, KeyedCollection) {
+        let map = internal(
+            definition,
+            "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+        );
+        let set = internal(
+            definition,
+            "setConcat{}(setItem{}(K:SortKey{}), S:SortSet{})",
+        );
+        let (
+            TermKind::Map {
+                definition: map, ..
+            },
+            TermKind::Set {
+                definition: set, ..
+            },
+        ) = (map.kind(), set.kind())
+        else {
+            panic!("a map and a set");
+        };
+        (
+            KeyedCollection::Map(map.clone()),
+            KeyedCollection::Set(set.clone()),
+        )
+    }
+
+    fn absence(
+        definition: &BackendDefinition,
+        collection: &KeyedCollection,
+        key: &str,
+        rest: &str,
+    ) -> Predicate {
+        Absence::predicate(
+            collection.clone(),
+            internal(definition, key),
+            internal(definition, rest),
+        )
+    }
+
+    /// Without a membership function, a key's absence from the rest of its map, and an
+    /// element's absence from the rest of its set, is one atom about the key and the rest: the
+    /// entry's value does not occur in it, and it is a fixed point of predicate simplification.
+    #[test]
+    fn absence_from_an_opaque_rest_is_one_atom_whatever_the_value() {
+        let definition = collection_definition("");
+        let (map, set) = keyed_collections(&definition);
+        let set_source = "setConcat{}(setItem{}(pick{}(K:SortKey{})), S:SortSet{})";
+        let (obligations, pick) = collection_obligations(
+            &definition,
+            "mapConcat{}(mapItem{}(pick{}(K:SortKey{}), V:SortValue{}), M:SortMap{})",
+            set_source,
+        );
+        let expected = vec![
+            pick,
+            absence(&definition, &map, "pick{}(K:SortKey{})", "M:SortMap{}"),
+            absence(&definition, &set, "pick{}(K:SortKey{})", "S:SortSet{}"),
+        ];
+        assert_eq!(obligations, expected);
+        assert!(
+            expected[1..]
+                .iter()
+                .all(|atom| matches!(atom, Predicate::Absent(_)))
+        );
+        let (other_value, _) = collection_obligations(
+            &definition,
+            r#"mapConcat{}(mapItem{}(pick{}(K:SortKey{}), \dv{SortValue{}}("1")), M:SortMap{})"#,
+            set_source,
+        );
+        assert_eq!(other_value, expected);
+
+        let simplified = simplify_predicates_with_solver(
+            &definition,
+            &obligations,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(simplified, obligations);
+    }
+
+    /// Two entries over one rest: one absence per entry, each from the rest alone, beside the
+    /// keys' disequality.
+    #[test]
+    fn each_entry_beside_an_opaque_rest_has_its_own_absence_obligation() {
+        let definition = collection_definition("");
+        let (map, _) = keyed_collections(&definition);
+        let source = r#"mapConcat{}(mapConcat{}(mapItem{}(A:SortKey{}, V:SortValue{}),
+            mapItem{}(B:SortKey{}, W:SortValue{})), M:SortMap{})"#;
+        let (obligations, _) =
+            collection_obligations(&definition, source, "setItem{}(A:SortKey{})");
+        assert_eq!(
+            obligations,
+            vec![
+                Predicate::Not(Box::new(Predicate::Equals(
+                    internal(&definition, "A:SortKey{}"),
+                    internal(&definition, "B:SortKey{}")
+                ))),
+                absence(&definition, &map, "A:SortKey{}", "M:SortMap{}"),
+                absence(&definition, &map, "B:SortKey{}", "M:SortMap{}"),
+            ]
+        );
+    }
+
+    /// A membership function at exactly the key (or element) and collection sorts states the
+    /// absence as its negation.
+    #[test]
+    fn a_membership_function_states_absence_from_an_opaque_rest() {
+        let definition = collection_definition(
+            r#"hooked-symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("MAP.in_keys")]
+                hooked-symbol inSet{}(SortKey{}, SortSet{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("SET.in")]"#,
+        );
+        let (obligations, _) = collection_obligations(
+            &definition,
+            "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+            "setConcat{}(setItem{}(K:SortKey{}), S:SortSet{})",
+        );
+        let not_member = |source: &str| {
+            Predicate::Not(Box::new(Predicate::Term(
+                definition
+                    .internalize_term(&parse_pattern(source).unwrap(), &[])
+                    .unwrap(),
+            )))
+        };
+        assert_eq!(
+            obligations,
+            vec![
+                not_member("inKeys{}(K:SortKey{}, M:SortMap{})"),
+                not_member("inSet{}(K:SortKey{}, S:SortSet{})"),
+            ]
+        );
+    }
+
+    /// Once its rest is a collection with entries, an absence is decided through them: false
+    /// when they bind the key, the absences of the key and of theirs from their own rest when
+    /// they do not, and no obligation over a unit.
+    #[test]
+    fn an_absence_is_decided_through_the_entries_of_its_rest() {
+        let definition = collection_definition("");
+        let (map, set) = keyed_collections(&definition);
+        let simplified = |predicate: Predicate| {
+            simplify_predicates_with_solver(
+                &definition,
+                &[predicate],
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap()
+            .unwrap()
+        };
+        let a = r#"\dv{SortKey{}}("a")"#;
+        let b = r#"\dv{SortKey{}}("b")"#;
+        let map_rest = |key: &str| {
+            format!("mapConcat{{}}(mapItem{{}}({key}, W:SortValue{{}}), N:SortMap{{}})")
+        };
+        let set_rest = |key: &str| format!("setConcat{{}}(setItem{{}}({key}), T:SortSet{{}})");
+
+        assert_eq!(
+            simplified(absence(&definition, &map, a, &map_rest(a))),
+            vec![Predicate::False]
+        );
+        assert_eq!(
+            simplified(absence(&definition, &map, a, &map_rest(b))),
+            vec![
+                absence(&definition, &map, a, "N:SortMap{}"),
+                absence(&definition, &map, b, "N:SortMap{}"),
+            ]
+        );
+        assert_eq!(
+            simplified(absence(&definition, &map, a, "mapUnit{}()")),
+            Vec::<Predicate>::new()
+        );
+
+        assert_eq!(
+            simplified(absence(&definition, &set, a, &set_rest(a))),
+            vec![Predicate::False]
+        );
+        assert_eq!(
+            simplified(absence(&definition, &set, a, &set_rest(b))),
+            vec![
+                absence(&definition, &set, a, "T:SortSet{}"),
+                absence(&definition, &set, b, "T:SortSet{}"),
+            ]
+        );
+        assert_eq!(
+            simplified(absence(&definition, &set, a, "setUnit{}()")),
+            Vec::<Predicate>::new()
+        );
+    }
+
+    /// An absence prints as a pattern the standalone verifier accepts, `\exists V. \ceil(K |->
+    /// V R)` for a map and `\ceil(SetItem(K) R)` for a set, and that pattern reads back as the
+    /// same atom. A map's binder is named apart from the variables of the key and the rest, and
+    /// a rest with entries of its own is kept apart from the key's entry. A set whose rest has
+    /// elements of its own is stated as the plain `\ceil` of the joined set, which reads back
+    /// as itself.
+    #[test]
+    fn an_absence_prints_as_a_verified_pattern_that_reads_back_as_itself() {
+        let definition = collection_definition("");
+        let (map, set) = keyed_collections(&definition);
+        let state = Sort::simple("SortState");
+        let atoms = [
+            absence(&definition, &map, "pick{}(K:SortKey{})", "M:SortMap{}"),
+            absence(
+                &definition,
+                &map,
+                "K:SortKey{}",
+                "mapConcat{}(mapItem{}(J:SortKey{}, Value-bbinder0:SortValue{}), M:SortMap{})",
+            ),
+            absence(&definition, &map, "K:SortKey{}", "mapUnit{}()"),
+            absence(&definition, &set, "pick{}(K:SortKey{})", "S:SortSet{}"),
+        ];
+        let Predicate::Absent(spelled_apart) = &atoms[1] else {
+            panic!("a map absence is an atom");
+        };
+        assert_eq!(
+            spelled_apart.binder().map(|binder| binder.name.to_string()),
+            Some("Value!binder1".to_owned())
+        );
+        let set_over_elements = absence(
+            &definition,
+            &set,
+            "K:SortKey{}",
+            "setConcat{}(setItem{}(J:SortKey{}), S:SortSet{})",
+        );
+        assert!(matches!(set_over_elements, Predicate::Ceil(_)));
+        for predicate in atoms.iter().chain([&set_over_elements]) {
+            let printed = crate::externalize::predicate_pattern(predicate, &state);
+            let read = definition
+                .verify_standalone_pattern(&printed, &[])
+                .unwrap_or_else(|error| panic!("{printed:?} does not verify: {error}"))
+                .internalize_predicate()
+                .unwrap_or_else(|error| panic!("{printed:?} does not internalize: {error}"))
+                .0;
+            assert_eq!(&read, predicate, "{printed:?}");
         }
     }
 

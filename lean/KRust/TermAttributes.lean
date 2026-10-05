@@ -331,8 +331,9 @@ structure Oracles where
   /-- The sort graph's answer for two injections with different sources or targets
   (definedness.rs `terms_apart`). -/
   injectionsDistinct : Term → Term → Bool
-  /-- `not_in_collection` (definedness.rs:284). -/
-  notInCollection : String → Term → Term → Pred
+  /-- `not_in_collection` (definedness.rs): the hook, the map or set definition, the key or
+  element, and the rest; no entry value, as the absence it states does not depend on one. -/
+  notInCollection : String → String → Term → Term → Pred
   /-- `deduplicate` (definedness.rs:307-310). -/
   dedup           : List Pred → List Pred
   /-- Hypothesis: `deduplicate` of an empty vector is empty (`retain` on an empty vector).
@@ -349,24 +350,24 @@ def normDistinct (O : Oracles) (l r : Term) : Bool :=
 
 /-- Per position: the pairwise obligations against every later key, then the not-in obligation
 (definedness.rs:135-147). -/
-def mapSide (O : Oracles) : List (Term × Term) → Option Term → List Pred
+def mapSide (O : Oracles) (d : String) : List (Term × Term) → Option Term → List Pred
   | [], _ => []
   | (k, _) :: es, rest =>
       (es.filterMap fun e => if normDistinct O k e.1 then none else some (.notEq k e.1))
       ++ (match rest with
-          | some r => [O.notInCollection "MAP.in_keys" k r]
+          | some r => [O.notInCollection "MAP.in_keys" d k r]
           | none   => [])
-      ++ mapSide O es rest
+      ++ mapSide O d es rest
 
 /-- definedness.rs:166-178. -/
-def setSide (O : Oracles) : List Term → Option Term → List Pred
+def setSide (O : Oracles) (d : String) : List Term → Option Term → List Pred
   | [], _ => []
   | k :: es, rest =>
       (es.filterMap fun k' => if normDistinct O k k' then none else some (.notEq k k'))
       ++ (match rest with
-          | some r => [O.notInCollection "SET.in" k r]
+          | some r => [O.notInCollection "SET.in" d k r]
           | none   => [])
-      ++ setSide O es rest
+      ++ setSide O d es rest
 
 /- `ceil_term_recursive` (definedness.rs:99-189). Each arm builds its list, then `deduplicate`. -/
 mutual
@@ -381,9 +382,9 @@ def ceilTerm (O : Oracles) : Term → List Pred
   | .dv _ _          => O.dedup []
   | .var .element _ _ => O.dedup []
   | .var .set s x    => O.dedup [.ceil (.var .set s x)]
-  | .map _ es rest   => O.dedup (ceilEntries O es ++ ceilOpt O rest ++ mapSide O es rest)
+  | .map d es rest   => O.dedup (ceilEntries O es ++ ceilOpt O rest ++ mapSide O d es rest)
   | .list _ hs rest  => O.dedup (ceilList O hs ++ ceilRest O rest)
-  | .set _ es rest   => O.dedup (ceilList O es ++ ceilOpt O rest ++ setSide O es rest)
+  | .set d es rest   => O.dedup (ceilList O es ++ ceilOpt O rest ++ setSide O d es rest)
 def ceilList (O : Oracles) : List Term → List Pred
   | []      => []
   | t :: ts => ceilTerm O t ++ ceilList O ts
@@ -641,21 +642,21 @@ theorem apart_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k
 
 /-! ## 8. The side obligations vanish on the narrowed class -/
 
-theorem mapSide_none (O : Oracles) : ∀ es : List (Term × Term),
-    es.Pairwise (fun a b => normDistinct O a.1 b.1 = true) → mapSide O es none = []
+theorem mapSide_none (O : Oracles) (d : String) : ∀ es : List (Term × Term),
+    es.Pairwise (fun a b => normDistinct O a.1 b.1 = true) → mapSide O d es none = []
   | [], _ => rfl
   | (k, v) :: es, h => by
       rw [List.pairwise_cons] at h
-      simp only [mapSide, mapSide_none O es h.2, List.append_nil, List.filterMap_eq_nil_iff]
+      simp only [mapSide, mapSide_none O d es h.2, List.append_nil, List.filterMap_eq_nil_iff]
       intro e he
       simp [h.1 e he]
 
-theorem setSide_none (O : Oracles) : ∀ es : List Term,
-    es.Pairwise (fun a b => normDistinct O a b = true) → setSide O es none = []
+theorem setSide_none (O : Oracles) (d : String) : ∀ es : List Term,
+    es.Pairwise (fun a b => normDistinct O a b = true) → setSide O d es none = []
   | [], _ => rfl
   | k :: es, h => by
       rw [List.pairwise_cons] at h
-      simp only [setSide, setSide_none O es h.2, List.append_nil, List.filterMap_eq_nil_iff]
+      simp only [setSide, setSide_none O d es h.2, List.append_nil, List.filterMap_eq_nil_iff]
       intro e he
       simp [h.1 e he]
 
@@ -702,20 +703,20 @@ theorem ceilFree_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalO
   | .dv _ _, _, _ => by simp [ceilTerm, O.dedup_nil]
   | .var .element _ _, _, _ => by simp [ceilTerm, O.dedup_nil]
   | .var .set _ _, _, hc => by simp [ceilFree] at hc
-  | .map _ es rest, hw, hc => by
+  | .map d es rest, hw, hc => by
       simp only [ceilFree, Bool.and_eq_true, Option.isNone_iff_eq_none] at hc
       obtain ⟨⟨⟨he, rfl⟩, hh⟩, hadj⟩ := hc
       simp [ceilTerm, ceilEntries_sound O hle es hw.2.1 he, ceilOpt,
-        mapSide_none O es (map_normDistinct hle O es hw.1 hadj hh), O.dedup_nil]
+        mapSide_none O d es (map_normDistinct hle O es hw.1 hadj hh), O.dedup_nil]
   | .list _ hs rest, hw, hc => by
       simp only [ceilFree, Bool.and_eq_true] at hc
       simp [ceilTerm, ceilList_sound O hle hs hw.1 hc.1, ceilRest_sound O hle rest hw.2 hc.2,
         O.dedup_nil]
-  | .set _ es rest, hw, hc => by
+  | .set d es rest, hw, hc => by
       simp only [ceilFree, Bool.and_eq_true, Option.isNone_iff_eq_none] at hc
       obtain ⟨⟨⟨he, rfl⟩, hh⟩, hadj⟩ := hc
       simp [ceilTerm, ceilList_sound O hle es hw.2.1 he, ceilOpt,
-        setSide_none O es (set_normDistinct hle O es hw.1 hadj hh), O.dedup_nil]
+        setSide_none O d es (set_normDistinct hle O es hw.1 hadj hh), O.dedup_nil]
 theorem ceilList_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le) :
     ∀ ts, WFList le ts → ceilFreeList ts = true → ceilList O ts = []
   | [], _, _ => rfl

@@ -639,6 +639,10 @@ impl<'n, 'r> Pass<'n, 'r> {
                 self.term(left);
                 self.term(right);
             }
+            Predicate::Absent(absence) => {
+                self.term(absence.key());
+                self.term(absence.rest());
+            }
             Predicate::Not(inner) => self.predicate(inner),
             Predicate::And(inner) | Predicate::Or(inner) => self.predicates(inner),
             Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
@@ -839,6 +843,13 @@ impl<'n, 'r> Pass<'n, 'r> {
                 self.variable_label(binder),
                 self.predicate_label(body),
             )),
+            // The binder is a function of the key and the rest, so it adds no information.
+            Predicate::Absent(absence) => hash_of(&(
+                24u8,
+                absence.collection(),
+                self.label(absence.key()),
+                self.label(absence.rest()),
+            )),
         }
     }
 }
@@ -956,7 +967,8 @@ fn sort_operands(predicate: &mut Predicate) {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => {}
+        | Predicate::In(..)
+        | Predicate::Absent(_) => {}
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
             sort_operands(inner);
         }

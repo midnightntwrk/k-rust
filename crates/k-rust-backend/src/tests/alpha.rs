@@ -618,6 +618,10 @@ pub(crate) fn collect_predicate(
             collect_term(ll, rl, context)?;
             collect_term(lr, rr, context)
         }
+        (Absent(left), Absent(right)) if left.collection() == right.collection() => {
+            collect_term(left.key(), right.key(), context)?;
+            collect_term(left.rest(), right.rest(), context)
+        }
         (Not(left), Not(right)) => collect_predicate(left, right, context),
         (And(left), And(right)) | (Or(left), Or(right)) => {
             collect_slice(left, right, context, collect_predicate)
@@ -646,6 +650,7 @@ pub(crate) fn rename_predicate(predicate: &Predicate, context: &AlphaContext) ->
         Ceil(term) => Ceil(rename_term(term, context)),
         Floor(term) => Floor(rename_term(term, context)),
         In(left, right) => In(rename_term(left, context), rename_term(right, context)),
+        Absent(absence) => absence.map_terms(|term| rename_term(term, context)),
         Not(inner) => Not(Box::new(rename_predicate(inner, context))),
         And(inner) => And(rename_predicates(inner, context)),
         Or(inner) => Or(rename_predicates(inner, context)),

@@ -18,8 +18,8 @@ use crate::{
         constrained_pattern, disjunction, ml_pattern, predicate_pattern, sort,
     },
     rewrite::Pattern,
-    rule::Predicate,
-    term::{Sort, Term, Variable},
+    rule::{Absence, KeyedCollection, Predicate},
+    term::{CollectionSymbols, ListDefinition, MapDefinition, Sort, Term, Variable},
     transition::PatternDigest,
 };
 
@@ -29,15 +29,19 @@ fn predicate() -> impl Strategy<Value = Predicate> {
     let boolean = prop_oneof![Just("true"), Just("false")]
         .prop_map(|value| Term::domain_value(Sort::builtin(BuiltinSort::Bool), value));
     let operand = prop_oneof![3 => generators::term(), 1 => boolean];
-    let leaf = prop_oneof![
-        Just(Predicate::True),
-        Just(Predicate::False),
-        operand.clone().prop_map(Predicate::Term),
-        (operand.clone(), operand.clone()).prop_map(|(left, right)| Predicate::Equals(left, right)),
-        operand.clone().prop_map(Predicate::Ceil),
-        operand.clone().prop_map(Predicate::Floor),
-        (operand.clone(), operand).prop_map(|(left, right)| Predicate::In(left, right)),
-    ];
+    let leaf =
+        prop_oneof![
+            Just(Predicate::True),
+            Just(Predicate::False),
+            operand.clone().prop_map(Predicate::Term),
+            (operand.clone(), operand.clone())
+                .prop_map(|(left, right)| Predicate::Equals(left, right)),
+            operand.clone().prop_map(Predicate::Ceil),
+            operand.clone().prop_map(Predicate::Floor),
+            (operand.clone(), operand.clone()).prop_map(|(left, right)| Predicate::In(left, right)),
+            (operand.clone(), operand, any::<bool>())
+                .prop_map(|(key, rest, map)| Absence::predicate(keyed(map), key, rest)),
+        ];
     leaf.prop_recursive(3, 24, 3, |inner| {
         let variable = prop_oneof![Just("X"), Just("Z")]
             .prop_map(|name| Variable::new(name, Sort::simple("SortKItem")));
@@ -57,6 +61,29 @@ fn predicate() -> impl Strategy<Value = Predicate> {
                 .prop_map(|(variable, inner)| Predicate::Forall(variable, Box::new(inner))),
         ]
     })
+}
+
+/// A map or a set collection for absences over generated terms.
+fn keyed(map: bool) -> KeyedCollection {
+    let symbols = |prefix: &str| CollectionSymbols {
+        unit: format!("{prefix}Unit").into(),
+        element: format!("{prefix}Item").into(),
+        concat: format!("{prefix}Concat").into(),
+    };
+    if map {
+        KeyedCollection::Map(std::sync::Arc::new(MapDefinition {
+            symbols: symbols("map"),
+            key_sort: "SortKItem".into(),
+            value_sort: "SortKItem".into(),
+            map_sort: "SortMap".into(),
+        }))
+    } else {
+        KeyedCollection::Set(std::sync::Arc::new(ListDefinition {
+            symbols: symbols("set"),
+            element_sort: "SortKItem".into(),
+            list_sort: "SortSet".into(),
+        }))
+    }
 }
 
 /// The text of `source` and of `pattern` at a narrow, a medium, and an unbounded width.

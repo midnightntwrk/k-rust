@@ -70,12 +70,15 @@ use crate::{
     definition::{BackendDefinition, DefinitionError, UnlicensedInjectionSite},
     substitution::{Substitution, substitute},
     term::{
-        AlgebraicAxioms, HeadRole, Name, Sort, Term, TermKind, Variable,
+        AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
+        Variable, VariableKind,
         head::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
         },
-        names::{VariableProvenance, split_marker},
+        names::{
+            FreshMarker, VariableProvenance, encode_variable_name, split_marker, with_fresh_marker,
+        },
     },
 };
 
@@ -95,6 +98,215 @@ pub enum Predicate {
     Iff(Box<Predicate>, Box<Predicate>),
     Exists(Variable, Box<Predicate>),
     Forall(Variable, Box<Predicate>),
+    /// A key's absence from the keys of a map, or an element's from a set ([`Absence`]).
+    Absent(Absence),
+}
+
+/// The map or set an [`Absence`] is about.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum KeyedCollection {
+    Map(Arc<MapDefinition>),
+    Set(Arc<SetDefinition>),
+}
+
+/// That `key` is not a key of the map `rest`, or not an element of the set `rest`, with `key`
+/// and `rest` defined.
+///
+/// For a map it means `\exists V. \ceil(key |-> V rest)`, for a set `\ceil(SetItem(key) rest)`.
+/// The entry constructor is total, and concatenation is defined exactly when its operands bind
+/// disjoint keys (hold disjoint elements), so `key |-> V rest` is defined, for any value `V`,
+/// exactly when `key` and `rest` are defined and `key` is not a key of `rest`; every sort has
+/// an element to bind `V` to. The fact is therefore about `key` and `rest` alone, and the atom
+/// carries no value: the absence a map entry `key |-> v` states beside `rest` is the same atom
+/// whatever `v` is. A set element is its own key, so the set form needs no binder.
+///
+/// It is printed as the pattern above (`externalize`), and reading that exact pattern gives the
+/// atom again ([`Absence::from_bound_ceil`], [`Absence::from_ceil`]). `joined` is the collection
+/// under the `\ceil`, with the variable `binder` as the value of a map's entry; both are built
+/// from `key` and `rest`, `binder` named apart from their variables, so two absences are equal
+/// exactly when their collections, keys and rests are. A set's pattern reads back as the atom
+/// only when its joined set is one element beside a rest, so [`Absence::predicate`] states any
+/// other set absence as the `\ceil` of its joined set, which is the same fact.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Absence {
+    key: Term,
+    rest: Term,
+    joined: Term,
+    binder: Option<Variable>,
+}
+
+impl Absence {
+    /// The absence of `key` from `rest`, a collection of `collection`'s sort: the atom, except
+    /// for a set whose joined set is not one element beside a rest (`rest` holds elements of
+    /// its own, or is empty), where it is the `\ceil` of the joined set.
+    pub fn predicate(collection: KeyedCollection, key: Term, rest: Term) -> Predicate {
+        let absence = Self::new(collection, key, rest);
+        match absence.joined.kind() {
+            TermKind::Set {
+                elements,
+                rest: Some(_),
+                ..
+            } if elements.len() == 1 => Predicate::Absent(absence),
+            TermKind::Set { .. } => Predicate::Ceil(absence.joined),
+            _ => Predicate::Absent(absence),
+        }
+    }
+
+    fn new(collection: KeyedCollection, key: Term, rest: Term) -> Self {
+        match collection {
+            KeyedCollection::Map(map) => {
+                let binder = Self::binder_for(&map, &key, &rest);
+                let joined = Term::map(
+                    map,
+                    vec![(key.clone(), Term::variable(binder.clone()))],
+                    Some(rest.clone()),
+                );
+                Self {
+                    key,
+                    rest,
+                    joined,
+                    binder: Some(binder),
+                }
+            }
+            KeyedCollection::Set(set) => {
+                let joined = Term::set(set, vec![key.clone()], Some(rest.clone()));
+                Self {
+                    key,
+                    rest,
+                    joined,
+                    binder: None,
+                }
+            }
+        }
+    }
+
+    /// The bound value of a map's entry: `Value!binder{n}` of the value sort for the least `n`
+    /// whose spelling no variable of `key` or `rest` has, so the binder captures nothing when
+    /// printed and its name depends only on `key` and `rest`.
+    fn binder_for(map: &MapDefinition, key: &Term, rest: &Term) -> Variable {
+        let taken = key
+            .attributes()
+            .variables
+            .iter()
+            .chain(&rest.attributes().variables)
+            .map(|variable| encode_variable_name(&variable.name))
+            .collect::<BTreeSet<_>>();
+        // Invariant: the counter only grows, so at most |taken| + 1 names are tried.
+        (0_u64..)
+            .map(|counter| {
+                Variable::new(
+                    with_fresh_marker("Value", FreshMarker::Binder, counter),
+                    Sort::simple(map.value_sort.clone()),
+                )
+            })
+            .find(|binder| !taken.contains(&encode_variable_name(&binder.name)))
+            .expect("an unbounded counter leaves a free spelling")
+    }
+
+    /// The absence of `transform` of the key from `transform` of the rest
+    /// ([`Absence::predicate`]).
+    pub fn map_terms(&self, mut transform: impl FnMut(&Term) -> Term) -> Predicate {
+        Self::predicate(
+            self.collection(),
+            transform(&self.key),
+            transform(&self.rest),
+        )
+    }
+
+    pub fn collection(&self) -> KeyedCollection {
+        match self.joined.kind() {
+            TermKind::Map { definition, .. } => KeyedCollection::Map(definition.clone()),
+            TermKind::Set { definition, .. } => KeyedCollection::Set(definition.clone()),
+            _ => unreachable!("the joined collection of an absence is a map or a set"),
+        }
+    }
+
+    pub fn key(&self) -> &Term {
+        &self.key
+    }
+
+    pub fn rest(&self) -> &Term {
+        &self.rest
+    }
+
+    /// The collection whose definedness the absence is: `key` joined to `rest`, with
+    /// [`Absence::binder`] as a map entry's value.
+    pub fn joined(&self) -> &Term {
+        &self.joined
+    }
+
+    /// The variable bound over a map's [`Absence::joined`]; none for a set.
+    pub fn binder(&self) -> Option<&Variable> {
+        self.binder.as_ref()
+    }
+
+    /// `\exists binder. \ceil(joined)` read as an absence: `joined` is a map with exactly one
+    /// entry whose value is the element variable `binder`, which occurs nowhere else in it.
+    /// That pattern is the absence of the entry's key from the other entries and the rest.
+    pub fn from_bound_ceil(binder: &Variable, body: &Predicate) -> Option<Self> {
+        let Predicate::Ceil(joined) = body else {
+            return None;
+        };
+        let TermKind::Map {
+            definition,
+            entries,
+            rest,
+        } = joined.kind()
+        else {
+            return None;
+        };
+        if binder.kind != VariableKind::Element
+            || binder.sort != Sort::simple(definition.value_sort.clone())
+        {
+            return None;
+        }
+        let bound = Term::variable(binder.clone());
+        let mut keyed = entries.iter().filter(|(_, value)| value == &bound);
+        let (Some((key, _)), None) = (keyed.next(), keyed.next()) else {
+            return None;
+        };
+        let others = entries
+            .iter()
+            .filter(|(_, value)| value != &bound)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mentions = |term: &Term| term.attributes().variables.contains(binder);
+        if mentions(key)
+            || rest.as_ref().is_some_and(mentions)
+            || others
+                .iter()
+                .any(|(key, value)| mentions(key) || mentions(value))
+        {
+            return None;
+        }
+        let rest = Term::map(definition.clone(), others, rest.clone());
+        Some(Self::new(
+            KeyedCollection::Map(definition.clone()),
+            key.clone(),
+            rest,
+        ))
+    }
+
+    /// `\ceil(joined)` read as an absence: `joined` is a set with exactly one element beside a
+    /// rest, which is that element's absence from the rest.
+    pub fn from_ceil(joined: &Term) -> Option<Self> {
+        let TermKind::Set {
+            definition,
+            elements,
+            rest: Some(rest),
+        } = joined.kind()
+        else {
+            return None;
+        };
+        let [element] = elements.as_slice() else {
+            return None;
+        };
+        Some(Self::new(
+            KeyedCollection::Set(definition.clone()),
+            element.clone(),
+            rest.clone(),
+        ))
+    }
 }
 
 impl Predicate {
@@ -106,6 +318,10 @@ impl Predicate {
             Self::Equals(left, right) | Self::In(left, right) => {
                 visitor(left);
                 visitor(right);
+            }
+            Self::Absent(absence) => {
+                visitor(absence.key());
+                visitor(absence.rest());
             }
             Self::Not(inner) | Self::Exists(_, inner) | Self::Forall(_, inner) => {
                 inner.visit_terms(visitor);
@@ -131,6 +347,11 @@ impl Predicate {
             Self::Equals(left, right) | Self::In(left, right) => {
                 let mut variables = left.attributes().variables.clone();
                 variables.extend(right.attributes().variables.iter().cloned());
+                variables
+            }
+            Self::Absent(absence) => {
+                let mut variables = absence.key().attributes().variables.clone();
+                variables.extend(absence.rest().attributes().variables.iter().cloned());
                 variables
             }
             Self::Not(inner) => inner.free_variables(),
@@ -2215,6 +2436,10 @@ pub(crate) fn internalize_predicate(
     let predicate = |pattern: &kore::Pattern| {
         internalize_predicate(definition, pattern, sort_parameters, injection_role)
     };
+    // The written form of an absence is the absence (`Absence`), except in the left-hand side
+    // of a predicate simplification, which is matched as written: there a `\ceil` of a set
+    // also matches a set with more elements than the atom has.
+    let reads_absence = injection_role != UnlicensedInjectionSite::InAxiomMatched;
     match pattern {
         kore::Pattern::Top { .. } => Ok(Predicate::True),
         kore::Pattern::Bottom { .. } => Ok(Predicate::False),
@@ -2227,7 +2452,13 @@ pub(crate) fn internalize_predicate(
             Box::new(predicate(left)?),
             Box::new(predicate(right)?),
         )),
-        kore::Pattern::Ceil { argument, .. } => Ok(Predicate::Ceil(term(argument)?)),
+        kore::Pattern::Ceil { argument, .. } => {
+            let argument = term(argument)?;
+            Ok(match Absence::from_ceil(&argument) {
+                Some(absence) if reads_absence => Predicate::Absent(absence),
+                _ => Predicate::Ceil(argument),
+            })
+        }
         kore::Pattern::Floor { argument, .. } => Ok(Predicate::Floor(term(argument)?)),
         kore::Pattern::In { left, right, .. } => {
             let left = term(left)?;
@@ -2261,10 +2492,14 @@ pub(crate) fn internalize_predicate(
             Box::new(predicate(left)?),
             Box::new(predicate(right)?),
         )),
-        kore::Pattern::Exists { variable, body, .. } => Ok(Predicate::Exists(
-            definition.internalize_variable(variable, sort_parameters)?,
-            Box::new(predicate(body)?),
-        )),
+        kore::Pattern::Exists { variable, body, .. } => {
+            let variable = definition.internalize_variable(variable, sort_parameters)?;
+            let body = predicate(body)?;
+            Ok(match Absence::from_bound_ceil(&variable, &body) {
+                Some(absence) if reads_absence => Predicate::Absent(absence),
+                _ => Predicate::Exists(variable, Box::new(body)),
+            })
+        }
         kore::Pattern::Forall { variable, body, .. } => Ok(Predicate::Forall(
             definition.internalize_variable(variable, sort_parameters)?,
             Box::new(predicate(body)?),
@@ -2709,6 +2944,7 @@ fn rename_predicate(
         Predicate::In(left, right) => {
             Predicate::In(rename_term(left, rename), rename_term(right, rename))
         }
+        Predicate::Absent(absence) => absence.map_terms(|term| rename_term(term, rename)),
         Predicate::Not(inner) => Predicate::Not(Box::new(rename_predicate(inner, rename))),
         Predicate::And(inner) => Predicate::And(rename_predicates(inner, rename)),
         Predicate::Or(inner) => Predicate::Or(rename_predicates(inner, rename)),
@@ -2917,6 +3153,10 @@ fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
             !left.attributes().variables.is_disjoint(variables)
                 || !right.attributes().variables.is_disjoint(variables)
         }
+        Predicate::Absent(absence) => {
+            !absence.key().attributes().variables.is_disjoint(variables)
+                || !absence.rest().attributes().variables.is_disjoint(variables)
+        }
         Predicate::Not(inner) => mentions_any(inner, variables),
         Predicate::And(inner) | Predicate::Or(inner) => inner
             .iter()
@@ -2940,6 +3180,10 @@ pub(crate) fn mentions_free(predicate: &Predicate, variable: &Variable) -> bool 
         Predicate::Equals(left, right) | Predicate::In(left, right) => {
             left.attributes().variables.contains(variable)
                 || right.attributes().variables.contains(variable)
+        }
+        Predicate::Absent(absence) => {
+            absence.key().attributes().variables.contains(variable)
+                || absence.rest().attributes().variables.contains(variable)
         }
         Predicate::Not(inner) => mentions_free(inner, variable),
         Predicate::And(inner) | Predicate::Or(inner) => inner
@@ -3070,7 +3314,8 @@ fn collect_binders(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => {}
+        | Predicate::In(..)
+        | Predicate::Absent(_) => {}
     }
 }
 

@@ -522,6 +522,9 @@ k-rust applies this in concrete and symbolic evaluation alike, as for sets ([Set
 Definedness emits `\not(K = K)` for the repeat, matching fails on it, a `MAP` hook with such an argument is `\bottom`, and the simplifier reports the map as `\bottom` where it is built.
 So a step whose right-hand side builds such a map, directly or through a function equation (`total` or not), is an undefined step, and a ground claim over it fails.
 Keys that are not syntactically equal stay a definedness condition, as for sets.
+The condition that a key `K` is not a key of an opaque rest `M` uses the definition's `MAP.in_keys` function at the key and map sorts, as `\not(in_keys(K, M) = true)`.
+Without one, it is the pattern `\exists V. \ceil(K |-> V M)`, which states that `K` and `M` are defined and `K` is not a key of `M`, whatever value the entry has; for a set without `SET.in` it is `\ceil(SetItem(K) S)`.
+The backend keeps the map and the set form alike as one atom of `K` and `M` (`rule::Absence`), so a step that only changes the value bound to `K` restates the condition its path already holds; responses print it as that pattern, and a request that sends the same pattern back states the same atom.
 
 The reason is the same as for sets: a map value is a finite function, and concrete and symbolic evaluation must agree on every ground instance.
 The symbolic side reads `M (K |-> V)` as defined only when `K` is not a key of `M`; merging `(1 |-> 2) (1 |-> 2)` into `1 |-> 2` made a ground instance reach a successor that the symbolic step, specialised to it, says does not exist.

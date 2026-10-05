@@ -57,7 +57,10 @@ fn bound_names_of(predicate: &Predicate, names: &mut BTreeSet<String>) {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => {}
+        | Predicate::In(..)
+        // An absence prints with a binder of its own (`Absence::binder`), named apart from
+        // its key and rest; it reads back as the absence, not as a quantifier.
+        | Predicate::Absent(_) => {}
         Predicate::Not(inner) => bound_names_of(inner, names),
         Predicate::And(inner) | Predicate::Or(inner) => {
             for predicate in inner {
@@ -151,10 +154,12 @@ fn reparse(label: &str, printed: &kore::Pattern) -> (String, kore::Pattern) {
     (text, parsed)
 }
 
-/// The printed pattern read back as a consumer that trusts the backend's output reads it.
+/// The printed pattern read back as a consumer reads it: verified as a standalone pattern of the
+/// definition, then internalized.
 fn read_back(label: &str, definition: &BackendDefinition, printed: &kore::Pattern) -> Pattern {
     definition
-        .admit_unverified(printed, &[])
+        .verify_standalone_pattern(printed, &[])
+        .unwrap_or_else(|error| panic!("{label}: {printed:?} does not verify: {error}"))
         .internalize_pattern()
         .unwrap_or_else(|error| panic!("{label}: {printed:?} does not re-internalize: {error}"))
 }
@@ -214,7 +219,8 @@ fn assert_round_trips(
 fn assert_term_round_trips(label: &str, definition: &BackendDefinition, term: &Term) {
     let (text, printed_term) = reparse(label, &externalize::term(term));
     let back = definition
-        .admit_unverified(&printed_term, &[])
+        .verify_standalone_pattern(&printed_term, &[])
+        .unwrap_or_else(|error| panic!("{label}: {text} does not verify: {error}"))
         .internalize_term()
         .unwrap_or_else(|error| panic!("{label}: {text} does not re-internalize: {error}"));
     let renamed = term

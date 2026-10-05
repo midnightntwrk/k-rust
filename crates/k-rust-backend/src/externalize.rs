@@ -408,7 +408,8 @@ fn logical_rule_predicate(boolean_sort: &Sort, predicate: &Predicate) -> Predica
         | Predicate::False
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(_, _) => predicate.clone(),
+        | Predicate::In(_, _)
+        | Predicate::Absent(_) => predicate.clone(),
     }
 }
 
@@ -574,6 +575,7 @@ fn predicate_as_boolean_term(
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
         | Predicate::In(_, _)
+        | Predicate::Absent(_)
         | Predicate::Exists(_, _)
         | Predicate::Forall(_, _) => None,
     }
@@ -637,6 +639,22 @@ fn predicate_pattern_with_terms(
             left: Box::new(term(left)),
             right: Box::new(term(right)),
         },
+        Predicate::Absent(absence) => {
+            let joined = absence.joined();
+            let ceil = kore::Pattern::Ceil {
+                operand_sort: Box::new(sort(&joined.sort())),
+                result_sort: sort(result_sort),
+                argument: Box::new(term(joined)),
+            };
+            match absence.binder() {
+                Some(binder) => kore::Pattern::Exists {
+                    sort: sort(result_sort),
+                    variable: Box::new(variable_pattern(binder)),
+                    body: Box::new(ceil),
+                },
+                None => ceil,
+            }
+        }
         Predicate::Not(inner) => kore::Pattern::Not {
             sort: sort(result_sort),
             argument: Box::new(predicate_pattern_with_terms(
@@ -819,7 +837,9 @@ pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
-        | Predicate::In(..) => None,
+        | Predicate::In(..)
+        // `Absence::new` names an absence's binder apart from its key and rest.
+        | Predicate::Absent(_) => None,
         Predicate::Not(inner) => apart_binders(inner).map(|inner| Predicate::Not(Box::new(inner))),
         Predicate::And(items) => each(items, Predicate::And),
         Predicate::Or(items) => each(items, Predicate::Or),
@@ -1034,6 +1054,8 @@ pub enum External<'t> {
         sort: &'t kore::Sort,
         operands: &'t [External<'t>],
     },
+    /// `\ceil` of the term at the sort: the body of an absence's pattern.
+    Ceil(&'t Term, ResultSort<'t>),
     /// `\top` at the sort.
     Top(&'t kore::Sort),
     /// `\bottom` at the sort.
@@ -1248,6 +1270,14 @@ fn predicate_node<'t>(
             left: External::Term(left),
             right: External::Term(right),
         },
+        Predicate::Absent(absence) => match absence.binder() {
+            Some(binder) => PatternNode::Exists {
+                sort: result(),
+                variable: Cow::Owned(variable_pattern(binder)),
+                body: External::Ceil(absence.joined(), result_sort),
+            },
+            None => External::Ceil(absence.joined(), result_sort).node(),
+        },
         Predicate::Not(inner) => PatternNode::Not {
             sort: result(),
             argument: recurse(inner),
@@ -1325,6 +1355,11 @@ impl<'t> PatternSource<'t> for External<'t> {
             Self::Element(element, item) => {
                 application_node(element, Vec::new(), vec![Self::Term(item)])
             }
+            Self::Ceil(term, result_sort) => PatternNode::Ceil {
+                operand_sort: Cow::Owned(sort(&term.sort())),
+                result_sort: Cow::Owned(result_sort.external()),
+                argument: Self::Term(term),
+            },
             Self::Predicate {
                 predicate,
                 sort,
