@@ -8,7 +8,7 @@
 //!     "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters",
 //!     "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators",
 //!     "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = parameter vectors enumerated for one maximal typing, at most 256, of which the admissible ones are kept; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing; F = formal parameters of the term"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -33,7 +33,7 @@
 //!
 //! [[cost]]
 //! mode = "admissible parameter enumeration of one recorded model with formal parameters"
-//! bound = "O(L x I + A) solver checks (each maximal live set grows by at most I checks), and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
+//! bound = "O(L x I + A) solver checks (each maximal live set grows by at most I checks), O(A x F) model evaluations of the K, KItem and Bag preferences to rank the enumerated vectors, and at most A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
 //!
 //! [[cost]]
 //! mode = "live-tree indicators of one term constraint"
@@ -455,11 +455,16 @@ const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
 
 const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
 
-/// The most admissible parameter vectors `Encoding::admissible_parameters` returns for one
-/// recorded variable typing; it fails instead of keeping a subset when there are more. The
-/// vectors are drawn from the finite domain of `DomainSolver`, so the enumeration ends without
-/// this limit; it bounds the cost of a large domain, not its termination.
+/// The most parameter vectors `Encoding::admissible_parameters` enumerates for one recorded
+/// variable typing, before its rank keeps the best of each live set; it fails instead of
+/// keeping a subset when there are more. The vectors are drawn from the finite domain of
+/// `DomainSolver`, so the enumeration ends without this limit; it bounds the cost of a large
+/// domain, not its termination.
 const PARAMETER_CHOICE_LIMIT: usize = 256;
+
+/// A parameter vector `Encoding::enumerate_parameters` found, after its rank: for each group of
+/// `Encoding::ranked_top_preferences`, how many of its preferences the vector satisfies.
+type RankedVector = (Vec<usize>, BTreeMap<String, Sort>);
 
 /// The constraint of each node of one term constraint, recorded while it is built
 /// (`Encoding::constraint_packed_node`, `Encoding::constraint_node`), with the nodes that use it:
@@ -2347,7 +2352,24 @@ impl<'a> Encoding<'a> {
     /// after the pop with only hard constraints, so an incomparable model with fewer preferred
     /// assignments cannot be pruned.
     fn top_preferences(&self, select: impl Fn(&str) -> bool) -> Result<Vec<Bool>, ParseError> {
-        let mut constraints = Vec::new();
+        Ok(self.ranked_top_preferences(select)?.concat())
+    }
+
+    /// The preferences of `top_preferences`, one group per preferred sort in rank order: `K`,
+    /// then `KItem`, then `Bag`.
+    ///
+    /// The count of `top_preferences` ranks these three sorts only through the subsort order:
+    /// where the order puts `KItem` and `Bag` below `K`, a constant at `K` satisfies more of
+    /// them than one at `KItem`. Where the order leaves them unrelated, as in a program
+    /// grammar, which has no kernel syntax relating them, each of the three satisfies exactly
+    /// one preference, so the count cannot choose among them. The rank decides that tie:
+    /// `K`, the sort of computations, holds every item as a one-element computation, so a
+    /// constant at `K` commits the term to nothing narrower; items come before cells.
+    fn ranked_top_preferences(
+        &self,
+        select: impl Fn(&str) -> bool,
+    ) -> Result<Vec<Vec<Bool>>, ParseError> {
+        let mut groups = Vec::new();
         for preferred in [
             BuiltinSort::K.k_name(),
             BuiltinSort::KItem.k_name(),
@@ -2358,13 +2380,15 @@ impl<'a> Encoding<'a> {
                 continue;
             }
             let preferred = self.sort_value(&sort, &BTreeMap::new())?;
+            let mut constraints = Vec::new();
             for (name, variable) in &self.variables {
                 if select(name) {
                     constraints.push(self.less_than_eq(&preferred, variable)?);
                 }
             }
+            groups.push(constraints);
         }
-        Ok(constraints)
+        Ok(groups)
     }
 
     fn seed_model(
@@ -2590,7 +2614,13 @@ impl<'a> Encoding<'a> {
     ///    `K`/`KItem`/`Bag` preferences of `seed_model`, which chooses the instantiation of a
     ///    parameter the kept readings leave free, including which alternative of a class
     ///    carries the reading. It compares only vectors that keep the same readings, so it
-    ///    never removes a reading.
+    ///    never removes a reading. Among the vectors that reach that count, the most
+    ///    parameters sit at or above `K`, then at or above `KItem`, then at or above `Bag`
+    ///    (`ranked_top_preferences`): where the order leaves the three unrelated, a free
+    ///    parameter meets one preference at each of them, and the count alone would return
+    ///    one vector per sort for a parameter nothing constrains. Those vectors keep the same
+    ///    readings and differ only in the instance of a reading that is one parse, so returning
+    ///    them all would present one parse as an ambiguity between its instances.
     ///
     /// Every vector that reaches these criteria is returned, and the caller applies each one as a
     /// candidate. The post-inference passes then see every such parse as an alternative of one
@@ -2605,9 +2635,11 @@ impl<'a> Encoding<'a> {
     /// vectors: the blocking clauses of earlier records name only real variables and hold at
     /// `chosen`, which is unblocked. Each step excludes exactly the last vector found, so an
     /// `Unsat` answer means that the whole set has been returned; each vector has exactly one live
-    /// set, so no vector is returned twice. Every unknown ranges over the finite domain of
-    /// `DomainSolver`, so the enumeration ends; `PARAMETER_CHOICE_LIMIT` bounds the cost of a
-    /// large one, and the inference fails instead of keeping a subset when it is exceeded.
+    /// set, so no vector is returned twice. The rank of step 3 is then read from each
+    /// enumerated vector's model rather than asserted, so it costs no solver check. Every
+    /// unknown ranges over the finite domain of `DomainSolver`, so the enumeration ends;
+    /// `PARAMETER_CHOICE_LIMIT` bounds the number of vectors enumerated, ranked or not, and the
+    /// inference fails instead of keeping a subset when it is exceeded.
     fn admissible_parameters(
         &self,
         solver: &DomainSolver,
@@ -2631,8 +2663,11 @@ impl<'a> Encoding<'a> {
                 solver.assert(variable.eq(&current));
             }
             self.assert_preferred(solver, &self.packed_overload_preferences)?;
-            let top_preferences = self.top_preferences(|name| self.parameters.contains(name))?;
+            let ranked_preferences =
+                self.ranked_top_preferences(|name| self.parameters.contains(name))?;
+            let top_preferences = ranked_preferences.concat();
             let mut admissible = Vec::new();
+            let mut enumerated_count = 0;
             // Invariant: `admissible` holds the vectors of the maximal live sets found so far,
             // and the solver excludes every live set that one of them contains; each iteration
             // finds a further maximal live set and adds its vectors, or stops.
@@ -2661,10 +2696,17 @@ impl<'a> Encoding<'a> {
                         solver.assert(*indicator);
                     }
                     self.assert_preferred(solver, &top_preferences)?;
-                    self.enumerate_parameters(solver, &mut admissible)
+                    self.enumerate_parameters(solver, &ranked_preferences, &mut enumerated_count)
                 })();
                 solver.pop(1);
-                enumerated?;
+                let enumerated = enumerated?;
+                let best = enumerated.iter().map(|(rank, _)| rank).max().cloned();
+                admissible.extend(
+                    enumerated
+                        .into_iter()
+                        .filter(|(rank, _)| Some(rank) == best.as_ref())
+                        .map(|(_, vector)| vector),
+                );
                 if dropped.is_empty() {
                     return Ok(admissible);
                 }
@@ -2741,18 +2783,22 @@ impl<'a> Encoding<'a> {
         }
     }
 
-    /// Append every parameter vector that satisfies the current assertions to `admissible`,
-    /// excluding each one once found.
+    /// Every parameter vector that satisfies the current assertions, excluding each one once
+    /// found, with its rank: for each group of `ranked`, how many of its preferences the
+    /// vector's model satisfies. `enumerated` counts the vectors enumerated for one recorded
+    /// typing across calls, which `PARAMETER_CHOICE_LIMIT` bounds.
     fn enumerate_parameters(
         &self,
         solver: &DomainSolver,
-        admissible: &mut Vec<BTreeMap<String, Sort>>,
-    ) -> Result<(), ParseError> {
-        // Invariant: every vector found in this call is in `admissible` and excluded on the
-        // solver; each iteration finds a further one, stops, or fails at the limit.
+        ranked: &[Vec<Bool>],
+        enumerated: &mut usize,
+    ) -> Result<Vec<RankedVector>, ParseError> {
+        let mut found = Vec::new();
+        // Invariant: every vector found in this call is in `found` and excluded on the solver;
+        // each iteration finds a further one, stops, or fails at the limit.
         loop {
             match check(solver) {
-                SatResult::Unsat => return Ok(()),
+                SatResult::Unsat => return Ok(found),
                 SatResult::Unknown => {
                     return Err(z3_error(
                         "Z3 returned unknown while enumerating admissible sort parameters",
@@ -2760,16 +2806,29 @@ impl<'a> Encoding<'a> {
                 }
                 SatResult::Sat => {}
             }
-            if admissible.len() == PARAMETER_CHOICE_LIMIT {
+            if *enumerated == PARAMETER_CHOICE_LIMIT {
                 return Err(z3_error(format!(
                     "sort inference found more than {PARAMETER_CHOICE_LIMIT} admissible sort \
                      parameter choices for one variable typing and cannot enumerate the parses \
                      of the sentence"
                 )));
             }
-            let vector = self.read_model(&solver.get_model().ok_or_else(|| {
-                z3_error("Z3 returned sat without an admissible parameter model")
-            })?)?;
+            let model = solver
+                .get_model()
+                .ok_or_else(|| z3_error("Z3 returned sat without an admissible parameter model"))?;
+            let vector = self.read_model(&model)?;
+            let rank = ranked
+                .iter()
+                .map(|group| {
+                    group.iter().try_fold(0, |count, preference| {
+                        let holds = model
+                            .eval(preference, true)
+                            .and_then(|value| value.as_bool())
+                            .ok_or_else(|| z3_error("Z3 did not evaluate a sort preference"))?;
+                        Ok::<_, ParseError>(count + usize::from(holds))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let blocked = self
                 .parameters
                 .iter()
@@ -2788,7 +2847,8 @@ impl<'a> Encoding<'a> {
                 })
                 .collect::<Result<Vec<_>, ParseError>>()?;
             solver.assert(or_all(&blocked));
-            admissible.push(vector);
+            *enumerated += 1;
+            found.push((rank, vector));
         }
     }
 
@@ -4803,7 +4863,8 @@ mod tests {
     /// and `tree_reading`, read from the node constraints and node kinds and not from
     /// `reading_indicators`) no other such assignment strictly contains, and among the
     /// assignments that keep one set of readings, those with the largest number of true top
-    /// preferences, as `admissible_parameters` orders them. The counts and the node constraints
+    /// preferences and, among those, the largest counts of the `K`, `KItem` and `Bag` groups in
+    /// that order, as `admissible_parameters` orders them. The counts and the node constraints
     /// are evaluated in the model of the pinned check.
     fn brute_force_admissible(
         problem: &ConformanceProblem,
@@ -4823,8 +4884,8 @@ mod tests {
                 (tree, reading)
             })
             .collect::<Vec<_>>();
-        let top_preferences =
-            encoding.top_preferences(|name| encoding.parameters.contains(name))?;
+        let ranked_preferences =
+            encoding.ranked_top_preferences(|name| encoding.parameters.contains(name))?;
         // As in `brute_force_maximal`: no generated sort has a parametric head, so every value a
         // parameter can take is a nullary real sort of the datatype.
         let domain = encoding
@@ -4882,7 +4943,10 @@ mod tests {
                 satisfiable.push((
                     count(&model, &encoding.packed_overload_preferences),
                     live,
-                    count(&model, &top_preferences),
+                    // The top-preference count, then the count of each group in rank order.
+                    std::iter::once(count(&model, &ranked_preferences.concat()))
+                        .chain(ranked_preferences.iter().map(|group| count(&model, group)))
+                        .collect::<Vec<_>>(),
                     assignment,
                 ));
             }
@@ -5314,6 +5378,91 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             vectors
         );
+    }
+
+    /// `size()` over `syntax {S} Foo ::= size()`: the formal parameter `S` occurs in neither an
+    /// argument sort nor the result sort, so every sort of the parameter domain types the one
+    /// tree. `K`, `KItem` and `Bag` are sorts of the grammar that its order leaves unrelated
+    /// unless `kitem_below_k` relates the first two, as a program grammar, which has no kernel
+    /// syntax, leaves them. Returns the grammar, the tree and its top sort `Foo`.
+    fn phantom_parameter_problem(kitem_below_k: bool) -> (Grammar, ParsedTerm, Sort) {
+        let parameter = Sort::new("S");
+        let result = Sort::new("Foo");
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                result.clone(),
+                vec![ProductionItem::Terminal("size".into())],
+                Some(Label::new("size")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].parametric_origin = Some(ParametricOrigin {
+            label: Some(Label::new("size")),
+            parameters: vec![parameter.clone()],
+            result: result.clone(),
+            items: vec![ProductionItem::Terminal("size".into())],
+            attributes: Default::default(),
+            substitution: BTreeMap::from([(parameter.clone(), parameter)]),
+        });
+        for (sort, terminal) in [("K", "k"), ("KItem", "i"), ("Bag", "b")] {
+            grammar
+                .add(
+                    Sort::new(sort),
+                    vec![ProductionItem::Terminal(terminal.into())],
+                    Some(Label::new(terminal)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        if kitem_below_k {
+            grammar
+                .subsort_relations
+                .insert((Sort::new("KItem"), Sort::new("K")));
+        }
+        let term = ParsedTerm::Production {
+            production: 0,
+            children: Vec::new(),
+            metadata: Default::default(),
+        };
+        (grammar, term, result)
+    }
+
+    /// The instantiation of the one tree of a phantom parameter is one parse, at `K`, whether or
+    /// not the grammar's order relates `K`, `KItem` and `Bag`: both entry points of the Z3 engine
+    /// return one tree, not an ambiguity between the instances, and agree with the portable
+    /// engine. When the three are unrelated, each instance meets one top preference, so the
+    /// count ties and only the rank of `ranked_top_preferences` separates them.
+    #[test]
+    fn a_phantom_parameter_is_one_parse_instantiated_at_k() {
+        for kitem_below_k in [false, true] {
+            let (grammar, term, top) = phantom_parameter_problem(kitem_below_k);
+            let expected = ParsedTerm::InstantiatedProduction {
+                production: 0,
+                parameters: vec![Sort::new("K")],
+                children: Vec::new(),
+                metadata: Default::default(),
+            };
+            assert_eq!(
+                grammar.infer_sorts_z3(term.clone(), &top, false).as_ref(),
+                Ok(&expected),
+                "unpacked, KItem below K: {kitem_below_k}"
+            );
+            assert_eq!(
+                grammar
+                    .infer_packed_sorts_z3(PackedTerm::from_parsed(&term), &top, false)
+                    .as_ref(),
+                Ok(&expected),
+                "packed, KItem below K: {kitem_below_k}"
+            );
+            assert_eq!(
+                grammar.infer_sorts(term, &top, false).as_ref(),
+                Ok(&expected),
+                "portable, KItem below K: {kitem_below_k}"
+            );
+        }
     }
 
     /// The problem of `shared_parameter_keeps_both_incomparable_live_sets`: one variable `X`

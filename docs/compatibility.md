@@ -317,7 +317,7 @@ KORE readers, writers, and host and RPC request ingress are bounded by process m
 A formal sort parameter of a parametric production is not a variable of the sentence (K user manual, "Parametric productions and `bracket` attributes").
 Sort inference therefore orders the readings of a sentence only by well-sortedness, by maximality over the sorts of its variables, and then by `prefer`/`avoid`; a sentence with several readings left after these steps is an ambiguous parse error (K user manual, "Variable Sort Inference" and "Symbol priority and associativity").
 The `K`/`KItem`/`Bag` preference on formal parameters only chooses how a kept reading is instantiated: it compares parameter vectors that keep the same set of well-sorted readings and never removes a reading that some vector types.
-A parameter that the kept readings leave free is instantiated at `K` by that preference.
+A parameter that the kept readings leave free is instantiated at `K` by that preference, also where the module's order leaves `K`, `KItem` and `Bag` unrelated, as a program grammar does: each of the three then meets one preference, and the preference ranks `K` first, then `KItem`, then `Bag`, so a free parameter is one parse, not an ambiguity between its instances.
 A parameter is instantiated only at sorts of the module.
 A parameter that occurs inside a parametric sort (the `Width` of `MInt{Width}`) ranges over the module's declared instances of that sort, so a width the kept readings leave free takes them: one fitting instance is chosen, several are an ambiguous parse error, and none is a rejection naming the production.
 For example, `rule foo(X) => g` over `syntax {W} Foo ::= foo(MInt{W})` is accepted at `MInt{8}` when `MInt{8}` is the only instance.

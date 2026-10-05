@@ -562,6 +562,31 @@ fn a_phantom_configuration_instance_names_the_bound_variable() {
     assert_phantom_instance(error, "$X");
 }
 
+/// Brackets are concrete syntax, so `(size())` is the program `size()`. Read at `Foo`, its
+/// parentheses parse both as `Foo`'s bracket over `size()` and as `Bar`'s bracket, which is one
+/// reading once the brackets are erased. That reading's phantom parameter must not turn into a
+/// choice between parses: the program is reported exactly as the unbracketed one.
+#[test]
+fn a_bracketed_phantom_program_instance_names_the_program_variable() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax Foo ::= Bar | "(" Foo ")" [bracket]
+  syntax Bar ::= "(" Bar ")" [bracket]
+  syntax {S} Bar ::= size() [function, total, symbol(size)]
+  configuration <k> $PGM:Foo </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    for program in ["size()", "(size())", "((size()))"] {
+        let error = assembler.program(&Sort::new("Foo"), program).unwrap_err();
+        assert_phantom_instance(error, "$PGM");
+    }
+}
+
 #[test]
 fn a_phantom_value_diagnostic_offers_no_cast() {
     let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
