@@ -788,13 +788,15 @@ The definition is loaded, and the backend records these variables per equation.
 An instance of such an equation is never used.
 Its `requires` is decided with the variables free, as for any equation: refuted, it holds for no value of them, and the equation says nothing about the subject.
 Otherwise the attempt is indeterminate (`ConditionIndeterminacy::UnboundResultVariables`, wire kind `unbound-result-variables`, naming the variables as the definition spells them).
-The attempt is reported as an `UndecidedCondition` diagnostic of the equation with that reason and the decided `requires`, so a result that keeps the application says why; `krust krun` prints it as a warning naming the variables as the K source writes them.
+When no other equation rewrites the subject, the attempt is reported as an `UndecidedCondition` diagnostic of the equation with that reason and the decided `requires`, so a result that keeps the application says why; `krust krun` prints it as a warning naming the variables as the K source writes them.
+A subject that another equation evaluates (one of the same priority, or a lower-priority simplification) has nothing to explain, and the attempt is not reported.
 That is the same outcome as an equation whose `requires` is open: the subject is kept, and a function's lower-priority and `owise` equations do not apply in its place, while a simplification is passed over.
 The static definedness analysis does not use such a ceil equation.
 
 A variable that occurs only in an equation's `requires` never reaches a result.
 It is decided with the rest of the `requires`: the `requires` holds only if it holds for every value of the variable, and it is refuted only if it holds for none.
 In the predicates of an `UndecidedCondition` diagnostic, such a variable keeps the equation's marker and prints escaped (`Eq-hVarY`, or `Eq-hVarY-bapartN` when it was renamed apart from the subject or from a request variable spelled like it); the wire form lists each one in `ruleVariables` with the name the definition gives it (`definitionName`, here `VarY`).
+Such a variable can also reach the subject of another equation while the `requires` is simplified; there it is a variable of that subject, and a diagnostic of the other equation does not list it.
 Kompile accepts a function or simplification rule whose right-hand-side variable occurs in its `requires` or is listed in `unboundVariables`; the backend loads it as above.
 Rewrite rules are not equations: a variable that the left-hand side of a rewrite rule does not bind is minted per application (see [Result variables](#result-variables)).
 

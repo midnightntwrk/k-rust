@@ -472,9 +472,12 @@ pub enum BudgetSubjectOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub enum BackendDiagnosticOutput<K = Value> {
-    /// The equation's condition was left undecided for `reason`, so the equation was not used.
-    /// `predicates` are its instantiated `requires`; each variable of the equation that they
-    /// name free (one its left-hand side does not bind) is listed in `rule_variables`.
+    /// A condition of an attempt of the equation `rule_id` was left undecided for `reason`.
+    /// `predicates` are either its instantiated `requires`, and the equation was not used, or,
+    /// once the `requires` held, the definedness of the terms its match bound, which the
+    /// equation's result carries as constraints (`BackendDiagnostic::UndecidedCondition`).
+    /// Each variable of the equation that they name free (one its left-hand side does not
+    /// bind) is listed in `rule_variables`.
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,
@@ -1236,8 +1239,10 @@ fn diagnostic_output<K: WireKore>(
             rule_id,
             reason,
             predicates,
+            rule_variables,
         } => {
-            let (predicates, rule_variables) = diagnostic::printable_condition(&predicates);
+            let (predicates, rule_variables) =
+                diagnostic::printable_condition(&predicates, &rule_variables);
             BackendDiagnosticOutput::UndecidedCondition {
                 rule_id,
                 reason: condition_indeterminacy_output(reason, result_sort)?,
@@ -2177,6 +2182,7 @@ mod tests {
                 rule_id: "r".into(),
                 reason: ConditionIndeterminacy::NoSolver,
                 predicates: vec![Predicate::True],
+                rule_variables: Vec::new(),
             },
             &sort,
         )
@@ -2203,7 +2209,8 @@ mod tests {
 
     /// An undecided condition lists the equation variables its predicates name, by their
     /// printed spelling and their definition name; a request variable spelled like one keeps its
-    /// name and the equation variable is printed renamed apart.
+    /// name and the equation variable is printed renamed apart. A variable of the subject that
+    /// carries an equation's marker, as another equation's variable does, is not listed.
     #[test]
     fn undecided_condition_names_its_equation_variables_on_the_wire() {
         use k_rust_backend::{rule::Predicate, term::Variable};
@@ -2216,7 +2223,11 @@ mod tests {
                 reason: ConditionIndeterminacy::UnboundResultVariables(vec!["VarY".into()]),
                 predicates: vec![
                     Predicate::Equals(variable("Eq#VarY"), variable("Eq-hVarY")),
-                    Predicate::Equals(variable("Eq#VarZ"), variable("VarX")),
+                    Predicate::Equals(variable("Eq#VarZ"), variable("Eq#VarW")),
+                ],
+                rule_variables: vec![
+                    Variable::new("Eq#VarY", sort.clone()),
+                    Variable::new("Eq#VarZ", sort.clone()),
                 ],
             },
             &sort,
@@ -2245,7 +2256,7 @@ mod tests {
             names(&value["predicates"][0]),
             ["Eq-hVarY-bapart0", "Eq-hVarY"]
         );
-        assert_eq!(names(&value["predicates"][1]), ["Eq-hVarZ", "VarX"]);
+        assert_eq!(names(&value["predicates"][1]), ["Eq-hVarZ", "Eq-hVarW"]);
         let decoded: BackendDiagnosticOutput = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(decoded, output);
 

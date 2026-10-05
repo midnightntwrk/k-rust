@@ -12,6 +12,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic},
     matching::MatchFailed,
     rule::{RewriteRule, Theory, applicable_groups, term_index},
     term::Term,
@@ -79,8 +80,10 @@ pub(super) enum TheoryScan<K> {
 
 /// The priority loop of term theory `K`: scan the groups equation selection offers `term` in
 /// priority order, trying each equation with `attempt`, until one applies or a group blocks the
-/// scan. The only mint of [`NoOfferedEquationMatched`]: it is returned when every attempt of
-/// every offered group ended `NotApplicable`, which for a term theory carries a [`MatchFailed`].
+/// scan. Every equation passed over for its unbound result variables is recorded in
+/// `passed_over` (see [`scan_group`]). The only mint of [`NoOfferedEquationMatched`]: it is
+/// returned when every attempt of every offered group ended `NotApplicable`, which for a term
+/// theory carries a [`MatchFailed`].
 ///
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
@@ -91,6 +94,7 @@ pub(super) enum TheoryScan<K> {
 pub(super) fn scan_term_theory<K: TermTheory>(
     definition: &BackendDefinition,
     term: &Term,
+    passed_over: &mut PassedOver,
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
     ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
@@ -99,7 +103,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     let mut blocked = false;
     let mut not_cacheable = false;
     for rules in groups.values() {
-        match scan_group(rules, |rule| {
+        match scan_group(rules, passed_over, |rule| {
             Ok(match attempt(rule)? {
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))
@@ -108,6 +112,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
                 EquationAttempt::Unused => EquationAttempt::Unused,
                 EquationAttempt::Indeterminate(reason) => EquationAttempt::Indeterminate(reason),
+                EquationAttempt::PassedOver(report) => EquationAttempt::PassedOver(report),
             })
         })? {
             GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
@@ -152,7 +157,32 @@ pub(super) enum EquationAttempt<T, N> {
     /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
     Unused,
     Indeterminate(ConditionIndeterminacy),
+    /// `Indeterminate(UnboundResultVariables)`: the equation's result has variables its
+    /// left-hand side does not bind and its `requires` is not refuted, so the instance is not
+    /// used. The diagnostic explains a subject that no other equation rewrites; see
+    /// [`PassedOver`].
+    PassedOver(BackendDiagnostic),
     Applied(T),
+}
+
+/// The diagnostics of the equation instances a scan passed over because their results have
+/// variables their left-hand sides do not bind ([`EquationAttempt::PassedOver`]).
+///
+/// Such an instance is not used whatever the other equations do, but it explains the subject
+/// only if the subject is kept: when another equation of the scan, or of a scan of another
+/// theory on the same subject, rewrites it, the subject is evaluated and there is nothing to
+/// explain. So the scans record the diagnostics here, and the caller that sees the subject kept
+/// emits them ([`PassedOver::emit`]); a caller whose subject was rewritten drops them.
+#[derive(Default)]
+pub(super) struct PassedOver(Vec<BackendDiagnostic>);
+
+impl PassedOver {
+    /// Report the subject as kept: emit every recorded diagnostic, in the order recorded.
+    pub(super) fn emit(self) {
+        for report in self.0 {
+            diagnostic::emit(report);
+        }
+    }
 }
 
 pub(super) enum GroupScan<T> {
@@ -166,9 +196,13 @@ pub(super) enum GroupScan<T> {
     NotApplicable,
 }
 
+/// Try the equations of one priority group in order until one applies. An attempt that is
+/// [`EquationAttempt::PassedOver`] counts as indeterminate, and its diagnostic is recorded in
+/// `passed_over` for the caller to emit if the subject is kept.
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(super) fn scan_group<R, T, N>(
     rules: &[Arc<R>],
+    passed_over: &mut PassedOver,
     mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
 ) -> SimplifyResult<GroupScan<T>> {
     let mut indeterminate = false;
@@ -177,6 +211,10 @@ pub(super) fn scan_group<R, T, N>(
         match attempt(rule)? {
             EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
             EquationAttempt::Indeterminate(_reason) => indeterminate = true,
+            EquationAttempt::PassedOver(report) => {
+                passed_over.0.push(report);
+                indeterminate = true;
+            }
             EquationAttempt::ContextDependent | EquationAttempt::Unused => not_cacheable = true,
             EquationAttempt::NotApplicable(_evidence) => {}
         }

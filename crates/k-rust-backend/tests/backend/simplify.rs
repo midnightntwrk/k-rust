@@ -1234,6 +1234,7 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
             rule_id: "discard".into(),
             reason: ConditionIndeterminacy::InconsistentPathCondition,
             predicates: vec![obligation],
+            rule_variables: Vec::new(),
         }]
     );
 
@@ -4079,6 +4080,28 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
     ));
 }
 
+/// For each `UndecidedCondition` of `diagnostics`, the definition's names of the equation
+/// variables it reports among its predicates.
+fn equation_variable_names(diagnostics: &[BackendDiagnostic]) -> Vec<Vec<String>> {
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnostic::UndecidedCondition {
+                predicates,
+                rule_variables,
+                ..
+            } => Some(
+                diagnostic::printable_condition(predicates, rule_variables)
+                    .1
+                    .into_iter()
+                    .map(|rule_variable| rule_variable.definition_name)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn unknown_function_condition_leaves_the_application_unevaluated() {
     let definition = conditional_nullary_function();
@@ -4103,8 +4126,11 @@ fn unknown_function_condition_leaves_the_application_unevaluated() {
             rule_id,
             reason: ConditionIndeterminacy::SmtUnknown(reason),
             predicates,
+            ..
         }] if rule_id == "conditional" && reason == "timeout" && predicates.len() == 1
     ));
+    // The requires-only `X` stays the equation's variable, and the report says so.
+    assert_eq!(equation_variable_names(&diagnostics), [["X"]]);
 }
 
 #[test]
@@ -4134,8 +4160,11 @@ fn untranslatable_condition_is_indeterminate_not_an_error() {
             rule_id,
             reason: ConditionIndeterminacy::Untranslatable(error),
             predicates,
+            ..
         }] if rule_id == "conditional" && error == &solver.0 && predicates.len() == 1
     ));
+    // The requires-only `X` stays the equation's variable, and the report says so.
+    assert_eq!(equation_variable_names(&diagnostics), [["X"]]);
 }
 
 #[test]
@@ -4166,6 +4195,7 @@ fn untranslatable_definedness_obligation_is_carried() {
             rule_id: "discard".into(),
             reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
             predicates: vec![obligation],
+            rule_variables: Vec::new(),
         }]
     );
 }
@@ -4232,8 +4262,11 @@ fn inconsistent_path_condition_is_indeterminate_not_an_error() {
             rule_id,
             reason: ConditionIndeterminacy::InconsistentPathCondition,
             predicates,
+            ..
         }] if rule_id == "conditional" && predicates.len() == 1
     ));
+    // The requires-only `X` stays the equation's variable, and the report says so.
+    assert_eq!(equation_variable_names(&diagnostics), [["X"]]);
 }
 
 /// `f{}(wrap{}(V))`, where `V` is the variable that the only `f` equation binds, so the subject
@@ -4892,31 +4925,20 @@ fn a_function_equation_with_an_unbound_result_variable_keeps_the_application() {
         assert!(result.constraints().is_empty(), "{label}");
         // The kept application is explained: the equation's `Y` is unbound. Its requires is
         // reported as decided, the equation's own `Y` named as the definition writes it.
-        let unbound = diagnostics
-            .iter()
-            .filter_map(|diagnostic| match diagnostic {
-                BackendDiagnostic::UndecidedCondition {
-                    rule_id,
-                    reason: ConditionIndeterminacy::UnboundResultVariables(variables),
-                    predicates,
-                } => Some((rule_id, variables, predicates)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let unbound = unbound_reports(&diagnostics);
         assert!(!unbound.is_empty(), "{label}: {diagnostics:?}");
-        for (rule_id, variables, predicates) in unbound {
+        for (rule_id, variables, predicates, rule_variables) in unbound {
             assert_eq!(rule_id, label);
             assert_eq!(variables, &["Y"], "{label}");
-            let (_, rule_variables) = diagnostic::printable_condition(predicates);
-            assert!(
-                rule_variables
-                    .iter()
-                    .all(|rule_variable| rule_variable.definition_name == "Y"),
-                "{label}: {rule_variables:?}"
-            );
-            if label == "determined" {
-                assert_eq!(rule_variables.len(), 1, "{predicates:?}");
-            }
+            let (_, explained) = diagnostic::printable_condition(predicates, rule_variables);
+            let names = explained
+                .iter()
+                .map(|rule_variable| rule_variable.definition_name.as_str())
+                .collect::<Vec<_>>();
+            // `Y = wrap(zero)` names the equation's `Y`; the guard `zero = zero` holds and
+            // names nothing.
+            let expected: &[&str] = if label == "determined" { &["Y"] } else { &[] };
+            assert_eq!(names, expected, "{label}: {predicates:?}");
         }
     }
 
@@ -4945,18 +4967,52 @@ fn a_function_equation_with_an_unbound_result_variable_keeps_the_application() {
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
-/// A simplification equation whose result has a variable its left-hand side does not bind is
-/// passed over; a lower-priority simplification still applies, as after an open `requires`.
+/// An equation passed over for its unbound result variables, as reported: the equation, the
+/// variables, the predicates, and the equation's own variables among them.
+type UnboundReport<'a> = (&'a str, &'a [String], &'a [Predicate], &'a [Variable]);
+
+/// The `UndecidedCondition` diagnostics of `diagnostics` that report an equation passed over for
+/// its unbound result variables: the equation, the variables, the predicates, and the
+/// equation's own variables among them.
+fn unbound_reports(diagnostics: &[BackendDiagnostic]) -> Vec<UnboundReport<'_>> {
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnostic::UndecidedCondition {
+                rule_id,
+                reason: ConditionIndeterminacy::UnboundResultVariables(variables),
+                predicates,
+                rule_variables,
+            } => Some((
+                rule_id.as_str(),
+                variables.as_slice(),
+                predicates.as_slice(),
+                rule_variables.as_slice(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A function equation with an unbound result variable and a sibling of the same priority that
+/// applies: the application is evaluated by the sibling, so there is no kept term to explain and
+/// the passed-over equation is not reported.
 #[test]
-fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
+fn a_function_equation_passed_over_beside_one_that_applies_is_not_reported() {
     let definition = definition(&format!(
         r#"{UNBOUND_RESULT_SYMBOLS}
-        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
-            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
-            [label{{}}("unbound"), simplification{{}}()]
-        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
-            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}())))
-            [label{{}}("bound"), simplification{{}}("60")]"#
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\equals{{SortS{{}}, R}}(Y:SortS{{}}, wrap{{}}(X:SortS{{}})),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(Y:SortS{{}}, \top{{SortS{{}}}}())))
+            [label{{}}("unbound")]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("bound")]"#
     ));
     let input = term(&definition, r#"f{}(\dv{SortS{}}("a"))"#);
     let (result, diagnostics) =
@@ -4967,13 +5023,98 @@ fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
         term(&definition, r#"wrap{}(\dv{SortS{}}("a"))"#)
     );
     assert_eq!(result.applied_rules, ["bound"]);
-    assert!(
-        diagnostics.contains(&BackendDiagnostic::UndecidedCondition {
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// The equation variables a passed-over equation's report names are its own, never a variable
+/// of its subject: the requires-only `Z` of `pz` reaches the subject `q(Z)` of `qu` while the
+/// requires of `pz` is simplified, and `qu`'s report lists only its own `B`, whether `qu`
+/// names its bound variable `A` or, like `pz`, `Z` (then renamed apart from the subject).
+#[test]
+fn a_passed_over_equation_names_only_its_own_variables() {
+    for bound in ["A", "Z"] {
+        let definition = definition(&format!(
+            r#"{UNBOUND_RESULT_SYMBOLS}
+            symbol q{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\equals{{SortS{{}}, R}}(B:SortS{{}}, wrap{{}}({bound}:SortS{{}})),
+                    \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, {bound}:SortS{{}}), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(
+                    q{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(B:SortS{{}}, \top{{SortS{{}}}}())))
+                [label{{}}("qu")]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\equals{{SortS{{}}, R}}(q{{}}(Z:SortS{{}}), X:SortS{{}}),
+                    \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(
+                    p{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("yes"), \top{{SortS{{}}}}())))
+                [label{{}}("pz")]"#
+        ));
+        let input = term(&definition, r#"p{}(\dv{SortS{}}("five"))"#);
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(result.unwrap().term, input, "{bound}");
+        let reports = unbound_reports(&diagnostics);
+        assert!(!reports.is_empty(), "{bound}: {diagnostics:?}");
+        for (rule_id, variables, predicates, rule_variables) in reports {
+            assert_eq!(rule_id, "qu", "{bound}");
+            assert_eq!(variables, &["B"], "{bound}");
+            // The predicates name `pz`'s `Z` as well as `qu`'s `B`.
+            let free = predicates
+                .iter()
+                .flat_map(Predicate::free_variables)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(free.len(), 2, "{bound}: {predicates:?}");
+            let (_, explained) = diagnostic::printable_condition(predicates, rule_variables);
+            let names = explained
+                .iter()
+                .map(|rule_variable| rule_variable.definition_name.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(names, ["B"], "{bound}: {predicates:?}");
+        }
+    }
+}
+
+/// A simplification equation whose result has a variable its left-hand side does not bind is
+/// passed over; a lower-priority simplification still applies, as after an open `requires`.
+/// The term is evaluated, so the passed-over equation is not reported; without the other
+/// equation the term is kept, and the report says why.
+#[test]
+fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
+    let both = definition(&format!(
+        r#"{UNBOUND_RESULT_SYMBOLS}
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("unbound"), simplification{{}}()]
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("bound"), simplification{{}}("60")]"#
+    ));
+    let input = term(&both, r#"f{}(\dv{SortS{}}("a"))"#);
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&both, &input, SimplificationOptions::default()));
+    let result = result.unwrap();
+    assert_eq!(result.term, term(&both, r#"wrap{}(\dv{SortS{}}("a"))"#));
+    assert_eq!(result.applied_rules, ["bound"]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let alone = definition(&format!(
+        r#"{UNBOUND_RESULT_SYMBOLS}
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("unbound"), simplification{{}}()]"#
+    ));
+    let input = term(&alone, r#"f{}(\dv{SortS{}}("a"))"#);
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&alone, &input, SimplificationOptions::default()));
+    assert_eq!(result.unwrap().term, input);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedCondition {
             rule_id: "unbound".into(),
             reason: ConditionIndeterminacy::UnboundResultVariables(vec!["Y".into()]),
             predicates: Vec::new(),
-        }),
-        "the passed-over simplification is reported: {diagnostics:?}"
+            rule_variables: Vec::new(),
+        }],
     );
 }
 
@@ -5012,15 +5153,35 @@ fn ceil_and_predicate_equations_with_an_unbound_result_variable_are_not_used() {
             term(definition, r#"\dv{SortS{}}("v")"#),
         )
     };
-    for equation in [ceil_equation, predicate_equation] {
+    for (label, equation) in [
+        ("unbound-ceil", ceil_equation),
+        ("unbound-predicate", predicate_equation),
+    ] {
         let definition = definition(&format!("{UNBOUND_RESULT_SYMBOLS}{equation}"));
-        for (subject, expected) in [
-            (ceil_subject(&definition), ceil_subject(&baseline)),
-            (equals_subject(&definition), equals_subject(&baseline)),
+        for (matched, subject, expected) in [
+            (
+                "unbound-ceil",
+                ceil_subject(&definition),
+                ceil_subject(&baseline),
+            ),
+            (
+                "unbound-predicate",
+                equals_subject(&definition),
+                equals_subject(&baseline),
+            ),
         ] {
-            let result = simplified(&definition, &subject);
+            let (result, diagnostics) = diagnostic::collect(|| simplified(&definition, &subject));
             assert_eq!(result, simplified(&baseline, &expected), "{equation}");
             assert!(result.free_variables().is_empty(), "{result:?}");
+            // The subject the equation matches is kept, and the report says why; the other
+            // subject has nothing to explain.
+            let reported = unbound_reports(&diagnostics)
+                .into_iter()
+                .map(|(rule_id, ..)| rule_id)
+                .collect::<Vec<_>>();
+            let expected: &[&str] = if label == matched { &[label] } else { &[] };
+            assert_eq!(result, subject, "{label}");
+            assert_eq!(reported, expected, "{label}: {diagnostics:?}");
         }
     }
 }

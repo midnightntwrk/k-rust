@@ -21,22 +21,35 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BackendDiagnostic {
-    /// The condition of an application attempt of the equation `rule_id` was left undecided
-    /// for `reason`, so the equation was not used there. `predicates` are its `requires`
-    /// instantiated by the match: a variable the left-hand side binds is replaced by the term
-    /// it matched, and a variable it does not bind stays a variable of the equation, named
-    /// with the backend's marker (`Eq#Y`, printed `Eq-hY`); [`printable_condition`] names each
-    /// such variable as the definition writes it.
+    /// A condition of an application attempt of the equation `rule_id` was left undecided for
+    /// `reason`. `predicates` are the condition as decided, one of two:
+    ///
+    /// - The equation's `requires`, instantiated by the match; the equation is not used on this
+    ///   subject. A variable the left-hand side binds is replaced by the term it matched. A
+    ///   variable it does not bind stays a variable of the equation, named with the backend's
+    ///   marker (`Eq#Y`, printed `Eq-hY`, or `Eq#Y!apart0` when renamed apart from the subject).
+    /// - Once the `requires` held, the definedness of the terms the match bound (`\ceil(t)` for
+    ///   each such term `t`); the equation is used, and its result carries these predicates as
+    ///   constraints.
     ///
     /// The reasons are a solver that was asked and could not answer (`SmtUnknown`,
-    /// `Untranslatable`, `InconsistentPathCondition`) and an equation whose right-hand side or
-    /// `ensures` has variables its left-hand side does not bind (`UnboundResultVariables`),
-    /// whose `requires` was not refuted: its instance names no value for them, so the term it
-    /// matched is kept as it is.
+    /// `Untranslatable`, `InconsistentPathCondition`), for either condition, and, for the
+    /// `requires` only, an equation whose right-hand side or `ensures` has variables its
+    /// left-hand side does not bind (`UnboundResultVariables`) and whose `requires` was not
+    /// refuted: its instance names no value for them, so it is not used. That reason is
+    /// reported only when no other equation rewrote the subject, which is therefore kept as it
+    /// is.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
         predicates: Vec<Predicate>,
+        /// The variables of the equation that are free in `predicates`, as the attempt names
+        /// them: those its left-hand side does not bind. Membership is a fact of the attempt,
+        /// not of a name's shape; a variable of the subject is never listed, even one that is
+        /// another equation's variable (an enclosing equation's `Eq#Z`, which reached this
+        /// subject while that equation's `requires` was simplified). The definedness of bound
+        /// terms has none. [`printable_condition`] gives each one's name in the definition.
+        rule_variables: Vec<Variable>,
     },
     UndecidedPredicate {
         predicate: Predicate,
@@ -81,8 +94,7 @@ pub struct ConditionRuleVariable {
 }
 
 /// The predicates of an [`BackendDiagnostic::UndecidedCondition`] as a response prints them,
-/// and each variable of the equation among their free variables, with the name the definition
-/// gives it.
+/// and each of its `rule_variables` that they name free, with the name the definition gives it.
 ///
 /// Printing keeps a name read from KORE and escapes a backend name (`Eq#Y` prints `Eq-hY`), so
 /// a variable of the request spelled like the escape of a variable of the equation would print
@@ -90,18 +102,23 @@ pub struct ConditionRuleVariable {
 /// renamed for printing, to `{name}!apart{counter}` with the least counter whose spelling no
 /// variable of the predicates has; the request's variable keeps its name. Without such a
 /// clash the predicates are returned unchanged.
-pub fn printable_condition(
-    predicates: &[Predicate],
-) -> (Cow<'_, [Predicate]>, Vec<ConditionRuleVariable>) {
+pub fn printable_condition<'a>(
+    predicates: &'a [Predicate],
+    rule_variables: &[Variable],
+) -> (Cow<'a, [Predicate]>, Vec<ConditionRuleVariable>) {
+    if rule_variables.is_empty() {
+        return (Cow::Borrowed(predicates), Vec::new());
+    }
     let free = predicates
         .iter()
         .flat_map(Predicate::free_variables)
         .collect::<BTreeSet<_>>();
-    let rule_variables = free
+    let rule_variables = rule_variables
         .iter()
-        .filter_map(|variable| {
-            rule_variable_definition_name(&variable.name).map(|name| (variable, name))
-        })
+        .filter(|variable| free.contains(*variable))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|variable| (variable, rule_variable_definition_name(&variable.name)))
         .collect::<Vec<_>>();
     if rule_variables.is_empty() {
         return (Cow::Borrowed(predicates), Vec::new());
@@ -903,16 +920,24 @@ mod tests {
             .collect()
     }
 
-    /// Each free variable of the equation is listed with its definition name; a variable of
-    /// the request, a mint, and a bound variable are not.
+    /// Each variable of the attempt's list that the predicates name free is explained with its
+    /// definition name. Membership comes from the list: a variable of the subject that carries
+    /// an equation's marker (`Eq#VarZ`, another equation's variable), a mint, and a request
+    /// variable are not explained, and a listed variable the predicates only bind is not either.
     #[test]
     fn a_condition_names_the_equation_variables_it_mentions() {
         let predicates = [
             equals("Eq#VarY", "VarZ"),
             equals("Eq#VarW!apart2", "Rule#X!3"),
+            equals("Eq#VarZ", "Eq#VarY"),
             Predicate::Exists(variable("Eq#VarB"), Box::new(equals("Eq#VarB", "VarZ"))),
         ];
-        let (printable, rule_variables) = printable_condition(&predicates);
+        let listed = [
+            variable("Eq#VarY"),
+            variable("Eq#VarW!apart2"),
+            variable("Eq#VarB"),
+        ];
+        let (printable, rule_variables) = printable_condition(&predicates, &listed);
         assert!(matches!(printable, Cow::Borrowed(_)));
         assert_eq!(
             explained(&rule_variables),
@@ -922,8 +947,8 @@ mod tests {
             ]
         );
 
-        let request_only = [equals("VarY", "VarZ")];
-        let (printable, rule_variables) = printable_condition(&request_only);
+        // Nothing listed: the same predicates explain nothing, whatever their names look like.
+        let (printable, rule_variables) = printable_condition(&predicates, &[]);
         assert!(matches!(printable, Cow::Borrowed(_)));
         assert!(rule_variables.is_empty());
     }
@@ -940,7 +965,7 @@ mod tests {
                 Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY")),
             ),
         ];
-        let (printable, rule_variables) = printable_condition(&predicates);
+        let (printable, rule_variables) = printable_condition(&predicates, &[variable("Eq#VarY")]);
         assert_eq!(
             explained(&rule_variables),
             [("Eq-hVarY-bapart1".to_owned(), "VarY".to_owned())]

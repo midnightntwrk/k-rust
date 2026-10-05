@@ -483,8 +483,9 @@ export type BackendDiagnostic =
       kind: 'undecided-condition'
       ruleId: string
       reason: ConditionIndeterminacy
+      /** The equation's instantiated `requires` (the equation was not used), or, once it held, the definedness of the terms the match bound (the result carries them). */
       predicates: Kore[]
-      /** The equation's variables that `predicates` name free, with their names in the definition. */
+      /** The equation's own variables that `predicates` name free, with their names in the definition. */
       ruleVariables: RuleVariable[]
     }
   | { kind: 'undecided-predicate'; predicate: Kore; reason: ConditionIndeterminacy }

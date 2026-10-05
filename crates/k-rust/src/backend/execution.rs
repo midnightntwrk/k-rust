@@ -297,18 +297,22 @@ fn printed_predicates(predicates: &[Predicate], result_sort: &Sort) -> String {
 /// Its predicates are printed as KORE, where a variable the equation's left-hand side does not
 /// bind keeps the backend's marker (`Eq-hVarY`); the warning says which variable of the
 /// equation each such name is, as the author wrote it (`Y`). An equation whose result has
-/// variables its left-hand side does not bind is not a solver verdict: the warning says that
-/// the term the equation matched is kept, and why.
+/// variables its left-hand side does not bind is not a solver verdict: the backend reports it
+/// only when no other equation rewrote the term, and the warning says that the term is kept,
+/// and why. A solver verdict may be on the equation's `requires` or on the definedness of the
+/// terms its match bound, so its warning names the predicates without saying which.
+#[allow(clippy::too_many_arguments)]
 fn undecided_condition_message(
     definition: &BackendDefinition,
     rule_id: &str,
     reason: &ConditionIndeterminacy,
     predicates: &[Predicate],
+    rule_variables: &[Variable],
     result_sort: &Sort,
     depth: u64,
 ) -> String {
     let rule = rule_description(definition, rule_id);
-    let (predicates, rule_variables) = diagnostic::printable_condition(predicates);
+    let (predicates, rule_variables) = diagnostic::printable_condition(predicates, rule_variables);
     let explained = rule_variables
         .iter()
         .map(|rule_variable| {
@@ -343,7 +347,7 @@ fn undecided_condition_message(
             )
         };
         return format!(
-            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; the term it matched is kept unevaluated{requires}",
+            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation applied, so the term it matched is kept unevaluated{requires}",
             english_list(&variables),
             if variables.len() == 1 { "it" } else { "them" },
         );
@@ -379,6 +383,7 @@ fn report_diagnostics<'a>(
                 rule_id,
                 reason,
                 predicates,
+                rule_variables,
             } => eprintln!(
                 "warning: {}",
                 undecided_condition_message(
@@ -386,6 +391,7 @@ fn report_diagnostics<'a>(
                     rule_id,
                     reason,
                     predicates,
+                    rule_variables,
                     result_sort,
                     depth
                 )

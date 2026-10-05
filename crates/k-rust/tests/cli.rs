@@ -1788,6 +1788,101 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Run `krust krun` on `source` as the definition `MAIN` with sort `KItem`; its stdout and the
+/// lines of its stderr that warn about an equation.
+fn krun_equation_warnings(source: &str) -> (String, Vec<String>) {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let warnings = stderr
+        .lines()
+        .filter(|line| {
+            line.starts_with("warning: equation ") || line.starts_with("warning: condition of")
+        })
+        .map(str::to_owned)
+        .collect();
+    fs::remove_dir_all(root).unwrap();
+    (String::from_utf8(output.stdout).unwrap(), warnings)
+}
+
+/// An equation passed over for an unbound result variable is not reported when another
+/// equation evaluates the call: the same-priority function equation `gb`, or the
+/// lower-priority simplification `hb`.
+#[test]
+fn krun_does_not_explain_a_call_that_another_equation_evaluates() {
+    let (stdout, warnings) = krun_equation_warnings(
+        r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Int ::= g(Int) [function, symbol(g)]
+  syntax Int ::= h(Int) [function, symbol(h)]
+  syntax KItem ::= done(Int, Int) [symbol(done)]
+  configuration <k> done(g(3), h(5)) </k>
+  rule [gu]: g(X) => Y requires Y ==Int X +Int 1
+  rule [gb]: g(X) => X +Int 1
+  rule [hu]: h(X) => Y requires Y ==Int X +Int 1 [simplification(10)]
+  rule [hb]: h(X) => X +Int 1 [simplification(60)]
+endmodule
+"#,
+    );
+    assert!(
+        stdout.contains(r#"Lbldone{}(\dv{SortInt{}}("4"), \dv{SortInt{}}("6"))"#),
+        "{stdout}"
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// The requires-only `Z` of `pz` reaches the subject `q(Z)` of `qu` while the requires of `pz`
+/// is simplified. The warning for `qu` explains `qu`'s own `B` and does not call `pz`'s `Z` a
+/// variable of `qu`, whether `qu` names its bound variable `A` or `Z`.
+#[test]
+fn krun_names_only_the_reported_equations_own_variables() {
+    for bound in ["A", "Z"] {
+        let (stdout, warnings) = krun_equation_warnings(&format!(
+            r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Int ::= q(Int) [function, symbol(q)]
+  syntax Bool ::= p(Int) [function, symbol(p)]
+  syntax KItem ::= done(Bool) [symbol(done)]
+  configuration <k> done(p(5)) </k>
+  rule [qu]: q({bound}) => B requires B ==Int {bound} +Int 1
+  rule [pz]: p(X) => true requires q(Z) ==Int X
+  rule [po]: p(_) => false [owise]
+endmodule
+"#
+        ));
+        assert!(stdout.contains("Lblp{}"), "{bound}: {stdout}");
+        let qu = warnings
+            .iter()
+            .filter(|warning| warning.starts_with("warning: equation MAIN.qu "))
+            .collect::<Vec<_>>();
+        assert_eq!(qu.len(), 1, "{bound}: {warnings:?}");
+        assert!(
+            qu[0].contains("(Eq-hVarB is the equation's variable B)"),
+            "{bound}: {}",
+            qu[0]
+        );
+        assert!(qu[0].contains("Eq-hVarZ"), "{bound}: {}", qu[0]);
+        assert!(!qu[0].contains("variable Z"), "{bound}: {}", qu[0]);
+    }
+}
+
 #[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();
