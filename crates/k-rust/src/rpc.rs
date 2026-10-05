@@ -4935,6 +4935,61 @@ endmodule
         done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
     }
 
+    /// A deep state that decodes but is not a pattern of the definition (a `\not` chain over a
+    /// symbol the definition does not declare) is answered with an error by the pattern
+    /// methods and by `add-module` as an axiom, on the 64 MiB worker thread, and the connection
+    /// keeps serving: the pattern is refused for want of stack before any recursive pass over it
+    /// runs, rather than overflowing the worker and aborting the server. One 200,000-level frame is held at a time, and the
+    /// test peaks at about 400 MB of resident memory and finishes in about 12 s in a debug build.
+    #[test]
+    fn deep_invalid_patterns_are_answered_and_the_connection_keeps_serving() {
+        let (address, done) = spawn_server(service(), 1);
+        let mut client = TcpStream::connect(address).unwrap();
+        let deep = deep_kore_json(DEEP_LEVELS).replacen(
+            r#"{"tag":"Top","sort":{"tag":"SortApp","name":"SortState","args":[]}}"#,
+            r#"{"tag":"App","name":"undefined","sorts":[],"args":[]}"#,
+            1,
+        );
+        let shallow = r#"{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"SortState","args":[]}}}"#;
+        let frames = [
+            format!(r#""method":"execute","params":{{"state":{deep},"max-depth":0}}"#),
+            format!(r#""method":"simplify","params":{{"state":{deep}}}"#),
+            format!(r#""method":"get-model","params":{{"state":{deep}}}"#),
+            format!(r#""method":"implies","params":{{"antecedent":{deep},"consequent":{shallow}}}"#),
+            format!(
+                r#""method":"add-module","params":{{"module":{}}}"#,
+                serde_json::to_string(&format!(
+                    r"module EXTRA import TEST [] axiom{{}} \rewrites{{SortState{{}}}}(\and{{SortState{{}}}}(next{{}}(), {}undefined{{}}(){}), \and{{SortState{{}}}}(next{{}}(), \top{{SortState{{}}}}())) [] endmodule []",
+                    r"\not{SortState{}}(".repeat(DEEP_LEVELS),
+                    ")".repeat(DEEP_LEVELS)
+                ))
+                .unwrap()
+            ),
+        ];
+        drop(deep);
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        for (id, frame) in frames.iter().enumerate() {
+            writeln!(client, r#"{{"jsonrpc":"2.0","id":{id},{frame}}}"#).unwrap();
+            let mut line = String::new();
+            responses.read_line(&mut line).unwrap();
+            let response = serde_json::from_str::<Value>(&line).unwrap();
+            assert_eq!(response["id"], id, "{line}");
+            assert!(
+                line.contains("levels deep; reading it needs about"),
+                "{line}"
+            );
+        }
+        writeln!(client, r#"{{"jsonrpc":"2.0","id":9,"method":"missing"}}"#).unwrap();
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["error"]["code"],
+            -32601
+        );
+        client.shutdown(Shutdown::Write).unwrap();
+        done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
+    }
+
     #[test]
     fn kore_encoder_accepts_deep_patterns_without_serde_recursion_limits() {
         let mut pattern = KorePattern::Application {

@@ -330,26 +330,33 @@ pub fn check() -> Result<(), Stop> {
 /// twice the whole simplification.
 /// The zone is also a floor below which a thread simplifies nothing, so it stays well under the
 /// smallest thread stacks embedders commonly run (512 KiB, the macOS default for secondary
-/// threads).
-#[cfg(not(target_family = "wasm"))]
-const STACK_RED_ZONE: usize = 128 * 1024;
+/// threads). The stack admission of patterns and definitions (`nesting`) keeps the same zone
+/// beyond the stack it reserves for the recursive passes over them.
+pub(crate) const STACK_RED_ZONE: usize = 128 * 1024;
 
-/// Whether the current thread has less than `STACK_RED_ZONE` bytes of stack left.
+/// Bytes of native stack left on the current thread, when they are known.
 ///
 /// The resource is bytes of this thread's stack, and only the OS knows its bounds, which
-/// `stacker` reads for every native thread whoever created it. A thread whose bounds cannot be
-/// read, and every wasm32 build, where the engine's call-stack limit is invisible to the module,
-/// is unguarded: an unknown remaining stack never counts as exhausted.
+/// `stacker` reads for every native thread whoever created it. The bounds of a thread that
+/// `stacker` cannot read, and of every wasm32 build, where the engine's call-stack limit is
+/// invisible to the module, are unknown, and a guard on them admits everything.
 #[inline]
-fn stack_exhausted() -> bool {
+pub(crate) fn remaining_stack() -> Option<usize> {
     #[cfg(not(target_family = "wasm"))]
     {
-        stacker::remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
+        stacker::remaining_stack()
     }
     #[cfg(target_family = "wasm")]
     {
-        false
+        None
     }
+}
+
+/// Whether the current thread has less than `STACK_RED_ZONE` bytes of stack left; an unknown
+/// remaining stack never counts as exhausted.
+#[inline]
+fn stack_exhausted() -> bool {
+    remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
 }
 
 /// The stack guard: a [`StopCause::StackExhausted`] stop when `stack_exhausted` holds.

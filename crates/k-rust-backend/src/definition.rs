@@ -67,7 +67,7 @@ use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
-    alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
+    alias::{AliasDefinition, collect as collect_aliases},
     builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::{ClosedSort, SortError, SortGraph},
@@ -835,6 +835,13 @@ pub enum DefinitionError {
         name: String,
         set: bool,
     },
+    /// The current thread's remaining stack cannot hold the recursive passes over a pattern or
+    /// sort nested `depth` levels deep, which need about `required` bytes (`nesting`).
+    InsufficientStack {
+        depth: usize,
+        required: usize,
+        remaining: usize,
+    },
     Axiom(AxiomError),
     RulePattern(RulePatternError),
     Claim(ClaimError),
@@ -1001,12 +1008,36 @@ impl fmt::Display for DefinitionError {
                     "Invalid {kind} variable name '{name}': {problems}"
                 )
             }
+            Self::InsufficientStack {
+                depth,
+                required,
+                remaining,
+            } => write!(
+                formatter,
+                "A pattern or sort is nested {depth} levels deep; reading it needs about {required} bytes of stack, but this thread has {remaining} left"
+            ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
             Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
             Self::Verification(error) => write!(formatter, "{error}"),
         }
     }
+}
+
+/// Expand the aliases of `pattern` for internalization.
+///
+/// Every internalization of a KORE pattern starts here, so this is where the recursive passes
+/// over a pattern are admitted to the thread's stack: the pattern before alias expansion, and
+/// again its expansion, which can be deeper than the input by the depth of the alias bodies it
+/// inlines.
+fn expand_aliases(
+    pattern: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+) -> Result<kore::Pattern, DefinitionError> {
+    crate::nesting::ensure_stack(pattern)?;
+    let expanded = crate::alias::expand(pattern, aliases)?;
+    crate::nesting::ensure_stack(&expanded)?;
+    Ok(expanded)
 }
 
 fn display_sort(sort: &Sort) -> String {
@@ -1264,6 +1295,7 @@ impl BackendDefinition {
             &mut visited,
             &mut ordered,
         )?;
+        crate::nesting::ensure_definition_stack(&ordered)?;
 
         let aliases = collect_aliases(&ordered)?;
 
@@ -1761,6 +1793,7 @@ impl BackendDefinition {
         pattern: &'a kore::Pattern,
         sort_variables: &'a [Name],
     ) -> Result<Admitted<'a>, DefinitionError> {
+        crate::nesting::ensure_stack(pattern)?;
         crate::verify::verify_standalone(
             &self.main_module,
             pattern,

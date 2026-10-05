@@ -3347,6 +3347,146 @@ endmodule
         assert_eq!(text(execution.leaves[0].state.clone()), "a{}()");
     }
 
+    /// KORE JSON terms `levels` deep that decode but are not patterns of the definition: a `\not`
+    /// chain whose leaf applies an undeclared symbol, a chain of an undeclared symbol, and a
+    /// domain value at a deep undeclared sort.
+    fn deep_invalid_kore_json(levels: usize) -> [String; 3] {
+        let sort = r#"{"tag":"SortApp","name":"SortS","args":[]}"#;
+        let undefined = r#"{"tag":"App","name":"undefined","sorts":[],"args":[]}"#;
+        let constant = r#"{"tag":"App","name":"a","sorts":[],"args":[]}"#;
+        let term = |prefix: &str, leaf: &str, suffix: &str| {
+            format!(
+                r#"{{"format":"KORE","version":1,"term":{}{leaf}{}}}"#,
+                prefix.repeat(levels),
+                suffix.repeat(levels)
+            )
+        };
+        let deep_sort = format!(
+            "{}{sort}{}",
+            r#"{"tag":"SortApp","name":"SortMissing","args":["#.repeat(levels),
+            "]}".repeat(levels)
+        );
+        [
+            term(
+                &format!(r#"{{"tag":"Not","sort":{sort},"arg":"#),
+                undefined,
+                "}",
+            ),
+            term(
+                r#"{"tag":"App","name":"nosuch","sorts":[],"args":["#,
+                constant,
+                "]}",
+            ),
+            format!(
+                r#"{{"format":"KORE","version":1,"term":{{"tag":"DV","sort":{deep_sort},"value":"1"}}}}"#
+            ),
+        ]
+    }
+
+    /// A deep request that decodes but is not a pattern of the definition is an ordinary error
+    /// on every route of the facade the Node-API and WebAssembly hosts call, on an 8 MiB thread
+    /// like Node's main thread: the pattern is refused for want of stack before any recursive
+    /// pass over it runs. One 200,000-level term is decoded at a time, and the test peaks under
+    /// 300 MB of resident memory and finishes in about 5 s in a debug build.
+    #[test]
+    fn deep_invalid_requests_are_ordinary_errors_on_every_route() {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let shallow = kore("a{}()");
+                let mut backend = backend();
+                for deep in deep_invalid_kore_json(DEEP_REQUEST_LEVELS) {
+                    let execute = deserialize_request::<ExecuteRequest>(&format!(
+                        r#"{{"state":{deep},"maxDepth":0}}"#
+                    ))
+                    .unwrap();
+                    drop(deep);
+                    let deep = execute.state.clone();
+                    let errors = vec![
+                        backend.execute(execute).map(drop),
+                        backend.search(SearchRequest::new(deep.clone())).map(drop),
+                        backend
+                            .search_pattern(SearchPatternRequest::new(
+                                deep.clone(),
+                                shallow.clone(),
+                            ))
+                            .map(drop),
+                        backend
+                            .search_pattern(SearchPatternRequest::new(
+                                shallow.clone(),
+                                deep.clone(),
+                            ))
+                            .map(drop),
+                        backend
+                            .simplify(PatternRequest::new(deep.clone()))
+                            .map(drop),
+                        backend
+                            .implies(ImplicationRequest::new(deep.clone(), shallow.clone()))
+                            .map(drop),
+                        backend
+                            .implies(ImplicationRequest::new(shallow.clone(), deep.clone()))
+                            .map(drop),
+                    ];
+                    // Without Z3, model generation reports its capability boundary before it
+                    // reads the pattern.
+                    #[cfg(feature = "z3-inference")]
+                    let errors = errors
+                        .into_iter()
+                        .chain([backend.get_model(PatternRequest::new(deep)).map(drop)]);
+                    for error in errors {
+                        let error = error.expect_err("a deep invalid request is an error");
+                        assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                    }
+                }
+                // The backend still serves ordinary requests.
+                let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+                assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// A module whose axiom is a 200,000-level `\not` chain is refused as an ordinary error,
+    /// whether the chain is over a symbol the definition does not declare or a well-formed
+    /// predicate, on an 8 MiB thread: loading the extended definition checks its depth against
+    /// the thread's stack before any recursive pass over it runs. One module of about 2 MB of
+    /// text is held at a time; the test peaks under 200 MB of resident memory and finishes in
+    /// about a second in a debug build.
+    #[test]
+    fn deep_modules_are_ordinary_errors() {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let mut backend = backend();
+                for leaf in ["undefined{}()", r"\top{SortS{}}()"] {
+                    let condition = format!(
+                        "{}{leaf}{}",
+                        r"\not{SortS{}}(".repeat(DEEP_REQUEST_LEVELS),
+                        ")".repeat(DEEP_REQUEST_LEVELS)
+                    );
+                    let module = format!(
+                        r"module EXTRA import MAIN []
+                            axiom{{}} \rewrites{{SortS{{}}}}(
+                                \and{{SortS{{}}}}(c{{}}(), {condition}),
+                                \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}())
+                            ) []
+                        endmodule []"
+                    );
+                    drop(condition);
+                    for name_as_id in [true, false] {
+                        let error = backend.add_module(&module, name_as_id).unwrap_err();
+                        assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                    }
+                }
+                let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+                assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     #[cfg(not(feature = "z3-inference"))]
     #[test]
     fn portable_model_generation_reports_the_capability_boundary() {
