@@ -75,13 +75,12 @@ fn run(backend: &mut Backend, argument: &str) -> Vec<String> {
     let top = format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortProg{{}}, SortKItem{{}}}}(Lblrun{{}}({argument})), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
     );
-    let state = codec::to_value(&parse_pattern(&top).unwrap()).unwrap();
+    let state = parse_pattern(&top).unwrap();
     backend
         .execute(ExecuteRequest {
-            state,
             result_modality: ResultModalityOutput::PathSet,
             max_depth: Some(4),
-            ..ExecuteRequest::default()
+            ..ExecuteRequest::new(state)
         })
         .unwrap()
         .leaves
