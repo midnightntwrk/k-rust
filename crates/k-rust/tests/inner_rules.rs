@@ -3785,10 +3785,12 @@ fn preferred_fun2_reading_needs_no_fun3_completion() {
 #[cfg(feature = "z3-inference")]
 #[test]
 fn rejects_parametric_completion_without_a_unique_least_upper_bound() {
-    // AddEmptyLists asks AddSortInjections to complete `lam3`'s `S2` parameter from its two
-    // parser-layer #KToken children. Both are KBott until TreeNodesToKORE materializes their
-    // semantic Missing sort, and filtering KBott's upper bounds leaves no unique admissible LUB.
-    // `lam3` has the shape of the prelude's `#fun3` without a preferred `#fun2` reading.
+    // List completion instantiates `lam3`'s `S2` parameter as the least sort that holds both
+    // positions it occupies. Both children are `#token` literals, which the parser reads at
+    // `KBott`, the sort of its `#token` production: the sort a token spells, `Missing`, is the
+    // sort of the term built afterwards. `KBott` is not a sort a term can have, and the sorts
+    // above it that are have no unique least one, so the instantiation is refused. `lam3` has the
+    // shape of the prelude's `#fun3` without a preferred `#fun2` reading.
     let source = indoc! {r#"
         module PARAMETRIC-COMPLETION-LUB
           imports INT
@@ -4114,8 +4116,9 @@ fn matching_mint_literal_width_is_accepted() {
 #[test]
 fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0)
-    // RuleGrammarGenerator builds `KItem ::= MInt{8}` and the `MInt{8}` casts from
-    // Module.allSorts, which contains every declared instantiation of a parametric sort.
+    // A declared instance of a parametric sort, here `MInt{8}`, is a sort of the module like any
+    // other: its values are K items, so the rule grammar has `KItem ::= MInt{8}`, and a rule may
+    // cast a term to it.
     let source = include_str!("fixtures/reference/inner/mintcast/test.k");
     let loaded = load_with_prelude(source, "mintcast.k", "TEST")
         .expect("every MInt{8} rule shape of mint-llvm/test.k is accepted by the reference");
@@ -4126,7 +4129,8 @@ fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
         .filter(|body| body.contains("#SemanticCastToMInt{8}"))
         .count();
     assert!(semantic_casts >= 1, "{bodies:?}");
-    // `{term}:>MInt{8}` lowers to the projection generated for the cast sort (TreeNodesToKORE).
+    // `{term}:>MInt{8}` narrows the term to `MInt{8}`, so it lowers to the projection generated
+    // for the cast sort.
     assert!(
         bodies.iter().any(|body| body.contains("project:MInt{8}")),
         "{bodies:?}"
@@ -4346,10 +4350,10 @@ fn exists_binder_variable_agrees_under_checked_inference() {
 fn reference_rule_applies_a_named_field_projection() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
     // parsed.txt: rule `getFoo(_)_TEST_Int_Foo`(#SemanticCastToFoo(F))=>`project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(#SemanticCastToFoo(F)) requires #token("true","Bool") ensures #token("true","Bool")
-    // RuleGrammarGenerator.getCombinedGrammar adds GenerateSortProjections.gen(p) for every
-    // production of the module: a named nonterminal `foo: Int` of `test(...)` yields the
-    // function production `Int ::= "foo" "(" Foo ")"` with label project:<klabel>:foo, usable in
-    // rules and (record-llvm 3.test/4.test) in programs.
+    // A named nonterminal `foo: Int` of `test(...)` declares a field of that production, and
+    // the module provides the function that reads it, the production `Int ::= "foo" "(" Foo ")"`
+    // labelled project:<klabel>:foo, which rules and (record-llvm 3.test/4.test) programs apply
+    // like any other function of the module.
     let source = include_str!("fixtures/reference/inner/record-projection/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a rule applying the generated field projection");
@@ -4484,9 +4488,10 @@ fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST (regression-new/mint-llvm-2, exit 0)
     // parsed.txt: rule `m64()_TEST_MInt`(.KList)=>#token("0p64","MInt{64}") requires #token("true","Bool") ensures #token("true","Bool")
     //             rule `m32()_TEST_MInt`(.KList)=>#token("0p32","MInt{32}") requires #token("true","Bool") ensures #token("true","Bool")
-    // `syntax MInt{64} ::= m64() [function]` has no sort parameters, so TypeInferenceVisitor:278
-    // (`pr.production().params().nonEmpty() && hasParametricSort(...)`) adds no cast around it
-    // and CheckFunctions sees the function at the top of the LHS.
+    // `syntax MInt{64} ::= m64() [function]` declares no sort parameter: its sort is the fixed
+    // instance `MInt{64}`, so no parameter selects a member of the `MInt` family and inference
+    // wraps the application in no cast. The function stays at the top of the left-hand side,
+    // where a function rule must have it.
     let source = include_str!("fixtures/reference/inner/mint-fn/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a nullary function returning a declared MInt instance");

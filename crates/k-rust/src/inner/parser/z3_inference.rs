@@ -210,8 +210,9 @@ struct Encoding<'a> {
     /// Whether a token leaf was constrained against a ground sort it cannot satisfy, so a term
     /// without variables must still be solved and rejected.
     ill_sorted_ground: bool,
-    /// `ExpectedSortsVisitor.isIncremental`: after an unsat check the constraints are rebuilt
-    /// one alternative per ambiguity and replayed singly to name the offending term.
+    /// Whether the constraints are being rebuilt to explain an unsat check: one alternative per
+    /// ambiguity, recorded to be replayed one at a time, so the first that fails names an
+    /// offending term.
     incremental: bool,
     replay: Vec<ReplayConstraint>,
 }
@@ -1413,7 +1414,9 @@ impl<'a> Encoding<'a> {
     ) -> Result<(Bool, usize), ParseError> {
         match term {
             ParsedTerm::Ambiguity(alternatives) => {
-                // Incremental mode explains one branch of an ambiguity, as the reference does.
+                // The replay explains one alternative of an ambiguity. Keeping one alternative of
+                // each ambiguity only removes readings, so the constraints stay unsatisfiable and
+                // the replay can still find one that fails.
                 let considered = if self.incremental {
                     1
                 } else {
@@ -1595,7 +1598,9 @@ impl<'a> Encoding<'a> {
             PackedNode::Ambiguity(alternatives) => {
                 let mut alternatives = packed_terms_in_structural_order(alternatives);
                 if self.incremental {
-                    // Incremental mode explains one branch of an ambiguity, as the reference does.
+                    // The replay explains one alternative of an ambiguity. Keeping one
+                    // alternative of each ambiguity only removes readings, so the constraints
+                    // stay unsatisfiable and the replay can still find one that fails.
                     alternatives.truncate(1);
                 }
                 let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives

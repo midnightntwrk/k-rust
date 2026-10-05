@@ -626,9 +626,9 @@ impl Grammar {
         }
         let mut arguments = Vec::with_capacity(origin.parameters.len());
         for (index, (parameter, fresh)) in origin.parameters.iter().zip(&fresh).enumerate() {
-            // `substituteProd`: a parameter without bounds takes its fresh sort (the expected
-            // sort for the result parameter); a bounded one takes the lub of its bounds, where
-            // the fresh sort only filters the candidate upper bounds and never joins them.
+            // A parameter without bounds takes its fresh sort (the expected sort for the result
+            // parameter); a bounded one takes the lub of its bounds, where the fresh sort only
+            // filters the candidate upper bounds and never joins them.
             // `1 => foo(1)` at a user-list position therefore instantiates `#KRewrite` at `Int`
             // and the parent wraps the whole rewrite, as K does.
             let entries = bounds.get(parameter).cloned().unwrap_or_default();
@@ -668,8 +668,11 @@ impl Grammar {
         ))
     }
 
-    /// Port of `AddEmptyLists.getSort`: the sort of a parse node as the completion pass sees
-    /// it, instantiating a parametric node against its expected sort.
+    /// The sort of a parse node as list completion sees it. An instance of a parametric
+    /// production is instantiated from its expected sort and its children
+    /// ([`Grammar::list_instantiation`]), an expected sort above `K` counting as `K`, the
+    /// largest sort a term can have. Any other node has the sort of its production, token or
+    /// variable, and `K` when it carries none.
     fn list_sort(
         &self,
         term: &ParsedTerm,
@@ -701,8 +704,12 @@ impl Grammar {
     }
 }
 
-/// Port of `AddSortInjections.match`: record which concrete sorts flow into each parameter of
-/// `origin` when a nonterminal declared as `declared` holds a child of sort `actual`.
+/// Record which concrete sorts flow into each parameter of `origin` when a nonterminal declared
+/// as `declared` holds a child of sort `actual`. A parameter declared as the whole sort is
+/// bounded by `actual`, and a sort without parameters records nothing. A sort that applies a head
+/// to parameters, such as `MInt{Width}`, is matched argument by argument against each instance of
+/// that head among `actual` and the sorts below it, the instances a value of sort `actual` in
+/// that position can belong to.
 fn match_parameters(
     origin: &ParametricOrigin,
     declared: &Sort,

@@ -306,8 +306,10 @@ impl Grammar {
             if sort.is_frontend(FrontendSort::Layout) {
                 continue;
             }
-            // RuleGrammarGenerator concretizes these before Earley parsing. The
-            // configuration grammar adds the concrete bridge productions it needs.
+            // A production with sort parameters stands for its instances at concrete sorts, and
+            // the grammar's nonterminals are concrete sorts, so it enters the grammar through
+            // the instances `add_parametric_productions` adds from the concretization plan
+            // above. The configuration grammar adds the concrete bridge productions it needs.
             if !parameters.is_empty() {
                 continue;
             }
