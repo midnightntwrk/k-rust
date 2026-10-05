@@ -133,9 +133,9 @@ It does not infer a constraint from prose or from a call graph.
 
 ## Reading the gate report
 
-The freshness gate is `crates/algo-graph/tests/freshness.rs`; it runs under `cargo test` and fails on any card-contract violation.
+The freshness gate is `crates/algo-graph/tests/freshness.rs`; it runs under `cargo test` and `cargo nextest run` and fails on any card-contract violation.
 Its advisory findings (uncovered phases, unclaimed counters, runtime-invisible algorithms, worklists without a card, and undeclared representation uses) never fail it.
-The gate writes them, one per line, to `target/algo/report.txt` below the workspace root and prints `algo-graph report: <n> lines written to <path>` in a plain `cargo test` run, without `--nocapture`.
+The gate writes them, one per line, to `target/algo/report.txt` below the workspace root and prints `algo-graph report: <n> lines written to <path>` to standard error in a plain `cargo test` run, without `--nocapture`.
 `cargo run -p algo-graph -- graph` prints each finding to standard error; without `-o` it also rewrites the same file and prints the same summary line, and with `-o` it writes only the requested output.
 
 An `undeclared representation use` line names an algorithm that branches on a declared representation returned by a producer of that representation while none of the algorithm's cards consumes or produces it.
