@@ -124,7 +124,7 @@ Representation flow into [execution result]:
 
 No phase contains these algorithms and no representation connects them to a command's roots; the graph does not say which command runs them or when.
 
-- backend.alias.unfold — O(o + b x (p + r)) +1 mode — at backend/alias.rs `expand`
+- backend.alias.unfold — O(p + o + b x (p + r)) +1 mode — at backend/alias.rs `expand`
 - backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +2 modes — in: [match result] — at backend/definedness.rs `rule_is_defined`
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
 - backend.execution.captured_stdout — O(d + l + b * h) term visits and buffer copies… — at k-rust/backend/execution.rs `captured_stdout_buffer`
