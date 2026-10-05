@@ -5688,6 +5688,7 @@ mod tests {
         assert_eq!(result.unexplored_states, 0);
     }
 
+    #[cfg(feature = "z3")]
     fn overlapping_claim_remainder_definition(
         mode: ReachabilityMode,
         reverse_claims: bool,

@@ -950,7 +950,9 @@ mod tests {
         assert_eq!(polled(), None);
     }
 
-    /// A layered result, as a module boundary returns it.
+    /// A layered result, as a module boundary returns it. Only the drop-check tests, which run
+    /// under debug assertions, use it.
+    #[cfg(debug_assertions)]
     fn layered_answer() -> Stoppable<Result<u32, &'static str>> {
         check()?;
         Ok(Ok(1))

@@ -5307,7 +5307,9 @@ mod tests {
     }
 
     /// The problem of `shared_parameter_keeps_both_incomparable_live_sets`: one variable `X`
-    /// and one formal parameter `Q`, both of which the term constraint creates.
+    /// and one formal parameter `Q`, both of which the term constraint creates. Only the
+    /// debug-assertion tests below use it.
+    #[cfg(debug_assertions)]
     fn variable_and_parameter_problem() -> ConformanceProblem {
         conformance_problem(
             3,
