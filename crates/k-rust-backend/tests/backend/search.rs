@@ -1,9 +1,10 @@
-//! Public contracts of `k_rust_backend::search`: the diagnostics of search result entries.
+//! Public contracts of `k_rust_backend::search`: the diagnostics of search result entries, and
+//! the identity of results, which a state-set execution shares.
 
 use k_rust_backend::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
-    rewrite::{Pattern, TraceKind},
+    rewrite::{ExecutionOptions, Pattern, TraceKind, execute},
     rule::Predicate,
     search::{
         IncompleteSearch, PathWitness, SearchOptions, SearchState, SearchType, search_graph,
@@ -536,11 +537,16 @@ fn an_initial_state_empty_by_its_term_definedness_is_no_result() {
 
 /// A rewrite rule `left => \exists Y. held(Y)` labelled `label`.
 fn existential_rule(label: &str, left: &str) -> String {
+    existential_rule_into(label, left, "held")
+}
+
+/// A rewrite rule `left => \exists Y. head(Y)` labelled `label`.
+fn existential_rule_into(label: &str, left: &str, head: &str) -> String {
     format!(
         r#"
                 axiom{{}} \rewrites{{SortS{{}}}}(
                     \and{{SortS{{}}}}({left}, \top{{SortS{{}}}}()),
-                    \exists{{SortS{{}}}}(Y:SortS{{}}, held{{}}(Y:SortS{{}}))
+                    \exists{{SortS{{}}}}(Y:SortS{{}}, {head}{{}}(Y:SortS{{}}))
                 ) [label{{}}("{label}")]"#
     )
 }
@@ -647,4 +653,155 @@ fn a_state_search_keeps_a_request_variable_apart_from_an_introduced_one() {
         1,
         "{at_bound:?}"
     );
+}
+
+/// The definition of the solution tests: constructors `s`, `d(SortS)`, `e`, `g`, `h`, `h2`, `k`
+/// and the rules
+///
+/// ```text
+/// s => \exists Y. d(Y)    d(Y) => e    e => g    g => \exists Y. d(Y)
+/// e => h                  h => h2      h2 => d(k)
+/// ```
+///
+/// From `s`, the states `d(Y)` for a new `Y` arise at depths 1 and 4 (the second through
+/// `e => g => d(Y')`), and `d(k)` at depth 5.
+fn solution_definition() -> BackendDefinition {
+    let rules = [
+        existential_rule_into("s-d", "s{}()", "d"),
+        rule("d-e", "d{}(Y:SortS{})", "e{}()"),
+        rule("e-g", "e{}()", "g{}()"),
+        existential_rule_into("g-d", "g{}()", "d"),
+        rule("e-h", "e{}()", "h{}()"),
+        rule("h-h2", "h{}()", "h2{}()"),
+        rule("h2-d", "h2{}()", "d{}(k{}())"),
+    ]
+    .concat();
+    let source = format!(
+        r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol s{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol d{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol e{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol g{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol h{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol h2{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol k{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                {rules}
+            endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The solutions of a pattern search for `d(V)` from `s`, each as the printed value of `V`
+/// with the variables the request does not name shown as `?`.
+fn solutions(definition: &BackendDefinition, max_results: Option<usize>) -> Vec<String> {
+    let target = Pattern {
+        term: internal_term(definition, "d{}(VarV:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let result = search_pattern(
+        definition,
+        Pattern {
+            term: internal_term(definition, "s{}()"),
+            constraints: Vec::new(),
+        },
+        &target,
+        SearchOptions {
+            max_depth: 7,
+            max_results,
+            ..options(SearchType::Star)
+        },
+    );
+    // Only the depth bound leaves work behind.
+    assert!(
+        result
+            .incomplete
+            .iter()
+            .all(|entry| matches!(entry, IncompleteSearch::DepthBound(_))),
+        "{:?}",
+        result.incomplete
+    );
+    result
+        .matches
+        .iter()
+        .map(|found| {
+            let [(variable, value)] = found.substitution.iter().collect::<Vec<_>>()[..] else {
+                panic!("one binding: {:?}", found.substitution);
+            };
+            assert_eq!(variable.name.as_ref(), "VarV");
+            match value.kind() {
+                TermKind::Variable(_) => "?".to_owned(),
+                TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                other => panic!("unexpected value {other:?}"),
+            }
+        })
+        .collect()
+}
+
+/// `V = Y` for a variable `Y` the rewrite introduced is one solution, whichever name the
+/// request's counter gave `Y`: the copy of `d(Y)` reached again at depth 4 is not a second
+/// solution, so it takes no result slot from `V = k`, and an unbounded search lists it once.
+/// A few states of a few nodes each: kilobytes, well under a second.
+#[test]
+fn a_solution_reached_again_under_another_name_is_one_solution() {
+    let definition = solution_definition();
+    assert_eq!(solutions(&definition, Some(2)), ["?", "k"]);
+    assert_eq!(solutions(&definition, None), ["?", "k"]);
+}
+
+/// A state search reports a state once whatever names its introduced variables have: from
+/// `start`, `start => held(a)` and `held(X) => \exists Y. held(Y)` reach `held(Y)` for a new
+/// `Y` at every depth after the first, which is one state. A few states of a few nodes each:
+/// kilobytes, well under a second.
+#[test]
+fn a_state_search_reports_a_state_reached_again_under_another_name_once() {
+    let rules = [
+        rule("to-held", "start{}()", "held{}(a{}())"),
+        existential_rule("again", "held{}(X:SortS{})"),
+    ]
+    .concat();
+    let definition = search_definition(&rules);
+    let result = search_graph(
+        &definition,
+        start(&definition),
+        SearchOptions {
+            max_depth: 6,
+            ..options(SearchType::Star)
+        },
+    );
+    let depths = result
+        .states
+        .iter()
+        .map(|state| state.depth)
+        .collect::<Vec<_>>();
+    assert_eq!(depths, [0, 1, 2], "{:?}", result.states);
+}
+
+/// A state-set execution reports two branches that end in one state up to the names of the
+/// variables each introduced as one leaf: `start => a`, `start => b`, and both `a` and `b`
+/// rewrite to `\exists Y. held(Y)`. Kilobytes, well under a second.
+#[test]
+fn a_state_set_execution_merges_leaves_equal_up_to_introduced_names() {
+    let rules = [
+        rule("to-a", "start{}()", "a{}()"),
+        rule("to-b", "start{}()", "b{}()"),
+        existential_rule("a-held", "a{}()"),
+        existential_rule("b-held", "b{}()"),
+    ]
+    .concat();
+    let definition = search_definition(&rules);
+    let result = execute(
+        &definition,
+        start(&definition),
+        ExecutionOptions {
+            max_depth: 4,
+            ..ExecutionOptions::default()
+        },
+    );
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one merged leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(head(&leaf.pattern), "held");
 }

@@ -12,7 +12,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use super::{
     IncompleteSearch, PathSearchState, PathWitness, SearchEnd, SearchMatch, SearchOptions,
@@ -21,6 +21,8 @@ use super::{
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    fresh::{RequestNames, SolutionKey},
+    rewrite::Pattern,
     smt::SmtSolver,
     stop::StopCause,
     transition::{ObservationLog, ObservationOptions},
@@ -150,13 +152,20 @@ pub(super) enum StateRetention {
 /// ```
 ///
 /// Retain one unique state result and classify any result bound reached there.
+///
+/// A result is unique unless an earlier result is its state up to the names of the variables
+/// the request does not name (their `RequestNames::state_key`s are equal, `retained` holds the
+/// keys of `states`): such a result denotes the same configurations, so listing it again would
+/// list one state twice and take a result slot from a different one.
 pub(super) fn retain_state_result(
     states: &mut Vec<SearchState>,
+    retained: &mut HashSet<Pattern>,
+    request: &RequestNames,
     state: SearchState,
     max_results: Option<usize>,
     pattern_bound_reached: &mut impl FnMut(&SearchState) -> bool,
 ) -> StateRetention {
-    if states.iter().any(|found| found.pattern == state.pattern) {
+    if !retained.insert(request.state_key(&state.pattern)) {
         return StateRetention::Continue;
     }
     let pattern_bound_reached = pattern_bound_reached(&state);
@@ -248,16 +257,21 @@ pub(super) fn retain_witness(
     WitnessRetention::Continue
 }
 
-/// Retain one pattern match unless an equal match is already retained; whether `max_results`
-/// matches are now retained.
+/// Retain one pattern match unless a retained match is the same solution; whether
+/// `max_results` matches are now retained.
+///
+/// Two matches are the same solution when they are equal up to the names of the variables the
+/// request does not name (their `RequestNames::solution_key`s are equal, `retained` holds the
+/// keys of `matches`): they denote the same instances of the target, so the second would take
+/// a result slot from a different solution.
 pub(super) fn retain_pattern_match(
     matches: &mut Vec<SearchMatch>,
+    retained: &mut HashSet<SolutionKey>,
+    request: &RequestNames,
     found: SearchMatch,
     max_results: Option<usize>,
 ) -> bool {
-    if matches.iter().any(|existing| {
-        existing.substitution == found.substitution && existing.constraints == found.constraints
-    }) {
+    if !retained.insert(request.solution_key(&found.substitution, &found.constraints)) {
         return false;
     }
     matches.push(found);

@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
-//! bound = "O(L^2) structural key comparisons"
+//! bound = "one RequestNames::state_key per leaf (backend.fresh.variables) and O(L^2) key comparisons"
 //!
 //! [[cost]]
 //! mode = "trace storage with retain_trace false"
@@ -216,7 +216,7 @@ impl<'a> Execution<'a> {
                 .map(|state| execution_state_at_breadth_bound(state, &self.observation_log)),
         );
         let modality = self.options.result_modality;
-        let leaves = final_leaves(modality, leaves);
+        let leaves = final_leaves(modality, self.fresh_counter.request(), leaves);
         (
             ExecutionResult {
                 modality,
@@ -1165,7 +1165,7 @@ impl<'a> Execution<'a> {
     /// `Vacuous`.
     fn collect(self) -> (ExecutionResult, InitialSimplificationStatus) {
         let modality = self.options.result_modality;
-        let leaves = final_leaves(modality, self.leaves);
+        let leaves = final_leaves(modality, self.fresh_counter.request(), self.leaves);
         // The legacy observer is a single-stream interface. It receives a transcript only when
         // final selection retained one leaf; callers consume multi-leaf transcripts from each leaf.
         let effects = match leaves.as_slice() {
@@ -1224,20 +1224,32 @@ fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
 /// The leaves a result reports under `modality`. A path-set result is the per-path leaves as
 /// exploration produced them; a state-set result is their disjunction, where merging equal
 /// configurations loses no state.
-fn final_leaves(modality: ResultModality, leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+fn final_leaves(
+    modality: ResultModality,
+    request: &RequestNames,
+    leaves: Vec<ExecutionLeaf>,
+) -> Vec<ExecutionLeaf> {
     match modality {
-        ResultModality::StateSet => merge_equal_final_leaves(leaves),
+        ResultModality::StateSet => merge_equal_final_leaves(request, leaves),
         ResultModality::PathSet => leaves,
     }
 }
 
-/// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local
-/// observable state: leaves collapse only when their structural term, constraint set, committed
-/// effects, and console state agree. Bottom leaves carry no configuration, so whole-state trivial
-/// and vacuous outcomes remain distinct. The retained leaf keeps its own trace, branch, and
-/// diagnostics: they describe the one path the leaf reports, and the merged paths ended in the
-/// same configuration, so whether that configuration is normalized is the same for each.
-fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+/// The leaves of a state-set result with each configuration once: the result is a disjunction,
+/// and a disjunct equal to an earlier one adds no state. Two leaves are one configuration when
+/// their states are equal up to the names of the variables the request does not name (their
+/// `RequestNames::state_key`s, which compare the constraints as a set, are equal): such a
+/// variable is quantified over its own disjunct (docs/compatibility.md#result-variables), so
+/// the two disjuncts denote the same configurations. Branch-local observable state must agree
+/// too: committed effects and console state, which hold no variable. Bottom leaves carry no
+/// configuration, so whole-state trivial and vacuous outcomes remain distinct. The retained
+/// leaf keeps its own trace, branch, and diagnostics: they describe the one path the leaf
+/// reports, and the merged paths ended in the same configuration, so whether that
+/// configuration is normalized is the same for each.
+fn merge_equal_final_leaves(
+    request: &RequestNames,
+    leaves: Vec<ExecutionLeaf>,
+) -> Vec<ExecutionLeaf> {
     let mut seen = Vec::new();
     leaves
         .into_iter()
@@ -1249,12 +1261,7 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
                 return true;
             }
             let key = (
-                leaf.pattern.term.clone(),
-                leaf.pattern
-                    .constraints
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>(),
+                request.state_key(&leaf.pattern),
                 leaf.effects.clone(),
                 leaf.io.clone(),
             );
@@ -1949,11 +1956,14 @@ mod tests {
             diagnostics: Vec::new(),
         };
 
-        let leaves = merge_equal_final_leaves(vec![
-            leaf("depth-before", HaltReason::DepthBound),
-            leaf("stuck", HaltReason::Stuck),
-            leaf("depth-after", HaltReason::DepthBound),
-        ]);
+        let leaves = merge_equal_final_leaves(
+            &RequestNames::default(),
+            vec![
+                leaf("depth-before", HaltReason::DepthBound),
+                leaf("stuck", HaltReason::Stuck),
+                leaf("depth-after", HaltReason::DepthBound),
+            ],
+        );
 
         let halt_reasons = leaves
             .iter()
@@ -1994,10 +2004,16 @@ mod tests {
             diagnostics: Vec::new(),
         };
 
-        let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
+        let cursor_leaves = merge_equal_final_leaves(
+            &RequestNames::default(),
+            vec![leaf(cursor_zero), leaf(cursor_one)],
+        );
         assert_eq!(cursor_leaves.len(), 2);
 
-        let transcript_leaves = merge_equal_final_leaves(vec![leaf(left_io), leaf(right_io)]);
+        let transcript_leaves = merge_equal_final_leaves(
+            &RequestNames::default(),
+            vec![leaf(left_io), leaf(right_io)],
+        );
 
         assert_eq!(transcript_leaves.len(), 2);
         assert_eq!(

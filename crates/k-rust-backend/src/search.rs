@@ -81,7 +81,9 @@
 //! name (`RequestNames::state_key`, one walk of the pattern per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
 //! simple paths with a per-path visited list of the same keys, exponential in branching plus
-//! O(depth) per pop; pattern search over the result set. `normalize_match_condition` is the
+//! O(depth) per pop; pattern search over the result set. A state result, and a pattern
+//! search's solution (`RequestNames::solution_key`), is retained once up to the same renaming,
+//! one key per result. `normalize_match_condition` is the
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
 //! definedness of each solved value that is not `ceil_free`, no counter.
 
@@ -679,6 +681,8 @@ fn search_graph_collecting(
     let mut observation_log = ObservationLog::default();
     let request_diagnostics = PathDiagnostics::new_request();
     let mut states = Vec::new();
+    // The `RequestNames::state_key` of every state in `states`.
+    let mut retained = HashSet::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
     // One request: every name the search mints is apart from every variable of the initial
@@ -936,6 +940,8 @@ fn search_graph_collecting(
             ) {
                 Ok(Some(result)) => retain_state_result(
                     &mut states,
+                    &mut retained,
+                    fresh_counter.request(),
                     result,
                     options.max_results,
                     &mut pattern_bound_reached,
@@ -1038,6 +1044,8 @@ fn search_graph_collecting(
                 ) {
                     Ok(Some(result)) => retain_state_result(
                         &mut states,
+                        &mut retained,
+                        fresh_counter.request(),
                         result,
                         options.max_results,
                         &mut pattern_bound_reached,
@@ -2056,6 +2064,14 @@ fn search_pattern_using(
         ..options
     };
     let mut matches = Vec::new();
+    // The `RequestNames::solution_key` of every match in `matches`, over the names of the
+    // request: the initial patterns' and the target's.
+    let mut retained = HashSet::new();
+    let request = {
+        let mut names = RequestNames::of(&[target]);
+        names.extend(&RequestNames::of(&initial.iter().collect::<Vec<_>>()));
+        names
+    };
     let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
     let mut collect_match = |state: &SearchState| {
@@ -2093,12 +2109,18 @@ fn search_pattern_using(
             state: state.clone(),
             diagnostics,
         };
-        retain_pattern_match(&mut matches, found, requested_bound)
+        retain_pattern_match(
+            &mut matches,
+            &mut retained,
+            &request,
+            found,
+            requested_bound,
+        )
     };
     let graph = search_graph_collecting(
         definition,
         initial,
-        RequestNames::of(&[target]),
+        request.clone(),
         graph_options,
         solver,
         observation,

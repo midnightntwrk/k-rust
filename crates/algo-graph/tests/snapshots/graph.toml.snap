@@ -1541,6 +1541,10 @@ mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rul
 bound = "O(v log v) per call before the retry loop"
 
 [[node.cost]]
+mode = "state and solution keys (RequestNames::state_key, RequestNames::solution_key)"
+bound = "O(n + v log v) for a pattern of n nodes and v variables, plus O(k log k) blind comparisons for each map or set of k elements holding a variable not yet met, each at most the size of the smaller element, plus sorting the c constraints, O(c log c) comparisons"
+
+[[node.cost]]
 mode = "freshen_existentials"
 bound = "O(c) per name without amortization, since the suffix restarts at each existential's index"
 
@@ -1932,7 +1936,7 @@ bound = "O(states), with states at most b^d when both bounds are set and unbound
 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
-bound = "O(L^2) structural key comparisons"
+bound = "one RequestNames::state_key per leaf (backend.fresh.variables) and O(L^2) key comparisons"
 
 [[node.cost]]
 mode = "trace storage with retain_trace false"

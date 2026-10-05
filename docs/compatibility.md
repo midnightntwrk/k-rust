@@ -698,6 +698,10 @@ The order is `k-rust-kore`'s `Pattern` order (variant declaration rank, then fie
 Differential gates compare disjunctions as multisets so ordering is ignored while multiplicity is still checked.
 For `--bound N`, selected results must be distinct members of the same query's unbounded solution set, up to the bound; which members are selected is unspecified.
 The CLI test `krun_search_bound_returns_a_subset_of_the_unbounded_solutions` checks this property against the port's own unbounded search.
+A state, a solution (a match of the target), and a leaf of a state-set execution is reported once up to the names of the variables the request does not name.
+Such a variable is quantified over its own result (see [Result variables](#result-variables)), so two results that differ only by an injective renaming of those variables, with the request's names fixed, denote the same configurations or the same instances of the target; reporting both would take a `--bound` slot from a different result.
+The comparison (`RequestNames::state_key` and `RequestNames::solution_key` in [fresh.rs](../crates/k-rust-backend/src/fresh.rs)) renames those variables by first occurrence, visiting map and set elements and the constraints in an order that compares the renamed variables by kind and sort only, and compares the constraints as a set.
+Elements that this order cannot tell apart keep their stored order, which compares names, so two renamings of one result can still both be reported there; two different results are never merged.
 Which successor `--strategy any` follows among equal-priority rules is likewise unspecified; the differential gate checks that the port's any-strategy result is a member of the reference all-strategy set (N26).
 The port follows the first applicable rule in priority order, then `definition.kore` declaration order (main module first, imports depth-first in their written order); which rule the reference follows is engine-internal.
 Among several collection matches of that rule, the port follows the first candidate in deterministic structural order; which candidate the reference follows is engine-internal.
