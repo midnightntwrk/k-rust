@@ -137,6 +137,30 @@ pub fn with_stack<R>(depth: usize, work: impl FnOnce() -> R) -> Result<R, Defini
     }
 }
 
+/// The refusal that [`with_stack`] gives, before running any of it, to work over patterns
+/// `depth` levels deep on the current thread because no segment it maps holds that depth;
+/// `None` when it would run the work, or would refuse it only if the system declined to map the
+/// segment.
+pub(crate) fn refusal(depth: usize) -> Option<DefinitionError> {
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = depth;
+        None
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let required = stack_for_depth(depth);
+        let remaining = crate::stop::remaining_stack()?;
+        (required > remaining && required > STACK_LIMIT).then(|| {
+            DefinitionError::InsufficientStack {
+                depth,
+                required,
+                limit: STACK_LIMIT.max(remaining),
+            }
+        })
+    }
+}
+
 /// What [`height`] knows about the definition a pattern is read in: which applications unfold
 /// into deeper patterns, and how deep the chains that associative applications fold into are.
 pub(crate) trait Unfolding {
@@ -491,7 +515,7 @@ pub fn module_depth(module: &kore::Module) -> usize {
 /// The height of the deepest pattern or sort in `modules`, the modules of a definition: the
 /// patterns of their sentences and attributes, with the aliases of `aliases` unfolded, and the
 /// sorts of their declarations.
-fn definition_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
+pub(crate) fn definition_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
     modules
         .iter()
         .flat_map(|module| &module.sentences)
@@ -1280,6 +1304,52 @@ mod tests {
             assert!(text.contains(&deep), "the error names the written sort");
             assert!(format!("{error:?}").contains(r#"name: "SortL""#));
             drop(error);
+        });
+    }
+
+    /// A definition with a sentence deeper than any segment provides for is refused with
+    /// `InsufficientStack`, at the depth of its deepest sentence, whatever else is wrong with it
+    /// and wherever that is, although the declarations are read and earlier sentences verified
+    /// before the deep sentence is measured. One definition of about 175,000 levels (a million in a
+    /// release build) is held at a time.
+    #[test]
+    fn definitions_deeper_than_any_segment_are_refused_whatever_else_they_hold() {
+        on_stack(SMALL_STACK, || {
+            let levels = max_depth() + 1;
+            let deep = format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(a{{}}(), {}),
+                    \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}())
+                ) []"#,
+                chain(levels, r"\not{SortS{}}(", r"\top{SortS{}}()", ")")
+            );
+            let unknown_head = r#"axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(nosuch{}(), \top{SortS{}}()),
+                \and{SortS{}}(a{}(), \top{SortS{}}())
+            ) []"#;
+            for (name, sentences) in [
+                ("alone", deep.clone()),
+                (
+                    "after an unknown sort",
+                    format!("symbol bad{{}}(SortMissing{{}}) : SortS{{}} []\n{deep}"),
+                ),
+                (
+                    "before an unknown sort",
+                    format!("{deep}\nsymbol bad{{}}(SortMissing{{}}) : SortS{{}} []"),
+                ),
+                ("after an invalid axiom", format!("{unknown_head}\n{deep}")),
+            ] {
+                let Err(error) = load(&module_with(&sentences)) else {
+                    panic!("{name}: the definition is refused");
+                };
+                assert!(
+                    matches!(
+                        error,
+                        DefinitionError::InsufficientStack { depth, .. } if depth > levels
+                    ),
+                    "{name}: {error}"
+                );
+            }
         });
     }
 }

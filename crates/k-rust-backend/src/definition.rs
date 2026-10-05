@@ -1384,8 +1384,8 @@ impl BackendDefinition {
                     | kore::Sentence::Claim { .. } => None,
                 })
         }));
-        let declared =
-            crate::nesting::declarations_height(&ordered, &crate::nesting::Aliases(&alias_heights));
+        let unfolding = crate::nesting::Aliases(&alias_heights);
+        let declared = crate::nesting::declarations_height(&ordered, &unfolding);
         crate::nesting::with_stack(declared, || {
             Self::internalize_modules(
                 definition,
@@ -1395,7 +1395,18 @@ impl BackendDefinition {
                 &alias_heights,
                 declared,
             )
-        })?
+        })
+        .and_then(|loaded| loaded)
+        .map_err(|error| {
+            // A definition deeper than any stack the backend provides cannot be loaded, whatever
+            // else is wrong with it, so that is the error it is refused with, as a request is
+            // (`with_stack_for`). The passes before verification measure only what they
+            // descend through, and they or the verification of an earlier sentence can fail
+            // before the deepest sentence is measured, so the whole definition is measured here,
+            // only on that failure path.
+            crate::nesting::refusal(crate::nesting::definition_height(&ordered, &unfolding))
+                .unwrap_or(error)
+        })
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
