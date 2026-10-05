@@ -3090,8 +3090,9 @@ fn compile_for_backend(
     k_rust::kompile::compile_loaded_definition(&loaded, k_rust::kompile::CompileOptions::default())
 }
 
-/// Compile `source` and load both emitted definitions into the backend.
-fn assert_compiles_and_loads(source: &str, module: &str) {
+/// Compile `source` and load both emitted definitions into the backend; the artefacts are
+/// returned for a test that also inspects what was emitted.
+fn assert_compiles_and_loads(source: &str, module: &str) -> k_rust::kompile::CompiledKoreArtifacts {
     let artifacts = compile_for_backend(source, module)
         .unwrap_or_else(|error| panic!("{source} should compile: {error:?}"));
     for kore in [
@@ -3102,6 +3103,7 @@ fn assert_compiles_and_loads(source: &str, module: &str) {
         k_rust_backend::definition::BackendDefinition::internalize(&definition, module)
             .unwrap_or_else(|error| panic!("{source} should load in the backend: {error:?}"));
     }
+    artifacts
 }
 
 /// The single error diagnostic compiling `source` reports, as (line, message).
@@ -3288,14 +3290,12 @@ fn a_left_attribute_on_a_k_argument_resolves_the_nesting() {
     .expect_err("without an associativity attribute the rule is ambiguous");
     assert!(format!("{error:?}").contains("Ambiguous"), "{error:?}");
 
-    let artifacts = compile_for_backend(&source(", left"), "MAIN")
-        .unwrap_or_else(|error| panic!("the left-associative rule should compile: {error:?}"));
+    let artifacts = assert_compiles_and_loads(&source(", left"), "MAIN");
     let kore = artifacts
         .definition_kore
         .split_whitespace()
         .collect::<String>();
     assert!(kore.contains("Lbls8{}(Lbls8{}(Lblt{}(),"), "{kore}");
-    assert_compiles_and_loads(&source(", left"), "MAIN");
 }
 
 /// A result sort that is not below the argument sort still makes the attribute ineffective.
@@ -3451,8 +3451,7 @@ fn k_sequence_productions_declare_no_symbol_of_their_own() {
     let declares_sequence_symbol =
         |kore: &str| kore.contains("Lbl'Hash'EmptyK{") || kore.contains("Lbl'Hash'KSequence{");
     let own = "module MAIN\n  syntax K ::= \".K\" [symbol(#EmptyK)] | \".\" [symbol(#EmptyK)]\n  syntax K ::= K \"~>\" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]\n  syntax KItem ::= \"go\" | \"done\"\n  rule <k> go => .K ~> done ... </k>\nendmodule\n";
-    assert_compiles_and_loads(own, "MAIN");
-    let artifacts = compile_for_backend(own, "MAIN").expect("the K sequence productions compile");
+    let artifacts = assert_compiles_and_loads(own, "MAIN");
     assert!(!declares_sequence_symbol(&artifacts.definition_kore));
     assert!(!declares_sequence_symbol(&artifacts.syntax_definition_kore));
     for module in ["KSEQ", "KSEQ-SYMBOLIC", "K"] {
