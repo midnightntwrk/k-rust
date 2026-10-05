@@ -1996,6 +1996,99 @@ fn workflow_script_commands_reads_folded_and_plain_steps() {
     );
 }
 
+/// N10: the RPC gate refuses an oracle exception whose committed k-rust expectation and recorded
+/// oracle response are the same JSON document, because then the two engines agree and the
+/// exception excuses nothing. That depends only on committed files, so it is checked on every
+/// push, not only when the gate runs against a live oracle.
+#[test]
+fn committed_rpc_oracle_exceptions_record_different_responses() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let mut checked = 0;
+    for entry in manifest["rpc"].as_array().expect("rpc cases") {
+        let name = entry["name"].as_str().expect("rpc case name");
+        for exception in entry
+            .get("oracle-exception")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let response = exception["response"].as_str().expect("exception response");
+            let read = |field: &str| {
+                let path = workspace_file(exception[field].as_str().expect("exception file"));
+                let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+                    panic!(
+                        "RPC oracle exception for {name}:{response} needs its committed {field} file {}: {error}",
+                        path.display()
+                    )
+                });
+                serde_json::from_str::<serde_json::Value>(&source)
+                    .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()))
+            };
+            let (expected, reference) = (read("expected"), read("reference"));
+            assert!(
+                !same_json(&expected, &reference),
+                "committed RPC oracle exception expectations for {name}:{response} are equal"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no RPC oracle exception was checked");
+}
+
+/// JSON equality as `jq -S .` output compares it: object member order is irrelevant, and numbers
+/// are equal when their values are, whatever their spelling.
+fn same_json(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    use serde_json::Value as Json;
+    match (left, right) {
+        (Json::Number(left), Json::Number(right)) => {
+            left == right
+                || left
+                    .as_f64()
+                    .is_some_and(|value| right.as_f64() == Some(value))
+        }
+        (Json::Array(left), Json::Array(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| same_json(left, right))
+        }
+        (Json::Object(left), Json::Object(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .all(|(key, value)| right.get(key).is_some_and(|other| same_json(value, other)))
+        }
+        _ => left == right,
+    }
+}
+
+#[test]
+fn same_json_ignores_member_order_and_number_spelling_only() {
+    let parse = |source: &str| serde_json::from_str::<serde_json::Value>(source).unwrap();
+    assert!(same_json(
+        &parse(r#"{"a": 1, "b": [2.0, "x"]}"#),
+        &parse(r#"{"b": [2, "x"], "a": 1e0}"#)
+    ));
+    assert!(!same_json(&parse(r#"{"a": 1}"#), &parse(r#"{"a": 2}"#)));
+    assert!(!same_json(
+        &parse(r#"{"a": 1}"#),
+        &parse(r#"{"a": 1, "b": 1}"#)
+    ));
+    assert!(!same_json(&parse(r#"[1, 2]"#), &parse(r#"[2, 1]"#)));
+    assert!(!same_json(&parse(r#""1""#), &parse("1")));
+}
+
+/// The workspace path of a manifest `${workspace}/...` file.
+fn workspace_file(value: &str) -> PathBuf {
+    let relative = value
+        .strip_prefix("${workspace}/")
+        .unwrap_or_else(|| panic!("{value} is not a workspace file"));
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+}
+
 #[test]
 fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes() {
     for script in JAVA_BACKED_DIFFERENTIAL_SCRIPTS {

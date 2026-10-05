@@ -4317,6 +4317,62 @@ fn executed_kore_matches_the_reference_backend() {
     result.unwrap_or_else(|error| panic!("{error}"));
 }
 
+/// N10: the execution gate refuses an oracle exception whose committed k-rust expectation the
+/// comparator accepts against the recorded reference result, because then the exception excuses
+/// nothing. Both are committed files, so this is checked on every push, not only when the gate runs
+/// the reference. The gate compares them as `executed_kore_matches_the_reference_backend` does
+/// without an initial pattern; here no definition is at hand, so the implication oracle (N15) is
+/// unavailable. A term that pairs with no disjunct of the other side is a difference with or
+/// without it, but two results that pair only through it cannot be told apart here and fail.
+#[test]
+fn committed_execution_oracle_exceptions_are_not_equivalent() {
+    let manifest = include_str!("../../../scripts/reference-differential.toml")
+        .parse::<toml::Value>()
+        .expect("valid differential TOML");
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |value: &toml::Value| {
+        let value = value.as_str().expect("oracle exception file");
+        let relative = value
+            .strip_prefix("${workspace}/")
+            .unwrap_or_else(|| panic!("{value} is not a workspace file"));
+        let path = workspace.join(relative);
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        normalize_execution_pattern_with(
+            parse_pattern(&source).unwrap_or_else(|error| panic!("{relative}: {error:?}")),
+            &GeneratedNames::shapes(),
+        )
+    };
+    let mut checked = 0;
+    for entry in manifest["execution"].as_array().expect("execution cases") {
+        let name = entry["name"].as_str().expect("execution case name");
+        let module = entry["main-module"]
+            .as_str()
+            .expect("execution main module");
+        for exception in entry
+            .get("oracle-exception")
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let program = exception["program"].as_str().expect("exception program");
+            let reference = read(&exception["reference"]);
+            let expected = read(&exception["expected"]);
+            match compare_execution_modulo_implication(&reference, &expected, None, module) {
+                Ok(()) => panic!(
+                    "committed oracle exception expectations for {name}:{program} are equivalent"
+                ),
+                Err(error) if error.contains("K_DIFFERENTIAL_DEFINITION is not set") => panic!(
+                    "committed oracle exception expectations for {name}:{program} differ only in \
+                     constraints the implication oracle must decide: {error}"
+                ),
+                Err(_) => checked += 1,
+            }
+        }
+    }
+    assert!(checked > 0, "no execution oracle exception was checked");
+}
+
 #[derive(Debug, Eq, PartialEq, Serialize)]
 struct StdoutLeaf {
     constraints: Vec<String>,
