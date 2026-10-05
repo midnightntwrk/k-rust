@@ -1381,8 +1381,9 @@ impl BackendDefinition {
             &mut ordered,
         )?;
         // Every later pass recurses over the sentences, with their aliases unfolded, and over
-        // the internal terms built from them, so the whole load runs on a stack measured for the
-        // deepest of them before any of it starts (`nesting`).
+        // the internal terms built from them, so each runs on a stack measured for what it
+        // descends through before it starts (`nesting`): the declarations here, each axiom and
+        // claim where it is verified, and the passes after verification all of them.
         let alias_heights = crate::nesting::alias_heights(ordered.iter().flat_map(|module| {
             module
                 .sentences
@@ -1398,16 +1399,16 @@ impl BackendDefinition {
                     | kore::Sentence::Claim { .. } => None,
                 })
         }));
-        let deepest =
-            crate::nesting::definition_height(&ordered, &crate::nesting::Aliases(&alias_heights));
-        crate::nesting::with_stack(deepest, || {
+        let declared =
+            crate::nesting::declarations_height(&ordered, &crate::nesting::Aliases(&alias_heights));
+        crate::nesting::with_stack(declared, || {
             Self::internalize_modules(
                 definition,
                 &module_map,
                 main_module,
                 &ordered,
                 &alias_heights,
-                deepest,
+                declared,
             )
         })?
     }
@@ -1419,7 +1420,7 @@ impl BackendDefinition {
         main_module: &str,
         ordered: &[&kore::Module],
         alias_heights: &BTreeMap<String, usize>,
-        deepest: usize,
+        declared: usize,
     ) -> Result<Self, DefinitionError> {
         let aliases = collect_aliases(ordered, alias_heights)?;
 
@@ -1524,8 +1525,41 @@ impl BackendDefinition {
         }
 
         attach_collection_metadata(&sorts, &mut symbols)?;
-        crate::verify::verify_definition(ordered, &definition.modules, &sorts, &symbols, &aliases)?;
+        let verified = crate::verify::verify_definition(
+            ordered,
+            &definition.modules,
+            &sorts,
+            &symbols,
+            &aliases,
+            &crate::nesting::Aliases(alias_heights),
+        )?;
+        let deepest = declared.max(verified);
+        crate::nesting::with_stack(deepest, || {
+            Self::internalize_axioms(
+                module_map,
+                main_module,
+                ordered,
+                sorts,
+                symbols,
+                aliases,
+                deepest,
+            )
+        })?
+    }
 
+    /// The definition of the modules `ordered`, whose declarations have been read into `sorts`,
+    /// `symbols`, and `aliases` and verified with its axioms and claims, built from those axioms
+    /// and claims. Its patterns and sorts are at most `deepest` levels deep.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn internalize_axioms(
+        module_map: &BTreeMap<&str, &kore::Module>,
+        main_module: &str,
+        ordered: &[&kore::Module],
+        sorts: BTreeMap<Name, SortInfo>,
+        symbols: BTreeMap<Name, Arc<Symbol>>,
+        aliases: BTreeMap<String, AliasDefinition>,
+        deepest: usize,
+    ) -> Result<Self, DefinitionError> {
         let mut axioms = Vec::new();
         let mut claims = Vec::new();
         let mut subsorts = Vec::new();

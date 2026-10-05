@@ -297,6 +297,7 @@ fn sort_injections_into_hooked_sorts_preserve_subsort_values() {
         definition.sorts(),
         definition.symbols(),
         &Default::default(),
+        &crate::nesting::Syntactic,
     )
     .expect("the subsort axiom's injection must verify");
     let pattern = parse_pattern("inj{SortFoo{}, SortHooked{}}(g{}())").unwrap();

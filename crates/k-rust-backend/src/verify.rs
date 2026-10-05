@@ -471,110 +471,149 @@ impl<'a> VerifyContext<'a> {
     }
 }
 
+/// Verify the modules of `ordered`, and that the names `all_modules` declare are unique.
+///
+/// The declarations of `ordered` are verified on the current stack, which must hold
+/// `nesting::declarations_height` levels of them. Each axiom and claim is measured just before
+/// it is verified, with the aliases of `unfolding` unfolded, and verified on a stack of that
+/// many levels (`nesting::with_stack`). Returns the height of the deepest axiom or claim.
 pub(crate) fn verify_definition(
     ordered: &[&kore::Module],
     all_modules: &[kore::Module],
     sorts: &BTreeMap<Name, SortInfo>,
     symbols: &BTreeMap<Name, Arc<Symbol>>,
     aliases: &BTreeMap<String, AliasDefinition>,
-) -> Result<(), DefinitionError> {
+    unfolding: &impl crate::nesting::Unfolding,
+) -> Result<usize, DefinitionError> {
     verify_unique_names(all_modules)?;
+    let mut deepest = 0;
     for module in ordered {
-        let mut axiom_index = 0;
-        let mut claim_index = 0;
+        let mut indices = SentenceIndices::default();
         for sentence in &module.sentences {
-            verify_attributes(module, sentence, sorts, symbols, aliases)?;
-            verify_declaration(module, sentence, sorts, symbols, aliases)?;
-            match sentence {
-                kore::Sentence::AliasDeclaration {
-                    alias,
-                    left,
-                    right,
-                    result_sort,
-                    ..
-                } => {
-                    let variables = match left.as_ref() {
-                        kore::Pattern::Application { arguments, .. } => arguments
-                            .iter()
-                            .filter_map(|argument| match argument {
-                                kore::Pattern::Variable(variable) => Some(variable.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>(),
-                        _ => Vec::new(),
-                    };
-                    let parameters = alias.sort_parameters.iter().filter_map(|sort| match sort {
-                        kore::Sort::Variable(name) => Some(Name::from(name.as_str())),
-                        _ => None,
-                    });
-                    let mut ctx = VerifyContext::new(
-                        &module.name,
-                        SentenceContext::Alias(alias.name.clone()),
-                        sorts,
-                        symbols,
-                        aliases,
-                        parameters,
-                    );
-                    for variable in variables {
-                        let sort = ctx
-                            .sort(&variable.sort)
-                            .map_err(DefinitionError::Verification)?;
-                        ctx.bound.push(((variable.kind, variable.name), sort));
-                    }
-                    let actual = ctx.pattern(right).map_err(DefinitionError::Verification)?;
-                    let expected = ctx
-                        .sort(result_sort)
-                        .map_err(DefinitionError::Verification)?;
-                    ctx.expect_sort(&expected, actual)
-                        .map_err(DefinitionError::Verification)?;
-                    if let Some((_, name)) = ctx.free.keys().next() {
-                        return Err(DefinitionError::Verification(
-                            ctx.error(format!("Unquantified variable: {name}")),
-                        ));
-                    }
-                }
-                kore::Sentence::Axiom {
-                    parameters,
-                    pattern,
-                    attributes,
-                } => {
-                    let mut ctx = VerifyContext::new(
-                        &module.name,
-                        SentenceContext::Axiom { index: axiom_index },
-                        sorts,
-                        symbols,
-                        aliases,
-                        parameters.iter().map(|name| Name::from(name.as_str())),
-                    );
-                    ctx.pattern(pattern)
-                        .map_err(DefinitionError::Verification)?;
-                    verify_subsort_super(attributes, sorts, &ctx)?;
-                    verify_function_head(pattern, attributes, symbols, &ctx)?;
-                    axiom_index += 1;
-                }
-                kore::Sentence::Claim {
-                    parameters,
-                    pattern,
-                    ..
-                } => {
-                    let mut ctx = VerifyContext::new(
-                        &module.name,
-                        SentenceContext::Claim { index: claim_index },
-                        sorts,
-                        symbols,
-                        aliases,
-                        parameters.iter().map(|name| Name::from(name.as_str())),
-                    );
-                    ctx.pattern(pattern)
-                        .map_err(DefinitionError::Verification)?;
-                    verify_claim_variables(pattern, &ctx)?;
-                    claim_index += 1;
-                }
-                kore::Sentence::SortDeclaration { .. } => {}
-                kore::Sentence::SymbolDeclaration { .. } => {}
-                kore::Sentence::Import { .. } => {}
+            let verify = |indices: &mut SentenceIndices| {
+                verify_sentence(module, sentence, sorts, symbols, aliases, indices)
+            };
+            if crate::nesting::is_rule_or_claim(sentence) {
+                let height = crate::nesting::sentence_height(sentence, unfolding);
+                deepest = deepest.max(height);
+                crate::nesting::with_stack(height, || verify(&mut indices))??;
+            } else {
+                verify(&mut indices)?;
             }
         }
+    }
+    Ok(deepest)
+}
+
+/// The positions of the next axiom and the next claim among those of their module.
+#[derive(Default)]
+struct SentenceIndices {
+    axiom: usize,
+    claim: usize,
+}
+
+fn verify_sentence(
+    module: &kore::Module,
+    sentence: &kore::Sentence,
+    sorts: &BTreeMap<Name, SortInfo>,
+    symbols: &BTreeMap<Name, Arc<Symbol>>,
+    aliases: &BTreeMap<String, AliasDefinition>,
+    indices: &mut SentenceIndices,
+) -> Result<(), DefinitionError> {
+    verify_attributes(module, sentence, sorts, symbols, aliases)?;
+    verify_declaration(module, sentence, sorts, symbols, aliases)?;
+    match sentence {
+        kore::Sentence::AliasDeclaration {
+            alias,
+            left,
+            right,
+            result_sort,
+            ..
+        } => {
+            let variables = match left.as_ref() {
+                kore::Pattern::Application { arguments, .. } => arguments
+                    .iter()
+                    .filter_map(|argument| match argument {
+                        kore::Pattern::Variable(variable) => Some(variable.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            let parameters = alias.sort_parameters.iter().filter_map(|sort| match sort {
+                kore::Sort::Variable(name) => Some(Name::from(name.as_str())),
+                _ => None,
+            });
+            let mut ctx = VerifyContext::new(
+                &module.name,
+                SentenceContext::Alias(alias.name.clone()),
+                sorts,
+                symbols,
+                aliases,
+                parameters,
+            );
+            for variable in variables {
+                let sort = ctx
+                    .sort(&variable.sort)
+                    .map_err(DefinitionError::Verification)?;
+                ctx.bound.push(((variable.kind, variable.name), sort));
+            }
+            let actual = ctx.pattern(right).map_err(DefinitionError::Verification)?;
+            let expected = ctx
+                .sort(result_sort)
+                .map_err(DefinitionError::Verification)?;
+            ctx.expect_sort(&expected, actual)
+                .map_err(DefinitionError::Verification)?;
+            if let Some((_, name)) = ctx.free.keys().next() {
+                return Err(DefinitionError::Verification(
+                    ctx.error(format!("Unquantified variable: {name}")),
+                ));
+            }
+        }
+        kore::Sentence::Axiom {
+            parameters,
+            pattern,
+            attributes,
+        } => {
+            let mut ctx = VerifyContext::new(
+                &module.name,
+                SentenceContext::Axiom {
+                    index: indices.axiom,
+                },
+                sorts,
+                symbols,
+                aliases,
+                parameters.iter().map(|name| Name::from(name.as_str())),
+            );
+            ctx.pattern(pattern)
+                .map_err(DefinitionError::Verification)?;
+            verify_subsort_super(attributes, sorts, &ctx)?;
+            verify_function_head(pattern, attributes, symbols, &ctx)?;
+            indices.axiom += 1;
+        }
+        kore::Sentence::Claim {
+            parameters,
+            pattern,
+            ..
+        } => {
+            let mut ctx = VerifyContext::new(
+                &module.name,
+                SentenceContext::Claim {
+                    index: indices.claim,
+                },
+                sorts,
+                symbols,
+                aliases,
+                parameters.iter().map(|name| Name::from(name.as_str())),
+            );
+            ctx.pattern(pattern)
+                .map_err(DefinitionError::Verification)?;
+            verify_claim_variables(pattern, &ctx)?;
+            indices.claim += 1;
+        }
+        kore::Sentence::SortDeclaration { .. } => {}
+        kore::Sentence::SymbolDeclaration { .. } => {}
+        kore::Sentence::Import { .. } => {}
     }
     Ok(())
 }

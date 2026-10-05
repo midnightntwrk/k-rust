@@ -491,65 +491,102 @@ pub fn module_depth(module: &kore::Module) -> usize {
 /// The height of the deepest pattern or sort in `modules`, the modules of a definition: the
 /// patterns of their sentences and attributes, with the aliases of `aliases` unfolded, and the
 /// sorts of their declarations.
-pub(crate) fn definition_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
-    let attributes = |attributes: &kore::Attributes| {
-        attributes
-            .0
-            .iter()
-            .map(|pattern| height(pattern, aliases))
-            .max()
-            .unwrap_or(0)
-    };
+fn definition_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
+    modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter(|sentence| is_rule_or_claim(sentence))
+        .map(|sentence| sentence_height(sentence, aliases))
+        .fold(declarations_height(modules, aliases), usize::max)
+}
+
+/// [`definition_height`] of everything in `modules` but their axioms and claims: the module
+/// attributes and the declarations, with their attributes.
+///
+/// Loading reads axioms and claims only at their roots and attributes until it verifies them,
+/// so it measures each of them just before verifying it ([`sentence_height`]), when the
+/// measurement loads the sentence into the cache for its verification. Measured up front, they
+/// would be walked once more in full, after parsing has evicted them.
+pub(crate) fn declarations_height(modules: &[&kore::Module], aliases: &impl Unfolding) -> usize {
+    modules
+        .iter()
+        .map(|module| {
+            module
+                .sentences
+                .iter()
+                .filter(|sentence| !is_rule_or_claim(sentence))
+                .map(|sentence| sentence_height(sentence, aliases))
+                .fold(attributes_height(&module.attributes, aliases), usize::max)
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Whether `sentence` is an axiom or a claim, measured where it is verified rather than with
+/// the declarations ([`declarations_height`]).
+pub(crate) fn is_rule_or_claim(sentence: &kore::Sentence) -> bool {
+    matches!(
+        sentence,
+        kore::Sentence::Axiom { .. } | kore::Sentence::Claim { .. }
+    )
+}
+
+/// The height of the deepest pattern of `attributes`.
+fn attributes_height(attributes: &kore::Attributes, aliases: &impl Unfolding) -> usize {
+    attributes
+        .0
+        .iter()
+        .map(|pattern| height(pattern, aliases))
+        .max()
+        .unwrap_or(0)
+}
+
+/// The height of the deepest pattern or sort of `sentence`: its patterns and attributes, with
+/// the aliases of `aliases` unfolded, and the sorts it declares.
+pub(crate) fn sentence_height(sentence: &kore::Sentence, aliases: &impl Unfolding) -> usize {
+    let attributes = |attributes: &kore::Attributes| attributes_height(attributes, aliases);
     let sorts = |sorts: &[kore::Sort]| sorts.iter().map(sort_height).max().unwrap_or(0);
-    let mut deepest = 0;
-    for module in modules {
-        deepest = deepest.max(attributes(&module.attributes));
-        for sentence in &module.sentences {
-            let depth = match sentence {
-                kore::Sentence::Import {
-                    attributes: own, ..
-                }
-                | kore::Sentence::SortDeclaration {
-                    attributes: own, ..
-                } => attributes(own),
-                kore::Sentence::SymbolDeclaration {
-                    symbol,
-                    argument_sorts,
-                    result_sort,
-                    attributes: own,
-                    ..
-                } => attributes(own)
-                    .max(sorts(&symbol.sort_parameters))
-                    .max(sorts(argument_sorts))
-                    .max(sort_height(result_sort)),
-                kore::Sentence::AliasDeclaration {
-                    alias,
-                    argument_sorts,
-                    result_sort,
-                    left,
-                    right,
-                    attributes: own,
-                } => attributes(own)
-                    .max(sorts(&alias.sort_parameters))
-                    .max(sorts(argument_sorts))
-                    .max(sort_height(result_sort))
-                    .max(height(left, aliases))
-                    .max(height(right, aliases)),
-                kore::Sentence::Axiom {
-                    pattern,
-                    attributes: own,
-                    ..
-                }
-                | kore::Sentence::Claim {
-                    pattern,
-                    attributes: own,
-                    ..
-                } => attributes(own).max(height(pattern, aliases)),
-            };
-            deepest = deepest.max(depth);
+    match sentence {
+        kore::Sentence::Import {
+            attributes: own, ..
         }
+        | kore::Sentence::SortDeclaration {
+            attributes: own, ..
+        } => attributes(own),
+        kore::Sentence::SymbolDeclaration {
+            symbol,
+            argument_sorts,
+            result_sort,
+            attributes: own,
+            ..
+        } => attributes(own)
+            .max(sorts(&symbol.sort_parameters))
+            .max(sorts(argument_sorts))
+            .max(sort_height(result_sort)),
+        kore::Sentence::AliasDeclaration {
+            alias,
+            argument_sorts,
+            result_sort,
+            left,
+            right,
+            attributes: own,
+        } => attributes(own)
+            .max(sorts(&alias.sort_parameters))
+            .max(sorts(argument_sorts))
+            .max(sort_height(result_sort))
+            .max(height(left, aliases))
+            .max(height(right, aliases)),
+        kore::Sentence::Axiom {
+            pattern,
+            attributes: own,
+            ..
+        }
+        | kore::Sentence::Claim {
+            pattern,
+            attributes: own,
+            ..
+        } => attributes(own).max(height(pattern, aliases)),
     }
-    deepest
 }
 
 #[cfg(test)]
