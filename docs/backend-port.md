@@ -102,11 +102,15 @@ completion contract.
 ## JSON depth policy
 
 The standalone KORE JSON and KAST term JSON readers and writers impose no nesting-depth limit; memory is their only parser bound.
-The Node-API and WebAssembly backend request readers, the CLI KORE readers, the KORE RPC transport and payload reader, the backend facade, and the structured KAST definition reader all disable serde's default recursion limit or delegate to the iterative syntax codecs.
-The RPC `KoreJson` payload uses `RawValue`, but the surrounding RPC frame and the backend and JavaScript host contracts intentionally retain `serde_json::Value`.
-Those retained values still use recursive serialization and destruction, so their practical capacity is set by the host thread: roughly 200,000 JSON levels on the 64 MiB RPC workers, 50,000 on the 16 MiB WebAssembly test host, and 3,000 on Node's main thread.
-KAST term traits and text codecs remain stack-bounded at roughly 80,000 levels on an 8 MiB thread, 160,000 on a 16 MiB thread, and 10,000 on Node's main thread.
-Backend pattern internalization and backend term passes retain the 64 MiB CLI and RPC worker envelope.
+KORE patterns and sorts are parsed, printed, encoded, compared, cloned, formatted with `Debug`, and dropped with explicit work stacks, so a decoded KORE term of any depth can be held and released on any thread.
+Host and RPC ingress never keeps a client's KORE as a `serde_json::Value`, whose construction, serialization, cloning, and destruction recurse once per level.
+The facade's KORE request fields (`ExecuteRequest::state`, `SearchRequest::state`, `SearchPatternRequest::state` and `pattern`, `PatternRequest::state`, `ImplicationRequest::antecedent` and `consequent`) hold `kore::ast::Pattern`: each is captured on the wire as raw JSON text, which serde_json scans with an explicit stack, and decoded by the iterative KORE JSON codec during deserialization, so a malformed KORE field is an `invalid KORE JSON` deserialization error.
+`backend::deserialize_request`, used by the Node-API and WebAssembly bindings, keeps serde's default recursion limit, so a deeply nested value in any other request field is an ordinary error.
+The KORE RPC transport reads each frame as raw JSON text, takes the envelope members it needs (`jsonrpc`, `method`, `id`, `params`, and `haskell-logging`) from that text while skipping the others, decodes the method's typed parameters from the raw `params` text with the recursion limit on, and echoes a rejected request, `params` value, or cancelled `id` as compacted text.
+Malformed input of any depth is therefore an ordinary error on every host and RPC route, and a deep valid KORE request field reaches the backend as a decoded pattern.
+The WebAssembly `parseProgram`, `parseKast`, and `parseKore` results embed k-rust's own KAST and KORE JSON as text rather than rebuilding it as JSON values.
+The CLI KORE readers use the same iterative codecs; the structured KAST definition reader disables serde's recursion limit and reads into its own types.
+The stages after ingress remain bounded by the thread's stack: backend definition verification, pattern internalization, and other backend term passes (within the 64 MiB CLI and RPC worker envelope; only the simplifier checks the remaining stack and reports `StackExhausted`), KAST term traits and text codecs (roughly 80,000 levels on an 8 MiB thread, 160,000 on a 16 MiB thread, and 10,000 on Node's main thread), and backend responses that carry KORE as `serde_json::Value` (`ExecutionResult` and the other facade results, and RPC error details).
 No RPC or host surface applies a denial-of-service depth cap; process memory limits belong to the embedding application or process supervisor.
 
 ## Simplification iteration budgets

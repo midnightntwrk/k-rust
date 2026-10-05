@@ -1,7 +1,7 @@
 //! KORE JSON version 1 serialization.
 //!
-//! The text, JSON, and binary codecs and every traversal of [`Pattern`] are iterative and impose no depth limit.
-//! Host APIs likewise apply no deliberate parser depth cap, but host envelopes that retain [`serde_json::Value`] remain bounded by their thread's native stack during value serialization and destruction.
+//! The text, JSON, and binary codecs and every traversal of [`Pattern`] and its sorts are iterative and impose no depth limit.
+//! [`to_value`], [`to_value_source`], and [`codec::from_value`](super::codec::from_value) build or read a [`serde_json::Value`], whose own serialization, cloning, and destruction recurse once per level; host and RPC ingress therefore decodes KORE from its JSON text with [`from_str`] instead.
 //! KAST term traits and text codecs, backend pattern internalization, and backend term passes retain their own native-stack bounds.
 //!
 //! ```toml algorithm

@@ -301,7 +301,7 @@ Inheriting the reduced budget keeps an expanding equation from resetting its own
 Where the budget is exhausted, the retained configuration is still equal to the one being simplified, but it can be less simplified, and a step that needs the missing value may not be taken; the outcome on each surface, and the `SimplificationBudgetExhausted` diagnostic that marks this incompleteness, are specified in backend-port.md.
 
 Term readers and writers impose no nesting-depth cap: depth is not part of what a term means, so a fixed cap would reject well-formed input.
-Their capacity is set by the host thread's stack and the process memory, as listed in [backend-port.md](backend-port.md#json-depth-policy).
+KORE readers, writers, and host and RPC request ingress are bounded by process memory; the stages still bounded by the host thread's stack are listed in [backend-port.md](backend-port.md#json-depth-policy).
 
 ## Formal parameter preference
 
