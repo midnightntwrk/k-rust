@@ -1111,7 +1111,7 @@ id = "backend.alias.unfold"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding alias unfolding"
-variable = "p = pattern size; o = expanded output size, at most p + UNFOLDING_LIMIT, since the unfolding is measured before it is built; b = binders visited; r = total size of the parameter map at a binder; B = total size of the alias bodies; a = the most parameters and sort parameters of one alias"
+variable = "p = pattern size; o = expanded output size, at most p + UNFOLDING_LIMIT, since the unfolding is measured before it is built; b = binders visited; r = total size of the parameter map at a binder; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 no_counter = "alias unfolding has no dedicated counter; each alias body is measured once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1152,13 +1152,23 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/alias.rs"
 symbol = "unfolded_size"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "measure_node"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "visit_associative"
+
 [[node.cost]]
 mode = "one expand call"
-bound = "O(p + o + b x (p + r))"
+bound = "O(p + o + b x (p + r)); O(p) for a pattern that applies no alias, which is returned as it is"
 
 [[node.cost]]
 mode = "definition load (measure_aliases)"
-bound = "O(B x (a + 1)) to measure each body once as a function of a coefficients, then one expand call per axiom, whose outputs together exceed the axioms by at most UNFOLDING_LIMIT"
+bound = "O(B + A) to measure each body once, top down, as a function of its parameters, then one expand call per axiom, whose outputs together exceed the axioms by at most UNFOLDING_LIMIT"
 
 [[node]]
 kind = "algorithm"

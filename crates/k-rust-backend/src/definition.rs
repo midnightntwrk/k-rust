@@ -821,13 +821,11 @@ pub enum DefinitionError {
     MalformedCollection(String),
     MalformedAlias(String),
     AliasCycle(Vec<String>),
-    /// Unfolding aliases would add `added` to the size of what is unfolded (`alias::size`: its
-    /// pattern and sort nodes and the bytes of their names), more than the `available` part of
-    /// the limit (`alias::UNFOLDING_LIMIT`) that its operation has left. `alias` names an alias
-    /// whose own unfolding, at its parameters, adds that much; otherwise a request pattern or the
-    /// axioms of a definition would.
+    /// Unfolding the aliases of a request pattern, or of the axioms of a definition, would add
+    /// `added` to the size of what is unfolded (`alias::Size`: its pattern and sort nodes and the
+    /// bytes of their names), more than the `available` part of the limit
+    /// (`alias::UNFOLDING_LIMIT`) that its operation has left.
     AliasUnfoldingTooLarge {
-        alias: Option<String>,
         added: u64,
         available: u64,
     },
@@ -979,18 +977,10 @@ impl fmt::Display for DefinitionError {
             Self::AliasCycle(aliases) => {
                 write!(formatter, "Alias cycle: {}", aliases.join(" -> "))
             }
-            Self::AliasUnfoldingTooLarge {
-                alias,
-                added,
-                available,
-            } => {
-                match alias {
-                    Some(alias) => write!(formatter, "Unfolding alias '{alias}'")?,
-                    None => write!(formatter, "Unfolding the aliases")?,
-                }
+            Self::AliasUnfoldingTooLarge { added, available } => {
                 write!(
                     formatter,
-                    " would add {added} nodes and name bytes, more than the {available} left of the limit of {} on what alias unfolding may add",
+                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of the limit of {} on what alias unfolding may add",
                     crate::alias::UNFOLDING_LIMIT
                 )
             }
@@ -1638,7 +1628,7 @@ impl BackendDefinition {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     pattern: if expand {
-                        expand_aliases_within(pattern, &aliases, &mut unfolding)?
+                        expand_aliases_within(pattern, &aliases, &mut unfolding)?.into_owned()
                     } else {
                         (**pattern).clone()
                     },
@@ -2064,7 +2054,7 @@ impl BackendDefinition {
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
         self.validate_implication_pattern(pattern)?;
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        let mut body = &pattern;
+        let mut body = &*pattern;
         let mut existentials = BTreeSet::new();
         while let kore::Pattern::Exists {
             variable,
@@ -4751,19 +4741,25 @@ mod tests {
     }
 
     /// Alias unfolding can be exponential in the definition: a module of a few kilobytes can
-    /// imply an unfolding of 2^64 nodes. Loading refuses it at once, without unfolding it, and
+    /// imply an unfolding of 2^64 nodes. Loading measures the aliases without unfolding them, and
     /// refuses the axioms or request patterns whose unfolding would be too large to build.
     #[test]
     fn refuses_alias_unfoldings_too_large_to_use_before_building_them() {
-        let refused = BackendDefinition::internalize(&doubling_alias_chain(64, ""), "MAIN");
-        assert!(
-            matches!(
-                &refused,
-                Err(DefinitionError::AliasUnfoldingTooLarge { alias: Some(alias), .. })
-                    if alias == "al0"
+        // The aliases alone load: what an alias unfolds to depends on what it is applied to.
+        let definition = BackendDefinition::internalize(&doubling_alias_chain(64, ""), "MAIN")
+            .expect("the chain should load");
+        let pattern = parse_pattern("al0{}(a{}())").unwrap();
+        assert!(matches!(
+            definition.internalize_pattern(&pattern, &[]),
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
+        assert!(matches!(
+            BackendDefinition::internalize(
+                &doubling_alias_chain(64, "axiom{} \\equals{S{}, S{}}(a{}(), al0{}(a{}())) []\n"),
+                "MAIN"
             ),
-            "{refused:?}"
-        );
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+        ));
 
         // `al0` of an 18-alias chain adds about 2.4 million to an application, within the limit,
         // and twice that is beyond it.
@@ -4775,14 +4771,14 @@ mod tests {
         "#};
         assert!(matches!(
             BackendDefinition::internalize(&doubling_alias_chain(18, axiom), "MAIN"),
-            Err(DefinitionError::AliasUnfoldingTooLarge { alias: None, .. })
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
         ));
         let definition = BackendDefinition::internalize(&doubling_alias_chain(18, ""), "MAIN")
             .expect("the chain should load");
         let pattern = parse_pattern("pair{}(al0{}(X:S{}), al0{}(X:S{}))").unwrap();
         assert!(matches!(
             definition.internalize_pattern(&pattern, &[]),
-            Err(DefinitionError::AliasUnfoldingTooLarge { alias: None, .. })
+            Err(DefinitionError::AliasUnfoldingTooLarge { .. })
         ));
     }
 
