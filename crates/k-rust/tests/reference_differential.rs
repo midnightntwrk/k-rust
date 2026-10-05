@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env, fs,
     io::Write,
     path::Path,
@@ -7344,31 +7344,33 @@ fn compare_stripped_definitions(
             "{} attributes",
             reference.name
         );
-        let reference_sentences = reference
+        let reference_canonical = reference
             .sentences
             .iter()
             .map(canonical_sentence)
             .collect::<Vec<_>>();
-        let actual_sentences = actual
+        let actual_canonical = actual
             .sentences
             .iter()
             .map(canonical_sentence)
             .collect::<Vec<_>>();
-        let reference_sentences = multiset(reference_sentences);
-        let actual_sentences = multiset(actual_sentences);
+        let reference_sentences = multiset(reference_canonical.clone());
+        let actual_sentences = multiset(actual_canonical.clone());
         if reference_sentences != actual_sentences {
             let missing = count_differences(&reference_sentences, &actual_sentences);
             let extra = count_differences(&actual_sentences, &reference_sentences);
-            let missing_ids = difference_ids(
-                &missing,
+            let reference_side = ReportSide::new(
+                &reference_canonical,
                 &reference.sentences,
                 &raw_reference.modules[module_index].sentences,
             );
-            let extra_ids = difference_ids(
-                &extra,
+            let actual_side = ReportSide::new(
+                &actual_canonical,
                 &actual.sentences,
                 &raw_actual.modules[module_index].sentences,
             );
+            let missing_ids = difference_ids(&missing, &reference_side);
+            let extra_ids = difference_ids(&extra, &actual_side);
             panic!(
                 "{} sentence multiset differs: reference={}, actual={} ({}); missing={} {:?}, extra={} {:?}\n{}\n{}\nmissing summaries:\n{}\nextra summaries:\n{}",
                 reference.name,
@@ -7383,37 +7385,55 @@ fn compare_stripped_definitions(
                     missing.first().map(String::as_str),
                     extra.first().map(String::as_str)
                 ),
-                paired_difference_context(
-                    &missing,
-                    &extra,
-                    &reference.sentences,
-                    &actual.sentences,
-                    &raw_reference.modules[module_index].sentences,
-                    &raw_actual.modules[module_index].sentences,
-                ),
-                difference_summaries(
-                    &missing,
-                    &reference.sentences,
-                    &raw_reference.modules[module_index].sentences,
-                ),
-                difference_summaries(
-                    &extra,
-                    &actual.sentences,
-                    &raw_actual.modules[module_index].sentences,
-                ),
+                paired_difference_context(&missing, &extra, &reference_side, &actual_side),
+                difference_summaries(&missing, &reference_side),
+                difference_summaries(&extra, &actual_side),
             );
         }
     }
 }
 
-fn difference_summaries(differences: &[String], stripped: &[Sentence], raw: &[Sentence]) -> String {
+/// One side of a module's sentence comparison, as the mismatch report reads it.
+///
+/// Each sentence is canonicalised once, and a difference finds its sentence by lookup: scanning
+/// and canonicalising every sentence again for each difference made the report quadratic in the
+/// module size.
+struct ReportSide<'a> {
+    /// `canonical[index]` is `canonical_sentence(&stripped[index])`.
+    canonical: &'a [String],
+    /// The first index of each canonical form, which is the index a linear scan finds.
+    positions: HashMap<&'a str, usize>,
+    stripped: &'a [Sentence],
+    raw: &'a [Sentence],
+}
+
+impl<'a> ReportSide<'a> {
+    fn new(canonical: &'a [String], stripped: &'a [Sentence], raw: &'a [Sentence]) -> Self {
+        let mut positions = HashMap::with_capacity(canonical.len());
+        for (index, sentence) in canonical.iter().enumerate() {
+            positions.entry(sentence.as_str()).or_insert(index);
+        }
+        Self {
+            canonical,
+            positions,
+            stripped,
+            raw,
+        }
+    }
+
+    /// The index of the first sentence whose canonical form is `canonical`.
+    fn position(&self, canonical: &str) -> Option<usize> {
+        self.positions.get(canonical).copied()
+    }
+}
+
+fn difference_summaries(differences: &[String], side: &ReportSide) -> String {
+    let (stripped, raw) = (side.stripped, side.raw);
     differences
         .iter()
         .enumerate()
         .filter_map(|(difference_index, difference)| {
-            let sentence_index = stripped
-                .iter()
-                .position(|sentence| canonical_sentence(sentence) == *difference)?;
+            let sentence_index = side.position(difference)?;
             let identity =
                 sentence_identity(&raw[sentence_index]).unwrap_or_else(|| "<generated>".into());
             let kind = match &stripped[sentence_index] {
@@ -7437,16 +7457,14 @@ fn difference_summaries(differences: &[String], stripped: &[Sentence], raw: &[Se
 fn paired_difference_context(
     missing: &[String],
     extra: &[String],
-    stripped_reference: &[Sentence],
-    stripped_actual: &[Sentence],
-    raw_reference: &[Sentence],
-    raw_actual: &[Sentence],
+    reference: &ReportSide,
+    actual: &ReportSide,
 ) -> String {
+    let (stripped_reference, raw_reference) = (reference.stripped, reference.raw);
+    let (stripped_actual, raw_actual) = (actual.stripped, actual.raw);
+    let extra = extra.iter().map(String::as_str).collect::<HashSet<_>>();
     for missing_sentence in missing {
-        let Some(reference_index) = stripped_reference
-            .iter()
-            .position(|sentence| canonical_sentence(sentence) == *missing_sentence)
-        else {
+        let Some(reference_index) = reference.position(missing_sentence) else {
             continue;
         };
         let Some(identity) = sentence_identity(&raw_reference[reference_index]) else {
@@ -7467,8 +7485,8 @@ fn paired_difference_context(
         let Some(actual_index) = actual_index else {
             continue;
         };
-        let actual_sentence = canonical_sentence(&stripped_actual[actual_index]);
-        if extra.contains(&actual_sentence) {
+        let actual_sentence = &actual.canonical[actual_index];
+        if extra.contains(actual_sentence.as_str()) {
             let reference_value = canonicalized_sentence(&stripped_reference[reference_index]);
             let actual_value = canonicalized_sentence(&stripped_actual[actual_index]);
             let competitor_context = match (
@@ -7506,7 +7524,7 @@ fn paired_difference_context(
             };
             return format!(
                 "paired difference for {identity}:\n{}{}",
-                difference_context(Some(missing_sentence), Some(&actual_sentence)),
+                difference_context(Some(missing_sentence), Some(actual_sentence)),
                 competitor_context,
             );
         }
@@ -7555,14 +7573,12 @@ fn owise_competitors(sentence: &Sentence) -> Option<&[Pattern]> {
     })
 }
 
-fn difference_ids(differences: &[String], stripped: &[Sentence], raw: &[Sentence]) -> Vec<String> {
+fn difference_ids(differences: &[String], side: &ReportSide) -> Vec<String> {
     differences
         .iter()
         .map(|difference| {
-            stripped
-                .iter()
-                .position(|sentence| canonical_sentence(sentence) == *difference)
-                .and_then(|index| sentence_identity(&raw[index]))
+            side.position(difference)
+                .and_then(|index| sentence_identity(&side.raw[index]))
                 .unwrap_or_else(|| "<generated>".into())
         })
         .collect()
