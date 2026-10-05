@@ -223,19 +223,19 @@ impl WasmBackend {
 
     pub fn simplify(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<PatternRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.simplify(request).map_err(js_error)?).map_err(js_error)
+        self.inner.simplify_json(request).map_err(js_error)
     }
 
     pub fn implies(&mut self, options: &str) -> Result<String, JsError> {
         let request =
             deserialize_backend_request::<ImplicationRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.implies(request).map_err(js_error)?).map_err(js_error)
+        self.inner.implies_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = getModel)]
     pub fn get_model(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<PatternRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.get_model(request).map_err(js_error)?).map_err(js_error)
+        self.inner.get_model_json(request).map_err(js_error)
     }
 
     pub fn prove(&mut self, options: &str) -> Result<String, JsError> {

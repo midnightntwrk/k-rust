@@ -212,19 +212,19 @@ impl NativeBackend {
     #[napi]
     pub fn simplify(&self, options: String) -> Result<String> {
         let request = read_request::<PatternRequest>(&options)?;
-        serialize_native(&self.lock()?.simplify(request).map_err(napi_error)?)
+        self.lock()?.simplify_json(request).map_err(napi_error)
     }
 
     #[napi]
     pub fn implies(&self, options: String) -> Result<String> {
         let request = read_request::<ImplicationRequest>(&options)?;
-        serialize_native(&self.lock()?.implies(request).map_err(napi_error)?)
+        self.lock()?.implies_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "getModel")]
     pub fn get_model(&self, options: String) -> Result<String> {
         let request = read_request::<PatternRequest>(&options)?;
-        serialize_native(&self.lock()?.get_model(request).map_err(napi_error)?)
+        self.lock()?.get_model_json(request).map_err(napi_error)
     }
 
     #[napi]
