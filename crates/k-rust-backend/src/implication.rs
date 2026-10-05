@@ -237,18 +237,61 @@ pub fn special_consequent(consequent: &kore::Pattern) -> Option<SpecialConsequen
 /// `\bottom` has no instance, so every instance of the antecedent lies outside it: the
 /// implication is invalid exactly when the antecedent has an instance, and holds vacuously
 /// otherwise. The answer is `Invalid` only when a [`Counterexample`] shows that instance, and
-/// `Indeterminate` otherwise; either reports the consequent's condition as refuted. `Err` is a
-/// stop of the solver's query: there is no verdict.
+/// `VacuouslyValid` only when the antecedent is shown to have none (`antecedent_is_empty`):
+/// its constraints are contradictory, or they contradict the definedness of the term or of
+/// their own atoms. `M Map (1 |-> 2)` under `¬(1 in_keys M = false)` is such an antecedent:
+/// the concatenation is defined only where `1` is not a key of `M`, and the constraint keeps
+/// the other valuations. Otherwise the answer is `Indeterminate`. `Invalid` and `Indeterminate`
+/// report the consequent's condition as refuted. `Err` is a stop of a solver query: there is no
+/// verdict.
 pub fn grade_bottom_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     solver: &dyn SmtSolver,
 ) -> Stoppable<ImplicationVerdict> {
-    grade_outside(
+    let verdict = grade_outside(
         definition,
         antecedent,
         Outside::ConsequentCondition(MatchReport::refuted(Bindings::default())),
         OutsideEvidence::Everywhere(Everywhere::BottomConsequent),
+        solver,
+    )?;
+    if matches!(verdict, ImplicationVerdict::Indeterminate { .. })
+        && antecedent_is_empty(
+            definition,
+            antecedent,
+            SimplificationOptions::default(),
+            solver,
+        )?
+    {
+        return Ok(ImplicationVerdict::VacuouslyValid);
+    }
+    Ok(verdict)
+}
+
+/// Whether `antecedent` is shown to have no instance: its constraints are syntactically false or
+/// the solver answers `Unsat` for them, or its knowledge, which adds the definedness of the term
+/// and of the constraints' atoms, is contradictory (`knowledge_is_contradictory`). Every instance
+/// satisfies both sets of facts (I7), and an `Unsat` answer refutes whatever the translation
+/// approximated, so either contradiction leaves none.
+fn antecedent_is_empty(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<bool> {
+    if predicates_truth(&antecedent.constraints) == Truth::False
+        || matches!(
+            solver.is_sat(&antecedent.constraints, &Substitution::new())?,
+            Ok(Satisfiability::Unsat)
+        )
+    {
+        return Ok(true);
+    }
+    knowledge_is_contradictory(
+        definition,
+        &pattern_knowledge(definition, antecedent),
+        options,
         solver,
     )
 }
@@ -4041,6 +4084,17 @@ mod tests {
                 "{op}"
             );
         }
+
+        // `X + 1 = 2 ∧ X + 1 = 3` leaves no instance.
+        let mut empty = constrained(&definition, "stay", "plus", "2");
+        empty
+            .constraints
+            .extend(constrained(&definition, "stay", "plus", "3").constraints);
+        assert_eq!(
+            grade_bottom_consequent(&definition, &empty, &solver)
+                .expect("the grading does not stop"),
+            ImplicationVerdict::VacuouslyValid
+        );
     }
 
     /// `SortVoid` has no production and every value of `SortLoop` needs another one, so both
@@ -4652,6 +4706,61 @@ mod tests {
             assert_eq!(
                 check_complete(&definition, &antecedent, &consequent, solver),
                 Ok(ImplicationVerdict::VacuouslyValid)
+            );
+        };
+        check(&NoSolver);
+        #[cfg(feature = "z3")]
+        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `A -> \bottom` holds exactly when `A` is empty, also when only the definedness of its term
+    /// shows it: `cfg(M Map (1 |-> 2)) ∧ ¬(1 in_keys M = false)` has no instance, so it implies
+    /// `\bottom`. Under `1 in_keys M = false` the same state has instances, every one of them
+    /// outside `\bottom`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_bottom_consequent_holds_for_an_antecedent_whose_constraints_leave_its_term_undefined() {
+        let definition = map_frame_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let is_false = Predicate::Equals(
+            term(&definition, ONE_IN_KEYS),
+            term(&definition, r#"\dv{SortBool{}}("false")"#),
+        );
+        let empty = map_frame_state(&definition, Predicate::Not(Box::new(is_false.clone())));
+        assert_eq!(
+            grade_bottom_consequent(&definition, &empty, &solver)
+                .expect("the grading does not stop"),
+            ImplicationVerdict::VacuouslyValid
+        );
+        let inhabited = map_frame_state(&definition, is_false);
+        let verdict = grade_bottom_consequent(&definition, &inhabited, &solver)
+            .expect("the grading does not stop");
+        assert_ne!(verdict.status(), ImplicationStatus::Valid, "{verdict:#?}");
+        assert_eq!(
+            verdict.failure(),
+            Some(ImplicationFailure::ConsequentCondition),
+            "{verdict:#?}"
+        );
+    }
+
+    /// The same for `cfg(end, S Set SetItem(1)) ∧ ¬⌈S Set SetItem(1)⌉`, whose constraint states
+    /// its own term undefined: the simplifier decides the `\ceil`, with or without a solver.
+    #[test]
+    fn a_bottom_consequent_holds_for_an_antecedent_that_states_its_term_undefined() {
+        let definition = set_frame_definition();
+        let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
+        let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                set,
+            )))));
+        let check = |solver: &dyn SmtSolver| {
+            assert_eq!(
+                grade_bottom_consequent(&definition, &antecedent, solver)
+                    .expect("the grading does not stop"),
+                ImplicationVerdict::VacuouslyValid
             );
         };
         check(&NoSolver);
