@@ -29,7 +29,10 @@ pub enum BackendDiagnostic {
     /// such variable as the definition writes it.
     ///
     /// The reasons are a solver that was asked and could not answer (`SmtUnknown`,
-    /// `Untranslatable`, `InconsistentPathCondition`).
+    /// `Untranslatable`, `InconsistentPathCondition`) and an equation whose right-hand side or
+    /// `ensures` has variables its left-hand side does not bind (`UnboundResultVariables`),
+    /// whose `requires` was not refuted: its instance names no value for them, so the term it
+    /// matched is kept as it is.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,

@@ -1018,7 +1018,7 @@ pub enum ConditionIndeterminacy {
     /// spells them, that its left-hand side does not bind
     /// (`ComputedRuleAttributes::unbound_result_variables`), and its `requires` is not refuted.
     /// Matching fixes no value for them, so the instance is not a term of the request; see
-    /// `evaluate_equation_condition`.
+    /// `evaluate_equation_condition`, which reports it as an `UndecidedCondition` diagnostic.
     UnboundResultVariables(Vec<String>),
 }
 
@@ -1051,6 +1051,8 @@ enum EquationCondition {
 /// holds for no value of them and the equation says nothing about the subject, as for any
 /// equation; otherwise the verdict is `Indeterminate(UnboundResultVariables)`, which keeps the
 /// subject, and for a function blocks the lower-priority equations, as an open `requires` does.
+/// That verdict is reported as an `UndecidedCondition` diagnostic of `rule_id` with the decided
+/// `requires`, so that a caller can tell why the subject was kept.
 /// Every caller that uses an equation's result reaches it through `Satisfied`.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_equation_condition(
@@ -1119,9 +1121,15 @@ fn evaluate_equation_condition(
             RuleCondition::Satisfied | RuleCondition::Indeterminate(_)
                 if !unbound_result.is_empty() =>
             {
-                EquationCondition::Indeterminate(ConditionIndeterminacy::UnboundResultVariables(
-                    unbound_result.to_vec(),
-                ))
+                let reason =
+                    ConditionIndeterminacy::UnboundResultVariables(unbound_result.to_vec());
+                // The term the equation matched is kept; the diagnostic says why.
+                diagnostic::emit(BackendDiagnostic::UndecidedCondition {
+                    rule_id: rule_id.to_owned(),
+                    reason: reason.clone(),
+                    predicates,
+                });
+                EquationCondition::Indeterminate(reason)
             }
             RuleCondition::Satisfied => EquationCondition::Satisfied(matched),
             RuleCondition::Indeterminate(reason) => EquationCondition::Indeterminate(reason),

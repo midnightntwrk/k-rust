@@ -788,6 +788,7 @@ The definition is loaded, and the backend records these variables per equation.
 An instance of such an equation is never used.
 Its `requires` is decided with the variables free, as for any equation: refuted, it holds for no value of them, and the equation says nothing about the subject.
 Otherwise the attempt is indeterminate (`ConditionIndeterminacy::UnboundResultVariables`, wire kind `unbound-result-variables`, naming the variables as the definition spells them).
+The attempt is reported as an `UndecidedCondition` diagnostic of the equation with that reason and the decided `requires`, so a result that keeps the application says why; `krust krun` prints it as a warning naming the variables as the K source writes them.
 That is the same outcome as an equation whose `requires` is open: the subject is kept, and a function's lower-priority and `owise` equations do not apply in its place, while a simplification is passed over.
 The static definedness analysis does not use such a ceil equation.
 

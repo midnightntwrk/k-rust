@@ -296,7 +296,9 @@ fn printed_predicates(predicates: &[Predicate], result_sort: &Sort) -> String {
 ///
 /// Its predicates are printed as KORE, where a variable the equation's left-hand side does not
 /// bind keeps the backend's marker (`Eq-hVarY`); the warning says which variable of the
-/// equation each such name is, as the author wrote it (`Y`).
+/// equation each such name is, as the author wrote it (`Y`). An equation whose result has
+/// variables its left-hand side does not bind is not a solver verdict: the warning says that
+/// the term the equation matched is kept, and why.
 fn undecided_condition_message(
     definition: &BackendDefinition,
     rule_id: &str,
@@ -322,6 +324,30 @@ fn undecided_condition_message(
     } else {
         format!(" ({})", english_list(&explained))
     };
+    if let ConditionIndeterminacy::UnboundResultVariables(variables) = reason {
+        let variables = variables
+            .iter()
+            .map(|variable| written_variable(variable))
+            .collect::<Vec<_>>();
+        let shown = predicates
+            .iter()
+            .filter(|predicate| !matches!(predicate, Predicate::True))
+            .cloned()
+            .collect::<Vec<_>>();
+        let requires = if shown.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; its requires on this term is {}{explained}",
+                printed_predicates(&shown, result_sort)
+            )
+        };
+        return format!(
+            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; the term it matched is kept unevaluated{requires}",
+            english_list(&variables),
+            if variables.len() == 1 { "it" } else { "them" },
+        );
+    }
     format!(
         "condition of equation {rule} remained undecided at depth {depth} ({reason:?}, predicates: [{}]){explained}; the result may retain an unresolved condition",
         printed_predicates(&predicates, result_sort),

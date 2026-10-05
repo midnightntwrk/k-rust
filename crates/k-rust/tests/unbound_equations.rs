@@ -9,7 +9,10 @@
 //! equation's `requires` is refuted.
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ResultModalityOutput},
+    backend::{
+        Backend, BackendDiagnosticOutput, BackendOptions, ConditionIndeterminacyOutput,
+        ExecuteRequest, ExecutionLeaf, ResultModalityOutput, RuleVariableOutput,
+    },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{codec, parser::parse_pattern, printer::Printer},
@@ -72,6 +75,16 @@ fn int(value: i64) -> String {
 
 /// The leaves of running `run(argument)` from the top configuration, as compact KORE.
 fn run(backend: &mut Backend, argument: &str) -> Vec<String> {
+    run_leaves(backend, argument)
+        .iter()
+        .map(|leaf: &ExecutionLeaf| {
+            Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap())
+        })
+        .collect()
+}
+
+/// The leaves of running `run(argument)` from the top configuration.
+fn run_leaves(backend: &mut Backend, argument: &str) -> Vec<ExecutionLeaf> {
     let top = format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortProg{{}}, SortKItem{{}}}}(Lblrun{{}}({argument})), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
     );
@@ -84,9 +97,21 @@ fn run(backend: &mut Backend, argument: &str) -> Vec<String> {
         })
         .unwrap()
         .leaves
+}
+
+/// The diagnostics of `leaf` that report an equation instance left unused because its result
+/// has variables its left-hand side does not bind: the variables, and the equation variables its
+/// predicates name.
+fn unbound_reports(leaf: &ExecutionLeaf) -> Vec<(Vec<String>, Vec<RuleVariableOutput>)> {
+    leaf.diagnostics
         .iter()
-        .map(|leaf: &ExecutionLeaf| {
-            Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap())
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnosticOutput::UndecidedCondition {
+                reason: ConditionIndeterminacyOutput::UnboundResultVariables { variables },
+                rule_variables,
+                ..
+            } => Some((variables.clone(), rule_variables.clone())),
+            _ => None,
         })
         .collect()
 }
@@ -129,6 +154,27 @@ fn a_definition_with_an_unbound_result_variable_runs_and_keeps_the_call() {
     );
     assert_no_equation_variable(&leaves);
 
+    // Each leaf that keeps the call says why: the diagnostic names the unbound `Y`, and its
+    // requires `Y = 4` names the equation's `Y` by its printed and its definition name.
+    for leaf in run_leaves(&mut backend, &call) {
+        assert_eq!(
+            unbound_reports(&leaf),
+            [(
+                vec!["VarY".to_owned()],
+                vec![RuleVariableOutput {
+                    name: "Eq-hVarY".into(),
+                    definition_name: "VarY".into(),
+                }],
+            )],
+            "{:?}",
+            leaf.diagnostics
+        );
+    }
+    // A program that never calls `f` has nothing to explain.
+    for leaf in run_leaves(&mut backend, &int(7)) {
+        assert!(unbound_reports(&leaf).is_empty(), "{:?}", leaf.diagnostics);
+    }
+
     // Where the equation's `requires` is not refuted, the `owise` rule, which would give `g(3)`
     // the value 0 that the equation contradicts, is not used either.
     let call = format!("Lblg{{}}({})", int(3));
@@ -154,9 +200,13 @@ fn a_definition_with_an_unbound_result_variable_runs_and_keeps_the_call() {
     assert_no_equation_variable(&leaves);
 
     // Where it is refuted, the equation says nothing about `g(-1)` and the `owise` rule applies.
-    let leaves = run(&mut backend, &format!("Lblg{{}}({})", int(-1)));
+    let argument = format!("Lblg{{}}({})", int(-1));
+    let leaves = run(&mut backend, &argument);
     assert!(
         matches!(&leaves[..], [leaf] if leaf.contains(&done(&int(0)))),
         "{leaves:?}"
     );
+    for leaf in run_leaves(&mut backend, &argument) {
+        assert!(unbound_reports(&leaf).is_empty(), "{:?}", leaf.diagnostics);
+    }
 }

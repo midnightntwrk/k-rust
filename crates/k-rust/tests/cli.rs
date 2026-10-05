@@ -1726,6 +1726,68 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// An equation whose right-hand side has a variable its left-hand side does not bind is not
+/// used, so `f(3)` stays in the result; the warning says why, naming the variable as the rule
+/// writes it, and names the equation's variable in its printed requires.
+#[test]
+fn krun_explains_a_call_kept_by_an_equation_with_an_unbound_result_variable() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Int ::= f(Int) [function, symbol(f)]
+  syntax KItem ::= done(Int) [symbol(done)]
+  configuration <k> done(f(3)) </k>
+  rule f(X) => Y requires Y ==Int X +Int 1
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains(r#"Lblf{}(\dv{SortInt{}}("3"))"#),
+        "{stdout}"
+    );
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.starts_with("warning: equation "))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    assert!(warning.contains("definition.k:8:3"), "{warning}");
+    assert!(
+        warning.contains(
+            "its right-hand side or ensures uses Y, which its left-hand side does not bind"
+        ),
+        "{warning}"
+    );
+    assert!(
+        warning.contains(r#"Eq-hVarY:SortInt{}, \dv{SortInt{}}("4")"#)
+            && warning.contains("(Eq-hVarY is the equation's variable Y)"),
+        "{warning}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();

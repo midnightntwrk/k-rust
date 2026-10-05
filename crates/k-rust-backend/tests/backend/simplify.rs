@@ -4883,11 +4883,41 @@ fn a_function_equation_with_an_unbound_result_variable_keeps_the_application() {
                 [label{{}}("owise"), priority{{}}("200")]"#
         ));
         let kept = term(&definition, r#"f{}(\dv{SortS{}}("zero"))"#);
-        let result = simplify(&definition, &kept, SimplificationOptions::default()).unwrap();
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &kept, SimplificationOptions::default()));
+        let result = result.unwrap();
         assert_eq!(result.term, kept, "{label}");
         assert!(result.applied_rules.is_empty(), "{label}");
         assert!(result.term.attributes().variables.is_empty(), "{label}");
         assert!(result.constraints().is_empty(), "{label}");
+        // The kept application is explained: the equation's `Y` is unbound. Its requires is
+        // reported as decided, the equation's own `Y` named as the definition writes it.
+        let unbound = diagnostics
+            .iter()
+            .filter_map(|diagnostic| match diagnostic {
+                BackendDiagnostic::UndecidedCondition {
+                    rule_id,
+                    reason: ConditionIndeterminacy::UnboundResultVariables(variables),
+                    predicates,
+                } => Some((rule_id, variables, predicates)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!unbound.is_empty(), "{label}: {diagnostics:?}");
+        for (rule_id, variables, predicates) in unbound {
+            assert_eq!(rule_id, label);
+            assert_eq!(variables, &["Y"], "{label}");
+            let (_, rule_variables) = diagnostic::printable_condition(predicates);
+            assert!(
+                rule_variables
+                    .iter()
+                    .all(|rule_variable| rule_variable.definition_name == "Y"),
+                "{label}: {rule_variables:?}"
+            );
+            if label == "determined" {
+                assert_eq!(rule_variables.len(), 1, "{predicates:?}");
+            }
+        }
     }
 
     let definition = definition(&format!(
@@ -4906,9 +4936,13 @@ fn a_function_equation_with_an_unbound_result_variable_keeps_the_application() {
             [label{{}}("owise"), priority{{}}("200")]"#
     ));
     let refuted = term(&definition, r#"f{}(\dv{SortS{}}("one"))"#);
-    let result = simplify(&definition, &refuted, SimplificationOptions::default()).unwrap();
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &refuted, SimplificationOptions::default()));
+    let result = result.unwrap();
     assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("owise")"#));
     assert_eq!(result.applied_rules, ["owise"]);
+    // A refuted requires says nothing about the subject, so there is nothing to explain.
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 /// A simplification equation whose result has a variable its left-hand side does not bind is
@@ -4925,12 +4959,22 @@ fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
             [label{{}}("bound"), simplification{{}}("60")]"#
     ));
     let input = term(&definition, r#"f{}(\dv{SortS{}}("a"))"#);
-    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+    let result = result.unwrap();
     assert_eq!(
         result.term,
         term(&definition, r#"wrap{}(\dv{SortS{}}("a"))"#)
     );
     assert_eq!(result.applied_rules, ["bound"]);
+    assert!(
+        diagnostics.contains(&BackendDiagnostic::UndecidedCondition {
+            rule_id: "unbound".into(),
+            reason: ConditionIndeterminacy::UnboundResultVariables(vec!["Y".into()]),
+            predicates: Vec::new(),
+        }),
+        "the passed-over simplification is reported: {diagnostics:?}"
+    );
 }
 
 /// A ceil or predicate equation whose result has a variable its left-hand side does not bind
