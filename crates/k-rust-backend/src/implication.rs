@@ -17,20 +17,26 @@
 //! mode = "one consequent (check_established)"
 //! bound = """\
 //! O(r) matching problems and antecedent simplifications, then one discharge with one \
-//! check_predicates (up to three solver subqueries) and up to three is_sat queries (the third \
-//! only when the complete policy grades a failing part, grade_outside)"""
+//! check_predicates (up to three solver subqueries) and up to four is_sat queries (the third, \
+//! after one simplification of the antecedent's knowledge, only when a matched consequent is \
+//! refuted, undecided or unprepared, empty_unless_consistent; the fourth only when the complete \
+//! policy grades a failing part, grade_outside)"""
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
-//! bound = "O(r x (c matching problems + c witness eliminations + one check_predicates))"
+//! bound = """\
+//! O(r x (c matching problems + c witness eliminations + one check_predicates)), then one \
+//! simplification of the antecedent's knowledge and one is_sat query when a matched consequent is \
+//! refuted, undecided or unprepared (empty_unless_consistent)"""
 //! ```
 //!
 //! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
 //! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
 //! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
 //! one `Counter::SmtQueries` per solver call (an antecedent satisfiability check, up to three
-//! validity subqueries for the residual, and a refutation check), `Counter::ProofImplicationChecks`
-//! at the caller.
+//! validity subqueries for the residual, a refutation check, and, for a match refuted, undecided
+//! or unprepared, a satisfiability check of the antecedent's knowledge),
+//! `Counter::ProofImplicationChecks` at the caller.
 //!
 //! The check is policy-neutral: it records what it established about the antecedent's
 //! instances (`Established`), and each policy grades that value once. The proof policy asks
@@ -231,18 +237,61 @@ pub fn special_consequent(consequent: &kore::Pattern) -> Option<SpecialConsequen
 /// `\bottom` has no instance, so every instance of the antecedent lies outside it: the
 /// implication is invalid exactly when the antecedent has an instance, and holds vacuously
 /// otherwise. The answer is `Invalid` only when a [`Counterexample`] shows that instance, and
-/// `Indeterminate` otherwise; either reports the consequent's condition as refuted. `Err` is a
-/// stop of the solver's query: there is no verdict.
+/// `VacuouslyValid` only when the antecedent is shown to have none (`antecedent_is_empty`):
+/// its constraints are contradictory, or they contradict the definedness of the term or of
+/// their own atoms. `M Map (1 |-> 2)` under `¬(1 in_keys M = false)` is such an antecedent:
+/// the concatenation is defined only where `1` is not a key of `M`, and the constraint keeps
+/// the other valuations. Otherwise the answer is `Indeterminate`. `Invalid` and `Indeterminate`
+/// report the consequent's condition as refuted. `Err` is a stop of a solver query: there is no
+/// verdict.
 pub fn grade_bottom_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     solver: &dyn SmtSolver,
 ) -> Stoppable<ImplicationVerdict> {
-    grade_outside(
+    let verdict = grade_outside(
         definition,
         antecedent,
         Outside::ConsequentCondition(MatchReport::refuted(Bindings::default())),
         OutsideEvidence::Everywhere(Everywhere::BottomConsequent),
+        solver,
+    )?;
+    if matches!(verdict, ImplicationVerdict::Indeterminate { .. })
+        && antecedent_is_empty(
+            definition,
+            antecedent,
+            SimplificationOptions::default(),
+            solver,
+        )?
+    {
+        return Ok(ImplicationVerdict::VacuouslyValid);
+    }
+    Ok(verdict)
+}
+
+/// Whether `antecedent` is shown to have no instance: its constraints are syntactically false or
+/// the solver answers `Unsat` for them, or its knowledge, which adds the definedness of the term
+/// and of the constraints' atoms, is contradictory (`knowledge_is_contradictory`). Every instance
+/// satisfies both sets of facts (I7), and an `Unsat` answer refutes whatever the translation
+/// approximated, so either contradiction leaves none.
+fn antecedent_is_empty(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<bool> {
+    if predicates_truth(&antecedent.constraints) == Truth::False
+        || matches!(
+            solver.is_sat(&antecedent.constraints, &Substitution::new())?,
+            Ok(Satisfiability::Unsat)
+        )
+    {
+        return Ok(true);
+    }
+    knowledge_is_contradictory(
+        definition,
+        &pattern_knowledge(definition, antecedent),
+        options,
         solver,
     )
 }
@@ -988,12 +1037,14 @@ pub fn check_disjunctive_implication_with_existentials(
         options,
         solver,
     )
-    .map(|(established, antecedent)| {
-        grade_coverage(Checked {
+    .and_then(|(established, antecedent)| {
+        let established =
+            empty_unless_consistent(definition, &antecedent, established, options, solver)?;
+        Ok(grade_coverage(Checked {
             established,
             antecedent,
             antecedent_variable,
-        })
+        }))
     })
     .layered()
 }
@@ -1384,11 +1435,92 @@ fn check_established(
             }
         }
     };
+    let established =
+        empty_unless_consistent(definition, &antecedent, established, options, solver)?;
     Ok(Checked {
         established,
         antecedent,
         antecedent_variable,
     })
+}
+
+/// `established`, or `AntecedentEmpty` when it is a matched consequent the check did not show to
+/// hold and the antecedent's knowledge is contradictory.
+///
+/// A match's obligations are simplified and decided on `pattern_knowledge(antecedent)` (I7): the
+/// constraints with the definedness of their atoms stated, and the definedness `⌈t⌉` of the term.
+/// Those facts can contradict each other where the constraints alone are satisfiable, which the
+/// check's first emptiness test, on the constraints, does not see: `M Map (1 |-> 2) ∧ (1 in_keys
+/// M)` has no instance, since the concatenation is defined only where `1` is not a key of `M`. On
+/// contradictory knowledge the simplifier and the solver may refute any obligation, and every such
+/// refutation, like every other statement about the instances, holds vacuously. The verdict that
+/// is true there is that the antecedent has no instance, so before a refuted, undecided or
+/// unprepared match is graded, the knowledge is decided (`knowledge_is_contradictory`).
+///
+/// `Holds` and `AntecedentEmpty` need no such decision, and `TermMismatch` decided no obligation:
+/// it is kept as established, so a state whose term does not match the destination, which a proof
+/// meets at every step before reaching it, costs no further simplification.
+///
+/// `Contingent` is kept too: the check has already searched a stronger set of facts for a
+/// contradiction. The solver answered it for the obligations `o` on the knowledge as written, with
+/// `knowledge ∧ o` and `knowledge ∧ ¬o` both satisfiable, and `refuted_by_simplification`
+/// simplified `knowledge ∧ ¬o` as one conjunction and found it neither `false` nor `Unsat`. Every
+/// fact of the knowledge is among those, so a contradiction between them is one of that
+/// conjunction, which the same simplifier and solver did not find. Deciding the knowledge again
+/// would repeat that search on fewer facts, at the cost of one more simplification of the whole
+/// knowledge and one more solver query on every contingent step of a proof. What is lost is a
+/// contradiction the simplifier exposes only without `¬o`, or one behind a failed simplification
+/// of the conjunction: such a state stays `Contingent`, which, like every statement about an
+/// empty state, holds.
+fn empty_unless_consistent(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    established: Established,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Established> {
+    match &established {
+        Established::Holds(_)
+        | Established::AntecedentEmpty
+        | Established::TermMismatch
+        | Established::Contingent { .. } => Ok(established),
+        Established::Refuted { .. } | Established::Undecided { .. } | Established::Unprepared => {
+            let knowledge = pattern_knowledge(definition, antecedent);
+            Ok(
+                if knowledge_is_contradictory(definition, &knowledge, options, solver)? {
+                    Established::AntecedentEmpty
+                } else {
+                    established
+                },
+            )
+        }
+    }
+}
+
+/// Whether the facts `knowledge`, which every instance of a pattern satisfies, are shown
+/// contradictory, so that the pattern has no instance: they are syntactically false, they simplify
+/// to `false`, or the solver answers `Unsat` for them. Simplification preserves their meaning, and
+/// an `Unsat` answer refutes whatever the translation approximated. A failed simplification leaves
+/// the facts as they are for the solver.
+fn knowledge_is_contradictory(
+    definition: &BackendDefinition,
+    knowledge: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<bool> {
+    if predicates_truth(knowledge) == Truth::False {
+        return Ok(true);
+    }
+    let simplified = simplify_predicates_with_solver(definition, knowledge, &[], options, solver)?;
+    let facts = match &simplified {
+        Ok(simplified) if predicates_truth(simplified) == Truth::False => return Ok(true),
+        Ok(simplified) => simplified.as_slice(),
+        Err(_) => knowledge,
+    };
+    Ok(matches!(
+        solver.is_sat(facts, &Substitution::new())?,
+        Ok(Satisfiability::Unsat)
+    ))
 }
 
 /// The proof policy's grading: which instances of the state lie in the destination. It needs no
@@ -3952,6 +4084,17 @@ mod tests {
                 "{op}"
             );
         }
+
+        // `X + 1 = 2 ∧ X + 1 = 3` leaves no instance.
+        let mut empty = constrained(&definition, "stay", "plus", "2");
+        empty
+            .constraints
+            .extend(constrained(&definition, "stay", "plus", "3").constraints);
+        assert_eq!(
+            grade_bottom_consequent(&definition, &empty, &solver)
+                .expect("the grading does not stop"),
+            ImplicationVerdict::VacuouslyValid
+        );
     }
 
     /// `SortVoid` has no production and every value of `SortLoop` needs another one, so both
@@ -4424,5 +4567,311 @@ mod tests {
             check(),
             stopped(StopCause::Deadline(StepTimeoutMode::Manual(Duration::ZERO)))
         );
+    }
+
+    /// A map over `Int` keys and values with a constructor cell around it.
+    #[cfg(feature = "z3")]
+    fn map_frame_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortCfg{} []
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol inKeys{}(SortInt{}, SortMap{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("MAP.in_keys")]
+                symbol cfg{}(SortMap{}) : SortCfg{} [constructor{}()]
+            endmodule []"#,
+        )
+        .expect("map frame definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("map frame definition should internalize")
+    }
+
+    /// `cfg(M Map (1 |-> 2))`, under `constraint` (a predicate over `1 in_keys M`).
+    #[cfg(feature = "z3")]
+    fn map_frame_state(definition: &BackendDefinition, constraint: Predicate) -> Pattern {
+        let mut state = pattern(
+            definition,
+            r#"cfg{}(mapConcat{}(M:SortMap{}, mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))))"#,
+        );
+        state.constraints.push(constraint);
+        state
+    }
+
+    /// `1 in_keys M`.
+    #[cfg(feature = "z3")]
+    const ONE_IN_KEYS: &str = r#"inKeys{}(\dv{SortInt{}}("1"), M:SortMap{})"#;
+
+    /// `cfg(M Map (1 |-> 2)) ∧ ¬(1 in_keys M = false)` has no instance: the concatenation is
+    /// defined only where `1` is not a key of `M`, and the constraint keeps exactly the other
+    /// valuations. Its constraints alone are satisfiable; the emptiness shows only with the term's
+    /// definedness, under which the check decides the consequent's `1 in_keys M` and simplifies it
+    /// to `false`. The implication holds vacuously, alone and as one destination of a
+    /// disjunction. Reduced from the symbolic map-frame differential case, whose remainder leaf is
+    /// such a state.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_antecedent_whose_constraints_leave_its_term_undefined_implies_anything() {
+        let definition = map_frame_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let antecedent = map_frame_state(
+            &definition,
+            Predicate::Not(Box::new(Predicate::Equals(
+                term(&definition, ONE_IN_KEYS),
+                term(&definition, r#"\dv{SortBool{}}("false")"#),
+            ))),
+        );
+        let consequent = map_frame_state(&definition, holds(&definition, ONE_IN_KEYS));
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(Coverage::Vacuous)
+        );
+        assert_eq!(
+            check_complete(&definition, &antecedent, &consequent, &solver),
+            Ok(ImplicationVerdict::VacuouslyValid)
+        );
+        let mismatched = pattern(&definition, "cfg{}(mapUnit{}())");
+        assert_eq!(
+            check_disjunctive_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &[consequent, mismatched],
+                &BTreeSet::new(),
+                SimplificationOptions::default(),
+                &solver,
+            ),
+            Ok(Coverage::Vacuous)
+        );
+    }
+
+    /// The companion: under `1 in_keys M = false` the same state has instances, and none of them
+    /// has `1` among the keys of `M`, so a consequent that requires it is refuted, not vacuous.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_map_frame_antecedent_with_instances_still_refutes_its_consequent() {
+        let definition = map_frame_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let antecedent = map_frame_state(
+            &definition,
+            Predicate::Equals(
+                term(&definition, ONE_IN_KEYS),
+                term(&definition, r#"\dv{SortBool{}}("false")"#),
+            ),
+        );
+        let consequent = map_frame_state(&definition, holds(&definition, ONE_IN_KEYS));
+        let proof = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert!(
+            matches!(proof, Coverage::ConditionRefuted { .. }),
+            "{proof:#?}"
+        );
+        let complete = check_complete(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_ne!(complete.status(), ImplicationStatus::Valid, "{complete:#?}");
+    }
+
+    /// `cfg(end, S Set SetItem(1)) ∧ ¬⌈S Set SetItem(1)⌉` states that its own term is undefined,
+    /// so it has no instance, although a solver reads the `\ceil` as an opaque atom that the
+    /// term's definedness `¬(1 in S)` does not contradict. The simplifier decides the `\ceil`, so
+    /// the knowledge simplifies to `false` with or without a solver, and the implication holds
+    /// vacuously. Reduced from the symbolic set-frame differential case, whose remainder leaf is
+    /// such a state.
+    #[test]
+    fn an_antecedent_that_states_its_term_undefined_implies_anything() {
+        let definition = set_frame_definition();
+        let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
+        let state = format!("cfg{{}}(end{{}}(), {set})");
+        let undefined = Predicate::Not(Box::new(Predicate::Ceil(term(&definition, set))));
+        let mut antecedent = pattern(&definition, &state);
+        antecedent.constraints.push(undefined);
+        let mut consequent = pattern(&definition, &state);
+        consequent.constraints.push(Predicate::Equals(
+            term(&definition, r#"\dv{SortBool{}}("true")"#),
+            term(&definition, r#"setIn{}(\dv{SortInt{}}("1"), S:SortSet{})"#),
+        ));
+        let check = |solver: &dyn SmtSolver| {
+            assert_eq!(
+                check_implication(&definition, &antecedent, &consequent, solver),
+                Ok(Coverage::Vacuous)
+            );
+            assert_eq!(
+                check_complete(&definition, &antecedent, &consequent, solver),
+                Ok(ImplicationVerdict::VacuouslyValid)
+            );
+        };
+        check(&NoSolver);
+        #[cfg(feature = "z3")]
+        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `A -> \bottom` holds exactly when `A` is empty, also when only the definedness of its term
+    /// shows it: `cfg(M Map (1 |-> 2)) ∧ ¬(1 in_keys M = false)` has no instance, so it implies
+    /// `\bottom`. Under `1 in_keys M = false` the same state has instances, every one of them
+    /// outside `\bottom`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_bottom_consequent_holds_for_an_antecedent_whose_constraints_leave_its_term_undefined() {
+        let definition = map_frame_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let is_false = Predicate::Equals(
+            term(&definition, ONE_IN_KEYS),
+            term(&definition, r#"\dv{SortBool{}}("false")"#),
+        );
+        let empty = map_frame_state(&definition, Predicate::Not(Box::new(is_false.clone())));
+        assert_eq!(
+            grade_bottom_consequent(&definition, &empty, &solver)
+                .expect("the grading does not stop"),
+            ImplicationVerdict::VacuouslyValid
+        );
+        let inhabited = map_frame_state(&definition, is_false);
+        let verdict = grade_bottom_consequent(&definition, &inhabited, &solver)
+            .expect("the grading does not stop");
+        assert_ne!(verdict.status(), ImplicationStatus::Valid, "{verdict:#?}");
+        assert_eq!(
+            verdict.failure(),
+            Some(ImplicationFailure::ConsequentCondition),
+            "{verdict:#?}"
+        );
+    }
+
+    /// The same for `cfg(end, S Set SetItem(1)) ∧ ¬⌈S Set SetItem(1)⌉`, whose constraint states
+    /// its own term undefined: the simplifier decides the `\ceil`, with or without a solver.
+    #[test]
+    fn a_bottom_consequent_holds_for_an_antecedent_that_states_its_term_undefined() {
+        let definition = set_frame_definition();
+        let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
+        let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                set,
+            )))));
+        let check = |solver: &dyn SmtSolver| {
+            assert_eq!(
+                grade_bottom_consequent(&definition, &antecedent, solver)
+                    .expect("the grading does not stop"),
+                ImplicationVerdict::VacuouslyValid
+            );
+        };
+        check(&NoSolver);
+        #[cfg(feature = "z3")]
+        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
+    /// constraints contradictory, has no instance; the solver, reading `h` as an uninterpreted
+    /// function, answers its consequent condition `X <=Int 5` contingent on the knowledge as
+    /// written. The check's refutation by simplification decides `knowledge ∧ ¬(X <=Int 5)`
+    /// after evaluating `h`, finds it contradictory and so shows the consequent to hold: a
+    /// contradiction of the knowledge that only the simplifier exposes is found before a
+    /// contingent answer is graded, which is why a contingent match is not decided again for
+    /// emptiness.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_antecedent_contradictory_only_once_simplified_is_covered_before_it_is_contingent() {
+        let definition = partial_definition_with(
+            r#"symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        h{}(X:SortInt{}),
+                        \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("identity-h"), simplification{}()]"#,
+        );
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(h{}(X:SortInt{}), \dv{SortInt{}}("0"))"#,
+        ));
+        antecedent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(\dv{SortInt{}}("1"), X:SortInt{})"#,
+        ));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent.constraints.push(holds(
+            &definition,
+            r#"leInt{}(X:SortInt{}, \dv{SortInt{}}("5"))"#,
+        ));
+        assert_eq!(
+            solver
+                .check_predicates(
+                    &pattern_knowledge(&definition, &antecedent),
+                    &Substitution::new(),
+                    &consequent.constraints,
+                )
+                .expect("the query does not stop"),
+            Ok(Validity::Contingent)
+        );
+        let result = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert!(covers_every_instance(&result), "{result:#?}");
+        let result = check_complete(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    /// A contingent match is graded as the check established it: the antecedent's knowledge is
+    /// not simplified and decided again. The solver answers every satisfiability query `Sat`
+    /// and the consequent condition contingent; the check asks for the satisfiability of the
+    /// constraints, then for that of the knowledge with the negated condition (the refutation by
+    /// simplification), and nothing more.
+    #[test]
+    fn a_contingent_match_is_not_decided_again_for_emptiness() {
+        struct Counting {
+            is_sat: std::cell::Cell<usize>,
+        }
+        impl SmtSolver for Counting {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<Satisfiability, SmtError>> {
+                self.is_sat.set(self.is_sat.get() + 1);
+                Ok(Ok(Satisfiability::Sat))
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Contingent))
+            }
+        }
+        let definition = definition();
+        let solver = Counting {
+            is_sat: std::cell::Cell::new(0),
+        };
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Equals(
+                term(&definition, "X:SortInt{}"),
+                int(&definition, "7"),
+            ))));
+        let obligation = Predicate::Equals(int(&definition, "0"), term(&definition, "X:SortInt{}"));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent.constraints.push(obligation.clone());
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &solver),
+            Ok(Coverage::Contingent(CoverageCondition::contingent(
+                Bindings::default(),
+                vec![obligation],
+            )))
+        );
+        assert_eq!(solver.is_sat.get(), 2);
     }
 }
