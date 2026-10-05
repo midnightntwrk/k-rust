@@ -14,6 +14,11 @@
 //! it is otherwise well formed. The bound is the thread's stack, not a fixed depth: the same
 //! pattern is admitted on a thread with more stack.
 //!
+//! Alias expansion descends through the bodies of the aliases it unfolds, each below the ones
+//! that apply it, so how deep it goes is known only as it proceeds; it admits each alias body
+//! with [`ensure_depth_stack`] where it enters it, both when a definition is loaded and when a
+//! request is internalized.
+//!
 //! The remaining stack is unknown on wasm32, where the engine's call-stack limit is invisible to
 //! the module, and on a native thread whose bounds cannot be read; there every pattern is
 //! admitted and the passes stay bounded by the stack, as the simplifier's own guard is
@@ -109,6 +114,13 @@ pub(crate) fn ensure_definition_stack(modules: &[&kore::Module]) -> Result<(), D
         }
         deepest
     })
+}
+
+/// Refuse with [`DefinitionError::InsufficientStack`] when the current thread's remaining stack,
+/// if known, cannot hold the recursive passes over a pattern `depth` levels deep, such as an
+/// alias body about to be unfolded at the current point of an unfolding.
+pub(crate) fn ensure_depth_stack(depth: usize) -> Result<(), DefinitionError> {
+    ensure_stack_with(|| depth)
 }
 
 fn ensure_stack_with(depth: impl FnOnce() -> usize) -> Result<(), DefinitionError> {
@@ -675,6 +687,109 @@ mod tests {
                     }
                 }
             }
+        });
+    }
+
+    /// A module whose aliases `al0` .. `al{count - 1}` each unfold into `levels` applications of
+    /// `wrap` around the next alias, the last around its parameter, and whose alias `bind`
+    /// places its parameter under an existential.
+    fn alias_chain(count: usize, levels: usize) -> String {
+        let aliases = (0..count)
+            .map(|index| {
+                let leaf = if index + 1 == count {
+                    "X:SortS{}".to_owned()
+                } else {
+                    format!("al{}{{}}(X:SortS{{}})", index + 1)
+                };
+                format!(
+                    "alias al{index}{{}}(SortS{{}}) : SortS{{}} where al{index}{{}}(X:SortS{{}}) := {} []\n",
+                    chain(levels, "wrap{}(", &leaf, ")")
+                )
+            })
+            .collect::<String>();
+        format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                alias bind{{}}(SortS{{}}) : SortS{{}} where bind{{}}(X:SortS{{}}) :=
+                    \exists{{SortS{{}}}}(Y:SortS{{}}, \and{{SortS{{}}}}(X:SortS{{}}, Y:SortS{{}})) []
+                {aliases}
+            endmodule []"#
+        )
+    }
+
+    fn load(source: &str) -> Result<BackendDefinition, DefinitionError> {
+        let syntax = parse_definition(source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+    }
+
+    /// Every sentence of a chain of 20 aliases, each body 100 levels deep, fits on a thread
+    /// sized for about 160 levels, but checking that the first alias unfolds descends through
+    /// all 2,000 levels. Loading the module there is refused once an alias body no longer fits
+    /// below the ones that enclose it, instead of overflowing the thread. A chain whose whole
+    /// unfolding fits still loads and unfolds. The modules take well under 1 MB of heap.
+    #[test]
+    fn alias_chains_are_admitted_as_they_unfold_at_load() {
+        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
+        on_stack(STACK, || {
+            assert!(matches!(
+                load(&alias_chain(20, 100)),
+                Err(DefinitionError::InsufficientStack { .. })
+            ));
+            let definition = load(&alias_chain(3, 20)).expect("a shallow chain should load");
+            let pattern = parse_pattern("al0{}(a{}())").unwrap();
+            run(&definition, "term", &pattern).expect("a shallow chain should unfold");
+        });
+    }
+
+    /// A chain of 20 aliases, each body 100 levels deep, loads on a 64 MiB thread (under 50 MB
+    /// of stack in a debug build). Unfolding `al0` in a request on a thread sized for about 160
+    /// levels is refused once an alias body no longer fits below the ones enclosing it, as is
+    /// the same request under 100 further levels, which the request's own admission accepts.
+    /// The definition takes well under 1 MB of heap.
+    #[test]
+    fn alias_chains_are_admitted_as_they_unfold_in_requests() {
+        const STACK: usize = STACK_RED_ZONE + 160 * STACK_PER_LEVEL;
+        let definition = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| load(&alias_chain(20, 100)).expect("the chain should load"))
+            .expect("loader should spawn")
+            .join()
+            .expect("loader should finish");
+        on_stack(STACK, move || {
+            for source in [
+                "al0{}(a{}())".to_owned(),
+                chain(100, "wrap{}(", "al0{}(a{}())", ")"),
+            ] {
+                let pattern = parse_pattern(&source).unwrap();
+                // Standalone verification reads alias applications without unfolding them.
+                for entry in &ENTRY_POINTS[1..] {
+                    assert!(refused(entry, run(&definition, entry, &pattern)), "{entry}");
+                }
+            }
+        });
+    }
+
+    /// Alias bodies inline their arguments without descending into them, so 200 nested
+    /// applications of an alias whose body is 200 levels deep unfold, on a thread sized for
+    /// about 400 levels, into a 40,000-level argument of `bind`. Placing it under `bind`'s
+    /// existential scans its free variables, which stays within the thread, and the
+    /// 40,000-level expansion is then refused. The unfolding clones about 4 million nodes; the
+    /// test peaks under 100 MB of resident memory and takes about 1 s in a debug build.
+    #[test]
+    fn deep_alias_arguments_are_scanned_without_recursion() {
+        const STACK: usize = STACK_RED_ZONE + 400 * STACK_PER_LEVEL;
+        on_stack(STACK, || {
+            let definition = load(&alias_chain(1, 200)).expect("the alias should load");
+            let source = format!("bind{{}}({})", chain(200, "al0{}(", "a{}()", ")"));
+            let pattern = parse_pattern(&source).unwrap();
+            let outcome = run(&definition, "pattern", &pattern);
+            assert!(
+                matches!(outcome, Err(DefinitionError::InsufficientStack { depth, .. }) if depth > 40_000),
+                "{outcome:?}"
+            );
         });
     }
 

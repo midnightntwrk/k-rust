@@ -1027,9 +1027,9 @@ impl fmt::Display for DefinitionError {
 /// Expand the aliases of `pattern` for internalization.
 ///
 /// Every internalization of a KORE pattern starts here, so this is where the recursive passes
-/// over a pattern are admitted to the thread's stack: the pattern before alias expansion, and
-/// again its expansion, which can be deeper than the input by the depth of the alias bodies it
-/// inlines.
+/// over a pattern are admitted to the thread's stack: the pattern before alias expansion, each
+/// alias body as the expansion enters it (`alias::expand`), and again the expansion, which can be
+/// deeper than the input by the depth of the alias bodies it inlines.
 fn expand_aliases(
     pattern: &kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,

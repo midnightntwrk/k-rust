@@ -36,6 +36,9 @@ pub(crate) struct AliasDefinition {
     pub(crate) result_sort: kore::Sort,
     pub(crate) parameters: Vec<kore::Variable>,
     pub(crate) right: kore::Pattern,
+    /// The nesting depth of `right` (`nesting::nesting_depth`), against which the stack left
+    /// where the body is unfolded is admitted.
+    pub(crate) depth: usize,
 }
 
 pub(crate) fn collect(
@@ -115,6 +118,7 @@ pub(crate) fn collect(
                 result_sort: result_sort.clone(),
                 parameters,
                 right: (**right).clone(),
+                depth: crate::nesting::nesting_depth(right),
             };
             if aliases.insert(alias.name.clone(), definition).is_some() {
                 return Err(DefinitionError::DuplicateAlias(alias.name.clone()));
@@ -239,6 +243,12 @@ fn expand_application(
         .cloned()
         .zip(arguments)
         .collect::<BTreeMap<_, _>>();
+    // The body is unfolded below the frames of every alias body and pattern level enclosing this
+    // application, and an alias body can apply further aliases, so the depth of an unfolding is
+    // known only as it proceeds. Each body is therefore admitted where it is entered, against
+    // the stack left there: the recursion over the body's own levels, and the helpers that
+    // rescan them, fit in what is admitted, and every deeper descent enters another body.
+    crate::nesting::ensure_depth_stack(alias.depth)?;
     // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
     stack.push(symbol.name);
     let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
@@ -479,9 +489,12 @@ fn expand_binder(
     let mut body_terms = terms.clone();
     body_terms.remove(variable);
     let substituted_variable = substitute_variable(variable, sorts);
-    let body_free = free_variables(body);
+    // The replacements are unfolded arguments, of any depth, so they and the body are scanned by
+    // `Pattern::free_variables`, which reads them with an explicit work list.
+    let body_free = body.free_variables();
     let (variable, body) = if body_terms.iter().any(|(parameter, replacement)| {
-        body_free.contains(parameter) && free_variables(replacement).contains(&substituted_variable)
+        body_free.contains(parameter)
+            && replacement.free_variables().contains(&substituted_variable)
     }) {
         let fresh = fresh_variable(variable, body, &body_terms);
         let body = rename_bound_occurrences(body, variable, &fresh);
@@ -522,11 +535,18 @@ fn fresh_variable(
     body: &kore::Pattern,
     terms: &BTreeMap<kore::Variable, kore::Pattern>,
 ) -> kore::Variable {
+    // The replacements are unfolded arguments, of any depth; `Pattern::variables` reads them
+    // with an explicit work list.
     let mut names = BTreeSet::new();
-    collect_variable_names(body, &mut names);
+    names.extend(body.variables().into_iter().map(|variable| variable.name));
     for (parameter, replacement) in terms {
         names.insert(parameter.name.clone());
-        collect_variable_names(replacement, &mut names);
+        names.extend(
+            replacement
+                .variables()
+                .into_iter()
+                .map(|variable| variable.name),
+        );
     }
     // Invariant: `index` only grows, so at most |names| + 1 candidates are tried.
     for index in 0usize.. {
@@ -540,47 +560,6 @@ fn fresh_variable(
         }
     }
     unreachable!("the set of finite variable names cannot exhaust every suffix")
-}
-
-fn collect_variable_names(pattern: &kore::Pattern, names: &mut BTreeSet<String>) {
-    use kore::Pattern;
-
-    match pattern {
-        Pattern::Variable(variable) => {
-            names.insert(variable.name.clone());
-        }
-        Pattern::Application { arguments, .. }
-        | Pattern::And { arguments, .. }
-        | Pattern::Or { arguments, .. }
-        | Pattern::AssociativeApplication { arguments, .. } => {
-            for argument in arguments {
-                collect_variable_names(argument, names);
-            }
-        }
-        Pattern::Not { argument, .. }
-        | Pattern::Next { argument, .. }
-        | Pattern::Ceil { argument, .. }
-        | Pattern::Floor { argument, .. } => collect_variable_names(argument, names),
-        Pattern::Implies { left, right, .. }
-        | Pattern::Iff { left, right, .. }
-        | Pattern::Rewrites { left, right, .. }
-        | Pattern::Equals { left, right, .. }
-        | Pattern::In { left, right, .. } => {
-            collect_variable_names(left, names);
-            collect_variable_names(right, names);
-        }
-        Pattern::Exists { variable, body, .. }
-        | Pattern::Forall { variable, body, .. }
-        | Pattern::Mu { variable, body }
-        | Pattern::Nu { variable, body } => {
-            names.insert(variable.name.clone());
-            collect_variable_names(body, names);
-        }
-        Pattern::String(_)
-        | Pattern::Top { .. }
-        | Pattern::Bottom { .. }
-        | Pattern::DomainValue { .. } => {}
-    }
 }
 
 fn rename_bound_occurrences(
@@ -730,44 +709,6 @@ fn rename_bound_occurrences(
             symbol: symbol.clone(),
             arguments: arguments.iter().map(recurse).collect(),
         },
-    }
-}
-
-fn free_variables(pattern: &kore::Pattern) -> BTreeSet<kore::Variable> {
-    use kore::Pattern;
-
-    match pattern {
-        Pattern::Variable(variable) => BTreeSet::from([variable.clone()]),
-        Pattern::Application { arguments, .. }
-        | Pattern::And { arguments, .. }
-        | Pattern::Or { arguments, .. }
-        | Pattern::AssociativeApplication { arguments, .. } => {
-            arguments.iter().flat_map(free_variables).collect()
-        }
-        Pattern::Not { argument, .. }
-        | Pattern::Next { argument, .. }
-        | Pattern::Ceil { argument, .. }
-        | Pattern::Floor { argument, .. } => free_variables(argument),
-        Pattern::Implies { left, right, .. }
-        | Pattern::Iff { left, right, .. }
-        | Pattern::Rewrites { left, right, .. }
-        | Pattern::Equals { left, right, .. }
-        | Pattern::In { left, right, .. } => free_variables(left)
-            .into_iter()
-            .chain(free_variables(right))
-            .collect(),
-        Pattern::Exists { variable, body, .. }
-        | Pattern::Forall { variable, body, .. }
-        | Pattern::Mu { variable, body }
-        | Pattern::Nu { variable, body } => {
-            let mut variables = free_variables(body);
-            variables.remove(variable);
-            variables
-        }
-        Pattern::String(_)
-        | Pattern::Top { .. }
-        | Pattern::Bottom { .. }
-        | Pattern::DomainValue { .. } => BTreeSet::new(),
     }
 }
 
