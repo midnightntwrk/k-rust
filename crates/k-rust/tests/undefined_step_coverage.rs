@@ -20,6 +20,9 @@ use k_rust::{
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
+#[path = "support/shared.rs"]
+mod shared;
+
 const SOURCE: &str = r#"module UNDEF-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
@@ -84,7 +87,13 @@ endmodule
 const X: &str = "X:SortInt{}";
 const Y: &str = "Y:SortInt{}";
 
-fn backend() -> Backend {
+/// The KORE of `SOURCE`, compiled once per process and inference mode for every test here.
+fn definition_kore() -> std::sync::Arc<String> {
+    static KORE: shared::Shared<String> = shared::Shared::new();
+    KORE.get(compile)
+}
+
+fn compile() -> String {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -101,13 +110,14 @@ fn backend() -> Backend {
         },
     )
     .unwrap();
-    let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
-    Backend::new(
-        &compiled.definition_kore,
-        "UNDEF",
-        BackendOptions::default(),
-    )
-    .unwrap()
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap()
+        .definition_kore
+}
+
+/// A fresh backend over the shared definition, so no test observes another's backend state.
+fn backend() -> Backend {
+    Backend::new(&definition_kore(), "UNDEF", BackendOptions::default()).unwrap()
 }
 
 fn top(program: &str) -> String {

@@ -1,7 +1,7 @@
 //! The library contract of `ConfigurationAssembler`: which grammar parses each input, how each
 //! value is sorted and converted, the order of the configuration map, and structured errors.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use k_rust::{
     builtin::embedded,
@@ -15,6 +15,9 @@ use k_rust::{
     kore::printer::Printer,
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
+
+#[path = "support/shared.rs"]
+mod shared;
 
 struct Compiled {
     frontend: Definition,
@@ -55,6 +58,19 @@ fn compiled(source: &str, main_module: &str) -> Compiled {
         execution: artifacts.execution_definition,
         variables: artifacts.configuration_variables,
     }
+}
+
+/// `compiled(DEFINITION, "MAIN")`, compiled once per process and inference mode and shared by
+/// the tests that only read it.
+fn definition() -> Arc<Compiled> {
+    static COMPILED: shared::Shared<Compiled> = shared::Shared::new();
+    COMPILED.get(|| compiled(DEFINITION, "MAIN"))
+}
+
+/// `compiled(PHANTOM_CONFIGURATION, "MAIN")`, shared as [`definition`] is.
+fn phantom_configuration() -> Arc<Compiled> {
+    static COMPILED: shared::Shared<Compiled> = shared::Shared::new();
+    COMPILED.get(|| compiled(PHANTOM_CONFIGURATION, "MAIN"))
 }
 
 const DEFINITION: &str = r#"
@@ -127,7 +143,7 @@ fn bind_all_but(assembler: &mut ConfigurationAssembler<'_>, skipped: &str) {
 
 #[test]
 fn every_input_is_parsed_expanded_injected_and_converted_by_its_own_grammar() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assembler.program(&Sort::new("Input"), "go").unwrap();
@@ -176,7 +192,7 @@ fn every_input_is_parsed_expanded_injected_and_converted_by_its_own_grammar() {
 
 #[test]
 fn the_parser_attribute_excludes_the_main_module_grammar() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     let error = assembler.bind("ENV", "main").unwrap_err();
@@ -195,7 +211,7 @@ fn the_parser_attribute_excludes_the_main_module_grammar() {
 
 #[test]
 fn stream_defaults_follow_explicit_bindings_and_read_input_only_when_used() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assembler.program(&Sort::new("Input"), "go").unwrap();
@@ -231,7 +247,7 @@ fn stream_defaults_follow_explicit_bindings_and_read_input_only_when_used() {
 
 #[test]
 fn names_are_checked_before_the_value_is_parsed() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assembler.bind("STATE", "done").unwrap();
@@ -265,7 +281,7 @@ fn names_are_checked_before_the_value_is_parsed() {
 
 #[test]
 fn a_k_sorted_variable_prefers_an_item_reading() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     // The reader retains the declared K sort; item-only grammar still prefers its item reading.
     assert_eq!(compiled.variables["ANY"], Sort::new("K"));
     let variables = BTreeMap::from([("ANY".to_owned(), Sort::new("K"))]);
@@ -282,7 +298,7 @@ fn a_k_sorted_variable_prefers_an_item_reading() {
 
 #[test]
 fn a_failed_bind_leaves_the_configuration_unchanged() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assert!(matches!(
@@ -294,7 +310,7 @@ fn a_failed_bind_leaves_the_configuration_unchanged() {
 
 #[test]
 fn finish_names_every_unbound_variable_and_the_program_first() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assembler.bind("ENV", "selected").unwrap();
@@ -394,7 +410,7 @@ endmodule
 
 #[test]
 fn one_grammar_serves_the_assembler_and_a_search_pattern() {
-    let compiled = compiled(DEFINITION, "MAIN");
+    let compiled = definition();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = assembler(&grammar, &compiled);
     assembler.program(&Sort::new("Input"), "go").unwrap();
@@ -546,7 +562,7 @@ fn assert_phantom_instance(error: ConfigurationError, expected_variable: &str) {
 
 #[test]
 fn a_phantom_program_instance_names_the_program_variable() {
-    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let compiled = phantom_configuration();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     let error = assembler.program(&Sort::new("Int"), "size()").unwrap_err();
@@ -555,7 +571,7 @@ fn a_phantom_program_instance_names_the_program_variable() {
 
 #[test]
 fn a_phantom_configuration_instance_names_the_bound_variable() {
-    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let compiled = phantom_configuration();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     let error = assembler.bind("$X", "size()").unwrap_err();
@@ -564,7 +580,7 @@ fn a_phantom_configuration_instance_names_the_bound_variable() {
 
 #[test]
 fn a_phantom_value_diagnostic_offers_no_cast() {
-    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let compiled = phantom_configuration();
     let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
     let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     let program = assembler.program(&Sort::new("Int"), "size()").unwrap_err();

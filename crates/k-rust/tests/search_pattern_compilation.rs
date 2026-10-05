@@ -1,7 +1,7 @@
 #![cfg(feature = "z3-inference")]
 
 use std::collections::BTreeSet;
-use std::sync::OnceLock;
+use std::sync::Arc;
 
 use k_rust::builtin::embedded;
 use k_rust::definition::{
@@ -18,6 +18,9 @@ use k_rust::kore::ast::Pattern;
 use k_rust::kore::parser::{parse_definition, parse_pattern};
 use k_rust::outer::{LoadOptions, ResolvedSource, load_with_options};
 use k_rust_backend::definition::BackendDefinition;
+
+#[path = "support/shared.rs"]
+mod shared;
 
 const DEFINITION: &str = include_str!("fixtures/search-pattern/pattern.k");
 const GROUND: &str = include_str!("fixtures/search-pattern/ground.pattern");
@@ -79,13 +82,30 @@ fn load_context(path: &str, source: &str, main_module: &str) -> Context {
     }
 }
 
-fn context() -> &'static Context {
-    static CONTEXT: OnceLock<Context> = OnceLock::new();
-    CONTEXT.get_or_init(|| load_context("search-pattern/pattern.k", DEFINITION, "MAIN"))
+/// The context of `DEFINITION`, loaded once per process and inference mode and shared by the
+/// tests, which only read it.
+fn context() -> Arc<Context> {
+    static CONTEXT: shared::Shared<Context> = shared::Shared::new();
+    CONTEXT.get(|| load_context("search-pattern/pattern.k", DEFINITION, "MAIN"))
+}
+
+/// A definition whose `size` label is phantom in its sort parameter `S`.
+const PHANTOM: &str = r#"requires "domains.md"
+module MAIN
+  imports INT
+  syntax {S} Int ::= size() [function, total, symbol(size)]
+  configuration <k> $PGM:Int </k>
+endmodule
+"#;
+
+/// The context of `PHANTOM`, shared as [`context`] is.
+fn phantom_context() -> Arc<Context> {
+    static CONTEXT: shared::Shared<Context> = shared::Shared::new();
+    CONTEXT.get(|| load_context("search-pattern/phantom.k", PHANTOM, "MAIN"))
 }
 
 fn compile(contents: &str) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
-    compile_in(context(), "MAIN", contents)
+    compile_in(&context(), "MAIN", contents)
 }
 
 fn compile_in(
@@ -499,17 +519,7 @@ endmodule
 
 #[test]
 fn search_pattern_compilation_rejects_an_undetermined_ground_instance() {
-    let context = load_context(
-        "search-pattern/phantom.k",
-        r#"requires "domains.md"
-module MAIN
-  imports INT
-  syntax {S} Int ::= size() [function, total, symbol(size)]
-  configuration <k> $PGM:Int </k>
-endmodule
-"#,
-        "MAIN",
-    );
+    let context = phantom_context();
     for pattern in ["<k> size() ~> _ </k>", "<k> _ </k> requires size() ==Int 0"] {
         let error = compile_in(&context, "MAIN", pattern)
             .expect_err("a phantom label has no ground instance");
@@ -536,17 +546,7 @@ endmodule
 
 #[test]
 fn a_phantom_search_pattern_diagnostic_offers_no_cast() {
-    let context = load_context(
-        "search-pattern/phantom.k",
-        r#"requires "domains.md"
-module MAIN
-  imports INT
-  syntax {S} Int ::= size() [function, total, symbol(size)]
-  configuration <k> $PGM:Int </k>
-endmodule
-"#,
-        "MAIN",
-    );
+    let context = phantom_context();
     let message = compile_in(&context, "MAIN", "<k> size():Int ~> _ </k>")
         .unwrap_err()
         .to_string();

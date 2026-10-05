@@ -23,6 +23,9 @@ use k_rust::{
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
+#[path = "support/shared.rs"]
+mod shared;
+
 const SOURCE: &str = r#"module DEFPROBE-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
@@ -97,11 +100,18 @@ const HOOK_SHORTCUTS: [&str; 8] = [
 /// Operations whose rule excludes `A = 0` through its `requires`, so `A = 0` is Stuck.
 const REQUIRES: [&str; 5] = ["half", "orb", "orelse", "andthen", "keq"];
 
+/// A fresh backend over the KORE of `SOURCE`, which is compiled once per process and inference
+/// mode; no test observes another's backend state.
 fn backend() -> Backend {
-    backend_for(SOURCE)
+    static KORE: shared::Shared<String> = shared::Shared::new();
+    backend_over(&KORE.get(|| compile(SOURCE)))
 }
 
-fn backend_for(source: &str) -> Backend {
+fn backend_over(definition_kore: &str) -> Backend {
+    Backend::new(definition_kore, "DEFPROBE", BackendOptions::default()).unwrap()
+}
+
+fn compile(source: &str) -> String {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -118,13 +128,9 @@ fn backend_for(source: &str) -> Backend {
         },
     )
     .unwrap();
-    let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
-    Backend::new(
-        &compiled.definition_kore,
-        "DEFPROBE",
-        BackendOptions::default(),
-    )
-    .unwrap()
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap()
+        .definition_kore
 }
 
 fn top(program: &str) -> String {
@@ -454,12 +460,16 @@ mod generated_lambda {
 endmodule
 "#;
 
+    /// As the outer `backend`, over `SOURCE` extended by `LET_RULES`.
     fn backend() -> Backend {
-        let source = SOURCE
-            .trim_end()
-            .strip_suffix("endmodule")
-            .expect("the probe source ends with its main module");
-        backend_for(&format!("{source}{LET_RULES}"))
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        backend_over(&KORE.get(|| {
+            let source = SOURCE
+                .trim_end()
+                .strip_suffix("endmodule")
+                .expect("the probe source ends with its main module");
+            compile(&format!("{source}{LET_RULES}"))
+        }))
     }
 
     #[test]
