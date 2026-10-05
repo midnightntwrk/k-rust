@@ -13,6 +13,20 @@ EVM_PLUGIN_REFERENCE_REVISION=$(jq -r '.reference["kevm-plugin"].revision' <<<"$
 MIR_REFERENCE_REVISION=$(jq -r '.reference.mir.revision' <<<"$reference_manifest_json")
 readonly K_REFERENCE_REVISION K_REFERENCE_VERSION IMP_REFERENCE_REVISION WASM_REFERENCE_REVISION EVM_EQUIVALENCE_REFERENCE_REVISION EVM_SEMANTICS_REFERENCE_REVISION EVM_PLUGIN_REFERENCE_REVISION MIR_REFERENCE_REVISION
 
+# Runs git on the repository at $1. `git -C` only changes the directory git discovers a
+# repository from; an inherited GIT_DIR, GIT_WORK_TREE or other repository-local variable
+# still names the repository, and `git bisect run` and `git rebase --exec` export GIT_DIR
+# when run in a linked worktree. Clearing those variables makes every call read the checkout
+# it names.
+reference_git() (
+  local checkout=$1
+  local -a repository_variables
+  shift
+  mapfile -t repository_variables < <(git rev-parse --local-env-vars)
+  unset "${repository_variables[@]}"
+  git -c safe.directory="$checkout" -C "$checkout" "$@"
+)
+
 reference_require_git_pin() {
   local name=$1
   local checkout=$2
@@ -28,7 +42,7 @@ reference_require_git_pin() {
     echo "error: $name reference is not a Git checkout: $checkout" >&2
     return 2
   fi
-  if ! actual=$(git -c safe.directory="$checkout" -C "$checkout" rev-parse HEAD 2>/dev/null); then
+  if ! actual=$(reference_git "$checkout" rev-parse HEAD 2>/dev/null); then
     echo "error: could not read the $name reference revision: $checkout" >&2
     return 2
   fi
@@ -36,8 +50,7 @@ reference_require_git_pin() {
     echo "error: $name reference revision is $actual; expected $expected" >&2
     return 2
   fi
-  changes=$(git -c safe.directory="$checkout" -C "$checkout" \
-    status --short --untracked-files=no)
+  changes=$(reference_git "$checkout" status --short --untracked-files=no)
   if [[ -n "$changes" ]]; then
     echo "error: $name reference has tracked modifications: $checkout" >&2
     printf '%s\n' "$changes" >&2
