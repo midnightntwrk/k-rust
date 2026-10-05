@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path, sync::Mutex};
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ImplicationRequest, ObservedRequest,
-        PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest,
+        PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest, deserialize_request,
     },
     builtin::embedded,
     definition::checks::check_definition,
@@ -137,13 +137,13 @@ impl NativeBackend {
 
     #[napi]
     pub fn execute(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ExecuteRequest>(&options)?;
+        let request = read_request::<ExecuteRequest>(&options)?;
         self.lock()?.execute_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "executeObserved")]
     pub fn execute_observed(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ObservedRequest<ExecuteRequest>>(&options)?;
+        let request = read_request::<ObservedRequest<ExecuteRequest>>(&options)?;
         self.lock()?
             .execute_observed_json(request)
             .map_err(napi_error)
@@ -151,19 +151,19 @@ impl NativeBackend {
 
     #[napi]
     pub fn search(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<SearchRequest>(&options)?;
+        let request = read_request::<SearchRequest>(&options)?;
         self.lock()?.search_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "searchPaths")]
     pub fn search_paths(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<SearchRequest>(&options)?;
+        let request = read_request::<SearchRequest>(&options)?;
         self.lock()?.search_paths_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "searchPattern")]
     pub fn search_pattern(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<SearchPatternRequest>(&options)?;
+        let request = read_request::<SearchPatternRequest>(&options)?;
         self.lock()?
             .search_pattern_json(request)
             .map_err(napi_error)
@@ -171,7 +171,7 @@ impl NativeBackend {
 
     #[napi(js_name = "searchPatternPaths")]
     pub fn search_pattern_paths(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<SearchPatternRequest>(&options)?;
+        let request = read_request::<SearchPatternRequest>(&options)?;
         self.lock()?
             .search_pattern_paths_json(request)
             .map_err(napi_error)
@@ -179,7 +179,7 @@ impl NativeBackend {
 
     #[napi(js_name = "searchObserved")]
     pub fn search_observed(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ObservedRequest<SearchRequest>>(&options)?;
+        let request = read_request::<ObservedRequest<SearchRequest>>(&options)?;
         self.lock()?
             .search_observed_json(request)
             .map_err(napi_error)
@@ -187,7 +187,7 @@ impl NativeBackend {
 
     #[napi(js_name = "searchPathsObserved")]
     pub fn search_paths_observed(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ObservedRequest<SearchRequest>>(&options)?;
+        let request = read_request::<ObservedRequest<SearchRequest>>(&options)?;
         self.lock()?
             .search_paths_observed_json(request)
             .map_err(napi_error)
@@ -195,7 +195,7 @@ impl NativeBackend {
 
     #[napi(js_name = "searchPatternObserved")]
     pub fn search_pattern_observed(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ObservedRequest<SearchPatternRequest>>(&options)?;
+        let request = read_request::<ObservedRequest<SearchPatternRequest>>(&options)?;
         self.lock()?
             .search_pattern_observed_json(request)
             .map_err(napi_error)
@@ -203,7 +203,7 @@ impl NativeBackend {
 
     #[napi(js_name = "searchPatternPathsObserved")]
     pub fn search_pattern_paths_observed(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ObservedRequest<SearchPatternRequest>>(&options)?;
+        let request = read_request::<ObservedRequest<SearchPatternRequest>>(&options)?;
         self.lock()?
             .search_pattern_paths_observed_json(request)
             .map_err(napi_error)
@@ -211,25 +211,25 @@ impl NativeBackend {
 
     #[napi]
     pub fn simplify(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<PatternRequest>(&options)?;
+        let request = read_request::<PatternRequest>(&options)?;
         serialize_native(&self.lock()?.simplify(request).map_err(napi_error)?)
     }
 
     #[napi]
     pub fn implies(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ImplicationRequest>(&options)?;
+        let request = read_request::<ImplicationRequest>(&options)?;
         serialize_native(&self.lock()?.implies(request).map_err(napi_error)?)
     }
 
     #[napi(js_name = "getModel")]
     pub fn get_model(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<PatternRequest>(&options)?;
+        let request = read_request::<PatternRequest>(&options)?;
         serialize_native(&self.lock()?.get_model(request).map_err(napi_error)?)
     }
 
     #[napi]
     pub fn prove(&self, options: String) -> Result<String> {
-        let request = deserialize_native::<ProveRequest>(&options)?;
+        let request = read_request::<ProveRequest>(&options)?;
         serialize_native(&self.lock()?.prove(request).map_err(napi_error)?)
     }
 
@@ -439,12 +439,11 @@ fn napi_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(error.to_string())
 }
 
-fn deserialize_native<T: serde::de::DeserializeOwned>(json: &str) -> Result<T> {
-    let mut deserializer = serde_json::Deserializer::from_str(json);
-    deserializer.disable_recursion_limit();
-    let value = serde::Deserialize::deserialize(&mut deserializer).map_err(napi_error)?;
-    deserializer.end().map_err(napi_error)?;
-    Ok(value)
+/// Decodes a backend request with the facade's reader: KORE fields are decoded iteratively and
+/// serde's recursion limit stays on, so input of any depth is an error or a request, never a
+/// stack overflow on Node's main thread.
+fn read_request<T: serde::de::DeserializeOwned>(json: &str) -> Result<T> {
+    deserialize_request(json).map_err(napi_error)
 }
 
 fn serialize_native(value: &impl serde::Serialize) -> Result<String> {

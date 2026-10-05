@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path};
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ImplicationRequest, ObservedRequest,
-        PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest,
+        PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest, deserialize_request,
     },
     builtin::embedded,
     definition::checks::check_definition,
@@ -27,7 +27,7 @@ use k_rust::{
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 use wasm_bindgen::prelude::*;
 
 #[derive(Deserialize)]
@@ -75,21 +75,21 @@ struct Source {
 #[serde(rename_all = "camelCase")]
 struct SerializedKast {
     text: String,
-    kast: Value,
+    kast: Box<RawValue>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SerializedKore {
     text: String,
-    kore: Value,
+    kore: Box<RawValue>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ParsedProgram {
     text: String,
-    kast: Value,
+    kast: Box<RawValue>,
     diagnostics: Vec<WasmDiagnostic>,
 }
 
@@ -399,7 +399,7 @@ fn parse_program(options: &str) -> Result<String, String> {
         .map_err(display_error)?;
     serialize(&ParsedProgram {
         text: program.to_kast_text(),
-        kast: json_value(program.to_kast_json().map_err(display_error)?)?,
+        kast: raw_json(program.to_kast_json().map_err(display_error)?)?,
         diagnostics: diagnostics.into_iter().map(Into::into).collect(),
     })
 }
@@ -414,7 +414,7 @@ fn parse_kast(source: &str) -> Result<String, String> {
     let term = parse_term(source).map_err(display_error)?;
     serialize(&SerializedKast {
         text: KastPrinter::new().print_term(&term),
-        kast: json_value(kast_json::to_string(&term).map_err(display_error)?)?,
+        kast: raw_json(kast_json::to_string(&term).map_err(display_error)?)?,
     })
 }
 
@@ -435,7 +435,7 @@ fn parse_kore(source: &str, width: Option<u32>) -> Result<String, String> {
     let pattern = parse_pattern(source).map_err(display_error)?;
     serialize(&SerializedKore {
         text: kore_printer(width).print_pattern(&pattern),
-        kore: kore_json::to_value(&pattern).map_err(display_error)?,
+        kore: raw_json(kore_json::to_string(&pattern).map_err(display_error)?)?,
     })
 }
 
@@ -465,20 +465,17 @@ fn serialize(value: &impl Serialize) -> Result<String, String> {
     serde_json::to_string(value).map_err(display_error)
 }
 
+/// Decodes a backend request with the facade's reader: KORE fields are decoded iteratively and
+/// serde's recursion limit stays on, so input of any depth is an error or a request, never a
+/// trap on the WebAssembly stack.
 fn deserialize_backend_request<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, String> {
-    let mut deserializer = serde_json::Deserializer::from_str(json);
-    deserializer.disable_recursion_limit();
-    let value = T::deserialize(&mut deserializer).map_err(display_error)?;
-    deserializer.end().map_err(display_error)?;
-    Ok(value)
+    deserialize_request(json).map_err(display_error)
 }
 
-fn json_value(json: String) -> Result<Value, String> {
-    let mut deserializer = serde_json::Deserializer::from_str(&json);
-    deserializer.disable_recursion_limit();
-    let value = Value::deserialize(&mut deserializer).map_err(display_error)?;
-    deserializer.end().map_err(display_error)?;
-    Ok(value)
+/// Embeds JSON text that k-rust wrote as a member of a response without rebuilding it as a
+/// JSON value, whose construction, serialization, and destruction would recurse per level.
+fn raw_json(json: String) -> Result<Box<RawValue>, String> {
+    RawValue::from_string(json).map_err(display_error)
 }
 
 fn display_error(error: impl std::fmt::Display) -> String {
@@ -603,13 +600,19 @@ impl SourceResolver for VirtualResolver {
 mod tests {
     use super::*;
 
+    const DEEP_LEVELS: usize = 200_000;
+    const PRETTY_LEVELS: usize = 2_000;
+
+    /// KORE JSON for a `\not` chain `depth` deep, built without a JSON value.
     fn deeply_nested_kore_json(depth: usize) -> String {
         let sort = r#"{"tag":"SortApp","name":"SortK","args":[]}"#;
-        let mut term = format!(r#"{{"tag":"Top","sort":{sort}}}"#);
+        let mut json = String::from(r#"{"format":"KORE","version":1,"term":"#);
         for _ in 0..depth {
-            term = format!(r#"{{"tag":"Not","sort":{sort},"arg":{term}}}"#);
+            json.push_str(&format!(r#"{{"tag":"Not","sort":{sort},"arg":"#));
         }
-        format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#)
+        json.push_str(&format!(r#"{{"tag":"Top","sort":{sort}}}"#));
+        json.push_str(&"}".repeat(depth + 1));
+        json
     }
 
     fn deeply_nested_backend_request(depth: usize) -> String {
@@ -624,24 +627,56 @@ mod tests {
         format!(r#"{{"state":{{"format":"KORE","version":1,"term":{term}}},"maxDepth":0}}"#)
     }
 
-    #[test]
-    fn converts_deep_serialized_values_without_the_default_json_recursion_limit() {
-        let mut json = "null".to_owned();
-        for _ in 0..160 {
-            json = format!("[{json}]");
-        }
-
-        assert!(json_value(json).is_ok());
+    fn test_backend() -> WasmBackend {
+        let inner = Backend::new(
+            r#"[]
+            module TEST
+              sort SortK{} []
+              symbol value{}() : SortK{} [constructor{}()]
+              symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+            endmodule []"#,
+            "TEST",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        WasmBackend { inner }
     }
 
+    /// Printing and reparsing go through the pretty printer, which indents every nesting level,
+    /// so its output grows with the square of the depth, about 2 bytes per level squared:
+    /// 2,000 levels print about 8 MB, while 200,000 levels would print about 80 GB. The JSON
+    /// readers and writers around it are depth-independent, which the small stack checks.
     #[test]
-    fn prints_deep_kore_json_without_the_default_recursion_limit() {
+    fn prints_and_reencodes_deep_kore_json_on_a_small_thread() {
         std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| assert!(print_kore(&deeply_nested_kore_json(160), None).is_ok()))
+            .stack_size(256 << 10)
+            .spawn(|| {
+                let json = deeply_nested_kore_json(PRETTY_LEVELS);
+                let printed = print_kore(&json, None).unwrap();
+                assert_eq!(printed.matches(r"\not{").count(), PRETTY_LEVELS);
+
+                let parsed = parse_kore(&printed, None).unwrap();
+                assert_eq!(parsed.matches(r#""tag":"Not""#).count(), PRETTY_LEVELS);
+            })
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// The KORE JSON of a response is embedded as text, so a pattern of any depth is written
+    /// without native recursion. The 200,000-level pattern and its 14 MB of JSON are the test's
+    /// whole footprint.
+    #[test]
+    fn embeds_deep_kore_json_in_responses_on_the_test_thread() {
+        let json = deeply_nested_kore_json(DEEP_LEVELS);
+        let pattern = kore_json::from_str(&json).unwrap();
+        let response = serialize(&SerializedKore {
+            text: String::new(),
+            kore: raw_json(kore_json::to_string(&pattern).unwrap()).unwrap(),
+        })
+        .unwrap();
+        drop(pattern);
+        assert_eq!(response.matches(r#""tag":"Not""#).count(), DEEP_LEVELS);
     }
 
     #[test]
@@ -652,25 +687,45 @@ mod tests {
         assert_eq!(printed.matches("g(_)_TEST-SYNTAX_Exp_Exp").count(), 70);
     }
 
+    /// A 200,000-level request decodes into a pattern and malformed ones of that depth are
+    /// errors, on the test thread; each input is at most 10 MB and the pattern about 40 MB.
     #[test]
-    fn backend_requests_do_not_apply_the_default_recursion_limit() {
+    fn deep_backend_requests_decode_and_deep_malformed_ones_are_errors() {
+        let request = deserialize_backend_request::<ExecuteRequest>(
+            &deeply_nested_backend_request(DEEP_LEVELS),
+        )
+        .unwrap();
+        assert_eq!(request.max_depth, Some(0));
+        drop(request);
+
+        let state = deeply_nested_kore_json(1);
+        for (malformed, expected) in [
+            (format!(r#"{{"state":{}"#, "[".repeat(DEEP_LEVELS)), "EOF"),
+            (
+                format!(r#"{{"state":{}"#, "{\"a\":".repeat(DEEP_LEVELS)),
+                "EOF",
+            ),
+            (
+                format!(
+                    r#"{{"state":{state},"moduleName":{}"#,
+                    "[".repeat(DEEP_LEVELS)
+                ),
+                "invalid type",
+            ),
+        ] {
+            let error = deserialize_backend_request::<ExecuteRequest>(&malformed).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    /// Execution's backend passes over the state still recurse per level, so this runs on a
+    /// larger stack than a test thread's; the request reader itself is depth-independent.
+    #[test]
+    fn backend_requests_deeper_than_the_default_recursion_limit_execute() {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
-                let inner = Backend::new(
-                    r#"[]
-                    module TEST
-                      sort SortK{} []
-                      symbol value{}() : SortK{} [constructor{}()]
-                      symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
-                    endmodule []"#,
-                    "TEST",
-                    BackendOptions::default(),
-                )
-                .unwrap();
-                let mut backend = WasmBackend { inner };
-
-                backend
+                test_backend()
                     .execute(&deeply_nested_backend_request(200))
                     .unwrap();
             })
