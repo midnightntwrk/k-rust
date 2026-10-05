@@ -45,7 +45,7 @@ use crate::{
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
-    fresh::freshen_existential,
+    fresh::{FreshCounter, fresh_variable},
     ite::SplitSide,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
@@ -58,7 +58,10 @@ use crate::{
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::{Stop, Stoppable},
     substitution::{Substitution, compose, extract_substitution, substitute},
-    term::{Sort, Symbol, Term, TermKind, Variable},
+    term::{
+        Sort, Symbol, Term, TermKind, Variable,
+        names::{VariableProvenance, split_marker},
+    },
     transition::ExecutionIoState,
 };
 
@@ -299,7 +302,7 @@ pub(super) fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -377,7 +380,7 @@ pub(super) fn apply_rule_with_match(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -453,7 +456,7 @@ pub(super) fn apply_rule_with_match(
 /// assume.
 fn apply_rule_phases(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     matched: Option<PartialRuleMatch>,
 ) -> Phase<RuleAttempt> {
     let (matching, mut inherited_conditions) = initial_match(context, matched);
@@ -500,6 +503,7 @@ fn apply_rule_phases(
         validity_and_applicability(context, requires, &match_knowledge, &match_conditions)?;
     instantiate(
         context,
+        fresh_counter,
         substitution,
         match_conditions,
         match_knowledge,
@@ -511,7 +515,7 @@ fn apply_rule_phases(
 /// Re-enter the attempt with a partial match, the recursion of the invariant above.
 fn reenter(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     matched: PartialRuleMatch,
 ) -> Stoppable<RuleAttempt> {
     context.nested(|| {
@@ -589,7 +593,7 @@ fn knowledge(
 /// (P4 to P6).
 fn dispatch_match(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     matching: MatchResult,
     inherited_conditions: &mut Vec<Predicate>,
     inherited_knowledge: &mut Vec<Predicate>,
@@ -699,7 +703,7 @@ fn recover_by_simplification(
 /// ```
 fn recover_by_split(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     substitution: &Substitution,
     remainder: &[(Term, Term)],
     inherited_conditions: &[Predicate],
@@ -708,7 +712,7 @@ fn recover_by_split(
     let definition = context.definition;
     let rule = context.rule;
     let pattern = context.pattern;
-    let reenter_with = |fresh_counter: &mut u64, mut matched: PartialRuleMatch| {
+    let reenter_with = |fresh_counter: &mut FreshCounter, mut matched: PartialRuleMatch| {
         let mut conditions = inherited_conditions.to_vec();
         conditions.append(&mut matched.conditions);
         matched.conditions = conditions;
@@ -808,7 +812,7 @@ fn recover_by_split(
 #[deny(clippy::wildcard_enum_match_arm)]
 fn recover_by_unification(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     substitution: Substitution,
     remainder: Vec<(Term, Term)>,
     inherited_conditions: &[Predicate],
@@ -1080,7 +1084,7 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
 /// conditions re-enter the attempt once with them composed in.
 fn requires(
     context: RuleContext<'_>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     substitution: &Substitution,
     match_conditions: &[Predicate],
     path_knowledge: Vec<Predicate>,
@@ -1260,6 +1264,7 @@ fn validity_and_applicability(
 #[deny(clippy::wildcard_enum_match_arm)]
 fn instantiate(
     context: RuleContext<'_>,
+    fresh_counter: &mut FreshCounter,
     substitution: Substitution,
     match_conditions: Vec<Predicate>,
     match_knowledge: Vec<Predicate>,
@@ -1287,7 +1292,33 @@ fn instantiate(
         }
     }
 
-    let existential_substitution = freshen_existentials(rule, pattern);
+    // A rule variable that neither the match nor the requires bound denotes, at each
+    // application, some value the rule introduces; so does a right-hand-side existential. Each
+    // is minted from the request's counter, here, before the successor and every condition it
+    // carries are instantiated, so they all name the same new variable and no other variable of
+    // the request or of an earlier application.
+    let minted = mint_unbound_rule_variables(rule, pattern, &substitution, fresh_counter);
+    let (substitution, match_conditions, match_knowledge, unclear_requires) = if minted.is_empty() {
+        (
+            substitution,
+            match_conditions,
+            match_knowledge,
+            unclear_requires,
+        )
+    } else {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "renaming rule variables to fresh variables preserves definedness"
+        )]
+        let rename = |predicates: &[Predicate]| substitute_predicates(predicates, &minted);
+        (
+            compose(&minted, &substitution),
+            rename(&match_conditions),
+            rename(&match_knowledge),
+            rename(&unclear_requires),
+        )
+    };
+    let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
     let alternatives = match &rule.rhs {
@@ -1760,15 +1791,62 @@ fn combine_rule_attempts(
     })
 }
 
-/// The rule's existentials renamed apart from every variable of `pattern`, each through
-/// `fresh::freshen_existential`.
-fn freshen_existentials(rule: &RewriteRule, pattern: &Pattern) -> Substitution {
+/// The rule variables that the left-hand side does not bind and that the match and the
+/// requires left unbound, each renamed to a mint of the request's counter that keeps its name
+/// as the base, with the `Ex#` marker in place of `Rule#`.
+fn mint_unbound_rule_variables(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    substitution: &Substitution,
+    fresh_counter: &mut FreshCounter,
+) -> Substitution {
+    let unbound = rule
+        .computed_attributes
+        .unbound_variables
+        .iter()
+        .filter(|variable| !substitution.contains_key(*variable))
+        .collect::<Vec<_>>();
+    if unbound.is_empty() {
+        return Substitution::new();
+    }
+    let mut names_to_avoid = pattern_variable_names(pattern);
+    names_to_avoid.extend(substitution.values().flat_map(|term| {
+        term.attributes()
+            .variables
+            .iter()
+            .map(|variable| variable.name.clone())
+    }));
+    unbound
+        .into_iter()
+        .map(|variable| {
+            let (_, base) = split_marker(
+                &variable.name,
+                &[VariableProvenance::Rule, VariableProvenance::Equation],
+            );
+            let seed = variable
+                .with_name(base.into_owned())
+                .with_provenance(VariableProvenance::Existential);
+            (
+                variable.clone(),
+                fresh_variable(&seed, &mut names_to_avoid, fresh_counter),
+            )
+        })
+        .collect()
+}
+
+/// The rule's existentials, each renamed to a mint of the request's counter that keeps its
+/// `Ex#` marker (`Ex#Var'Ques'X!3`).
+fn freshen_existentials(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    fresh_counter: &mut FreshCounter,
+) -> Substitution {
     let mut names_to_avoid = pattern_variable_names(pattern);
     rule.existentials
         .iter()
         .cloned()
         .map(|variable| {
-            let fresh = freshen_existential(&variable, &mut names_to_avoid);
+            let fresh = fresh_variable(&variable, &mut names_to_avoid, fresh_counter);
             (variable, fresh)
         })
         .collect()
@@ -1842,7 +1920,7 @@ mod tests {
                 .expect("subject should internalize"),
             constraints: Vec::new(),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         let RewriteResult::Branch {
             branches,

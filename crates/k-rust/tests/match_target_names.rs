@@ -1,3 +1,9 @@
+//! A request that executes and then matches a target is one request: the variables the execution
+//! mints are apart from every name of the target too. The target below spells `Ex-hX-b0`, the
+//! spelling of the first mint of the rule variable `X`, at sort `SortT`, while the rule mints `X`
+//! at sort `SortS`. If the execution's counter did not skip the target's spellings, the match
+//! would report two distinct variables under one name, at two sorts.
+//!
 //! A search without a target pattern matches a target the facade makes itself, one variable
 //! spelled like the reference's `VarResult`. That variable is part of the request, so it is
 //! named apart from every variable of the initial states.
@@ -7,6 +13,7 @@ use std::collections::BTreeSet;
 use k_rust::backend::{
     Backend, BackendOptions,
     execution::{BackendRunOptions, SearchRunOptions},
+    search::BackendMatchTarget,
 };
 use k_rust_backend::{rewrite::ExecutionMode, search::SearchType};
 use k_rust_kore::kore::{
@@ -14,6 +21,94 @@ use k_rust_kore::kore::{
     parser::{parse_definition, parse_pattern},
     printer::Printer,
 };
+
+const DEFINITION: &str = r#"[]
+module TEST
+  sort SortS{} []
+  sort SortT{} []
+  sort SortState{} []
+  symbol a{}() : SortS{} [constructor{}(), functional{}()]
+  symbol t{}() : SortT{} [constructor{}(), functional{}()]
+  symbol start{}() : SortState{} [constructor{}(), functional{}()]
+  symbol pair{}(SortS{}, SortT{}) : SortState{} [constructor{}(), functional{}()]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(start{}(), \top{SortState{}}()),
+    \and{SortState{}}(pair{}(X:SortS{}, t{}()), \top{SortState{}}())
+  ) [label{}("mint")]
+endmodule []"#;
+
+/// The printed response of `start()` run one step and matched against `pair(Y, <name>:SortT)`,
+/// by execution then match, or by search (which already reserved the target's names).
+fn matched(name: &str, searching: bool) -> String {
+    let mut backend = Backend::from_definition(
+        parse_definition(DEFINITION).unwrap(),
+        "TEST",
+        BackendOptions::default(),
+    )
+    .unwrap();
+    let definition = backend.select_definition(None).unwrap();
+    let read = |source: &str| {
+        let syntax = parse_pattern(source).unwrap();
+        definition
+            .verify_standalone_pattern(&syntax, &[])
+            .and_then(|admitted| admitted.internalize_pattern())
+            .unwrap()
+    };
+    let initial = read("start{}()");
+    let target = read(&format!("pair{{}}(Y:SortS{{}}, {name}:SortT{{}})"));
+    let result = backend
+        .run_cli(
+            None,
+            vec![initial],
+            BackendRunOptions {
+                depth: 1,
+                max_simplification_iterations: 1000,
+                breadth_limit: None,
+                execute_to_branch: false,
+                cut_point_rules: BTreeSet::new(),
+                terminal_rules: BTreeSet::new(),
+                strategy: ExecutionMode::All,
+                search: searching.then_some(SearchRunOptions {
+                    search_type: SearchType::One,
+                    pattern: None,
+                    bound: None,
+                }),
+                match_target: Some(BackendMatchTarget {
+                    pattern: target,
+                    generated_anonymous_variables: BTreeSet::new(),
+                }),
+                function_symbols: BTreeSet::new(),
+                stop_leaves: None,
+                step_timeout: None,
+                moving_average_timeout: false,
+                capture_stdout: false,
+                execution_input: None,
+            },
+        )
+        .unwrap();
+    Printer::compact().print_pattern(&result.pattern.to_pattern())
+}
+
+#[test]
+fn execution_then_match_mints_apart_from_the_target() {
+    for searching in [false, true] {
+        let printed = matched("Ex-hX-b0", searching);
+        let parsed = parse_pattern(&printed).unwrap();
+        let mut backend =
+            Backend::new(DEFINITION, "TEST", BackendOptions::default()).expect("definition");
+        let _ = backend
+            .select_definition(None)
+            .unwrap()
+            .verify_standalone_pattern(&parsed, &[])
+            .unwrap_or_else(|error| {
+                panic!("search {searching}: {printed} names two variables alike: {error}")
+            });
+        assert!(
+            !printed.contains("Ex-hX-b0:SortS{}"),
+            "search {searching}: the mint took the target's name: {printed}"
+        );
+    }
+}
 
 const SEARCH_DEFINITION: &str = r#"[]
 module TEST

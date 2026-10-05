@@ -49,6 +49,7 @@ use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     diagnostic::BackendDiagnostic,
+    fresh::{FreshCounter, RequestNames},
     matching::SortGraph,
     rule::Predicate,
     search::ResultModality,
@@ -473,6 +474,10 @@ pub struct ExecutionOptions {
     /// Retain the full path trace in each result leaf. Callers that only consume the final
     /// configuration can discard previous entries while keeping the latest rewrite for halts.
     pub retain_trace: bool,
+    /// The names of the request's patterns other than the initial ones, such as a target the
+    /// caller matches the results against. The execution mints no name spelled like one of
+    /// them, nor like a variable of the initial patterns (`fresh::FreshCounter`).
+    pub request_names: RequestNames,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -502,6 +507,7 @@ impl Default for ExecutionOptions {
             assume_initial_defined: false,
             result_modality: ResultModality::StateSet,
             retain_trace: true,
+            request_names: RequestNames::default(),
         }
     }
 }
@@ -832,7 +838,7 @@ pub(crate) enum Truth {
 pub fn rewrite_step(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Stoppable<RewriteResult> {
     rewrite_step_with_solver(definition, pattern, fresh_counter, &NoSolver)
 }
@@ -840,7 +846,7 @@ pub fn rewrite_step(
 pub fn rewrite_step_with_solver(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
     rewrite_step_with_options(
@@ -858,7 +864,7 @@ pub fn rewrite_step_with_solver(
 pub fn rewrite_step_sequential_with_solver(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
     rewrite_step_with_mode(
@@ -875,7 +881,7 @@ pub fn rewrite_step_sequential_with_solver(
 pub(crate) fn rewrite_step_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
@@ -893,7 +899,7 @@ pub(crate) fn rewrite_step_with_options(
 pub(crate) fn rewrite_step_sequential_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
@@ -915,7 +921,7 @@ pub(crate) fn rewrite_step_sequential_with_options(
 pub(crate) fn rewrite_step_sequential_tracking_dropped(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<(RewriteResult, bool)> {
@@ -945,7 +951,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
 pub(crate) fn rewrite_step_with_mode(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     mode: ExecutionMode,
@@ -967,7 +973,7 @@ pub(crate) fn rewrite_step_with_mode(
 fn rewrite_step_with_optional_execution(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     mode: ExecutionMode,

@@ -48,7 +48,7 @@ use crate::{
     condition::{MatchSolution, eliminate_bindings, instantiate_constraints},
     definedness::{ceil_term, pattern_knowledge},
     definition::BackendDefinition,
-    fresh::fresh_name,
+    fresh::FreshCounter,
     implication::{
         Coverage, CoverageCondition, ImplicationCondition, ImplicationError, Instance,
         check_disjunctive_implication_with_existentials,
@@ -290,7 +290,14 @@ pub fn prove_claim(
         .difference(&claim.existentials)
         .cloned()
         .collect::<BTreeSet<_>>();
-    let mut fresh_counter = 0;
+    // One request: the proved claim with every circularity and trusted lemma it may apply.
+    // Every name the proof mints, rewriting or renaming a claim, is apart from all of them.
+    let mut fresh_counter = FreshCounter::for_request(
+        &std::iter::once(claim)
+            .chain(circularities.iter().copied())
+            .flat_map(|claim| std::iter::once(&claim.lhs).chain(claim.rhs.iter()))
+            .collect::<Vec<_>>(),
+    );
     let mut explored_states = 0;
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
@@ -391,7 +398,7 @@ pub fn prove_claim(
                     stuck.clone(),
                     $evidence,
                     claim.mode,
-                    fresh_counter,
+                    &fresh_counter,
                     options,
                     solver,
                 ) {
@@ -1014,7 +1021,7 @@ fn stuck_leaf(
     state: ProofState,
     evidence: StuckEvidence,
     mode: ReachabilityMode,
-    fresh_counter: u64,
+    fresh_counter: &FreshCounter,
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<ProofLeaf> {
@@ -1023,7 +1030,14 @@ fn stuck_leaf(
     let refutes = |instance: &Pattern, evidence: StuckEvidence| -> Stoppable<bool> {
         Ok(leaf_is_nonempty(definition, instance, solver)?
             && (evidence == StuckEvidence::StepStuck
-                || has_no_successor(definition, instance, mode, fresh_counter, options, solver)?))
+                || has_no_successor(
+                    definition,
+                    instance,
+                    mode,
+                    fresh_counter.clone(),
+                    options,
+                    solver,
+                )?))
     };
     leaf.certified = leaf.outcome == ProofLeafOutcome::Stuck
         && path_certifiable
@@ -1109,7 +1123,7 @@ fn has_no_successor(
     definition: &BackendDefinition,
     pattern: &Pattern,
     mode: ReachabilityMode,
-    mut fresh_counter: u64,
+    mut fresh_counter: FreshCounter,
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<bool> {
@@ -1270,7 +1284,7 @@ fn apply_claim(
     subject: &Pattern,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Stoppable<ClaimApplication> {
     let claim = freshen_claim(claim, subject, fresh_counter);
     let claim_variables = variables_of_claim(&claim);
@@ -1678,7 +1692,7 @@ fn variables_of_claim(claim: &ReachabilityClaim) -> BTreeSet<crate::term::Variab
 fn freshen_claim(
     claim: &ReachabilityClaim,
     subject: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> ReachabilityClaim {
     let mut names = subject
         .term
@@ -1698,12 +1712,7 @@ fn freshen_claim(
     let variables = variables_of_claim(claim);
     let mut renaming = Substitution::new();
     for variable in variables {
-        let name = fresh_name(
-            &variable.name,
-            FreshMarker::Claim,
-            fresh_counter,
-            &mut names,
-        );
+        let name = fresh_counter.mint(&variable.name, FreshMarker::Claim, &mut names);
         renaming.insert(variable.clone(), Term::variable(variable.with_name(name)));
     }
     #[expect(
@@ -2227,7 +2236,7 @@ mod tests {
             term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
             constraints: Vec::new(),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
         let application = apply_claim(
             &definition,
             &claim,
@@ -2281,7 +2290,7 @@ mod tests {
             ),
             constraints: Vec::new(),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
         let application = apply_claim(
             &definition,
             &claim,
@@ -2858,7 +2867,7 @@ mod tests {
             term: term(&definition, "middle{}(X:SortInt{})"),
             constraints: Vec::new(),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         let ClaimApplication::Applied {
             patterns,
@@ -2906,7 +2915,7 @@ mod tests {
         };
 
         for solver in [&solver as &dyn SmtSolver, &NoSolver as &dyn SmtSolver] {
-            let mut fresh = 0;
+            let mut fresh = crate::fresh::FreshCounter::default();
             let ClaimApplication::Applied {
                 patterns,
                 remainder: Some(remainder),
@@ -2946,7 +2955,7 @@ mod tests {
             satisfiability: Ok(Satisfiability::Sat),
             validity: Ok(Validity::Unknown("timeout".into())),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         assert!(matches!(
             apply_claim(
@@ -3656,7 +3665,7 @@ mod tests {
             term: term(&definition, "a{}()"),
             constraints: Vec::new(),
         };
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         let result = apply_claim(
             &definition,

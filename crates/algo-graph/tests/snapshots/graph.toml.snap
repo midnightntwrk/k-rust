@@ -1476,7 +1476,7 @@ kind = "algorithm"
 id = "backend.fresh.variables"
 provenance = "declared"
 area = "backend"
-name = "counter-suffixed backend variable naming with collision retry"
+name = "request-scoped variable naming with collision retry"
 variable = "c = colliding candidate names; v = variable names collected into a site's avoid set"
 no_counter = "fresh backend variable naming has no dedicated counter"
 span = "none"
@@ -1486,7 +1486,7 @@ registry_name = "BackendFreshVariables"
 [node.anchor]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/fresh.rs"
-symbol = "fresh_name"
+symbol = "FreshCounter::mint"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1496,22 +1496,17 @@ symbol = "fresh_variable"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "FreshCounter::mint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
 symbol = "fresh_name"
 
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/fresh.rs"
 symbol = "fresh_variable"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/fresh.rs"
-symbol = "freshen_existential"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/fresh.rs"
-symbol = "increment_name_counter"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1534,15 +1529,15 @@ file = "crates/k-rust-backend/src/rule.rs"
 symbol = "fresh_renaming"
 
 [[node.cost]]
-mode = "shared counter"
+mode = "request counter"
+bound = "O(c log v) per name, amortized O(log v) with one growing counter per request"
+
+[[node.cost]]
+mode = "local counter"
 bound = "O(c) per name, amortized O(1)"
 
 [[node.cost]]
-mode = "Booster existential spelling"
-bound = "O(c) trailing-decimal retries"
-
-[[node.cost]]
-mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, rename_apart, alias fresh_variable)"
+mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart, alias fresh_variable)"
 bound = "O(v log v) per call before the retry loop"
 
 [[node.cost]]

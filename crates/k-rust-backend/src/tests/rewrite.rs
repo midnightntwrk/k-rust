@@ -450,7 +450,7 @@ fn rhs_disjunction_branches_in_all_and_any_modes() {
     };
 
     for mode in [ExecutionMode::All, ExecutionMode::Any] {
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
         let result = rewrite_step_with_mode(
             &definition,
             &subject,
@@ -495,7 +495,7 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         constraints: Vec::new(),
     };
     let solver = crate::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = crate::fresh::FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -526,7 +526,7 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         [&function]
     );
 
-    let mut fresh = 0;
+    let mut fresh = crate::fresh::FreshCounter::default();
     let RewriteResult::Finished(assumed_defined) = rewrite_step_with_mode(
         &definition,
         &subject,

@@ -277,15 +277,15 @@ In `fresh.rs`:
 
 ```toml algorithm
 id = "backend.fresh.variables"
-name = "counter-suffixed backend variable naming with collision retry"
-sites = ["fresh_name", "fresh_variable", "freshen_existential"]
-variable = "c = colliding candidate names"
+name = "request-scoped variable naming with collision retry"
+sites = ["FreshCounter::mint", "fresh_name", "fresh_variable"]
+variable = "c = colliding candidate names; v = variable names collected into a site's avoid set"
 counters = []
 no_counter = "fresh backend variable naming has no dedicated counter"
 
 [[cost]]
-mode = "shared counter"
-bound = "O(c) per name, amortized O(1)"
+mode = "request counter"
+bound = "O(c log v) per name, amortized O(log v) with one growing counter per request"
 ```
 
 In `proof.rs`:

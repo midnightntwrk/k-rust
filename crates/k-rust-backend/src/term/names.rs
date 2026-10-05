@@ -32,9 +32,14 @@ use super::Variable;
 /// The variable-name contract of the backend's responses, for consumers that depend on it.
 ///
 /// 1: names read from KORE are kept verbatim and printed unchanged; every other name the
-/// backend prints is escaped by [`encode_variable_name`]; distinct variables of one printed
-/// pattern have distinct spellings, and a binder never captures a variable it did not bind.
-pub const VARIABLE_IDENTITY: u32 = 1;
+/// backend prints is escaped by [`encode_variable_name`]; a printed binder never captures a
+/// variable it did not bind.
+///
+/// 2: in addition, every variable a rewrite introduces into a state (a right-hand-side
+/// existential, a rule variable the match left unbound, a narrowed frame) is minted from one
+/// counter per request (`crate::fresh::FreshCounter`): it is unique in the request, never
+/// reused along a path, and spelled like no variable of the request.
+pub const VARIABLE_IDENTITY: u32 = 2;
 
 /// Whether `name` is a variable name a KORE reader accepts: an identifier, or `@` followed by
 /// an identifier for a set variable.
@@ -219,8 +224,8 @@ pub enum FreshMarker {
     Exists,
     /// `{base}!apart{counter}`: rule variables renamed apart from the scope of an application.
     Apart,
-    /// `{base}!binder{counter}`: quantifier variables renamed for the duration of one predicate
-    /// match; they never leave it.
+    /// `{base}!binder{counter}`: quantifier variables renamed so that a substitution under
+    /// them, or the printer, captures nothing; they stay bound.
     Binder,
 }
 

@@ -887,7 +887,7 @@ mod tests {
                 &[],
             )
             .unwrap();
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         let RewriteResult::Branch {
             branches,
@@ -943,7 +943,7 @@ mod tests {
                 &[],
             )
             .unwrap();
-        let mut fresh = 0;
+        let mut fresh = crate::fresh::FreshCounter::default();
 
         let RewriteResult::Finished(applied) = rewrite_step(
             &definition,

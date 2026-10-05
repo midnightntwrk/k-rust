@@ -96,6 +96,7 @@ use crate::{
     definedness::{FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
+    fresh::{FreshCounter, RequestNames},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
@@ -653,6 +654,7 @@ fn search_graph_using(
     search_graph_collecting(
         definition,
         initial,
+        RequestNames::default(),
         options,
         solver,
         observation,
@@ -665,6 +667,7 @@ fn search_graph_using(
 fn search_graph_collecting(
     definition: &BackendDefinition,
     initial: Vec<Pattern>,
+    request: RequestNames,
     options: SearchOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
@@ -677,7 +680,13 @@ fn search_graph_collecting(
     let mut states = Vec::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
-    let mut fresh_counter = 0;
+    // One request: every name the search mints is apart from every variable of the initial
+    // patterns and of the target it matches them against.
+    let mut fresh_counter = {
+        let mut names = RequestNames::of(&initial.iter().collect::<Vec<_>>());
+        names.extend(&request);
+        FreshCounter::for_request_names(names)
+    };
     // Kore's execution graph recombines branches that reach the same configuration at the same
     // step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search drops any
     // configuration it has already visited: the search is over states, not over paths. Two
@@ -936,7 +945,7 @@ fn search_graph_collecting(
         // A `Final` search selects this state before its step only at the depth bound, where
         // the state has no successor within the bounds; any other selected state may still have
         // successors.
-        let may_expand = |fresh_counter: &mut u64| {
+        let may_expand = |fresh_counter: &mut FreshCounter| {
             options.search_type != SearchType::Final
                 && state_may_expand(
                     definition,
@@ -1230,7 +1239,7 @@ fn step_search_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
     kind: QueuedStateKind,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (Stoppable<RewriteResult>, Vec<BackendDiagnostic>) {
@@ -1445,12 +1454,21 @@ fn search_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
-    search_paths_collecting(definition, initial, options, solver, observation, |_| false)
+    search_paths_collecting(
+        definition,
+        initial,
+        RequestNames::default(),
+        options,
+        solver,
+        observation,
+        |_| false,
+    )
 }
 
 fn search_paths_collecting(
     definition: &BackendDefinition,
     initial: Pattern,
+    request: RequestNames,
     options: SearchOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
@@ -1461,7 +1479,13 @@ fn search_paths_collecting(
     let mut witnesses = Vec::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
-    let mut fresh_counter = 0;
+    // One request: every name the search mints is apart from every variable of the initial
+    // pattern and of the target it matches it against.
+    let mut fresh_counter = {
+        let mut names = RequestNames::of(&[&initial]);
+        names.extend(&request);
+        FreshCounter::for_request_names(names)
+    };
 
     let initial = PathSearchState {
         state: SearchState {
@@ -2064,6 +2088,7 @@ fn search_pattern_using(
     let graph = search_graph_collecting(
         definition,
         initial,
+        RequestNames::of(&[target]),
         graph_options,
         solver,
         observation,
@@ -2209,6 +2234,7 @@ fn search_pattern_paths_using(
     let graph = search_paths_collecting(
         definition,
         initial,
+        RequestNames::of(&[target]),
         graph_options,
         solver,
         observation,
@@ -2585,7 +2611,7 @@ fn state_may_expand(
     state: &SearchState,
     is_rewritable: bool,
     options: SearchOptions,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     solver: &dyn SmtSolver,
 ) -> bool {
     if !is_rewritable {
@@ -3506,6 +3532,7 @@ mod tests {
         let graph_result = search_graph_collecting(
             &definition,
             vec![initial],
+            RequestNames::default(),
             options,
             &NoSolver,
             None,

@@ -717,6 +717,7 @@ impl Backend {
                 assume_initial_defined: request.assume_state_defined,
                 result_modality: request.result_modality.into(),
                 retain_trace: true,
+                request_names: Default::default(),
             };
             let result = match observation_rules {
                 Some(rules) => {

@@ -69,7 +69,10 @@ use k_rust_backend::{
     smt::{ModelResult, SmtError, SmtSolver},
     stop::{self, Stop, StopCause, Stoppable},
     substitution::{Substitution, extract_substitution, substitute},
-    term::{Name as BackendName, Sort as BackendSort, Term, Variable},
+    term::{
+        Name as BackendName, Sort as BackendSort, Term, Variable,
+        names::{VariableProvenance, split_marker},
+    },
 };
 #[cfg(feature = "measure")]
 use k_rust_kore::measure::{self, Algorithm, Counter};
@@ -1917,8 +1920,16 @@ fn split_constraints(
     (predicates, substitution)
 }
 
+/// Whether `variable` is a right-hand-side existential a rewrite of this request minted: its
+/// name carries the `Ex#` marker the rewriter gives it, and its rule name is a K `?` variable.
+/// No request variable has a marker, whatever it is spelled (`Ex-hVar'Ques'X-b0` is read as an
+/// ordinary variable), so a variable of the request is never projected as one.
 fn is_rewrite_existential(variable: &Variable) -> bool {
-    let (_, decoded) = k_rust::kast::identifier::decode_variable(&variable.name);
+    let (provenance, rest) = split_marker(&variable.name, &[VariableProvenance::Existential]);
+    if provenance != Some(VariableProvenance::Existential) {
+        return false;
+    }
+    let (_, decoded) = k_rust::kast::identifier::decode_variable(&rest);
     decoded.is_ok_and(|name| name.starts_with('?'))
 }
 
@@ -4524,13 +4535,24 @@ endmodule
     #[test]
     fn rewrite_existential_names_use_the_shared_identifier_decoder() {
         let sort = BackendSort::simple("SortS");
-        for name in ["?X", "Var?X", "Var'Ques'X"] {
+        for name in ["Ex#?X!0", "Ex#Var?X!1", "Ex#Var'Ques'X!2"] {
             assert!(
                 is_rewrite_existential(&Variable::new(name, sort.clone())),
                 "{name}"
             );
         }
-        assert!(!is_rewrite_existential(&Variable::new("VarX", sort)));
+        for name in [
+            "Var'Ques'X",
+            "Rule#Var'Ques'X",
+            "Ex#VarX!0",
+            "Ex-hVar'Ques'X-b0",
+            "VarX",
+        ] {
+            assert!(
+                !is_rewrite_existential(&Variable::new(name, sort.clone())),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -5527,7 +5549,7 @@ endmodule
         );
         let substitution = &response["result"]["state"]["substitution"]["term"];
         assert_eq!(substitution["tag"], "Equals");
-        assert_eq!(substitution["first"]["name"], "Var'Ques'X");
+        assert_eq!(substitution["first"]["name"], "Ex-hVar'Ques'X-b0");
         assert_eq!(substitution["second"]["value"], "42");
         assert!(response["result"]["state"].get("predicate").is_none());
     }
@@ -5596,7 +5618,7 @@ endmodule
         );
         let substitution = &response["result"]["state"]["substitution"]["term"];
         assert_eq!(substitution["tag"], "Equals");
-        assert_eq!(substitution["first"]["name"], "Var'Ques'Y");
+        assert_eq!(substitution["first"]["name"], "Ex-hVar'Ques'Y-b0");
         assert_eq!(substitution["second"]["name"], "value");
         assert!(response["result"]["state"].get("predicate").is_none());
     }

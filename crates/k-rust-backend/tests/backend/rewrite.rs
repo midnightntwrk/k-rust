@@ -12,6 +12,7 @@ use k_rust_backend::{
     builtin::{BuiltinEffect, UnsupportedHookReason},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
+    fresh::FreshCounter,
     rewrite::*,
     rule::Predicate,
     search::ResultModality,
@@ -22,7 +23,10 @@ use k_rust_backend::{
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
     stop::{CancellationToken, Stop, StopCause, Stoppable},
     substitution::Substitution,
-    term::{Sort, Term, TermKind, Variable},
+    term::{
+        Sort, Term, TermKind, Variable,
+        names::{VariableProvenance, encode_variable_name},
+    },
     timeout::StepTimeoutMode,
     transition::{
         EvaluationClass, ExecutionIoState, ObservationEvent, ObservationFilterError,
@@ -116,7 +120,12 @@ fn bare_variable_can_narrow_to_a_constructor_rule() {
         constraints: Vec::new(),
     };
     assert!(matches!(
-        rewrite_step_with_solver(&definition, &subject, &mut 0, &NoSolver),
+        rewrite_step_with_solver(
+            &definition,
+            &subject,
+            &mut FreshCounter::default(),
+            &NoSolver
+        ),
         RewriteResult::Indeterminate { .. }
     ));
     let execution = execute_with_solver(
@@ -136,7 +145,8 @@ fn bare_variable_can_narrow_to_a_constructor_rule() {
     #[cfg(feature = "z3")]
     {
         let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-        let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+        let result =
+            rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
         assert!(
             matches!(result, RewriteResult::Branch { .. }),
             "the constructor instance should branch: {result:?}"
@@ -211,7 +221,7 @@ fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
         constraints: Vec::new(),
     };
     let before = snapshot();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let result = rewrite_step(&definition, &subject, &mut fresh);
     let delta = snapshot().delta(&before);
@@ -223,7 +233,7 @@ fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
             reason: IndeterminateReason::SurvivingMacroOrAlias { symbol: "m".into() },
         }
     );
-    assert_eq!(fresh, 0);
+    assert_eq!(fresh.next_index(), 0);
     assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
     assert_eq!(delta.get(Counter::MatchingPairs), 0);
 
@@ -259,7 +269,7 @@ fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
         )],
     };
     let before = snapshot();
-    let rewrite = rewrite_step(&definition, &constrained, &mut 0);
+    let rewrite = rewrite_step(&definition, &constrained, &mut FreshCounter::default());
     assert!(matches!(
         rewrite,
         RewriteResult::Indeterminate {
@@ -347,7 +357,8 @@ fn spawning_a_distinct_normalized_ground_cell_has_no_residual_inequality() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+    let result =
+        rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
     let RewriteResult::Finished(applied) = result else {
         panic!("the rule must produce a successor rather than a trivial result: {result:?}");
     };
@@ -383,7 +394,8 @@ fn spawning_a_duplicate_ground_cell_is_an_undefined_step() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+    let result =
+        rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
     assert!(
         matches!(
             &result,
@@ -407,7 +419,7 @@ fn ground_non_result_overload_heats_without_a_remainder_branch() {
         constraints: Vec::new(),
     };
 
-    let result = rewrite_step(&definition, &subject, &mut 0);
+    let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
     let RewriteResult::Finished(applied) = result else {
         panic!("the ground heating condition must be decided: {result:?}");
     };
@@ -467,7 +479,7 @@ fn list_update_patterns_rewrite_only_when_the_selected_element_agrees() {
             ),
             constraints: Vec::new(),
         };
-        let result = rewrite_step(&definition, &subject, &mut 0);
+        let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
         if applies {
             let RewriteResult::Finished(applied) = result else {
                 panic!("({index}, {value}) should rewrite: {result:?}");
@@ -575,7 +587,7 @@ fn cell_map_heating_rejects_rigid_heads_and_allows_a_lower_priority_rule() {
         ],
     ] {
         let subject = cell_map_state(&definition, &entries);
-        let result = rewrite_step(&definition, &subject, &mut 0);
+        let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
         let RewriteResult::Finished(applied) = result else {
             panic!("an impossible heating match must not block the fallback: {result:?}");
         };
@@ -603,7 +615,7 @@ fn cell_map_heating_selects_the_entry_with_the_literal_anywhere_head() {
     );
     let subject = cell_map_state(&definition, &[other.clone(), matching]);
 
-    let result = rewrite_step(&definition, &subject, &mut 0);
+    let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
     let RewriteResult::Finished(applied) = result else {
         panic!("the literal heating head should select exactly one cell: {result:?}");
     };
@@ -637,7 +649,7 @@ fn cell_set_heating_rejects_rigid_heads_and_selects_the_literal_anywhere_head() 
         ],
     ] {
         let subject = cell_set_state(&definition, &entries);
-        let result = rewrite_step(&definition, &subject, &mut 0);
+        let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
         let RewriteResult::Finished(applied) = result else {
             panic!("an impossible Set-cell heating match must allow the fallback: {result:?}");
         };
@@ -651,7 +663,7 @@ fn cell_set_heating_rejects_rigid_heads_and_selects_the_literal_anywhere_head() 
         "inj{SortExp{}, SortKItem{}}(heat{}(expA{}(), expB{}()))",
     );
     let subject = cell_set_state(&definition, &[other.clone(), matching]);
-    let result = rewrite_step(&definition, &subject, &mut 0);
+    let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
     let RewriteResult::Finished(applied) = result else {
         panic!("the literal heating head should select exactly one Set element: {result:?}");
     };
@@ -688,13 +700,20 @@ fn any_mode_keeps_one_collection_candidate_while_all_keeps_both() {
         ],
     );
 
-    let RewriteResult::Branch { branches, .. } = rewrite_step(&definition, &subject, &mut 0) else {
+    let RewriteResult::Branch { branches, .. } =
+        rewrite_step(&definition, &subject, &mut FreshCounter::default())
+    else {
         panic!("all mode must retain both Set candidates");
     };
     assert_eq!(branches.len(), 2);
 
     let before = snapshot();
-    let result = rewrite_step_sequential_with_solver(&definition, &subject, &mut 0, &NoSolver);
+    let result = rewrite_step_sequential_with_solver(
+        &definition,
+        &subject,
+        &mut FreshCounter::default(),
+        &NoSolver,
+    );
     let delta = snapshot().delta(&before);
     let RewriteResult::Finished(applied) = result else {
         panic!("any mode must retain one Set candidate: {result:?}");
@@ -726,13 +745,13 @@ fn concrete_anywhere_head_rejects_a_different_rigid_head() {
         constraints: Vec::new(),
     };
     assert!(subject.term.attributes().constructor_like);
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let result = rewrite_step(&definition, &subject, &mut fresh);
     let RewriteResult::Finished(applied) = result else {
         panic!("a different anywhere head must not block the applicable lookup: {result:?}");
     };
     assert_eq!(applied.unique_id, "lookup");
-    assert_eq!(fresh, 0);
+    assert_eq!(fresh.next_index(), 0);
 }
 
 #[test]
@@ -757,7 +776,7 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
             satisfiability: Ok(Satisfiability::Sat),
             validity: Ok(Validity::Contingent),
         };
-        let mut fresh = 0;
+        let mut fresh = FreshCounter::default();
         let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
         if binds {
             let RewriteResult::Branch { branches, .. } = result else {
@@ -785,7 +804,7 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
             };
             assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
         }
-        assert_eq!(fresh, 0);
+        assert_eq!(fresh.next_index(), 0);
     }
 }
 
@@ -806,7 +825,7 @@ fn anywhere_normalization_and_covered_matching_remain_available() {
     };
     assert!(!subject.term.attributes().constructor_like);
     assert!(subject.term.attributes().variables.is_empty());
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("a covered anywhere match must still apply");
     };
@@ -814,7 +833,7 @@ fn anywhere_normalization_and_covered_matching_remain_available() {
         applied.pattern.term,
         internal_term(&definition, "heated{}(id{}())")
     );
-    assert_eq!(fresh, 0);
+    assert_eq!(fresh.next_index(), 0);
 }
 
 #[test]
@@ -830,7 +849,7 @@ fn ground_anywhere_fragments_do_not_enable_narrowing() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
     assert!(matches!(
         result,
@@ -842,7 +861,11 @@ fn ground_anywhere_fragments_do_not_enable_narrowing() {
             ..
         } if rule_id == "ground-defense" && missing_variables.len() == 1
     ));
-    assert_eq!(fresh, 0, "a ground configuration must not be narrowed");
+    assert_eq!(
+        fresh.next_index(),
+        0,
+        "a ground configuration must not be narrowed"
+    );
 }
 
 #[test]
@@ -857,7 +880,7 @@ fn symbolic_anywhere_fragments_still_enable_narrowing() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let RewriteResult::Branch { branches, .. } =
         rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
     else {
@@ -868,7 +891,7 @@ fn symbolic_anywhere_fragments_still_enable_narrowing() {
             .iter()
             .any(|branch| branch.unique_id == "ground-defense")
     );
-    assert!(fresh > 0);
+    assert!(fresh.next_index() > 0);
 }
 
 #[test]
@@ -882,7 +905,7 @@ fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let RewriteResult::Branch {
         branches,
         remainder: Some(remainder),
@@ -892,7 +915,7 @@ fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
         panic!("symbolic anywhere matching must narrow");
     };
     assert!(branches.iter().any(|branch| branch.unique_id == "heat"));
-    assert_eq!(fresh, 1);
+    assert_eq!(fresh.next_index(), 1);
     assert!(
         remainder
             .pattern
@@ -912,7 +935,7 @@ fn concrete_disequality_does_not_invent_an_operand() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     assert!(matches!(
         rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver),
         RewriteResult::Indeterminate {
@@ -920,7 +943,7 @@ fn concrete_disequality_does_not_invent_an_operand() {
             ..
         }
     ));
-    assert_eq!(fresh, 0);
+    assert_eq!(fresh.next_index(), 0);
 }
 
 fn unresolved_function_rewrite_definition() -> BackendDefinition {
@@ -1083,7 +1106,7 @@ fn assert_constrained_rewrite_applies(attribute: &str, subject: &str) {
         term: internal_term(&definition, subject),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("concreteness attributes must not block rewrite rules");
@@ -1125,7 +1148,7 @@ fn treats_an_undefined_matched_subterm_as_trivial() {
         term: internal_term(&definition, "wrap{}(partial{}())"),
         constraints: vec![Predicate::Not(Box::new(Predicate::Ceil(partial)))],
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let result = rewrite_step(&definition, &subject, &mut fresh);
 
@@ -1160,7 +1183,7 @@ fn rejects_a_symbolic_occurs_check_during_rewriting() {
         term: internal_term(&definition, "pair{}(Y:SortS{}, Y:SortS{})"),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewrite_step(&definition, &subject, &mut fresh),
@@ -1185,7 +1208,7 @@ fn internalizes_a_nested_bottom_rewrite_rhs_as_trivial() {
         term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let result = rewrite_step(&definition, &subject, &mut fresh);
 
@@ -1339,7 +1362,7 @@ fn a_trivial_rule_shadows_lower_priority_rules() {
             "#,
     );
     let initial = subject(&definition, "value");
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step(&definition, &initial, &mut fresh),
@@ -1409,7 +1432,7 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
     let definition = symbolic_trivial_definition(true);
     let initial = symbolic_subject(&definition);
     let solver = indeterminate_sat_solver();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -1487,7 +1510,7 @@ fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
             "#,
     );
     let initial = subject(&definition, "value");
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -1523,7 +1546,7 @@ fn sequential_mode_narrows_by_trivial_rules() {
     let definition = symbolic_trivial_definition(true);
     let initial = symbolic_subject(&definition);
     let solver = indeterminate_sat_solver();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -1557,7 +1580,7 @@ fn trivial_only_sequence_with_a_satisfiable_remainder_is_not_bottom() {
     let definition = symbolic_trivial_definition(false);
     let initial = symbolic_subject(&definition);
     let solver = indeterminate_sat_solver();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -1585,7 +1608,7 @@ fn reports_vacuous_execution_paths() {
         term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
         constraints: vec![Predicate::False],
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewrite_step(&definition, &subject, &mut fresh),
@@ -1887,7 +1910,7 @@ fn tries_priority_groups_in_ascending_numeric_order() {
             ) [label{}("low"), priority{}("50")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewritten_value(rewrite_step(
@@ -1920,7 +1943,7 @@ fn applies_rules_with_top_level_alias_binders() {
             ) [label{}("aliased")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewritten_value(rewrite_step(
@@ -1953,7 +1976,7 @@ fn retries_function_pattern_remainders_after_simplification() {
             ) [label{}("function-pattern")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewritten_value(rewrite_step(
@@ -1996,7 +2019,7 @@ fn simplifies_configuration_functions_after_partial_matching() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewritten_value(rewrite_step(&definition, &pattern, &mut fresh)),
@@ -2032,7 +2055,7 @@ fn narrows_configuration_variables_from_repeated_rule_variables() {
     let expected_variable = internal_term(&definition, "X:SortTerm{}");
     let expected_value = internal_term(&definition, "arrow{}(Y:SortTerm{}, Z:SortTerm{})");
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } =
         rewrite_step_with_solver(&definition, &configuration, &mut fresh, &solver)
@@ -2096,7 +2119,7 @@ fn retains_conditions_from_configuration_function_simplification() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -2126,7 +2149,7 @@ fn unresolved_function_equality_requires_an_smt_solver() {
         )
         .internalize_term()
         .unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step(
@@ -2154,7 +2177,7 @@ fn rigid_no_evaluators_equality_reports_smt_indeterminacy_without_a_solver() {
         term: internal_term(&definition, "state{}(opaque{}(N:SortInt{}))"),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step(&definition, &pattern, &mut fresh),
@@ -2179,7 +2202,7 @@ fn rigid_no_evaluators_equality_is_an_applied_and_complementary_condition() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Contingent),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -2204,7 +2227,7 @@ fn rigid_no_evaluators_equality_is_an_applied_and_complementary_condition() {
         vec![Predicate::Not(Box::new(condition.clone()))]
     );
 
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     assert!(matches!(
         rewrite_step_with_solver(&definition, &remainder.pattern, &mut fresh, &solver),
         RewriteResult::Stuck(_)
@@ -2222,7 +2245,7 @@ fn solver_refutes_a_rigid_no_evaluators_function_equality() {
         satisfiability: Ok(Satisfiability::Unsat),
         validity: Ok(Validity::Contingent),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step_with_solver(&definition, &pattern, &mut fresh, &solver),
@@ -2236,7 +2259,7 @@ fn retains_unresolved_function_equality_as_a_branch_condition() {
     let definition = unresolved_function_rewrite_definition();
     let term = internal_term(&definition, r#"wrap{}(\dv{SortBool{}}("true"))"#);
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -2321,7 +2344,7 @@ fn simplifies_rule_conditions_with_backend_equations_before_rewriting() {
             ) [label{}("fallback"), priority{}("50")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert_eq!(
         rewritten_value(rewrite_step(
@@ -2366,7 +2389,7 @@ fn aborts_before_lower_priorities_when_requires_are_unknown() {
             .unwrap(),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step(&definition, &pattern, &mut fresh),
@@ -2391,7 +2414,7 @@ fn element_variable_bindings_to_set_patterns_do_not_rewrite() {
             ) [label{}("duplicate")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let set_subject = Pattern {
         term: internal_term(&definition, "wrap{}(@Y:SortS{})"),
@@ -2450,7 +2473,7 @@ fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Err(SmtError::Translation(untranslatable.clone())),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step_with_solver(&definition, &pattern, &mut fresh, &solver),
@@ -2487,7 +2510,7 @@ fn assert_solver_verdicts(
             satisfiability: Ok(Satisfiability::Sat),
             validity: validity.clone(),
         };
-        let mut fresh = 0;
+        let mut fresh = FreshCounter::default();
         let result = rewrite_step_with_solver(definition, subject, &mut fresh, &solver);
         match expected {
             VerdictLeaf::Finished(constraints) => {
@@ -2682,7 +2705,7 @@ fn false_requires_prune_a_rule_even_when_matching_is_indeterminate() {
         term: rule.lhs.clone(),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     assert!(matches!(
         rewrite_step(&definition, &pattern, &mut fresh),
@@ -2736,7 +2759,7 @@ fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
                 integer(value),
             )],
         };
-        let mut fresh = 0;
+        let mut fresh = FreshCounter::default();
         rewritten_value(rewrite_step_with_solver(
             &definition,
             &pattern,
@@ -2767,7 +2790,7 @@ fn preserves_a_satisfiable_remainder_from_one_symbolic_rule() {
             "#,
     );
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -3697,7 +3720,7 @@ fn narrows_a_ground_rule_fragment_over_a_symbolic_configuration() {
     );
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = symbolic_subject(&definition);
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -3750,7 +3773,7 @@ fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
         term: internal_term(&definition, "narrowWrap{}(X:SortNarrow{})"),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -3796,7 +3819,7 @@ fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
     );
     assert_ne!(result_variable.name.as_ref(), "Rule#X");
     let first_name = result_variable.name.clone();
-    assert_eq!(fresh, 1);
+    assert_eq!(fresh.next_index(), 1);
     let [Predicate::Not(remainder_condition)] = remainder.pattern.constraints.as_slice() else {
         panic!(
             "expected a negated remainder, found {:?}",
@@ -3823,7 +3846,7 @@ fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
         second[0].pattern.term.kind(),
         TermKind::Variable(variable) if variable.name != first_name
     ));
-    assert_eq!(fresh, 2);
+    assert_eq!(fresh.next_index(), 2);
 }
 
 #[cfg(feature = "z3")]
@@ -3842,7 +3865,7 @@ fn narrows_a_function_pattern_with_a_definedness_condition() {
     );
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let subject = symbolic_subject(&definition);
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -3923,7 +3946,7 @@ fn branches_only_after_complementary_rules_make_the_remainder_unsatisfiable() {
             "#,
     );
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } = rewrite_step_with_solver(
         &definition,
@@ -3961,7 +3984,7 @@ fn branches_when_multiple_rules_in_one_priority_apply() {
             ) [label{}("right")]
             "#,
     );
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } =
         rewrite_step(&definition, &subject(&definition, "value"), &mut fresh)
@@ -4007,7 +4030,7 @@ fn any_mode_uses_declaration_order_within_a_priority() {
     };
 
     let lookup_first = definition(&format!("{lookup}{heat}"));
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let result = rewrite_step_sequential_with_solver(
         &lookup_first,
         &subject(&lookup_first, "value"),
@@ -4025,7 +4048,7 @@ fn any_mode_uses_declaration_order_within_a_priority() {
     );
 
     let heat_first = definition(&format!("{heat}{lookup}"));
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let result = rewrite_step_sequential_with_solver(
         &heat_first,
         &subject(&heat_first, "value"),
@@ -4083,7 +4106,7 @@ fn explicit_rewrite_order_precedes_a_trivial_fallback() {
         term: internal_term(&definition, "state{}(target{}())"),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let result = rewrite_step_sequential_with_solver(&definition, &initial, &mut fresh, &NoSolver);
 
@@ -4095,8 +4118,11 @@ fn explicit_rewrite_order_precedes_a_trivial_fallback() {
     assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
 }
 
+/// A right-hand-side existential is a new variable at each application: its name is minted
+/// from the request's counter, so it is never reused along a path, even after the variable it
+/// named left the state, and it keeps its `Ex#` marker.
 #[test]
-fn freshens_existentials_against_the_current_pattern() {
+fn no_name_is_reused_on_a_path() {
     let definition = definition(
         r#"
             axiom{} \rewrites{SortS{}}(
@@ -4106,47 +4132,165 @@ fn freshens_existentials_against_the_current_pattern() {
             "#,
     );
     let pattern = subject(&definition, "value");
-    let mut fresh = 0;
-    let first = rewrite_step(&definition, &pattern, &mut fresh);
-    let first_name = match &first {
-        RewriteResult::Finished(applied) => applied
-            .pattern
-            .term
-            .attributes()
-            .variables
+    let mut fresh = FreshCounter::for_request(&[&pattern]);
+    let only_variable = |result: RewriteResult| match result {
+        RewriteResult::Finished(applied) => {
+            let variables = &applied.pattern.term.attributes().variables;
+            assert_eq!(variables.len(), 1);
+            (
+                variables.iter().next().unwrap().name.clone(),
+                applied.pattern,
+            )
+        }
+        other => panic!("rule should apply: {other:?}"),
+    };
+    let (first_name, first) = only_variable(rewrite_step(&definition, &pattern, &mut fresh));
+    assert_eq!(first_name.as_ref(), "Ex#Y!0");
+    // `Ex#Y!0` leaves the state here: the next existential still gets a new name.
+    let (second_name, _) = only_variable(rewrite_step(&definition, &first, &mut fresh));
+    assert_eq!(second_name.as_ref(), "Ex#Y!1");
+    let (repeated_name, _) = only_variable(rewrite_step(&definition, &pattern, &mut fresh));
+    assert_eq!(repeated_name.as_ref(), "Ex#Y!2");
+    // Identical requests mint identical names.
+    let (again, _) = only_variable(rewrite_step(
+        &definition,
+        &pattern,
+        &mut FreshCounter::for_request(&[&pattern]),
+    ));
+    assert_eq!(again, first_name);
+}
+
+fn unbound_rule_definition() -> BackendDefinition {
+    let source = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol d{}() : SortS{} [constructor{}(), functional{}()]
+            symbol c{}() : SortS{} [constructor{}(), functional{}()]
+            symbol state{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            symbol test{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            symbol p{}(SortS{}) : SortS{} [function{}(), functional{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(d{}(), \top{SortS{}}()), state{}(X:SortS{})
+            ) [label{}("introduce")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(state{}(Y:SortS{}), \top{SortS{}}()), d{}()
+            ) [label{}("discard")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(test{}(Z:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(state{}(W:SortS{}),
+                    \equals{SortS{}, SortS{}}(p{}(W:SortS{}), Z:SortS{}))
+            ) [label{}("choose")]
+        endmodule []"#;
+    BackendDefinition::internalize(&parse_definition(source).unwrap(), "MAIN").unwrap()
+}
+
+fn unbound_step(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    counter: &mut FreshCounter,
+) -> Pattern {
+    let RewriteResult::Finished(applied) = rewrite_step(definition, pattern, counter) else {
+        panic!("the unbound-variable rule should rewrite: {pattern:?}");
+    };
+    applied.pattern
+}
+
+fn the_variable(pattern: &Pattern) -> Variable {
+    let variables = &pattern.term.attributes().variables;
+    assert_eq!(variables.len(), 1, "{pattern:?}");
+    variables.iter().next().unwrap().clone()
+}
+
+/// A rule variable that the left-hand side does not bind denotes, at each application, a value
+/// the rule introduces: it is minted as `Ex#X!N`, a new name on every application, rather than
+/// left as the rule's own `Rule#X`, which would identify the values of two applications.
+#[test]
+fn an_unbound_rule_variable_is_new_on_each_application() {
+    let definition = unbound_rule_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, "d{}()"),
+        constraints: Vec::new(),
+    };
+    let mut counter = FreshCounter::for_request(&[&initial]);
+    let first = unbound_step(&definition, &initial, &mut counter);
+    let empty = unbound_step(&definition, &first, &mut counter);
+    assert!(empty.term.attributes().variables.is_empty());
+    let third = unbound_step(&definition, &empty, &mut counter);
+    assert_eq!(the_variable(&first).name.as_ref(), "Ex#X!0");
+    assert_eq!(the_variable(&third).name.as_ref(), "Ex#X!1");
+}
+
+/// A rule variable bound by no part of the match occurs in the ensures and in the successor's
+/// term: both name the same mint, so the successor's condition is about its own new variable.
+#[test]
+fn a_condition_and_the_successor_name_the_same_mint() {
+    let definition = unbound_rule_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, "test{}(Q:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let mut counter = FreshCounter::for_request(&[&initial]);
+    let successor = match rewrite_step(&definition, &initial, &mut counter) {
+        RewriteResult::Finished(applied) => applied.pattern,
+        RewriteResult::Branch { branches, .. } => branches[0].pattern.clone(),
+        other => panic!("the rule should apply: {other:#?}"),
+    };
+    let minted = successor
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .find(|variable| variable.name.as_ref() != "Q")
+        .cloned()
+        .expect("the successor carries the introduced variable");
+    assert_eq!(minted.name.as_ref(), "Ex#W!0");
+    let mut condition_variables = BTreeSet::new();
+    for constraint in &successor.constraints {
+        condition_variables.extend(constraint.free_variables());
+    }
+    assert!(
+        condition_variables.contains(&minted),
+        "the condition names the successor's variable: {successor:?}"
+    );
+    assert!(
+        condition_variables
             .iter()
-            .next()
-            .unwrap()
-            .name
-            .clone(),
-        _ => panic!("rule should apply"),
-    };
-    assert_eq!(first_name.as_ref(), "Y");
+            .all(|variable| variable.provenance() != Some(VariableProvenance::Rule)),
+        "no rule variable escapes: {successor:?}"
+    );
+}
 
-    let RewriteResult::Finished(first) = first else {
-        unreachable!();
+/// A request variable spelled like a mint (`Ex-hX-b0`, read verbatim) is never minted again:
+/// the counter skips every spelling of the request, free or bound.
+#[test]
+fn a_request_spelled_like_a_mint_is_not_minted() {
+    let definition = unbound_rule_definition();
+    let sort = Sort::simple("SortS");
+    let initial = Pattern {
+        term: internal_term(&definition, "d{}()"),
+        constraints: vec![
+            Predicate::Equals(
+                Term::variable(Variable::new("Ex-hX-b0", sort.clone())),
+                internal_term(&definition, "c{}()"),
+            ),
+            Predicate::Exists(
+                Variable::new("Ex-hX-b1", sort.clone()),
+                Box::new(Predicate::True),
+            ),
+        ],
     };
-    let second = rewrite_step(&definition, &first.pattern, &mut fresh);
-    let second_name = match second {
-        RewriteResult::Finished(applied) => {
-            let variables = &applied.pattern.term.attributes().variables;
-            assert_eq!(variables.len(), 1);
-            variables.iter().next().unwrap().name.clone()
-        }
-        _ => panic!("rule should apply again"),
-    };
-    assert_eq!(second_name.as_ref(), "Y0");
-
-    let repeated = rewrite_step(&definition, &pattern, &mut fresh);
-    let repeated_name = match repeated {
-        RewriteResult::Finished(applied) => {
-            let variables = &applied.pattern.term.attributes().variables;
-            assert_eq!(variables.len(), 1);
-            variables.iter().next().unwrap().name.clone()
-        }
-        _ => panic!("rule should apply to the original pattern again"),
-    };
-    assert_eq!(repeated_name, first_name);
+    let mut counter = FreshCounter::for_request(&[&initial]);
+    let successor = unbound_step(&definition, &initial, &mut counter);
+    let minted = successor
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .next()
+        .unwrap()
+        .clone();
+    assert_eq!(minted.name.as_ref(), "Ex#X!2");
+    assert_eq!(encode_variable_name(&minted.name), "Ex-hX-b2");
 }
 
 fn set_selection_definition() -> BackendDefinition {
@@ -10964,7 +11108,7 @@ fn sequential_remainders_retain_the_initial_antecedent() {
         constraints: vec![initial_antecedent.clone()],
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11007,7 +11151,7 @@ fn rewrites_through_matching_injective_function_heads() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("injective heads should decompose during rewrite matching");
@@ -11031,7 +11175,7 @@ fn rewrites_through_a_direct_symbol_overload() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("directly overloaded constructors should match during rewriting");
@@ -11059,7 +11203,7 @@ fn narrows_an_injected_variable_to_a_lesser_overload() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11113,7 +11257,7 @@ fn unifies_kequal_operands_when_matching_true() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("true K equality should unify its operands");
@@ -11132,7 +11276,7 @@ fn unifies_integer_equality_operands_when_matching_true() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("true integer equality should unify its operands");
@@ -11149,7 +11293,7 @@ fn unifies_string_equality_operands_when_matching_true() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("true string equality should unify its operands");
@@ -11167,7 +11311,7 @@ fn unifies_both_conjunction_operands_when_matching_true() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("true conjunction should bind both operands to true");
@@ -11186,7 +11330,7 @@ fn unifies_both_disjunction_operands_when_matching_false() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("false disjunction should bind both operands to false");
@@ -11205,7 +11349,7 @@ fn unifies_negation_operand_with_the_opposite_boolean() {
         term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("true"))"#),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh) else {
         panic!("negation should bind its operand to the opposite Boolean");
@@ -11228,7 +11372,7 @@ fn constrains_configuration_conjunction_operands_when_matching_true() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11265,7 +11409,7 @@ fn negates_kequal_operand_unification_when_matching_false() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11309,7 +11453,7 @@ fn constrains_configuration_kequal_operands_when_matching_true() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11348,7 +11492,7 @@ fn splits_symbolic_if_then_else_during_rewrite_matching() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11383,7 +11527,7 @@ fn splits_symbolic_if_then_else_on_the_rule_side() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Finished(applied) =
         rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
@@ -11410,7 +11554,7 @@ fn recursively_splits_nested_symbolic_if_then_else() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11445,7 +11589,7 @@ fn branches_for_every_concrete_set_element_selection() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11492,7 +11636,7 @@ fn narrows_a_closed_set_pattern_into_an_empty_subject_frame() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11537,7 +11681,7 @@ fn narrows_a_closed_list_pattern_into_an_empty_subject_frame() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11585,7 +11729,7 @@ fn branches_for_set_elements_while_preserving_an_open_subject_frame() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
@@ -11712,7 +11856,7 @@ fn rewrites_after_cancelling_common_opaque_set_chunks() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11774,7 +11918,7 @@ fn branches_for_every_concrete_map_key_selection() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11825,7 +11969,7 @@ fn narrows_an_open_configuration_map_against_a_closed_rule_map() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11883,7 +12027,7 @@ fn composes_function_and_collection_unification_before_rewriting() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -11955,7 +12099,7 @@ fn narrows_concrete_rule_map_keys_against_symbolic_configuration_keys() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch {
         branches,
@@ -12005,7 +12149,7 @@ fn does_not_rebind_configuration_variables_during_map_matching() {
         )))],
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
     let RewriteResult::Branch { branches, .. } = result else {
@@ -12043,7 +12187,7 @@ fn branches_for_map_keys_while_preserving_an_open_subject_frame() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
@@ -12201,7 +12345,7 @@ fn emits_frame_definedness_on_the_single_entry_path() {
         ),
         constraints: Vec::new(),
     };
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
 
     let RewriteResult::Branch {
@@ -12244,7 +12388,7 @@ fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
         constraints: Vec::new(),
     };
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
-    let mut fresh = 0;
+    let mut fresh = FreshCounter::default();
 
     let RewriteResult::Branch { branches, .. } =
         rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)

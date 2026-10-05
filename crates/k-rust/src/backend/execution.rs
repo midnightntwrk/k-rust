@@ -653,6 +653,12 @@ fn run_backend_with_solver(
         step_timeout: options.step_timeout,
         moving_average_timeout: options.moving_average_timeout,
         retain_trace: false,
+        // Executing and then matching a target is one request: no name the execution mints is
+        // spelled like a variable of the target either.
+        request_names: match_target
+            .as_ref()
+            .map(|target| k_rust_backend::fresh::RequestNames::of(&[&target.pattern]))
+            .unwrap_or_default(),
         ..ExecutionOptions::default()
     };
     let live_io = options.execution_input.is_some();

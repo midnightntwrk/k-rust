@@ -44,6 +44,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
+    fresh::FreshCounter,
     rule::{Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, subject_index},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
@@ -84,7 +85,7 @@ fn apply_priority_group(
     definition: &BackendDefinition,
     pattern: &Pattern,
     rules: &[Arc<RewriteRule>],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -249,7 +250,7 @@ fn first_productive_group(
     definition: &BackendDefinition,
     pattern: &Pattern,
     groups: &mut impl Iterator<Item = Vec<Arc<RewriteRule>>>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -321,7 +322,7 @@ fn classify_first_group(
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -383,7 +384,7 @@ pub(super) fn rewrite_step_all(
 pub(crate) fn rewrite_step_all_first_group_for_tests(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -457,7 +458,7 @@ fn fold_lower_priority_groups(
     trivial: &mut Vec<TrivialApplication>,
     remainder: &mut Option<RemainderBranch>,
     mut lower: LowerGroups,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -669,7 +670,7 @@ impl SequentialDeterminism {
         pattern: &Pattern,
         remaining: &Pattern,
         attempt: &RuleAttempt,
-        fresh_counter: u64,
+        fresh_counter: &FreshCounter,
         simplification_options: SimplificationOptions,
         solver: &dyn SmtSolver,
     ) -> Stoppable<()> {
@@ -680,7 +681,7 @@ impl SequentialDeterminism {
         // the step did not feed it. Try it on the whole subject, on a copy of the fresh-name
         // counter so that the step's own names do not move.
         if self.covered.iter().any(|(earlier, _)| *earlier == priority) {
-            let mut counter = fresh_counter;
+            let mut counter = fresh_counter.clone();
             match apply_rule(
                 definition,
                 rule,
@@ -818,7 +819,7 @@ fn close_priority(
 pub(super) fn rewrite_step_any(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
@@ -887,7 +888,7 @@ pub(super) fn rewrite_step_any(
                     pattern,
                     remaining.pattern(),
                     &RuleAttempt::NotApplicable,
-                    *fresh_counter,
+                    fresh_counter,
                     simplification_options,
                     solver,
                 )?;
@@ -913,7 +914,7 @@ pub(super) fn rewrite_step_any(
                 pattern,
                 remaining.pattern(),
                 &attempt,
-                *fresh_counter,
+                fresh_counter,
                 simplification_options,
                 solver,
             )?;

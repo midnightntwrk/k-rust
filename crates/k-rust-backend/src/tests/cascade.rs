@@ -169,7 +169,7 @@ fn replay_oracle(
     definition: &BackendDefinition,
     branches: &mut Vec<AppliedRule>,
     remainder: &mut Option<RemainderBranch>,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut crate::fresh::FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
@@ -218,8 +218,8 @@ fn compare_with_solvers(
     cascade_solver: &dyn SmtSolver,
     oracle_solver: &dyn SmtSolver,
 ) -> Result<(), String> {
-    let mut cascade_fresh = 0;
-    let mut oracle_fresh = 0;
+    let mut cascade_fresh = crate::fresh::FreshCounter::default();
+    let mut oracle_fresh = crate::fresh::FreshCounter::default();
     let cascade_step = rewrite_step_with_mode(
         definition,
         initial,
@@ -586,7 +586,7 @@ fn d3_bounded_search_finds_no_semantically_empty_reapplication() {
         let definition = portable_definition(&rules);
         let initial = portable_subject(&definition);
         let solver = D3SearchSolver::default();
-        let mut fresh_counter = 0;
+        let mut fresh_counter = crate::fresh::FreshCounter::default();
         let first = rewrite_step_with_mode(
             &definition,
             &initial,
@@ -959,8 +959,8 @@ fn replay_oracle_smoke_uses_one_global_alpha_gate() {
     let options = SimplificationOptions::keep_partial(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
     let cascade_solver = Z3Solver::new(&definition).unwrap();
     let oracle_solver = Z3Solver::new(&definition).unwrap();
-    let mut cascade_fresh = 0;
-    let mut oracle_fresh = 0;
+    let mut cascade_fresh = crate::fresh::FreshCounter::default();
+    let mut oracle_fresh = crate::fresh::FreshCounter::default();
     let cascade = rewrite_step_with_mode(
         &definition,
         &subject(&definition, false),

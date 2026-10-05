@@ -50,6 +50,7 @@ use crate::{
     definedness::{FactsVerdict, UndecidedFacts},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
+    fresh::{FreshCounter, RequestNames},
     rule::Predicate,
     search::ResultModality,
     simplify::{
@@ -124,7 +125,7 @@ struct Execution<'a> {
     solver: &'a dyn SmtSolver,
     observation: Option<&'a ObservationOptions>,
     observe: &'a mut dyn FnMut(&BuiltinEffect),
-    fresh_counter: u64,
+    fresh_counter: FreshCounter,
     observation_log: ObservationLog,
     initial_input_count: usize,
     pending: VecDeque<ExecutionState>,
@@ -147,6 +148,11 @@ impl<'a> Execution<'a> {
         observe: &'a mut dyn FnMut(&BuiltinEffect),
     ) -> Self {
         let initial_input_count = initial.len();
+        // One request: every name the execution mints is apart from every variable of the
+        // initial patterns and of the caller's other patterns.
+        let mut request_names = RequestNames::of(&initial.iter().collect::<Vec<_>>());
+        request_names.extend(&options.request_names);
+        let fresh_counter = FreshCounter::for_request_names(request_names);
         let has_execution_io = initial_io.is_some();
         let initial_io = initial_io.unwrap_or_default();
         let diagnostics = PathDiagnostics::new_request();
@@ -190,7 +196,7 @@ impl<'a> Execution<'a> {
             solver,
             observation,
             observe,
-            fresh_counter: 0,
+            fresh_counter,
             observation_log: ObservationLog::default(),
             initial_input_count,
             pending: validated,

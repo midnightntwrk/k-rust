@@ -208,7 +208,7 @@ pub mod unstopped {
     pub fn rewrite_step(
         definition: &BackendDefinition,
         pattern: &Pattern,
-        fresh_counter: &mut u64,
+        fresh_counter: &mut k_rust_backend::fresh::FreshCounter,
     ) -> RewriteResult {
         unstopped_step(rewrite::rewrite_step(definition, pattern, fresh_counter))
     }
@@ -216,7 +216,7 @@ pub mod unstopped {
     pub fn rewrite_step_with_solver(
         definition: &BackendDefinition,
         pattern: &Pattern,
-        fresh_counter: &mut u64,
+        fresh_counter: &mut k_rust_backend::fresh::FreshCounter,
         solver: &dyn SmtSolver,
     ) -> RewriteResult {
         unstopped_step(rewrite::rewrite_step_with_solver(
@@ -230,7 +230,7 @@ pub mod unstopped {
     pub fn rewrite_step_sequential_with_solver(
         definition: &BackendDefinition,
         pattern: &Pattern,
-        fresh_counter: &mut u64,
+        fresh_counter: &mut k_rust_backend::fresh::FreshCounter,
         solver: &dyn SmtSolver,
     ) -> RewriteResult {
         unstopped_step(rewrite::rewrite_step_sequential_with_solver(

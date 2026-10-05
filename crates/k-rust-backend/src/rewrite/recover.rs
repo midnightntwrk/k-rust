@@ -37,7 +37,7 @@ use crate::{
     condition::MatchSolution,
     definedness::ceil_term,
     definition::BackendDefinition,
-    fresh::fresh_variable,
+    fresh::{FreshCounter, fresh_variable},
     ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
         CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
@@ -260,7 +260,7 @@ pub(super) fn solve_collection_remainders_with_narrowing(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<Vec<CollectionSolution>> {
     let mut names_to_avoid = pattern_variable_names(pattern);
     let mut fresh_frame = |sort: &Sort| {
@@ -290,7 +290,7 @@ pub(super) fn recover_general_unification(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> GeneralUnificationRecovery {
     match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
         UnificationResult::Bottom(_) => GeneralUnificationRecovery::Bottom,
@@ -345,7 +345,7 @@ fn finalize_general_unification(
     solutions: Vec<CollectionSolution>,
     constraints: &[Predicate],
     collection_pairs: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Vec<(Substitution, Vec<Predicate>)> {
     solutions
         .into_iter()
@@ -397,7 +397,7 @@ pub(super) fn recover_functional_symbolic_match(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<(Substitution, Vec<Predicate>)> {
     for (rule_term, configuration_term) in remainder {
         let rule_term = substitute(rule_term, &substitution);
@@ -464,7 +464,7 @@ pub(super) fn freshen_unbound_rule_variables(
     rule: &RewriteRule,
     pattern: &Pattern,
     mut substitution: Substitution,
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> (Substitution, BTreeSet<Variable>) {
     // Kore's checkSubstitutionCoverage permits narrowing only when the whole initial term is
     // not constructor-like. Keep concrete rule variables available for requires to bind, then
@@ -516,7 +516,7 @@ pub(super) fn recover_function_equality_match(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<(Substitution, Vec<Predicate>)> {
     if remainder.is_empty()
         || remainder.iter().any(|(left, right)| {
@@ -886,7 +886,7 @@ pub(super) fn recover_map_not_in_keys_matches(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<Vec<PartialRuleMatch>> {
     let (index, split) = remainder
         .iter()
@@ -1021,7 +1021,7 @@ pub(super) fn recover_equality_matches(
     pattern: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<Vec<PartialRuleMatch>> {
     let (index, split) = remainder
         .iter()
@@ -1232,7 +1232,7 @@ pub(super) fn recover_overload_symbolic_match(
     state: &Pattern,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-    fresh_counter: &mut u64,
+    fresh_counter: &mut FreshCounter,
 ) -> Option<(Substitution, Vec<Predicate>)> {
     let [(rule_term, configuration_term)] = remainder else {
         return None;
