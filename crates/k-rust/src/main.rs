@@ -3774,13 +3774,14 @@ mod tests {
     fn implication_condition_output(
         condition: &ImplicationCondition,
         result_sort: &BackendSort,
-        antecedent_variable: Option<&str>,
+        antecedent: &str,
+        consequent: &str,
     ) -> Result<serde_json::Value, Box<dyn Error>> {
-        k_rust::backend::implication::cli_condition_output(
-            condition,
-            result_sort,
-            antecedent_variable,
-        )
+        let sides = k_rust::backend::implication::ImplicationSides::new(
+            &parse_kore_pattern(antecedent)?,
+            &parse_kore_pattern(consequent)?,
+        );
+        k_rust::backend::implication::cli_condition_output(condition, result_sort, &sides)
     }
 
     #[cfg(test)]
@@ -3976,7 +3977,13 @@ mod tests {
             )]),
         };
 
-        let output = implication_condition_output(&condition, &result_sort, None).unwrap();
+        let output = implication_condition_output(
+            &condition,
+            &result_sort,
+            "a{}()",
+            r"\exists{SortS{}}(Y:SortS{}, Y:SortS{})",
+        )
+        .unwrap();
         assert_eq!(output["predicate"]["term"]["tag"], "Top", "{output:#}");
         assert_eq!(output["substitution"]["term"]["tag"], "Top", "{output:#}");
         assert_eq!(output["witnesses"]["term"]["tag"], "Equals", "{output:#}");
@@ -3988,6 +3995,40 @@ mod tests {
             output["witnesses"]["term"]["second"]["name"], "X",
             "{output:#}"
         );
+    }
+
+    /// A local name of the check is printed as the consequent binder it renames only when no
+    /// free variable of either side has the binder's name: `Y!exists0 = Y` with the
+    /// antecedent's own `Y` would otherwise read as `Y = Y`. (Request validation refuses a
+    /// consequent binder named like a free antecedent variable today; the printer does not rely
+    /// on it.)
+    #[test]
+    fn implication_condition_output_keeps_a_local_name_apart_from_a_free_variable() {
+        let result_sort = BackendSort::simple("SortS");
+        let condition = ImplicationCondition {
+            predicates: Vec::new(),
+            substitution: Substitution::new(),
+            witnesses: Substitution::from([(
+                Variable::new("Y!exists0", result_sort.clone()),
+                Term::variable(Variable::new("Y", result_sort.clone())),
+            )]),
+        };
+        for (antecedent, binder) in [("Y:SortS{}", "Y-bexists0"), ("X:SortS{}", "Y")] {
+            let output = implication_condition_output(
+                &condition,
+                &result_sort,
+                antecedent,
+                r"\exists{SortS{}}(Y:SortS{}, Y:SortS{})",
+            )
+            .unwrap();
+            let witness = &output["witnesses"]["term"];
+            let names = [
+                witness["first"]["name"].clone(),
+                witness["second"]["name"].clone(),
+            ];
+            assert!(names.contains(&binder.into()), "{antecedent}: {output:#}");
+            assert!(names.contains(&"Y".into()), "{antecedent}: {output:#}");
+        }
     }
 
     #[test]

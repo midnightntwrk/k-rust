@@ -110,11 +110,23 @@ pub(crate) fn fresh_name(
     counter: &mut u64,
     avoid: &mut BTreeSet<Name>,
 ) -> String {
-    // Invariant: `counter` only grows, so at most |avoid| + 1 names are tried.
+    fresh_name_apart(base, marker, counter, avoid, &RequestNames::default())
+}
+
+/// [`fresh_name`], skipping also every candidate spelled like a variable of `request`, for a
+/// local mint that a response can print next to the request's variables.
+pub(crate) fn fresh_name_apart(
+    base: &str,
+    marker: FreshMarker,
+    counter: &mut u64,
+    avoid: &mut BTreeSet<Name>,
+    request: &RequestNames,
+) -> String {
+    // Invariant: `counter` only grows, so at most |avoid| + |request| + 1 names are tried.
     loop {
         let name = with_fresh_marker(base, marker, *counter);
         *counter += 1;
-        if avoid.insert(name.as_str().into()) {
+        if !request.spells(&name) && avoid.insert(name.as_str().into()) {
             return name;
         }
     }

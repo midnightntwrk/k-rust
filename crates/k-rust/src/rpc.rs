@@ -1955,18 +1955,11 @@ fn implication_result(
         "status": status,
     });
     if let Some(condition) = verdict.into_condition() {
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "KorePattern is syntax; only the listed variants are special here"
-        )]
-        let antecedent_variable = match antecedent.strip_exists() {
-            KorePattern::Variable(variable) => Some(variable.name.as_str()),
-            _ => None,
-        };
+        let sides = backend_implication::ImplicationSides::new(antecedent, consequent);
         let substitution = backend_implication::condition_substitution(
             &condition.substitution,
             result_sort,
-            antecedent_variable,
+            &sides,
         )
         .unwrap_or_else(|| KorePattern::Top {
             sort: externalize::sort(result_sort),
@@ -3931,7 +3924,11 @@ endmodule
         let value = Term::domain_value(sort.clone(), "value");
         let substitution = Substitution::from([(variable, value)]);
 
-        let output = backend_implication::condition_substitution(&substitution, &sort, None)
+        let sides = backend_implication::ImplicationSides::new(
+            &parse_pattern("value{}()").unwrap(),
+            &parse_pattern(r"\exists{SortK{}}(X:SortK{}, X:SortK{})").unwrap(),
+        );
+        let output = backend_implication::condition_substitution(&substitution, &sort, &sides)
             .expect("the binding should externalize");
         let output = encode_kore(&output).unwrap();
 

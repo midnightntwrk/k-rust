@@ -61,7 +61,7 @@ use crate::{
     condition::{eliminate_bindings, instantiate_constraints},
     definedness::{ceil_term, pattern_knowledge},
     definition::{Admitted, BackendDefinition},
-    fresh::fresh_name,
+    fresh::{RequestNames, fresh_name_apart},
     ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, is_collection_term,
@@ -1637,11 +1637,21 @@ fn freshen_existentials(
         .chain(free_variables(consequent))
         .map(|variable| variable.name)
         .collect::<BTreeSet<_>>();
+    // A renamed existential can be printed in the condition next to the request's variables,
+    // so it is spelled like none of them.
+    let mut request = RequestNames::of(&[antecedent, consequent]);
+    request.add_variables(existentials);
     let mut substitution = Substitution::new();
     let mut fresh = BTreeSet::new();
     for (counter, original) in existentials.iter().enumerate() {
         let mut suffix = counter as u64;
-        let name = fresh_name(&original.name, FreshMarker::Exists, &mut suffix, &mut names);
+        let name = fresh_name_apart(
+            &original.name,
+            FreshMarker::Exists,
+            &mut suffix,
+            &mut names,
+            &request,
+        );
         let variable = original.with_name(name);
         substitution.insert(
             original.clone(),
@@ -1685,15 +1695,18 @@ fn rename_existentials_apart(
         .map(|variable| variable.name)
         .chain(other_names)
         .collect::<BTreeSet<_>>();
+    let mut request = RequestNames::of(&[pattern, other]);
+    request.add_variables(existentials);
     let mut counter = 0;
     let substitution = clashing
         .into_iter()
         .map(|original| {
-            let name = fresh_name(
+            let name = fresh_name_apart(
                 &original.name,
                 FreshMarker::Exists,
                 &mut counter,
                 &mut names,
+                &request,
             );
             (
                 original.clone(),

@@ -15,7 +15,7 @@ use k_rust_backend::{
     },
     stop::Stoppable,
     substitution::Substitution,
-    term::{Name, Sort, Term, TermKind},
+    term::{Name, Sort, Term, TermKind, Variable},
 };
 use k_rust_kore::kore::{
     ast::{Pattern as KorePattern, Pattern},
@@ -181,15 +181,8 @@ pub fn cli_output(
         "implication": kore_json::to_value(&implication)?,
     });
     if let Some(condition) = verdict.into_condition() {
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "KorePattern is syntax; only the listed variants are special here"
-        )]
-        let antecedent_variable = match antecedent.strip_exists() {
-            KorePattern::Variable(variable) => Some(variable.name.as_str()),
-            _ => None,
-        };
-        output["condition"] = cli_condition_output(&condition, result_sort, antecedent_variable)?;
+        let sides = ImplicationSides::new(antecedent, consequent);
+        output["condition"] = cli_condition_output(&condition, result_sort, &sides)?;
     }
     Ok(serde_json::to_string_pretty(&output)?)
 }
@@ -197,13 +190,12 @@ pub fn cli_output(
 pub fn cli_condition_output(
     condition: &ImplicationCondition,
     result_sort: &Sort,
-    antecedent_variable: Option<&str>,
+    sides: &ImplicationSides,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let substitution =
-        condition_substitution(&condition.substitution, result_sort, antecedent_variable)
-            .unwrap_or_else(|| KorePattern::Top {
-                sort: externalize::sort(result_sort),
-            });
+    let substitution = condition_substitution(&condition.substitution, result_sort, sides)
+        .unwrap_or_else(|| KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        });
     let predicate = externalize::predicates_pattern(
         &condition.predicates,
         result_sort,
@@ -213,7 +205,7 @@ pub fn cli_condition_output(
     .unwrap_or_else(|| KorePattern::Top {
         sort: externalize::sort(result_sort),
     });
-    let witnesses = condition_substitution(&condition.witnesses, result_sort, antecedent_variable)
+    let witnesses = condition_substitution(&condition.witnesses, result_sort, sides)
         .unwrap_or_else(|| KorePattern::Top {
             sort: externalize::sort(result_sort),
         });
@@ -224,27 +216,87 @@ pub fn cli_condition_output(
     }))
 }
 
+/// What the printer of an implication's condition needs from the request's two sides.
+///
+/// The check renames each existential `X` of the consequent to a local name `X!exists{N}`,
+/// which no name read from KORE can be (KORE identifiers contain no `!`). The printer writes
+/// such a name back as its binder `X`, so the condition names the consequent's own variable,
+/// unless `X` is also the name of a free variable of either side: that is another variable,
+/// and the binding would then read as an equation about it. The local name is then printed
+/// escaped (`X-bexists0`), a spelling the check gives no variable of the request.
+#[derive(Clone, Debug, Default)]
+pub struct ImplicationSides {
+    /// The antecedent's variable when the antecedent is one variable under its existentials.
+    antecedent_variable: Option<String>,
+    free_names: BTreeSet<String>,
+    consequent_binders: BTreeSet<k_rust_kore::kore::ast::Variable>,
+}
+
+impl ImplicationSides {
+    pub fn new(antecedent: &KorePattern, consequent: &KorePattern) -> Self {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "KorePattern is syntax; only the listed variants are special here"
+        )]
+        let antecedent_variable = match antecedent.strip_exists() {
+            KorePattern::Variable(variable) => Some(variable.name.clone()),
+            _ => None,
+        };
+        Self {
+            antecedent_variable,
+            free_names: antecedent
+                .free_variables()
+                .into_iter()
+                .chain(consequent.free_variables())
+                .map(|variable| variable.name)
+                .collect(),
+            consequent_binders: consequent
+                .leading_existentials()
+                .1
+                .into_iter()
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// The consequent binder that `variable`, a local name of the check, renames, when the
+    /// binder's name can be printed for it.
+    fn consequent_existential_name<'a>(&self, variable: &'a Variable) -> Option<&'a str> {
+        let (name, counter) = variable.name.rsplit_once("!exists")?;
+        if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        if self.free_names.contains(name) {
+            return None;
+        }
+        let KorePattern::Variable(ref binder) =
+            externalize::term(&Term::variable(variable.with_name(name)))
+        else {
+            unreachable!("a variable externalizes as a variable");
+        };
+        self.consequent_binders.contains(binder).then_some(name)
+    }
+}
+
 pub fn condition_substitution(
     substitution: &Substitution,
     result_sort: &Sort,
-    antecedent_variable: Option<&str>,
+    sides: &ImplicationSides,
 ) -> Option<KorePattern> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
     let bindings = bindings.into_iter().map(|(variable, value)| {
         let mut output_variable = variable.clone();
-        let consequent_existential = variable
-            .name
-            .as_ref()
-            .rsplit_once("!exists")
-            .filter(|(_, suffix)| suffix.chars().all(|character| character.is_ascii_digit()));
-        if let Some((name, _)) = consequent_existential {
+        let consequent_existential = sides.consequent_existential_name(variable);
+        if let Some(name) = consequent_existential {
             output_variable.name = Name::from(name);
         }
+        // A request variable keeps its KORE name inside the backend, so the names compare.
         let prefer_antecedent = consequent_existential.is_some()
             && matches!(
                 value.kind(),
-                TermKind::Variable(value) if antecedent_variable == Some(value.name.as_ref())
+                TermKind::Variable(value)
+                    if sides.antecedent_variable.as_deref() == Some(value.name.as_ref())
             );
         let (left, right) = if prefer_antecedent {
             (
