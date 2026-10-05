@@ -464,6 +464,7 @@ export type ConditionIndeterminacy =
   | { kind: 'inconsistent-path-condition' }
   | { kind: 'untranslatable'; error: TranslationFailure }
   | { kind: 'non-functional-binding' }
+  | { kind: 'unbound-result-variables'; variables: string[] }
 
 export type BackendDiagnostic =
   | { kind: 'undecided-condition'; ruleId: string; reason: ConditionIndeterminacy; predicates: Kore[] }

@@ -1198,7 +1198,8 @@ fn validity_and_applicability(
             }
             Ok(RuleCondition::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate
-                | ConditionIndeterminacy::NonFunctionalBinding,
+                | ConditionIndeterminacy::NonFunctionalBinding
+                | ConditionIndeterminacy::UnboundResultVariables(_),
             )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
@@ -1469,7 +1470,8 @@ fn rhs_ensures_verdict(condition: Result<RuleCondition, SmtError>) -> EnsuresSte
         Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::ImplicationIndeterminate
             | ConditionIndeterminacy::NoSolver
-            | ConditionIndeterminacy::NonFunctionalBinding,
+            | ConditionIndeterminacy::NonFunctionalBinding
+            | ConditionIndeterminacy::UnboundResultVariables(_),
         )) => EnsuresStepVerdict::Carried,
         Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
             EnsuresStepVerdict::Indeterminate(SmtError::Unknown(reason))

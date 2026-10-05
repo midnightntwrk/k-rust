@@ -768,12 +768,22 @@ Under this reading three normalizations of [the register](../scripts/reference-n
 
 ### Unbound equation variables
 
-An equation (a function, simplification, ceil or predicate equation) whose right-hand side or `ensures` has a free variable that its left-hand side does not bind is refused when the definition is loaded, with `AxiomError::UnboundEquationVariables` naming the axiom and the variables.
-An equation `l = r` is an axiom closed over all its variables, so for such a variable `X` it states `l = r` for every value of `X`: unless `r` does not depend on `X`, no single term is equal to an instance of `l`, and applying the equation would leave the equation's own `X` free in the result as if it named one value.
-Minting a new variable at each application would not model the equation either, since it would make `f() = f()` false for `f() = X`.
-Kompile rejects a fresh variable `!X` in every sentence applied without the configuration, function rules included, and a right-hand-side variable that neither the rule's left-hand side, its `requires`, nor an `unboundVariables` attribute accounts for.
-A function or simplification rule whose right-hand-side variable occurs only in its `requires` or is listed in `unboundVariables` therefore compiles, and the backend refuses the definition: an equation is applied by matching its left-hand side, so its `requires` binds nothing.
-A variable that occurs only in an equation's `requires` restricts when the equation applies and never reaches a result; it is accepted and decided with the rest of the `requires`.
+An equation (a function, simplification, ceil or predicate equation) is an axiom closed over all its variables: `l = r requires R ensures E` states `l = r` for every value of every variable that satisfies `R` and `E`.
+A variable `Y` of `r` or `E` that `l` does not bind is not fixed by matching `l`.
+Such an equation can be consistent and meaningful: `f(X) = Y requires Y = X + 1` says `f(X) = X + 1`.
+But the evaluator has no witness for `Y`, and the instance of `r` with the equation's own `Y` left free would name no value of the request.
+Minting a new variable at each application would not model the equation either, since it would make `f() = f()` false for `f() = Y`.
+
+The definition is loaded, and the backend records these variables per equation.
+An instance of such an equation is never used.
+Its `requires` is decided with the variables free, as for any equation: refuted, it holds for no value of them, and the equation says nothing about the subject.
+Otherwise the attempt is indeterminate (`ConditionIndeterminacy::UnboundResultVariables`, wire kind `unbound-result-variables`, naming the variables as the definition spells them).
+That is the same outcome as an equation whose `requires` is open: the subject is kept, and a function's lower-priority and `owise` equations do not apply in its place, while a simplification is passed over.
+The static definedness analysis does not use such a ceil equation.
+
+A variable that occurs only in an equation's `requires` never reaches a result.
+It is decided with the rest of the `requires`: the `requires` holds only if it holds for every value of the variable, and it is refuted only if it holds for none.
+Kompile accepts a function or simplification rule whose right-hand-side variable occurs in its `requires` or is listed in `unboundVariables`; the backend loads it as above.
 Rewrite rules are not equations: a variable that the left-hand side of a rewrite rule does not bind is minted per application (see [Result variables](#result-variables)).
 
 ## Observation events

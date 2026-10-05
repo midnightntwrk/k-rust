@@ -390,10 +390,19 @@ pub enum TranslationFailureOutput<K = Value> {
 pub enum ConditionIndeterminacyOutput<K = Value> {
     NoSolver,
     ImplicationIndeterminate,
-    SmtUnknown { reason: String },
+    SmtUnknown {
+        reason: String,
+    },
     InconsistentPathCondition,
-    Untranslatable { error: TranslationFailureOutput<K> },
+    Untranslatable {
+        error: TranslationFailureOutput<K>,
+    },
     NonFunctionalBinding,
+    /// The equation's result has these variables, spelled as the definition spells them, that
+    /// its left-hand side does not bind.
+    UnboundResultVariables {
+        variables: Vec<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1150,6 +1159,9 @@ fn condition_indeterminacy_output<K: WireKore>(
         }
         ConditionIndeterminacy::NonFunctionalBinding => {
             ConditionIndeterminacyOutput::NonFunctionalBinding
+        }
+        ConditionIndeterminacy::UnboundResultVariables(variables) => {
+            ConditionIndeterminacyOutput::UnboundResultVariables { variables }
         }
     })
 }
@@ -1995,6 +2007,7 @@ mod tests {
             serde_json::json!({"kind":"inconsistent-path-condition"}),
             serde_json::json!({"kind":"untranslatable","error":{"kind":"unsupported-predicate","predicate":"p"}}),
             serde_json::json!({"kind":"non-functional-binding"}),
+            serde_json::json!({"kind":"unbound-result-variables","variables":["Y"]}),
         ];
         let mut variants = vec![
             serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"term"}),

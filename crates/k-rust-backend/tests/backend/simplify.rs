@@ -4839,3 +4839,144 @@ fn a_condition_over_a_hook_shortcut_becomes_its_definedness_obligation() {
 
     assert_eq!(result, Predicate::Ceil(term(&definition, TEN_BY_X)));
 }
+
+/// The declaration the unbound-result-variable tests add: a second partial function `p`, besides
+/// the fixture's `f` and its total injective `wrap`.
+const UNBOUND_RESULT_SYMBOLS: &str = r#"
+    symbol p{}(SortS{}) : SortS{} [function{}()]
+"#;
+
+/// A function equation `f(X) = r requires R` whose `r` has a variable `Y` that `f(X)` does not
+/// bind states `f(X) = r` for every `Y` satisfying `R`; with `R` determining `Y` (here
+/// `Y = wrap(X)`) it is the consistent `f(X) = wrap(X)`. Matching fixes no `Y`, so the instance is
+/// not used. Where `R` is not refuted, the attempt is indeterminate as an open `requires` is:
+/// the application is kept, and the `owise` equation, which would equate `f(X)` with a value
+/// the equation contradicts, is not used. Where `R` is refuted, the equation says nothing and
+/// the `owise` equation applies.
+#[test]
+fn a_function_equation_with_an_unbound_result_variable_keeps_the_application() {
+    for (label, requires, result) in [
+        (
+            "determined",
+            r#"\equals{SortS{}, R}(Y:SortS{}, wrap{}(X:SortS{}))"#,
+            "Y:SortS{}",
+        ),
+        (
+            "guarded",
+            r#"\equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero"))"#,
+            "wrap{}(Y:SortS{})",
+        ),
+    ] {
+        let definition = definition(&format!(
+            r#"{UNBOUND_RESULT_SYMBOLS}
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}({requires},
+                    \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}({result}, \top{{SortS{{}}}}())))
+                [label{{}}("{label}")]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(),
+                    \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("owise"), \top{{SortS{{}}}}())))
+                [label{{}}("owise"), priority{{}}("200")]"#
+        ));
+        let kept = term(&definition, r#"f{}(\dv{SortS{}}("zero"))"#);
+        let result = simplify(&definition, &kept, SimplificationOptions::default()).unwrap();
+        assert_eq!(result.term, kept, "{label}");
+        assert!(result.applied_rules.is_empty(), "{label}");
+        assert!(result.term.attributes().variables.is_empty(), "{label}");
+        assert!(result.constraints().is_empty(), "{label}");
+    }
+
+    let definition = definition(&format!(
+        r#"{UNBOUND_RESULT_SYMBOLS}
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\equals{{SortS{{}}, R}}(X:SortS{{}}, \dv{{SortS{{}}}}("zero")),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("guarded")]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                f{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("owise"), \top{{SortS{{}}}}())))
+            [label{{}}("owise"), priority{{}}("200")]"#
+    ));
+    let refuted = term(&definition, r#"f{}(\dv{SortS{}}("one"))"#);
+    let result = simplify(&definition, &refuted, SimplificationOptions::default()).unwrap();
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("owise")"#));
+    assert_eq!(result.applied_rules, ["owise"]);
+}
+
+/// A simplification equation whose result has a variable its left-hand side does not bind is
+/// passed over; a lower-priority simplification still applies, as after an open `requires`.
+#[test]
+fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
+    let definition = definition(&format!(
+        r#"{UNBOUND_RESULT_SYMBOLS}
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("unbound"), simplification{{}}()]
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}())))
+            [label{{}}("bound"), simplification{{}}("60")]"#
+    ));
+    let input = term(&definition, r#"f{}(\dv{SortS{}}("a"))"#);
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, r#"wrap{}(\dv{SortS{}}("a"))"#)
+    );
+    assert_eq!(result.applied_rules, ["bound"]);
+}
+
+/// A ceil or predicate equation whose result has a variable its left-hand side does not bind
+/// is not used: the subject simplifies as it does without the equation, and no equation
+/// variable reaches the result.
+#[test]
+fn ceil_and_predicate_equations_with_an_unbound_result_variable_are_not_used() {
+    let ceil_equation = r#"
+        axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+            \ceil{SortS{}, Q}(p{}(X:SortS{})),
+            \and{Q}(\equals{SortS{}, Q}(X:SortS{}, Y:SortS{}), \top{Q}())))
+            [label{}("unbound-ceil"), simplification{}()]"#;
+    let predicate_equation = r#"
+        axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+            \equals{SortS{}, Q}(p{}(X:SortS{}), \dv{SortS{}}("v")),
+            \and{Q}(\equals{SortS{}, Q}(X:SortS{}, Y:SortS{}), \top{Q}())))
+            [label{}("unbound-predicate"), simplification{}()]"#;
+    let baseline = definition(UNBOUND_RESULT_SYMBOLS);
+    let simplified = |definition: &BackendDefinition, subject: &Predicate| {
+        simplify_predicate_with_solver(
+            definition,
+            subject,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+    let ceil_subject = |definition: &BackendDefinition| {
+        Predicate::Ceil(term(definition, r#"p{}(\dv{SortS{}}("a"))"#))
+    };
+    let equals_subject = |definition: &BackendDefinition| {
+        Predicate::Equals(
+            term(definition, r#"p{}(\dv{SortS{}}("a"))"#),
+            term(definition, r#"\dv{SortS{}}("v")"#),
+        )
+    };
+    for equation in [ceil_equation, predicate_equation] {
+        let definition = definition(&format!("{UNBOUND_RESULT_SYMBOLS}{equation}"));
+        for (subject, expected) in [
+            (ceil_subject(&definition), ceil_subject(&baseline)),
+            (equals_subject(&definition), equals_subject(&baseline)),
+        ] {
+            let result = simplified(&definition, &subject);
+            assert_eq!(result, simplified(&baseline, &expected), "{equation}");
+            assert!(result.free_variables().is_empty(), "{result:?}");
+        }
+    }
+}

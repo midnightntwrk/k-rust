@@ -161,6 +161,11 @@ pub struct ComputedRuleAttributes {
     /// The free variables of the right-hand side, requires and ensures that the left-hand side
     /// does not bind and that are not existentials.
     pub unbound_variables: BTreeSet<Variable>,
+    /// For an equation (function, simplification or ceil), the free variables of its
+    /// right-hand side and `ensures` that its left-hand side does not bind, in the definition's
+    /// spelling ([`equation_unbound_result_variables`]); empty for a rewrite rule. An instance
+    /// of such an equation is not used (`ConditionIndeterminacy::UnboundResultVariables`).
+    pub unbound_result_variables: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,6 +186,9 @@ pub struct PredicateRewriteRule {
     pub rhs: Vec<Predicate>,
     pub requires: Condition,
     pub attributes: RuleAttributes,
+    /// The free variables of `rhs` that `lhs` does not bind, in the definition's spelling, as
+    /// [`ComputedRuleAttributes::unbound_result_variables`] states them for a term equation.
+    pub unbound_result_variables: Vec<String>,
     /// The variable sets `rename_predicate_rule_apart` tests, computed once from the three
     /// parts above by [`PredicateRewriteRule::new`].
     pub variables: PredicateRuleVariables,
@@ -206,16 +214,23 @@ impl PredicateRewriteRule {
         collect_all_variables(&rhs, &mut all);
         collect_all_variables(requires.iter(), &mut all);
         let bound = lhs.free_variables();
-        let unbound = free_variables_of(&rhs)
+        let unbound_result = free_variables_of(&rhs)
             .into_iter()
-            .chain(free_variables_of(requires.iter()))
             .filter(|variable| !bound.contains(variable))
-            .collect();
+            .collect::<BTreeSet<_>>();
+        let unbound_result_variables = definition_spellings(&unbound_result);
+        let mut unbound = unbound_result;
+        unbound.extend(
+            free_variables_of(requires.iter())
+                .into_iter()
+                .filter(|variable| !bound.contains(variable)),
+        );
         Self {
             lhs,
             rhs,
             requires,
             attributes,
+            unbound_result_variables,
             variables: PredicateRuleVariables { all, unbound },
         }
     }
@@ -519,13 +534,6 @@ pub enum AxiomError {
     InvalidConcreteness(String),
     ConcretenessOverlap(String),
     MalformedAttribute(String),
-    /// An equation (function, simplification, ceil or predicate) whose right-hand side or
-    /// `ensures` has free variables that its left-hand side does not bind: `variables`, in the
-    /// definition's spelling, of the axiom `axiom` names as `written_injection_error` does.
-    UnboundEquationVariables {
-        axiom: String,
-        variables: Vec<String>,
-    },
 }
 
 impl From<MalformedAttribute> for AxiomError {
@@ -1498,71 +1506,64 @@ pub fn internalize_axiom(
             )])
         }
     };
-    let rules = internalize()
+    let mut rules = internalize()
         .map_err(|error| written_injection_error(error, axiom.attributes(), sentence))?;
-    for rule in &rules {
-        let unbound = equation_unbound_variables(rule);
-        if !unbound.is_empty() {
-            return Err(DefinitionError::Axiom(
-                AxiomError::UnboundEquationVariables {
-                    axiom: axiom_identity(axiom.attributes(), sentence),
-                    variables: unbound
-                        .iter()
-                        .map(|variable| {
-                            split_marker(&variable.name, &[VariableProvenance::Equation])
-                                .1
-                                .into_owned()
-                        })
-                        .collect(),
-                },
-            ));
+    for rule in &mut rules {
+        if let InternalizedRule::Term(
+            RuleKind::Function | RuleKind::Simplification | RuleKind::Ceil,
+            rule,
+        ) = rule
+        {
+            rule.computed_attributes.unbound_result_variables =
+                equation_unbound_result_variables(rule);
         }
     }
     Ok(rules)
 }
 
-/// The free variables of an equation's right-hand side and `ensures` that its left-hand side
-/// does not bind; empty for a rewrite rule.
+/// The free variables of a term equation's right-hand side and `ensures` that its left-hand
+/// side does not bind, in the definition's spelling.
 ///
-/// An equation `l = r` is an axiom closed over all its variables: for every valuation, `l`
-/// and `r` denote the same set. Applying it replaces an instance of `l`, which fixes the
-/// variables of `l`, by the same instance of `r`. A variable of `r` (or of an `ensures`, which
-/// constrains the result) that `l` does not fix ranges over every value, so no single term is
-/// equal to the instance unless `r` does not depend on it; the applied result would carry the
-/// equation's own variable free as if it named one value. The backend therefore does not
-/// accept such an equation. A variable only of the `requires` restricts when the equation
-/// applies and never reaches a result; it is decided with the rest of the `requires`.
-fn equation_unbound_variables(rule: &InternalizedRule) -> BTreeSet<Variable> {
-    match rule {
-        InternalizedRule::Term(RuleKind::Rewrite, _) => BTreeSet::new(),
-        InternalizedRule::Term(
-            RuleKind::Function | RuleKind::Simplification | RuleKind::Ceil,
-            rule,
-        ) => {
-            let mut free = free_variables_of(rule.ensures.iter());
-            match &rule.rhs {
-                RuleRhs::Term(term) => free.extend(term.attributes().variables.iter().cloned()),
-                RuleRhs::Disjunction(alternatives) => {
-                    for alternative in alternatives {
-                        free.extend(alternative.term.attributes().variables.iter().cloned());
-                        free.extend(free_variables_of(alternative.ensures.iter()));
-                    }
-                }
-                RuleRhs::Predicates(predicates) => free.extend(free_variables_of(predicates)),
-                RuleRhs::Top | RuleRhs::Bottom => {}
+/// An equation `l = r requires R ensures E` is an axiom closed over all its variables. A
+/// variable `Y` of `r` or `E` that `l` does not bind is not fixed by matching `l`: the axiom
+/// states `l = r` for every value of `Y` that satisfies `R` (and `E`). Such an equation is
+/// consistent and meaningful when `R` determines `Y` (`f(X) = Y requires Y = X + 1` is
+/// `f(X) = X + 1`), but the evaluator has no witness for `Y`; the instance `r` with the
+/// equation's own `Y` left free would name no value of the request. The definition is loaded,
+/// and an instance of such an equation is not used: once its `requires` is not refuted, the
+/// attempt is indeterminate (`ConditionIndeterminacy::UnboundResultVariables`). A variable only
+/// of the `requires` never reaches a result and is not listed: the `requires` is decided with
+/// it free, so it holds only if it holds for every value of the variable, and it is refuted
+/// only if it holds for none.
+fn equation_unbound_result_variables(rule: &RewriteRule) -> Vec<String> {
+    let mut free = free_variables_of(rule.ensures.iter());
+    match &rule.rhs {
+        RuleRhs::Term(term) => free.extend(term.attributes().variables.iter().cloned()),
+        RuleRhs::Disjunction(alternatives) => {
+            for alternative in alternatives {
+                free.extend(alternative.term.attributes().variables.iter().cloned());
+                free.extend(free_variables_of(alternative.ensures.iter()));
             }
-            let bound = &rule.lhs.attributes().variables;
-            free.retain(|variable| !bound.contains(variable));
-            free
         }
-        InternalizedRule::Predicate(rule) => {
-            let bound = rule.lhs.free_variables();
-            free_variables_of(&rule.rhs)
-                .into_iter()
-                .filter(|variable| !bound.contains(variable))
-                .collect()
-        }
+        RuleRhs::Predicates(predicates) => free.extend(free_variables_of(predicates)),
+        RuleRhs::Top | RuleRhs::Bottom => {}
     }
+    let bound = &rule.lhs.attributes().variables;
+    free.retain(|variable| !bound.contains(variable));
+    definition_spellings(&free)
+}
+
+/// The names of equation variables as the definition spells them, without the backend's
+/// equation marker.
+fn definition_spellings(variables: &BTreeSet<Variable>) -> Vec<String> {
+    variables
+        .iter()
+        .map(|variable| {
+            split_marker(&variable.name, &[VariableProvenance::Equation])
+                .1
+                .into_owned()
+        })
+        .collect()
 }
 
 /// How an error names an axiom: its `UNIQUE_ID`, else its label, else its source location,
@@ -2814,6 +2815,7 @@ pub(crate) fn rename_apart(
             undefined_symbols: computed.undefined_symbols.clone(),
             variables: rename_set(&computed.variables),
             unbound_variables: rename_set(&computed.unbound_variables),
+            unbound_result_variables: computed.unbound_result_variables.clone(),
         },
         existentials: rename_set(&rule.existentials),
     };
@@ -2858,6 +2860,7 @@ pub(crate) fn rename_predicate_rule_apart(
         rhs: rename_predicates(&rule.rhs, rename),
         requires: rule.requires.rename(rename),
         attributes: rename_concreteness(&rule.attributes, &renaming),
+        unbound_result_variables: rule.unbound_result_variables.clone(),
         variables: PredicateRuleVariables {
             all: rename_set(variables),
             unbound: rename_set(unbound),
@@ -4632,7 +4635,7 @@ mod unbound_equation_tests {
 
     use super::*;
 
-    fn load(axiom: &str) -> Result<BackendDefinition, DefinitionError> {
+    fn load(axiom: &str) -> BackendDefinition {
         let source = format!(
             r#"[]
             module MAIN
@@ -4645,29 +4648,44 @@ mod unbound_equation_tests {
             endmodule []"#
         );
         BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN")
+            .expect("an equation with a variable its left-hand side does not bind is loaded")
     }
 
-    fn unbound(axiom: &str) -> Vec<String> {
-        match load(axiom) {
-            Err(DefinitionError::Axiom(AxiomError::UnboundEquationVariables {
-                axiom,
-                variables,
-            })) => {
-                assert_eq!(axiom, "eq");
-                variables
-            }
-            other => panic!("expected an unbound-variable error: {other:?}"),
-        }
+    /// The unbound result variables recorded on the one equation of `axiom`.
+    fn unbound_result(axiom: &str) -> Vec<String> {
+        let definition = load(axiom);
+        let term_rules = [
+            definition.function_theory(),
+            definition.simplification_theory(),
+            definition.ceil_theory(),
+        ]
+        .into_iter()
+        .flat_map(|theory| theory.values())
+        .flat_map(|groups| groups.values())
+        .flatten()
+        .map(|rule| rule.computed_attributes.unbound_result_variables.clone());
+        let predicate_rules = definition
+            .predicate_simplification_theory()
+            .values()
+            .flatten()
+            .map(|rule| rule.unbound_result_variables.clone());
+        let recorded = term_rules.chain(predicate_rules).collect::<Vec<_>>();
+        let [recorded] = &recorded[..] else {
+            panic!("expected one equation: {recorded:?}");
+        };
+        recorded.clone()
     }
 
-    /// An equation states `l = r` for every value of each of its variables, so a variable of
-    /// its right-hand side or `ensures` that `l` does not fix makes it unusable as a rewrite of
-    /// `l`: the definition is refused, whatever kind of equation it is.
+    /// An equation states `l = r` for every value of each of its variables that satisfies its
+    /// `requires`. A variable of its right-hand side or `ensures` that `l` does not bind is
+    /// recorded, whatever kind of equation it is, and the definition is loaded: the equation can
+    /// be consistent and meaningful (`f(X) = Y requires Y = c(X)` is `f(X) = c(X)`), and only
+    /// its instances are not used.
     #[test]
-    fn an_equation_with_a_variable_its_left_hand_side_does_not_bind_is_refused() {
+    fn an_equation_with_a_variable_its_left_hand_side_does_not_bind_is_loaded_and_recorded() {
         // A function equation, its right-hand side.
         assert_eq!(
-            unbound(
+            unbound_result(
                 r#"axiom{R} \implies{R}(
                     \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
                     \equals{SortS{}, R}(
@@ -4676,9 +4694,22 @@ mod unbound_equation_tests {
             ),
             ["Y"]
         );
+        // A function equation whose right-hand-side variable its `requires` determines.
+        assert_eq!(
+            unbound_result(
+                r#"axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(Y:SortS{}, c{}(X:SortS{})),
+                        \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(
+                        f{}(K0:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+                    [label{}("eq")]"#
+            ),
+            ["Y"]
+        );
         // A simplification, its `ensures`.
         assert_eq!(
-            unbound(
+            unbound_result(
                 r#"axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
                     f{}(X:SortS{}), \and{SortS{}}(X:SortS{},
                         \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{}))))
@@ -4688,7 +4719,7 @@ mod unbound_equation_tests {
         );
         // A predicate simplification.
         assert_eq!(
-            unbound(
+            unbound_result(
                 r#"axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
                     \equals{SortS{}, Q}(p{}(X:SortS{}), a{}()),
                     \and{Q}(\equals{SortS{}, Q}(X:SortS{}, Y:SortS{}), \top{Q}())))
@@ -4698,25 +4729,39 @@ mod unbound_equation_tests {
         );
     }
 
-    /// A variable only of the `requires` restricts when the equation applies and never reaches
-    /// its result, and a rewrite rule mints its unbound variables per application: both load.
+    /// A variable only of the `requires` never reaches the result, so nothing is recorded; a
+    /// rewrite rule is not an equation, and mints its unbound variables per application.
     #[test]
-    fn requires_only_variables_and_rewrite_rules_are_accepted() {
-        load(
-            r#"axiom{R} \implies{R}(
-                \and{R}(
-                    \equals{SortS{}, R}(p{}(Y:SortS{}), a{}()),
-                    \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
-                \equals{SortS{}, R}(
-                    f{}(K0:SortS{}), \and{SortS{}}(X:SortS{}, \top{SortS{}}())))
-                [label{}("eq")]"#,
-        )
-        .expect("a requires-only variable is accepted");
-        load(
+    fn requires_only_variables_and_rewrite_rules_record_nothing() {
+        assert_eq!(
+            unbound_result(
+                r#"axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(p{}(Y:SortS{}), a{}()),
+                        \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(
+                        f{}(K0:SortS{}), \and{SortS{}}(X:SortS{}, \top{SortS{}}())))
+                    [label{}("eq")]"#,
+            ),
+            Vec::<String>::new()
+        );
+        let definition = load(
             r#"axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(a{}(), \top{SortS{}}()), \and{SortS{}}(c{}(Y:SortS{}), \top{SortS{}}()))
                 [label{}("eq")]"#,
-        )
-        .expect("a rewrite rule may introduce a variable");
+        );
+        let rules = definition
+            .rewrite_theory()
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1);
+        assert!(
+            rules[0]
+                .computed_attributes
+                .unbound_result_variables
+                .is_empty()
+        );
     }
 }

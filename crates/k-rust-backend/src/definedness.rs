@@ -288,7 +288,11 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
                 // This analysis has no path condition with which to discharge a conditional
                 // ceil equation. Applying it here would incorrectly treat the equation as
                 // unconditional; runtime predicate simplification handles conditional rules.
-                if !rule.requires.is_empty() {
+                // An equation whose result has a variable its left-hand side does not bind has
+                // no instance to use (`simplify::evaluate_equation_condition`).
+                if !rule.requires.is_empty()
+                    || !rule.computed_attributes.unbound_result_variables.is_empty()
+                {
                     continue;
                 }
                 let renamed = rename_apart(rule, &term.attributes().variables, &[]);
@@ -723,6 +727,38 @@ mod tests {
             .replace("$EXTRA", extra_axioms);
         let syntax = parse_definition(&source).expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// An unconditional ceil equation whose result has a variable its left-hand side does not
+    /// bind states `\ceil(partial(X)) = \equals(X, Z)` for every `Z`; matching fixes no value
+    /// for `Z`, so the static analysis does not use it and keeps the opaque obligation, as with
+    /// no equation. A bound equation of the same shape is used, the control.
+    #[test]
+    fn an_unbound_ceil_equation_is_not_used_by_the_static_analysis() {
+        let ceil = |result: &str| {
+            let definition = definition(&format!(
+                r#"axiom{{R, Q}} \implies{{R}}(\top{{R}}(),
+                    \equals{{Q, R}}(\ceil{{SortS{{}}, Q}}(partial{{}}(X:SortS{{}})),
+                        \and{{Q}}({result}, \top{{Q}}())))
+                    [simplification{{}}(), label{{}}("ceil-partial")]"#
+            ));
+            let subject = definition
+                .internalize_term(
+                    &parse_pattern(r#"partial{}(\dv{SortS{}}("v"))"#).unwrap(),
+                    &[],
+                )
+                .unwrap();
+            (ceil_term(&definition, &subject), subject)
+        };
+        let (unbound, subject) = ceil(r#"\equals{SortS{}, Q}(X:SortS{}, Z:SortS{})"#);
+        assert_eq!(unbound, vec![Predicate::Ceil(subject)]);
+        let (bound, _) = ceil(r#"\equals{SortS{}, Q}(X:SortS{}, X:SortS{})"#);
+        assert!(
+            !bound
+                .iter()
+                .any(|predicate| matches!(predicate, Predicate::Ceil(_))),
+            "{bound:?}"
+        );
     }
 
     fn rewrite_rule(definition: &BackendDefinition) -> &Arc<RewriteRule> {

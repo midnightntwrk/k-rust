@@ -1014,6 +1014,12 @@ pub enum ConditionIndeterminacy {
     /// binding is not known to be functional and the equation's instance is not justified;
     /// see `binds_element_variable_to_set_pattern`.
     NonFunctionalBinding,
+    /// The equation's right-hand side or `ensures` has variables, named here as the definition
+    /// spells them, that its left-hand side does not bind
+    /// (`ComputedRuleAttributes::unbound_result_variables`), and its `requires` is not refuted.
+    /// Matching fixes no value for them, so the instance is not a term of the request; see
+    /// `evaluate_equation_condition`.
+    UnboundResultVariables(Vec<String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1036,10 +1042,21 @@ enum EquationCondition {
 /// first, keyed by `anchor` against re-entry, and a verdict the solver could not reach is
 /// reported as a diagnostic of `rule_id`; without an anchor the definedness of its terms is
 /// stated and it is decided as it is.
+///
+/// An equation whose result has variables its left-hand side does not bind
+/// (`unbound_result`, from `ComputedRuleAttributes::unbound_result_variables`) is satisfied by
+/// no instance: the equation states `l = r` for every value of those variables that satisfies
+/// the `requires`, and matching `l` fixes none of them, so the instance `r` has no witness among
+/// the request's terms. Its `requires` is still decided, with those variables free: refuted, it
+/// holds for no value of them and the equation says nothing about the subject, as for any
+/// equation; otherwise the verdict is `Indeterminate(UnboundResultVariables)`, which keeps the
+/// subject, and for a function blocks the lower-priority equations, as an open `requires` does.
+/// Every caller that uses an equation's result reaches it through `Satisfied`.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_equation_condition(
     definition: &BackendDefinition,
     rule_id: &str,
+    unbound_result: &[String],
     anchor: Option<&Term>,
     instance: EquationInstance,
     known_predicates: &[Predicate],
@@ -1098,8 +1115,15 @@ fn evaluate_equation_condition(
     };
     Ok(
         match decide_rule_condition(rule_id, &predicates, known_predicates, solver)? {
-            RuleCondition::Satisfied => EquationCondition::Satisfied(matched),
             RuleCondition::Refuted => EquationCondition::Refuted,
+            RuleCondition::Satisfied | RuleCondition::Indeterminate(_)
+                if !unbound_result.is_empty() =>
+            {
+                EquationCondition::Indeterminate(ConditionIndeterminacy::UnboundResultVariables(
+                    unbound_result.to_vec(),
+                ))
+            }
+            RuleCondition::Satisfied => EquationCondition::Satisfied(matched),
             RuleCondition::Indeterminate(reason) => EquationCondition::Indeterminate(reason),
         },
     )
@@ -1825,6 +1849,7 @@ fn apply_ceil_equation(
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
+        &rule.computed_attributes.unbound_result_variables,
         Some(term),
         instance,
         known_predicates,
@@ -1939,6 +1964,7 @@ fn apply_predicate_equation(
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
+        &rule.unbound_result_variables,
         first_predicate_term(predicate),
         instance,
         known_predicates,
@@ -2948,6 +2974,7 @@ fn matches_top_equation(
             let EquationCondition::Satisfied(matched) = evaluate_equation_condition(
                 definition,
                 &rule.attributes.unique_id,
+                &rule.computed_attributes.unbound_result_variables,
                 Some(term),
                 instance,
                 known_predicates,
@@ -3570,6 +3597,7 @@ fn apply_equation(
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
+        &rule.computed_attributes.unbound_result_variables,
         Some(term),
         instance,
         known_predicates,
