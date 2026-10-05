@@ -16,7 +16,7 @@
 //! bound = "O(c) per name, amortized O(1)"
 //!
 //! [[cost]]
-//! mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the free variables of the arguments substituted under it, computed once per unfolding (alias Expander::rename_to_avoid_capture)"
+//! mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the free-variable set of each argument substituted under it, computed once per argument, one lookup per set (alias Expander::rename_to_avoid_capture)"
 //! bound = "O(v log v) per call before the retry loop"
 //!
 //! [[cost]]

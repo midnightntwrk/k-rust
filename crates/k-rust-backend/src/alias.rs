@@ -2,14 +2,14 @@
 //! id = "backend.alias.unfold"
 //! name = "capture-avoiding alias unfolding"
 //! sites = ["expand", "expand_within", "collect", "measure_aliases", "unfolded_size", "measure_node", "visit_associative", "lay_out", "Expander::expand", "Expander::enter", "Expander::expand_binder"]
-//! variable = "p = pattern size; o = what the unfolding builds: the unfolded pattern, and for each alias application it unfolds the application and one unit per argument, at most p + UNFOLDING_LIMIT since it is measured before it is built; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+//! variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 //! counters = []
 //! no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one expand call"
-//! bound = "O(p + o log o): every node it visits is built once, as output or as an alias application it enters, with map and set operations of logarithmic cost; O(p) for a pattern that applies no alias, which is returned as it is"
+//! bound = "O(p + o log^2 o): every node it visits is built once, as output or as an alias application it enters, and every capture check is counted, with map and set operations of logarithmic cost; free-variable sets are merged smaller into larger, O(o log o) insertions, and copied only with a copy of their argument; O(p) for a pattern that applies no alias, which is returned as it is"
 //!
 //! [[cost]]
 //! mode = "definition load (measure_aliases)"
@@ -32,7 +32,8 @@
 //!
 //! Unfolding builds exactly what is measured ([`Expander`]): an argument is unfolded once, only
 //! when the alias keeps a copy of it, and moved into its last copy, so every node it builds is a
-//! node of the result, except the alias applications it enters, which the measure counts too.
+//! node of the result, except the alias applications it enters, which the measure counts too,
+//! with the capture checks of the binders of the bodies it enters.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,10 +55,13 @@ use crate::definition::DefinitionError;
 /// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
 /// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
 /// and every later pass over them multiply. Time grows with it too: unfolding builds nothing it
-/// does not count and visits each unit once, with map and set operations of logarithmic cost,
-/// which took 20 to 40 ns per unit in a release build on alias chains that duplicate their
-/// argument or nest binders around it, so an operation that spends the whole limit unfolds in a
-/// fraction of a second. A pattern that large is too large to execute or prove anything about,
+/// does not count, and the size also counts the capture checks at the binders of the alias bodies
+/// it enters, the one part of its work that is not proportional to what it builds. Each unit is
+/// visited or checked once, with map and set operations of logarithmic cost, whatever the number
+/// of free variables of the arguments, which took 30 to 200 ns per unit in a release build on
+/// alias chains that duplicate their argument, nest binders around it, rebuild it at each level,
+/// or check many parameters at many binders, so an operation that spends the whole limit unfolds
+/// in under a second. A pattern that large is too large to execute or prove anything about,
 /// while the aliases of generated definitions (the modalities of claims, which unfold to their
 /// argument) add next to nothing, and the patterns a client sends are not counted, only what
 /// unfolding adds to them.
@@ -97,10 +101,13 @@ pub(crate) struct AliasDefinition {
 /// all.
 ///
 /// The alias applications that unfolding the body enters, each counted as the application node
-/// with its sorts substituted plus one unit for each of its arguments: `entered`, plus each sort
-/// argument's size times its coefficient in `entered_sorts`. Unfolding enters each application of
-/// a body once each time it enters the body, since an argument is unfolded once and then copied,
-/// so this part is built once per entry, however many copies of the result are made.
+/// with its sorts substituted plus one unit for each of its arguments, and the capture checks of
+/// the binders of every body entered, one unit for each binder unfolding visits in the body times
+/// the parameters of that body with an occurrence it substitutes under a binder
+/// ([`Layout::captured`]): `entered`, plus each sort argument's size times its coefficient in
+/// `entered_sorts`. Unfolding enters each application of a body once each time it enters the
+/// body, since an argument is unfolded once and then copied, so this part is built, and checked,
+/// once per entry, however many copies of the result are made.
 ///
 /// The arithmetic saturates: a saturated size exceeds every budget.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -435,6 +442,8 @@ enum Visit<'a> {
     Enter(&'a kore::Pattern, u64),
     /// Leave a binder of the parameter at this position.
     Unbind(usize),
+    /// Leave a binder.
+    Leave,
 }
 
 /// The measurement of one pattern: a request's, or the body of the alias `alias`.
@@ -454,6 +463,13 @@ struct Frame<'a> {
     written: u64,
     /// Whether what has been visited applies an alias, so that unfolding changes it.
     applies_alias: bool,
+    /// The binders around the current visit.
+    binders: usize,
+    /// The binders visited with copies, which unfolding enters.
+    entered_binders: u64,
+    /// Whether each parameter has an occurrence with copies under a binder, and how many do.
+    captured: Vec<bool>,
+    captured_count: u64,
 }
 
 impl<'a> Frame<'a> {
@@ -467,6 +483,10 @@ impl<'a> Frame<'a> {
             unfolded: Size::default(),
             written: 0,
             applies_alias: false,
+            binders: 0,
+            entered_binders: 0,
+            captured: Vec::new(),
+            captured_count: 0,
         }
     }
 
@@ -491,6 +511,26 @@ impl<'a> Frame<'a> {
             },
             written: 0,
             applies_alias: false,
+            binders: 0,
+            entered_binders: 0,
+            captured: vec![false; alias.parameters.len()],
+            captured_count: 0,
+        }
+    }
+
+    /// The measurement of what has been visited. Each entry of an alias body also checks, at
+    /// each binder it unfolds, every parameter substituted under some binder of the body
+    /// ([`Layout::captured`]), so that work is counted with the applications the body enters.
+    fn finish(mut self) -> Measurement {
+        if self.alias.is_some() {
+            self.unfolded
+                .entries()
+                .add_constant(self.entered_binders, self.captured_count);
+        }
+        Measurement {
+            unfolded: self.unfolded,
+            written: self.written,
+            applies_alias: self.applies_alias,
         }
     }
 
@@ -611,11 +651,7 @@ fn unfolded_size<'a>(
             let Some(frame) = frames.pop() else {
                 unreachable!("the loop runs while a frame is open")
             };
-            let measurement = Measurement {
-                unfolded: frame.unfolded,
-                written: frame.written,
-                applies_alias: frame.applies_alias,
-            };
+            let measurement = frame.finish();
             let Some(name) = stack.pop() else {
                 return Ok(measurement);
             };
@@ -632,6 +668,10 @@ fn unfolded_size<'a>(
             }
             Visit::Unbind(index) => {
                 frame.shadowed[index] -= 1;
+                None
+            }
+            Visit::Leave => {
+                frame.binders -= 1;
                 None
             }
         };
@@ -709,6 +749,10 @@ fn measure_node<'a>(
             {
                 frame.written = frame.written.saturating_add(written_size(pattern));
                 add_copies(&mut frame.unfolded.terms[index], copies);
+                if copies > 0 && frame.binders > 0 && !frame.captured[index] {
+                    frame.captured[index] = true;
+                    frame.captured_count += 1;
+                }
                 return Ok(None);
             }
         }
@@ -716,6 +760,9 @@ fn measure_node<'a>(
         | Pattern::Forall { variable, .. }
         | Pattern::Mu { variable, .. }
         | Pattern::Nu { variable, .. } => {
+            frame.binders += 1;
+            frame.entered_binders += u64::from(copies > 0);
+            frame.pending.push(Visit::Leave);
             if let Some(&index) = frame.parameters.get(variable.as_ref()) {
                 frame.shadowed[index] += 1;
                 frame.pending.push(Visit::Unbind(index));
@@ -919,6 +966,10 @@ struct Layout {
     /// unfolding: an occurrence is under a binder of the body, which must not capture them, or in
     /// an argument whose own free variables are asked for.
     needs_free: Vec<bool>,
+    /// The parameters, in increasing order, with a substituted occurrence under a binder of the
+    /// body: each binder of the body checks whether it would capture a free variable of their
+    /// arguments ([`Size`] counts these checks).
+    captured: Vec<usize>,
     /// The name of every variable of the body, its parameters included, which a binder renamed
     /// to avoid capture never takes.
     names: BTreeSet<String>,
@@ -933,6 +984,8 @@ enum Place<'a> {
     Exit(usize),
     /// Leave a binder of the parameter at this position.
     Unbind(usize),
+    /// Leave a binder.
+    Leave,
 }
 
 /// Lay out the body of `alias` ([`Layout`]), whose size and the sizes and layouts of the aliases
@@ -945,6 +998,7 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
         subtree: Vec::new(),
         occurrences: vec![Vec::new(); alias.parameters.len()],
         needs_free: vec![false; alias.parameters.len()],
+        captured: Vec::new(),
         names: alias
             .parameters
             .iter()
@@ -952,6 +1006,9 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
             .collect(),
     };
     let mut shadowed = vec![0_usize; alias.parameters.len()];
+    let mut captured = vec![false; alias.parameters.len()];
+    // The binders around the current position.
+    let mut binders = 0_usize;
     let mut pending = vec![Place::Enter(&alias.right, true, false)];
     // Each `Enter` pushes `Enter`s only for proper subpatterns, so the loop terminates.
     while let Some(place) = pending.pop() {
@@ -963,6 +1020,10 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
             }
             Place::Unbind(index) => {
                 shadowed[index] -= 1;
+                continue;
+            }
+            Place::Leave => {
+                binders -= 1;
                 continue;
             }
         };
@@ -979,6 +1040,7 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
                 {
                     layout.occurrences[index].push(position);
                     layout.needs_free[index] |= asked;
+                    captured[index] |= binders > 0;
                 }
             }
             Pattern::Application { symbol, arguments } if aliases.contains_key(&symbol.name) => {
@@ -1013,6 +1075,8 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
                 layout.names.insert(variable.name.clone());
+                binders += 1;
+                pending.push(Place::Leave);
                 if let Some(&index) = parameters.get(variable.as_ref()) {
                     shadowed[index] += 1;
                     pending.push(Place::Unbind(index));
@@ -1033,6 +1097,9 @@ fn lay_out(alias: &AliasDefinition, aliases: &BTreeMap<String, AliasDefinition>)
         }
         pending[start..].reverse();
     }
+    layout.captured = (0..captured.len())
+        .filter(|&index| captured[index])
+        .collect();
     layout
 }
 
@@ -1149,7 +1216,6 @@ enum Binding {
     /// occurrence that unfolding substitutes, and moved into the last (`remaining` counts the
     /// occurrences left). `free` holds its free variables when the layout asks for them.
     Argument {
-        parameter: usize,
         value: Option<kore::Pattern>,
         remaining: usize,
         free: Free,
@@ -1158,15 +1224,21 @@ enum Binding {
     Renamed(kore::Variable),
 }
 
-/// The free variables of the arguments of a [`Scope`], with the positions where unfolding
-/// substitutes them, built the first time a binder of the scope asks.
-#[derive(Default)]
-struct Capture {
-    /// For each free variable of an argument, the positions of the occurrences of every
-    /// parameter whose argument has it, in increasing order.
-    by_variable: BTreeMap<kore::Variable, Vec<usize>>,
-    /// The same, for each name of such a variable.
-    by_name: BTreeMap<String, Vec<usize>>,
+/// Whether `free` has a variable named `name`, of either kind and any sort: sets of variables are
+/// ordered by kind, then name, then sort, and a sort variable with the empty name is the least sort.
+fn has_name(free: &BTreeSet<kore::Variable>, name: &str) -> bool {
+    [kore::VariableKind::Element, kore::VariableKind::Set]
+        .into_iter()
+        .any(|kind| {
+            let least = kore::Variable {
+                kind,
+                name: name.to_owned(),
+                sort: kore::Sort::Variable(String::new()),
+            };
+            free.range(least..)
+                .next()
+                .is_some_and(|found| found.kind == kind && found.name == name)
+        })
 }
 
 /// Whether some position of `positions`, in increasing order, is in `range`.
@@ -1184,7 +1256,6 @@ struct Scope<'a> {
     sorts: BTreeMap<&'a str, kore::Sort>,
     /// What each parameter, and each renamed binder around the current position, stands for.
     terms: BTreeMap<&'a kore::Variable, Binding>,
-    capture: Option<Capture>,
     /// The names of the renamed binders around the current position.
     renamed: BTreeSet<String>,
 }
@@ -1195,7 +1266,6 @@ impl<'a> Scope<'a> {
             alias: None,
             sorts: BTreeMap::new(),
             terms: BTreeMap::new(),
-            capture: None,
             renamed: BTreeSet::new(),
         }
     }
@@ -1239,15 +1309,21 @@ impl Positions<'_> {
 /// A binder of a body is renamed when an argument substituted under it has its variable free.
 /// The free variables of an argument are computed while it is unfolded, and only for the
 /// parameters whose layout asks for them, so each node's are computed once, from its
-/// subpatterns'; at a binder, the occurrences of the parameters whose arguments have the binder
-/// variable free are looked up by position ([`Capture`]). No pattern is rescanned.
+/// subpatterns', by inserting the smaller set into the larger, which is extended in place
+/// ([`Expander::union`]). A binder checks each parameter substituted under some binder of the
+/// body ([`Layout::captured`]): whether it has an occurrence in the binder's range, and whether
+/// its argument's set has the binder variable, so the check takes one lookup per parameter
+/// whatever the number of free variables, and no pattern or set is rescanned.
 struct Expander<'a> {
     aliases: &'a BTreeMap<String, AliasDefinition>,
-    /// What the unfolding built besides its result: one unit per argument and the application
-    /// node of each alias application it entered ([`Size`]).
+    /// What the unfolding built besides its result, one unit per argument and the application
+    /// node of each alias application it entered, and the capture checks of the binders of the
+    /// bodies it entered ([`Size`]).
     #[cfg(test)]
     entered: u64,
-    /// The operations on free variables, capture positions, and fresh names it performed.
+    /// The other operations it performed: the elements it inserted into or copied between sets
+    /// of free variables, the variables it removed from them, and the fresh-name candidates it
+    /// tried, each with one lookup per argument set.
     #[cfg(test)]
     steps: u64,
 }
@@ -1357,7 +1433,6 @@ impl<'a> Expander<'a> {
                 Some((
                     variable,
                     Binding::Argument {
-                        parameter,
                         value: Some(value),
                         remaining: alias.layout.occurrences[parameter].len(),
                         free,
@@ -1374,7 +1449,6 @@ impl<'a> Expander<'a> {
                 .zip(sorts)
                 .collect(),
             terms,
-            capture: None,
             renamed: BTreeSet::new(),
         };
         // The body is unfolded below the frames of every alias body and pattern level enclosing
@@ -1728,14 +1802,17 @@ impl<'a> Expander<'a> {
                 ..
             }) => {
                 *remaining -= 1;
-                let unfolded = if *remaining == 0 {
-                    value.take()
+                // The last occurrence takes the unfolding and its free variables, so neither is
+                // shared afterwards. A binder that needs the free variables precedes every
+                // occurrence under it, so none needs them after the last.
+                let (unfolded, free) = if *remaining == 0 {
+                    (value.take(), free.take())
                 } else {
-                    value.clone()
+                    (value.clone(), free.clone())
                 };
                 let unfolded =
                     unfolded.expect("an argument is substituted once for each counted occurrence");
-                (unfolded, if asked { free.clone() } else { None })
+                (unfolded, if asked { free } else { None })
             }
             Some(Binding::Renamed(renamed)) => {
                 let free = asked.then(|| self.single(renamed.clone())).flatten();
@@ -1898,23 +1975,33 @@ impl<'a> Expander<'a> {
     /// ```
     fn rename_to_avoid_capture(
         &mut self,
-        scope: &mut Scope<'a>,
+        scope: &Scope<'a>,
         variable: &kore::Variable,
         substituted: &kore::Variable,
         position: usize,
     ) -> Option<kore::Variable> {
         let alias = scope.alias?;
-        let range = position + 1..position + alias.layout.subtree[position];
-        if scope.capture.is_none() {
-            let capture = self.capture(scope, alias);
-            scope.capture = Some(capture);
-        }
-        let capture = scope.capture.as_ref()?;
-        if !capture
-            .by_variable
-            .get(substituted)
-            .is_some_and(|positions| any_within(positions, &range))
+        let captured = &alias.layout.captured;
+        // One check for each parameter substituted under some binder of the body, which the
+        // measure counts for each binder that unfolding enters ([`Size`]).
+        #[cfg(test)]
         {
+            self.entered += length_of(captured);
+        }
+        let range = position + 1..position + alias.layout.subtree[position];
+        let free = captured
+            .iter()
+            .filter(|&&parameter| any_within(&alias.layout.occurrences[parameter], &range))
+            .filter_map(
+                |&parameter| match scope.terms.get(&alias.parameters[parameter]) {
+                    Some(Binding::Argument {
+                        free: Some(free), ..
+                    }) => Some(free.as_ref()),
+                    _ => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        if !free.iter().any(|free| free.contains(substituted)) {
             return None;
         }
         // The fresh name is not the name of a variable of the body, so no binder of the body
@@ -1924,14 +2011,11 @@ impl<'a> Expander<'a> {
         // variable but its parameters (verification refuses others), so the aliases it applies
         // bring in only the free variables of their arguments, which come from these.
         for index in 0_u64.. {
-            self.step(1);
+            self.step(1 + free.len());
             let name = format!("{}Alias{index}", variable.name);
             if alias.layout.names.contains(&name)
                 || scope.renamed.contains(&name)
-                || capture
-                    .by_name
-                    .get(&name)
-                    .is_some_and(|positions| any_within(positions, &range))
+                || free.iter().any(|free| has_name(free, &name))
             {
                 continue;
             }
@@ -1944,66 +2028,26 @@ impl<'a> Expander<'a> {
         unreachable!("the finite names around a binder cannot exhaust every suffix")
     }
 
-    /// The free variables of the arguments of `scope`, by the positions their parameters are
-    /// substituted at. An argument moved into its last occurrence is not substituted again, so
-    /// it need not be counted.
-    fn capture(&mut self, scope: &Scope<'a>, alias: &AliasDefinition) -> Capture {
-        let mut capture = Capture::default();
-        for binding in scope.terms.values() {
-            let Binding::Argument {
-                parameter,
-                value: Some(_),
-                free: Some(free),
-                ..
-            } = binding
-            else {
-                continue;
-            };
-            let positions = &alias.layout.occurrences[*parameter];
-            for variable in free.iter() {
-                self.step(positions.len());
-                capture
-                    .by_variable
-                    .entry(variable.clone())
-                    .or_default()
-                    .extend(positions);
-                capture
-                    .by_name
-                    .entry(variable.name.clone())
-                    .or_default()
-                    .extend(positions);
-            }
-        }
-        for positions in capture
-            .by_variable
-            .values_mut()
-            .chain(capture.by_name.values_mut())
-        {
-            positions.sort_unstable();
-        }
-        capture
-    }
-
     fn single(&mut self, variable: kore::Variable) -> Free {
         self.step(1);
         Some(Arc::new(BTreeSet::from([variable])))
     }
 
     /// The union of two sets of free variables, inserting the smaller into the larger.
+    ///
+    /// The sets are taken by value, so the larger is extended in place unless another copy of
+    /// the unfolding shares it ([`Expander::unique`]).
     fn union(&mut self, left: Free, right: Free) -> Free {
-        let (Some(left), Some(right)) = (&left, &right) else {
-            return left.or(right);
+        let (mut larger, smaller) = match (left, right) {
+            (Some(left), Some(right)) if left.len() >= right.len() => (left, right),
+            (Some(left), Some(right)) => (right, left),
+            (left, right) => return left.or(right),
         };
-        if Arc::ptr_eq(left, right) {
-            return Some(left.clone());
+        if Arc::ptr_eq(&larger, &smaller) {
+            return Some(larger);
         }
-        let (mut larger, smaller) = if left.len() >= right.len() {
-            (left.clone(), right.clone())
-        } else {
-            (right.clone(), left.clone())
-        };
         self.step(smaller.len());
-        let set = Arc::make_mut(&mut larger);
+        let set = self.unique(&mut larger);
         match Arc::try_unwrap(smaller) {
             Ok(smaller) => set.extend(smaller),
             Err(smaller) => set.extend(smaller.iter().cloned()),
@@ -2016,9 +2060,27 @@ impl<'a> Expander<'a> {
         let mut free = free?;
         self.step(1);
         if free.contains(variable) {
-            Arc::make_mut(&mut free).remove(variable);
+            self.unique(&mut free).remove(variable);
         }
         (!free.is_empty()).then_some(free)
+    }
+
+    /// `free` itself, copied first when another copy of the unfolding shares it.
+    ///
+    /// Sets are shared only between the copies of one argument's unfolding: its binding hands a
+    /// handle on its set to each copy but the last, which takes the set itself, as it takes the
+    /// unfolding. Copying a shared set gives one handle a set of its own, so a set is copied at
+    /// most once for each copy of the argument, and a copy of the argument is at least as large
+    /// as its set of free variables, each of which occurs in it: copying sets costs no more than
+    /// copying the arguments, which the measure counts.
+    fn unique<'s>(
+        &mut self,
+        free: &'s mut Arc<BTreeSet<kore::Variable>>,
+    ) -> &'s mut BTreeSet<kore::Variable> {
+        if Arc::get_mut(free).is_none() {
+            self.step(free.len());
+        }
+        Arc::make_mut(free)
     }
 }
 
@@ -2208,8 +2270,8 @@ mod tests {
     }
 
     /// What unfolding `pattern`, which must measure without error, builds: the unfolded pattern,
-    /// what it built besides (the alias applications it entered), and the operations it counted
-    /// on free variables, capture positions, and fresh names.
+    /// what it built besides (the alias applications it entered, and its capture checks), and the
+    /// operations it counted on sets of free variables and fresh names.
     fn unfold(
         pattern: &kore::Pattern,
         aliases: &BTreeMap<String, AliasDefinition>,
@@ -2279,6 +2341,11 @@ mod tests {
                 alias second{}(S{}, S{}) : S{} where second{}(X:S{}, Y:S{}) := Y:S{} []
                 alias bind{}(S{}) : S{}
                     where bind{}(X:S{}) := \exists{S{}}(Y:S{}, f{}(X:S{}, twice{}(X:S{}))) []
+                alias binds{}(S{}, S{}, S{}) : S{}
+                    where binds{}(X:S{}, W:S{}, V:S{}) := f{}(
+                        \exists{S{}}(Y:S{}, \forall{S{}}(Z:S{}, f{}(X:S{}, drop{}(V:S{})))),
+                        f{}(\exists{S{}}(Y:S{}, W:S{}), \exists{S{}}(V:S{}, V:S{}))
+                    ) []
             endmodule []
         "#});
         for source in [
@@ -2299,6 +2366,7 @@ mod tests {
             r"\right-assoc{}(first{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
             r"\right-assoc{}(second{}(twice{}(a{}()), b{}(), twice{}(c{}())))",
             "bind{}(twice{}(f{}(Z:S{}, a{}())))",
+            "binds{}(twice{}(a{}()), W:S{}, b{}())",
         ] {
             let pattern = parse_pattern(source).expect("pattern should parse");
             let expanded = expand(&pattern, &aliases).expect("pattern should unfold");
@@ -2635,11 +2703,106 @@ mod tests {
         assert_eq!(measured(&pattern, &aliases), Ok(size(&unfolded) + entered));
     }
 
+    /// The work of unfolding, on free variables, capture checks, and fresh names, is bounded by
+    /// what the measure counts, however many free variables the arguments have: a binder over an
+    /// argument with many free variables; chains that pass such an argument through many binder
+    /// bodies, nested in each other or entered side by side; and a chain that rebuilds an
+    /// argument around it at each level.
+    #[test]
+    fn unfolding_work_is_bounded_by_the_measure() {
+        let definition = |aliases: &str| {
+            aliases_of(&format!(
+                "[]\nmodule MAIN\n    sort S{{}} []\n    symbol a{{}}() : S{{}} []\n    \
+                 symbol f{{}}(S{{}}, S{{}}) : S{{}} []\n{aliases}endmodule []\n"
+            ))
+        };
+        let alias = |name: &str, parameters: &[&str], body: &str| {
+            let sorts = vec!["S{}"; parameters.len()].join(", ");
+            let parameters = parameters
+                .iter()
+                .map(|parameter| format!("{parameter}:S{{}}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "    alias {name}{{}}({sorts}) : S{{}} where {name}{{}}({parameters}) := {body} []\n"
+            )
+        };
+        let chain =
+            |length: usize, parameters: &[&str], step: &dyn Fn(&str) -> String, last: &str| {
+                (0..length)
+                    .map(|index| {
+                        let body = if index + 1 == length {
+                            last.to_owned()
+                        } else {
+                            step(&format!("c{}", index + 1))
+                        };
+                        alias(&format!("c{index}"), parameters, &body)
+                    })
+                    .collect::<String>()
+            };
+        let variables = |count: usize| {
+            let variables = (0..count)
+                .map(|index| format!("V{index}:S{{}}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("\\and{{S{{}}}}({variables})")
+        };
+        let many = variables(1000);
+        let cases = [
+            (
+                "a binder over many free variables",
+                definition(&alias("c0", &["X"], r"\exists{S{}}(Y:S{}, X:S{})")),
+                format!("c0{{}}({many})"),
+            ),
+            (
+                "binders entered side by side",
+                definition(&chain(
+                    10,
+                    &["X"],
+                    &|next| format!("{next}{{}}({next}{{}}(X:S{{}}))"),
+                    r"\exists{S{}}(Y:S{}, X:S{})",
+                )),
+                format!("c0{{}}({many})"),
+            ),
+            (
+                "nested binders",
+                definition(&chain(
+                    200,
+                    &["X"],
+                    &|next| format!("\\exists{{S{{}}}}(Z:S{{}}, {next}{{}}(X:S{{}}))"),
+                    "X:S{}",
+                )),
+                format!("c0{{}}({many})"),
+            ),
+            (
+                "an argument rebuilt at each level",
+                definition(&chain(
+                    200,
+                    &["X", "W"],
+                    &|next| format!("{next}{{}}(f{{}}(X:S{{}}, W:S{{}}), W:S{{}})"),
+                    r"\exists{S{}}(Y:S{}, f{}(X:S{}, W:S{}))",
+                )),
+                format!("c0{{}}({many}, Z:S{{}})"),
+            ),
+        ];
+        let mut exceeded = Vec::new();
+        for (shape, aliases, source) in cases {
+            let pattern = parse_pattern(&source).unwrap();
+            let measured = measured(&pattern, &aliases).unwrap();
+            let (unfolded, entered, steps) = unfold(&pattern, &aliases);
+            assert_eq!(measured, size(&unfolded) + entered, "{shape}");
+            if steps > measured {
+                exceeded.push(format!("{shape}: {steps} steps for {measured}"));
+            }
+        }
+        assert!(exceeded.is_empty(), "{exceeded:#?}");
+    }
+
     /// The binder chain `c_i(X) := c_{i+1}(c_{i+1}(X))`, `c_{n-1}(X) := \exists(Y, X)` unfolds
     /// `c0` into 2^(n-1) nested binders around its argument. The free variables of each argument
     /// are computed once, from those of its parts, so unfolding takes work proportional to what
     /// it builds: adding one alias doubles the unfolding and at most doubles the operations on
-    /// free variables, capture positions, and fresh names, whether the argument is closed, has a
+    /// free variables and fresh names, whether the argument is closed, has a
     /// free variable, or has one that every binder would capture and is renamed to avoid.
     #[test]
     fn nested_binders_unfold_in_linear_time() {
