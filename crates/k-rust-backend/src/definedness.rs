@@ -44,7 +44,7 @@ use crate::{
     smt::{NoSolver, SmtSolver},
     stop::Stoppable,
     term::{
-        FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind,
+        FunctionType, InjectionComparison, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{Apart, certified_ground_normal_form},
     },
 };
@@ -602,8 +602,14 @@ fn nested_condition_definedness(
             Predicate::And(conjuncts)
         }
         Predicate::Not(inner) => Predicate::Not(nested(inner)),
-        Predicate::Exists(variable, inner) => Predicate::Exists(variable.clone(), nested(inner)),
-        Predicate::Forall(variable, inner) => Predicate::Forall(variable.clone(), nested(inner)),
+        Predicate::Exists(variable, inner) => Predicate::Exists(
+            variable.clone(),
+            Box::new(under_binder(definition, variable, inner, known)),
+        ),
+        Predicate::Forall(variable, inner) => Predicate::Forall(
+            variable.clone(),
+            Box::new(under_binder(definition, variable, inner, known)),
+        ),
         Predicate::And(inner) => Predicate::And(
             inner
                 .iter()
@@ -619,6 +625,29 @@ fn nested_condition_definedness(
         Predicate::Implies(left, right) => Predicate::Implies(nested(left), nested(right)),
         Predicate::Iff(left, right) => Predicate::Iff(nested(left), nested(right)),
     }
+}
+
+/// [`nested_condition_definedness`] of `inner`, the body of a quantifier over `variable`.
+///
+/// A known fact that mentions `variable` free is about the variable of that name outside the
+/// quantifier, not about the one it binds, so it is set aside under the binder: an obligation
+/// about the bound variable is stated even when a fact of the same text is known outside.
+fn under_binder(
+    definition: &BackendDefinition,
+    variable: &Variable,
+    inner: &Predicate,
+    known: &[Predicate],
+) -> Predicate {
+    let holds = |fact: &Predicate| !crate::rule::mentions_free(fact, variable);
+    if known.iter().all(holds) {
+        return nested_condition_definedness(definition, inner, known);
+    }
+    let unshadowed = known
+        .iter()
+        .filter(|fact| holds(fact))
+        .cloned()
+        .collect::<Vec<_>>();
+    nested_condition_definedness(definition, inner, &unshadowed)
 }
 
 fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<Predicate> {
@@ -842,6 +871,26 @@ mod tests {
                 Predicate::And(vec![ceil_y.clone(), equals_y.clone()]),
             ])]
         );
+        // A known fact about `X` is about the free `X`, not about the `X` a quantifier binds:
+        // under `\exists X` the obligation is stated although the same text is known outside.
+        let binder = crate::term::Variable::new("X", Sort::simple("SortS"));
+        let body = Box::new(equals_x.clone());
+        let stated = Box::new(Predicate::And(vec![ceil_x.clone(), equals_x.clone()]));
+        for (quantified, expected) in [
+            (
+                Predicate::Exists(binder.clone(), body.clone()),
+                Predicate::Exists(binder.clone(), stated.clone()),
+            ),
+            (
+                Predicate::Forall(binder.clone(), body),
+                Predicate::Forall(binder.clone(), stated),
+            ),
+        ] {
+            assert_eq!(
+                condition_definedness(&definition, vec![quantified], std::slice::from_ref(&ceil_x)),
+                vec![expected]
+            );
+        }
         // An equality with no provably defined side implies neither side's definedness
         // (`\equals(\bottom, \bottom)` is `\top`), and a condition over defined terms has none
         // to state.
