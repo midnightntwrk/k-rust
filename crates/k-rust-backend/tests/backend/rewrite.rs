@@ -4669,7 +4669,7 @@ fn overload_rewrite_definition() -> BackendDefinition {
                         inj{SortSub{}, SortTop{}}(From:SortSub{})))
                     [subsort{SortSub{}, SortTop{}}()]
                 axiom{R} \equals{SortTop{}, R}(
-                    upper{}(X:SortTop{}),
+                    upper{}(inj{SortSub{}, SortTop{}}(Y:SortSub{})),
                     inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))
                 ) [symbol-overload{}(upper{}(), lower{}())]
                 axiom{} \rewrites{SortState{}}(

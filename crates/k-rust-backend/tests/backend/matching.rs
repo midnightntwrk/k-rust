@@ -436,15 +436,15 @@ fn overload_definition() -> BackendDefinition {
                         inj{SortRight{}, SortTop{}}(From:SortRight{})))
                     [subsort{SortRight{}, SortTop{}}()]
                 axiom{R} \equals{SortTop{}, R}(
-                    upper{}(X:SortTop{}),
+                    upper{}(inj{SortSub{}, SortTop{}}(Y:SortSub{})),
                     inj{SortSub{}, SortTop{}}(lower{}(Y:SortSub{}))
                 ) [symbol-overload{}(upper{}(), lower{}())]
                 axiom{R} \equals{SortTop{}, R}(
-                    common{}(X:SortTop{}),
+                    common{}(inj{SortLeft{}, SortTop{}}(Y:SortLeft{})),
                     inj{SortLeft{}, SortTop{}}(left{}(Y:SortLeft{}))
                 ) [symbol-overload{}(common{}(), left{}())]
                 axiom{R} \equals{SortTop{}, R}(
-                    common{}(X:SortTop{}),
+                    common{}(inj{SortRight{}, SortTop{}}(Y:SortRight{})),
                     inj{SortRight{}, SortTop{}}(right{}(Y:SortRight{}))
                 ) [symbol-overload{}(common{}(), right{}())]
             endmodule []"#,
@@ -818,7 +818,7 @@ fn overload_lifting_preserves_uninterpreted_applications() {
             symbol a{}() : SortS{} [constructor{}(), functional{}()]
             symbol lower{}(SortS{}) : SortS{} [functional{}()]
             symbol upper{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
-            axiom{R} \equals{SortS{}, R}(upper{}(X:SortS{}), lower{}(Y:SortS{}))
+            axiom{R} \equals{SortS{}, R}(upper{}(Y:SortS{}), lower{}(Y:SortS{}))
                 [symbol-overload{}(upper{}(), lower{}())]
         endmodule []"#,
     )

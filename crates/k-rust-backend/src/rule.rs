@@ -75,7 +75,7 @@ use crate::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
         },
-        names::VariableProvenance,
+        names::{VariableProvenance, split_marker},
     },
 };
 
@@ -519,6 +519,13 @@ pub enum AxiomError {
     InvalidConcreteness(String),
     ConcretenessOverlap(String),
     MalformedAttribute(String),
+    /// An equation (function, simplification, ceil or predicate) whose right-hand side or
+    /// `ensures` has free variables that its left-hand side does not bind: `variables`, in the
+    /// definition's spelling, of the axiom `axiom` names as `written_injection_error` does.
+    UnboundEquationVariables {
+        axiom: String,
+        variables: Vec<String>,
+    },
 }
 
 impl From<MalformedAttribute> for AxiomError {
@@ -1491,17 +1498,76 @@ pub fn internalize_axiom(
             )])
         }
     };
-    internalize().map_err(|error| written_injection_error(error, axiom.attributes(), sentence))
+    let rules = internalize()
+        .map_err(|error| written_injection_error(error, axiom.attributes(), sentence))?;
+    for rule in &rules {
+        let unbound = equation_unbound_variables(rule);
+        if !unbound.is_empty() {
+            return Err(DefinitionError::Axiom(
+                AxiomError::UnboundEquationVariables {
+                    axiom: axiom_identity(axiom.attributes(), sentence),
+                    variables: unbound
+                        .iter()
+                        .map(|variable| {
+                            split_marker(&variable.name, &[VariableProvenance::Equation])
+                                .1
+                                .into_owned()
+                        })
+                        .collect(),
+                },
+            ));
+        }
+    }
+    Ok(rules)
 }
 
-pub(crate) fn written_injection_error(
-    error: DefinitionError,
-    attributes: &RuleAttributes,
-    sentence: &SentenceKey,
-) -> DefinitionError {
-    let DefinitionError::NotSubsort { source, target } = error else {
-        return error;
-    };
+/// The free variables of an equation's right-hand side and `ensures` that its left-hand side
+/// does not bind; empty for a rewrite rule.
+///
+/// An equation `l = r` is an axiom closed over all its variables: for every valuation, `l`
+/// and `r` denote the same set. Applying it replaces an instance of `l`, which fixes the
+/// variables of `l`, by the same instance of `r`. A variable of `r` (or of an `ensures`, which
+/// constrains the result) that `l` does not fix ranges over every value, so no single term is
+/// equal to the instance unless `r` does not depend on it; the applied result would carry the
+/// equation's own variable free as if it named one value. The backend therefore does not
+/// accept such an equation. A variable only of the `requires` restricts when the equation
+/// applies and never reaches a result; it is decided with the rest of the `requires`.
+fn equation_unbound_variables(rule: &InternalizedRule) -> BTreeSet<Variable> {
+    match rule {
+        InternalizedRule::Term(RuleKind::Rewrite, _) => BTreeSet::new(),
+        InternalizedRule::Term(
+            RuleKind::Function | RuleKind::Simplification | RuleKind::Ceil,
+            rule,
+        ) => {
+            let mut free = free_variables_of(rule.ensures.iter());
+            match &rule.rhs {
+                RuleRhs::Term(term) => free.extend(term.attributes().variables.iter().cloned()),
+                RuleRhs::Disjunction(alternatives) => {
+                    for alternative in alternatives {
+                        free.extend(alternative.term.attributes().variables.iter().cloned());
+                        free.extend(free_variables_of(alternative.ensures.iter()));
+                    }
+                }
+                RuleRhs::Predicates(predicates) => free.extend(free_variables_of(predicates)),
+                RuleRhs::Top | RuleRhs::Bottom => {}
+            }
+            let bound = &rule.lhs.attributes().variables;
+            free.retain(|variable| !bound.contains(variable));
+            free
+        }
+        InternalizedRule::Predicate(rule) => {
+            let bound = rule.lhs.free_variables();
+            free_variables_of(&rule.rhs)
+                .into_iter()
+                .filter(|variable| !bound.contains(variable))
+                .collect()
+        }
+    }
+}
+
+/// How an error names an axiom: its `UNIQUE_ID`, else its label, else its source location,
+/// else its position among the module's sentences.
+fn axiom_identity(attributes: &RuleAttributes, sentence: &SentenceKey) -> String {
     // The index counts all module sentences, including sorts, symbols and imports.
     let fallback = || {
         format!(
@@ -1509,7 +1575,7 @@ pub(crate) fn written_injection_error(
             sentence.0, sentence.1
         )
     };
-    let axiom = if attributes.unique_id != "UNKNOWN" {
+    if attributes.unique_id != "UNKNOWN" {
         attributes.unique_id.clone()
     } else if let Some(label) = &attributes.label {
         // An explicit UNIQUE_ID of "UNKNOWN" overrides the parser's label fallback.
@@ -1523,7 +1589,18 @@ pub(crate) fn written_injection_error(
                 (None, None) => fallback(),
             }
         })
+    }
+}
+
+pub(crate) fn written_injection_error(
+    error: DefinitionError,
+    attributes: &RuleAttributes,
+    sentence: &SentenceKey,
+) -> DefinitionError {
+    let DefinitionError::NotSubsort { source, target } = error else {
+        return error;
     };
+    let axiom = axiom_identity(attributes, sentence);
     DefinitionError::UnlicensedInjection {
         source,
         target,
@@ -4546,5 +4623,100 @@ mod tests {
             ["wrap-z", "any-top"]
         );
         assert!(candidate_labels(&definition, &open_key).contains(&"w0".to_owned()));
+    }
+}
+
+#[cfg(test)]
+mod unbound_equation_tests {
+    use k_rust_kore::kore::parser::parse_definition;
+
+    use super::*;
+
+    fn load(axiom: &str) -> Result<BackendDefinition, DefinitionError> {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol c{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+                symbol p{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+                {axiom}
+            endmodule []"#
+        );
+        BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN")
+    }
+
+    fn unbound(axiom: &str) -> Vec<String> {
+        match load(axiom) {
+            Err(DefinitionError::Axiom(AxiomError::UnboundEquationVariables {
+                axiom,
+                variables,
+            })) => {
+                assert_eq!(axiom, "eq");
+                variables
+            }
+            other => panic!("expected an unbound-variable error: {other:?}"),
+        }
+    }
+
+    /// An equation states `l = r` for every value of each of its variables, so a variable of
+    /// its right-hand side or `ensures` that `l` does not fix makes it unusable as a rewrite of
+    /// `l`: the definition is refused, whatever kind of equation it is.
+    #[test]
+    fn an_equation_with_a_variable_its_left_hand_side_does_not_bind_is_refused() {
+        // A function equation, its right-hand side.
+        assert_eq!(
+            unbound(
+                r#"axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(
+                        f{}(K0:SortS{}), \and{SortS{}}(c{}(Y:SortS{}), \top{SortS{}}())))
+                    [label{}("eq")]"#
+            ),
+            ["Y"]
+        );
+        // A simplification, its `ensures`.
+        assert_eq!(
+            unbound(
+                r#"axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    f{}(X:SortS{}), \and{SortS{}}(X:SortS{},
+                        \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{}))))
+                    [label{}("eq"), simplification{}()]"#
+            ),
+            ["Y"]
+        );
+        // A predicate simplification.
+        assert_eq!(
+            unbound(
+                r#"axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                    \equals{SortS{}, Q}(p{}(X:SortS{}), a{}()),
+                    \and{Q}(\equals{SortS{}, Q}(X:SortS{}, Y:SortS{}), \top{Q}())))
+                    [label{}("eq"), simplification{}()]"#
+            ),
+            ["Y"]
+        );
+    }
+
+    /// A variable only of the `requires` restricts when the equation applies and never reaches
+    /// its result, and a rewrite rule mints its unbound variables per application: both load.
+    #[test]
+    fn requires_only_variables_and_rewrite_rules_are_accepted() {
+        load(
+            r#"axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(p{}(Y:SortS{}), a{}()),
+                    \and{R}(\in{SortS{}, R}(K0:SortS{}, X:SortS{}), \top{R}())),
+                \equals{SortS{}, R}(
+                    f{}(K0:SortS{}), \and{SortS{}}(X:SortS{}, \top{SortS{}}())))
+                [label{}("eq")]"#,
+        )
+        .expect("a requires-only variable is accepted");
+        load(
+            r#"axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()), \and{SortS{}}(c{}(Y:SortS{}), \top{SortS{}}()))
+                [label{}("eq")]"#,
+        )
+        .expect("a rewrite rule may introduce a variable");
     }
 }

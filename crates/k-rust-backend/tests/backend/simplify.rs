@@ -1705,7 +1705,7 @@ fn keeps_unknown_ensures_as_result_constraints() {
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortS{}, R}(
-                    f{}(X:SortS{}),
+                    f{}(budgetPair{}(X:SortS{}, Y:SortS{})),
                     \and{SortS{}}(
                         X:SortS{},
                         \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
@@ -1714,7 +1714,10 @@ fn keeps_unknown_ensures_as_result_constraints() {
             ) [label{}("constrained"), simplification{}()]
             "#,
     );
-    let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+    let input = term(
+        &definition,
+        r#"f{}(budgetPair{}(\dv{SortS{}}("value"), RequestY:SortS{}))"#,
+    );
 
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
     assert_eq!(result.constraints().len(), 1);
@@ -1760,7 +1763,7 @@ fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortS{}, R}(
-                    f{}(X:SortS{}),
+                    f{}(budgetPair{}(X:SortS{}, Y:SortS{})),
                     \and{SortS{}}(
                         X:SortS{},
                         \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
@@ -1770,7 +1773,10 @@ fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
             "#,
     );
     let value = term(&definition, r#"\dv{SortS{}}("value")"#);
-    let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+    let input = term(
+        &definition,
+        r#"f{}(budgetPair{}(\dv{SortS{}}("value"), RequestY:SortS{}))"#,
+    );
     let simplify_with = |solver: &dyn SmtSolver| {
         diagnostic::collect(|| {
             simplify_with_solver(
@@ -1824,7 +1830,7 @@ fn predicate_term_simplification_preserves_result_constraints() {
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortS{}, R}(
-                    f{}(X:SortS{}),
+                    f{}(budgetPair{}(X:SortS{}, Y:SortS{})),
                     \and{SortS{}}(
                         X:SortS{},
                         \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
@@ -1834,7 +1840,10 @@ fn predicate_term_simplification_preserves_result_constraints() {
             "#,
     );
     let value = term(&definition, r#"\dv{SortS{}}("value")"#);
-    let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+    let input = term(
+        &definition,
+        r#"f{}(budgetPair{}(\dv{SortS{}}("value"), RequestY:SortS{}))"#,
+    );
     let term_result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
 
     let predicate_result = simplify_predicate_with_solver(
@@ -1943,7 +1952,7 @@ fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_def
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortS{}, R}(
-                    f{}(X:SortS{}),
+                    f{}(budgetPair{}(X:SortS{}, Y:SortS{})),
                     \and{SortS{}}(
                         X:SortS{},
                         \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
@@ -1952,7 +1961,10 @@ fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_def
             ) [label{}("constrained"), simplification{}()]
             "#,
     );
-    let f_value = term(&ensures, r#"f{}(\dv{SortS{}}("value"))"#);
+    let f_value = term(
+        &ensures,
+        r#"f{}(budgetPair{}(\dv{SortS{}}("value"), RequestY:SortS{}))"#,
+    );
     let value = term(&ensures, r#"\dv{SortS{}}("value")"#);
     let g_partial = term(&ensures, r#"g{}(partial{}(\dv{SortS{}}("w")))"#);
     let against_partial = Predicate::Equals(f_value.clone(), g_partial);

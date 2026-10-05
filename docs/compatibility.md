@@ -762,6 +762,16 @@ Under this reading three normalizations of [the register](../scripts/reference-n
 - N16 drops the outer `\exists` binders of a disjunct that bind generated variables (not free in the initial pattern; by the N4 name shapes when no initial pattern is given), which denotes the same disjunct as its body; it stops at a binder of an initial-pattern variable, which is kept and compared. k-rust prints no such prefix.
 - N22 adds, inside a negated existential, the binder of a generated variable that is free there and occurs nowhere else in the disjunct, which is where the reading above places it; k-rust already prints that binder, while the pinned Kore prints the unification's collection frame free in that position.
 
+### Unbound equation variables
+
+An equation (a function, simplification, ceil or predicate equation) whose right-hand side or `ensures` has a free variable that its left-hand side does not bind is refused when the definition is loaded, with `AxiomError::UnboundEquationVariables` naming the axiom and the variables.
+An equation `l = r` is an axiom closed over all its variables, so for such a variable `X` it states `l = r` for every value of `X`: unless `r` does not depend on `X`, no single term is equal to an instance of `l`, and applying the equation would leave the equation's own `X` free in the result as if it named one value.
+Minting a new variable at each application would not model the equation either, since it would make `f() = f()` false for `f() = X`.
+Kompile rejects a fresh variable `!X` in every sentence applied without the configuration, function rules included, and a right-hand-side variable that neither the rule's left-hand side, its `requires`, nor an `unboundVariables` attribute accounts for.
+A function or simplification rule whose right-hand-side variable occurs only in its `requires` or is listed in `unboundVariables` therefore compiles, and the backend refuses the definition: an equation is applied by matching its left-hand side, so its `requires` binds nothing.
+A variable that occurs only in an equation's `requires` restricts when the equation applies and never reaches a result; it is accepted and decided with the rest of the `requires`.
+Rewrite rules are not equations: a variable that the left-hand side of a rewrite rule does not bind is minted per application (see [Result variables](#result-variables)).
+
 ## Observation events
 
 Observed execution and search (`executeObserved` and the `*Observed` search methods of the host API) report three event kinds, a closed union tagged by `kind`.
