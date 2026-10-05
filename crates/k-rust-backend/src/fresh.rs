@@ -41,13 +41,17 @@
 //! `apart` with the counter of the enclosing request (`rule::ApartScope`); the other local
 //! markers name variables bound inside one predicate or one check.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use crate::{
     rewrite::Pattern,
-    rule::collect_all_variables,
+    rule::{Predicate, collect_all_variables, rename_predicates},
+    substitution::{Substitution, substitute},
     term::{
-        Name, Term, Variable,
+        Name, Term, TermKind, Variable,
         names::{FreshMarker, encode_variable_name, with_fresh_marker},
     },
 };
@@ -99,6 +103,155 @@ impl RequestNames {
     /// Whether some variable of the request prints as `name` prints.
     pub fn spells(&self, name: &str) -> bool {
         !self.0.is_empty() && self.0.contains(&encode_variable_name(name))
+    }
+
+    /// `pattern` as a state of this request whatever names the request's counter gave its
+    /// other variables: every variable of `pattern`, free or bound, that no variable of the
+    /// request is spelled as is renamed to `!{index}`, numbered by first occurrence (the term
+    /// in preorder, then the constraints in order, a binder before its body).
+    ///
+    /// A variable of a state that the request does not name was introduced into it by a
+    /// rewrite (a right-hand-side existential, a rule variable the match left unbound, a
+    /// narrowed frame) or is bound inside it. Either way it is quantified over that state
+    /// alone (docs/compatibility.md#result-variables), so an injective renaming of such
+    /// variables that fixes the request's names gives a state that denotes the same
+    /// configurations and whose successors are the renamed successors. Two states with equal
+    /// keys are such renamings of each other: the key's renaming is injective and fixes the
+    /// request's names, so the second state is the first under the first key's renaming
+    /// followed by the inverse of the second's. Equal states have equal keys, so the key
+    /// identifies at least the states that are syntactically equal. No name of the backend
+    /// has an empty base (`term::names`), so `!{index}` captures no variable of `pattern`.
+    ///
+    /// The numbering follows the stored order of collection elements and constraints, which
+    /// may itself depend on names; two renamings of one state that are stored in different
+    /// orders can keep different keys, which identifies fewer states, never two different
+    /// ones.
+    pub(crate) fn state_key(&self, pattern: &Pattern) -> Pattern {
+        let mut order = FirstOccurrence {
+            request: self,
+            seen: BTreeSet::new(),
+            renamed: Vec::new(),
+        };
+        order.term(&pattern.term);
+        for predicate in &pattern.constraints {
+            order.predicate(predicate);
+        }
+        if order.renamed.is_empty() {
+            return pattern.clone();
+        }
+        let renaming = order
+            .renamed
+            .into_iter()
+            .enumerate()
+            .map(|(index, variable)| {
+                let renamed = variable.with_name(format!("!{index}"));
+                (variable, renamed)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let substitution = renaming
+            .iter()
+            .map(|(variable, renamed)| (variable.clone(), Term::variable(renamed.clone())))
+            .collect::<Substitution>();
+        let rename = |variable: &Variable| {
+            renaming
+                .get(variable)
+                .cloned()
+                .unwrap_or_else(|| variable.clone())
+        };
+        Pattern {
+            term: substitute(&pattern.term, &substitution),
+            constraints: rename_predicates(&pattern.constraints, rename),
+        }
+    }
+}
+
+/// The variables of a pattern that a request does not name, in order of first occurrence.
+struct FirstOccurrence<'a> {
+    request: &'a RequestNames,
+    /// Every variable met so far, named by the request or not.
+    seen: BTreeSet<Variable>,
+    /// The variables met so far that the request does not name, in order of first occurrence.
+    renamed: Vec<Variable>,
+}
+
+impl FirstOccurrence<'_> {
+    fn variable(&mut self, variable: &Variable) {
+        if self.seen.insert(variable.clone()) && !self.request.spells(&variable.name) {
+            self.renamed.push(variable.clone());
+        }
+    }
+
+    /// The variables of `term` in preorder. A subterm whose variables were all met is skipped,
+    /// so a subterm shared at several positions is walked once per variable it first holds,
+    /// and the walk keeps an explicit stack, so a deep term does not deepen the call stack.
+    fn term(&mut self, term: &Term) {
+        let mut pending = vec![term];
+        // Invariant: `pending` holds, last first, the subterms still to walk in preorder.
+        while let Some(term) = pending.pop() {
+            if term
+                .attributes()
+                .variables
+                .iter()
+                .all(|variable| self.seen.contains(variable))
+            {
+                continue;
+            }
+            match term.kind() {
+                TermKind::Variable(variable) => self.variable(variable),
+                TermKind::DomainValue { .. } => {}
+                TermKind::And(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                TermKind::Application { arguments, .. } => pending.extend(arguments.iter().rev()),
+                TermKind::Injection { term, .. } => pending.push(term),
+                TermKind::Map { entries, rest, .. } => {
+                    pending.extend(rest);
+                    for (key, value) in entries.iter().rev() {
+                        pending.push(value);
+                        pending.push(key);
+                    }
+                }
+                TermKind::List { heads, rest, .. } => {
+                    if let Some((middle, tails)) = rest {
+                        pending.extend(tails.iter().rev());
+                        pending.push(middle);
+                    }
+                    pending.extend(heads.iter().rev());
+                }
+                TermKind::Set { elements, rest, .. } => {
+                    pending.extend(rest);
+                    pending.extend(elements.iter().rev());
+                }
+            }
+        }
+    }
+
+    fn predicate(&mut self, predicate: &Predicate) {
+        match predicate {
+            Predicate::True | Predicate::False => {}
+            Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+                self.term(term);
+            }
+            Predicate::Equals(left, right) | Predicate::In(left, right) => {
+                self.term(left);
+                self.term(right);
+            }
+            Predicate::Not(inner) => self.predicate(inner),
+            Predicate::And(inner) | Predicate::Or(inner) => {
+                for predicate in inner {
+                    self.predicate(predicate);
+                }
+            }
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                self.predicate(left);
+                self.predicate(right);
+            }
+            Predicate::Exists(binder, body) | Predicate::Forall(binder, body) => {
+                self.variable(binder);
+                self.predicate(body);
+            }
+        }
     }
 }
 
@@ -241,6 +394,48 @@ mod tests {
         assert!(names.spells("Y"));
         assert!(!names.spells("Ex#Y!0"));
         assert!(!names.spells("X"));
+    }
+
+    #[test]
+    fn a_state_key_identifies_states_up_to_the_names_the_request_did_not_give() {
+        let request = RequestNames::of(&[&pattern("X", "B")]);
+        let state = |term: &str, left: &str, right: &str| Pattern {
+            term: Term::variable(variable(term)),
+            constraints: vec![Predicate::Exists(
+                variable("Ex#W!9"),
+                Box::new(Predicate::Equals(
+                    Term::variable(variable(left)),
+                    Term::variable(variable(right)),
+                )),
+            )],
+        };
+        let key = |term, left, right| request.state_key(&state(term, left, right));
+        assert_eq!(
+            key("Ex#Y!0", "Ex#Y!0", "Ex#Z!1"),
+            key("Ex#Y!4", "Ex#Y!4", "Ex#Z!2"),
+            "states that differ in the names of their mints share a key"
+        );
+        assert_eq!(
+            key("Ex#Y!0", "Ex#Y!0", "Ex#W!9"),
+            key("Ex#Y!3", "Ex#Y!3", "Ex#W!9"),
+            "a bound variable is renamed with its binder"
+        );
+        assert_ne!(
+            key("Ex#Y!0", "Ex#Y!0", "Ex#Z!1"),
+            key("Ex#Y!0", "Ex#Z!1", "Ex#Z!1"),
+            "the key keeps which positions share a variable"
+        );
+        assert_ne!(
+            key("X", "X", "Ex#Z!1"),
+            key("Ex#Y!0", "Ex#Y!0", "Ex#Z!1"),
+            "a variable of the request is not a mint"
+        );
+        assert_eq!(key("X", "X", "Ex#Z!1"), key("X", "X", "Ex#Z!7"));
+        let named = Pattern {
+            term: Term::variable(variable("X")),
+            constraints: Vec::new(),
+        };
+        assert_eq!(request.state_key(&named), named);
     }
 
     #[test]

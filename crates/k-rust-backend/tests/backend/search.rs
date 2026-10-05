@@ -533,3 +533,118 @@ fn an_initial_state_empty_by_its_term_definedness_is_no_result() {
     );
     assert!(paths.witnesses.is_empty(), "{:#?}", paths.witnesses);
 }
+
+/// A rewrite rule `left => \exists Y. held(Y)` labelled `label`.
+fn existential_rule(label: &str, left: &str) -> String {
+    format!(
+        r#"
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}({left}, \top{{SortS{{}}}}()),
+                    \exists{{SortS{{}}}}(Y:SortS{{}}, held{{}}(Y:SortS{{}}))
+                ) [label{{}}("{label}")]"#
+    )
+}
+
+/// Every step of `held(X) => \exists Y. held(Y)` from `held(c)` reaches `held(Y')` for a new
+/// variable `Y'`, which denotes the configurations `held(Y)` denotes: the second step closes a
+/// cycle, so the path search ends exhausted with the witnesses `held(c)` and `held(Y)`, well
+/// inside the depth bound, although the request's counter names each step's variable apart.
+/// A few states of a few nodes each: kilobytes, well under a second.
+#[test]
+fn a_path_through_a_right_hand_side_existential_ends_at_its_cycle() {
+    let definition = search_definition(&existential_rule("again", "held{}(X:SortS{})"));
+    let initial = Pattern {
+        term: internal_term(&definition, "held{}(c{}())"),
+        constraints: Vec::new(),
+    };
+    let result = search_paths(
+        &definition,
+        initial,
+        SearchOptions {
+            max_depth: 30,
+            ..options(SearchType::Star)
+        },
+    );
+    assert!(
+        matches!(result.end, k_rust_backend::search::SearchEnd::Exhausted(_)),
+        "{:?}",
+        result.end
+    );
+    assert!(result.incomplete.is_empty(), "{:?}", result.incomplete);
+    let depths = result
+        .witnesses
+        .iter()
+        .map(|witness| witness.depth)
+        .collect::<Vec<_>>();
+    assert_eq!(depths, [0, 1], "{:?}", result.witnesses);
+}
+
+/// `start => l`, `start => r`, and both `l` and `r` rewrite to `\exists Y. held(Y)`: the two
+/// branches reach `held(Y0)` and `held(Y1)` for two new variables, one state up to their names,
+/// so the state search reports it once. A chain of n such diamonds therefore has n + 1 final
+/// states at most, not 2^n. Kilobytes, well under a second.
+#[test]
+fn a_state_search_merges_branches_that_introduce_their_own_variables() {
+    let rules = [
+        rule("to-a", "start{}()", "a{}()"),
+        rule("to-b", "start{}()", "b{}()"),
+        existential_rule("a-held", "a{}()"),
+        existential_rule("b-held", "b{}()"),
+    ]
+    .concat();
+    let definition = search_definition(&rules);
+    let result = search_graph(&definition, start(&definition), options(SearchType::Final));
+    let [state] = result.states.as_slice() else {
+        panic!("expected one merged final state, found {:?}", result.states);
+    };
+    assert_eq!(head(&state.pattern), "held");
+    assert_eq!(state.depth, 2);
+}
+
+/// A variable of the initial pattern is a name of the request, shared by every state, so a
+/// state that holds it is not merged with one that holds a variable a rewrite introduced:
+/// from `held(X)`, `held(Z) => held(Z)` and `held(Z) => \exists Y. held(Y)` reach two
+/// different states at depth 1. Kilobytes, well under a second.
+#[test]
+fn a_state_search_keeps_a_request_variable_apart_from_an_introduced_one() {
+    let rules = [
+        rule("same", "held{}(Z:SortS{})", "held{}(Z:SortS{})"),
+        existential_rule("other", "held{}(Z:SortS{})"),
+    ]
+    .concat();
+    let definition = search_definition(&rules);
+    let request = internal_term(&definition, "X:SortS{}");
+    let initial = Pattern {
+        term: internal_term(&definition, "held{}(X:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let result = search_graph(
+        &definition,
+        initial,
+        SearchOptions {
+            max_depth: 1,
+            ..options(SearchType::Star)
+        },
+    );
+    // Both states sit at the depth bound; merging them would list one.
+    let at_bound = result
+        .incomplete
+        .iter()
+        .filter_map(|entry| match entry {
+            IncompleteSearch::DepthBound(state) => Some(state),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(at_bound.len(), 2, "{at_bound:?}");
+    let TermKind::Variable(request) = request.kind() else {
+        panic!("a variable");
+    };
+    assert_eq!(
+        at_bound
+            .iter()
+            .filter(|state| state.pattern.term.attributes().variables.contains(request))
+            .count(),
+        1,
+        "{at_bound:?}"
+    );
+}

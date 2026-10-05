@@ -77,9 +77,10 @@
 //! ```
 //!
 //! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
-//! deduplication (Kore constructExecutionGraph; the LLVM backend's search), O(distinct
-//! configurations per depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first
-//! enumeration of simple paths with a per-path visited list, exponential in branching plus
+//! deduplication, the pattern compared up to the names of the variables the request did not
+//! name (`RequestNames::state_key`, one walk of the pattern per state), O(distinct states per
+//! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
+//! simple paths with a per-path visited list of the same keys, exponential in branching plus
 //! O(depth) per pop; pattern search over the result set. `normalize_match_condition` is the
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
 //! definedness of each solved value that is not `ceil_free`, no counter.
@@ -687,12 +688,13 @@ fn search_graph_collecting(
         names.extend(&request);
         FreshCounter::for_request_names(names)
     };
-    // Kore's execution graph recombines branches that reach the same configuration at the same
-    // step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search drops any
-    // configuration it has already visited: the search is over states, not over paths. Two
-    // work states with one simplified pattern at one depth have the same successors, so the
-    // second is dropped here, which bounds the work per step by the number of distinct
-    // configurations rather than by the number of interleavings that reach them.
+    // The search is over states, not over paths. Two work states at one depth whose simplified
+    // patterns are equal up to the names of the variables the request did not name (their
+    // `RequestNames::state_key`s are equal) denote the same configurations and have the same
+    // successors up to that renaming, so the second is dropped here, which bounds the work per
+    // step by the number of distinct states rather than by the number of interleavings that
+    // reach them. Comparing the patterns by name instead would keep two branches that each
+    // introduced a variable apart, since the request's counter names the two variables apart.
     let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
     let mut pending = VecDeque::with_capacity(initial.len());
@@ -746,8 +748,8 @@ fn search_graph_collecting(
         };
     }
 
-    // `pending` is FIFO, so popped depths never decrease; `expanded` holds every
-    // `(depth, simplified pattern)` expanded so far, so a configuration is expanded once per depth.
+    // `pending` is FIFO, so popped depths never decrease; `expanded` holds the key of every
+    // `(depth, simplified pattern)` expanded so far, so a state is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     let end = loop {
         let work = match pop_or_exhausted(&mut pending) {
@@ -907,7 +909,11 @@ fn search_graph_collecting(
         }
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
-        if !expanded.insert((state.depth, state.pattern.clone(), is_rewritable)) {
+        if !expanded.insert((
+            state.depth,
+            fresh_counter.request().state_key(&state.pattern),
+            is_rewritable,
+        )) {
             measure::bump(Counter::SearchStatesDeduplicated);
             continue;
         }
@@ -1660,14 +1666,17 @@ fn search_paths_collecting(
             Ok(false) => {}
             Err(stop) => publish_stop!(stop),
         }
-        if path
-            .visited
-            .contains(&(path.state.pattern.clone(), is_rewritable))
-        {
+        // A path that reaches a state it already visited, up to the names of the variables the
+        // request did not name, is a cycle: the state's continuations are those of the earlier
+        // visit, renamed.
+        let key = (
+            fresh_counter.request().state_key(&path.state.pattern),
+            is_rewritable,
+        );
+        if path.visited.contains(&key) {
             continue;
         }
-        path.visited
-            .push((path.state.pattern.clone(), is_rewritable));
+        path.visited.push(key);
 
         let at_depth_bound = path.state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
@@ -1877,6 +1886,7 @@ fn search_paths_collecting(
 struct PathSearchState {
     state: SearchState,
     id: Vec<TransitionId>,
+    /// The `RequestNames::state_key` of every state on the path, with its rewritability.
     visited: Vec<(Pattern, bool)>,
     observation: ObservationHead,
     /// The diagnostics of this path so far, shared with the paths that extend it.
