@@ -1176,6 +1176,11 @@ symbol = "rule_is_defined"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "discharge_stated_absence"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "ceil_term"
 
 [[node.sites]]
@@ -1248,7 +1253,11 @@ bound = "one ceil_term call per Boolean atom and per atom side tested for provab
 
 [[node.cost]]
 mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
-bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
+bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons, plus one discharge_stated_absence of the right-hand side's obligations against the left-hand side's"
+
+[[node.cost]]
+mode = "one obligation list against facts (discharge_stated_absence)"
+bound = "O(l x f) for l obligations and f facts, each comparison of an absence obligation with a collection ceil fact one rest comparison and at most m key or element comparisons, each a structural equality"
 
 [[node]]
 kind = "algorithm"

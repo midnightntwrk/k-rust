@@ -27,7 +27,7 @@
 use std::cell::Cell;
 
 use crate::{
-    definedness::{ceil_term, condition_definedness},
+    definedness::{ceil_term, condition_definedness, discharge_stated_absence},
     definition::BackendDefinition,
     diagnostic,
     rewrite::{Truth, predicates_truth, substitute_predicates},
@@ -628,16 +628,21 @@ impl Obligation {
 /// The definedness of an instantiated rewrite right-hand side: `\ceil` of every partial
 /// subterm (`definedness::ceil_term`), which the rule's result needs in order to exist.
 ///
-/// It is built only from the term, so no other predicate takes this role; in particular a
-/// conjunct of the right-hand side's own simplification result (`ResultConditions`), which may
-/// be an assumption, cannot be passed off as the right-hand side's definedness.
+/// Its obligations come only from the term (knowledge can only remove one it implies), so no
+/// other predicate takes this role; in particular a conjunct of the right-hand side's own
+/// simplification result (`ResultConditions`), which may be an assumption, cannot be passed off
+/// as the right-hand side's definedness.
 #[must_use]
 pub(crate) struct RhsDefinedness(Vec<Predicate>);
 
 impl RhsDefinedness {
-    /// `ceil_term(definition, rhs)`.
-    pub(crate) fn of(definition: &BackendDefinition, rhs: &Term) -> Self {
-        Self(ceil_term(definition, rhs))
+    /// `ceil_term(definition, rhs)`, without the absence obligations `knowledge` states
+    /// (`definedness::discharge_stated_absence`): a key's absence from a map's rest does not
+    /// depend on the value the right-hand side binds to it.
+    pub(crate) fn of(definition: &BackendDefinition, rhs: &Term, knowledge: &[Predicate]) -> Self {
+        let mut obligations = ceil_term(definition, rhs);
+        discharge_stated_absence(&mut obligations, knowledge);
+        Self(obligations)
     }
 
     /// The obligations, as stated or as simplified, for their decision and for the report of a

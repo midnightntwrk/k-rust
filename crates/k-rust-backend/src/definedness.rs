@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! sites = ["rule_is_defined", "discharge_stated_absence", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -19,7 +19,11 @@
 //!
 //! [[cost]]
 //! mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
-//! bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
+//! bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons, plus one discharge_stated_absence of the right-hand side's obligations against the left-hand side's"
+//!
+//! [[cost]]
+//! mode = "one obligation list against facts (discharge_stated_absence)"
+//! bound = "O(l x f) for l obligations and f facts, each comparison of an absence obligation with a collection ceil fact one rest comparison and at most m key or element comparisons, each a structural equality"
 //! ```
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
@@ -44,7 +48,8 @@ use crate::{
     smt::{NoSolver, SmtSolver},
     stop::Stoppable,
     term::{
-        FunctionType, InjectionComparison, SymbolType, Term, TermKind, Variable, VariableKind,
+        FunctionType, InjectionComparison, Sort, SymbolType, Term, TermKind, Variable,
+        VariableKind,
         head::{Apart, certified_ground_normal_form},
     },
 };
@@ -64,7 +69,89 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
         .collect::<Vec<_>>();
     let mut rhs = ceil_term(definition, rhs);
     rhs.retain(|predicate| !lhs.contains(predicate) && !requires.contains(predicate));
+    discharge_stated_absence(&mut rhs, &lhs);
     requires.is_empty() && rhs.is_empty()
+}
+
+/// Removes from `obligations`, a [`ceil_term`] list, every absence obligation that one of
+/// `facts` states, whatever value the fact binds to the key.
+///
+/// Without a membership function, [`not_in_collection`] states that the key `K` of an entry
+/// `K |-> V` is not in the opaque rest `R` of its map as `\ceil(K |-> V R)`. The entry's value
+/// is irrelevant to that fact: the entry constructor is total and concatenation is defined
+/// exactly when the operands bind disjoint keys, so `\ceil(K |-> V R)` is `\ceil(K)`,
+/// `\ceil(V)`, `\ceil(R)` and the absence of `K` from `R`. A fact `\ceil(M)`, where `M` is a
+/// map of the same sort over the same rest `R` that binds `K` to any value, states the
+/// definedness of `K` and of `R` (concatenation and the entry constructor are strict) and the
+/// absence of `K` from `R` (concatenation is defined only on disjoint keys). The list states
+/// `\ceil(V)` beside the obligation, so the obligation is implied by the fact and the rest of
+/// the list. A rule that only updates the value bound to `K` thus needs no obligation that its
+/// left-hand side or the path does not already state. A set element is its own key, so the
+/// same holds for a set over the same rest that holds the element.
+///
+/// Facts are only read: an obligation is never removed on the strength of another obligation
+/// of the list, whose own absence part would then be removed on the strength of the first.
+pub(crate) fn discharge_stated_absence(obligations: &mut Vec<Predicate>, facts: &[Predicate]) {
+    if facts.is_empty() {
+        return;
+    }
+    obligations.retain(|obligation| {
+        let Some((sort, key, rest)) = absence_obligation(obligation) else {
+            return true;
+        };
+        !facts
+            .iter()
+            .any(|fact| states_absence(fact, &sort, key, rest))
+    });
+}
+
+/// The collection sort, key (or element) and rest of `\ceil` of a single-entry map or a
+/// single-element set over an opaque rest: the shape of an absence obligation.
+fn absence_obligation(predicate: &Predicate) -> Option<(Sort, &Term, &Term)> {
+    let Predicate::Ceil(term) = predicate else {
+        return None;
+    };
+    match term.kind() {
+        TermKind::Map {
+            entries,
+            rest: Some(rest),
+            ..
+        } => match entries.as_slice() {
+            [(key, _)] => Some((term.sort(), key, rest)),
+            _ => None,
+        },
+        TermKind::Set {
+            elements,
+            rest: Some(rest),
+            ..
+        } => match elements.as_slice() {
+            [element] => Some((term.sort(), element, rest)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether `fact` is `\ceil` of a collection of sort `sort` over the rest `rest` that binds the
+/// key (or holds the element) `key`.
+fn states_absence(fact: &Predicate, sort: &Sort, key: &Term, rest: &Term) -> bool {
+    let Predicate::Ceil(term) = fact else {
+        return false;
+    };
+    let binds = match term.kind() {
+        TermKind::Map {
+            entries,
+            rest: Some(fact_rest),
+            ..
+        } => fact_rest == rest && entries.iter().any(|(fact_key, _)| fact_key == key),
+        TermKind::Set {
+            elements,
+            rest: Some(fact_rest),
+            ..
+        } => fact_rest == rest && elements.contains(key),
+        _ => false,
+    };
+    binds && &term.sort() == sort
 }
 
 pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
@@ -746,7 +833,6 @@ mod tests {
 
     use super::*;
     use crate::rewrite::{Pattern, RewriteResult, rewrite_step};
-    use crate::term::Sort;
 
     #[test]
     fn definedness_deduplication_preserves_first_occurrence_order() {
@@ -1086,6 +1172,62 @@ mod tests {
                 not_member("inSet{}(K:SortKey{}, S:SortSet{})"),
             ]
         );
+    }
+
+    /// An absence obligation is discharged by a fact about a collection of the same sort over
+    /// the same rest that binds the same key, whatever its value and other entries; not by a
+    /// fact about another key or another rest, and never by another obligation of the list.
+    #[test]
+    fn a_fact_with_any_value_for_the_key_discharges_its_absence_obligation() {
+        let definition = collection_definition("");
+        let ceil = |source: &str| {
+            Predicate::Ceil(
+                definition
+                    .internalize_term(&parse_pattern(source).unwrap(), &[])
+                    .unwrap(),
+            )
+        };
+        let map_obligation =
+            ceil("mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})");
+        let set_obligation = ceil("setConcat{}(setItem{}(K:SortKey{}), S:SortSet{})");
+        let partial = ceil("pick{}(K:SortKey{})");
+        let obligations = vec![
+            partial.clone(),
+            map_obligation.clone(),
+            set_obligation.clone(),
+        ];
+        let remaining = |facts: &[Predicate]| {
+            let mut remaining = obligations.clone();
+            discharge_stated_absence(&mut remaining, facts);
+            remaining
+        };
+
+        let other_value = ceil("mapConcat{}(mapItem{}(K:SortKey{}, W:SortValue{}), M:SortMap{})");
+        let more_entries = ceil(
+            r#"mapConcat{}(mapConcat{}(mapItem{}(J:SortKey{}, U:SortValue{}),
+                mapItem{}(K:SortKey{}, W:SortValue{})), M:SortMap{})"#,
+        );
+        let more_elements = ceil(
+            "setConcat{}(setConcat{}(setItem{}(J:SortKey{}), setItem{}(K:SortKey{})), S:SortSet{})",
+        );
+        assert_eq!(
+            remaining(std::slice::from_ref(&other_value)),
+            vec![partial.clone(), set_obligation.clone()]
+        );
+        assert_eq!(
+            remaining(&[more_entries, more_elements]),
+            vec![partial.clone()]
+        );
+
+        let other_rest = ceil("mapConcat{}(mapItem{}(K:SortKey{}, W:SortValue{}), N:SortMap{})");
+        let other_key = ceil("mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), M:SortMap{})");
+        let no_rest = ceil("mapItem{}(K:SortKey{}, W:SortValue{})");
+        assert_eq!(remaining(&[other_rest, other_key, no_rest]), obligations);
+
+        // Two obligations sharing one absence fact do not discharge each other.
+        let mut pair = vec![map_obligation, other_value];
+        discharge_stated_absence(&mut pair, &[]);
+        assert_eq!(pair.len(), 2);
     }
 
     #[test]

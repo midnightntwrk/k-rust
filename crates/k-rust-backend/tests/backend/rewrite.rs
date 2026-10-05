@@ -12395,6 +12395,156 @@ fn emits_frame_definedness_on_the_single_entry_path() {
     );
 }
 
+/// A rule that only updates the value bound to a key beside an opaque rest, in a definition
+/// without `MAP.in_keys`. The key's absence from the rest is a fact about the key and the rest
+/// alone, so the right-hand side's obligation is the one the left-hand side already carries:
+/// execution never branches and the path condition does not grow with the depth.
+#[cfg(feature = "z3")]
+#[test]
+fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol zero{}() : SortValue{} [constructor{}()]
+                symbol succ{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mapState{}(mapConcat{}(
+                            mapItem{}(\dv{SortKey{}}("a"), VALUE:SortValue{}),
+                            REST:SortMap{}
+                        )),
+                        \top{SortState{}}()
+                    ),
+                    mapState{}(mapConcat{}(
+                        mapItem{}(\dv{SortKey{}}("a"), succ{}(VALUE:SortValue{})),
+                        REST:SortMap{}
+                    ))
+                ) [label{}("increment")]
+            endmodule []"#,
+    )
+    .expect("map definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let subject = Pattern {
+        term: internal_term(
+            &definition,
+            r#"mapState{}(mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{}))"#,
+        ),
+        constraints: Vec::new(),
+    };
+
+    let result = execute_with_solver(
+        &definition,
+        subject,
+        ExecutionOptions {
+            max_depth: 20,
+            ..ExecutionOptions::default()
+        },
+        &solver,
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected one depth-bounded leaf, found {} leaves",
+            result.leaves.len()
+        );
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
+    assert_eq!(leaf.depth, 20);
+    assert!(
+        leaf.pattern.constraints.is_empty(),
+        "the path condition grew with the depth: {} constraints",
+        leaf.pattern.constraints.len()
+    );
+}
+
+/// The same absence stated by the path rather than by the rule's left-hand side: the state
+/// knows `\ceil(a |-> zero() R)`, and a rule whose left-hand side holds no map builds
+/// `a |-> succ(zero()) R`. Its right-hand side's absence obligation is the path's fact with
+/// another value, so it is discharged and not carried.
+#[cfg(feature = "z3")]
+#[test]
+fn a_path_fact_discharges_the_absence_obligation_of_an_updated_value() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol zero{}() : SortValue{} [constructor{}()]
+                symbol succ{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol hold{}(SortValue{}, SortMap{}) : SortState{} [constructor{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        hold{}(VALUE:SortValue{}, REST:SortMap{}),
+                        \top{SortState{}}()
+                    ),
+                    mapState{}(mapConcat{}(
+                        mapItem{}(\dv{SortKey{}}("a"), succ{}(VALUE:SortValue{})),
+                        REST:SortMap{}
+                    ))
+                ) [label{}("build")]
+            endmodule []"#,
+    )
+    .expect("map definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let fact = Predicate::Ceil(internal_term(
+        &definition,
+        r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{})"#,
+    ));
+    let subject = Pattern {
+        term: internal_term(&definition, "hold{}(zero{}(), R:SortMap{})"),
+        constraints: vec![fact.clone()],
+    };
+
+    let result = execute_with_solver(&definition, subject, ExecutionOptions::default(), &solver);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected one leaf, found {} leaves: {:?}",
+            result.leaves.len(),
+            result
+                .leaves
+                .iter()
+                .map(|leaf| &leaf.halt_reason)
+                .collect::<Vec<_>>()
+        );
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(
+        leaf.pattern.term,
+        internal_term(
+            &definition,
+            r#"mapState{}(mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), succ{}(zero{}())), R:SortMap{}))"#,
+        )
+    );
+    assert_eq!(leaf.pattern.constraints, vec![fact]);
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
