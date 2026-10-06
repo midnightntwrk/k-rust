@@ -87,7 +87,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
 - [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
-- [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
+- [2] parser.lower.term — O(N), each node built from its lowered children… — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
 - [3] definition.configuration.expand — O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
 - [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles] — at k-rust/inner/rules.rs `resolve_rule_bubbles`
 - [5] = definition.resolve.imports (phase 15)
@@ -186,7 +186,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
 - parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
-- parser.disambiguation.resolve_ambiguity — O(N x h) plus, per alternative, one clone of its… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
+- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) plus, per… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
 - parser.disambiguation.resolve_applications — O(N x a x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
 - parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`

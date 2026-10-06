@@ -144,7 +144,10 @@ struct Solver<'a> {
     bounds: Vec<Bounds>,
     variables: BTreeMap<VariableId, usize>,
     typing_variables: BTreeMap<VariableId, Option<TypingVariable>>,
-    parameters: Vec<(String, Vec<usize>)>,
+    /// The sort parameter slots of each parametric production of the tree, in pre-order:
+    /// `Grammar::insert_inferred_casts` walks the tree in the same order and reads them back by
+    /// position, so a node is identified without a path, which would be as long as its depth.
+    parameters: Vec<Vec<usize>>,
     constraint_cache: BTreeSet<(SortRef, SortRef)>,
     next_anonymous: usize,
 }
@@ -500,7 +503,7 @@ impl Grammar {
             .flatten()
             .map(std::ptr::from_ref);
         let mut solver = Solver::new(order);
-        let inferred = solver.infer(self, &term, anywhere_top, "root")?;
+        let inferred = solver.infer(self, &term, anywhere_top)?;
         // Synthetic rule-grammar result sorts describe parser context, not bounds on a
         // rewrite's formal result parameter. Concrete caller sorts remain real constraints.
         if top_sort.in_inference_domain() || !solver.is_parameter_ref(&inferred) {
@@ -519,6 +522,7 @@ impl Grammar {
             }
         }
         let mut next_anonymous = 0;
+        let mut next_parametric = 0;
         let term = self
             .insert_inferred_casts(
                 term,
@@ -526,7 +530,7 @@ impl Grammar {
                 &parameter_sorts,
                 None,
                 &mut next_anonymous,
-                "root",
+                &mut next_parametric,
             )
             .map_err(PortableError::Malformed)?;
         Ok(TypedTree {
@@ -669,10 +673,10 @@ impl Grammar {
         &self,
         term: ParsedTerm,
         variable_sorts: &BTreeMap<VariableId, Sort>,
-        parameter_sorts: &BTreeMap<String, Vec<Sort>>,
+        parameter_sorts: &[Vec<Sort>],
         enclosing_cast: Option<&Sort>,
         next_anonymous: &mut usize,
-        path: &str,
+        next_parametric: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(ref leaf) if inferred_variable_name(leaf).is_some() => {
@@ -732,26 +736,35 @@ impl Grammar {
                         matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
                     })
                     .then_some(&descriptor.result);
+                // The parametric productions are numbered in pre-order, as `Solver::infer`
+                // records their parameters.
+                let parameters = descriptor
+                    .parametric_origin
+                    .is_some()
+                    .then(|| {
+                        let index = *next_parametric;
+                        *next_parametric += 1;
+                        parameter_sorts.get(index).cloned().ok_or_else(|| {
+                            inference_error(format!(
+                                "no inferred parameters were produced for parametric production {index}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
                 let children = children
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, child)| {
+                    .map(|child| {
                         self.insert_inferred_casts(
                             child,
                             variable_sorts,
                             parameter_sorts,
                             cast_sort,
                             next_anonymous,
-                            &format!("{path}_c{index}"),
+                            next_parametric,
                         )
                     })
                     .collect::<Result<_, _>>()?;
-                if descriptor.parametric_origin.is_some() {
-                    let parameters = parameter_sorts.get(path).cloned().ok_or_else(|| {
-                        inference_error(format!(
-                            "no inferred parameters were produced for production at {path}"
-                        ))
-                    })?;
+                if let Some(parameters) = parameters {
                     Ok(ParsedTerm::InstantiatedProduction {
                         production,
                         parameters,
@@ -791,7 +804,6 @@ impl<'a> Solver<'a> {
         grammar: &Grammar,
         term: &ParsedTerm,
         anywhere_top: Option<*const ParsedTerm>,
-        path: &str,
     ) -> Result<SortRef, PortableError> {
         match term {
             ParsedTerm::Ambiguity(_) => Err(PortableError::Malformed(inference_error(
@@ -818,7 +830,7 @@ impl<'a> Solver<'a> {
                         .collect::<Vec<_>>()
                 });
                 if let Some(slots) = &parameter_slots {
-                    self.parameters.push((path.to_owned(), slots.clone()));
+                    self.parameters.push(slots.clone());
                 }
                 let parameter_substitution = production
                     .parametric_origin
@@ -835,10 +847,7 @@ impl<'a> Solver<'a> {
                     .unwrap_or_default();
                 let child_sorts = children
                     .iter()
-                    .enumerate()
-                    .map(|(index, child)| {
-                        self.infer(grammar, child, anywhere_top, &format!("{path}_c{index}"))
-                    })
+                    .map(|child| self.infer(grammar, child, anywhere_top))
                     .collect::<Result<Vec<_>, _>>()?;
                 let (expected, actual) = if let Some(origin) = &production.parametric_origin {
                     (
@@ -1018,9 +1027,7 @@ impl<'a> Solver<'a> {
         let SortRef::Variable(variable) = sort else {
             return false;
         };
-        self.parameters
-            .iter()
-            .any(|(_, slots)| slots.contains(variable))
+        self.parameters.iter().any(|slots| slots.contains(variable))
     }
 
     fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), PortableError> {
@@ -1080,15 +1087,14 @@ impl<'a> Solver<'a> {
             .collect()
     }
 
-    fn realize_parameters(&self) -> Result<BTreeMap<String, Vec<Sort>>, PortableError> {
+    fn realize_parameters(&self) -> Result<Vec<Vec<Sort>>, PortableError> {
         self.parameters
             .iter()
-            .map(|(path, slots)| {
+            .map(|slots| {
                 slots
                     .iter()
                     .map(|slot| self.realize_variable(*slot))
                     .collect::<Result<Vec<_>, _>>()
-                    .map(|sorts| (path.clone(), sorts))
             })
             .collect()
     }

@@ -27,7 +27,7 @@
 //! id = "parser.lower.term"
 //! name = "lowering of parsed terms into KAST"
 //! sites = ["lower_term"]
-//! variable = "N = parsed tree nodes; h = parsed tree height"
+//! variable = "N = parsed tree nodes"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -36,7 +36,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x h), one subtree clone per lowered node"
+//! bound = "O(N), each node built from its lowered children, which it takes over without copying"
 //! ```
 //!
 //! ```toml algorithm
@@ -1943,14 +1943,17 @@ fn term_metadata(
 ///
 /// Fails only for a production labelled `#OuterCast` whose result sort has no sort projection;
 /// `span` locates that diagnostic.
+/// The KAST term of one node of `production` over its lowered `children`, which it takes over:
+/// a node is built from its children without copying them, so lowering a tree costs time in
+/// proportion to its size, whatever its height.
 fn lower_term(
     production: &Production,
-    children: &[Term],
+    mut children: Vec<Term>,
     span: Option<TermSpan>,
     denotations: &SortDenotations,
 ) -> Result<Term, ParseError> {
     if production.transparent || production.label.is_none() && children.len() == 1 {
-        return Ok(children[0].clone());
+        return Ok(children.swap_remove(0));
     }
     let mut label = production
         .label
@@ -1969,7 +1972,7 @@ fn lower_term(
         })?;
     }
     if label.is(InternalLabel::KToken)
-        && let [value, sort] = children
+        && let [value, sort] = children.as_slice()
         && let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
         && let (Ok(value), Ok(sort)) = (
             crate::kast::string::unquote(value),
@@ -1982,20 +1985,25 @@ fn lower_term(
             sort: denotations.denote(&sort).clone(),
         });
     }
-    Ok(match (InternalLabel::of(&label.name), children) {
-        (Some(InternalLabel::EmptyK), []) => Term::Sequence(Vec::new()),
-        (Some(InternalLabel::KSequence), items) => Term::sequence(items.iter().cloned()),
-        (Some(InternalLabel::KRewrite), [left, right]) => Term::Rewrite {
-            left: Box::new(left.clone()),
-            right: Box::new(right.clone()),
-        },
-        (Some(InternalLabel::KAs), [pattern, alias]) => Term::As {
-            pattern: Box::new(pattern.clone()),
-            alias: Box::new(alias.clone()),
-        },
+    let pair = |children: Vec<Term>| -> [Box<Term>; 2] {
+        let [first, second] = <[Term; 2]>::try_from(children)
+            .unwrap_or_else(|_| unreachable!("the arm matched two children"));
+        [Box::new(first), Box::new(second)]
+    };
+    Ok(match (InternalLabel::of(&label.name), children.len()) {
+        (Some(InternalLabel::EmptyK), 0) => Term::Sequence(Vec::new()),
+        (Some(InternalLabel::KSequence), _) => Term::sequence(children),
+        (Some(InternalLabel::KRewrite), 2) => {
+            let [left, right] = pair(children);
+            Term::Rewrite { left, right }
+        }
+        (Some(InternalLabel::KAs), 2) => {
+            let [pattern, alias] = pair(children);
+            Term::As { pattern, alias }
+        }
         _ => Term::Apply {
             label,
-            arguments: children.to_vec(),
+            arguments: children,
         },
     })
 }

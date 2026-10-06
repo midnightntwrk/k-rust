@@ -6429,7 +6429,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
+variable = "N = owned nodes; A = ambiguity alternatives"
 no_counter = "final ambiguity resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6457,7 +6457,7 @@ symbol = "Grammar::factor_ambiguities"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 
 [[node]]
 kind = "algorithm"
@@ -7184,7 +7184,7 @@ id = "parser.lower.term"
 provenance = "declared"
 area = "parser"
 name = "lowering of parsed terms into KAST"
-variable = "N = parsed tree nodes; h = parsed tree height"
+variable = "N = parsed tree nodes"
 no_counter = "term lowering has no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
@@ -7202,7 +7202,7 @@ symbol = "lower_term"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x h), one subtree clone per lowered node"
+bound = "O(N), each node built from its lowered children, which it takes over without copying"
 
 [[node]]
 kind = "algorithm"

@@ -113,7 +113,7 @@
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
 //! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities"]
-//! variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
+//! variable = "N = owned nodes; A = ambiguity alternatives"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -121,7 +121,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+//! bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -1089,9 +1089,9 @@ impl Grammar {
             if let Some(label) = &mut instantiated.label {
                 label.parameters = parameters.to_vec();
             }
-            lower_term(&instantiated, &children, span, &self.sort_denotations)?
+            lower_term(&instantiated, children, span, &self.sort_denotations)?
         } else {
-            lower_term(production, &children, span, &self.sort_denotations)?
+            lower_term(production, children, span, &self.sort_denotations)?
         };
         Ok(term.with_metadata(metadata))
     }
