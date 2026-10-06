@@ -16,11 +16,14 @@ use std::{fs, path::PathBuf};
 
 use k_rust::{
     builtin::embedded,
-    definition::{Attributes, ResolvedDefinition},
-    inner::{ProgramParser, parse_rule_content, resolve_rule_bubbles},
-    kast::Sort,
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    outer::{LoadOptions, ResolvedSource, load_with_options},
+    definition::{Attributes, Definition, ResolvedDefinition, Sentence},
+    inner::{ParsedProgram, ProgramParser, parse_rule_content, resolve_rule_bubbles},
+    kast::{Label, Sort, Term},
+    kompile::{
+        CompilationBackend, CompileOptions, compile_loaded_definition, expand_macros,
+        expand_macros_in_term, propagate_macro_attributes, resolve_semantic_casts,
+    },
+    outer::{LoadOptions, ResolvedSource, load, load_with_options},
 };
 use k_rust_kore::measure::{Counter, Snapshot, snapshot};
 
@@ -202,6 +205,153 @@ fn module_chain_compile_resolves_per_pass_and_grows_sentences_linearly() {
         at_10.get(Counter::KompileSentencesTransformed),
         at_5.get(Counter::KompileSentencesTransformed)
     );
+}
+
+// ---------- macro expansion ----------
+
+/// A `macro-rec` reversal of cons lists; the rule for `c` is replaced by one whose right side
+/// reverses a list (`reversal_definition`).
+const REVERSAL_SOURCE: &str = r#"
+module MAIN
+  syntax Elem ::= "a" [symbol(a)]
+  syntax List ::= "nil" [symbol(nil)] | cons(Elem, List) [symbol(cons)]
+                | rev(List, List) [macro-rec, symbol(rev)]
+  syntax Foo ::= "c" [symbol(c)] | wrap(List) [symbol(wrap)]
+  rule rev(cons(X, L), A) => rev(L, cons(X, A))
+  rule rev(nil, A) => A
+  rule c => wrap(nil)
+endmodule
+"#;
+
+fn application(label: &str, arguments: Vec<Term>) -> Term {
+    Term::Apply {
+        label: Label::new(label),
+        arguments,
+    }
+}
+
+/// `rev(cons(a, ... cons(a, nil)), nil)` over `length` elements.
+fn reversal(length: usize) -> Term {
+    let mut list = application("nil", Vec::new());
+    for _ in 0..length {
+        list = application("cons", vec![application("a", Vec::new()), list]);
+    }
+    application("rev", vec![list, application("nil", Vec::new())])
+}
+
+/// `REVERSAL_SOURCE`, prepared for macro expansion as compilation prepares it, with the rule
+/// `c => wrap(nil)` replaced by `c => wrap(reversal(length))`.
+fn reversal_definition(length: usize) -> Definition {
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+    let loaded = load(
+        ResolvedSource::new("reversal.k", REVERSAL_SOURCE),
+        "MAIN",
+        &mut resolver,
+    )
+    .expect("the reversal definition should load")
+    .into_definition();
+    let resolved = resolve_semantic_casts(&loaded).unwrap();
+    let mut definition = propagate_macro_attributes(&resolved).unwrap();
+    let mut replaced = false;
+    for sentence in definition
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.local_sentences)
+    {
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } = sentence.as_ref()
+        else {
+            continue;
+        };
+        let Term::Rewrite { left, .. } = body.unannotated() else {
+            continue;
+        };
+        if !matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "c") {
+            continue;
+        }
+        *sentence = std::sync::Arc::new(Sentence::Rule {
+            body: Term::Rewrite {
+                left: left.clone(),
+                right: Box::new(application("wrap", vec![reversal(length)])),
+            },
+            requires: requires.clone(),
+            ensures: ensures.clone(),
+            attributes: attributes.clone(),
+        });
+        replaced = true;
+    }
+    assert!(replaced, "the rule for c should be replaced");
+    definition
+}
+
+/// The work of expanding the reversal of `length` elements in a rule and in a program.
+fn expand_reversal(length: usize) -> (Snapshot, Snapshot) {
+    let definition = reversal_definition(length);
+    let (expanded, in_rule) = measured(|| expand_macros(&definition));
+    expanded.expect("the reversal in a rule should expand");
+    let (expanded, in_program) = measured(|| {
+        expand_macros_in_term(
+            &definition,
+            "MAIN",
+            ParsedProgram::from_term(reversal(length)),
+            &Sort::new("List"),
+        )
+    });
+    let _expanded = expanded.expect("the reversal in a program should expand");
+    (in_rule, in_program)
+}
+
+/// A `macro-rec` rule that carries its arguments along rewrites n times over a list of n
+/// elements; each result is the right side around the two bindings, which were expanded with
+/// the subject and hold no macro application, so the terms expansion visits grow linearly in
+/// n. Re-expanding the bindings of every result makes them grow with n squared.
+#[test]
+fn recursive_macro_expansion_visits_grow_linearly() {
+    let (rule_at_100, program_at_100) = expand_reversal(100);
+    let (rule_at_200, program_at_200) = expand_reversal(200);
+    eprintln!("reversal of 100 in a rule: {:?}", nonzero(&rule_at_100));
+    eprintln!("reversal of 200 in a rule: {:?}", nonzero(&rule_at_200));
+    eprintln!(
+        "reversal of 100 in a program: {:?}",
+        nonzero(&program_at_100)
+    );
+    eprintln!(
+        "reversal of 200 in a program: {:?}",
+        nonzero(&program_at_200)
+    );
+    for (length, rule, program) in [
+        (100, &rule_at_100, &program_at_100),
+        (200, &rule_at_200, &program_at_200),
+    ] {
+        // n rewrites by the recursive rule and one by the base rule.
+        assert_eq!(rule.get(Counter::KompileMacroApplications), length + 1);
+        assert_eq!(program.get(Counter::KompileMacroApplications), length + 1);
+        // Measured 4n + 8 in the rule (the definition's other rules included) and 4n + 3 in
+        // the program.
+        for delta in [rule, program] {
+            assert!(
+                delta.get(Counter::KompileMacroExpansionVisits) <= 5 * length + 16,
+                "{} expansion visits for {length} elements",
+                delta.get(Counter::KompileMacroExpansionVisits)
+            );
+        }
+    }
+    for (at_100, at_200) in [
+        (&rule_at_100, &rule_at_200),
+        (&program_at_100, &program_at_200),
+    ] {
+        assert!(
+            at_200.get(Counter::KompileMacroExpansionVisits)
+                <= 2 * at_100.get(Counter::KompileMacroExpansionVisits) + 16,
+            "{} expansion visits at 200 elements versus {} at 100",
+            at_200.get(Counter::KompileMacroExpansionVisits),
+            at_100.get(Counter::KompileMacroExpansionVisits)
+        );
+    }
 }
 
 // ---------- parser ----------
