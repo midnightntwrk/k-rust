@@ -33,7 +33,7 @@
 //! A recursive rewrite reads the depths of its subject and of its bindings from the subject's shape, from which the result's depth follows (`instance_depth`), and the repeat check stores and compares subjects by identity (`Chain::repeats`); neither walks nor copies a term (`KompileMacroMeasuredNodes`, `KompileMacroSubjectWalks`).
 //! An identity costs one expected-constant hash-table lookup per recorded node, besides hashing the node's own fields and arity, and the table keeps one entry per distinct node recorded in the sentence.
 //! Only `macro-rec` and `alias-rec` rules may apply again on a path, so only their rewrites can make expansion diverge; `Expander::record_rewrite` accounts for those alone and reports, at the macro rule, a chain that returns to a subject it already rewrote (`Chain::repeats`, Brent's cycle finding), more than `MAX_RECURSIVE_REWRITES` recursive rewrites in one sentence, and a path whose recursive rewrites have added more depth than `growth_allowance` (the larger of `MIN_RECURSIVE_GROWTH` and the input's depth).
-//! The expansion of a sentence or standalone term, and each level of its recursion, runs with a stack red zone in proportion to the deepest term it may hold (`stack_zone`), on a heap-grown segment when the thread's stack runs low (`with_stack`).
+//! The expansion of a sentence or standalone term, and each level of its recursion, runs with a stack red zone in proportion to the deepest term it may hold (`stack_zone`: the input, what recursive rewrites may add, and, once a macro rule is instantiated, that rule's right side, which the instantiation copies in), on a heap-grown segment when the thread's stack runs low (`with_stack`).
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
@@ -95,6 +95,9 @@ struct MacroRule {
     left: Term,
     right: Term,
     recursive: bool,
+    /// The depth of the rule's sentence: instantiating the rule copies its right side, at most
+    /// this deep, into the term being expanded ([`Expander::instantiate`]).
+    depth: usize,
     /// The instance of a parametric head, typed only when a subject with that head is tried;
     /// `None` for a head whose production has no sort parameter.
     head_instance: Option<HeadInstance>,
@@ -654,7 +657,8 @@ struct Expander<'view, 'definition> {
     /// larger of [`MIN_RECURSIVE_GROWTH`] and the depth of the term before expansion.
     growth_allowance: usize,
     /// The stack red zone of the expansion recursion, sized for the deepest term the expansion
-    /// may hold ([`stack_zone`]).
+    /// may hold ([`stack_zone`]): the input's depth, raised to a macro rule's depth when the
+    /// rule is instantiated ([`Self::instantiate`]).
     red_zone: usize,
 }
 
@@ -699,7 +703,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let mut all = with_stack(walk_zone(rules_depth), || {
             selected
                 .into_iter()
-                .map(|(id, sentence, recursive)| macro_rule(id, sentence, recursive))
+                .zip(&depths)
+                .map(|((id, sentence, recursive), depth)| {
+                    macro_rule(id, sentence, recursive, *depth)
+                })
                 .collect::<Vec<_>>()
         });
         let priorities = all
@@ -1146,6 +1153,13 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// The bindings and their shapes are moved out of `subject` and `shape`, which the rewrite
     /// replaces, rather than copied: each is moved into its last occurrence in the result and
     /// copied into the others, so the result is the one copies alone would give.
+    ///
+    /// The result holds a copy of the rule's right side, as deep as the rule, so the red zone
+    /// is raised for the rest of this expansion to cover a rule that deep as well
+    /// (`stack_zone(max(input, rule))` is at least `STACK_PER_LEVEL * (input + growth + rule)`,
+    /// a walk over the input, the depth recursive rewrites may add, and the instantiated side,
+    /// the factor of two of `stack_zone` aside), and the copy and the substitution run on it.
+    /// An expansion that instantiates no deep rule keeps the zone of its input.
     fn instantiate(
         &mut self,
         rule: &MacroRule,
@@ -1153,6 +1167,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         shape: Shape,
         settled: &[bool],
     ) -> (Term, Known) {
+        self.red_zone = self.red_zone.max(stack_zone(rule.depth));
         let mut bindings = BTreeMap::new();
         take_bindings(&rule.left, subject, shape, &mut bindings);
         let mut bindings = bindings
@@ -1167,12 +1182,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             }
         });
         let settled = settled_variables(&rule.left, settled);
-        self.substitute(
-            rule.right.clone(),
-            &mut bindings,
-            &settled,
-            &mut BTreeMap::new(),
-        )
+        with_stack(self.red_zone, || {
+            self.substitute(
+                rule.right.clone(),
+                &mut bindings,
+                &settled,
+                &mut BTreeMap::new(),
+            )
+        })
     }
 
     /// Expand a term parsed outside the definition. With a parametric macro head it is expanded
@@ -2567,7 +2584,7 @@ fn macro_rule_recursion(sentence: &Sentence, productions: &ProductionCatalog<'_>
 
 /// The macro rule `sentence`, which [`macro_rule_recursion`] accepts, with its two sides
 /// projected out of its body. Copying and projecting recurse over the rule's depth.
-fn macro_rule(id: usize, sentence: &Sentence, recursive: bool) -> MacroRule {
+fn macro_rule(id: usize, sentence: &Sentence, recursive: bool, depth: usize) -> MacroRule {
     let Sentence::Rule { body, .. } = sentence else {
         unreachable!("only rules are macro rules")
     };
@@ -2577,6 +2594,7 @@ fn macro_rule(id: usize, sentence: &Sentence, recursive: bool) -> MacroRule {
         left: rewrite_projection(body, false),
         right: rewrite_projection(body, true),
         recursive,
+        depth,
         head_instance: None,
     }
 }

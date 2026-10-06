@@ -4927,6 +4927,18 @@ fn expand_mgo_beside(source: &str, deep_rule: Sentence) -> String {
 
 /// [`expand_mgo_beside`] for the program `program`.
 fn expand_beside(source: &str, deep_rule: Sentence, program: &str) -> String {
+    expand_beside_into(source, deep_rule, program, |term| {
+        Printer::new().print_term(term)
+    })
+}
+
+/// [`expand_beside`], with the expanded program read by `read` on the worker's 2 MiB of stack.
+fn expand_beside_into<T: Send + 'static>(
+    source: &str,
+    deep_rule: Sentence,
+    program: &str,
+    read: fn(&Term) -> T,
+) -> T {
     let mut definition = parsed(source);
     definition
         .modules
@@ -4950,7 +4962,7 @@ fn expand_beside(source: &str, deep_rule: Sentence, program: &str) -> String {
                 .unwrap()
                 .expand_program("MAIN", program, &Sort::new("KItem"))
                 .unwrap();
-            Printer::new().print_term(expanded.term())
+            read(expanded.term())
         })
         .expect("the worker should spawn")
         .join()
@@ -4982,6 +4994,49 @@ fn macro_rules_of_any_depth_are_prepared_on_a_small_stack() {
         Attributes::default(),
     );
     assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// Instantiating a macro rule copies its right-hand side into the term being expanded, so the
+/// expansion's stack covers the deepest macro rule as well as the input: the program `mdeep`,
+/// one level deep, expands on a thread of 2 MiB of stack through `mdeep => done(s(...100,000...
+/// (z)))` to that term. The expansion once sized its stack from the input's depth alone and
+/// overflowed in the instantiation.
+#[test]
+fn a_macro_right_side_of_any_depth_is_instantiated_on_a_small_stack() {
+    const DEPTH: usize = 100_000;
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= done(Nat) [symbol(done)] | "mdeep" [macro, symbol(mdeep)]
+        endmodule
+    "#};
+    let deep = (0..DEPTH).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let deep_rule = rule(
+        rewrite(
+            application("mdeep", Vec::new()),
+            application("done", vec![deep]),
+        ),
+        Attributes::default(),
+    );
+    let (labels, leaf) = expand_beside_into(source, deep_rule, "mdeep", |term| {
+        let mut labels = Vec::new();
+        let mut term = term;
+        while let Term::Apply { label, arguments } = term.unannotated() {
+            labels.push(label.name.clone());
+            match arguments.as_slice() {
+                [argument] => term = argument,
+                _ => break,
+            }
+        }
+        (labels, term.to_string())
+    });
+    assert_eq!(labels.len(), DEPTH + 2);
+    assert_eq!(labels[0], "done");
+    assert!(labels[1..].iter().take(DEPTH).all(|label| label == "s"));
+    assert_eq!(labels[DEPTH + 1], "z");
+    assert_eq!(leaf, "z(.KList)");
 }
 
 /// A definition with a parametric macro head, `mp`, is prepared on a thread of 2 MiB of stack
