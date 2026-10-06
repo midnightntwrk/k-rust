@@ -31,3 +31,44 @@ fn accepts_legacy_spellings_and_double_commas() {
     let term = parser::parse_term("foo(X,,Y)").unwrap();
     assert_eq!(term.to_string(), "foo(X,Y)");
 }
+
+/// The reader descends once per level of the term or sort it reads, and accepts any depth: a
+/// chain of 100,000 applications, a chain of 100,000 rewrites (right-nested, as `=>` reads), and
+/// a sort with 100,000 nested parameters are read on a thread of 256 KiB of stack.
+#[test]
+fn terms_and_sorts_of_any_depth_are_read_on_a_small_stack() {
+    const DEPTH: usize = 100_000;
+    let applications = format!("{}z(.KList){}", "s(".repeat(DEPTH), ")".repeat(DEPTH));
+    let rewrites = format!("{}z(.KList)", "z(.KList) => ".repeat(DEPTH));
+    let sort = format!("{}Nat{}", "Box{".repeat(DEPTH), "}".repeat(DEPTH));
+    std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let mut term = &parser::parse_term(&applications).unwrap();
+            let mut depth = 0;
+            while let k_rust::kast::Term::Apply { arguments, .. } = term
+                && let [argument] = arguments.as_slice()
+            {
+                depth += 1;
+                term = argument;
+            }
+            assert_eq!(depth, DEPTH);
+            let mut term = &parser::parse_term(&rewrites).unwrap();
+            let mut depth = 0;
+            while let k_rust::kast::Term::Rewrite { right, .. } = term {
+                depth += 1;
+                term = right;
+            }
+            assert_eq!(depth, DEPTH);
+            let mut sort = &parser::parse_sort(&sort).unwrap();
+            let mut depth = 0;
+            while let [parameter] = sort.parameters.as_slice() {
+                depth += 1;
+                sort = parameter;
+            }
+            assert_eq!(depth, DEPTH);
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
+}
