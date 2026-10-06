@@ -662,6 +662,124 @@ mod tests {
         let definition = definition();
         assert!(!normal(&definition, "any{}(s{}(X:SortNat{}))"));
     }
+
+    /// `lift`, `pick` and `tagged` are anywhere heads with one equation each, whose left-hand
+    /// sides are a domain value, an as-pattern `s(X) #as Y` (a conjunction), and an injection
+    /// from `SortA` into `SortTop`. An application is instance-normal only when no instance of it
+    /// is an instance of the equation: a different domain value, a `z` against `s(X)`, and an
+    /// injection from a sort with no common subsort with `SortA`; with `SortC` below both
+    /// `SortA` and `SortB`, an injection from `SortB` may denote an injection from `SortA`.
+    #[test]
+    fn domain_values_conjunctions_and_injection_sources_decide_unifiability() {
+        let definition = |overlap: bool| {
+            let below_both = if overlap {
+                [("SortC", "SortA"), ("SortC", "SortB"), ("SortC", "SortTop")]
+                    .map(|(sub, sup)| {
+                        format!(
+                            r"axiom{{R}} \exists{{R}}(V:{sup}{{}},
+                                \equals{{{sup}{{}}, R}}(V:{sup}{{}}, inj{{{sub}{{}}, {sup}{{}}}}(F:{sub}{{}})))
+                                [subsort{{{sub}{{}}, {sup}{{}}}}()]"
+                        )
+                    })
+                    .join("\n")
+            } else {
+                String::new()
+            };
+            let equation = |head: &str, argument_sort: &str, left: &str| {
+                format!(
+                    r"axiom{{R}} \implies{{R}}(
+                        \and{{R}}(
+                            \top{{R}}(),
+                            \and{{R}}(\in{{{argument_sort}{{}}, R}}(X0:{argument_sort}{{}}, {left}), \top{{R}}())
+                        ),
+                        \equals{{SortAddress{{}}, R}}(
+                            {head}{{}}(X0:{argument_sort}{{}}),
+                            \and{{SortAddress{{}}}}(pick{{}}(z{{}}()), \top{{SortAddress{{}}}}())
+                        )
+                    ) [anywhere{{}}()]"
+                )
+            };
+            let source = format!(
+                r#"[]
+                module MAIN
+                    sort SortNat{{}} []
+                    sort SortAddress{{}} []
+                    sort SortTop{{}} []
+                    sort SortA{{}} []
+                    sort SortB{{}} []
+                    sort SortC{{}} []
+                    hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                    symbol inj{{From, To}}(From) : To [sortInjection{{}}(), injective{{}}()]
+                    symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol a{{}}() : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol b{{}}() : SortB{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol c{{}}() : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol lift{{}}(SortInt{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                    symbol pick{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                    symbol tagged{{}}(SortTop{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                    axiom{{R}} \exists{{R}}(V:SortTop{{}},
+                        \equals{{SortTop{{}}, R}}(V:SortTop{{}}, inj{{SortA{{}}, SortTop{{}}}}(F:SortA{{}})))
+                        [subsort{{SortA{{}}, SortTop{{}}}}()]
+                    axiom{{R}} \exists{{R}}(V:SortTop{{}},
+                        \equals{{SortTop{{}}, R}}(V:SortTop{{}}, inj{{SortB{{}}, SortTop{{}}}}(F:SortB{{}})))
+                        [subsort{{SortB{{}}, SortTop{{}}}}()]
+                    {below_both}
+                    {lift}
+                    {pick}
+                    {tagged}
+                endmodule []"#,
+                lift = equation("lift", "SortInt", r#"\dv{SortInt{}}("1")"#),
+                pick = equation(
+                    "pick",
+                    "SortNat",
+                    r"\and{SortNat{}}(s{}(X:SortNat{}), Y:SortNat{})"
+                ),
+                tagged = equation("tagged", "SortTop", r"inj{SortA{}, SortTop{}}(X:SortA{})"),
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        };
+        let apart = definition(false);
+        assert!(normal(&apart, r#"lift{}(\dv{SortInt{}}("2"))"#));
+        assert!(!normal(&apart, r#"lift{}(\dv{SortInt{}}("1"))"#));
+        assert!(!normal(&apart, "lift{}(I:SortInt{})"));
+        assert!(normal(&apart, "pick{}(z{}())"));
+        assert!(!normal(&apart, "pick{}(s{}(z{}()))"));
+        assert!(!normal(&apart, "pick{}(N:SortNat{})"));
+        let from = |sort: &str| format!("tagged{{}}(inj{{{sort}{{}}, SortTop{{}}}}(V:{sort}{{}}))");
+        assert!(normal(&apart, &from("SortB")));
+        assert!(!normal(&apart, &from("SortA")));
+        assert!(!normal(&apart, "tagged{}(T:SortTop{})"));
+        let overlapping = definition(true);
+        assert!(!normal(&overlapping, &from("SortB")));
+        assert!(!normal(&overlapping, &from("SortC")));
+
+        // Unification decomposes an anywhere head only on instance-normal applications, so it
+        // keeps as one equation each pair the equations may identify: `pick(s(N))` is
+        // `pick(z)` for every `N`, and `lift(I)` is `lift(0)` for `I = 0` and for `I = 1`.
+        let term = |source: &str| {
+            apart
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        for (left, right) in [
+            ("pick{}(s{}(N:SortNat{}))", "pick{}(z{}())"),
+            ("lift{}(I:SortInt{})", r#"lift{}(\dv{SortInt{}}("0"))"#),
+        ] {
+            let result = crate::unification::unify_term_pairs(
+                &apart,
+                crate::substitution::Substitution::new(),
+                [(term(left), term(right))],
+            );
+            let crate::unification::UnificationResult::Unified(unified) = &result else {
+                panic!("{left} = {right} is satisfiable: {result:?}");
+            };
+            assert!(unified.substitution.is_empty(), "{left}: {result:?}");
+            assert_eq!(unified.constraints.len(), 1, "{left}: {result:?}");
+        }
+    }
+
     /// The classifier arms of the syntactic test separate two roots exactly where the rigidity
     /// predicate the test had before them did (`rigid` below is that predicate, transcribed): a
     /// domain value, a free-constructor application and, on the subject side only, an
