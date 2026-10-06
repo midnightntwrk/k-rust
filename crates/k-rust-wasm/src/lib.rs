@@ -645,11 +645,14 @@ mod tests {
     /// Printing and reparsing go through the pretty printer, which indents every nesting level,
     /// so its output grows with the square of the depth, about 2 bytes per level squared:
     /// 2,000 levels print about 8 MB, while 200,000 levels would print about 80 GB. The JSON
-    /// readers and writers around it are depth-independent, which the small stack checks.
+    /// readers and writers around it are depth-independent, which the small stack checks: the
+    /// whole test takes under 50 KiB of it, while serializing the pattern's JSON value
+    /// recursively takes about 258 KiB in the `dev` profile (opt-level 1) and 1.8 MiB
+    /// unoptimized.
     #[test]
     fn prints_and_reencodes_deep_kore_json_on_a_small_thread() {
         std::thread::Builder::new()
-            .stack_size(256 << 10)
+            .stack_size(128 << 10)
             .spawn(|| {
                 let json = deeply_nested_kore_json(PRETTY_LEVELS);
                 let printed = print_kore(&json, None).unwrap();
