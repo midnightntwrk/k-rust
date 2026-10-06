@@ -296,8 +296,10 @@ fn antecedent_is_empty(
 /// value; the existentials of either side are renamed apart from the other's free variables
 /// first, because `(\exists E. A) /\ C` is `\exists E. (A /\ C)` for `E` not free in `C`.
 /// - A unification clash (different constructors, values or sorts, or an occurs cycle below
-///   constructors) or constraints the solver refutes (`Unsat` is sound under every
-///   approximation) show `A /\ C` empty: `Valid` with no binding.
+///   constructors), or constraints that with the definedness of the unified term and bindings
+///   are refuted by the solver (`Unsat` is sound under every approximation) or contradictory once
+///   simplified (`knowledge_is_contradictory`), show `A /\ C` empty: `Valid` with no binding. An
+///   empty `A` is one such case.
 /// - A unifier whose instance of `A` with both sides' constraints is shown to have an instance
 ///   (a [`Counterexample`]) is a common value: `Invalid`, with no [`Outside`] report, since the
 ///   counterexample lies inside `C` rather than failing a part of it.
@@ -391,11 +393,16 @@ pub fn check_negated_consequent(
             query.push(predicate);
         }
     }
+    // The query is the knowledge of `A /\ C`: its constraints with their atoms' definedness, the
+    // bindings' and the term's. The solver reads it as written first; only when that leaves it
+    // open is it simplified and decided again (`knowledge_is_contradictory`), since the
+    // simplifier evaluates what the solver reads as opaque atoms (a `\ceil` of a collection, say).
     if predicates_truth(&query) == Truth::False
         || matches!(
             solver.is_sat(&query, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
         )
+        || knowledge_is_contradictory(definition, &query, SimplificationOptions::default(), solver)?
     {
         return Ok(Ok(ImplicationVerdict::Valid(Bindings::default())));
     }
@@ -4877,6 +4884,43 @@ mod tests {
             assert_eq!(
                 check_complete(&definition, &antecedent, &mismatched, solver),
                 Ok(ImplicationVerdict::VacuouslyValid)
+            );
+        };
+        check(&NoSolver);
+        #[cfg(feature = "z3")]
+        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `A -> \not C` holds when `A /\ C` is empty, which an empty `A` makes it. The conjunction of
+    /// `cfg(end, S Set SetItem(1)) ∧ ¬⌈S Set SetItem(1)⌉` with `cfg(end, T)` binds `T` to the
+    /// undefined set; only the simplifier shows that its constraints contradict the definedness
+    /// of the binding, so the solver alone leaves the conjunction undecided.
+    #[test]
+    fn a_negated_consequent_holds_for_an_antecedent_that_states_its_term_undefined() {
+        let definition = set_frame_definition();
+        let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
+        let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                set,
+            )))));
+        let consequent =
+            parse_pattern(r"\not{SortCfg{}}(cfg{}(end{}(), T:SortSet{}))").expect("should parse");
+        let check = |solver: &dyn SmtSolver| {
+            assert_eq!(
+                check_negated_consequent(
+                    &definition,
+                    &antecedent,
+                    &BTreeSet::new(),
+                    definition.admit_unverified(&consequent, &[]),
+                    solver,
+                )
+                .expect("the check does not stop")
+                .expect("the negated consequent should internalize")
+                .status(),
+                ImplicationStatus::Valid
             );
         };
         check(&NoSolver);
