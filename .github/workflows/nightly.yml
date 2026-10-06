@@ -52,6 +52,9 @@ jobs:
           cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
           -p k-rust -p k-rust-wasm -p k-rust-backend
 
+      - name: Run the portable feature set's doc-tests
+        run: cargo test --doc --locked --no-default-features -p k-rust -p k-rust-wasm -p k-rust-backend
+
   z3-acquisition:
     name: System-linked Z3 acquisition
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.z3-acquisition

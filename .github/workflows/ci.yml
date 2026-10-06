@@ -130,6 +130,14 @@ jobs:
         env:
           KRUST_TYPE_INFERENCE_MODE: checked
 
+      # Under checked inference an ambiguous forest the portable engine decides takes the checked
+      # path, so the default Z3 build's own path for it runs only here. `inner_rules` pins the
+      # parse of every rule shape; its self-rerun under checked inference already ran above.
+      - name: Run the rule parser snapshots under the default sort inference
+        run: >-
+          cargo nextest run --workspace --locked --no-fail-fast --profile ci
+          -E 'binary_id(k-rust::inner_rules) & not test(=every_rule_test_passes_under_checked_inference)'
+
       - name: Run doc-tests with native Z3 inference
         run: cargo test --doc --workspace --exclude k-rust-napi --locked
 
