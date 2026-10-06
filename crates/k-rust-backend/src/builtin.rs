@@ -928,14 +928,22 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::Bottom);
     }
     let modulus = modulus.abs();
-    let (base, exponent) = if exponent.sign() == Sign::Minus {
-        let Some(inverse) = modular_inverse(&base, &modulus)? else {
+    // `A ^%Int B C` is `(A ^Int B) mod C`. For a negative exponent the power is an integer only
+    // for a base of 1 or -1 (`int_pow_within`), and otherwise undefined, and so is the remainder.
+    if exponent.sign() == Sign::Minus {
+        if !base.magnitude().is_one() {
             return Ok(BuiltinResult::Bottom);
+        }
+        let odd = (&exponent & BigInt::one()).is_one();
+        let power = if base.sign() == Sign::Minus && odd {
+            -BigInt::one()
+        } else {
+            BigInt::one()
         };
-        (inverse, -exponent)
-    } else {
-        (base, exponent)
-    };
+        return Ok(BuiltinResult::Value(int_term(
+            euclidean_modulus(power, modulus).expect("non-zero modulus"),
+        )));
+    }
     let mut base = euclidean_modulus(base, modulus.clone()).expect("non-zero modulus");
     let mut exponent = exponent;
     let mut result = BigInt::one();
@@ -950,24 +958,6 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         }
     }
     Ok(BuiltinResult::Value(int_term(result % modulus)))
-}
-
-fn modular_inverse(value: &BigInt, modulus: &BigInt) -> HookResult<Option<BigInt>> {
-    let (mut old_r, mut r) = (value.clone(), modulus.clone());
-    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
-    while !r.is_zero() {
-        crate::stop::check()?;
-        let quotient = &old_r / &r;
-        (old_r, r) = (r.clone(), old_r - &quotient * r);
-        (old_s, s) = (s.clone(), old_s - quotient * s);
-    }
-    if old_r.abs() != BigInt::one() {
-        return Ok(None);
-    }
-    if old_r.sign() == Sign::Minus {
-        old_s = -old_s;
-    }
-    Ok(euclidean_modulus(old_s, modulus.clone()))
 }
 
 fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -1632,6 +1622,12 @@ mod tests {
             (2, 3, -5, 3),
             (-1, 1, 5, 4),
             (-3, 2, 5, 4),
+            // A negative exponent: the powers of 1 and -1, reduced likewise.
+            (-1, -1, 5, 4),
+            (-1, -3, -7, 6),
+            (-1, -2, 7, 1),
+            (1, -5, 7, 1),
+            (1, -1, 1, 0),
         ] {
             assert_eq!(
                 powmod(base, exponent, modulus),
@@ -2374,7 +2370,7 @@ mod tests {
             ("INT.ediv", &[-5, -3][..], 2),
             ("INT.emod", &[-5, -3][..], 1),
             ("INT.pow", &[2, 10][..], 1_024),
-            ("INT.powmod", &[3, -1, 7][..], 5),
+            ("INT.powmod", &[-1, -1, 7][..], 6),
             ("INT.log2", &[1_024][..], 10),
             ("INT.and", &[6, 3][..], 2),
             ("INT.or", &[4, 3][..], 7),
@@ -2450,6 +2446,15 @@ mod tests {
             evaluate_int("INT.powmod", &[2, -1, 4]),
             Ok(Ok(BuiltinResult::Bottom))
         );
+        // `(A ^Int B) mod C` has no value where `A ^Int B` has none, even where A is invertible
+        // modulo C.
+        for (base, exponent, modulus) in [(3, -1, 7), (2, -1, 7), (-2, -3, 7), (0, -1, 5)] {
+            assert_eq!(
+                evaluate_int("INT.powmod", &[base, exponent, modulus]),
+                Ok(Ok(BuiltinResult::Bottom)),
+                "{base} ^%Int {exponent} {modulus}"
+            );
+        }
     }
 
     #[test]

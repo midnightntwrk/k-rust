@@ -744,38 +744,24 @@ fn int_sign_extend_bit_range(
     let residue = ((shifted + &half) % &modulus + &modulus) % &modulus;
     Ok(residue - half)
 }
+/// `A ^%Int B C` is `(A ^Int B) mod C`, the Euclidean remainder (its `smt-hook`), which lies in
+/// [0, |C|) and is therefore the same for C and -C. It is undefined for a zero C, and for a
+/// negative B wherever `A ^Int B` is (every A but 1 and -1, `int_pow`).
 fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, Unfolded> {
-    const INVALID: &str = "Argument to hook INT.powmod is invalid. Modulus must be nonzero and negative exponents are only allowed when value and modulus are relatively prime.";
     if modulus.is_zero() {
-        return Err(INVALID.into());
+        return Err("Argument to hook INT.powmod is invalid. The modulus is zero.".into());
     }
-    // `^%Int` is `(A ^Int B) mod C` (its `smt-hook`): the Euclidean remainder, which lies in
-    // [0, |C|) and is therefore the same for C and -C.
     let modulus = modulus.abs();
     if exponent.is_negative() {
-        let inverse = modular_inverse(a, modulus.clone()).ok_or_else(|| INVALID.to_owned())?;
-        Ok(inverse.modpow(&(-exponent), &modulus))
-    } else {
-        Ok(a.modpow(&exponent, &modulus))
+        if !a.magnitude().is_one() {
+            return Err(
+                "Argument to hook INT.powmod is invalid. The power is not an integer.".into(),
+            );
+        }
+        let power = int_pow(a, exponent)?;
+        return Ok(((power % &modulus) + &modulus) % modulus);
     }
-}
-fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
-    let (mut old_r, mut r) = (a, modulus.clone());
-    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
-    // Invariant: `old_r - old_s * a` and `r - s * a` are multiples of `modulus`, and gcd(`old_r`, `r`) equals gcd(`a`, `modulus`); each iteration replaces `r` by the remainder of `old_r / r`, whose absolute value is strictly smaller.
-    while !r.is_zero() {
-        let q = &old_r / &r;
-        (old_r, r) = (r.clone(), old_r - &q * r);
-        (old_s, s) = (s.clone(), old_s - q * s);
-    }
-    if old_r.abs() != BigInt::one() {
-        return None;
-    }
-    // `old_s * a` is congruent to `old_r`, which is 1 or -1; for -1 the inverse is `-old_s`.
-    if old_r.is_negative() {
-        old_s = -old_s;
-    }
-    Some(((old_s % &modulus) + &modulus) % modulus)
+    Ok(a.modpow(&exponent, &modulus))
 }
 
 fn string_chr(value: BigInt) -> Result<Value, Unfolded> {
@@ -1061,14 +1047,25 @@ mod tests {
         }
     }
 
-    /// A negative base ends the Euclidean recursion on a remainder of -1, so its inverse is the
-    /// negated Bezout coefficient: -1 * 4 = -4 and -2 * 3 = -6 are both 1 modulo 5 and 7.
+    /// `A ^%Int B C` is `(A ^Int B) mod C`: with a negative B, the remainder of the power of 1 or
+    /// -1, and undefined for every other base, whose power is not an integer, even where it is
+    /// invertible modulo C. The remainder of -1 is C - 1.
     #[test]
-    fn powmod_inverts_negative_bases() {
+    fn powmod_of_a_negative_exponent_is_the_remainder_of_a_unit_power() {
         assert_eq!(int_powmod(int(-1), int(-1), int(5)), Ok(int(4)));
-        assert_eq!(int_powmod(int(-2), int(-1), int(7)), Ok(int(3)));
-        assert_eq!(int_powmod(int(-2), int(-3), int(7)), Ok(int(6)));
-        assert_eq!(int_powmod(int(3), int(-1), int(7)), Ok(int(5)));
+        assert_eq!(int_powmod(int(-1), int(-3), int(7)), Ok(int(6)));
+        assert_eq!(int_powmod(int(-1), int(-2), int(7)), Ok(int(1)));
+        assert_eq!(int_powmod(int(1), int(-1), int(7)), Ok(int(1)));
+        assert_eq!(int_powmod(int(1), int(-1), int(1)), Ok(int(0)));
+        for (base, exponent) in [(-2, -1), (-2, -3), (3, -1), (0, -1)] {
+            assert!(
+                matches!(
+                    int_powmod(int(base), int(exponent), int(7)),
+                    Err(Unfolded::Undefined(_))
+                ),
+                "{base} ^%Int {exponent} 7"
+            );
+        }
     }
 
     /// The Euclidean remainder modulo -C is the remainder modulo C, so a negative modulus folds
@@ -1081,7 +1078,7 @@ mod tests {
         assert_eq!(int_powmod(int(-3), int(2), int(5)), Ok(int(4)));
         assert_eq!(int_powmod(int(2), int(3), int(-5)), Ok(int(3)));
         assert_eq!(int_powmod(int(-2), int(3), int(-5)), Ok(int(2)));
-        assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
+        assert_eq!(int_powmod(int(-1), int(-1), int(-7)), Ok(int(6)));
         assert_eq!(int_powmod(int(0), int(0), int(-1)), Ok(int(0)));
         assert!(int_powmod(int(2), int(3), int(0)).is_err());
     }
