@@ -478,10 +478,11 @@ pub enum BackendDiagnosticOutput<K = Value> {
     /// equation's result carries as constraints (`BackendDiagnostic::UndecidedCondition`).
     /// Each variable of the equation that they name free (one its left-hand side does not
     /// bind) is listed in `rule_variables`. It is reported only for an attempt whose outcome the
-    /// simplification kept: the equation applied, or no other equation rewrote the subject. An
-    /// attempt whose `requires` was refuted, one that another equation superseded, and one made
-    /// while simplifying the condition of an enclosing attempt that was itself refuted or
-    /// superseded report nothing.
+    /// simplification kept: the equation applied, or no other equation rewrote the subject and
+    /// the simplification's result still holds it. An attempt whose `requires` was refuted, one
+    /// that another equation superseded, one whose subject a later part of the same
+    /// simplification dropped, and one made while simplifying the condition of an enclosing
+    /// attempt that was itself refuted, superseded or dropped report nothing.
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,

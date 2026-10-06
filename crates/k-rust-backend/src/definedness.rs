@@ -533,8 +533,9 @@ pub(crate) fn pattern_knowledge<'a>(
         return Cow::Borrowed(&pattern.constraints);
     }
     let mut knowledge = condition_definedness(definition, pattern.constraints.clone(), &[]);
+    let mut known = knowledge.iter().cloned().collect::<FxHashSet<_>>();
     for predicate in ceil_term(definition, &pattern.term) {
-        if !knowledge.contains(&predicate) {
+        if known.insert(predicate.clone()) {
             knowledge.push(predicate);
         }
     }

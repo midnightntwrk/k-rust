@@ -458,6 +458,9 @@ pub enum Counter {
     SimplifyEquationAttempts,
     /// Hooked builtin evaluations that produced a result.
     SimplifyBuiltinEvaluations,
+    /// Term nodes a simplifier entry's report retraction searched for the subjects of its
+    /// reports.
+    SimplifyRetractionNodes,
     /// SMT queries issued, including result-cache hits.
     SmtQueries,
     /// SMT queries that ran a solver instance.
@@ -498,7 +501,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 74;
+    pub const COUNT: usize = 75;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -558,6 +561,7 @@ impl Counter {
         Counter::SimplifyNodesSkippedEvaluated,
         Counter::SimplifyEquationAttempts,
         Counter::SimplifyBuiltinEvaluations,
+        Counter::SimplifyRetractionNodes,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
@@ -639,6 +643,7 @@ impl Counter {
             Counter::SimplifyNodesSkippedEvaluated => "simplify.nodes_skipped_evaluated",
             Counter::SimplifyEquationAttempts => "simplify.equation_attempts",
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
+            Counter::SimplifyRetractionNodes => "simplify.retraction_nodes",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",

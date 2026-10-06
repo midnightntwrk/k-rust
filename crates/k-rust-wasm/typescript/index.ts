@@ -480,7 +480,7 @@ export type RuleVariable = { name: string; definitionName: string }
 
 export type BackendDiagnostic =
   | {
-      /** Reported only for an attempt whose outcome the simplification kept: the equation applied, or no other equation rewrote the subject. An attempt whose `requires` was refuted, one that another equation superseded, and one made while simplifying the condition of an enclosing attempt that was itself refuted or superseded report nothing. */
+      /** Reported only for an attempt whose outcome the simplification kept: the equation applied, or no other equation rewrote the subject and the simplification's result still holds it. An attempt whose `requires` was refuted, one that another equation superseded, one whose subject a later part of the same simplification dropped, and one made while simplifying the condition of an enclosing attempt that was itself refuted, superseded or dropped report nothing. */
       kind: 'undecided-condition'
       ruleId: string
       reason: ConditionIndeterminacy

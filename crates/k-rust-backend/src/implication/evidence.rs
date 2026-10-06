@@ -7,6 +7,8 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use rustc_hash::FxHashSet;
+
 use crate::{
     definedness::ceil_term,
     definition::BackendDefinition,
@@ -58,12 +60,13 @@ impl Instance {
             return Ok(None);
         }
         let mut query = pattern.constraints.clone();
+        let mut queried = query.iter().cloned().collect::<FxHashSet<_>>();
         for predicate in extra
             .iter()
             .cloned()
             .chain(ceil_term(definition, &pattern.term))
         {
-            if !query.contains(&predicate) {
+            if queried.insert(predicate.clone()) {
                 query.push(predicate);
             }
         }

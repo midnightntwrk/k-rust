@@ -5283,6 +5283,189 @@ fn an_undecided_attempt_superseded_by_another_equation_is_not_reported() {
     }
 }
 
+/// `t`, a total function whose equation leaves `t(pos)` unevaluated with a diagnostic (`tu`, an
+/// unbound result variable, or `tc`, a requires-only variable the solver leaves undecided, as
+/// [`KEPT_CALL_EQUATIONS`] does for `f`), `drop(X) = zero`, and `k(X) = one requires
+/// \or(X = pos, t(X) = four)` (`k1`) with `k(X) = two` at a lower priority (`k2`).
+fn dropped_call_definition(t_equation: &str) -> BackendDefinition {
+    definition(&format!(
+        r#"symbol t{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+        symbol drop{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+        symbol k{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+        {t_equation}
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                drop{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("zero"), \top{{SortS{{}}}}())))
+            [label{{}}("drop")]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \or{{R}}(
+                    \equals{{SortS{{}}, R}}(X:SortS{{}}, \dv{{SortS{{}}}}("pos")),
+                    \equals{{SortS{{}}, R}}(t{{}}(X:SortS{{}}), \dv{{SortS{{}}}}("four"))),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                k{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("one"), \top{{SortS{{}}}}())))
+            [label{{}}("k1")]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(),
+                \and{{R}}(\in{{SortS{{}}, R}}(K0:SortS{{}}, X:SortS{{}}), \top{{R}}())),
+            \equals{{SortS{{}}, R}}(
+                k{{}}(K0:SortS{{}}), \and{{SortS{{}}}}(\dv{{SortS{{}}}}("two"), \top{{SortS{{}}}}())))
+            [label{{}}("k2"), priority{{}}("200")]"#
+    ))
+}
+
+/// A report of a passed-over equation explains why its subject is kept unevaluated, so it is
+/// reported only when the result keeps that subject. `t(pos)` is kept where it is attempted, and
+/// then dropped by the same simplification: by `drop`, whose equation holds for every value of
+/// its argument (and `t` is total, so no definedness of `t(pos)` stays), and by the requires of
+/// `k1`, whose first disjunct holds whatever `t(pos)` is. The result is what it would be had the
+/// equation applied, so nothing is reported. Where the result keeps `t(pos)`, the report stays.
+#[test]
+fn a_call_dropped_later_in_the_same_simplification_is_not_reported() {
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    for (label, f_equation) in KEPT_CALL_EQUATIONS {
+        let t_equation = f_equation.replace("f{}(", "t{}(").replace(
+            &format!(r#"label{{}}("{label}")"#),
+            &format!(r#"label{{}}("t{}")"#, &label[1..]),
+        );
+        let t_label = format!("t{}", &label[1..]);
+        let definition = dropped_call_definition(&t_equation);
+        let simplified = |input: &str| {
+            let input = term(&definition, input);
+            let (result, diagnostics) = diagnostic::collect(|| {
+                simplify_with_solver(
+                    &definition,
+                    &input,
+                    &[],
+                    SimplificationOptions::default(),
+                    &solver,
+                )
+            });
+            (result.unwrap(), diagnostics)
+        };
+        for (input, value, applied) in [
+            (r#"drop{}(t{}(\dv{SortS{}}("pos")))"#, "zero", "drop"),
+            (r#"k{}(\dv{SortS{}}("pos"))"#, "one", "k1"),
+        ] {
+            let (result, diagnostics) = simplified(input);
+            assert_eq!(
+                result.term,
+                term(&definition, &format!(r#"\dv{{SortS{{}}}}("{value}")"#)),
+                "{t_label} {input}"
+            );
+            assert_eq!(result.applied_rules, [applied], "{t_label} {input}");
+            assert!(diagnostics.is_empty(), "{t_label} {input}: {diagnostics:?}");
+        }
+        let kept = r#"wrap{}(t{}(\dv{SortS{}}("pos")))"#;
+        let (result, diagnostics) = simplified(kept);
+        assert_eq!(result.term, term(&definition, kept), "{t_label}");
+        let reported = undecided_rule_ids(&diagnostics);
+        assert!(
+            !reported.is_empty() && reported.iter().all(|rule_id| *rule_id == t_label),
+            "{t_label}: {diagnostics:?}"
+        );
+    }
+}
+
+/// Retraction searches a result only for the subjects of its reports, and only where a subject
+/// can occur: a subject is a term the simplifier attempted an equation at, so it lacks the
+/// `evaluated` attribute, as does every term equal to it, and an evaluated subtree, whose
+/// subterms are all evaluated, cannot hold it. `c(t(pos), chain)` keeps `t(pos)` with its report
+/// beside an evaluated chain of constructors and values (`c(1, c(2, ... nil))`); the search visits the same few nodes
+/// whatever the chain's length, so a reported call riding in a large state costs nothing per
+/// node of the state.
+#[test]
+fn retraction_does_not_walk_the_evaluated_part_of_the_result() {
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    let (label, f_equation) = KEPT_CALL_EQUATIONS[0];
+    let t_equation = f_equation
+        .replace("f{}(", "t{}(")
+        .replace(&format!(r#"label{{}}("{label}")"#), r#"label{}("tu")"#);
+    let definition = dropped_call_definition(&format!(
+        "{t_equation}
+        sort SortC{{}} []
+        symbol nil{{}}() : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol c{{}}(SortS{{}}, SortC{{}}) : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+    ));
+    let visited = |length: usize| {
+        let chain = (1..=length)
+            .rev()
+            .fold("nil{}()".to_owned(), |rest, value| {
+                format!(r#"c{{}}(\dv{{SortS{{}}}}("{value}"), {rest})"#)
+            });
+        let input = term(
+            &definition,
+            &format!(r#"c{{}}(t{{}}(\dv{{SortS{{}}}}("pos")), {chain})"#),
+        );
+        let before = snapshot();
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        let delta = snapshot().delta(&before);
+        assert_eq!(result.unwrap().term, input, "{length}");
+        let reported = undecided_rule_ids(&diagnostics);
+        assert!(
+            !reported.is_empty() && reported.iter().all(|rule_id| *rule_id == "tu"),
+            "{length}: {diagnostics:?}"
+        );
+        delta.get(Counter::SimplifyRetractionNodes)
+    };
+    let (short, long) = (visited(4), visited(256));
+    assert!(short > 0, "the kept report is searched for");
+    assert_eq!(short, long, "{short} nodes for 4 values, {long} for 256");
+}
+
+/// A term an equation drops is still in the result when its definedness is: `drop(f(pos))`, with
+/// `f` not total, is `zero` only where `f(pos)` is defined, so the result carries `⌈f(pos)⌉` and
+/// the report of the equation that left `f(pos)` unevaluated stays.
+#[test]
+fn a_dropped_call_whose_definedness_the_result_carries_is_reported() {
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    for (label, f_equation) in KEPT_CALL_EQUATIONS {
+        let definition = dropped_call_definition(f_equation);
+        let input = term(&definition, r#"drop{}(f{}(\dv{SortS{}}("pos")))"#);
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        let result = result.unwrap();
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("zero")"#),
+            "{label}"
+        );
+        assert!(
+            result
+                .conditions()
+                .as_slice()
+                .contains(&Predicate::Ceil(term(
+                    &definition,
+                    r#"f{}(\dv{SortS{}}("pos"))"#
+                ))),
+            "{label}: {:?}",
+            result.conditions()
+        );
+        assert!(
+            undecided_rule_ids(&diagnostics).contains(&label),
+            "{label}: {diagnostics:?}"
+        );
+    }
+}
+
 /// A simplification equation whose result has a variable its left-hand side does not bind is
 /// passed over; a lower-priority simplification still applies, as after an open `requires`.
 /// The term is evaluated, so the passed-over equation is not reported; without the other
