@@ -74,20 +74,19 @@ jobs:
       - name: Run Clippy with native Z3 inference
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      # nextest runs each test in its own process; it does not run doc-tests.
-      - name: Run tests with native Z3 inference
-        run: cargo nextest run --workspace --locked --no-fail-fast --profile ci
+      # nextest runs each test in its own process; it does not run doc-tests. Checked inference
+      # runs both engines on every parse and fails on a disagreement; `measure_ratchet`, which
+      # pins one engine's work, is left out by the profile and runs in the next step instead.
+      - name: Run tests with native Z3 inference under checked sort inference
+        run: cargo nextest run --workspace --locked --no-fail-fast --profile ci-checked
+        env:
+          KRUST_TYPE_INFERENCE_MODE: checked
 
       - name: Run doc-tests with native Z3 inference
         run: cargo test --doc --workspace --exclude k-rust-napi --locked
 
       - name: Run native measurement ratchet
         run: scripts/measure-ratchet.sh --gh-release
-
-      - name: Test k-rust under checked sort inference
-        run: cargo test -p k-rust --locked --no-fail-fast
-        env:
-          KRUST_TYPE_INFERENCE_MODE: checked
 
       - name: Smoke-test the unified in-process backend
         env:

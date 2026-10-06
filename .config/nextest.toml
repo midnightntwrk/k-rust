@@ -49,3 +49,13 @@ success-output = "final"
 [profile.ci]
 fail-fast = false
 failure-output = "immediate-final"
+
+# The profile of CI's Z3 workspace step, which runs under `KRUST_TYPE_INFERENCE_MODE=checked`:
+# every sort inference runs both engines and fails on a disagreement, and returns what the
+# default mode returns when they agree. k-rust's `measure_ratchet` pins the work of one engine,
+# so it returns early under checked mode; it is left out here, and `scripts/measure-ratchet.sh`
+# runs it in the default mode.
+[profile.ci-checked]
+fail-fast = false
+failure-output = "immediate-final"
+default-filter = 'not binary_id(k-rust::measure_ratchet)'
