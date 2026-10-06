@@ -210,6 +210,7 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Str
         "FLOAT.abs" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::abs)))),
         "FLOAT.floor" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::floor)))),
         "FLOAT.ceil" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::ceil)))),
+        "FLOAT.trunc" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::trunc)))),
         "FLOAT.exp" => unary_float(values, |a| {
             a.unary_round(|value| value.exp_round(Round::Nearest))
                 .map(Value::Float)
@@ -612,6 +613,24 @@ mod tests {
                 .map(|operand| Value::Float(float(operand)))
                 .collect();
             assert_eq!(folded_float(hook, values).token(), expected, "{hook}");
+        }
+    }
+
+    /// `truncFloat` rounds toward zero, exactly and keeping the sign of a zero result.
+    #[test]
+    fn truncates_toward_zero() {
+        for (operand, expected) in [
+            ("-2.5", "-2.0000000000000000e+00p53x11"),
+            ("2.5f", "2.00000000e+00p24x8"),
+            ("-0.5", "-0e+00p53x11"),
+            ("Infinity", "Infinityp53x11"),
+            ("NaN", "NaNp53x11"),
+        ] {
+            assert_eq!(
+                folded_float("FLOAT.trunc", vec![Value::Float(float(operand))]).token(),
+                expected,
+                "{operand}"
+            );
         }
     }
 
