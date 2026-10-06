@@ -13,11 +13,13 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
-from support.lock import k_commit, k_version  # noqa: E402
+from support.lock import k_commit  # noqa: E402
 from support.hashing import json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.pins import Ledger  # noqa: E402
-from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, k_tool, z3_environment  # noqa: E402
+from support.reference import (  # noqa: E402
+    Key, Output, Snapshot, add_refresh_argument, json_without_members, live_tools, repository_inputs, substitute,
+)
+from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -30,6 +32,12 @@ FIXTURE = HERE / "fixtures/static-adjunct.k"
 STATIC_SPEC = HERE / "claims/static-spec.k"
 STATIC_PROGRAM = HERE / "corpus/static-evaluation.imp"
 PINS = HERE / "pins.json"
+REFERENCE = HERE / "reference" / "oracle"
+TOOLS = ("kompile", "kprove", "krun")
+reduce_spec = json_without_members(("org.kframework.attributes.Source", "org.kframework.attributes.Location"))
+"""The stored `--emit-json-spec` output omits source locations, which the claim normalization removes."""
+reduce_kore_exec_log = substitute(r"(?m)^kore-exec: \[\d+\]", "kore-exec: [-]")
+"""kore-exec prefixes each log line with a run-dependent number; the proof classification reads only the message."""
 INPUT_PIN_KEYS = frozenset({"schema", "oracle", "upstream_imp", "reconstruction", "corpus_sha256"})
 OUTPUT_PIN_KEYS = frozenset({"static_execution", "proof_outcomes", "qualified_proof_outcomes"})
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
@@ -69,16 +77,17 @@ def proof_cases() -> tuple[dict[str, Any], ...]:
 def prove(
     case: dict[str, Any],
     *,
-    kprove: str,
+    k: Snapshot,
     session: krs_gate.Session,
     definition: Path,
     workspace: Path,
     timeout: int,
 ) -> dict[str, Any]:
     spec_json = workspace / f"{case['name']}-spec.json"
-    process = run(
+    process = k.run(
+        f"kprove/{case['name']}",
+        "kprove",
         [
-            kprove,
             case["spec"],
             "-d",
             definition,
@@ -100,7 +109,8 @@ def prove(
             "64",
         ],
         timeout=timeout,
-        check=False,
+        outputs=(Output(spec_json, reduce_spec),),
+        streams={"stderr": reduce_kore_exec_log},
     )
     try:
         normalized_result = session.kast_normalize("static_proof", text=process.stdout)
@@ -177,11 +187,12 @@ def observed_ledger(outcomes: dict[str, dict[str, Any]], upstream_commit: str) -
 
 
 def verify_diagnostic(
-    *, kompile: str, fixture: Path, module: str, workspace: Path, timeout: int
+    *, k: Snapshot, fixture: Path, module: str, workspace: Path, timeout: int
 ) -> None:
-    process = run(
+    process = k.run(
+        f"kompile/{fixture.stem}",
+        "kompile",
         [
-            kompile,
             fixture,
             "-I",
             IMP_DEFINITION,
@@ -197,7 +208,6 @@ def verify_diagnostic(
             workspace / module.lower(),
         ],
         timeout=timeout,
-        check=False,
     )
     if process.returncode == 0 or "[Error]" not in process.stderr:
         raise GateError(f"induced diagnostic unexpectedly accepted: {fixture}")
@@ -207,17 +217,23 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("--record", action="store_true")
+    add_refresh_argument(parser)
     options = parser.parse_args()
     if options.timeout <= 0:
         raise GateError("--timeout must be positive")
     pins = Ledger(PINS, record=options.record)
 
-    kompile = k_tool("kompile", k_version())
-    kprove = k_tool("kprove", k_version())
-    krun = k_tool("krun", k_version())
-    verify_checkout(K, k_commit(), label="K")
+    executables = None
+    if options.refresh_reference:
+        executables = live_tools(TOOLS)
+        verify_checkout(K, k_commit(), label="K")
     upstream_commit = str(pins.table("upstream_imp").get("commit"))
     verify_checkout(IMP, upstream_commit, label="IMP")
+    key = Key(
+        tools=TOOLS,
+        upstream={"imp": upstream_commit},
+        inputs=repository_inputs(list(corpus_paths().values())),
+    )
 
     gate = krs_gate.configured_or_build(checkout_scratch() / "imp-static-semantics-root-target")
     with (
@@ -225,10 +241,15 @@ def main() -> int:
         tempfile.TemporaryDirectory(prefix="krs-imp-static-reconstructed-") as temporary,
     ):
         workspace = Path(temporary)
+        k = Snapshot(
+            REFERENCE, key, workspace=workspace, refresh=options.refresh_reference,
+            executables=executables,
+        )
         definition = workspace / "static-kompiled"
-        compiled = run(
+        compiled = k.run(
+            "kompile/definition",
+            "kompile",
             [
-                kompile,
                 FIXTURE,
                 "-I",
                 IMP_DEFINITION,
@@ -243,16 +264,16 @@ def main() -> int:
                 definition,
             ],
             timeout=options.timeout,
-            check=False,
         )
         if compiled.returncode != 0:
             raise GateError(f"IMP static semantics compilation failed:\n{compiled.stderr}")
         print("PASS IMP static semantics compile: reconstructed static definition")
 
-        executed = run(
-            [krun, STATIC_PROGRAM, "-cENV=.Map", "-d", definition, "--output", "pretty", "--color", "off"],
+        executed = k.run(
+            "krun/static-evaluation",
+            "krun",
+            [STATIC_PROGRAM, "-cENV=.Map", "-d", definition, "--output", "pretty", "--color", "off"],
             timeout=options.timeout,
-            check=False,
         )
         compact = re.sub(r"\s+", " ", executed.stdout)
         if executed.returncode != 0 or "x |-> 6" not in compact or "y |-> zeroAlias" not in compact:
@@ -260,14 +281,14 @@ def main() -> int:
         print("PASS IMP static semantics execution: x=6, y=0 (reversible zeroAlias unparse)")
 
         verify_diagnostic(
-            kompile=kompile,
+            k=k,
             fixture=HERE / "fixtures/induced-definition-error.k",
             module="KRS-IMP-STATIC-INDUCED-DEFINITION-ERROR",
             workspace=workspace,
             timeout=options.timeout,
         )
         verify_diagnostic(
-            kompile=kompile,
+            k=k,
             fixture=HERE / "fixtures/induced-source-error.k",
             module="KRS-IMP-STATIC-INDUCED-SOURCE-ERROR",
             workspace=workspace,
@@ -279,7 +300,7 @@ def main() -> int:
         for case in proof_cases():
             outcome = prove(
                 case,
-                kprove=kprove,
+                k=k,
                 session=session,
                 definition=definition,
                 workspace=workspace,
@@ -301,12 +322,13 @@ def main() -> int:
         or missing_keys - (OUTPUT_PIN_KEYS if pins.record else set())
     ):
         raise GateError("IMP static semantics reconstructed pin keys differ from live evidence")
-    for key in INPUT_PIN_KEYS:
-        if pins.get(key) != observed[key]:
-            raise GateError(f"IMP static semantics input pin {key} differs from live evidence")
-    for key in OUTPUT_PIN_KEYS:
-        pins.expect(key, observed[key])
+    for name in INPUT_PIN_KEYS:
+        if pins.get(name) != observed[name]:
+            raise GateError(f"IMP static semantics input pin {name} differs from live evidence")
+    for name in OUTPUT_PIN_KEYS:
+        pins.expect(name, observed[name])
     print(f"PASS IMP static semantics reconstructed oracle: evidence={json_sha256(observed)}")
+    print(f"PASS IMP static semantics reference snapshot: {k.finish()}")
     pins.finish("IMP static semantics")
     return 0
 

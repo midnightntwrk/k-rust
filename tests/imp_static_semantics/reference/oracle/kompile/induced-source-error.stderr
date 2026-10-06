@@ -1,0 +1,7 @@
+[Error] Inner Parser: Sort of variable I inferred as greatest lower bound of
+[Bool, Int], but no such bound exists.
+	Source({{root}}/tests/imp_static_semantics/fixtures/induced-source-error.k)
+	Location(5,8,5,42)
+	5 |	  rule # addOne ( I:Int ) => I requires I
+	  .	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[Error] Compiler: Had 1 parsing errors.

@@ -1,0 +1,7 @@
+[Error] Outer Parser: Lexical error at line 2, column 27.  Encountered: "@"
+(64), after : "" (TokenMgrException: Lexical error at line 2, column 27. 
+Encountered: "@" (64), after : "")
+	Source({{root}}/tests/imp_static_semantics/fixtures/induced-definition-error.k)
+	Location(2,27,2,28)
+	2 |	  syntax Expr ::= "hello" @
+	  .	                          ^
