@@ -1,0 +1,18 @@
+[org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k)")]
+module IMP-SIMPLE-SPEC
+
+// imports
+import KRS-IMP-STATIC []
+
+
+// claims
+// claim `<generatedTop>`(`<k>`(inj{Stmt,KItem}(`___CALC-SYNTAX_Stmt_Stmt_Stmt`(`_=_;_CALC-SYNTAX_Stmt_Id_Expr`(#token("$n","Id"),inj{Int,Expr}(#token("7","Int"))),`if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt`(inj{Bool,Expr}(_B),`{_}_IMP-SYNTAX_Stmt_Stmt`(`_=_;_CALC-SYNTAX_Stmt_Id_Expr`(#token("$n","Id"),inj{Int,Expr}(#token("6","Int")))),`{_}_IMP-SYNTAX_Stmt_Stmt`(`_=_;_CALC-SYNTAX_Stmt_Id_Expr`(#token("$n","Id"),inj{Int,Expr}(#token("5","Int")))))))~>_DotVar1),`<env>`(_Gen0),`<generatedCounter>`(_Gen2))=>`<generatedTop>`(`<k>`(_DotVar1),`<env>`(?_Gen1),`<generatedCounter>`(?_Gen3)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(91abaa40ff243142bdcc109a273fe2f603a506b84f69307faf7880212a0dc7af), label(IMP-SIMPLE-SPEC.branching-program), org.kframework.attributes.Location(Location(19,32,20,52)), org.kframework.attributes.Source(Source({{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  claim{} \implies{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+      \top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortStmt{}, SortKItem{}}(Lbl'UndsUndsUnds'CALC-SYNTAX'Unds'Stmt'Unds'Stmt'Unds'Stmt{}(Lbl'UndsEqlsUndsSClnUnds'CALC-SYNTAX'Unds'Stmt'Unds'Id'Unds'Expr{}(\dv{SortId{}}("$n"),inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("7"))),Lblif'LParUndsRParUnds'else'UndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'Expr'Unds'Stmt'Unds'Stmt{}(inj{SortBool{}, SortExpr{}}(Var'Unds'B:SortBool{}),Lbl'LBraUndsRBraUnds'IMP-SYNTAX'Unds'Stmt'Unds'Stmt{}(Lbl'UndsEqlsUndsSClnUnds'CALC-SYNTAX'Unds'Stmt'Unds'Id'Unds'Expr{}(\dv{SortId{}}("$n"),inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("6")))),Lbl'LBraUndsRBraUnds'IMP-SYNTAX'Unds'Stmt'Unds'Stmt{}(Lbl'UndsEqlsUndsSClnUnds'CALC-SYNTAX'Unds'Stmt'Unds'Id'Unds'Expr{}(\dv{SortId{}}("$n"),inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("5"))))))),Var'Unds'DotVar1:SortK{})),Lbl'-LT-'env'-GT-'{}(Var'Unds'Gen0:SortMap{}),Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen2:SortInt{}))), weakAlwaysFinally{SortGeneratedTopCell{}} (
+       \exists{SortGeneratedTopCell{}} (Var'QuesUnds'Gen1:SortMap{},  \exists{SortGeneratedTopCell{}} (Var'QuesUnds'Gen3:SortInt{}, 
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),Lbl'-LT-'env'-GT-'{}(Var'QuesUnds'Gen1:SortMap{}),Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen3:SortInt{})), \top{SortGeneratedTopCell{}}())))))
+  [UNIQUE'Unds'ID{}("91abaa40ff243142bdcc109a273fe2f603a506b84f69307faf7880212a0dc7af"), label{}("IMP-SIMPLE-SPEC.branching-program"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,32,20,52)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k)")]
+
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,50,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k)")]

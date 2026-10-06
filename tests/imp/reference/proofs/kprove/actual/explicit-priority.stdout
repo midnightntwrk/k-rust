@@ -1,0 +1,20 @@
+{
+ "format": "KAST",
+ "term": {
+  "args": [],
+  "arity": 0,
+  "label": {
+   "name": "#Top",
+   "node": "KLabel",
+   "params": [
+    {
+     "name": "K",
+     "node": "KSort",
+     "params": []
+    }
+   ]
+  },
+  "node": "KApply"
+ },
+ "version": 4
+}

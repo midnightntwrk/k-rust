@@ -1,0 +1,2 @@
+kore-exec: [-] Warning (WarnTrivialClaim):
+    Claim proven without rewriting at: {{root}}/tests/imp_static_semantics/claims/static-spec.k:11:5-11:50

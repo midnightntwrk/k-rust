@@ -1,0 +1,18 @@
+[org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]
+module KRS-IMP-STATIC-SPEC
+
+// imports
+import KRS-IMP-STATIC []
+
+
+// claims
+// claim `<generatedTop>`(`<k>`(inj{Int,KItem}(nonnegativeIdentity(#token("7","Int")))~>_DotVar1),_DotVar0,`<generatedCounter>`(_Gen0))=>`<generatedTop>`(`<k>`(inj{Int,KItem}(#token("7","Int"))~>_DotVar1),_DotVar0,`<generatedCounter>`(?_Gen1)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cfe214a13dce095b67f7230c9a2d2b70d8b3237084d8a4bf780aeee3e784e4ec), label(KRS-IMP-STATIC-SPEC.partial-equation), org.kframework.attributes.Location(Location(11,5,11,50)), org.kframework.attributes.Source(Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  claim{} \implies{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+      \top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(LblnonnegativeIdentity{}(\dv{SortInt{}}("7"))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortEnvCell{},Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))), weakAlwaysFinally{SortGeneratedTopCell{}} (
+       \exists{SortGeneratedTopCell{}} (Var'QuesUnds'Gen1:SortInt{}, 
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7")),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortEnvCell{},Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \top{SortGeneratedTopCell{}}()))))
+  [UNIQUE'Unds'ID{}("cfe214a13dce095b67f7230c9a2d2b70d8b3237084d8a4bf780aeee3e784e4ec"), label{}("KRS-IMP-STATIC-SPEC.partial-equation"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,5,11,50)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]
+
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,21,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]

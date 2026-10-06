@@ -1,0 +1,2 @@
+kore-exec: [-] Warning (WarnTrivialClaim):
+    Claim proven without rewriting at: src/claims.rs

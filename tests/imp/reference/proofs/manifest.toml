@@ -1,0 +1,1210 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kompile", "kore-exec", "kprove"]
+
+[key.upstream]
+imp = "683a773418add3bcae8ded47c2b24e94494e1988"
+kore_exec = "0.1.155"
+
+[key.inputs]
+"tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+"tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
+
+[[invocation]]
+label = "kompile/actual-haskell"
+argv = ["kompile", "{{work}}/actual-execution.k", "--backend", "haskell", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP", "--emit-json", "--output-definition", "{{work}}/actual-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "42bc0d650898d8cb3773e14f310907ace161d691730ed65a3233c8de3a52ba27"
+
+[invocation.inputs]
+"{{work}}/actual-execution.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kompile/reference-haskell"
+argv = ["kompile", "{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "--backend", "haskell", "--main-module", "KRS-IMP-STATIC", "--syntax-module", "KRS-IMP-STATIC-SYNTAX", "--emit-json", "--output-definition", "{{work}}/reference-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kore-exec/addition-1"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/addition-1.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/addition-1.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/addition-1.kore" = "03f5c14f79a1a2db9cf10cd55db93108d3aff687a6d26101758514195c0f44b0"
+
+[invocation.outputs]
+"{{work}}/native-results/addition-1.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/addition-2"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/addition-2.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/addition-2.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/addition-2.kore" = "f54f6d124adc665a9983f94e2869c3fd8ca27313559c6eb2d66bc4ed117c874f"
+
+[invocation.outputs]
+"{{work}}/native-results/addition-2.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/addition-depth-zero"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/addition-1.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/addition-depth-zero.kore", "--depth", "0", "--breadth", "64"]
+returncode = 1
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/addition-1.kore" = "03f5c14f79a1a2db9cf10cd55db93108d3aff687a6d26101758514195c0f44b0"
+
+[invocation.outputs]
+"{{work}}/native-results/addition-depth-zero.kore" = "5bf6e34f90a11bd2ab7212cc4c40ea6b44c613bc58dd637c0dd0555800fda55e"
+
+[[invocation]]
+label = "kore-exec/addition-var"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/addition-var.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/addition-var.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/addition-var.kore" = "ff1897984fa570f6074d652da9cfb67496f1a5016aa254f2edb3d581536d1227"
+
+[invocation.outputs]
+"{{work}}/native-results/addition-var.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/bmc-loop-concrete"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/bmc-loop-concrete.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/bmc-loop-concrete.kore", "--depth", "100", "--breadth", "64"]
+returncode = 1
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "9ef2dd07febf404cae0e9dbe7ce1165ed861e716c698cf95e5a1471db20f323d"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/bmc-loop-concrete.kore" = "b595adda919cfbe6e6ac94f6166d123bb8331ecf02ded9fa17a6046f89b00108"
+
+[invocation.outputs]
+"{{work}}/native-results/bmc-loop-concrete.kore" = "f38913c42ff3c9beda8ab5afcabdec3934b6dc9b0e23567bf850afa0dee72f70"
+
+[[invocation]]
+label = "kore-exec/bmc-loop-symbolic"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/bmc-loop-symbolic.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/bmc-loop-symbolic.kore", "--depth", "100", "--breadth", "64"]
+returncode = 1
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "4459341d15c404d76511a2c190415de2a8d30c8001fabe3f14992b461e90be0c"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/bmc-loop-symbolic.kore" = "b91197ad00dac92092a0fa972a03e751fbe3d8f3cedc7e53dd02ab65d1e725c2"
+
+[invocation.outputs]
+"{{work}}/native-results/bmc-loop-symbolic.kore" = "abb4770587cc689e5ccb565596093b0023252cade7bf77fef640970213feaca8"
+
+[[invocation]]
+label = "kore-exec/branching"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/branching.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/branching.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/branching.kore" = "658f9dea47d84c129d8df87b8339d68cab90337b19705e3bc53c6b93933a65dd"
+
+[invocation.outputs]
+"{{work}}/native-results/branching.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/branching-deadcode"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/branching-deadcode.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/branching-deadcode.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/branching-deadcode.kore" = "ca76355dcf9ff1c402a76e059c0b0b96576f86e834fe8175d047f179cd563e9d"
+
+[invocation.outputs]
+"{{work}}/native-results/branching-deadcode.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/branching-program"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/branching-program.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/branching-program.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/branching-program.kore" = "4533b2b8a202cb132862f530aac635d255f06a7612a567118ddb0c941f23f064"
+
+[invocation.outputs]
+"{{work}}/native-results/branching-program.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/context-alias"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/context-alias.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/context-alias.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/context-alias.kore" = "997865cdfcc1561b2cc6276ee3056424ec93ecbb949274a64ae5565b4adc75ea"
+
+[invocation.outputs]
+"{{work}}/native-results/context-alias.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/explicit-priority"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/explicit-priority.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/explicit-priority.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "a7b461b4dedd20b6bf05434d2bfa7efaee349665e2b97692a920b6e8c8665b20"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/explicit-priority.kore" = "f482dd848ef9ad69cbd102ba15053f49d101561d138870d0982d7eb03b32de3d"
+
+[invocation.outputs]
+"{{work}}/native-results/explicit-priority.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/partial-equation"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/partial-equation.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/partial-equation.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "a7b461b4dedd20b6bf05434d2bfa7efaee349665e2b97692a920b6e8c8665b20"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/partial-equation.kore" = "ce82cacf81fbc8b03a7a4402015be23ca6d2d9ff1ba3f00ee0ae47c4041c1171"
+
+[invocation.outputs]
+"{{work}}/native-results/partial-equation.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/pre-branch-proved"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/pre-branch-proved.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/pre-branch-proved.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/pre-branch-proved.kore" = "cdfa1020eb25554a7050eb69f915978c42508108447a62711b5d20a01148ba33"
+
+[invocation.outputs]
+"{{work}}/native-results/pre-branch-proved.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/static-alias"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/static-alias.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/static-alias.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "a7b461b4dedd20b6bf05434d2bfa7efaee349665e2b97692a920b6e8c8665b20"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/static-alias.kore" = "92d766740f65a7a489a513a7b8b911ca18e1cd410723462e90e27e04444479fd"
+
+[invocation.outputs]
+"{{work}}/native-results/static-alias.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/sum-N"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/sum-N.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/sum-N.kore", "--depth", "100", "--breadth", "64"]
+returncode = 1
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/sum-N.kore" = "0ce848998c243bb60bfb15785c717c748eb178605e8b8559511c7559911b1ac1"
+
+[invocation.outputs]
+"{{work}}/native-results/sum-N.kore" = "daf99f6f440f0e8afe2bcec4eccb42fdf0aaa54295cb202def95f10b57f2abd0"
+
+[[invocation]]
+label = "kore-exec/sum-loop"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/sum-loop.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/sum-loop.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/sum-loop.kore" = "c31e71a133c302e268a13d31288c63f597756e8fe05ef041b5ce9e53e0cbcbaf"
+
+[invocation.outputs]
+"{{work}}/native-results/sum-loop.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/sum-spec"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/sum-spec.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/sum-spec.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/sum-spec.kore" = "85f6a450239c1d2a1ad9178083808d51496dbf184b84321768f1e3e37b93707a"
+
+[invocation.outputs]
+"{{work}}/native-results/sum-spec.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/total-equation"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/total-equation.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/total-equation.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "a7b461b4dedd20b6bf05434d2bfa7efaee349665e2b97692a920b6e8c8665b20"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/total-equation.kore" = "15fdf019c7b3188cd7983495462c779e66885bd675141e6b1daf091a6c8a894e"
+
+[invocation.outputs]
+"{{work}}/native-results/total-equation.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/two-sum-spec"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/two-sum-spec.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/two-sum-spec.kore", "--depth", "100", "--breadth", "64"]
+returncode = 1
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/two-sum-spec.kore" = "004a4cfe24e3ba3950e23cf8630067be6bac64c12c0e97dd41000da0ffe6553e"
+
+[invocation.outputs]
+"{{work}}/native-results/two-sum-spec.kore" = "6f27859e8be00a2c1b0b80becd5b1cd29f3712b7680dee761bed501c9bbfa9b9"
+
+[[invocation]]
+label = "kore-exec/while-cut-rule"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/while-cut-rule.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/while-cut-rule.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/while-cut-rule.kore" = "0865de8801525487c106fd76e295f99a3bdf4ca69e3958cc9c3da94359dc9d0c"
+
+[invocation.outputs]
+"{{work}}/native-results/while-cut-rule.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kore-exec/while-cut-rule-delayed"
+argv = ["kore-exec", "{{work}}/native-split/definition.kore", "--module", "KRS-IMP", "--prove", "{{work}}/native-split/specs/while-cut-rule-delayed.kore", "--spec-module", "KRS-IMP-SPEC", "--output", "{{work}}/native-results/while-cut-rule-delayed.kore", "--depth", "100", "--breadth", "64"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/native-split/definition.kore" = "355e009b756add33af08a60187ddbb4e03cab704164907e6e9befa6160e1aa61"
+"{{work}}/native-split/specs/while-cut-rule-delayed.kore" = "e9324e6bc16fa61450af5c0de0a0121f33448cdbcd98f04596d5e03407e59c88"
+
+[invocation.outputs]
+"{{work}}/native-results/while-cut-rule-delayed.kore" = "86b8bb6c27d8f08e4cef791c4d92f8167ec6501c7e08102fd979ad63e9d6e1b8"
+
+[[invocation]]
+label = "kprove-dry-run/addition-1"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-1", "--dry-run", "--temp-dir", "{{work}}/dry-run/addition-1", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "4044b6ec5e6afc2adf88372c45cdf7d90c42fe702e53d5c6d9294cf7f6a9bb69"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/addition-1/spec.kore" = "f8b6f148e4e802220105e2e6d630a3d95643c40d5cb312649c63261869cfa888"
+
+[[invocation]]
+label = "kprove-dry-run/addition-2"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-2", "--dry-run", "--temp-dir", "{{work}}/dry-run/addition-2", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "25a8b70a49106de369e5cfe1f4f2e91fffefead282d40c413905feefb45e4a92"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/addition-2/spec.kore" = "caf38ee0686aa4a9b5113118a7a3c46fc10e928bde70a3a178fd6bb6edcdcb4d"
+
+[[invocation]]
+label = "kprove-dry-run/addition-depth-zero"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-1", "--dry-run", "--temp-dir", "{{work}}/dry-run/addition-depth-zero", "--depth", "0", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "de2c13a42fe2b2779d87462523c5f23ce947d573afb0205bb645d504491dae25"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/addition-depth-zero/spec.kore" = "f8b6f148e4e802220105e2e6d630a3d95643c40d5cb312649c63261869cfa888"
+
+[[invocation]]
+label = "kprove-dry-run/addition-var"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-var", "--dry-run", "--temp-dir", "{{work}}/dry-run/addition-var", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "626fd1281314f7deb8c96fd94133f0ef66de59a8d837313e03a8a67179ff9554"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/addition-var/spec.kore" = "44c86eb6bcfc2541187998d74b3d11d7324b260185e456d78723ed0215d439c0"
+
+[[invocation]]
+label = "kprove-dry-run/bmc-loop-concrete"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.bmc-loop-concrete", "--dry-run", "--temp-dir", "{{work}}/dry-run/bmc-loop-concrete", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "7aa20ea1a1b70bd743a2296618d1c687b7b1d4024772752b6cb5390bcfdb980c"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/bmc-loop-concrete/spec.kore" = "c126182595952739eafafce023a57e9b2fc45ebfa6a52e6d543a863cd79952a3"
+
+[[invocation]]
+label = "kprove-dry-run/bmc-loop-symbolic"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.bmc-loop-symbolic", "--dry-run", "--temp-dir", "{{work}}/dry-run/bmc-loop-symbolic", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "48918f77ec2998ae6a4fcbaf7f02e7d063e6bd66215c8d17598fc3d4cbce91bc"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/bmc-loop-symbolic/spec.kore" = "a10feba11c84ed244393e72762919ddf96390e4c3281453e135738e60fe35152"
+
+[[invocation]]
+label = "kprove-dry-run/branching"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching", "--dry-run", "--temp-dir", "{{work}}/dry-run/branching", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "99911afbee9b1df740ddc8b31cdb13ee762535381c78eb65fbcefa25bef9a14a"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/branching/spec.kore" = "8a09db2a2cf4222b6a70fb21526af1b02321e18ac1888069c88e0b1651e53030"
+
+[[invocation]]
+label = "kprove-dry-run/branching-deadcode"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching-deadcode", "--dry-run", "--temp-dir", "{{work}}/dry-run/branching-deadcode", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "c79ee8463d02718f1941ee85b8c0828daee720d30c651449baff4943a2abf79a"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/branching-deadcode/spec.kore" = "9bbd704e0d28d2a039c18549201b91469839a74def3ba25dcd381f0af82e41fa"
+
+[[invocation]]
+label = "kprove-dry-run/branching-program"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching-program", "--dry-run", "--temp-dir", "{{work}}/dry-run/branching-program", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f50d70b44f3e3582871778bc6853d139d700c9cf945b426968f90c9fcfad9082"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/branching-program/spec.kore" = "2a5ca992d8aea8944181cac545dcea1753e6fb617963f31e883d8383a4b2730b"
+
+[[invocation]]
+label = "kprove-dry-run/context-alias"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.context-alias", "--dry-run", "--temp-dir", "{{work}}/dry-run/context-alias", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "66574cbda475e03ff83e6f73def65906d3e972f4ac9265a52174e0d6eab3449f"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/context-alias/spec.kore" = "1864aea25f1b72d0eb9d608e23ca9230fd4adefe150a8b8da60d33ae7f1a8a9b"
+
+[[invocation]]
+label = "kprove-dry-run/explicit-priority"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.explicit-priority", "--dry-run", "--temp-dir", "{{work}}/dry-run/explicit-priority", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "bfdf7121693a18348a66e28b42acb55ad6360ac0e5b0f659531c534b6d29ad7a"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/explicit-priority/spec.kore" = "9df08ff5eb30cfa4eb2451ff4abd935b7cbd1b46b4bcff741d99caebb17c1925"
+
+[[invocation]]
+label = "kprove-dry-run/partial-equation"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.partial-equation", "--dry-run", "--temp-dir", "{{work}}/dry-run/partial-equation", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "99d99a3f2bbff64442021c4027e1d6a45c9d8ca3a4722e6196407fa675308517"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/partial-equation/spec.kore" = "d8b465a9ef7fb6e04b48c374c2d85f802344c37a65eb99142d4babd114714e1a"
+
+[[invocation]]
+label = "kprove-dry-run/pre-branch-proved"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.pre-branch-proved", "--dry-run", "--temp-dir", "{{work}}/dry-run/pre-branch-proved", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "fbaf9421536149961c4a6f6d33b97d573dc5c5705b1d9b7c1fd9f546afea7bbd"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/pre-branch-proved/spec.kore" = "3892f6393e0ad8a491b0221f41a1463ab26d9cd3ff7013bfff444b95103dccf0"
+
+[[invocation]]
+label = "kprove-dry-run/static-alias"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.static-alias", "--dry-run", "--temp-dir", "{{work}}/dry-run/static-alias", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "62af7b447e48d4eef17966ea8ef2389176dfe560ef2e34800db236a0ddeabf23"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/static-alias/spec.kore" = "56e51a4a454bdea8ab21defb18b97ebd6b80eee39d1f87fef1be32c4410326e6"
+
+[[invocation]]
+label = "kprove-dry-run/sum-N"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.sum-N", "--dry-run", "--temp-dir", "{{work}}/dry-run/sum-N", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "60a9e59e77dc80a3c1a618af54e3968941b2dbf96f4340b61baab74e855ebdd3"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/sum-N/spec.kore" = "80356b4d552c901a97e0fc407e10c488172fb921048a1d22ad6e512db5bd975c"
+
+[[invocation]]
+label = "kprove-dry-run/sum-loop"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.sum-loop", "--dry-run", "--temp-dir", "{{work}}/dry-run/sum-loop", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "560697bdeb493e7211bff81135c72bba0b10289a850c2c964d3c60d6492793ed"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/sum-loop/spec.kore" = "fb711050c845d6479e00e6d051a134dc1cc3ac2b046ce832f19a4e8405adf520"
+
+[[invocation]]
+label = "kprove-dry-run/sum-spec"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SUM-SPEC", "--claims", "IMP-SUM-SPEC.sum-spec", "--dry-run", "--temp-dir", "{{work}}/dry-run/sum-spec", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "70886caa45d5670757912553ab9e108616e946904a7070c36f032ea33b6d2a9d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k" = "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/sum-spec/spec.kore" = "1ec36045ba81faa1ca390de3a9a231647e3684813b79edb53fa4fe0d2cf9fece"
+
+[[invocation]]
+label = "kprove-dry-run/total-equation"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.total-equation", "--dry-run", "--temp-dir", "{{work}}/dry-run/total-equation", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "c381b932af8bbb21fbea341c6dde7dd473c63ebb9d76fa8f162d35e31dc6034c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/total-equation/spec.kore" = "6d1ecf68e6b5efc6c3c99286d4da80966bc805a89b5c3f2b1e2d005916193339"
+
+[[invocation]]
+label = "kprove-dry-run/two-sum-spec"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SUM-SPEC", "--claims", "IMP-SUM-SPEC.two-sum-spec", "--dry-run", "--temp-dir", "{{work}}/dry-run/two-sum-spec", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "6d4851e0fe071cbefc0e206e0c437bd75fe0ba79847bc3d7d5345388ca9b1392"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k" = "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/two-sum-spec/spec.kore" = "61ed49ab44f1464122c5dea7cc2c0e6807c590c29c4ebd4194d6f66a06b315b8"
+
+[[invocation]]
+label = "kprove-dry-run/while-cut-rule"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.while-cut-rule", "--dry-run", "--temp-dir", "{{work}}/dry-run/while-cut-rule", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "5b2a837b685bc616a0ef94e092b510ce588f75abf1e8f5c998d4a08d1c62ba89"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/while-cut-rule/spec.kore" = "97e668ede9a923c418a7cf226edb6460908c09948855d32637529eab0755e569"
+
+[[invocation]]
+label = "kprove-dry-run/while-cut-rule-delayed"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.while-cut-rule-delayed", "--dry-run", "--temp-dir", "{{work}}/dry-run/while-cut-rule-delayed", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "ecf8c9e66bbbe5717b74b9fe466b764fa3e42cebd2855007be8f6984cede37e5"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/dry-run-specs/while-cut-rule-delayed/spec.kore" = "f9133e079731820ca39b2bd7cd314ab98312d2967e80d412d12d969adaf06046"
+
+[[invocation]]
+label = "kprove-kore/addition-depth-zero"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.addition-1", "--output", "kore", "--depth", "0", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "2a122c7c8c43869d0a991ec240ae5da50cb737c5854330cf0ee6b8fcf70030e7"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kprove-kore/bmc-loop-concrete"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.bmc-loop-concrete", "--output", "kore", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "dc406fb2f375c50a870404365b71282476a1ce40c0771b8d52785dd5c4aa4b92"
+stderr = "d8881cf27de93c9680431f87dc34e73f55b6ece166e467a57c98dea052b885d7"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kprove-kore/bmc-loop-symbolic"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.bmc-loop-symbolic", "--output", "kore", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "42842c9ac60b200067b48a7621e7ebfa63f8514de069d7f795b2ecea333dfbf1"
+stderr = "65a9bf2fcbb1fda5dbac99385fbc5bd6cdc41481edca75a437afff5ee41f0d75"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kprove-kore/sum-N"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.sum-N", "--output", "kore", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "da445b6e8510d3d1172fb7bf4cf985cf97fb8befdec9fbbdb899f932be0e89fc"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kprove-kore/two-sum-spec"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.two-sum-spec", "--output", "kore", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "11fe90fcf26ec822b94923cc3c635dddbac1288aab142318df08466a5ee51539"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kprove/actual/addition-1"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.addition-1", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/addition-1.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/addition-1.json" = "356d8880e8b54734e0ff04bb149b10d9f3f64560223974a2b40f47e3e1bbb52d"
+
+[[invocation]]
+label = "kprove/actual/addition-2"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.addition-2", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/addition-2.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/addition-2.json" = "d292fab4aeaa124d0147ce52d18f3510cce379c73303ee66ae934e9fc616162c"
+
+[[invocation]]
+label = "kprove/actual/addition-depth-zero"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.addition-1", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/addition-depth-zero.json", "--depth", "0", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "2e999f36b8cde6daf8d3d358342854bda48c19bc0ef079047af3c004a923a61a"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/addition-depth-zero.json" = "356d8880e8b54734e0ff04bb149b10d9f3f64560223974a2b40f47e3e1bbb52d"
+
+[[invocation]]
+label = "kprove/actual/addition-var"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.addition-var", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/addition-var.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/addition-var.json" = "a95ce6a2418e1a07c03ca7c1066a9018d5d484d2305123d663d33037f4fb814a"
+
+[[invocation]]
+label = "kprove/actual/bmc-loop-concrete"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.bmc-loop-concrete", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/bmc-loop-concrete.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "e7fdabf9e3877fae5da9af2ce97d224c6e78b643ad32c48741852f76f7fe8579"
+stderr = "d8881cf27de93c9680431f87dc34e73f55b6ece166e467a57c98dea052b885d7"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/bmc-loop-concrete.json" = "68f44792fe3e88964fc492231426704e4b4a1ee8d3a838067958e4f5136cc18a"
+
+[[invocation]]
+label = "kprove/actual/bmc-loop-symbolic"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.bmc-loop-symbolic", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/bmc-loop-symbolic.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "fbfc9212a6d8d28e1c72170fe23b5938f5bb57fdad35d643c0669e11cce3b9fe"
+stderr = "65a9bf2fcbb1fda5dbac99385fbc5bd6cdc41481edca75a437afff5ee41f0d75"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/bmc-loop-symbolic.json" = "34b1539882bb5c6e7b766986ba6337c1f7751d26b5a7ef65713f3c01104d0149"
+
+[[invocation]]
+label = "kprove/actual/branching"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.branching", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/branching.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/branching.json" = "7b61f2e8b3602b366a65bb1c8a0251027bb067e36aa8f2734afaa4c40fd686e9"
+
+[[invocation]]
+label = "kprove/actual/branching-deadcode"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.branching-deadcode", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/branching-deadcode.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/branching-deadcode.json" = "cd87feb13494bb5d21cb31b4911f5d7fa86cf358dfcab62894c398c0cda9edf0"
+
+[[invocation]]
+label = "kprove/actual/branching-program"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.branching-program", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/branching-program.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/branching-program.json" = "1cc335ed4ed7e111aa27b186fdec70c69154af508bbeb55356e99bc8003b76bf"
+
+[[invocation]]
+label = "kprove/actual/context-alias"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.context-alias", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/context-alias.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/context-alias.json" = "35e1536616077df30ee448f603546bb0592a99e393beaf36eb96e51017bde087"
+
+[[invocation]]
+label = "kprove/actual/explicit-priority"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.explicit-priority", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/explicit-priority.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "c08bd849ceaf93c043abcfbed863b082b2019cf638855978874aa32d018a71b0"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/explicit-priority.json" = "be1b34e34f94a829b5cf4fb5fc256576be2d40bb1f3c19b1b61fd0968eb84abd"
+
+[[invocation]]
+label = "kprove/actual/partial-equation"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.partial-equation", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/partial-equation.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "0b98ce0ae739f2b4d38a7004c75545798aaf11badab4767621e9c2aa3780f1d3"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/partial-equation.json" = "74814fb278184e0207e3dd8104d880818ed5866b6acab6d8f016965a2d503b85"
+
+[[invocation]]
+label = "kprove/actual/pre-branch-proved"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.pre-branch-proved", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/pre-branch-proved.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/pre-branch-proved.json" = "7f57b4dd28e139d7d444958d55c1210aab4987f1c052d627a0259104e1c9856d"
+
+[[invocation]]
+label = "kprove/actual/static-alias"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.static-alias", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/static-alias.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ae141005e04eac300927d2fdbe7df214dbc6ef5d6cce4b4a3a99852c8a5180c"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/static-alias.json" = "65af31d4ce114237dff73c2ab20134f393cc56b757db5a89f9b40a5bf03690ab"
+
+[[invocation]]
+label = "kprove/actual/sum-N"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.sum-N", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/sum-N.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "64e157b3ff6b4bb9ef8cf98d3a6a42a672eb9d0c50c610d3e2bb1908c6bfc65d"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/sum-N.json" = "91439664393549832d6433ad49f6f991773afb22a56e891bbb9238508ebf1764"
+
+[[invocation]]
+label = "kprove/actual/sum-loop"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.sum-loop", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/sum-loop.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/sum-loop.json" = "c036868d9c5e00cf5772ffc56a85620d10725a4f7e6eaf815b29a24db338be96"
+
+[[invocation]]
+label = "kprove/actual/sum-spec"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.sum-spec", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/sum-spec.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/sum-spec.json" = "2ce49e01df4971661d90e9d16fa06a480e43a8031373f28a4afc7c2401fee5d7"
+
+[[invocation]]
+label = "kprove/actual/total-equation"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.total-equation", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/total-equation.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "2b01169cec7c7e22c37739a4d6ed292ef919dc43aad4e4af9a971bd4a7589a29"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/total-equation.json" = "e3b9384ed4a528c2b32fa38ed64d3e4df2ebfad464e4d7d8c27cbcd22a3c1620"
+
+[[invocation]]
+label = "kprove/actual/two-sum-spec"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.two-sum-spec", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/two-sum-spec.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 1
+stdout = "294eca41506fe7fa23ec3051ae28612e6a34141704dce090a217ce96954214cf"
+stderr = "97753649aea7a75058fd331842181896d16c5494ecd8064b44406de98ba44cac"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/two-sum-spec.json" = "6c7401d7320eacb5363ac878982fe1992b3ce3c23118a8bf6a1e25c79a0645ec"
+
+[[invocation]]
+label = "kprove/actual/while-cut-rule"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.while-cut-rule", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/while-cut-rule.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/while-cut-rule.json" = "c6a41705859426a2b64a4b22f80f5fffa92955be7ed2b471bd552be1600cea6a"
+
+[[invocation]]
+label = "kprove/actual/while-cut-rule-delayed"
+argv = ["kprove", "{{work}}/actual-spec.k", "-d", "{{work}}/actual-kompiled", "--spec-module", "KRS-IMP-SPEC", "--claims", "KRS-IMP-SPEC.while-cut-rule-delayed", "--output", "json", "--emit-json-spec", "{{work}}/actual-json/while-cut-rule-delayed.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "67f30343791bb25add00a34618a63fb358d2d3c379c76febaa5e81f32d17fe42"
+
+[invocation.inputs]
+"{{work}}/actual-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+
+[invocation.outputs]
+"{{work}}/actual-json/while-cut-rule-delayed.json" = "d400ba839f9b7e50e18c3518e28d08caca83d103561d734ef6f31e8b5f4b1b4a"
+
+[[invocation]]
+label = "kprove/reference/addition-1"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-1", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/addition-1.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/addition-1.json" = "b4103c03534f25af1b22541238c194562bae86a69909f6369fbc26850607b28d"
+
+[[invocation]]
+label = "kprove/reference/addition-2"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-2", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/addition-2.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/addition-2.json" = "95b0e77b08c7a7a76d8d8c687d6186c03413ec004045fa6005c39f8031a25878"
+
+[[invocation]]
+label = "kprove/reference/addition-depth-zero"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-1", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/addition-depth-zero.json", "--depth", "0", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 1
+stdout = "1b40ce3e5a2d73e3f941c8c6f6f1ce75e2811da8a061e3041ca6cf249964c093"
+stderr = "4d25c6a75790963428804b0327227491359927d5c22ae07f2fa6e43254122ee4"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/addition-depth-zero.json" = "b4103c03534f25af1b22541238c194562bae86a69909f6369fbc26850607b28d"
+
+[[invocation]]
+label = "kprove/reference/addition-var"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.addition-var", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/addition-var.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/addition-var.json" = "8392c1047f0b444e4ffe316b1e61caae653c691a1fcba53093c204ee0a5d89e0"
+
+[[invocation]]
+label = "kprove/reference/bmc-loop-concrete"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.bmc-loop-concrete", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/bmc-loop-concrete.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 1
+stdout = "7fec4c16c91c66ad11c656d3d00b33d6f859a7950e26d38a192caede27a3b4ce"
+stderr = "31533b24325886978988da1df2c00b08c377b9c3e42af58d01e4a18acfb66a23"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/bmc-loop-concrete.json" = "a89641adf43eec7b108d0685f35cb78f0d92ea924fde91d2ba825cca50226c0b"
+
+[[invocation]]
+label = "kprove/reference/bmc-loop-symbolic"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.bmc-loop-symbolic", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/bmc-loop-symbolic.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 1
+stdout = "14ad65a730d87b1b14e8b59c1adf51b83440b088ecd371cea37c2c7101410b5d"
+stderr = "0954e04eb773addf0c0602e4ed402941fafa6699b90c8ba53f47e4c8840ecb22"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/bmc-loop-symbolic.json" = "99b4facdfb4da7e2f5ff53632ae19d4d2dbd5d25357365073de1909f436e8e18"
+
+[[invocation]]
+label = "kprove/reference/branching"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/branching.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/branching.json" = "5f68621471fa41fbf6ef1c6ef2f169fa1a880197b28f7515c4a298e3b7261da5"
+
+[[invocation]]
+label = "kprove/reference/branching-deadcode"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching-deadcode", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/branching-deadcode.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/branching-deadcode.json" = "a9b4fa809c2745d0352297a94a12dae28c95cddc5f309b6cf472637a172e1acb"
+
+[[invocation]]
+label = "kprove/reference/branching-program"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.branching-program", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/branching-program.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/branching-program.json" = "579e73c0bbfdd4db3a5d608a9fb8ab598fd36e0bda2f0282d35cca551a98a45a"
+
+[[invocation]]
+label = "kprove/reference/context-alias"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.context-alias", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/context-alias.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/reference-json/context-alias.json" = "625238d89505df9ed3ca7bcacafda4df5a3944229d0bddeabe57f1dcdaff7aea"
+
+[[invocation]]
+label = "kprove/reference/explicit-priority"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.explicit-priority", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/explicit-priority.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "4aef3dba9793a55034c4ace25a801a6f995b064bfa8480150b2c18f3f08ce2ed"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/reference-json/explicit-priority.json" = "d56d6e592737035ab3951343301bc56f66a2053f75d5dfbab29c87b78cf513c3"
+
+[[invocation]]
+label = "kprove/reference/partial-equation"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.partial-equation", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/partial-equation.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "24bb4a69d38471abf52013f5a9b38434f3b11f69a4ce1187cbdf81bd37578663"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/reference-json/partial-equation.json" = "cfefe2a43e995545f47a41a494140a3a20dd94ce9bb6479bfc555a10fbbc9376"
+
+[[invocation]]
+label = "kprove/reference/pre-branch-proved"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.pre-branch-proved", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/pre-branch-proved.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/pre-branch-proved.json" = "4a4deb7873da223ad572e15fdca1c13baebae9a87ad5c00ce60ef864f3471ab2"
+
+[[invocation]]
+label = "kprove/reference/static-alias"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.static-alias", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/static-alias.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "ef2d8c85df78e139c4253b2880de98e82ec5388d0efcc948854f1bfd99aec70f"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/reference-json/static-alias.json" = "3de692cf2c6c007ece919425e6716311eac6cb3cd831819fea7b293d56564869"
+
+[[invocation]]
+label = "kprove/reference/sum-N"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.sum-N", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/sum-N.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 1
+stdout = "c36e94efea1bd9102cdc7e179fedf17bef3105bba0d151fc99931a20905f7b68"
+stderr = "4d25c6a75790963428804b0327227491359927d5c22ae07f2fa6e43254122ee4"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/sum-N.json" = "e7168f4fcb81b8daf91970120ff9f27f6b2f03458d938951c5aa77338f11eccc"
+
+[[invocation]]
+label = "kprove/reference/sum-loop"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.sum-loop", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/sum-loop.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/sum-loop.json" = "c7b2a726d6d0703485f4753c02b1e68c1cdce43d54af4ca8fc3940db90e75e6c"
+
+[[invocation]]
+label = "kprove/reference/sum-spec"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SUM-SPEC", "--claims", "IMP-SUM-SPEC.sum-spec", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/sum-spec.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k" = "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
+
+[invocation.outputs]
+"{{work}}/reference-json/sum-spec.json" = "c94c21c85a6756ac0109895bb62aab73d90901f9b6cfa429869c8bf12cba5908"
+
+[[invocation]]
+label = "kprove/reference/total-equation"
+argv = ["kprove", "{{root}}/tests/imp_static_semantics/claims/static-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "KRS-IMP-STATIC-SPEC", "--claims", "KRS-IMP-STATIC-SPEC.total-equation", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/total-equation.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "e71a8c3adf27412de778c4f7a84139df889ec98016681d1d5105c762bb9afb98"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/claims/static-spec.k" = "fbbb8f09620f8fdf0a9a5029b8432488d8ab9d03070d082c98cd2f07cdfd9f70"
+
+[invocation.outputs]
+"{{work}}/reference-json/total-equation.json" = "3831b6fa13b21b0a1d1c42f7101cec99ba227cbe7e0767e22dde39f9f1e74811"
+
+[[invocation]]
+label = "kprove/reference/two-sum-spec"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SUM-SPEC", "--claims", "IMP-SUM-SPEC.two-sum-spec", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/two-sum-spec.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 1
+stdout = "b8a7d90593fa3d238f6e6e518b61e5ae4611bf8af39fac5adc0d8d3f472c85d5"
+stderr = "09a9254b2a69e794d52258e9dfb8f05154b875aa2ae654913a2577915f9af602"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-sum-spec.k" = "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
+
+[invocation.outputs]
+"{{work}}/reference-json/two-sum-spec.json" = "9cbc542d92eef58fa270fbfa6e8a4c07797741d179c8d431f81d2bb88c5f3260"
+
+[[invocation]]
+label = "kprove/reference/while-cut-rule"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.while-cut-rule", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/while-cut-rule.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/while-cut-rule.json" = "212c83b3752cd4bf52643f0bd5d732bfe21000d11dbb68e5583937cd8ef9637c"
+
+[[invocation]]
+label = "kprove/reference/while-cut-rule-delayed"
+argv = ["kprove", "{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k", "-d", "{{work}}/reference-kompiled", "--spec-module", "IMP-SIMPLE-SPEC", "--claims", "IMP-SIMPLE-SPEC.while-cut-rule-delayed", "--output", "json", "--emit-json-spec", "{{work}}/reference-json/while-cut-rule-delayed.json", "--depth", "100", "--branching-allowed", "64", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-I", "{{root}}/tests/imp_static_semantics/claims", "-I", "{{root}}/tests/imp_static_semantics/fixtures"]
+returncode = 0
+stdout = "f0480cc9a1b744165433bc8c9867c7070745af114ed42e97804790fdb996c029"
+stderr = "9ed4f55d490b10331323a47b7b18f1cc1dd79d75bd5ff8e680ac77c424a430fb"
+
+[invocation.inputs]
+"{{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k" = "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67"
+
+[invocation.outputs]
+"{{work}}/reference-json/while-cut-rule-delayed.json" = "bec507d659b7da80bbfe74fce4fe6d22ed346e8cdee77c454a9213678268733a"

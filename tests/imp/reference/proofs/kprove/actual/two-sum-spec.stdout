@@ -1,0 +1,1319 @@
+{
+ "format": "KAST",
+ "term": {
+  "args": [
+   {
+    "args": [
+     {
+      "args": [
+       {
+        "args": [
+         {
+          "args": [
+           {
+            "args": [
+             {
+              "args": [
+               {
+                "arity": 9,
+                "items": [
+                 {
+                  "args": [
+                   {
+                    "node": "KToken",
+                    "sort": {
+                     "name": "Id",
+                     "node": "KSort",
+                     "params": []
+                    },
+                    "token": "$s1"
+                   },
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "args": [
+                         {
+                          "name": "V7331",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         },
+                         {
+                          "name": "V6E",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "_+Int_",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       },
+                       {
+                        "args": [
+                         {
+                          "name": "V6E",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         },
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "-1"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "_+Int_",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "_+Int_",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     },
+                     {
+                      "args": [
+                       {
+                        "name": "V6E",
+                        "node": "KVariable",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        }
+                       },
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "-2"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "_+Int_",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 2,
+                    "label": {
+                     "name": "_+Int_",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "assign",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [
+                   {
+                    "node": "KToken",
+                    "sort": {
+                     "name": "Id",
+                     "node": "KSort",
+                     "params": []
+                    },
+                    "token": "$n"
+                   },
+                   {
+                    "args": [
+                     {
+                      "node": "KToken",
+                      "sort": {
+                       "name": "Id",
+                       "node": "KSort",
+                       "params": []
+                      },
+                      "token": "$n"
+                     },
+                     {
+                      "args": [
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "1"
+                       }
+                      ],
+                      "arity": 1,
+                      "label": {
+                       "name": "neg",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 2,
+                    "label": {
+                     "name": "add",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "assign",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [],
+                  "arity": 0,
+                  "label": {
+                   "name": "emptyBlock",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Id",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "$n"
+                       },
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "0"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "le",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 1,
+                    "label": {
+                     "name": "not",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   },
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "args": [
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Id",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "$s1"
+                         },
+                         {
+                          "args": [
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$s1"
+                           },
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$n"
+                           }
+                          ],
+                          "arity": 2,
+                          "label": {
+                           "name": "add",
+                           "node": "KLabel",
+                           "params": []
+                          },
+                          "node": "KApply"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "assign",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       },
+                       {
+                        "args": [
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Id",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "$n"
+                         },
+                         {
+                          "args": [
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$n"
+                           },
+                           {
+                            "args": [
+                             {
+                              "node": "KToken",
+                              "sort": {
+                               "name": "Int",
+                               "node": "KSort",
+                               "params": []
+                              },
+                              "token": "1"
+                             }
+                            ],
+                            "arity": 1,
+                            "label": {
+                             "name": "neg",
+                             "node": "KLabel",
+                             "params": []
+                            },
+                            "node": "KApply"
+                           }
+                          ],
+                          "arity": 2,
+                          "label": {
+                           "name": "add",
+                           "node": "KLabel",
+                           "params": []
+                          },
+                          "node": "KApply"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "assign",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "sequence",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 1,
+                    "label": {
+                     "name": "block",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "while",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [],
+                  "arity": 0,
+                  "label": {
+                   "name": "emptyBlock",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [],
+                  "arity": 0,
+                  "label": {
+                   "name": "emptyBlock",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [],
+                  "arity": 0,
+                  "label": {
+                   "name": "emptyBlock",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Id",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "$m"
+                       },
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "0"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "le",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 1,
+                    "label": {
+                     "name": "not",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   },
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "args": [
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Id",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "$s2"
+                         },
+                         {
+                          "args": [
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$s2"
+                           },
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$m"
+                           }
+                          ],
+                          "arity": 2,
+                          "label": {
+                           "name": "add",
+                           "node": "KLabel",
+                           "params": []
+                          },
+                          "node": "KApply"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "assign",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       },
+                       {
+                        "args": [
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Id",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "$m"
+                         },
+                         {
+                          "args": [
+                           {
+                            "node": "KToken",
+                            "sort": {
+                             "name": "Id",
+                             "node": "KSort",
+                             "params": []
+                            },
+                            "token": "$m"
+                           },
+                           {
+                            "args": [
+                             {
+                              "node": "KToken",
+                              "sort": {
+                               "name": "Int",
+                               "node": "KSort",
+                               "params": []
+                              },
+                              "token": "1"
+                             }
+                            ],
+                            "arity": 1,
+                            "label": {
+                             "name": "neg",
+                             "node": "KLabel",
+                             "params": []
+                            },
+                            "node": "KApply"
+                           }
+                          ],
+                          "arity": 2,
+                          "label": {
+                           "name": "add",
+                           "node": "KLabel",
+                           "params": []
+                          },
+                          "node": "KApply"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "assign",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "sequence",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 1,
+                    "label": {
+                     "name": "block",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "while",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "name": "V7461696C",
+                  "node": "KVariable",
+                  "sort": {
+                   "name": "K",
+                   "node": "KSort",
+                   "params": []
+                  }
+                 }
+                ],
+                "node": "KSequence"
+               }
+              ],
+              "arity": 1,
+              "label": {
+               "name": "<k>",
+               "node": "KLabel",
+               "params": []
+              },
+              "node": "KApply"
+             },
+             {
+              "args": [
+               {
+                "args": [
+                 {
+                  "args": [
+                   {
+                    "args": [
+                     {
+                      "args": [
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Id",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "$m"
+                       },
+                       {
+                        "name": "V6D",
+                        "node": "KVariable",
+                        "sort": {
+                         "name": "Int",
+                         "node": "KSort",
+                         "params": []
+                        }
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "_|->_",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     },
+                     {
+                      "args": [
+                       {
+                        "node": "KToken",
+                        "sort": {
+                         "name": "Id",
+                         "node": "KSort",
+                         "params": []
+                        },
+                        "token": "$n"
+                       },
+                       {
+                        "args": [
+                         {
+                          "name": "V6E",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         },
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "-2"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "_+Int_",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "_|->_",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 2,
+                    "label": {
+                     "name": "_Map_",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   },
+                   {
+                    "args": [
+                     {
+                      "node": "KToken",
+                      "sort": {
+                       "name": "Id",
+                       "node": "KSort",
+                       "params": []
+                      },
+                      "token": "$s1"
+                     },
+                     {
+                      "args": [
+                       {
+                        "args": [
+                         {
+                          "name": "V7331",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         },
+                         {
+                          "name": "V6E",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "_+Int_",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       },
+                       {
+                        "args": [
+                         {
+                          "name": "V6E",
+                          "node": "KVariable",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          }
+                         },
+                         {
+                          "node": "KToken",
+                          "sort": {
+                           "name": "Int",
+                           "node": "KSort",
+                           "params": []
+                          },
+                          "token": "-1"
+                         }
+                        ],
+                        "arity": 2,
+                        "label": {
+                         "name": "_+Int_",
+                         "node": "KLabel",
+                         "params": []
+                        },
+                        "node": "KApply"
+                       }
+                      ],
+                      "arity": 2,
+                      "label": {
+                       "name": "_+Int_",
+                       "node": "KLabel",
+                       "params": []
+                      },
+                      "node": "KApply"
+                     }
+                    ],
+                    "arity": 2,
+                    "label": {
+                     "name": "_|->_",
+                     "node": "KLabel",
+                     "params": []
+                    },
+                    "node": "KApply"
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "_Map_",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 },
+                 {
+                  "args": [
+                   {
+                    "node": "KToken",
+                    "sort": {
+                     "name": "Id",
+                     "node": "KSort",
+                     "params": []
+                    },
+                    "token": "$s2"
+                   },
+                   {
+                    "name": "V7332",
+                    "node": "KVariable",
+                    "sort": {
+                     "name": "Int",
+                     "node": "KSort",
+                     "params": []
+                    }
+                   }
+                  ],
+                  "arity": 2,
+                  "label": {
+                   "name": "_|->_",
+                   "node": "KLabel",
+                   "params": []
+                  },
+                  "node": "KApply"
+                 }
+                ],
+                "arity": 2,
+                "label": {
+                 "name": "_Map_",
+                 "node": "KLabel",
+                 "params": []
+                },
+                "node": "KApply"
+               }
+              ],
+              "arity": 1,
+              "label": {
+               "name": "<env>",
+               "node": "KLabel",
+               "params": []
+              },
+              "node": "KApply"
+             },
+             {
+              "args": [
+               {
+                "name": "_Gen0",
+                "node": "KVariable",
+                "sort": {
+                 "name": "Int",
+                 "node": "KSort",
+                 "params": []
+                }
+               }
+              ],
+              "arity": 1,
+              "label": {
+               "name": "<generatedCounter>",
+               "node": "KLabel",
+               "params": []
+              },
+              "node": "KApply"
+             }
+            ],
+            "arity": 3,
+            "label": {
+             "name": "<generatedTop>",
+             "node": "KLabel",
+             "params": []
+            },
+            "node": "KApply"
+           },
+           {
+            "args": [
+             {
+              "node": "KToken",
+              "sort": {
+               "name": "Bool",
+               "node": "KSort",
+               "params": []
+              },
+              "token": "true"
+             },
+             {
+              "args": [
+               {
+                "node": "KToken",
+                "sort": {
+                 "name": "Int",
+                 "node": "KSort",
+                 "params": []
+                },
+                "token": "0"
+               },
+               {
+                "name": "V6D",
+                "node": "KVariable",
+                "sort": {
+                 "name": "Int",
+                 "node": "KSort",
+                 "params": []
+                }
+               }
+              ],
+              "arity": 2,
+              "label": {
+               "name": "_<=Int_",
+               "node": "KLabel",
+               "params": []
+              },
+              "node": "KApply"
+             }
+            ],
+            "arity": 2,
+            "label": {
+             "name": "#Equals",
+             "node": "KLabel",
+             "params": [
+              {
+               "name": "Bool",
+               "node": "KSort",
+               "params": []
+              },
+              {
+               "name": "GeneratedTopCell",
+               "node": "KSort",
+               "params": []
+              }
+             ]
+            },
+            "node": "KApply"
+           }
+          ],
+          "arity": 2,
+          "label": {
+           "name": "#And",
+           "node": "KLabel",
+           "params": [
+            {
+             "name": "GeneratedTopCell",
+             "node": "KSort",
+             "params": []
+            }
+           ]
+          },
+          "node": "KApply"
+         },
+         {
+          "args": [
+           {
+            "node": "KToken",
+            "sort": {
+             "name": "Bool",
+             "node": "KSort",
+             "params": []
+            },
+            "token": "true"
+           },
+           {
+            "args": [
+             {
+              "node": "KToken",
+              "sort": {
+               "name": "Int",
+               "node": "KSort",
+               "params": []
+              },
+              "token": "0"
+             },
+             {
+              "name": "V6E",
+              "node": "KVariable",
+              "sort": {
+               "name": "Int",
+               "node": "KSort",
+               "params": []
+              }
+             }
+            ],
+            "arity": 2,
+            "label": {
+             "name": "_<=Int_",
+             "node": "KLabel",
+             "params": []
+            },
+            "node": "KApply"
+           }
+          ],
+          "arity": 2,
+          "label": {
+           "name": "#Equals",
+           "node": "KLabel",
+           "params": [
+            {
+             "name": "Bool",
+             "node": "KSort",
+             "params": []
+            },
+            {
+             "name": "GeneratedTopCell",
+             "node": "KSort",
+             "params": []
+            }
+           ]
+          },
+          "node": "KApply"
+         }
+        ],
+        "arity": 2,
+        "label": {
+         "name": "#And",
+         "node": "KLabel",
+         "params": [
+          {
+           "name": "GeneratedTopCell",
+           "node": "KSort",
+           "params": []
+          }
+         ]
+        },
+        "node": "KApply"
+       },
+       {
+        "args": [
+         {
+          "node": "KToken",
+          "sort": {
+           "name": "Bool",
+           "node": "KSort",
+           "params": []
+          },
+          "token": "true"
+         },
+         {
+          "args": [
+           {
+            "node": "KToken",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            },
+            "token": "0"
+           },
+           {
+            "name": "V6E",
+            "node": "KVariable",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            }
+           }
+          ],
+          "arity": 2,
+          "label": {
+           "name": "_<Int_",
+           "node": "KLabel",
+           "params": []
+          },
+          "node": "KApply"
+         }
+        ],
+        "arity": 2,
+        "label": {
+         "name": "#Equals",
+         "node": "KLabel",
+         "params": [
+          {
+           "name": "Bool",
+           "node": "KSort",
+           "params": []
+          },
+          {
+           "name": "GeneratedTopCell",
+           "node": "KSort",
+           "params": []
+          }
+         ]
+        },
+        "node": "KApply"
+       }
+      ],
+      "arity": 2,
+      "label": {
+       "name": "#And",
+       "node": "KLabel",
+       "params": [
+        {
+         "name": "GeneratedTopCell",
+         "node": "KSort",
+         "params": []
+        }
+       ]
+      },
+      "node": "KApply"
+     },
+     {
+      "args": [
+       {
+        "node": "KToken",
+        "sort": {
+         "name": "Bool",
+         "node": "KSort",
+         "params": []
+        },
+        "token": "true"
+       },
+       {
+        "args": [
+         {
+          "node": "KToken",
+          "sort": {
+           "name": "Int",
+           "node": "KSort",
+           "params": []
+          },
+          "token": "0"
+         },
+         {
+          "args": [
+           {
+            "name": "V6E",
+            "node": "KVariable",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            }
+           },
+           {
+            "node": "KToken",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            },
+            "token": "-1"
+           }
+          ],
+          "arity": 2,
+          "label": {
+           "name": "_+Int_",
+           "node": "KLabel",
+           "params": []
+          },
+          "node": "KApply"
+         }
+        ],
+        "arity": 2,
+        "label": {
+         "name": "_<Int_",
+         "node": "KLabel",
+         "params": []
+        },
+        "node": "KApply"
+       }
+      ],
+      "arity": 2,
+      "label": {
+       "name": "#Equals",
+       "node": "KLabel",
+       "params": [
+        {
+         "name": "Bool",
+         "node": "KSort",
+         "params": []
+        },
+        {
+         "name": "GeneratedTopCell",
+         "node": "KSort",
+         "params": []
+        }
+       ]
+      },
+      "node": "KApply"
+     }
+    ],
+    "arity": 2,
+    "label": {
+     "name": "#And",
+     "node": "KLabel",
+     "params": [
+      {
+       "name": "GeneratedTopCell",
+       "node": "KSort",
+       "params": []
+      }
+     ]
+    },
+    "node": "KApply"
+   },
+   {
+    "args": [
+     {
+      "node": "KToken",
+      "sort": {
+       "name": "Bool",
+       "node": "KSort",
+       "params": []
+      },
+      "token": "true"
+     },
+     {
+      "args": [
+       {
+        "node": "KToken",
+        "sort": {
+         "name": "Int",
+         "node": "KSort",
+         "params": []
+        },
+        "token": "0"
+       },
+       {
+        "args": [
+         {
+          "name": "V6E",
+          "node": "KVariable",
+          "sort": {
+           "name": "Int",
+           "node": "KSort",
+           "params": []
+          }
+         },
+         {
+          "node": "KToken",
+          "sort": {
+           "name": "Int",
+           "node": "KSort",
+           "params": []
+          },
+          "token": "-2"
+         }
+        ],
+        "arity": 2,
+        "label": {
+         "name": "_+Int_",
+         "node": "KLabel",
+         "params": []
+        },
+        "node": "KApply"
+       }
+      ],
+      "arity": 2,
+      "label": {
+       "name": "_<Int_",
+       "node": "KLabel",
+       "params": []
+      },
+      "node": "KApply"
+     }
+    ],
+    "arity": 2,
+    "label": {
+     "name": "#Equals",
+     "node": "KLabel",
+     "params": [
+      {
+       "name": "Bool",
+       "node": "KSort",
+       "params": []
+      },
+      {
+       "name": "GeneratedTopCell",
+       "node": "KSort",
+       "params": []
+      }
+     ]
+    },
+    "node": "KApply"
+   }
+  ],
+  "arity": 2,
+  "label": {
+   "name": "#And",
+   "node": "KLabel",
+   "params": [
+    {
+     "name": "GeneratedTopCell",
+     "node": "KSort",
+     "params": []
+    }
+   ]
+  },
+  "node": "KApply"
+ },
+ "version": 4
+}

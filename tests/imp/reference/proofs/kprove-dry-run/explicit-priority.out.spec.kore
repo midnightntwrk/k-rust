@@ -1,0 +1,18 @@
+[org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]
+module KRS-IMP-STATIC-SPEC
+
+// imports
+import KRS-IMP-STATIC []
+
+
+// claims
+// claim `<generatedTop>`(`<k>`(inj{Int,KItem}(priorityChoice(#token("0","Int")))~>_DotVar1),_DotVar0,`<generatedCounter>`(_Gen0))=>`<generatedTop>`(`<k>`(inj{Int,KItem}(#token("111","Int"))~>_DotVar1),_DotVar0,`<generatedCounter>`(?_Gen1)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(395fe18ab0bb6cf1fa7af68515e24db2b4e1981890a037a8aeb02075b83520b4), label(KRS-IMP-STATIC-SPEC.explicit-priority), org.kframework.attributes.Location(Location(14,5,14,47)), org.kframework.attributes.Source(Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  claim{} \implies{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+      \top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(LblpriorityChoice{}(\dv{SortInt{}}("0"))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortEnvCell{},Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))), weakAlwaysFinally{SortGeneratedTopCell{}} (
+       \exists{SortGeneratedTopCell{}} (Var'QuesUnds'Gen1:SortInt{}, 
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("111")),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortEnvCell{},Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \top{SortGeneratedTopCell{}}()))))
+  [UNIQUE'Unds'ID{}("395fe18ab0bb6cf1fa7af68515e24db2b4e1981890a037a8aeb02075b83520b4"), label{}("KRS-IMP-STATIC-SPEC.explicit-priority"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,5,14,47)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]
+
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,21,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source({{root}}/tests/imp_static_semantics/claims/static-spec.k)")]

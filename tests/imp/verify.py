@@ -38,7 +38,7 @@ from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.imp_oracle import reduce_definition  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Snapshot, add_refresh_argument, json_sorted_lists,
+    Key, Output, Promotion, STAGING_OPTION, Snapshot, add_refresh_argument, json_sorted_lists,
     reduce_kprove_temp, reduce_store_paths, repository_inputs, sorted_kore_claims,
 )
 from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
@@ -121,12 +121,12 @@ class Context:
     workspace: Path
     target: Path
     live_java: bool = True
-    """Whether a layer that runs Java K live runs: a refresh, or IMP.7-IMP.8."""
+    """Whether a layer that runs Java K live runs: a refresh, or IMP.8."""
     refresh: bool = False
     """Whether the run refreshes the reference snapshots."""
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
-    snapshots: list[Snapshot] = field(default_factory=list)
+    snapshots: list[Snapshot | Promotion] = field(default_factory=list)
     """Reference snapshots to finish once every layer passed."""
 
     def upstream(self) -> dict[str, str]:
@@ -145,6 +145,19 @@ class Context:
         )
         self.snapshots.append(snapshot)
         return snapshot
+
+    def child_snapshot(self, name: str) -> list[str]:
+        """The arguments that let a child process replay or refresh `reference/<name>`.
+
+        A refresh stages the child's snapshot in the workspace; the gate
+        promotes it only after every layer passed.
+        """
+
+        if not self.refresh:
+            return []
+        staged = self.workspace / "reference-staging" / name
+        self.snapshots.append(Promotion(staged, REFERENCE / name))
+        return ["--refresh-reference", STAGING_OPTION, os.fspath(staged)]
 
 
 def required_tools(live_java: bool) -> tuple[str, ...]:
@@ -771,6 +784,7 @@ def phase_proofs(context: Context, rust_build: RustBuild) -> str:
             "--workspace", context.workspace / "proofs",
             "--k-version", lock.k_version(), "--k-commit", lock.k_commit(),
             "--krs", rust_build.krs,
+            *context.child_snapshot("proofs"),
         ],
         timeout=7200,
         environment={
@@ -914,7 +928,7 @@ def main() -> int:
     passed: set[str] = set()
     artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
-        # IMP.7 and IMP.8 still run Java K live; every other K invocation replays a snapshot.
+        # IMP.8 still runs Java K live; every other K invocation replays a snapshot.
         context = Context(
             pins, corpus, Path(temporary), arguments.target_dir.resolve(),
             live_java=arguments.refresh_reference or not arguments.artifacts_only,

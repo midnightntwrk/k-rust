@@ -1,0 +1,20 @@
+kore-exec: [-] Warning (WarnTrivialClaim):
+    Claim proven without rewriting at: {{work}}/actual-spec.k:41:5-41:76
+[Warning] Compiler: Variable 'V7461696C' defined but not used. Prefix variable
+name with underscore if this is intentional.
+	Source({{work}}/actual-execution.k)
+	Location(77,17,77,26)
+	77 |	    <k> HERE ~> V7461696C:K </k>
+	   .	                ^~~~~~~~~
+[Warning] Compiler: Variable '?ENVIRONMENT' defined but not used. Prefix
+variable name with underscore if this is intentional.
+	Source({{work}}/actual-spec.k)
+	Location(35,23,35,35)
+	35 |	    <env> _ENV:Map => ?ENVIRONMENT:Map </env>
+	   .	                      ^~~~~~~~~~~~
+[Warning] Compiler: Variable '?NEW_VALUE' defined but not used. Prefix variable
+name with underscore if this is intentional.
+	Source({{work}}/actual-spec.k)
+	Location(71,45,71,55)
+	71 |	    <env> $n |-> _OLD_VALUE:Value => $n |-> ?NEW_VALUE:Value </env>
+	   .	                                            ^~~~~~~~~~

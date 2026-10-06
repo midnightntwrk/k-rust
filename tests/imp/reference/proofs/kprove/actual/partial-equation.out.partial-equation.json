@@ -1,0 +1,257 @@
+{
+ "format": "KAST",
+ "term": {
+  "mainModule": "KRS-IMP-SPEC",
+  "node": "KFlatModuleList",
+  "term": [
+   {
+    "att": {
+     "att": {
+      "digest": "qPk5Ij+R/XfWDDYVCSdTMmfq0uFoxN31NTIrKH+uoFM="
+     },
+     "node": "KAtt"
+    },
+    "imports": [
+     {
+      "isPublic": true,
+      "name": "KRS-IMP",
+      "node": "KImport"
+     },
+     {
+      "isPublic": true,
+      "name": "IMP-VERIFICATION-SYNTAX",
+      "node": "KImport"
+     }
+    ],
+    "localSentences": [
+     {
+      "att": {
+       "att": {
+        "UNIQUE_ID": "a0a8ecb5dd8a002f0a2f44100f5f7bfd14332e859ef121a43d35586d313355db",
+        "label": "KRS-IMP-SPEC.partial-equation",
+        "org.kframework.definition.Production": {
+         "att": {
+          "att": {
+           "symbol": "#ruleNoConditions"
+          },
+          "node": "KAtt"
+         },
+         "klabel": {
+          "name": "#ruleNoConditions",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KProduction",
+         "params": [],
+         "productionItems": [
+          {
+           "node": "KNonTerminal",
+           "sort": {
+            "name": "#RuleBody",
+            "node": "KSort",
+            "params": []
+           }
+          }
+         ],
+         "sort": {
+          "name": "#RuleContent",
+          "node": "KSort",
+          "params": []
+         }
+        }
+       },
+       "node": "KAtt"
+      },
+      "body": {
+       "args": [
+        {
+         "args": [
+          {
+           "lhs": {
+            "arity": 2,
+            "items": [
+             {
+              "args": [
+               {
+                "node": "KToken",
+                "sort": {
+                 "name": "Int",
+                 "node": "KSort",
+                 "params": []
+                },
+                "token": "7"
+               }
+              ],
+              "arity": 1,
+              "label": {
+               "name": "nonnegativeIdentity",
+               "node": "KLabel",
+               "params": []
+              },
+              "node": "KApply"
+             },
+             {
+              "name": "V7461696C",
+              "node": "KVariable",
+              "sort": {
+               "name": "K",
+               "node": "KSort",
+               "params": []
+              }
+             }
+            ],
+            "node": "KSequence"
+           },
+           "node": "KRewrite",
+           "rhs": {
+            "arity": 2,
+            "items": [
+             {
+              "node": "KToken",
+              "sort": {
+               "name": "Int",
+               "node": "KSort",
+               "params": []
+              },
+              "token": "7"
+             },
+             {
+              "name": "V7461696C",
+              "node": "KVariable",
+              "sort": {
+               "name": "K",
+               "node": "KSort",
+               "params": []
+              }
+             }
+            ],
+            "node": "KSequence"
+           }
+          }
+         ],
+         "arity": 1,
+         "label": {
+          "name": "<k>",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "name": "_DotVar0",
+         "node": "KVariable",
+         "sort": {
+          "name": "EnvCell",
+          "node": "KSort",
+          "params": []
+         }
+        },
+        {
+         "args": [
+          {
+           "lhs": {
+            "name": "_Gen0",
+            "node": "KVariable",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            }
+           },
+           "node": "KRewrite",
+           "rhs": {
+            "name": "?_Gen1",
+            "node": "KVariable",
+            "sort": {
+             "name": "Int",
+             "node": "KSort",
+             "params": []
+            }
+           }
+          }
+         ],
+         "arity": 1,
+         "label": {
+          "name": "<generatedCounter>",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "arity": 3,
+       "label": {
+        "name": "<generatedTop>",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      },
+      "ensures": {
+       "node": "KToken",
+       "sort": {
+        "name": "Bool",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "true"
+      },
+      "node": "KClaim",
+      "requires": {
+       "node": "KToken",
+       "sort": {
+        "name": "Bool",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "true"
+      }
+     }
+    ],
+    "name": "KRS-IMP-SPEC",
+    "node": "KFlatModule"
+   },
+   {
+    "att": {
+     "att": {
+      "digest": "uJNnUy6+Wv+hJAGF1lTI1fkFrEm3sZGiTFb0hVpXWek="
+     },
+     "node": "KAtt"
+    },
+    "imports": [
+     {
+      "isPublic": true,
+      "name": "ID-SYNTAX",
+      "node": "KImport"
+     }
+    ],
+    "localSentences": [
+     {
+      "att": {
+       "att": {
+        "token": ""
+       },
+       "node": "KAtt"
+      },
+      "node": "KProduction",
+      "params": [],
+      "productionItems": [
+       {
+        "node": "KRegexTerminal",
+        "regex": "\\$[a-zA-Z0-9_]+"
+       }
+      ],
+      "sort": {
+       "name": "Id",
+       "node": "KSort",
+       "params": []
+      }
+     }
+    ],
+    "name": "IMP-VERIFICATION-SYNTAX",
+    "node": "KFlatModule"
+   }
+  ]
+ },
+ "version": 4
+}

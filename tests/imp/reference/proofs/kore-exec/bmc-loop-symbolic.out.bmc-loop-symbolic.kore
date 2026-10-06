@@ -1,0 +1,41 @@
+/* Created: Kore.Internal.OrPattern.toTermLike */
+\and{SortGeneratedTopCell{}}(
+    Lbl'-LT-'generatedTop'-GT-'{}(
+        Lbl'-LT-'k'-GT-'{}(VarV7461696C:SortK{}),
+        Lbl'-LT-'env'-GT-'{}(
+            /* InternalMap: */ Lbl'Unds'Map'Unds'{}(
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$s")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(VarV73:SortInt{})
+                ),
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))
+                )
+            )
+        ),
+        Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'KrsCounter51:SortInt{})
+    ),
+    \and{SortGeneratedTopCell{}}(
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+            \dv{SortBool{}}("false"),
+            Lbl'Unds-LT-Eqls'Int'Unds'{}(VarV73:SortInt{}, \dv{SortInt{}}("0"))
+        ),
+        \and{SortGeneratedTopCell{}}(
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-LT-Eqls'Int'Unds'{}(
+                    \dv{SortInt{}}("0"),
+                    VarV73:SortInt{}
+                )
+            ),
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-LT-Eqls'Int'Unds'{}(
+                    VarV73:SortInt{},
+                    \dv{SortInt{}}("1")
+                )
+            )
+        )
+    )
+)

@@ -1,0 +1,243 @@
+/* Created: Kore.Internal.OrPattern.toTermLike */
+\and{SortGeneratedTopCell{}}(
+    Lbl'-LT-'generatedTop'-GT-'{}(
+        Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+                /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                    Lblassign{}(
+                        \dv{SortId{}}("$s1"),
+                        /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                            Lbl'UndsPlus'Int'Unds'{}(
+                                Lbl'UndsPlus'Int'Unds'{}(
+                                    Lbl'UndsPlus'Int'Unds'{}(
+                                        VarV7331:SortInt{},
+                                        VarV6E:SortInt{}
+                                    ),
+                                    Lbl'UndsPlus'Int'Unds'{}(
+                                        VarV6E:SortInt{},
+                                        \dv{SortInt{}}("-1")
+                                    )
+                                ),
+                                Lbl'UndsPlus'Int'Unds'{}(
+                                    VarV6E:SortInt{},
+                                    \dv{SortInt{}}("-2")
+                                )
+                            )
+                        )
+                    )
+                ),
+                kseq{}(
+                    /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                        Lblassign{}(
+                            \dv{SortId{}}("$n"),
+                            Lbladd{}(
+                                /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                    \dv{SortId{}}("$n")
+                                ),
+                                Lblneg{}(
+                                    /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                                        \dv{SortInt{}}("1")
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    kseq{}(
+                        /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                            LblemptyBlock{}()
+                        ),
+                        kseq{}(
+                            /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                                Lblwhile{}(
+                                    Lblnot{}(
+                                        Lblle{}(
+                                            /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                \dv{SortId{}}("$n")
+                                            ),
+                                            /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                                                \dv{SortInt{}}("0")
+                                            )
+                                        )
+                                    ),
+                                    Lblblock{}(
+                                        Lblsequence{}(
+                                            Lblassign{}(
+                                                \dv{SortId{}}("$s1"),
+                                                Lbladd{}(
+                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                        \dv{SortId{}}("$s1")
+                                                    ),
+                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                        \dv{SortId{}}("$n")
+                                                    )
+                                                )
+                                            ),
+                                            Lblassign{}(
+                                                \dv{SortId{}}("$n"),
+                                                Lbladd{}(
+                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                        \dv{SortId{}}("$n")
+                                                    ),
+                                                    Lblneg{}(
+                                                        /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                                                            \dv{SortInt{}}("1")
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            ),
+                            kseq{}(
+                                /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                                    LblemptyBlock{}()
+                                ),
+                                kseq{}(
+                                    /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                                        LblemptyBlock{}()
+                                    ),
+                                    kseq{}(
+                                        /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                                            LblemptyBlock{}()
+                                        ),
+                                        kseq{}(
+                                            /* Inj: */ inj{SortStmt{}, SortKItem{}}(
+                                                Lblwhile{}(
+                                                    Lblnot{}(
+                                                        Lblle{}(
+                                                            /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                                \dv{SortId{}}("$m")
+                                                            ),
+                                                            /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                                                                \dv{SortInt{}}("0")
+                                                            )
+                                                        )
+                                                    ),
+                                                    Lblblock{}(
+                                                        Lblsequence{}(
+                                                            Lblassign{}(
+                                                                \dv{SortId{}}("$s2"),
+                                                                Lbladd{}(
+                                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                                        \dv{SortId{}}("$s2")
+                                                                    ),
+                                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                                        \dv{SortId{}}("$m")
+                                                                    )
+                                                                )
+                                                            ),
+                                                            Lblassign{}(
+                                                                \dv{SortId{}}("$m"),
+                                                                Lbladd{}(
+                                                                    /* Inj: */ inj{SortId{}, SortExpr{}}(
+                                                                        \dv{SortId{}}("$m")
+                                                                    ),
+                                                                    Lblneg{}(
+                                                                        /* Inj: */ inj{SortInt{}, SortExpr{}}(
+                                                                            \dv{SortInt{}}("1")
+                                                                        )
+                                                                    )
+                                                                )
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            ),
+                                            VarV7461696C:SortK{}
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        ),
+        Lbl'-LT-'env'-GT-'{}(
+            /* InternalMap: */ Lbl'Unds'Map'Unds'{}(
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$s1")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                        Lbl'UndsPlus'Int'Unds'{}(
+                            Lbl'UndsPlus'Int'Unds'{}(
+                                VarV7331:SortInt{},
+                                VarV6E:SortInt{}
+                            ),
+                            Lbl'UndsPlus'Int'Unds'{}(
+                                VarV6E:SortInt{},
+                                \dv{SortInt{}}("-1")
+                            )
+                        )
+                    )
+                ),
+            Lbl'Unds'Map'Unds'{}(
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$s2")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(VarV7332:SortInt{})
+                ),
+            Lbl'Unds'Map'Unds'{}(
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$m")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(VarV6D:SortInt{})
+                ),
+                /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
+                    /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),
+                    /* Inj: */ inj{SortInt{}, SortKItem{}}(
+                        Lbl'UndsPlus'Int'Unds'{}(
+                            VarV6E:SortInt{},
+                            \dv{SortInt{}}("-2")
+                        )
+                    )
+                )
+            )))
+        ),
+        Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'KrsCounter96:SortInt{})
+    ),
+    \and{SortGeneratedTopCell{}}(
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+            \dv{SortBool{}}("true"),
+            Lbl'Unds-LT-'Int'Unds'{}(
+                \dv{SortInt{}}("0"),
+                Lbl'UndsPlus'Int'Unds'{}(VarV6E:SortInt{}, \dv{SortInt{}}("-2"))
+            )
+        ),
+        \and{SortGeneratedTopCell{}}(
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-LT-'Int'Unds'{}(
+                    \dv{SortInt{}}("0"),
+                    Lbl'UndsPlus'Int'Unds'{}(
+                        VarV6E:SortInt{},
+                        \dv{SortInt{}}("-1")
+                    )
+                )
+            ),
+            \and{SortGeneratedTopCell{}}(
+                \equals{SortBool{}, SortGeneratedTopCell{}}(
+                    \dv{SortBool{}}("true"),
+                    Lbl'Unds-LT-'Int'Unds'{}(
+                        \dv{SortInt{}}("0"),
+                        VarV6E:SortInt{}
+                    )
+                ),
+                \and{SortGeneratedTopCell{}}(
+                    \equals{SortBool{}, SortGeneratedTopCell{}}(
+                        \dv{SortBool{}}("true"),
+                        Lbl'Unds-LT-Eqls'Int'Unds'{}(
+                            \dv{SortInt{}}("0"),
+                            VarV6D:SortInt{}
+                        )
+                    ),
+                    \equals{SortBool{}, SortGeneratedTopCell{}}(
+                        \dv{SortBool{}}("true"),
+                        Lbl'Unds-LT-Eqls'Int'Unds'{}(
+                            \dv{SortInt{}}("0"),
+                            VarV6E:SortInt{}
+                        )
+                    )
+                )
+            )
+        )
+    )
+)

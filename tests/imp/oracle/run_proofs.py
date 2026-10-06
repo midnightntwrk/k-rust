@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Complete fail-closed IMP source and native proof gate."""
+"""Complete fail-closed IMP source and native proof gate.
+
+Every K invocation (the two `kompile` runs; the 21 reference, 21 actual, and
+21 dry-run `kprove` runs, plus one residual KORE `kprove` run per incomplete
+proof; and the 21 `kore-exec` runs on the native build) goes through the
+reference snapshot `tests/imp/reference/proofs`.
+A default run replays it and needs no K tool; `--refresh-reference` runs K
+live. The stored proof results are readable: each invocation's exit status is
+in the manifest, and its JSON result and claim are stored indented.
+The KRS native build, its split, and every classification and comparison
+always run live.
+"""
 
 from __future__ import annotations
 
@@ -14,14 +25,18 @@ from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import proofs  # noqa: E402
-from support import ROOT, GateError, entry, krs_gate  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate, lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, table  # noqa: E402
-from support.process import run  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.reference import (  # noqa: E402
+    Key, Output, Snapshot, add_refresh_argument, add_staging_argument, indented_json,
+    json_without_members, reduce_kore_exec_log, reduce_kprove_temp, repository_inputs, snapshot_directory,
+)
 from support.tools import checkout_scratch, k_executable, k_tool, z3_environment  # noqa: E402
 
 
@@ -45,6 +60,22 @@ ADJUNCT_NAMES = frozenset(
     {"total-equation", "partial-equation", "explicit-priority", "static-alias", "context-alias"}
 )
 SUM_SPEC_NAMES = frozenset({"sum-spec", "two-sum-spec"})
+REFERENCE = ROOT / "tests/imp/reference/proofs"
+TOOLS = ("kompile", "kprove", "kore-exec")
+SOURCE_LOCATIONS = ("org.kframework.attributes.Source", "org.kframework.attributes.Location")
+
+
+def reduce_json_result(text: str) -> str:
+    """Store a JSON proof result or claim without source locations, one member per line.
+
+    The proof normalization removes source locations, so no comparator reads them.
+    """
+
+    try:
+        stripped = json_without_members(SOURCE_LOCATIONS)(text)
+    except ValueError:
+        return text
+    return indented_json(stripped)
 
 
 def prepare_workspace(path: Path) -> None:
@@ -136,7 +167,7 @@ def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]]) ->
 
 
 def compile_definitions(
-    *, workspace: Path, kompile: str, expected_labels: Sequence[str], workers: int, gate: Path
+    *, workspace: Path, k: Snapshot, expected_labels: Sequence[str], workers: int, gate: Path
 ) -> tuple[Path, Path, Path]:
     artifacts = workspace / "artifacts"
     run(
@@ -155,32 +186,49 @@ def compile_definitions(
     )
     actual_definition = workspace / "actual-kompiled"
     reference_definition = workspace / "reference-kompiled"
-    commands = (
-        [
-            kompile, actual_source, "--backend", "haskell", "--main-module", ACTUAL_MODULE,
-            "--syntax-module", ACTUAL_MODULE, "--emit-json", "--output-definition", actual_definition,
-        ],
-        [
-            kompile, REFERENCE_SOURCE, "-I", IMP_DEFINITION, "--backend", "haskell",
-            "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
-            "--emit-json", "--output-definition", reference_definition,
-        ],
+    # Only the later kprove runs read these definitions, so nothing of them is
+    # stored; each is keyed by the digest of the source it compiles.
+    commands: tuple[tuple[str, list[str | os.PathLike[str]]], ...] = (
+        (
+            "kompile/actual-haskell",
+            [
+                actual_source, "--backend", "haskell", "--main-module", ACTUAL_MODULE,
+                "--syntax-module", ACTUAL_MODULE, "--emit-json", "--output-definition", actual_definition,
+            ],
+        ),
+        (
+            "kompile/reference-haskell",
+            [
+                REFERENCE_SOURCE, "-I", IMP_DEFINITION, "--backend", "haskell",
+                "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
+                "--emit-json", "--output-definition", reference_definition,
+            ],
+        ),
     )
-    for outcome in settle_all(
-        [lambda command=command: run(command, timeout=WATCHDOG_SECONDS) for command in commands],
+    for (label, _), outcome in zip(commands, settle_all(
+        [
+            lambda label=label, arguments=arguments: k.run(
+                label, "kompile", arguments, timeout=WATCHDOG_SECONDS,
+            )
+            for label, arguments in commands
+        ],
         workers,
-    ):
-        outcome.get()
-    for definition in (actual_definition, reference_definition):
-        for name in ("definition.kore", "parsed.json", "compiled.json"):
-            if not definition.joinpath(name).is_file():
-                raise GateError(f"Haskell frontend omitted {definition.name}/{name}")
+    )):
+        process = outcome.get()
+        if process.returncode != 0:
+            raise GateError(f"{label} failed: {compact(process)}")
+    if k.refresh:
+        for definition in (actual_definition, reference_definition):
+            for name in ("definition.kore", "parsed.json", "compiled.json"):
+                if not definition.joinpath(name).is_file():
+                    raise GateError(f"Haskell frontend omitted {definition.name}/{name}")
     return reference_definition, actual_definition, actual_spec
 
 
 def invoke_source(
     *,
-    kprove: str,
+    k: Snapshot,
+    label: str,
     definition: Path,
     spec: Path,
     module: str,
@@ -190,13 +238,17 @@ def invoke_source(
     includes: Sequence[Path],
 ) -> tuple[subprocess.CompletedProcess[str], Mapping[str, Any], Mapping[str, Any]]:
     command: list[str | os.PathLike[str]] = [
-        kprove, spec, "-d", definition, "--spec-module", module, "--claims", claim,
+        spec, "-d", definition, "--spec-module", module, "--claims", claim,
         "--output", "json", "--emit-json-spec", spec_json,
         "--depth", str(bounds.depth), "--branching-allowed", str(bounds.branching_allowed),
     ]
     for include in includes:
         command.extend(["-I", include])
-    process = run(command, check=False, timeout=WATCHDOG_SECONDS)
+    process = k.run(
+        label, "kprove", command, timeout=WATCHDOG_SECONDS,
+        outputs=(Output(spec_json, reduce_json_result),),
+        streams={"stdout": reduce_json_result, "stderr": reduce_kore_exec_log},
+    )
     return process, {"text": process.stdout}, {"path": spec_json}
 
 
@@ -268,27 +320,40 @@ def compare_source_evidence(name: str, reference: Any, actual: Any) -> None:
             raise GateError("depth-zero source routes differ in semantic frontier evidence")
 
 
+def unique_file(directory: Path, name: str, producer: str) -> Path:
+    """The one file `name` a tool wrote below `directory`, or a missing path when it wrote none."""
+
+    matches = sorted(directory.rglob(name))
+    if len(matches) > 1:
+        raise GateError(f"{producer} emitted {len(matches)} {name} files")
+    return matches[0] if matches else directory / name
+
+
 def dry_run_spec(
-    *, kprove: str, definition: Path, case: Mapping[str, Any], workspace: Path,
+    *, k: Snapshot, definition: Path, case: Mapping[str, Any], workspace: Path,
     support: Path,
 ) -> None:
     output = workspace / "dry-run" / case["name"]
     output.mkdir(parents=True)
+    spec_kore = workspace / "dry-run-specs" / case["name"] / "spec.kore"
     command: list[str | os.PathLike[str]] = [
-        kprove, case["source_spec"], "-d", definition, "--spec-module", case["source_module"],
+        case["source_spec"], "-d", definition, "--spec-module", case["source_module"],
         "--claims", case["source_claim"], "--dry-run", "--temp-dir", output,
         "--depth", str(case["bounds"].depth),
         "--branching-allowed", str(case["bounds"].branching_allowed),
         "-I", IMP_DEFINITION, "-I", ADJUNCT_SPEC.parent,
         "-I", REFERENCE_SOURCE.parent,
     ]
-    run(command, timeout=WATCHDOG_SECONDS)
-    matches = sorted(output.rglob("spec.kore"))
-    if len(matches) != 1:
-        raise GateError(f"{case['name']}: dry-run emitted {len(matches)} spec.kore files")
+    process = k.run(
+        f"kprove-dry-run/{case['name']}", "kprove", command, timeout=WATCHDOG_SECONDS,
+        outputs=(Output(spec_kore, locate=lambda: unique_file(output, "spec.kore", f"{case['name']}: dry-run")),),
+        streams={"stdout": reduce_kprove_temp, "stderr": reduce_kore_exec_log},
+    )
+    if process.returncode != 0 or not spec_kore.is_file():
+        raise GateError(f"{case['name']}: dry-run emitted no spec.kore: {compact(process)}")
     run(
         [
-            support, "proof", "assert-spec", matches[0], case["source_module"],
+            support, "proof", "assert-spec", spec_kore, case["source_module"],
             REFERENCE_MODULE, case["source_claim"],
         ],
         timeout=120,
@@ -322,21 +387,25 @@ def build_native(
 
 
 def native_proof(
-    *, kore_exec: str, support: Path, definition: Path, specs: Path,
+    *, k: Snapshot, support: Path, definition: Path, specs: Path,
     case: Mapping[str, Any], workspace: Path,
 ) -> tuple[str, Path]:
     result = workspace / "native-results" / f"{case['name']}.kore"
     result.parent.mkdir(exist_ok=True)
-    process = run(
+    # kore-exec is keyed by the digests of the native definition and claim
+    # KORE that KRS built, so a change to the native lowering needs a refresh.
+    process = k.run(
+        f"kore-exec/{case['name']}", "kore-exec",
         [
-            kore_exec, definition, "--module", ACTUAL_MODULE,
+            definition, "--module", ACTUAL_MODULE,
             "--prove", specs / f"{case['native_label']}.kore",
             "--spec-module", ACTUAL_SPEC_MODULE, "--output", result,
             "--depth", str(case["bounds"].depth),
             "--breadth", str(case["bounds"].branching_allowed),
         ],
-        check=False,
         timeout=WATCHDOG_SECONDS,
+        outputs=(result,),
+        streams={"stderr": reduce_kore_exec_log},
     )
     if process.returncode not in {0, 1} or not result.is_file():
         raise GateError(
@@ -355,20 +424,21 @@ def native_proof(
 
 
 def actual_source_kore_result(
-    *, kprove: str, definition: Path, spec: Path, case: Mapping[str, Any], workspace: Path,
+    *, k: Snapshot, definition: Path, spec: Path, case: Mapping[str, Any], workspace: Path,
 ) -> Path:
     result = workspace / "source-kore-results" / f"{case['name']}.kore"
     result.parent.mkdir(exist_ok=True)
-    process = run(
+    process = k.run(
+        f"kprove-kore/{case['name']}", "kprove",
         [
-            kprove, spec, "-d", definition, "--spec-module", ACTUAL_SPEC_MODULE,
+            spec, "-d", definition, "--spec-module", ACTUAL_SPEC_MODULE,
             "--claims", case["actual_claim"], "--output", "kore",
             "--depth", str(case["bounds"].depth),
             "--branching-allowed", str(case["bounds"].branching_allowed),
             "-I", workspace, "-I", IMP_DEFINITION,
         ],
-        check=False,
         timeout=WATCHDOG_SECONDS,
+        streams={"stderr": reduce_kore_exec_log},
     )
     if process.returncode != 1 or not re.search(
         r"configuration cannot be\s+rewritten further", process.stderr
@@ -389,6 +459,8 @@ def main() -> int:
     parser.add_argument("--k-version", required=True, help="the Krs.lock K version")
     parser.add_argument("--k-commit", required=True, help="the Krs.lock K commit")
     parser.add_argument("--krs", type=Path, required=True, help="the KRS CLI the IMP gate built")
+    add_refresh_argument(parser)
+    add_staging_argument(parser)
     arguments = parser.parse_args()
     pins_path = arguments.pins.resolve(strict=True)
     workspace = arguments.workspace.resolve()
@@ -398,18 +470,41 @@ def main() -> int:
         raise GateError("proof pins are not the exact IMP schema-1 ledger")
 
     revisions = pins.table("revisions")
-    verify_checkout(K, arguments.k_commit, label="K", clean=False)
+    if arguments.k_version != lock.k_version() or arguments.k_commit != lock.k_commit():
+        raise GateError("--k-version and --k-commit must name the Krs.lock K release")
     verify_checkout(IMP, revisions["imp"]["commit"], label="IMP", clean=False)
-    kompile = k_executable("kompile")
-    kprove = k_tool("kprove", arguments.k_version)
-    kore_exec = k_executable("kore-exec")
+    refresh = arguments.refresh_reference
+    executables = None
+    if refresh:
+        # Only a live run reads the K installation.
+        verify_checkout(K, arguments.k_commit, label="K", clean=False)
+        executables = {
+            "kompile": k_executable("kompile"),
+            "kprove": k_tool("kprove", arguments.k_version),
+            "kore-exec": k_executable("kore-exec"),
+        }
+        kore = run([executables["kore-exec"], "--version"], timeout=30).stdout.strip()
+        if kore != lock.value("k", "kore_exec_version"):
+            raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
+    k = Snapshot(
+        snapshot_directory(REFERENCE, refresh, arguments.reference_staging),
+        Key(
+            tools=TOOLS,
+            upstream={
+                "imp": str(revisions["imp"]["commit"]),
+                "kore_exec": str(lock.value("k", "kore_exec_version")),
+            },
+            inputs=repository_inputs([REFERENCE_SOURCE, ADJUNCT_SPEC]),
+        ),
+        workspace=workspace, refresh=refresh, executables=executables,
+    )
 
     workers = worker_count("KRS_IMP_ORACLE_WORKERS", 4)
     cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]
     support = build_support()
     reference_definition, actual_definition, actual_spec = compile_definitions(
-        workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers, gate=support
+        workspace=workspace, k=k, expected_labels=labels, workers=workers, gate=support
     )
     reference_policy = proof_policy(pins, "reference", cases)
     actual_policy = proof_policy(pins, "actual", cases)
@@ -434,27 +529,29 @@ def main() -> int:
             actual_json = workspace / "actual-json" / f"{case['name']}.json"
             case_jobs.append({
                 "reference": job(lambda case=case, spec_json=reference_json: invoke_source(
-                    kprove=kprove, definition=reference_definition, spec=case["source_spec"],
+                    k=k, label=f"kprove/reference/{case['name']}",
+                    definition=reference_definition, spec=case["source_spec"],
                     module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
                     spec_json=spec_json,
                     includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
                 )),
                 "actual": job(lambda case=case, spec_json=actual_json: invoke_source(
-                    kprove=kprove, definition=actual_definition, spec=actual_spec,
+                    k=k, label=f"kprove/actual/{case['name']}",
+                    definition=actual_definition, spec=actual_spec,
                     module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
                     spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
                 )),
                 "dry_run": job(lambda case=case: dry_run_spec(
-                    kprove=kprove, definition=reference_definition, case=case,
+                    k=k, definition=reference_definition, case=case,
                     workspace=workspace, support=support,
                 )),
                 "native": job(lambda case=case: native_proof(
-                    kore_exec=kore_exec, support=support, definition=native_definition,
+                    k=k, support=support, definition=native_definition,
                     specs=native_specs, case=case, workspace=workspace,
                 )),
                 # The source KORE residual must be compared only for an incomplete proof, after checking the native status against its pin.
                 "source_kore": job(lambda case=case: actual_source_kore_result(
-                    kprove=kprove, definition=actual_definition, spec=actual_spec,
+                    k=k, definition=actual_definition, spec=actual_spec,
                     case=case, workspace=workspace,
                 )) if case["pin"]["status"] == "incomplete" else None,
             })
@@ -523,6 +620,10 @@ def main() -> int:
         if set(native_statuses) != {case["name"] for case in cases}:
             raise GateError("native proof coverage is incomplete")
 
+        # The gate requires the exact PASS summary and nothing else, so the
+        # snapshot's report line is not printed; a staged refresh is reported
+        # when the gate promotes it.
+        k.finish()
         print(
             "PASS IMP proofs: reference_source=21 actual_source=21 "
             "dry_run_specs=21 native_haskell=21 native_unique_claims=20"
