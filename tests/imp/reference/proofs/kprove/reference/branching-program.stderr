@@ -1,8 +1,0 @@
-[Warning] Compiler: Use of deprecated production found; this syntax may be
-removed in the future.
-	Source({{external}}/inspirations/runtimeverification/imp-semantics/examples/specs/imp-simple-spec.k)
-	Location(22,128,22,129)
-	22 |	    claim [branching-deadcode]: <k> $n = 7 ; if (B:Bool) { $n = 6 ; }
-else { if (! B:Bool) { $n = 5 ; } else { $n = 4 ; } } => . ... </k>
-	   .	                                                                         
-                                                     ^

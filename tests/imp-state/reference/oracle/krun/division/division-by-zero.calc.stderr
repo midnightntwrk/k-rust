@@ -1,2 +1,0 @@
-terminate called after throwing an instance of 'std::invalid_argument'
-  what():  [hook_INT_tdiv]: Division by zero: 1 / 0

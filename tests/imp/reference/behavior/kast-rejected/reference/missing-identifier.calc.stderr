@@ -1,5 +1,0 @@
-[Error] Inner Parser: Parse error: unexpected token '='.
-	Source({{root}}/tests/imp-state/corpus/rejected/syntax/missing-identifier.calc)
-	Location(1,1,1,2)
-	1 |	= 1;
-	  .	^

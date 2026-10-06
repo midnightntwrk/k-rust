@@ -1,6 +1,0 @@
-[Warning] Compiler: Variable 'Tail' defined but not used. Prefix variable name
-with underscore if this is intentional.
-	Source({{work}}/actual-execution.k)
-	Location(77,17,77,21)
-	77 |	    <k> HERE ~> Tail:K </k>
-	   .	                ^~~~

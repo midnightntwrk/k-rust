@@ -1,5 +1,0 @@
-[Error] Inner Parser: Parse error: unexpected token ')' following token '('.
-	Source({{root}}/tests/imp-control-flow/corpus/rejected/syntax/missing-condition.imp)
-	Location(1,5,1,6)
-	1 |	if () {}
-	  .	    ^

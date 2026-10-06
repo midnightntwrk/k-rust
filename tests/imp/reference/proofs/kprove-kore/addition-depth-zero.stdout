@@ -1,1 +1,0 @@
-Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExpr{}, SortKItem{}}(Lbladd{}(inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("3")),inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("4")))),VarTail:SortK{})),Lbl'-LT-'env'-GT-'{}(Var'Unds'DotVar1:SortMap{}),Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))

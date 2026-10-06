@@ -1,7 +1,0 @@
-[Error] Inner Parser: Parse error: unexpected token '+' following token
-'requires'.
-	Source({{work}}/spec.k)
-	Location(63,14,63,15)
-	63 |	    requires +
-	   .	             ^
-[Error] Compiler: Had 1 parsing errors.

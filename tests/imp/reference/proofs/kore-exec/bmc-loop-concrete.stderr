@@ -1,4 +1,0 @@
-kore-exec: [-] Warning (WarnStuckClaimState):
-    The configuration's term unifies with the destination's term, but the implication check between the conditions has failed. Location: src/claims.rs
-Context:
-    (InfoReachability) while checking the implication

@@ -31,6 +31,11 @@ unless it is under a `fixtures/` directory,
 so no standalone package escapes its owning gate's format, lint, and MSRV checks.
 Every row must name a tracked manifest that declares `[workspace]`.
 
+Reference-K (Java K) results are a per-user cache (`tests/support/reference.py`),
+not repository content: no tracked path may lie under a `tests/<gate>/reference/`
+directory, and no tracked `manifest.toml` may be a reference snapshot manifest.
+A gate commits only the snapshot digests in its pin ledger.
+
 Python gates must read K models through the protocol client.
 String literals containing K model vocabulary outside that client must match an explicit exception count.
 Removing an interpretation site requires lowering its exception count.
@@ -172,6 +177,33 @@ def gate_entry_problems(files: list[str]) -> list[str]:
     return problems
 
 
+def reference_output_problems(files: list[str], *, root: Path = ROOT) -> list[str]:
+    """Reject committed reference-K output: a gate's `reference/` directory or a snapshot manifest."""
+
+    problems: list[str] = []
+    for relative in files:
+        parts = relative.split("/")
+        if len(parts) > 3 and parts[0] == "tests" and parts[2] == "reference":
+            problems.append(
+                f"{relative}: committed reference-K output; the gates replay it from the per-user "
+                "reference cache and pin only its digest"
+            )
+            continue
+        if parts[-1] != "manifest.toml" or not (root / relative).is_file():
+            continue
+        try:
+            manifest = tomllib.loads((root / relative).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            continue
+        key = manifest.get("key")
+        if isinstance(key, dict) and "k_version" in key and "invocation" in manifest:
+            problems.append(
+                f"{relative}: committed reference snapshot manifest; reference-K results belong "
+                "in the per-user reference cache"
+            )
+    return problems
+
+
 def manifest_problems(relative: str, text: str, msrv: tuple[int, int]) -> list[str]:
     manifest = tomllib.loads(text)
     problems: list[str] = []
@@ -241,6 +273,7 @@ def main() -> int:
     lock = tomllib.loads((ROOT / "Krs.lock").read_text(encoding="utf-8"))
     msrv = tuple(map(int, lock["cargo"]["msrv"].split(".")[:2]))
     problems.extend(standalone_package_problems(files))
+    problems.extend(reference_output_problems(files))
     for relative in files:
         if relative == "draft" or relative.startswith("draft/"):
             problems.append(f"{relative}: tracked file under draft/")
@@ -278,7 +311,7 @@ def main() -> int:
         return 1
     print(
         "PASS repository hygiene: tracked references, gate entry points, standalone package table, "
-        "unsafe_code lint policy, Cargo MSRV, and Python K vocabulary"
+        "unsafe_code lint policy, Cargo MSRV, Python K vocabulary, and no committed reference-K output"
     )
     return 0
 

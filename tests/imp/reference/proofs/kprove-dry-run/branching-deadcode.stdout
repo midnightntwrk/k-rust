@@ -1,1 +1,0 @@
-kore-exec {{work}}/reference-kompiled/definition.kore --module KRS-IMP-STATIC --prove {{work}}/dry-run/branching-deadcode/.kprove-TEMP/spec.kore --spec-module IMP-SIMPLE-SPEC --output {{work}}/dry-run/branching-deadcode/.kprove-TEMP/result.kore --depth 100 --breadth 64

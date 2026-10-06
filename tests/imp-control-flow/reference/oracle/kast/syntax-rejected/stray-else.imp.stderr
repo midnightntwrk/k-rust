@@ -1,5 +1,0 @@
-[Error] Inner Parser: Parse error: unexpected token 'else'.
-	Source({{root}}/tests/imp-control-flow/corpus/rejected/syntax/stray-else.imp)
-	Location(1,1,1,5)
-	1 |	else x = 1;
-	  .	^~~~

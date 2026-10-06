@@ -1,4 +1,0 @@
-x = 0;
-y = 0;
-if (false) if (true) y = 1; else y = 2;
-x = 1;

@@ -1,1 +1,0 @@
-kore-exec {{work}}/compiled-definition/definition.kore --module ORG-KRS-CLI-DOLLAR-IDS --prove {{work}}/kprove-temp/.kprove-TEMP/spec.kore --spec-module ORG-KRS-CLI-DOLLAR-IDS-SPEC --output {{work}}/kprove-temp/.kprove-TEMP/result.kore
