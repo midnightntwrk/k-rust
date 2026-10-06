@@ -1122,7 +1122,7 @@ pub(crate) fn fresh_variable(
 mod tests {
     use super::*;
     use crate::{
-        rule::Predicate,
+        rule::{Absence, KeyedCollection, Predicate},
         term::{CollectionSymbols, ListDefinition, MapDefinition, Sort, Symbol},
     };
 
@@ -1461,6 +1461,133 @@ mod tests {
             request.state_key(&state("Ex#A!1", "Ex#B!2", false)),
             request.state_key(&state("Ex#A!1", "Ex#A!1", false))
         );
+    }
+
+    /// `predicate` with the operands of every conjunction and disjunction in reverse order,
+    /// which denotes the same predicate.
+    fn reverse_operands(predicate: &mut Predicate) {
+        match predicate {
+            Predicate::And(operands) | Predicate::Or(operands) => {
+                operands.reverse();
+                operands.iter_mut().for_each(reverse_operands);
+            }
+            Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+                reverse_operands(inner);
+            }
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                reverse_operands(left);
+                reverse_operands(right);
+            }
+            _ => {}
+        }
+    }
+
+    /// `go([K1, .., K4])` with one constraint `wrap(Ki, Vi)` per element, where `Vi` occurs
+    /// nowhere else. The constraints differ only in the names of their variables, so they tie
+    /// until the list has numbered the `Ki`; the order the `Vi` are then numbered in must come
+    /// from the `Ki` alone, through the label of every kind of constraint, so a renaming that
+    /// also lists the constraints, and the operands of their conjunctions and disjunctions, in
+    /// another order keeps the key, and a state where two constraints share their `Vi` (which
+    /// no renaming reaches) does not.
+    #[test]
+    fn a_state_key_orders_tied_constraints_of_every_kind_by_their_numbered_variables() {
+        let request = RequestNames::default();
+        let element = |name: &str| Term::variable(variable(name));
+        let equals = |key: &str, value: &str| Predicate::Equals(element(key), element(value));
+        let map = Arc::new(MapDefinition {
+            symbols: CollectionSymbols {
+                unit: "unit".into(),
+                element: "element".into(),
+                concat: "concat".into(),
+            },
+            key_sort: "SortS".into(),
+            value_sort: "SortS".into(),
+            map_sort: "SortMap".into(),
+        });
+        type Wrap<'a> = &'a dyn Fn(&str, &str) -> Predicate;
+        let wrappers: [(&str, Wrap<'_>); 9] = [
+            ("in", &|key, value| {
+                Predicate::In(element(key), element(value))
+            }),
+            ("floor", &|key, value| {
+                Predicate::Floor(go(vec![element(key), element(value)]))
+            }),
+            ("or", &|key, value| {
+                Predicate::Or(vec![equals(key, value), Predicate::False])
+            }),
+            ("and", &|key, value| {
+                Predicate::And(vec![Predicate::True, equals(key, value)])
+            }),
+            ("not", &|key, value| {
+                Predicate::Not(Box::new(equals(key, value)))
+            }),
+            ("implies", &|key, value| {
+                Predicate::Implies(Box::new(Predicate::True), Box::new(equals(key, value)))
+            }),
+            ("iff", &|key, value| {
+                Predicate::Iff(Box::new(equals(key, value)), Box::new(Predicate::False))
+            }),
+            ("forall", &|key, value| {
+                let bound = value.replace('V', "W");
+                Predicate::Forall(
+                    variable(&bound),
+                    Box::new(Predicate::Or(vec![
+                        equals(key, value),
+                        Predicate::Ceil(element(&bound)),
+                    ])),
+                )
+            }),
+            ("absent", &|key, value| {
+                Absence::predicate(
+                    KeyedCollection::Map(map.clone()),
+                    element(key),
+                    Term::variable(Variable::new(value, Sort::simple("SortMap"))),
+                )
+            }),
+        ];
+        let list = Arc::new(ListDefinition {
+            symbols: CollectionSymbols {
+                unit: "listUnit".into(),
+                element: "listElement".into(),
+                concat: "listConcat".into(),
+            },
+            element_sort: "SortS".into(),
+            list_sort: "SortList".into(),
+        });
+        for (kind, wrap) in wrappers {
+            let key = |keys: [&str; 4], values: [&str; 4], reversed: bool| {
+                let mut constraints = keys
+                    .iter()
+                    .zip(values)
+                    .map(|(key, value)| wrap(key, value))
+                    .collect::<Vec<_>>();
+                if reversed {
+                    constraints.reverse();
+                    constraints.iter_mut().for_each(reverse_operands);
+                }
+                let elements = keys.iter().map(|key| element(key)).collect();
+                request.state_key(&Pattern {
+                    term: go(vec![Term::list(list.clone(), elements, None)]),
+                    constraints,
+                })
+            };
+            let keys = ["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9"];
+            let values = ["Ex#V!1", "Ex#V!4", "Ex#V!7", "Ex#V!10"];
+            assert_eq!(
+                key(keys, values, false),
+                key(
+                    ["Ex#K!12", "Ex#K!2", "Ex#K!5", "Ex#K!8"],
+                    ["Ex#V!11", "Ex#V!14", "Ex#V!13", "Ex#V!3"],
+                    true
+                ),
+                "{kind}"
+            );
+            assert_ne!(
+                key(keys, values, false),
+                key(keys, ["Ex#V!1", "Ex#V!1", "Ex#V!7", "Ex#V!10"], false),
+                "{kind}"
+            );
+        }
     }
 
     /// A solution's key renames the variables the request does not name in the bound values
