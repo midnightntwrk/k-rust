@@ -3216,7 +3216,11 @@ print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
         serde_json::json!(["krust-kompiled/definition.kore"]),
         "{probes}"
     );
-    assert_eq!(probes["haskell"]["copy"], serde_json::Value::Null, "{probes}");
+    assert_eq!(
+        probes["haskell"]["copy"],
+        serde_json::Value::Null,
+        "{probes}"
+    );
     assert_eq!(
         probes["haskell"]["steps"],
         serde_json::json!([

@@ -555,6 +555,10 @@ fn emitted_kore_matches_the_reference_frontend() {
         "constructor-family axioms of overload-greaters without no-confusion dropped (N34): \
          {dropped}"
     );
+    let projections = normalize_derived_projection_totality(&mut reference);
+    println!("field-projection totality derived from the reference's axioms (N43): {projections}");
+    let lambdas = normalize_unsupported_lambda_totality(&mut reference);
+    println!("lambda totality the reference's equations do not support withdrawn (N44): {lambdas}");
     compare_definitions(reference, actual);
 }
 
@@ -1374,6 +1378,496 @@ fn functional_axiom_symbol(sentence: &Sentence) -> Option<&str> {
         return None;
     }
     Some(&symbol.name)
+}
+
+/// The conjuncts of a nested `\and`, without its `\top` units.
+fn conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
+    match pattern {
+        Pattern::And { arguments, .. } => arguments.iter().flat_map(conjuncts).collect(),
+        Pattern::Top { .. } => Vec::new(),
+        _ => vec![pattern],
+    }
+}
+
+/// One function equation `\implies(\and(requires, \and(\in(X0, P0), ...)), \equals(f(X0, ...),
+/// \and(rhs, ensures)))` as the frontends emit it: the head, whether `requires` is `\top`, the
+/// argument patterns `P0, ...` in argument order, and the right-hand side.
+struct EmittedEquation<'a> {
+    head: &'a str,
+    unconditional: bool,
+    arguments: Vec<&'a Pattern>,
+    right: &'a Pattern,
+}
+
+fn emitted_equation(sentence: &Sentence) -> Option<EmittedEquation<'_>> {
+    let Sentence::Axiom { pattern, .. } = sentence else {
+        return None;
+    };
+    let Pattern::Implies { left, right, .. } = pattern.as_ref() else {
+        return None;
+    };
+    let Pattern::And {
+        arguments: guard, ..
+    } = left.as_ref()
+    else {
+        return None;
+    };
+    let [requires, bindings] = guard.as_slice() else {
+        return None;
+    };
+    let Pattern::Equals {
+        left: head,
+        right: result,
+        ..
+    } = right.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::Application {
+        symbol,
+        arguments: parameters,
+    } = head.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::And {
+        arguments: result, ..
+    } = result.as_ref()
+    else {
+        return None;
+    };
+    let [right, Pattern::Top { .. }] = result.as_slice() else {
+        return None;
+    };
+    let bindings = conjuncts(bindings);
+    if bindings.len() != parameters.len() {
+        return None;
+    }
+    let mut arguments = Vec::new();
+    for (parameter, binding) in parameters.iter().zip(bindings) {
+        let (Pattern::Variable(parameter), Pattern::In { left, right, .. }) = (parameter, binding)
+        else {
+            return None;
+        };
+        if !matches!(left.as_ref(), Pattern::Variable(bound) if bound == parameter) {
+            return None;
+        }
+        arguments.push(right.as_ref());
+    }
+    Some(EmittedEquation {
+        head: &symbol.name,
+        unconditional: matches!(requires, Pattern::Top { .. }),
+        arguments,
+        right,
+    })
+}
+
+/// Insert the totality claim `functional{}(), total{}()` after `function{}()`, as both frontends
+/// order a claimed function's attributes once source metadata is stripped.
+fn declare_totality_claim(attributes: &mut Attributes) {
+    let position = attributes
+        .0
+        .iter()
+        .position(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == "function" && arguments.is_empty())
+        })
+        .map_or(0, |position| position + 1);
+    for (offset, name) in ["functional", "total"].into_iter().enumerate() {
+        attributes.0.insert(
+            position + offset,
+            Pattern::Application {
+                symbol: Symbol {
+                    name: name.into(),
+                    sort_parameters: Vec::new(),
+                },
+                arguments: Vec::new(),
+            },
+        );
+    }
+}
+
+/// N43: give a reference field projection the totality claim exactly when the reference's own
+/// definition derives it. `project:S:f` (one argument of a sort `S` without parameters) is total
+/// when the reference states (i) the no-junk axiom of `S` with the single alternative
+/// `\exists X0 ... . C(X0, ...)` of a constructor `C`, so every value of `S` is an application of
+/// `C`, and (ii) the unconditional equation `project:S:f(C(Y0, ...)) = Yi` over distinct
+/// variables, which gives each such application the value `Yi`: together `exists T. T =
+/// project:S:f(x)` for every `x`. The port claims exactly this totality (the `SoleGenerator`
+/// evidence); a derivable axiom does not change the definition's models. The declaration gains
+/// `functional{}(), total{}()` and the module the functional axiom; a port that claims totality
+/// the reference cannot derive, or omits a derivable one, still differs. Returns the number of
+/// declarations changed.
+fn normalize_derived_projection_totality(reference: &mut Definition) -> usize {
+    let simple_sort = |sort: &Sort| match sort {
+        Sort::Application { name, arguments } if arguments.is_empty() => Some(name.clone()),
+        Sort::Application { .. } | Sort::Variable(_) => None,
+    };
+    let mut constructors = BTreeSet::new();
+    let mut sole_generator = BTreeMap::<String, (String, usize)>::new();
+    let mut equations = BTreeMap::<String, Vec<(bool, String, Vec<String>, String)>>::new();
+    for sentence in reference
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if has_kore_attribute(attributes, "constructor") => {
+                constructors.insert(symbol.name.clone());
+            }
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } if has_kore_attribute(attributes, "constructor") => {
+                let Pattern::Or { sort, arguments } = pattern.as_ref() else {
+                    continue;
+                };
+                let (Some(sort), [alternative, Pattern::Bottom { .. }]) =
+                    (simple_sort(sort), arguments.as_slice())
+                else {
+                    continue;
+                };
+                let mut bound = Vec::new();
+                let mut body = alternative;
+                while let Pattern::Exists {
+                    variable,
+                    body: inner,
+                    ..
+                } = body
+                {
+                    bound.push(variable.as_ref());
+                    body = inner;
+                }
+                if let Pattern::Application { symbol, arguments } = body
+                    && symbol.sort_parameters.is_empty()
+                    && arguments.len() == bound.len()
+                    && arguments
+                        .iter()
+                        .zip(&bound)
+                        .all(|(argument, bound)| matches!(argument, Pattern::Variable(variable) if variable == *bound))
+                {
+                    sole_generator.insert(sort, (symbol.name.clone(), arguments.len()));
+                }
+            }
+            _ => {
+                let Some(equation) = emitted_equation(sentence) else {
+                    continue;
+                };
+                let [Pattern::Application { symbol, arguments }] = equation.arguments.as_slice()
+                else {
+                    continue;
+                };
+                let variables = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        Pattern::Variable(variable) => Some(variable.name.clone()),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>();
+                let (Some(variables), Pattern::Variable(result)) = (variables, equation.right)
+                else {
+                    continue;
+                };
+                equations
+                    .entry(equation.head.to_owned())
+                    .or_default()
+                    .push((
+                        equation.unconditional,
+                        symbol.name.clone(),
+                        variables,
+                        result.name.clone(),
+                    ));
+            }
+        }
+    }
+    let mut count = 0;
+    for module in &mut reference.modules {
+        let mut axioms = Vec::new();
+        for sentence in &mut module.sentences {
+            let Sentence::SymbolDeclaration {
+                symbol,
+                argument_sorts,
+                result_sort,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let (Some(argument), Some(result)) = (
+                argument_sorts
+                    .first()
+                    .filter(|_| argument_sorts.len() == 1)
+                    .and_then(simple_sort),
+                simple_sort(result_sort),
+            ) else {
+                continue;
+            };
+            if !symbol.name.starts_with("Lblproject'Coln'")
+                || !symbol.sort_parameters.is_empty()
+                || !has_kore_attribute(attributes, "function")
+                || has_kore_attribute(attributes, "functional")
+                || has_kore_attribute(attributes, "total")
+            {
+                continue;
+            }
+            let Some((generator, arity)) = sole_generator.get(&argument) else {
+                continue;
+            };
+            let derived = constructors.contains(generator)
+                && matches!(equations.get(&symbol.name).map(Vec::as_slice),
+                    Some([(true, source, variables, result)])
+                        if source == generator
+                            && variables.len() == *arity
+                            && variables.iter().collect::<BTreeSet<_>>().len() == *arity
+                            && variables.contains(result));
+            if !derived {
+                continue;
+            }
+            declare_totality_claim(attributes);
+            let source = format!(
+                r"[] module M axiom{{R}} \exists{{R}}(Val:{result}{{}}, \equals{{{result}{{}}, R}}(Val:{result}{{}}, {}{{}}(K0:{argument}{{}}))) [functional{{}}()] endmodule []",
+                symbol.name
+            );
+            let mut parsed = parse_definition(&source).expect("functional axiom should parse");
+            axioms.append(&mut parsed.modules[0].sentences);
+            count += 1;
+        }
+        module.sentences.append(&mut axioms);
+    }
+    count
+}
+
+/// N44: withdraw a reference totality claim on a generated `#lambda` symbol that the
+/// reference's own equations do not support. A lambda is the function of one `#fun`/`#let`
+/// rule, and nothing gives a value to an argument that rule does not match. Its claim is
+/// supported only when it has exactly one equation, unconditional, whose every argument
+/// pattern is a variable of the declared parameter sort (it matches every argument) and whose
+/// right-hand side applies no lambda whose claim is withdrawn (least fixed point). Otherwise
+/// `total`, `functional` and the functional axiom are removed. A supported claim stays, so a
+/// port that withholds it still differs, and so does the claim of a lambda whose equations the
+/// definition does not state (a syntax definition). Returns the number of declarations changed.
+fn normalize_unsupported_lambda_totality(reference: &mut Definition) -> usize {
+    let is_lambda = |name: &str| name.starts_with("Lbl'Hash'lambda");
+    let mut parameters = BTreeMap::<String, Vec<Sort>>::new();
+    for sentence in reference
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        if let Sentence::SymbolDeclaration {
+            symbol,
+            argument_sorts,
+            attributes,
+            ..
+        } = sentence
+            && is_lambda(&symbol.name)
+            && (has_kore_attribute(attributes, "total")
+                || has_kore_attribute(attributes, "functional"))
+        {
+            parameters.insert(symbol.name.clone(), argument_sorts.clone());
+        }
+    }
+    let mut equations = BTreeMap::<String, Vec<EmittedEquation<'_>>>::new();
+    for sentence in reference
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        if let Some(equation) = emitted_equation(sentence)
+            && parameters.contains_key(equation.head)
+        {
+            equations
+                .entry(equation.head.to_owned())
+                .or_default()
+                .push(equation);
+        }
+    }
+    let covering = |name: &str| {
+        matches!(equations.get(name).map(Vec::as_slice), Some([equation])
+        if equation.unconditional
+            && equation.arguments.iter().zip(&parameters[name]).all(|(argument, sort)| {
+                matches!(argument, Pattern::Variable(variable) if variable.sort == *sort)
+            }))
+    };
+    // A definition without the lambda's equations (a syntax definition) gives no evidence
+    // either way, and its claim stays compared as written.
+    let mut withdrawn = parameters
+        .keys()
+        .filter(|name| equations.contains_key(*name) && !covering(name))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    loop {
+        let more = parameters
+            .keys()
+            .filter(|name| equations.contains_key(*name) && !withdrawn.contains(*name))
+            .filter(|name| {
+                equations[name.as_str()]
+                    .iter()
+                    .any(|equation| pattern_mentions_any_symbol(equation.right, &withdrawn))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if more.is_empty() {
+            break;
+        }
+        withdrawn.extend(more);
+    }
+    for module in &mut reference.modules {
+        module.sentences.retain(|sentence| {
+            let bare_claim = matches!(sentence, Sentence::Axiom { attributes, .. }
+                if attributes.0.len() == 1 && has_kore_attribute(attributes, "functional"));
+            !(bare_claim
+                && functional_axiom_symbol(sentence).is_some_and(|name| withdrawn.contains(name)))
+        });
+        for sentence in &mut module.sentences {
+            if let Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } = sentence
+                && withdrawn.contains(&symbol.name)
+            {
+                attributes.0.retain(|attribute| {
+                    !matches!(attribute, Pattern::Application { symbol, arguments }
+                        if (symbol.name == "total" || symbol.name == "functional")
+                            && arguments.is_empty())
+                });
+            }
+        }
+    }
+    withdrawn.len()
+}
+
+/// N43 adds the claim and the functional axiom the reference's own no-junk axiom and projection
+/// equation derive (the port's output for `project:FInt:one`), and leaves every projection whose
+/// derivation is missing a premise unchanged.
+#[test]
+fn derived_projection_totality_normalizer_adds_only_derivable_claims() {
+    let definition = |no_junk: &str, requires: &str, result: &str, claim: &str| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortFInt{{}} []
+            symbol LblFInt{{}}(SortInt{{}}, SortInt{{}}) : SortFInt{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblother{{}}() : SortFInt{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lblproject'Coln'FInt'Coln'one{{}}(SortFInt{{}}) : SortInt{{}} [function{{}}(){claim}]
+            axiom{{}} \or{{SortFInt{{}}}}({no_junk}, \bottom{{SortFInt{{}}}}()) [constructor{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}({requires}, \and{{R}}(\in{{SortFInt{{}}, R}}(X0:SortFInt{{}}, LblFInt{{}}(VarK0:SortInt{{}}, VarK1:SortInt{{}})), \top{{R}}())),
+                \equals{{SortInt{{}}, R}}(Lblproject'Coln'FInt'Coln'one{{}}(X0:SortFInt{{}}), \and{{SortInt{{}}}}({result}, \top{{SortInt{{}}}}())))
+                [UNIQUE'Unds'ID{{}}("a")]
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let sole = r"\exists{SortFInt{}}(X0:SortInt{}, \exists{SortFInt{}}(X1:SortInt{}, LblFInt{}(X0:SortInt{}, X1:SortInt{})))";
+    let top = r"\top{R}()";
+    let mut reference = definition(sole, top, "VarK1:SortInt{}", "");
+    assert_eq!(normalize_derived_projection_totality(&mut reference), 1);
+    let mut expected = definition(sole, top, "VarK1:SortInt{}", ", functional{}(), total{}()");
+    expected.modules[0].sentences.append(
+        &mut parse_definition(
+            r"[] module M axiom{R} \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, Lblproject'Coln'FInt'Coln'one{}(K0:SortFInt{}))) [functional{}()] endmodule []",
+        )
+        .unwrap()
+        .modules[0]
+            .sentences,
+    );
+    assert_eq!(reference, expected);
+
+    let two_alternatives = format!(r"\or{{SortFInt{{}}}}({sole}, Lblother{{}}())");
+    for (no_junk, requires, result, claim) in [
+        (two_alternatives.as_str(), top, "VarK1:SortInt{}", ""),
+        (
+            sole,
+            r#"\equals{SortBool{}, R}(VarK1:SortInt{}, \dv{SortBool{}}("true"))"#,
+            "VarK1:SortInt{}",
+            "",
+        ),
+        (sole, top, r#"\dv{SortInt{}}("0")"#, ""),
+        (sole, top, "VarK1:SortInt{}", ", functional{}()"),
+    ] {
+        let mut reference = definition(no_junk, requires, result, claim);
+        let original = reference.clone();
+        assert_eq!(normalize_derived_projection_totality(&mut reference), 0);
+        assert_eq!(reference, original);
+    }
+}
+
+/// N44 withdraws the claims of `#lambdaF__`, whose pattern covers only the Int-injected
+/// expressions (`let-test`), and of `#lambdaG__`, which returns `#lambdaF__` of an arbitrary
+/// argument; the covering `#lambdaH__` keeps its claim and its functional axiom.
+#[test]
+fn unsupported_lambda_totality_normalizer_withdraws_only_uncovered_claims() {
+    let definition = |f: &str, g: &str| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortExp{{}} []
+            symbol inj{{From, To}}(From) : To [sortInjection{{}}()]
+            symbol Lblfoo{{}}(SortExp{{}}) : SortExp{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol Lbl'Hash'lambdaF'UndsUnds'{{}}(SortExp{{}}) : SortExp{{}} [function{{}}(){f}]
+            symbol Lbl'Hash'lambdaG'UndsUnds'{{}}(SortExp{{}}) : SortExp{{}} [function{{}}(){g}]
+            symbol Lbl'Hash'lambdaH'UndsUnds'{{}}(SortExp{{}}) : SortExp{{}} [function{{}}(), functional{{}}(), total{{}}()]
+            axiom{{R}} \exists{{R}}(Val:SortExp{{}}, \equals{{SortExp{{}}, R}}(Val:SortExp{{}}, Lbl'Hash'lambdaH'UndsUnds'{{}}(K0:SortExp{{}}))) [functional{{}}()]
+            {fa}
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, inj{{SortInt{{}}, SortExp{{}}}}(VarB:SortInt{{}})), \top{{R}}())),
+                \equals{{SortExp{{}}, R}}(Lbl'Hash'lambdaF'UndsUnds'{{}}(X0:SortExp{{}}), \and{{SortExp{{}}}}(Lblfoo{{}}(inj{{SortInt{{}}, SortExp{{}}}}(VarB:SortInt{{}})), \top{{SortExp{{}}}}())))
+                [UNIQUE'Unds'ID{{}}("f")]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, VarE:SortExp{{}}), \top{{R}}())),
+                \equals{{SortExp{{}}, R}}(Lbl'Hash'lambdaG'UndsUnds'{{}}(X0:SortExp{{}}), \and{{SortExp{{}}}}(Lbl'Hash'lambdaF'UndsUnds'{{}}(VarE:SortExp{{}}), \top{{SortExp{{}}}}())))
+                [UNIQUE'Unds'ID{{}}("g")]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, VarE:SortExp{{}}), \top{{R}}())),
+                \equals{{SortExp{{}}, R}}(Lbl'Hash'lambdaH'UndsUnds'{{}}(X0:SortExp{{}}), \and{{SortExp{{}}}}(Lblfoo{{}}(VarE:SortExp{{}}), \top{{SortExp{{}}}}())))
+                [UNIQUE'Unds'ID{{}}("h")]
+            endmodule []"#,
+            fa = if f.is_empty() {
+                ""
+            } else {
+                r"axiom{R} \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbl'Hash'lambdaF'UndsUnds'{}(K0:SortExp{}))) [functional{}()]"
+            },
+        ))
+        .unwrap()
+    };
+    let claim = ", functional{}(), total{}()";
+    let mut reference = definition(claim, claim);
+    assert_eq!(normalize_unsupported_lambda_totality(&mut reference), 2);
+    assert_eq!(reference, definition("", ""));
+
+    // Without the equations (a syntax definition) nothing is withdrawn.
+    let mut syntax = definition(claim, claim);
+    syntax.modules[0]
+        .sentences
+        .retain(|sentence| !matches!(sentence, Sentence::Axiom { attributes, .. } if !has_kore_attribute(attributes, "functional")));
+    let original = syntax.clone();
+    assert_eq!(normalize_unsupported_lambda_totality(&mut syntax), 0);
+    assert_eq!(syntax, original);
+
+    // A covering lambda keeps its claim: without the uncovered `#lambdaF__` in its body,
+    // `#lambdaG__` is supported.
+    let mut covered = definition(claim, claim);
+    for sentence in &mut covered.modules[0].sentences {
+        if let Sentence::Axiom { pattern, .. } = sentence {
+            let text = format!("{pattern:?}");
+            if text.contains("lambdaG") && text.contains("Implies") {
+                **pattern = parse_pattern(
+                        r"\implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarE:SortExp{}), \top{R}())),
+                \equals{SortExp{}, R}(Lbl'Hash'lambdaG'UndsUnds'{}(X0:SortExp{}), \and{SortExp{}}(Lblfoo{}(VarE:SortExp{}), \top{SortExp{}}())))",
+                    )
+                    .unwrap();
+            }
+        }
+    }
+    assert_eq!(normalize_unsupported_lambda_totality(&mut covered), 1);
+    assert!(covered.modules[0].sentences.iter().any(|sentence| matches!(sentence,
+        Sentence::SymbolDeclaration { symbol, attributes, .. }
+            if symbol.name == "Lbl'Hash'lambdaG'UndsUnds'" && has_kore_attribute(attributes, "total"))));
 }
 
 /// A value-production head loses its compiler-added marker and optional verifier function;
