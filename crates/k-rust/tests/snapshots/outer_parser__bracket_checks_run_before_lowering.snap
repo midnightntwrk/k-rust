@@ -2,39 +2,7 @@
 source: crates/k-rust/tests/outer_parser.rs
 description: "K source:\n\nmodule BRACKETS\n  syntax Exp ::= \"(\" Int \")\" [bracket]\n             | \"[\" Exp Exp \"]\" [bracket]\n             | \"{\" Exp \"}\" [bracket]\nendmodule\n"
 ---
-[
-    Diagnostic {
-        severity: Error,
-        code: InvalidBracketProduction,
-        message: "bracket productions should have exactly one non-terminal of the same sort as the production.",
-        source: Some(
-            "brackets.k",
-        ),
-        location: Some(
-            Location {
-                start_line: 2,
-                start_column: 18,
-                end_line: 2,
-                end_column: 39,
-            },
-        ),
-        input_addresses: [],
-    },
-    Diagnostic {
-        severity: Error,
-        code: InvalidBracketProduction,
-        message: "bracket productions should have exactly one non-terminal of the same sort as the production.",
-        source: Some(
-            "brackets.k",
-        ),
-        location: Some(
-            Location {
-                start_line: 3,
-                start_column: 16,
-                end_line: 3,
-                end_column: 41,
-            },
-        ),
-        input_addresses: [],
-    },
-]
+error InvalidBracketProduction source Some("brackets.k") @2:18..2:39 inputs []
+  "bracket productions should have exactly one non-terminal of the same sort as the production."
+error InvalidBracketProduction source Some("brackets.k") @3:16..3:41 inputs []
+  "bracket productions should have exactly one non-terminal of the same sort as the production."

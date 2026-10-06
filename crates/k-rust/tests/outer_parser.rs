@@ -32,27 +32,30 @@ fn rejects_leading_zero_numeral_sorts_at_every_outer_sort_position() {
     }
 }
 
-macro_rules! assert_outer_value_snapshot {
-    ($source:expr, $value:expr) => {{
+/// Snapshot `outline`, a text outline of what `source` parses or checks to, under the test's
+/// name, with the source as the snapshot's description.
+macro_rules! assert_outline_snapshot {
+    ($source:expr, $outline:expr) => {{
         let source = $source;
-        let value = $value;
+        let outline: String = $outline;
         insta::with_settings!({
             description => format!("K source:\n\n{source}"),
             omit_expression => true,
             prepend_module_to_snapshot => true,
         }, {
-            insta::assert_debug_snapshot!(value);
+            insta::assert_snapshot!(outline);
         });
     }};
 }
 
+/// A test that `source` parses, with the [`outer_outline`] of its outer AST as the snapshot.
 macro_rules! outer_snapshot {
     ($name:ident, $source:expr) => {
         #[test]
         fn $name() {
             let source = $source;
             let parsed = parse(concat!(stringify!($name), ".k"), source).unwrap();
-            assert_outer_value_snapshot!(source, parsed);
+            assert_outline_snapshot!(source, outer_outline(&parsed));
         }
     };
 }
@@ -1253,7 +1256,10 @@ fn list_declaration_checks_match_the_frontend_categories() {
     "#};
     let parsed = parse("lists.k", source).unwrap();
 
-    assert_outer_value_snapshot!(source, check_list_declarations(&parsed));
+    assert_outline_snapshot!(
+        source,
+        diagnostics_outline(&check_list_declarations(&parsed))
+    );
 }
 
 #[test]
@@ -1267,7 +1273,7 @@ fn comments_and_escaped_literals_are_lexed_without_losing_spans() {
     "#};
     let parsed = parse("trivia.k", source).unwrap();
 
-    assert_outer_value_snapshot!(source, parsed);
+    assert_outline_snapshot!(source, outer_outline(&parsed));
 }
 
 #[test]
@@ -1740,6 +1746,38 @@ fn lowered_attributes(out: &mut String, indent: &str, attributes: &k_rust::defin
     }
 }
 
+/// A line per diagnostic that names each field it prints, in the style of [`outer_outline`]:
+/// a field added to `Diagnostic` leaves it unchanged until the field is printed here. The
+/// severity and the code print their stable public spellings.
+fn diagnostics_outline(diagnostics: &[k_rust::diagnostic::Diagnostic]) -> String {
+    let mut out = String::new();
+    for diagnostic in diagnostics {
+        let location = match &diagnostic.location {
+            None => "no location".to_owned(),
+            Some(location) => format!(
+                "@{}:{}..{}:{}",
+                location.start_line, location.start_column, location.end_line, location.end_column
+            ),
+        };
+        let inputs = diagnostic
+            .input_addresses
+            .iter()
+            .map(|address| format!("{:?} {} #{}", address.input, address.module, address.index))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            out,
+            "{} {} source {:?} {location} inputs [{inputs}]\n  {:?}",
+            diagnostic.severity.as_str(),
+            diagnostic.code.as_str(),
+            diagnostic.source,
+            diagnostic.message
+        )
+        .unwrap();
+    }
+    out
+}
+
 #[test]
 fn bracket_checks_run_before_lowering() {
     let source = indoc! {r#"
@@ -1752,7 +1790,7 @@ fn bracket_checks_run_before_lowering() {
     let parsed = parse("brackets.k", source).unwrap();
 
     let diagnostics = check_brackets(&parsed);
-    assert_outer_value_snapshot!(source, diagnostics);
+    assert_outline_snapshot!(source, diagnostics_outline(&diagnostics));
     assert!(lower(&parsed, "BRACKETS").is_err());
 }
 

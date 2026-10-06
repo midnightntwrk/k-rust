@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
 use indoc::indoc;
-use k_rust::definition::{Location, ProductionItem, Sentence};
+use k_rust::definition::{Location, ProductionItem, ResolveError, Sentence};
 use k_rust::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
 };
 use k_rust::inner::{ConfigError, NoParseInput, ParseError};
 use k_rust::kast::TermSpan;
 use k_rust::outer::{
-    LoadError, LoadOptions, ResolvedSource, load, load_for_compilation, load_with_options,
-    load_with_prepared_base, prepared_module_declarations,
+    LoadError, LoadOptions, Position, ResolvedSource, Span, load, load_for_compilation,
+    load_with_options, load_with_prepared_base, prepared_module_declarations,
 };
 use k_rust::provenance::SourceId;
 use proptest::prelude::*;
@@ -1082,39 +1082,60 @@ fn imports_default_configuration_into_distinct_configuration_module() {
     );
 }
 
-macro_rules! load_error_snapshot {
-    ($name:ident, $entry:expr, $sources:expr, $main:expr) => {
-        #[test]
-        fn $name() {
-            let entry = $entry;
-            let main = $main;
-            let sources: BTreeMap<&str, &str> = BTreeMap::from($sources);
-            let mut resolver = |_: &str, required: &str| {
-                sources
-                    .get(required)
-                    .map(|text| ResolvedSource::new(required, *text))
-                    .ok_or_else(|| format!("{required} was not found"))
-            };
-            let error = load(ResolvedSource::new("main.k", entry), main, &mut resolver).unwrap_err();
-            insta::with_settings!({
-                description => format!(
-                    "main.k:\n\n{entry}\n\nRequired sources:\n\n{sources:#?}\n\nMain module: {main}"
-                ),
-                omit_expression => true,
-                prepend_module_to_snapshot => true,
-            }, {
-                insta::assert_debug_snapshot!(error);
-            });
-        }
+/// The error of loading `entry` as `main.k` with main module `main`, where `requires` resolves
+/// a name of `sources` to its text and reports any other name as `NAME was not found`.
+fn load_error<const N: usize>(entry: &str, sources: [(&str, &str); N], main: &str) -> LoadError {
+    let sources = BTreeMap::from(sources);
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| format!("{required} was not found"))
     };
+    load(ResolvedSource::new("main.k", entry), main, &mut resolver).unwrap_err()
 }
 
-load_error_snapshot!(
-    missing_required_source,
-    "requires \"missing.k\"",
-    [],
-    "MAIN"
-);
+/// A `requires` that the resolver cannot resolve is an error naming the requiring source, the
+/// required name, the span of the `requires` sentence and the resolver's message.
+#[test]
+fn missing_required_source() {
+    let entry = "requires \"missing.k\"";
+    let error = load_error(entry, [], "MAIN");
+
+    assert_eq!(
+        error.to_string(),
+        "could not resolve \"missing.k\" required by \"main.k\": missing.k was not found"
+    );
+    let LoadError::ResolveRequire {
+        source,
+        required,
+        span,
+        message,
+    } = error
+    else {
+        panic!("expected an unresolved require, got {error:?}")
+    };
+    assert_eq!(source, "main.k");
+    assert_eq!(required, "missing.k");
+    // The whole sentence, which is the whole one-line entry.
+    assert_eq!(
+        span,
+        Span {
+            start: Position {
+                offset: 0,
+                line: 1,
+                column: 1,
+            },
+            end: Position {
+                offset: entry.len(),
+                line: 1,
+                column: 21,
+            },
+        }
+    );
+    assert_eq!(entry.len(), 20);
+    assert_eq!(message, "missing.k was not found");
+}
 
 #[test]
 fn deduplicates_mutual_requires_cycles_dependency_first() {
@@ -1161,29 +1182,63 @@ fn deduplicates_mutual_requires_cycles_dependency_first() {
     );
 }
 
-load_error_snapshot!(
-    duplicate_modules_across_sources,
-    indoc! {r#"
-        requires "other.k"
-        module SAME endmodule
-    "#},
-    [("other.k", "module SAME endmodule")],
-    "SAME"
-);
+/// A module name declared by two sources is an error naming the module and both sources, the
+/// required source first.
+#[test]
+fn duplicate_modules_across_sources() {
+    let error = load_error(
+        indoc! {r#"
+            requires "other.k"
+            module SAME endmodule
+        "#},
+        [("other.k", "module SAME endmodule")],
+        "SAME",
+    );
 
-load_error_snapshot!(
-    missing_main_module,
-    "module PRESENT endmodule",
-    [],
-    "MISSING"
-);
+    assert_eq!(
+        error.to_string(),
+        "module \"SAME\" is declared by both \"other.k\" and \"main.k\""
+    );
+    assert_eq!(
+        error,
+        LoadError::DuplicateModule {
+            name: "SAME".to_owned(),
+            first_source: "other.k".to_owned(),
+            second_source: "main.k".to_owned(),
+        }
+    );
+}
 
-load_error_snapshot!(
-    missing_imported_module,
-    "module MAIN imports ABSENT endmodule",
-    [],
-    "MAIN"
-);
+/// A main module that no loaded source declares is a resolution error naming it.
+#[test]
+fn missing_main_module() {
+    let error = load_error("module PRESENT endmodule", [], "MISSING");
+
+    assert_eq!(error.to_string(), "main module \"MISSING\" was not found");
+    assert_eq!(
+        error,
+        LoadError::DefinitionResolution(ResolveError::MissingMainModule("MISSING".to_owned()))
+    );
+}
+
+/// An import of a module that no loaded source declares is a resolution error naming the
+/// importing and the imported module.
+#[test]
+fn missing_imported_module() {
+    let error = load_error("module MAIN imports ABSENT endmodule", [], "MAIN");
+
+    assert_eq!(
+        error.to_string(),
+        "module \"MAIN\" imports missing module \"ABSENT\""
+    );
+    assert_eq!(
+        error,
+        LoadError::DefinitionResolution(ResolveError::MissingImport {
+            module: "MAIN".to_owned(),
+            import: "ABSENT".to_owned(),
+        })
+    );
+}
 
 /// A configuration bubble that does not scan is a configuration parse error of its module and
 /// source file, located at the first character the scanner cannot read rather than at the whole
@@ -1276,14 +1331,40 @@ fn source_checks_precede_import_resolution() {
     "#};
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
     let error = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap_err();
-    assert!(matches!(error, LoadError::SourceDiagnostics(_)));
-    insta::with_settings!({
-        description => format!("main.k:\n\n{source}"),
-        omit_expression => true,
-        prepend_module_to_snapshot => true,
-    }, {
-        insta::assert_debug_snapshot!(error);
-    });
+
+    assert_eq!(error.to_string(), "outer source checks produced 1 errors");
+    let LoadError::SourceDiagnostics(diagnostics) = error else {
+        panic!("expected source diagnostics, got {error:?}")
+    };
+    let [diagnostic] = diagnostics.as_slice() else {
+        panic!("expected one diagnostic, got {diagnostics:?}")
+    };
+    let Diagnostic {
+        severity,
+        code,
+        message,
+        source,
+        location,
+        input_addresses,
+    } = diagnostic;
+    assert_eq!(*severity, Severity::Error);
+    assert_eq!(*code, DiagnosticCode::InvalidBracketProduction);
+    assert_eq!(
+        message,
+        "bracket productions should have exactly one non-terminal of the same sort as the production."
+    );
+    assert_eq!(source.as_deref(), Some("main.k"));
+    // The production `"(" Int ")" [bracket]`, from its first terminal to its attribute list.
+    assert_eq!(
+        *location,
+        Some(Location {
+            start_line: 2,
+            start_column: 18,
+            end_line: 2,
+            end_column: 39,
+        })
+    );
+    assert!(input_addresses.is_empty(), "{input_addresses:?}");
 }
 
 #[test]
