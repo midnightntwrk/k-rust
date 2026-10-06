@@ -117,6 +117,9 @@ pub enum UnsupportedHookReason {
     /// term that denotes that value, and it is not an unsupported-hook error on constructor-like
     /// arguments: the bound is a resource limit, not a missing implementation, and an error
     /// would fail runs that never use the value.
+    ///
+    /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
+    /// so the simplifier takes the application's `\ceil` to hold.
     ResultTooLarge {
         detail: String,
     },

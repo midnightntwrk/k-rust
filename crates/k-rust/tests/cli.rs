@@ -4044,8 +4044,10 @@ endmodule
     };
 
     let (stdout, stderr) = run("unused");
+    // The dropped `^Int` application is defined, so no definedness condition remains.
     assert!(
-        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#),
+        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#)
+            && !stdout.contains("\\ceil"),
         "{stdout}"
     );
     assert!(warned(&stderr, "INT.pow"), "{stderr}");

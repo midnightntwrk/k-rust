@@ -921,14 +921,28 @@ fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
             term(&definition, r#"\dv{SortBool{}}("false")"#),
             "{hook}"
         );
-        // The dropped conjunct keeps the definedness obligation of a partial hook's application
-        // (`^Int`), which holds; a `total` hook's (`<<Int`) has none.
+        // Term simplification keeps the dropped conjunct's definedness obligation: the
+        // `\ceil` of the partial `^Int` application (the total `<<Int` has none).
         let obligations = if hook == "INT.pow" {
-            vec![Predicate::Ceil(input)]
+            vec![Predicate::Ceil(input.clone())]
         } else {
             Vec::new()
         };
         assert_eq!(result.constraints(), obligations.as_slice(), "{hook}");
+        // The obligation holds: a result above the bound is reported only where the hook has
+        // a value, so predicate simplification discharges the application's `\ceil`.
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Ceil(input),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("a result above the bound is not an error"),
+            Predicate::True,
+            "{hook}"
+        );
     }
 }
 

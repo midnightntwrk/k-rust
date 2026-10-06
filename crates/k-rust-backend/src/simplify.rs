@@ -1588,7 +1588,11 @@ fn simplify_predicate_with_budget(
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
-                with_simplification_constraints(simplified.conditions.into_predicates(), unchanged)
+                let defined = result_above_the_size_bound(definition, &simplified.term)?;
+                with_simplification_constraints(
+                    simplified.conditions.into_predicates(),
+                    if defined { Predicate::True } else { unchanged },
+                )
             } else {
                 // The expansion supplies the definedness of the subterms as sibling conjuncts,
                 // and a conditional ceil equation on the parent is decided under them only by
@@ -1877,6 +1881,33 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
 /// `\ceil`, and `\in` arms of `simplify_predicate_with_budget` are strict and call this
 /// unconditionally; the `\equals` arm calls it only for a side whose other side is provably
 /// defined (`term_is_provably_defined`), and the `\floor` arm never does.
+/// Whether `term` is a hooked application, on constructor-like arguments, whose result the
+/// hook's evaluator declines as above a result size bound. An evaluator reports
+/// `ResultTooLarge` only where the hook has a value, so such an application is defined: its
+/// `\ceil` holds although the value is not computed.
+fn result_above_the_size_bound(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> SimplifyResult<bool> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(false);
+    };
+    if symbol.attributes.hook.is_none()
+        || !arguments
+            .iter()
+            .all(|argument| argument.attributes().constructor_like)
+    {
+        return Ok(false);
+    }
+    Ok(matches!(
+        evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)?,
+        BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+    ))
+}
+
 fn with_simplification_constraints(
     mut constraints: Vec<Predicate>,
     predicate: Predicate,
