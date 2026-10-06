@@ -758,8 +758,19 @@ fn replace_string(
     } else {
         usize::MAX
     };
-    if needle.is_empty() || count == 0 {
+    if count == 0 {
         return Ok(Value::String(remaining));
+    }
+    if needle.is_empty() {
+        // `domains.md` defines `replace` by finding the needle from index 0 and recursing on the
+        // rest of the haystack after it. An empty needle is found at 0 and leaves the whole
+        // haystack as the rest, so `replace` and `replaceFirst` put `count` copies of the
+        // replacement in front. `replaceAll` first counts the occurrences, a recursion that
+        // does not terminate for an empty needle; it keeps the haystack unchanged.
+        if count_index.is_none() && !first {
+            return Ok(Value::String(remaining));
+        }
+        return Ok(Value::String(replacement.repeat(count) + &remaining));
     }
     let mut out = String::new();
     // Invariant: `out` holds the input before `remaining` with every occurrence of `needle` found so far replaced by `replacement`; each iteration consumes one occurrence, and at most `count` iterations run.
@@ -859,6 +870,32 @@ mod tests {
         assert_eq!(found("ab", "b", 2), int(1));
         assert_eq!(found("ab", "b", 0), int(-1));
         assert_eq!(found("aba", "ab", 1), int(1));
+    }
+
+    /// An empty needle occurs at index 0 with the whole haystack after it, so each replacement
+    /// `replace` and `replaceFirst` make goes in front.
+    #[test]
+    fn replacing_an_empty_needle_prepends_the_replacement() {
+        let replaced =
+            |values: &[Value], count_index, first| match replace_string(values, count_index, first)
+            {
+                Ok(Value::String(text)) => text,
+                other => panic!("{values:?} gave {other:?}"),
+            };
+        let text = |value: &str| Value::String(value.into());
+        let arguments = |count| [text("ab"), text(""), text("x"), Value::Int(int(count))];
+        assert_eq!(replaced(&arguments(1), None, true), "xab");
+        assert_eq!(replaced(&arguments(0), Some(3), false), "ab");
+        assert_eq!(replaced(&arguments(3), Some(3), false), "xxxab");
+        assert_eq!(replaced(&arguments(2), None, false), "ab");
+        assert_eq!(
+            replaced(
+                &[text("abab"), text("b"), text("x"), Value::Int(int(1))],
+                Some(3),
+                false
+            ),
+            "axab"
+        );
     }
 
     /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
