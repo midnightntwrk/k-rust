@@ -1,17 +1,17 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
-//! lean = ["KRust.TermAttributes.ceilFree_sound"]
+//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.walk_eq_ceilTerm"]
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -23,9 +23,9 @@
 //! ```
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
-//! pass over the term, which stops at subterms whose construction-time `ceil_free` attribute is
-//! true, plus pairwise apartness checks over map keys and set elements, with `FxHashSet`
-//! deduplication; no counter, no worklist loop.
+//! pass over the term, a loop over an explicit work list that skips subterms whose
+//! construction-time `ceil_free` attribute is true, plus pairwise apartness checks over map keys
+//! and set elements, with one `FxHashSet` deduplication of the whole list; no counter.
 
 use std::{borrow::Cow, collections::HashSet};
 
@@ -70,97 +70,187 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
     requires.is_empty() && rhs.is_empty()
 }
 
+/// The definedness obligations of `term`, deduplicated: the ceil of every partial application
+/// (or the instance of its ceil equation), the ceil of every set variable, and the disequalities
+/// and not-in atoms of every map and set, in the order [`ceil_term_walk`] gives.
 pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
     let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
-    ceil_term_recursive(definition, term)
-}
-
-/// `ceil_term` below the span: returns at once on a `ceil_free` term.
-///
-/// Sound because `ceil_free` (term.rs) is true only when `ceil_term_node` would return no
-/// predicate for the term under every definition: `lean/KRust/TermAttributes.lean` proves it
-/// (`ceilFree_sound`) for the model of `ceil_term_node` and of the attribute, from the constructor
-/// invariants that `tests/backend/term_order.rs` checks. The attribute depends only on the term,
-/// never on the definition, so one stored bit serves every definition a process holds. In debug
-/// builds the walk that never reads the attribute is recomputed wherever the shortcut is taken.
-fn ceil_term_recursive(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
-    if term.attributes().ceil_free() {
-        debug_assert!(
-            ceil_term_without_attribute(definition, term).is_empty(),
-            "a ceil_free term has definedness obligations: {term:?}"
-        );
-        return Vec::new();
-    }
-    ceil_term_node(definition, term, ceil_term_recursive)
+    ceil_term_walk(definition, term, AtCeilFree::Skip)
 }
 
 /// The definedness walk without the `ceil_free` shortcut at any depth: the reference the
-/// shortcut is checked against (the `debug_assert!` above and `tests::definedness`).
+/// shortcut is checked against (`tests::definedness`).
+#[cfg(test)]
 pub(crate) fn ceil_term_without_attribute(
     definition: &BackendDefinition,
     term: &Term,
 ) -> Vec<Predicate> {
-    ceil_term_node(definition, term, ceil_term_without_attribute)
+    ceil_term_walk(definition, term, AtCeilFree::Descend)
 }
 
-/// One node of the definedness walk; `recurse` computes the children's predicates.
-fn ceil_term_node(
+/// What [`ceil_term_walk`] does at a subterm whose stored `ceil_free` attribute is true.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AtCeilFree {
+    /// Skip it: it has no obligation.
+    Skip,
+    /// Walk it as any other subterm.
+    #[cfg(test)]
+    Descend,
+}
+
+/// An entry of the work list of [`ceil_term_walk`].
+enum Pending<'a> {
+    /// A subterm whose obligations come next.
+    Term(&'a Term),
+    /// Obligations of a node that follow those of its children: the collection obligations of a
+    /// map or set.
+    Obligations(Vec<Predicate>),
+}
+
+/// The definedness obligations of `term`, computed by one loop over a work list.
+///
+/// The list is that of every node in pre-order: first the node's own obligations (the ceil of a
+/// partial application or the instance of its ceil equation, the ceil of a set variable), then
+/// its children's, left to right, then its collection obligations; it is deduplicated once at
+/// the end, keeping the first occurrence of each member. A list deduplicated at every node gives
+/// the same result, since keeping first occurrences absorbs a deduplication of a part of the list
+/// (a member removed inside the part has an earlier copy in it): `walk_eq_ceilTerm` of
+/// `lean/KRust/TermAttributes.lean` proves it for the model of this walk (`walk`), from that
+/// absorption law, which `tests::deduplicate_absorbs_a_deduplicated_part` checks.
+///
+/// The pending subterms and obligations are kept on the heap, so the walk takes the same native
+/// stack whatever the height of the term. It runs on instantiated right-hand sides and bound
+/// values of any height, including from the simplifier close to its stack red zone
+/// (`stop::STACK_RED_ZONE`), which a recursion over the term would overrun.
+///
+/// With [`AtCeilFree::Skip`] a subterm whose `ceil_free` attribute is true is skipped. Sound
+/// because `ceil_free` (term.rs) is true only when the walk finds no obligation in the subterm
+/// under every definition: `lean/KRust/TermAttributes.lean` proves it (`ceilFree_sound`) for the
+/// model of the walk and of the attribute, from the constructor invariants that
+/// `tests/backend/term_order.rs` checks. The attribute depends only on the term, never on the
+/// definition, so one stored bit serves every definition a process holds. In debug builds
+/// [`check_ceil_free`] verifies every skipped subterm.
+fn ceil_term_walk(
     definition: &BackendDefinition,
     term: &Term,
-    recurse: fn(&BackendDefinition, &Term) -> Vec<Predicate>,
+    at_ceil_free: AtCeilFree,
 ) -> Vec<Predicate> {
-    let mut predicates = match term.kind() {
+    let mut predicates = Vec::new();
+    let mut children = Vec::new();
+    let mut work = vec![Pending::Term(term)];
+    while let Some(pending) = work.pop() {
+        let term = match pending {
+            Pending::Term(term) => term,
+            Pending::Obligations(obligations) => {
+                predicates.extend(obligations);
+                continue;
+            }
+        };
+        if at_ceil_free == AtCeilFree::Skip && term.attributes().ceil_free() {
+            #[cfg(debug_assertions)]
+            check_ceil_free(definition, term);
+            continue;
+        }
+        let after = ceil_term_node(definition, term, &mut predicates, &mut children);
+        if !after.is_empty() {
+            work.push(Pending::Obligations(after));
+        }
+        // Reversed, so that the first child is the next entry taken.
+        work.extend(children.drain(..).rev().map(Pending::Term));
+    }
+    deduplicate(&mut predicates);
+    predicates
+}
+
+/// Debug builds: verify the `ceil_free` shortcut on `term`, a subterm [`ceil_term_walk`] skips.
+///
+/// The walk without the shortcut returns nothing for `term` exactly when no node of `term` has
+/// an obligation of its own, since its result is the deduplicated list of all of them. So this
+/// asserts that of every node, and once all of them passed marks them
+/// (`Term::mark_ceil_free_checked`). A marked node and every node below it passed already, so the
+/// check does not walk it again: each node is walked by the check once, and a descent that skips
+/// the same subterm at every level (a list a recursive equation consumes) stays linear. A node is
+/// not checked again under another definition: the attribute is a function of the term, and
+/// `ceilFree_sound` holds for every definition.
+#[cfg(debug_assertions)]
+fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
+    if term.ceil_free_checked() {
+        return;
+    }
+    let mut obligations = Vec::new();
+    let mut children = Vec::new();
+    let mut unchecked = vec![term];
+    let mut passed = Vec::new();
+    while let Some(node) = unchecked.pop() {
+        if node.ceil_free_checked() {
+            continue;
+        }
+        let after = ceil_term_node(definition, node, &mut obligations, &mut children);
+        assert!(
+            obligations.is_empty() && after.is_empty(),
+            "a ceil_free term has definedness obligations: {term:?}"
+        );
+        unchecked.append(&mut children);
+        passed.push(node);
+    }
+    for node in passed {
+        node.mark_ceil_free_checked();
+    }
+}
+
+/// One node of the definedness walk: appends the node's own obligations to `before` and its
+/// children, left to right, to `children`, and returns the obligations that follow the
+/// children's.
+fn ceil_term_node<'a>(
+    definition: &BackendDefinition,
+    term: &'a Term,
+    before: &mut Vec<Predicate>,
+    children: &mut Vec<&'a Term>,
+) -> Vec<Predicate> {
+    match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
-        } if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) => {
-            let mut predicates = apply_ceil_equation(definition, term)
-                .unwrap_or_else(|| vec![Predicate::Ceil(term.clone())]);
+        } => {
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+                before.extend(
+                    apply_ceil_equation(definition, term)
+                        .unwrap_or_else(|| vec![Predicate::Ceil(term.clone())]),
+                );
+            }
             // Applications are strict in their arguments. Keep this knowledge explicit
             // even when the parent's ceil is opaque to predicate simplification and SMT.
-            for argument in arguments {
-                predicates.extend(recurse(definition, argument));
-            }
-            predicates
+            children.extend(arguments);
+            Vec::new()
         }
-        TermKind::Application { arguments, .. } => arguments
-            .iter()
-            .flat_map(|argument| recurse(definition, argument))
-            .collect(),
         TermKind::And(left, right) => {
-            let mut predicates = recurse(definition, left);
-            predicates.extend(recurse(definition, right));
-            predicates
+            children.extend([left, right]);
+            Vec::new()
         }
-        TermKind::Injection { term, .. } => recurse(definition, term),
+        TermKind::Injection { term, .. } => {
+            children.push(term);
+            Vec::new()
+        }
         TermKind::Map {
             definition: map,
             entries,
             rest,
         } => {
-            let mut predicates = entries
-                .iter()
-                .flat_map(|(key, value)| {
-                    recurse(definition, key)
-                        .into_iter()
-                        .chain(recurse(definition, value))
-                })
-                .collect::<Vec<_>>();
-            if let Some(rest) = rest {
-                predicates.extend(recurse(definition, rest));
-            }
+            children.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+            children.extend(rest);
+            let mut after = Vec::new();
             for (position, (left, _)) in entries.iter().enumerate() {
                 for (right, _) in &entries[position + 1..] {
                     // R-def: this list states both elements' definedness obligations, so
                     // an apart pair's disequality is implied wherever the list holds.
                     if !elements_are_apart(definition, left, right) {
-                        predicates.push(Predicate::Not(Box::new(Predicate::Equals(
+                        after.push(Predicate::Not(Box::new(Predicate::Equals(
                             left.clone(),
                             right.clone(),
                         ))));
                     }
                 }
                 if let Some(rest) = rest {
-                    predicates.push(not_in_collection(
+                    after.push(not_in_collection(
                         definition,
                         "MAP.in_keys",
                         KeyedCollection::Map(map.clone()),
@@ -169,41 +259,37 @@ fn ceil_term_node(
                     ));
                 }
             }
-            predicates
+            after
         }
-        TermKind::List { heads, rest, .. } => heads
-            .iter()
-            .chain(
-                rest.iter()
-                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
-            )
-            .flat_map(|term| recurse(definition, term))
-            .collect(),
+        TermKind::List { heads, rest, .. } => {
+            children.extend(heads);
+            if let Some((middle, tails)) = rest {
+                children.push(middle);
+                children.extend(tails);
+            }
+            Vec::new()
+        }
         TermKind::Set {
             definition: set,
             elements,
             rest,
         } => {
-            let mut predicates = elements
-                .iter()
-                .flat_map(|element| recurse(definition, element))
-                .collect::<Vec<_>>();
-            if let Some(rest) = rest {
-                predicates.extend(recurse(definition, rest));
-            }
+            children.extend(elements);
+            children.extend(rest);
+            let mut after = Vec::new();
             for (position, left) in elements.iter().enumerate() {
                 for right in &elements[position + 1..] {
                     // R-def: this list states both elements' definedness obligations, so
                     // an apart pair's disequality is implied wherever the list holds.
                     if !elements_are_apart(definition, left, right) {
-                        predicates.push(Predicate::Not(Box::new(Predicate::Equals(
+                        after.push(Predicate::Not(Box::new(Predicate::Equals(
                             left.clone(),
                             right.clone(),
                         ))));
                     }
                 }
                 if let Some(rest) = rest {
-                    predicates.push(not_in_collection(
+                    after.push(not_in_collection(
                         definition,
                         "SET.in",
                         KeyedCollection::Set(set.clone()),
@@ -212,16 +298,17 @@ fn ceil_term_node(
                     ));
                 }
             }
-            predicates
+            after
         }
         TermKind::DomainValue { .. } => Vec::new(),
         // KORE element variables range over elements and are therefore defined. Set variables
         // range over arbitrary patterns, so their definedness remains an explicit obligation.
         TermKind::Variable(variable) if variable.kind == VariableKind::Element => Vec::new(),
-        TermKind::Variable(_) => vec![Predicate::Ceil(term.clone())],
-    };
-    deduplicate(&mut predicates);
-    predicates
+        TermKind::Variable(_) => {
+            before.push(Predicate::Ceil(term.clone()));
+            Vec::new()
+        }
+    }
 }
 
 /// Apartness (A): no value of one term is a value of the other on any valuation.
@@ -591,7 +678,7 @@ fn hoist_condition_definedness(
         );
     }
     if let Some(term) = condition_atom_term(definition, predicate, known) {
-        obligations.extend(ceil_term_recursive(definition, term));
+        obligations.extend(ceil_term_walk(definition, term, AtCeilFree::Skip));
         return predicate.clone();
     }
     nested_condition_definedness(definition, predicate, known)
@@ -617,7 +704,7 @@ fn nested_condition_definedness(
             let Some(term) = condition_atom_term(definition, predicate, known) else {
                 return predicate.clone();
             };
-            let mut conjuncts = ceil_term_recursive(definition, term);
+            let mut conjuncts = ceil_term_walk(definition, term, AtCeilFree::Skip);
             conjuncts.retain(|obligation| !known.contains(obligation));
             if conjuncts.is_empty() {
                 return predicate.clone();
@@ -766,8 +853,8 @@ mod tests {
     }
 
     /// The hypothesis `Oracles.dedup_nil` of lean/KRust/TermAttributes.lean: `deduplicate`
-    /// leaves an empty vector empty, so an arm of `ceil_term_recursive` whose parts are all empty
-    /// returns the empty vector.
+    /// leaves an empty vector empty, so an arm of the model `ceilTerm` whose parts are all empty,
+    /// and `ceil_term_walk` when it emits no obligation, return the empty vector.
     #[test]
     fn deduplicate_keeps_an_empty_vector_empty() {
         let mut predicates = Vec::new();
@@ -775,6 +862,158 @@ mod tests {
         deduplicate(&mut predicates);
 
         assert_eq!(predicates, Vec::<Predicate>::new());
+    }
+
+    /// The hypothesis `DedupAbsorbs` of `walk_eq_ceilTerm` (lean/KRust/TermAttributes.lean):
+    /// deduplicating a part of a list first changes nothing, for every split of every list of up
+    /// to six members over three predicates.
+    #[test]
+    fn deduplicate_absorbs_a_deduplicated_part() {
+        let sort = Sort::simple("SortS");
+        let alphabet = ["X", "Y", "Z"].map(|name| {
+            Predicate::Ceil(Term::variable(crate::term::Variable::new(
+                name,
+                sort.clone(),
+            )))
+        });
+        let alphabet = &alphabet;
+        let lists = |length: usize| {
+            (0..alphabet.len().pow(length as u32)).map(move |mut code| {
+                (0..length)
+                    .map(|_| {
+                        let member = alphabet[code % alphabet.len()].clone();
+                        code /= alphabet.len();
+                        member
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+        let deduplicated = |mut predicates: Vec<Predicate>| {
+            deduplicate(&mut predicates);
+            predicates
+        };
+        let mut cases = 0;
+        for length in 0..=6 {
+            for list in lists(length) {
+                for start in 0..=length {
+                    for end in start..=length {
+                        let (before, rest) = list.split_at(start);
+                        let (part, after) = rest.split_at(end - start);
+                        let absorbed = [before, &deduplicated(part.to_vec()), after].concat();
+                        assert_eq!(
+                            deduplicated(absorbed),
+                            deduplicated(list.clone()),
+                            "{before:?} {part:?} {after:?}"
+                        );
+                        cases += 1;
+                    }
+                }
+            }
+        }
+        assert!(cases > 10_000, "{cases}");
+    }
+
+    /// The definedness walk keeps its pending subterms on the heap, so it finds the obligations
+    /// of a term of any height on a small stack: here chains of 20,000 applications on a
+    /// 256 KiB thread, where a recursion per level overflowed in every build. `partial` emits
+    /// its ceil at every level, in pre-order; `wrap` is total, so its chain is `ceil_free`, which
+    /// `ceil_term` skips (in debug builds after `check_ceil_free` walked it) and the walk without
+    /// the shortcut walks to the end. The chains are built and dropped on a larger thread, since
+    /// dropping a term recurses over it.
+    #[test]
+    fn deep_terms_have_their_obligations_found_on_a_small_stack() {
+        const LEVELS: usize = 20_000;
+        const SMALL_STACK: usize = 256 * 1024;
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let definition = definition("");
+                let symbol = |name: &str| {
+                    let application = definition
+                        .internalize_term(
+                            &parse_pattern(&format!("{name}{{}}(X:SortS{{}})")).unwrap(),
+                            &[],
+                        )
+                        .unwrap();
+                    let TermKind::Application { symbol, .. } = application.kind() else {
+                        panic!("{name} should be an application");
+                    };
+                    symbol.clone()
+                };
+                let leaf = definition
+                    .internalize_term(&parse_pattern(r#"\dv{SortS{}}("v")"#).unwrap(), &[])
+                    .unwrap();
+                let chain = |name: &str| {
+                    let symbol = symbol(name);
+                    (0..LEVELS).fold(leaf.clone(), |term, _| {
+                        Term::application(symbol.clone(), Vec::new(), vec![term])
+                    })
+                };
+                let partial = chain("partial");
+                let wrap = chain("wrap");
+                assert!(!partial.attributes().ceil_free());
+                assert!(wrap.attributes().ceil_free());
+                let mut expected = Vec::with_capacity(LEVELS);
+                let mut level = &partial;
+                while let TermKind::Application { arguments, .. } = level.kind() {
+                    expected.push(Predicate::Ceil(level.clone()));
+                    level = &arguments[0];
+                }
+                let found = std::thread::scope(|scope| {
+                    std::thread::Builder::new()
+                        .stack_size(SMALL_STACK)
+                        .spawn_scoped(scope, || {
+                            [
+                                ceil_term(&definition, &partial),
+                                ceil_term_without_attribute(&definition, &partial),
+                                ceil_term(&definition, &wrap),
+                                ceil_term_without_attribute(&definition, &wrap),
+                            ]
+                        })
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                });
+                assert_eq!(found[0], expected);
+                assert_eq!(found[1], expected);
+                assert_eq!(found[2], Vec::new());
+                assert_eq!(found[3], Vec::new());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Debug builds: the check of a skipped `ceil_free` subterm marks every node it walked, so a
+    /// later skip of any of them, such as the tail of a list a recursive equation consumes one
+    /// level at a time, does not walk it again; a term built over a checked one is checked only
+    /// down to it.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_ceil_free_check_walks_each_node_once() {
+        let definition = definition("");
+        let wrap = |term: Term| {
+            definition
+                .internalize_term(&parse_pattern("wrap{}(X:SortS{})").unwrap(), &[])
+                .map(|application| {
+                    let TermKind::Application { symbol, .. } = application.kind() else {
+                        panic!("wrap should be an application");
+                    };
+                    Term::application(symbol.clone(), Vec::new(), vec![term])
+                })
+                .unwrap()
+        };
+        let leaf = definition
+            .internalize_term(&parse_pattern(r#"\dv{SortS{}}("v")"#).unwrap(), &[])
+            .unwrap();
+        let inner = wrap(wrap(leaf.clone()));
+        let outer = wrap(inner.clone());
+        assert!(!inner.ceil_free_checked() && !leaf.ceil_free_checked());
+        assert_eq!(ceil_term(&definition, &inner), Vec::new());
+        assert!(inner.ceil_free_checked() && leaf.ceil_free_checked());
+        assert!(!outer.ceil_free_checked());
+        assert_eq!(ceil_term(&definition, &outer), Vec::new());
+        assert!(outer.ceil_free_checked());
     }
 
     fn definition(extra_axioms: &str) -> BackendDefinition {

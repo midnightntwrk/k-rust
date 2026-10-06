@@ -322,12 +322,31 @@ pub fn check() -> Result<(), Stop> {
 /// checks the stack.
 ///
 /// The zone must hold the deepest stretch of the same thread between two checks: the frames of
-/// one level of simplifier recursion (about 2.5 KiB in release builds and 16 KiB in debug builds,
-/// measured on ground function recursion), plus the matching, builtin hooks, and SMT solver call
-/// that run on the thread between two checks. In a debug build a whole simplification of a
-/// conditional equation whose condition Z3 decides takes 62 KiB of stack from its entry, and the
-/// Z3 call on such a condition alone takes 23 KiB (both measured by stack painting); the zone is
-/// twice the whole simplification.
+/// one level of simplifier recursion (at most 3.0 KiB in a release build, 4.0 KiB at opt-level 1
+/// with debug assertions, the `dev` profile, and 17.3 KiB unoptimized: the distance between
+/// consecutive checks along ground function chains `f^N(a)`, `h(…h(a, a)…, a)`, `g(w^N(a))` with
+/// `g(w(X)) = w(g(X))`, and list counts over `cons` that add with `INT.add` once or twice per
+/// level), plus the matching, builtin hooks, and SMT solver call that run on the thread between
+/// two checks. In a debug build a whole simplification of a conditional equation whose condition
+/// Z3 decides takes 62 KiB of stack from its entry, and the Z3 call on such a condition alone
+/// takes 23 KiB (both measured by stack painting); the zone is twice the whole simplification.
+///
+/// So a walk between two checks must not take stack in proportion to the height of a term: the
+/// simplifier reaches the zone with the rest of a deep term still below it whenever its descent
+/// takes more stack per level of the term than `nesting` provides (as an equation's does when its
+/// result nests several function applications for each level of the argument it consumes), and such
+/// a walk would then overrun the zone and abort the process. The walks the simplifier runs on terms
+/// of any height keep their pending work on the heap instead, after a few levels of recursion at
+/// most: definedness (`definedness::ceil_term`), apartness (`Term::apart_with`), `Eq` and `Ord`
+/// for `Term` (eight levels, `RECURSIVE_COMPARISON_LEVELS`), and the `KEQUAL` hook. The zone does not bound walks over the definition's own patterns (matching a
+/// left-hand side, instantiating a right-hand side), which take stack in proportion to the height
+/// of the definition's rules; the translation of a condition for the SMT solver and the solver
+/// itself; hooks other than `KEQUAL` that walk their operands (`SUBSTITUTION`); or the derived
+/// `Clone`, `Hash` and `Eq` of predicates, which a predicate's simplification applies to the rest
+/// of a chain of connectives. Those take the stack `nesting::with_stack` provides for the height of
+/// the operation's patterns, which holds them while the simplifier's descent stays within the
+/// per-level bound there.
+///
 /// The zone is also a floor below which a thread simplifies nothing, so it stays well under the
 /// smallest thread stacks embedders commonly run (512 KiB, the macOS default for secondary
 /// threads). The stack that `nesting` provides for the recursive passes over patterns and

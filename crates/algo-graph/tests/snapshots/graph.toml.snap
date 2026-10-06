@@ -1210,7 +1210,10 @@ no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPa
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinedness"
-lean = ["KRust.TermAttributes.ceilFree_sound"]
+lean = [
+    "KRust.TermAttributes.ceilFree_sound",
+    "KRust.TermAttributes.walk_eq_ceilTerm",
+]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -1240,7 +1243,7 @@ symbol = "deduplicate"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
-symbol = "ceil_term_recursive"
+symbol = "ceil_term_walk"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1289,7 +1292,7 @@ symbol = "BackendDefinition::discharge_rewrite_definedness"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"
@@ -7343,7 +7346,7 @@ id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
 name = "immutable backend term with a cached structural hash"
-invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it verifies nondecreasing (key, value) order or sorts, retaining repeated keys and bindings. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts and retains repeated elements. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, not this hereditary shape exclusion."
+invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind; below RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, order_nodes) that makes the derived comparisons of each pair of nodes in field order. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it verifies nondecreasing (key, value) order or sorts, retaining repeated keys and bindings. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts and retains repeated elements. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, not this hereditary shape exclusion."
 type_path = "k_rust_backend::term::Term"
 lean = [
     "KRust.TermAttributes.ceilFree_sound",
@@ -7450,6 +7453,16 @@ symbol = "Term::eq"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
 symbol = "Term::cmp"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "equal_nodes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "order_nodes"
 
 [[node]]
 kind = "phase"

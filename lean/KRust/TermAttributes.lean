@@ -16,8 +16,10 @@ The attributes `ceilFree`, `hasMacro` and `kCells`, and the fetch `fetchK`, were
 `macro_or_alias_symbol`, `find_k_cells`) are modelled from the Rust at the anchor commit.
 OT-01 implements `ceilFree` as crates/k-rust-backend/src/term.rs `ceil_free` (with `key_header`
 and `share_one_key_header` for `keyHeader` and `oneHeader`), stored by `Term::new` in
-`TermAttributes::ceil_free`; `ceil_term_recursive` returns at once when it is set, and the
-walk it replaces is kept as `ceil_term_node`. The lean bridge compares the stored attribute with
+`TermAttributes::ceil_free`; `ceil_term_recursive` returned at once when it was set, and the
+walk it replaced was kept as `ceil_term_node`. That recursion is now `ceil_term_walk`, a loop over
+a work list that deduplicates once and skips `ceil_free` subterms; section 9b models it as `walk`
+and proves it equal to `ceilTerm` (`walk_eq_ceilTerm`). The lean bridge compares the stored attribute with
 `ceilFree` at every subterm (`tests::lean_bridge::attributes`). OT-02 implements `hasMacro` and
 `kCells` as term.rs `has_macro_or_alias` and `k_cells`, stored by `Term::new`, and `fetchK` as
 rule.rs `fetch_k_cell`; `macro_or_alias_symbol` runs the walk (now
@@ -288,7 +290,10 @@ def structDistinctZip (ev : Term → Bool) (injd : Term → Term → Bool) :
   | _, _             => false
 end
 
-/- `apart_with` (term.rs): `structurally_distinct_with` without the ground gate (A). -/
+/- `apart_with` (term.rs): `structurally_distinct_with` without the ground gate (A). The Rust
+searches the argument pairs depth-first with the pending pairs on a work list rather than by
+recursion; it finds a witness exactly when some pair of the search is apart, which is this
+disjunction. -/
 mutual
 def apart (ev : Term → Bool) (injd : Term → Term → Bool) (a b : Term) : Bool :=
   decide (a ≠ b) &&
@@ -310,7 +315,10 @@ def apartZip (ev : Term → Bool) (injd : Term → Term → Bool) :
   | _, _             => false
 end
 
-/-! ## 3. Today's walk: `ceil_term_recursive`, position for position -/
+/-! ## 3. The recursive walk: `ceil_term_recursive` at the anchor commit, position for position
+
+The Rust now runs this walk as a work-list loop with one deduplication (`ceil_term_walk`);
+section 9b proves that loop's list, deduplicated, equal to `ceilTerm`. -/
 
 /-- Predicates `ceil_term` can emit (rule.rs `Predicate`, the variants built by definedness.rs). -/
 inductive Pred where
@@ -737,6 +745,188 @@ theorem ceilRest_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalO
       simp only [ceilFreeRest, Bool.and_eq_true] at hc
       simp [ceilRest, ceilFree_sound O hle m hw.1 hc.1, ceilList_sound O hle ts hw.2 hc.2]
 end
+
+/-! ## 9b. The walk as the Rust runs it: one list, one `deduplicate`
+
+definedness.rs `ceil_term_walk` keeps its pending subterms on a work list instead of the native
+stack, and deduplicates once at the end rather than at every node: it returns
+`O.dedup (walk O skip t)`. `walk` lists, in pre-order, each node's own obligations (the ceil of a
+partial application or its ceil equation's instance, the ceil of a set variable), then its
+children's, then its collection obligations (`mapSide`, `setSide`), and with `skip` (Rust
+`AtCeilFree::Skip`) contributes nothing for a subterm whose `ceilFree` holds. The work-list loop
+emits exactly this list (it pushes a node's collection obligations, then its children in reverse
+order, so the first child is taken next); that correspondence is the Rust's, checked by
+`tests::definedness` (shortcut against the walk that never skips) and by
+`tests::deep_terms_have_their_obligations_found_on_a_small_stack`, not proved here. -/
+mutual
+def walk (O : Oracles) (skip : Bool) : Term → List Pred
+  | .app s ss args =>
+      if skip && ceilFree (.app s ss args) then [] else
+        (if s.isPartial then (O.ceilEquation (.app s ss args)).getD [.ceil (.app s ss args)]
+          else [])
+        ++ walkList O skip args
+  | .and l r =>
+      if skip && ceilFree (.and l r) then [] else walk O skip l ++ walk O skip r
+  | .inj a b t => if skip && ceilFree (.inj a b t) then [] else walk O skip t
+  | .dv _ _ => []
+  | .var .element _ _ => []
+  | .var .set s x => [.ceil (.var .set s x)]
+  | .map d es rest =>
+      if skip && ceilFree (.map d es rest) then [] else
+        walkEntries O skip es ++ walkOpt O skip rest ++ mapSide O d es rest
+  | .list d hs rest =>
+      if skip && ceilFree (.list d hs rest) then [] else walkList O skip hs ++ walkRest O skip rest
+  | .set d es rest =>
+      if skip && ceilFree (.set d es rest) then [] else
+        walkList O skip es ++ walkOpt O skip rest ++ setSide O d es rest
+def walkList (O : Oracles) (skip : Bool) : List Term → List Pred
+  | []      => []
+  | t :: ts => walk O skip t ++ walkList O skip ts
+def walkEntries (O : Oracles) (skip : Bool) : List (Term × Term) → List Pred
+  | []           => []
+  | (k, v) :: es => walk O skip k ++ walk O skip v ++ walkEntries O skip es
+def walkOpt (O : Oracles) (skip : Bool) : Option Term → List Pred
+  | none   => []
+  | some t => walk O skip t
+def walkRest (O : Oracles) (skip : Bool) : Option (Term × List Term) → List Pred
+  | none         => []
+  | some (m, ts) => walk O skip m ++ walkList O skip ts
+end
+
+/-- The absorption law of first-occurrence deduplication: deduplicating a part of a list first
+changes nothing, since a member removed inside the part has an earlier copy in it. -/
+abbrev DedupAbsorbs (O : Oracles) : Prop :=
+  ∀ a b c : List Pred, O.dedup (a ++ (O.dedup b ++ c)) = O.dedup (a ++ (b ++ c))
+
+private theorem dedup_idem (O : Oracles) (habs : DedupAbsorbs O) (x : List Pred) :
+    O.dedup (O.dedup x) = O.dedup x := by
+  simpa using habs [] x []
+
+private theorem ceilTerm_dedup (O : Oracles) (habs : DedupAbsorbs O) :
+    ∀ t, O.dedup (ceilTerm O t) = ceilTerm O t
+  | .app s _ _ => by by_cases h : s.isPartial <;> simp [ceilTerm, h, dedup_idem O habs]
+  | .and _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .inj _ _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .dv _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .var .element _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .var .set _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .map _ _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .list _ _ _ => by simp [ceilTerm, dedup_idem O habs]
+  | .set _ _ _ => by simp [ceilTerm, dedup_idem O habs]
+
+/-- A skipped subterm: its `ceilFree` holds, so `ceilTerm` of it is empty (`ceilFree_sound`). -/
+private theorem skipped (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    {skip : Bool} {t : Term} (hw : WF le t) (hs : (skip && ceilFree t) = true)
+    (a c : List Pred) : O.dedup (a ++ ([] ++ c)) = O.dedup (a ++ (ceilTerm O t ++ c)) := by
+  rw [ceilFree_sound O hle t hw (by simp_all)]
+
+mutual
+private theorem walk_ctx (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) :
+    ∀ t, WF le t → ∀ a c,
+      O.dedup (a ++ (walk O skip t ++ c)) = O.dedup (a ++ (ceilTerm O t ++ c))
+  | .app s ss args, hw, a, c => by
+      by_cases hs : (skip && ceilFree (.app s ss args)) = true
+      · simpa [walk, hs] using skipped O hle hw hs a c
+      · simp only [walk, hs, ite_false, Bool.false_eq_true]
+        by_cases hp : s.isPartial
+        · simp only [ceilTerm, hp, ite_true, List.append_assoc]
+          rw [habs]
+          simp only [List.append_assoc]
+          rw [← List.append_assoc a, walkList_ctx O hle habs skip args hw, List.append_assoc]
+        · simp only [ceilTerm, hp, ite_false, Bool.false_eq_true, List.nil_append]
+          rw [habs]
+          exact walkList_ctx O hle habs skip args hw a c
+  | .and l r, hw, a, c => by
+      by_cases hs : (skip && ceilFree (.and l r)) = true
+      · simpa [walk, hs] using skipped O hle hw hs a c
+      · simp only [walk, hs, ite_false, Bool.false_eq_true, ceilTerm]
+        rw [habs]
+        simp only [List.append_assoc]
+        rw [walk_ctx O hle habs skip l hw.1, ← List.append_assoc a,
+          walk_ctx O hle habs skip r hw.2, List.append_assoc]
+  | .inj x y t, hw, a, c => by
+      by_cases hs : (skip && ceilFree (.inj x y t)) = true
+      · simpa [walk, hs] using skipped O hle hw hs a c
+      · simp only [walk, hs, ite_false, Bool.false_eq_true, ceilTerm]
+        rw [habs]
+        exact walk_ctx O hle habs skip t hw a c
+  | .dv _ _, _, a, c => by simp [walk, ceilTerm, O.dedup_nil]
+  | .var .element _ _, _, a, c => by simp [walk, ceilTerm, O.dedup_nil]
+  | .var .set _ _, _, a, c => by simp only [walk, ceilTerm]; rw [habs]
+  | .map d es rest, hw, a, c => by
+      by_cases hs : (skip && ceilFree (.map d es rest)) = true
+      · simpa [walk, hs] using skipped O hle hw hs a c
+      · simp only [walk, hs, ite_false, Bool.false_eq_true, ceilTerm]
+        rw [habs]
+        simp only [List.append_assoc]
+        rw [walkEntries_ctx O hle habs skip es hw.2.1, ← List.append_assoc a,
+          walkOpt_ctx O hle habs skip rest hw.2.2, List.append_assoc]
+  | .list d hs rest, hw, a, c => by
+      by_cases hk : (skip && ceilFree (.list d hs rest)) = true
+      · simpa [walk, hk] using skipped O hle hw hk a c
+      · simp only [walk, hk, ite_false, Bool.false_eq_true, ceilTerm]
+        rw [habs]
+        simp only [List.append_assoc]
+        rw [walkList_ctx O hle habs skip hs hw.1, ← List.append_assoc a,
+          walkRest_ctx O hle habs skip rest hw.2, List.append_assoc]
+  | .set d es rest, hw, a, c => by
+      by_cases hs : (skip && ceilFree (.set d es rest)) = true
+      · simpa [walk, hs] using skipped O hle hw hs a c
+      · simp only [walk, hs, ite_false, Bool.false_eq_true, ceilTerm]
+        rw [habs]
+        simp only [List.append_assoc]
+        rw [walkList_ctx O hle habs skip es hw.2.1, ← List.append_assoc a,
+          walkOpt_ctx O hle habs skip rest hw.2.2, List.append_assoc]
+private theorem walkList_ctx (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) :
+    ∀ ts, WFList le ts → ∀ a c,
+      O.dedup (a ++ (walkList O skip ts ++ c)) = O.dedup (a ++ (ceilList O ts ++ c))
+  | [], _, _, _ => rfl
+  | t :: ts, hw, a, c => by
+      simp only [walkList, ceilList, List.append_assoc]
+      rw [walk_ctx O hle habs skip t hw.1, ← List.append_assoc a,
+        walkList_ctx O hle habs skip ts hw.2, List.append_assoc]
+private theorem walkEntries_ctx (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) :
+    ∀ es, WFEntries le es → ∀ a c,
+      O.dedup (a ++ (walkEntries O skip es ++ c)) = O.dedup (a ++ (ceilEntries O es ++ c))
+  | [], _, _, _ => rfl
+  | (k, v) :: es, hw, a, c => by
+      simp only [walkEntries, ceilEntries, List.append_assoc]
+      rw [walk_ctx O hle habs skip k hw.1, ← List.append_assoc a,
+        walk_ctx O hle habs skip v hw.2.1, ← List.append_assoc (a ++ ceilTerm O k),
+        walkEntries_ctx O hle habs skip es hw.2.2]
+      simp only [List.append_assoc]
+private theorem walkOpt_ctx (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) :
+    ∀ r, WFOpt le r → ∀ a c,
+      O.dedup (a ++ (walkOpt O skip r ++ c)) = O.dedup (a ++ (ceilOpt O r ++ c))
+  | none, _, _, _ => rfl
+  | some t, hw, a, c => walk_ctx O hle habs skip t hw a c
+private theorem walkRest_ctx (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) :
+    ∀ r, WFRest le r → ∀ a c,
+      O.dedup (a ++ (walkRest O skip r ++ c)) = O.dedup (a ++ (ceilRest O r ++ c))
+  | none, _, _, _ => rfl
+  | some (m, ts), hw, a, c => by
+      simp only [walkRest, ceilRest, List.append_assoc]
+      rw [walk_ctx O hle habs skip m hw.1, ← List.append_assoc a,
+        walkList_ctx O hle habs skip ts hw.2, List.append_assoc]
+end
+
+/-- The Rust walk computes today's definedness obligations: `O.dedup (walk O skip t)`, what
+definedness.rs `ceil_term_walk` returns with or without the `ceil_free` shortcut, equals
+`ceilTerm O t`, the walk that recursed and deduplicated at every node. Equality proved: list
+equality, for every definition (every `Oracles`) and both values of `skip`. Hypotheses:
+`DedupAbsorbs O` (Rust test `tests::deduplicate_absorbs_a_deduplicated_part`), and for the
+skipped subterms those of `ceilFree_sound` (`WF le t`, `TotalOrder le`, `Oracles.dedup_nil`). -/
+theorem walk_eq_ceilTerm (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le)
+    (habs : DedupAbsorbs O) (skip : Bool) (t : Term) (hw : WF le t) :
+    O.dedup (walk O skip t) = ceilTerm O t := by
+  have h := walk_ctx O hle habs skip t hw [] []
+  simp only [List.nil_append, List.append_nil] at h
+  rw [h, ceilTerm_dedup O habs t]
 
 /-! ## 10. Case study 3a: `has_macro_or_alias` replaces the `macro_or_alias_symbol` walk (OT-02) -/
 
