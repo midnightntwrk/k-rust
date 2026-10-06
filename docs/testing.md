@@ -97,12 +97,13 @@ Changes to CI coverage, frequency, or resource budgets require a separate cost d
 
 ### Reference-output cache
 
-The reference gates (`scripts/reference-*.sh`, through `scripts/reference-cache.sh`) replay a pinned reference tool's result when none of its inputs changed (`scripts/reference_cache.py` defines the key and the entry).
+The reference gates (`scripts/reference-*.sh`, through `scripts/reference-cache.sh`) and the conformance driver replay a pinned reference tool's result when none of its inputs changed (`scripts/reference_cache.py` defines the key and the entry).
 krust, every comparison, and every pin check still run; a hit restores the reference's exit status, streams, and files byte for byte from a digest-checked entry.
 `REFERENCE_CACHE` selects `on` (the default), `off`, `refresh` (recompute and overwrite), or `verify` (recompute each stored result, and fail when the fresh one differs beyond the reference's run-to-run variation: line order, generated-name numbering, binary artifacts, and any difference a second fresh run does not reproduce).
 The default is `off` when `CI` is true, because CI keeps no cache between runs, and always `off` under `REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED=1`.
 Entries live per user under `${XDG_CACHE_HOME:-~/.cache}/k-rust/reference-outputs/v1` (`REFERENCE_CACHE_DIR`), and an entry older than `REFERENCE_CACHE_MAX_AGE_DAYS` (14) is recomputed.
-Each gate prints its hit and miss counts.
+The conformance ratchet runs every fourth measured `--all` run of a log in `verify` mode unless `REFERENCE_CACHE` is set.
+Each gate prints its hit and miss counts; the conformance driver records each step's reference calls as `reference_cache`.
 `scripts/reference-fixtures-refresh.sh` runs the reference tools directly and never reads the cache.
 
 ## Comparator evidence

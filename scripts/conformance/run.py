@@ -19,12 +19,14 @@ additionally be capped by the case's `step_budget`, so one divergent program is 
 krust-error instead of consuming the budget of every program behind it.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
-import argparse, json, math, os, re, shlex, shutil, subprocess, sys, tempfile, threading, time
+import argparse, hashlib, json, math, os, re, shlex, shutil, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tomllib
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+import reference_cache  # noqa: E402  (scripts/reference_cache.py)
 KR = str(HERE.parents[1])
 K_CHECKOUT = os.environ.get("K_CHECKOUT", f"{KR}/k")
 KBIN = os.path.dirname(os.environ["K_KOMPILE"]) if os.environ.get("K_KOMPILE") else f"{K_CHECKOUT}/result/bin"
@@ -50,6 +52,11 @@ STEP_BUDGETS = {}
 DIFF_LINES = 20
 WORK_TREE_MARKER = ".krust-conformance-source.json"
 REFERENCE_ERROR = object()
+# The reference-output cache (scripts/reference_cache.py); None runs every reference command.
+# conformance-ratchet.sh enables it after its pin checks (--reference-cache).
+CACHE = None
+# The digest of the pinned K trees the work tree copies: a recipe may read any file of them.
+SOURCE_TREE_DIGEST = None
 
 TOOLS = {"kompile", "krun", "kast", "kprove", "kparse", "kdep", "kore-print", "k-rule-find", "llvm-krun", "kprint", "kserver"}
 KOMPILE_VALUE_OPTS = {"--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I",
@@ -278,6 +285,71 @@ def reference_process_env(tool=None, args=()):
     return {"GHCRTS": "-N1"}
 
 
+def reference_sh(case, cmd, timeout, tool, stdin_path=None, env=None, bytes_output=False,
+                 tool_path=None):
+    """Run, or replay from the reference-output cache, one reference command in the case directory.
+
+    Returns what `sh` (or `sh_bytes`) returns. A reference command's inputs are its argument
+    vector and environment, the files it names, its standard input, the case directory (every
+    file the recipe can see, including the reference definition earlier recipes wrote, but not
+    krust's `krust-*` artifacts, which no upstream recipe names), and the pinned K trees the work
+    tree copies; its outputs are its exit status, its streams, and its changes to the case
+    directory. Each call is recorded on the step that follows it (`reference_cache`).
+    """
+    kwargs = {}
+    if stdin_path is not None:
+        kwargs["stdin_path"] = stdin_path
+    if env is not None:
+        kwargs["env"] = env
+    run = sh_bytes if bytes_output else sh
+    if CACHE is None:
+        return run(cmd, case.dir, timeout, **kwargs)
+
+    def runner():
+        rc, out, err, seconds, timed_out = run(cmd, case.dir, timeout, **kwargs)
+        return rc, out if bytes_output else out.encode(), err.encode(), seconds, timed_out
+
+    environment = dict(os.environ)
+    environment["K_OPTS"] = K_OPTS
+    environment.update(env or {})
+    invocation = reference_cache.Invocation(
+        tool=tool,
+        argv=list(cmd),
+        cwd=case.dir,
+        tool_path=tool_path or f"{KBIN}/{tool}",
+        environment=environment,
+        roots=[case.dir],
+        root_excludes=("krust-*",),
+        stdin_path=stdin_path if stdin_path and os.path.exists(stdin_path) else None,
+        extra={"k_trees": SOURCE_TREE_DIGEST},
+        label=f"{case.rel}:{tool}",
+    )
+    result = CACHE.run(invocation, runner)
+    case.cache_events.append(f"{tool}:{result.status}")
+    out = result.stdout if bytes_output else result.stdout.decode("utf-8", "replace")
+    return result.rc, out, result.stderr.decode("utf-8", "replace"), result.seconds, result.timed_out
+
+
+def k_trees_digest(source_tree):
+    """The digest of the pinned K trees refresh_work_tree copies, untracked files included."""
+    digest = hashlib.sha256()
+    for part in ("include", REG):
+        root = os.path.join(source_tree, part)
+        digest.update(f"{part}\0{reference_cache.tree_digest(root, ())}\n".encode())
+    return digest.hexdigest()
+
+
+def load_reference_pins(workspace, k_checkout):
+    """The `[reference]` pins of the differential manifest, which every cache key includes."""
+    renderer = os.path.join(workspace, "scripts", "reference-manifest.py")
+    environment = dict(os.environ, WORKSPACE=workspace, K_CHECKOUT=k_checkout)
+    completed = subprocess.run([sys.executable, renderer], check=False, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, env=environment)
+    if completed.returncode != 0:
+        raise RuntimeError(f"could not read the reference pins: {completed.stderr.strip()}")
+    return json.loads(completed.stdout)["reference"]
+
+
 def output_excerpt(text):
     return "\n".join(text.splitlines()[:DIFF_LINES])
 
@@ -424,6 +496,8 @@ class Case:
         self.steps = []
         # Steps ranked after every recipe step (a krust kore-parser --verify rejection).
         self.deferred_steps = []
+        # Reference-cache outcomes of the calls since the last recorded step.
+        self.cache_events = []
         self.notes = []
         self.kind = "unknown"
         self.backend = "llvm"
@@ -703,10 +777,11 @@ def run_test_binary(name, env, cwd, timeout=120):
 
 
 def kprint(case, kore_path):
-    rc, out, err, _, _ = sh(
+    rc, out, err, _, _ = reference_sh(
+        case,
         [f"{KBIN}/kprint", case.ref_kompiled, kore_path, "false"],
-        case.dir,
         60,
+        "kprint",
         env=reference_process_env("kprint"),
     )
     return rc, out, err
@@ -714,6 +789,9 @@ def kprint(case, kore_path):
 
 def step_record(case, **kw):
     kw.setdefault("verdict", "skipped-with-reason")
+    if getattr(case, "cache_events", None):
+        kw["reference_cache"] = case.cache_events
+        case.cache_events = []
     case.steps.append(kw)
     return kw
 
@@ -806,10 +884,11 @@ def krust_runtime_kompile_args(args, info):
 def do_kompile(case, rec, expect_fail):
     """Reference kompile (verbatim recipe) + krust kcompile + KORE comparison."""
     step = dict(step="kompile", ref_cmd=rec["raw"], out=rec["out"])
-    rc, out, err, secs, to = sh(
+    rc, out, err, secs, to = reference_sh(
+        case,
         ["bash", "-c", rec["raw"]],
-        case.dir,
         case.remaining(),
+        rec["tool"],
         env=reference_process_env(rec["tool"], rec["args"]),
     )
     case.logfile("kompile.ref.log", out + "\n--- stderr ---\n" + err)
@@ -889,8 +968,9 @@ def do_kompile(case, rec, expect_fail):
     ref_kore = f"{case.dir}/{kompiled}/definition.kore" if kompiled else None
     rust_kore = f"{case.dir}/krust-kompiled/definition.kore"
     if ref_kore and os.path.exists(ref_kore) and os.path.exists(rust_kore):
-        vrc, vout, verr, vsecs, vto = sh(
-            [KORE_PARSER, ref_kore], case.dir, case.remaining(), env={"GHCRTS": ""}
+        vrc, vout, verr, vsecs, vto = reference_sh(
+            case, [KORE_PARSER, ref_kore], case.remaining(), "kore-parser",
+            env={"GHCRTS": ""}, tool_path=KORE_PARSER,
         )
         case.logfile("kompile.reference-verify.log", vout + "\n--- stderr ---\n" + verr)
         step["reference_verify_rc"] = vrc
@@ -903,8 +983,9 @@ def do_kompile(case, rec, expect_fail):
                 divergence="\n".join((verr or vout).splitlines()[:DIFF_LINES]),
             )
             return step_record(case, **step)
-        vrc, vout, verr, vsecs, vto = sh(
-            [KORE_PARSER, rust_kore], case.dir, case.remaining(), env={"GHCRTS": ""}
+        vrc, vout, verr, vsecs, vto = reference_sh(
+            case, [KORE_PARSER, rust_kore], case.remaining(), "kore-parser",
+            env={"GHCRTS": ""}, tool_path=KORE_PARSER,
         )
         case.logfile("kompile.krust-verify.log", vout + "\n--- stderr ---\n" + verr)
         step["krust_verify_rc"] = vrc
@@ -1096,10 +1177,11 @@ def program_sort_fallback(case, prog_path, stdin_path):
     if not case.ref_kompiled: return None
     args = [f"{KBIN}/kast", "--definition", case.ref_kompiled, "--output", "kore"]
     args += [prog_path] if prog_path else ["-"]
-    rc, out, err, _, _ = sh(
+    rc, out, err, _, _ = reference_sh(
+        case,
         args,
-        case.dir,
         min(120, case.remaining()),
+        "kast",
         stdin_path=stdin_path,
         env=reference_process_env("kast", args),
     )
@@ -1483,10 +1565,11 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
     if args is None:
         return not_compared("not compared: reference recipe needs an unsupported shell expansion or redirection")
     stdin_path = f"{case.dir}/{rec['stdin']}" if rec.get("stdin") else None
-    rc, out, err, secs, to = sh(
+    rc, out, err, secs, to = reference_sh(
+        case,
         args,
-        case.dir,
         case.remaining(),
+        rec["tool"],
         stdin_path=stdin_path,
         env=reference_process_env(rec["tool"], rec["args"]),
     )
@@ -1558,10 +1641,11 @@ def confirm_oracle(case, rec, step):
     )
     args = [f"{KBIN}/{rec['tool']}", *rec["args"]] if direct else ["bash", "-c", rec["raw"]]
     stdin_path = f"{case.dir}/{rec['stdin']}" if direct and rec.get("stdin") else None
-    rc, out, err, secs, to = sh(
+    rc, out, err, secs, to = reference_sh(
+        case,
         args,
-        case.dir,
         case.remaining(),
+        rec["tool"],
         stdin_path=stdin_path,
         env=reference_process_env(rec["tool"], rec["args"]),
     )
@@ -1627,8 +1711,8 @@ def confirmed_reference_outcome(case, rec, step, tag):
         return None
     # The recipe verifies the checked-in expected output, including its filters;
     # its final status is not necessarily the status of the K tool in a pipeline.
-    rc, out, err, secs, timed_out = sh(
-        ['bash', '-c', rec['raw']], case.dir, case.remaining(),
+    rc, out, err, secs, timed_out = reference_sh(
+        case, ['bash', '-c', rec['raw']], case.remaining(), rec['tool'],
         env=reference_process_env(rec['tool'], rec['args'])
     )
     step.update(reference_recipe_rc=rc, reference_recipe_seconds=round(secs, 1))
@@ -1646,10 +1730,11 @@ def confirmed_reference_outcome(case, rec, step, tag):
         return None
     args = [f"{KBIN}/{rec['tool']}", *rec['args']]
     stdin_path = str(Path(case.dir) / rec['stdin']) if rec.get('stdin') else None
-    rc, out, err, secs, timed_out = sh(
+    rc, out, err, secs, timed_out = reference_sh(
+        case,
         args,
-        case.dir,
         case.remaining(),
+        rec['tool'],
         stdin_path=stdin_path,
         env=reference_process_env(rec['tool'], rec['args']),
     )
@@ -1938,7 +2023,7 @@ def do_kast(case, rec):
         if unsupported:
             step.update(verdict="krust-unsupported", reason="reference kast flags with no krust equivalent: " + " ".join(unsupported))
             return step_record(case, **step)
-        rc, out, err, secs, to = sh(["bash", "-c", rec["raw"]], case.dir, case.remaining())
+        rc, out, err, secs, to = reference_sh(case, ["bash", "-c", rec["raw"]], case.remaining(), "kast")
         case.logfile("kast-bison.reference-generation.log", out + "\n--- stderr ---\n" + err)
         step["ref_rc"] = rc; step["ref_seconds"] = round(secs, 1)
         reference_parser = os.path.join(case.dir, prog)
@@ -2009,10 +2094,11 @@ def do_kast(case, rec):
         step["verdict"] = "krust-unsupported"; step["reason"] = "--expand-macros has no krust kast equivalent; text differs"
         # secondary parse-only comparison against reference kast --output json without macro expansion
         rargs = [f"{KBIN}/kast", "--definition", case.ref_kompiled, "--sort", sort, "--module", module, "--output", "json", prog]
-        rrc, rout, rerr, _, _ = sh(
+        rrc, rout, rerr, _, _ = reference_sh(
+            case,
             rargs,
-            case.dir,
             min(120, case.remaining()),
+            "kast",
             env=reference_process_env("kast", rargs),
         )
         case.logfile(f"{tag}.reference-json.log", rout + "\n--- stderr ---\n" + rerr)
@@ -2256,10 +2342,11 @@ def run_case(rel, kind):
             case.def_file = next((p for p in pos if re.search(r"\.(k|md|json)$", p)), None)
             do_kompile(case, k, expect_fail=False)
             for extra_k in kompiles[1:]:
-                sh(
+                reference_sh(
+                    case,
                     ["bash", "-c", extra_k["raw"]],
-                    case.dir,
                     case.remaining(),
+                    extra_k["tool"],
                     env=reference_process_env(extra_k["tool"], extra_k["args"]),
                 )
             if not case.main_module and case.def_file:
@@ -2510,9 +2597,9 @@ def ensure_work_tree(work_tree, source_tree, cases, force=False):
 
 
 def main():
-    global BISON_PARSER_ONLY, BUILTIN, CASE_BUDGET, CASE_BUDGETS, EXPECTATIONS, IGNORE_UNIQUE_ID
+    global BISON_PARSER_ONLY, BUILTIN, CACHE, CASE_BUDGET, CASE_BUDGETS, EXPECTATIONS, IGNORE_UNIQUE_ID
     global KBIN, K_CHECKOUT, K_OPTS, KORE_PARSER, KR, KRUST, LOGS
-    global RESULTS, SRC_TREE, TEST_BINARY, WORK_TREE
+    global RESULTS, SOURCE_TREE_DIGEST, SRC_TREE, TEST_BINARY, WORK_TREE
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", help="repository root; defaults to the parent of scripts/")
@@ -2547,6 +2634,8 @@ def main():
     ap.add_argument("--fresh-copy", action="store_true", help="re-copy the regression tree to the scratch directory")
     ap.add_argument("--postprocess", action="store_true", help="only reclassify/trim an existing results file")
     ap.add_argument("--merge", help="replace the cases of --results by the cases found in this results file, then postprocess")
+    ap.add_argument("--reference-cache", choices=reference_cache.MODES, default="off",
+                    help="reference-output cache mode; the caller must have checked the pins")
     a = ap.parse_args()
     BISON_PARSER_ONLY = a.bison_parsers
 
@@ -2696,6 +2785,24 @@ def main():
         print(f"refreshed conformance work tree: {refresh_reason}", file=sys.stderr)
     os.makedirs(LOGS, exist_ok=True)
 
+    if a.reference_cache != "off":
+        try:
+            pins = load_reference_pins(KR, K_CHECKOUT)
+            CACHE = reference_cache.ReferenceCache(
+                a.reference_cache,
+                reference_cache.cache_root(os.environ),
+                pins,
+                reference_cache.max_age_seconds(os.environ),
+                placeholders={"logs": LOGS},
+                guard_kind=os.environ.get("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", ""),
+                log_path=os.environ.get("REFERENCE_CACHE_LOG"),
+                context={"script": "conformance/run.py"},
+            )
+            CACHE.prune()
+            SOURCE_TREE_DIGEST = k_trees_digest(SRC_TREE)
+        except (RuntimeError, ValueError, OSError) as error:
+            ap.error(f"cannot open the reference-output cache: {error}")
+
     done = []
     t0 = time.monotonic()
     def work(item):
@@ -2711,6 +2818,13 @@ def main():
     with ThreadPoolExecutor(max_workers=a.jobs) as ex:
         list(ex.map(work, cases))
     print(f"done: {len(done)} cases in {time.monotonic() - t0:.0f}s")
+    if CACHE is not None:
+        print(f"reference cache ({CACHE.mode}): "
+              f"{', '.join(reference_cache.describe_counts(CACHE.counts)) or 'no reference calls'}")
+        if CACHE.mismatches:
+            for mismatch in CACHE.mismatches:
+                print(f"reference cache verify mismatch: {mismatch}", file=sys.stderr)
+            return 1
     return 0
 
 

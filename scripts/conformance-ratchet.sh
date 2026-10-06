@@ -263,6 +263,26 @@ if [[ "$custom_driver" == false || "${REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED:-0}"
   reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 fi
 
+# The reference-output cache (scripts/reference_cache.py) replays a reference recipe whose inputs
+# are unchanged; krust and every comparison still run. It is chosen only after the pin checks
+# above. A key that misses an input would replay a stale result; the maximum entry age bounds
+# that, and so does a fixed cadence: every fourth measured --all run against one log recomputes
+# and compares each entry it would replay (verify) unless REFERENCE_CACHE says otherwise.
+reference_cache_mode=$(python3 "$workspace/scripts/reference_cache.py" mode | cut -f1)
+if [[ -z "${REFERENCE_CACHE:-}" && "$reference_cache_mode" == on && "$all" == true && -f "$log" ]]; then
+  measured_all_runs=$(python3 -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as source:
+    runs = tomllib.load(source).get("run", [])
+print(sum(1 for run in runs if run.get("selection") == "all" and run.get("sequence", 0) > 0))
+' "$log")
+  if (((measured_all_runs + 1) % 4 == 0)); then
+    reference_cache_mode=verify
+    echo "[conformance] measured --all run $((measured_all_runs + 1)) of this log verifies the reference cache (every fourth)"
+  fi
+fi
+echo "[conformance] reference cache: $reference_cache_mode"
+
 if [[ "$all" == true ]]; then
   if command -v agent-self >/dev/null; then
     echo "[conformance] memory envelope before the all-case run"
@@ -330,6 +350,7 @@ fi
 results="$run_dir/results.toml"
 logs="$run_dir/logs"
 mkdir "$logs"
+export REFERENCE_CACHE_LOG=${REFERENCE_CACHE_LOG:-"$run_dir/reference-cache.jsonl"}
 
 driver_args=(
   --workspace "$workspace"
@@ -342,6 +363,7 @@ driver_args=(
   --logs "$logs"
   --expectations "$expectations"
   --jobs "$jobs"
+  --reference-cache "$reference_cache_mode"
   --cases "${selected[@]}"
 )
 driver_command=("$driver")
