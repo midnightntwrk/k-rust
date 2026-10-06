@@ -57,10 +57,14 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
-/// `String2Bytes` is the inverse of `Bytes2String`, which maps each byte to the code point of
-/// the same number. No byte maps to a code point above 255, and the hook is `total`, so on a
-/// string holding one its value is not given by the definition and the application is left
-/// unevaluated. A stored byte that starts no UTF-8 sequence is the code point of its own value.
+/// `String2Bytes` is the inverse of `Bytes2String`. `domains.md` names no encoding for the pair
+/// (it names one only for `encodeBytes`/`decodeBytes`); this backend reads it as mapping each
+/// byte to the code point of the same number, its chosen reading: the module supports code
+/// points only within the first 256, and both conversions are `total`, which every byte
+/// sequence satisfies under this reading but not under UTF-8 decoding. Under it no byte maps to
+/// a code point above 255, and the hook is `total`, so on a string holding one its value is not
+/// given by the definition and the application is left unevaluated. A stored byte that starts
+/// no UTF-8 sequence is the code point of its own value.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
@@ -685,8 +689,9 @@ mod tests {
         );
     }
 
-    /// Every code point up to 255 is the byte of the same number; a string with a code point
-    /// above 255 has no byte sequence `Bytes2String` maps to it.
+    /// Under the byte-per-code-point reading of the pair (this backend's chosen reading; see
+    /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
+    /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
     #[test]
     fn string_to_bytes_above_255_is_unspecified() {
         assert_eq!(
