@@ -178,6 +178,19 @@ mod sentence_variables {
             injection: &mut Option<Offender>,
             leaf: &mut Option<Offender>,
         ) -> Result<(), Box<Offender>> {
+            crate::stack::guarded(|| self.classify_level(term, variables, injection, leaf))
+        }
+
+        /// One level of [`Self::classify_sentence_sort_variables`], which runs it with stack
+        /// for one more level.
+        #[deny(clippy::wildcard_enum_match_arm)]
+        fn classify_level(
+            &self,
+            term: &Term,
+            variables: &mut SentenceSortVariables,
+            injection: &mut Option<Offender>,
+            leaf: &mut Option<Offender>,
+        ) -> Result<(), Box<Offender>> {
             match term.unannotated() {
                 Term::Apply { label, .. } | Term::InjectedLabel(label) => {
                     for (index, parameter) in label.parameters.iter().enumerate() {
@@ -1105,6 +1118,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         expected: Option<&Sort>,
         allow_trailing_arguments: bool,
     ) -> Result<Sort, SortInjectionError> {
+        crate::stack::guarded(|| self.natural_sort_level(term, expected, allow_trailing_arguments))
+    }
+
+    /// One level of [`Self::natural_sort`], which runs it with stack for one more level.
+    fn natural_sort_level(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+        allow_trailing_arguments: bool,
+    ) -> Result<Sort, SortInjectionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Ok(Sort::builtin(BuiltinSort::KItem)),
             Term::Rewrite { left, right } => {
@@ -1226,6 +1249,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
 
     // Invariant: each call either retries once on the `semantic_projection` of `term`, whose argument carries no cast sort and so cannot project again, or recurses through `visit_children` into the direct subterms of `term`; the depth of `term` bounds the calls.
     fn inject_with_position(
+        &self,
+        term: &Term,
+        expected: &Sort,
+        is_lhs: bool,
+    ) -> Result<Term, SortInjectionError> {
+        crate::stack::guarded(|| self.inject_level(term, expected, is_lhs))
+    }
+
+    /// One level of [`Self::inject_with_position`], which runs it with stack for one more level.
+    fn inject_level(
         &self,
         term: &Term,
         expected: &Sort,
@@ -2451,11 +2484,16 @@ fn has_rewrite(term: &Term) -> bool {
 /// that the projection exposes composed into one when `subsorts`, the module's semantic order,
 /// justifies the composed pair.
 // Invariant: each call projects one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `right` selects the side kept at every rewrite.
+pub(crate) fn rewrite_projection(term: &Term, right: bool, subsorts: &PartialOrder<Sort>) -> Term {
+    crate::stack::guarded(|| rewrite_projection_level(term, right, subsorts))
+}
+
+/// One level of [`rewrite_projection`], which runs it with stack for one more level.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is not a sentence kind; only the listed variants are special here"
 )]
-pub(crate) fn rewrite_projection(term: &Term, right: bool, subsorts: &PartialOrder<Sort>) -> Term {
+fn rewrite_projection_level(term: &Term, right: bool, subsorts: &PartialOrder<Sort>) -> Term {
     match term.unannotated() {
         Term::Rewrite {
             left,
