@@ -169,7 +169,9 @@ run_reference_krun() {
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
-      reference_cached krun "$name:$(basename "$output")" --input "$work/kompiled" --stdin \
+      # The request state is a function of the program and the definition: krun runs with an
+      # empty standard input (the cache's default without --stdin), never the caller's.
+      reference_cached krun "$name:$(basename "$output")" --input "$work/kompiled" \
         --store-status 0 -- \
         "$krun" "$@" >"$output"
     ); then
@@ -195,7 +197,8 @@ generate_state() {
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    reference_cached krun "$name:$stem" --input "$work/kompiled" --stdin \
+    # As in run_reference_krun, standard input is empty, not the caller's.
+    reference_cached krun "$name:$stem" --input "$work/kompiled" \
       --env K_KAST --env KAST_DEFINITION --env KAST_PROGRAM_SORT -- \
       "$krun" "$input" \
       --definition "$work/kompiled" \

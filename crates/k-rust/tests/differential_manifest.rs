@@ -3646,3 +3646,22 @@ fn rpc_gate_reads_each_server_port_from_the_server_it_started() {
         );
     }
 }
+
+/// The RPC gate's request states are functions of the case's program and definition, so its
+/// reference `krun` calls run on an empty standard input, the reference-output cache's default
+/// without `--stdin`, rather than reading (or, for a terminal or an open pipe, blocking on and
+/// running uncached with) the caller's.
+#[test]
+fn rpc_gate_request_states_do_not_read_the_callers_standard_input() {
+    let calls = RPC_SCRIPT
+        .match_indices("reference_cached krun")
+        .map(|(index, _)| {
+            let start = RPC_SCRIPT[..index].rfind('\n').map_or(0, |line| line + 1);
+            shell_command_at(RPC_SCRIPT, start)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 2, "run_reference_krun and generate_state");
+    for call in calls {
+        assert!(!call.contains("--stdin"), "{call}");
+    }
+}
