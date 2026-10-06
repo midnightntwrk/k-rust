@@ -1,8 +1,8 @@
 //! Immutable backend terms with cached synthetic attributes (`variables`, `evaluated`,
 //! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
 //! an algorithm; `Counter::TermConstructed` per construction; equality and order of two terms
-//! keep their pending pairs on a work list below a bounded recursion, and apartness on a work
-//! list, so they take a bounded native stack at any height.
+//! keep their pending pairs on a work list below a bounded recursion, and so does apartness, so
+//! they take a bounded native stack at any height.
 //!
 //! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`.
 //! The Lean attribute bridge checks `ceil_free`, macro presence and k-cell count separately;
@@ -1456,57 +1456,19 @@ impl Term {
     /// Symbolic equation heads have no certificate, because [`Self::with_evaluated_cache`] requires groundness.
     /// The injection callback receives two injections and may separate their denotations or supply operands whose equality is equivalent to theirs.
     ///
-    /// The search is depth-first over argument pairs, the first apart pair deciding, with the
-    /// pairs above the one being tried kept on a work list rather than the native stack: it runs
+    /// The search is depth-first over argument pairs, the first apart pair deciding. It runs
     /// between two stack checks of the simplifier (the definedness of a map's keys, `KEQUAL`) on
-    /// terms of any height, and a recursion over two deep keys with a long common spine overran
-    /// the red zone there.
+    /// terms of any height, so its native stack must not grow with them: the first
+    /// [`RECURSIVE_APART_LEVELS`] levels of pairs are searched by recursion over borrowed
+    /// subterms, and a pair below them by [`apart_on_work_list`], which keeps the pairs above
+    /// the one being tried on the heap.
     #[must_use]
     pub(crate) fn apart_with(
         &self,
         other: &Self,
         injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
     ) -> Option<head::Apart> {
-        let mut frames = Vec::new();
-        let mut next = Some((self.clone(), other.clone()));
-        loop {
-            if let Some((left, right)) = next.take() {
-                match apart_step(&left, &right, injections) {
-                    ApartStep::Apart(witness) => return Some(lift_apart(&frames, witness)),
-                    ApartStep::Undecided => {}
-                    ApartStep::Arguments => frames.push(ApartFrame::Arguments {
-                        left,
-                        right,
-                        tried: 0,
-                    }),
-                    ApartStep::Operands(left, right) => {
-                        frames.push(ApartFrame::Operands);
-                        next = Some((left, right));
-                        continue;
-                    }
-                }
-            }
-            // The next argument pair of the innermost application pair that has one left. An
-            // application pair whose argument pairs are all undecided is undecided, and so is an
-            // injection pair whose operands are.
-            while next.is_none() {
-                next = match frames.last_mut() {
-                    None => return None,
-                    Some(ApartFrame::Arguments { left, right, tried }) => {
-                        let pair = same_application(left, right)
-                            .pairs()
-                            .nth(*tried)
-                            .map(|(left, right)| (left.clone(), right.clone()));
-                        *tried += 1;
-                        pair
-                    }
-                    Some(ApartFrame::Operands) => None,
-                };
-                if next.is_none() {
-                    frames.pop();
-                }
-            }
-        }
+        apart_by_recursion(self, other, injections, RECURSIVE_APART_LEVELS)
     }
 
     pub fn sort(&self) -> Sort {
@@ -1780,27 +1742,140 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
     }
 }
 
-/// A pair above the one [`Term::apart_with`] is trying.
-enum ApartFrame {
-    /// Two applications of one free symbol, apart when a pair of their arguments is; `tried`
-    /// argument pairs were undecided.
-    Arguments {
-        left: Term,
-        right: Term,
-        tried: usize,
-    },
-    /// Two injections, apart exactly when their operands are.
-    Operands,
+/// Levels of argument and operand pairs [`Term::apart_with`] searches by recursion before it
+/// hands a pair to [`apart_on_work_list`]: enough for the keys and operands it is mostly asked
+/// about (a domain value below an injection, a constructor over a few levels of them), which
+/// then need neither an allocation nor a reference count, and few enough that the recursion is
+/// a small part of the stack red zone.
+const RECURSIVE_APART_LEVELS: usize = 8;
+
+/// [`Term::apart_with`] by recursion for `levels` more levels of pairs, then on the work list.
+fn apart_by_recursion(
+    left: &Term,
+    right: &Term,
+    injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+    levels: usize,
+) -> Option<head::Apart> {
+    match apart_step(left, right, injections) {
+        ApartStep::Apart(witness) => Some(witness),
+        ApartStep::Undecided => None,
+        ApartStep::Arguments(same) if levels > 0 => same
+            .pairs()
+            .find_map(|(left, right)| apart_by_recursion(left, right, injections, levels - 1))
+            .map(|argument| head::Apart::through_argument(same, argument)),
+        ApartStep::Operands(left, right) if levels > 0 => {
+            apart_by_recursion(left, right, injections, levels - 1)
+        }
+        ApartStep::ComparedOperands(left, right) if levels > 0 => {
+            apart_by_recursion(&left, &right, injections, levels - 1)
+        }
+        ApartStep::Arguments(_) | ApartStep::Operands(..) | ApartStep::ComparedOperands(..) => {
+            apart_on_work_list(left.clone(), right.clone(), injections)
+        }
+    }
+}
+
+/// [`Term::apart_with`] with the application pairs above the pair being tried kept on a work
+/// list, so that the search takes the same native stack whatever the height of the terms.
+///
+/// It tries the pairs in the order of the recursion and answers the same: the first apart pair
+/// decides, an application pair whose argument pairs are all undecided is undecided, and an
+/// injection pair is replaced by its operands, which decide it. The witness found at the
+/// innermost pair is lifted through every application pair above it.
+fn apart_on_work_list(
+    left: Term,
+    right: Term,
+    injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+) -> Option<head::Apart> {
+    let mut frames = Vec::new();
+    let mut next = Some((left, right));
+    loop {
+        if let Some((left, right)) = next.take() {
+            let operands = match apart_step(&left, &right, injections) {
+                ApartStep::Apart(witness) => return Some(lift_apart(&frames, witness)),
+                ApartStep::Undecided => None,
+                ApartStep::Arguments(_) => {
+                    frames.push(ApartFrame {
+                        left,
+                        right,
+                        tried: 0,
+                    });
+                    None
+                }
+                ApartStep::Operands(left, right) => Some((left.clone(), right.clone())),
+                ApartStep::ComparedOperands(left, right) => Some((left, right)),
+            };
+            if operands.is_some() {
+                next = operands;
+                continue;
+            }
+        }
+        // The next argument pair of the innermost application pair that has one left.
+        while next.is_none() {
+            let frame = frames.last_mut()?;
+            next = frame
+                .arguments()
+                .get(frame.tried)
+                .map(|(left, right)| (left.clone(), right.clone()));
+            frame.tried += 1;
+            if next.is_none() {
+                frames.pop();
+            }
+        }
+    }
+}
+
+/// An application pair of one free symbol above the pair [`apart_on_work_list`] is trying,
+/// apart when a pair of its arguments is; `tried` argument pairs were undecided.
+struct ApartFrame {
+    left: Term,
+    right: Term,
+    tried: usize,
+}
+
+impl ApartFrame {
+    /// The argument pairs of the frame's applications, read from their kinds: the pairs of the
+    /// [`head::SameApplication`] that [`apart_step`] found for them, without classifying both
+    /// roots again for every argument. The witness is still lifted through that
+    /// `SameApplication` ([`lift_apart`]).
+    fn arguments(&self) -> ArgumentPairs<'_> {
+        let (
+            TermKind::Application {
+                arguments: left, ..
+            },
+            TermKind::Application {
+                arguments: right, ..
+            },
+        ) = (self.left.kind(), self.right.kind())
+        else {
+            unreachable!("an application pair is a pair of applications");
+        };
+        ArgumentPairs { left, right }
+    }
+}
+
+/// The argument lists of an [`ApartFrame`]'s applications, of one length.
+struct ArgumentPairs<'t> {
+    left: &'t [Term],
+    right: &'t [Term],
+}
+
+impl<'t> ArgumentPairs<'t> {
+    fn get(&self, index: usize) -> Option<(&'t Term, &'t Term)> {
+        self.left.get(index).zip(self.right.get(index))
+    }
 }
 
 /// What one pair of [`Term::apart_with`]'s search decides at its roots.
-enum ApartStep {
+enum ApartStep<'t> {
     Apart(head::Apart),
     Undecided,
     /// Two applications of one free symbol: their argument pairs decide.
-    Arguments,
-    /// Two injections: this pair of operands decides.
-    Operands(Term, Term),
+    Arguments(head::SameApplication<'t>),
+    /// Two injections with one source and one target sort: their operands decide.
+    Operands(&'t Term, &'t Term),
+    /// Two other injections, equal exactly when these terms are, which decide them.
+    ComparedOperands(Term, Term),
 }
 
 /// The root of a term whose value has that root, with the simplifier's certificate as the only
@@ -1826,12 +1901,17 @@ fn same_application<'t>(left: &'t Term, right: &'t Term) -> head::SameApplicatio
 }
 
 /// One pair of [`Term::apart_with`]'s search, decided at its roots where they decide.
+///
+/// Inlined into both searches: on all pairs of 400 map keys `inj{Int, KItem}(\dv{Int}(…))`, the
+/// search took 26 % more instructions than a plain recursion with a call per pair here, and 4 %
+/// more inlined.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn apart_step(
-    left: &Term,
-    right: &Term,
+#[inline(always)]
+fn apart_step<'t>(
+    left: &'t Term,
+    right: &'t Term,
     injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
-) -> ApartStep {
+) -> ApartStep<'t> {
     if left == right {
         return ApartStep::Undecided;
     }
@@ -1846,7 +1926,7 @@ fn apart_step(
                 ApartStep::Undecided
             }
         }
-        head::RootComparison::SameApplication(_) => ApartStep::Arguments,
+        head::RootComparison::SameApplication(same) => ApartStep::Arguments(same),
         // Applications of one symbol with different arities are ill-formed.
         head::RootComparison::ArityMismatch => ApartStep::Undecided,
         head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root)
@@ -1869,7 +1949,7 @@ fn apart_step(
             };
             if left_source == right_source && left_target == right_target {
                 // One injection is injective, so disjoint operands have disjoint images.
-                return ApartStep::Operands(left_operand.clone(), right_operand.clone());
+                return ApartStep::Operands(left_operand, right_operand);
             }
             let comparison = injections(left, right);
             match comparison {
@@ -1877,7 +1957,9 @@ fn apart_step(
                     .map_or(ApartStep::Undecided, ApartStep::Apart),
                 // The injections are equal exactly when these terms are, so a witness for
                 // the terms is one for the injections.
-                InjectionComparison::Compare(left, right) => ApartStep::Operands(left, right),
+                InjectionComparison::Compare(left, right) => {
+                    ApartStep::ComparedOperands(left, right)
+                }
                 InjectionComparison::Undecided => ApartStep::Undecided,
             }
         }
@@ -1885,19 +1967,14 @@ fn apart_step(
     }
 }
 
-/// The witness for the outermost pair of [`Term::apart_with`]'s search from the witness for the
-/// innermost one: lifted through every application pair above it (an argument pair apart makes
-/// the applications apart) and passed through every injection pair.
+/// The witness for the outermost pair of [`apart_on_work_list`]'s search from the witness for
+/// the innermost one, lifted through every application pair above it (an argument pair apart
+/// makes the applications apart); an injection pair passes a witness for its operands through
+/// unchanged, so it needs no frame.
 fn lift_apart(frames: &[ApartFrame], witness: head::Apart) -> head::Apart {
-    frames
-        .iter()
-        .rev()
-        .fold(witness, |witness, frame| match frame {
-            ApartFrame::Arguments { left, right, .. } => {
-                head::Apart::through_argument(same_application(left, right), witness)
-            }
-            ApartFrame::Operands => witness,
-        })
+    frames.iter().rev().fold(witness, |witness, frame| {
+        head::Apart::through_argument(same_application(&frame.left, &frame.right), witness)
+    })
 }
 
 /// How two injections with different source sorts into one position compare; see
@@ -2979,6 +3056,132 @@ mod tests {
             )
         });
         assert_eq!(apart, (false, true));
+    }
+
+    /// The search of `Term::apart_with` (recursion over the first `RECURSIVE_APART_LEVELS`
+    /// levels, then the work list) and `apart_on_work_list` alone answer what a recursion over
+    /// every level of `apart_step` answers: for generated pairs below a shared spine of 0 to 12
+    /// levels of a free constructor whose first argument is shared, so that the decision falls on
+    /// either side of the recursion's bound, and with an injection callback that separates some
+    /// pairs and compares the operands of the others.
+    #[test]
+    fn apartness_by_recursion_and_on_the_work_list_agree() {
+        use proptest::{
+            strategy::{Strategy, ValueTree},
+            test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+        };
+        fn recursive(
+            left: &Term,
+            right: &Term,
+            injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+        ) -> bool {
+            match apart_step(left, right, injections) {
+                ApartStep::Apart(_) => true,
+                ApartStep::Undecided => false,
+                ApartStep::Arguments(same) => same
+                    .pairs()
+                    .any(|(left, right)| recursive(left, right, injections)),
+                ApartStep::Operands(left, right) => recursive(left, right, injections),
+                ApartStep::ComparedOperands(left, right) => recursive(&left, &right, injections),
+            }
+        }
+        let injections = |left: &Term, right: &Term| match (left.kind(), right.kind()) {
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    term: left,
+                    ..
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    term: right,
+                    ..
+                },
+            ) => {
+                if is_int_sort(left_source) != is_int_sort(right_source) {
+                    InjectionComparison::Distinct
+                } else {
+                    InjectionComparison::Compare(left.clone(), right.clone())
+                }
+            }
+            _ => InjectionComparison::Undecided,
+        };
+        let spine = Arc::new(Symbol::constructor("spine", vec![sort(), sort()], sort()));
+        // Free-constructor trees over domain values and injections of them, which the search
+        // decomposes at every node, beside the generator's terms of every kind.
+        let rigid = {
+            use proptest::prelude::*;
+            let int = Sort::builtin(BuiltinSort::Int);
+            let leaf =
+                (any::<bool>(), any::<bool>(), 0..2u8).prop_map(move |(inject, kitem, value)| {
+                    let value = Term::domain_value(int.clone(), value.to_string());
+                    if inject {
+                        let source = if kitem {
+                            Sort::simple("SortKItem")
+                        } else {
+                            int.clone()
+                        };
+                        Term::injection(source, sort(), value)
+                    } else {
+                        value
+                    }
+                });
+            let one = Arc::new(Symbol::constructor("one", vec![sort()], sort()));
+            let two = Arc::new(Symbol::constructor("two", vec![sort(), sort()], sort()));
+            leaf.prop_recursive(4, 16, 2, move |inner| {
+                let (one, two) = (one.clone(), two.clone());
+                prop_oneof![
+                    inner.clone().prop_map(move |term| Term::application(
+                        one.clone(),
+                        vec![],
+                        vec![term]
+                    )),
+                    (inner.clone(), inner).prop_map(move |(left, right)| {
+                        Term::application(two.clone(), vec![], vec![left, right])
+                    }),
+                ]
+            })
+        };
+        let side = || {
+            proptest::prop_oneof![
+                crate::tests::lean_bridge::generators::term().boxed(),
+                rigid.clone().boxed(),
+            ]
+        };
+        let strategy = (side(), side(), side(), 0..13usize);
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+        );
+        let mut answers = [0usize; 2];
+        for case in 0..4096 {
+            let (shared, left, right, levels) =
+                strategy.new_tree(&mut runner).expect("a case").current();
+            let below = |term: &Term| {
+                (0..levels).fold(term.clone(), |term, _| {
+                    Term::application(spine.clone(), vec![], vec![shared.clone(), term])
+                })
+            };
+            for (left, right) in [
+                (below(&left), below(&right)),
+                (below(&left), below(&left)),
+                (left.clone(), right.clone()),
+            ] {
+                let expected = recursive(&left, &right, &injections);
+                assert_eq!(
+                    left.apart_with(&right, &injections).is_some(),
+                    expected,
+                    "case {case}: apart_with of {left:?} and {right:?}"
+                );
+                assert_eq!(
+                    apart_on_work_list(left.clone(), right.clone(), &injections).is_some(),
+                    expected,
+                    "case {case}: apart_on_work_list of {left:?} and {right:?}"
+                );
+                answers[usize::from(expected)] += 1;
+            }
+        }
+        assert!(answers.iter().all(|&count| count > 1000), "{answers:?}");
     }
 
     fn constructor() -> Arc<Symbol> {

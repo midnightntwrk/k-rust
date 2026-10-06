@@ -337,8 +337,9 @@ pub fn check() -> Result<(), Stop> {
 /// result nests several function applications for each level of the argument it consumes), and such
 /// a walk would then overrun the zone and abort the process. The walks the simplifier runs on terms
 /// of any height keep their pending work on the heap instead, after a few levels of recursion at
-/// most: definedness (`definedness::ceil_term`), apartness (`Term::apart_with`), `Eq` and `Ord`
-/// for `Term` (eight levels, `RECURSIVE_COMPARISON_LEVELS`), and the `KEQUAL` hook. The zone does not bound walks over the definition's own patterns (matching a
+/// most: definedness (`definedness::ceil_term`), apartness (`Term::apart_with`, eight levels,
+/// `RECURSIVE_APART_LEVELS`), `Eq` and `Ord` for `Term` (eight levels,
+/// `RECURSIVE_COMPARISON_LEVELS`), and the `KEQUAL` hook. The zone does not bound walks over the definition's own patterns (matching a
 /// left-hand side, instantiating a right-hand side), which take stack in proportion to the height
 /// of the definition's rules; the translation of a condition for the SMT solver and the solver
 /// itself; hooks other than `KEQUAL` that walk their operands (`SUBSTITUTION`); or the derived
