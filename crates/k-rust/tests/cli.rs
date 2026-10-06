@@ -10646,6 +10646,143 @@ fn kcompile_writes_no_counter_file_without_krust_counters() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The repository's `examples/` definition named `name`.
+fn example(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples")
+        .join(name)
+}
+
+/// The standard output of a `krust` run that must succeed, as `scripts/backend-smoke.sh` reads
+/// it (`set -e` and a command substitution of standard output).
+fn successful_stdout(command: &mut Command) -> String {
+    let output = command.stdin(Stdio::null()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{command:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The number of lines of `text` that contain `needle`, which is what `grep -c` counts.
+fn lines_containing(text: &str, needle: &str) -> usize {
+    text.lines().filter(|line| line.contains(needle)).count()
+}
+
+/// The first two flows of `scripts/backend-smoke.sh`: `kcompile` of `examples/rewrite.k` writes
+/// the three non-empty backend KORE files, and the in-process backend rewrites `a` to `b`. The
+/// run reads that compilation rather than compiling the example again.
+#[test]
+fn backend_smoke_kcompile_writes_kore_artifacts_that_krun_rewrites() {
+    let (root, _) = fixture();
+    let compiled = root.join("rust");
+    kcompile_for_krun(
+        &example("rewrite.k"),
+        &["--main-module", "REWRITE"],
+        &compiled,
+    );
+    for artifact in ["definition.kore", "syntaxDefinition.kore", "macros.kore"] {
+        let length = fs::metadata(compiled.join(artifact))
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        assert!(length > 0, "{artifact} is missing or empty");
+    }
+
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "State", "--expression", "a", "--depth", "10"]),
+    );
+    assert!(execution.contains("Lblb{}()"), "{execution}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `scripts/backend-smoke.sh`: two equal builtin Lists built by one rule unify through the full
+/// frontend and backend path, so the second rule fires and both cells keep their three items.
+#[test]
+fn backend_smoke_krun_matches_equal_builtin_lists() {
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg(example("list-unification.k"))
+            .args([
+                "--main-module",
+                "LIST-UNIFICATION",
+                "--sort",
+                "Val",
+                "--expression",
+                "test1",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(
+        execution.contains("Lblsuccess'Unds'LIST-UNIFICATION'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert_eq!(
+        lines_containing(&execution, "LblListItem{}"),
+        6,
+        "{execution}"
+    );
+}
+
+/// `scripts/backend-smoke.sh`: a rule selects the concrete Map entry keyed by the `<k>` value
+/// and removes it through AC framing, leaving the two other entries.
+#[test]
+fn backend_smoke_krun_removes_a_concrete_map_entry_through_ac_framing() {
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg(example("map-framing.k"))
+            .args([
+                "--main-module",
+                "MAP-FRAMING",
+                "--sort",
+                "Val",
+                "--expression",
+                "a",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(
+        execution.contains("Lblb'Unds'MAP-FRAMING'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert!(
+        execution.contains("Lblc'Unds'MAP-FRAMING'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert_eq!(
+        lines_containing(&execution, "Lbl'UndsPipe'-'-GT-Unds'{}("),
+        2,
+        "{execution}"
+    );
+}
+
+/// `scripts/backend-smoke.sh`: the one-path reachability claim of `examples/reachability.k` is
+/// proven with the in-process solver.
+#[test]
+fn backend_smoke_kprove_proves_a_reachability_claim() {
+    let proof = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kprove")
+            .arg(example("reachability.k"))
+            .args([
+                "--main-module",
+                "REACHABILITY",
+                "--claim",
+                "reaches-b",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(proof.contains("claim reaches-b: proven"), "{proof}");
+}
+
 /// Prove each named claim of an inlined specification on its own and return the verdict word
 /// `krust kprove` reports for it (`proven`, `disproved`, `indeterminate`, ...), or `error` with
 /// its diagnostic on standard error when the prover rejects the claim.
