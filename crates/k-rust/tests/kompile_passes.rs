@@ -10622,6 +10622,53 @@ fn a_deep_terminating_macro_rec_expansion_expands() {
     assert!(arguments.is_empty());
 }
 
+/// A binding copied into the result of a rewrite is expanded again there when it holds a
+/// macro application, under the rules applied above the result rather than those applied
+/// inside the binding before. The non-recursive `f(X) => g(f(X))` applies once on the path
+/// of each expansion of the element: with the subject `rev(cons(f(a), nil), nil)`, in its
+/// copy into `rev(nil, cons(.., nil))`, and in the copy of that accumulator into the final
+/// result. Only a copy holding no macro application, such as the `nil` copies here, is kept
+/// as it was expanded. (A rule's right side may not keep a macro symbol, so the reversal is
+/// expanded as a program.)
+#[test]
+fn a_macro_rec_result_expands_its_bindings_again_where_they_hold_macro_applications() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Elem ::= "a" [symbol(a)] | f(Elem) [macro, symbol(f)] | g(Elem) [symbol(g)]
+          syntax List ::= "nil" [symbol(nil)] | cons(Elem, List) [symbol(cons)]
+                        | rev(List, List) [macro-rec, symbol(rev)]
+          rule f(X) => g(f(X))
+          rule rev(cons(X, L), A) => rev(L, cons(X, A))
+          rule rev(nil, A) => A
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let nil = || application("nil", Vec::new());
+    let program = application(
+        "rev",
+        vec![
+            application(
+                "cons",
+                vec![application("f", vec![application("a", Vec::new())]), nil()],
+            ),
+            nil(),
+        ],
+    );
+    let expanded = expand_macros_in_term(
+        &definition,
+        "MAIN",
+        ParsedProgram::from_term(program),
+        &Sort::new("List"),
+    )
+    .expect("the reversal should expand")
+    .into_term();
+    let element = ["g", "g", "g"].into_iter().fold(
+        application("f", vec![application("a", Vec::new())]),
+        |inner, label| application(label, vec![inner]),
+    );
+    assert_eq!(expanded, application("cons", vec![element, nil()]));
+}
+
 /// Standalone terms are expanded under the same bounds as sentences: a program that applies a
 /// cyclic `macro-rec` macro is rejected rather than overflowing the stack.
 #[test]
