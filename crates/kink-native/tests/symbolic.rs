@@ -279,15 +279,21 @@ fn run_side(
         })
         .expect("backend definition")
         .expect("execution bridges");
-    let report_bridged = paths_from_execution(
-        &stepped.adapted,
-        &BridgeContext {
-            test_id: "symbolic",
-            classify: &normal,
-            sorts: &sorts,
-        },
-    )
-    .expect("state-slot bridge");
+    let report_bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state);
+            Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
+                &stepped.adapted,
+                &BridgeContext {
+                    test_id: "symbolic",
+                    classify: &normal,
+                    sorts: &sorts,
+                },
+                &|term| decider.definition_independent(term),
+            ))
+        })
+        .expect("backend definition")
+        .expect("state-slot bridge");
     (
         Run {
             execution: stepped.adapted,
@@ -1173,15 +1179,21 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
         })
         .expect("backend definition")
         .expect("evaluation");
-    let report_bridged = paths_from_execution(
-        execution,
-        &BridgeContext {
-            test_id: row.id,
-            classify: &normal,
-            sorts: &context.symbol_sorts,
-        },
-    )
-    .expect("state-slot report bridge");
+    let report_bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state);
+            Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
+                execution,
+                &BridgeContext {
+                    test_id: row.id,
+                    classify: &normal,
+                    sorts: &context.symbol_sorts,
+                },
+                &|term| decider.definition_independent(term),
+            ))
+        })
+        .expect("backend definition")
+        .expect("state-slot report bridge");
     let report = step3_report(ReportInput {
         profile: PROFILE,
         test_id: row.id,

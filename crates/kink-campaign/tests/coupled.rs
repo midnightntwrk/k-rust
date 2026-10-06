@@ -2261,15 +2261,25 @@ fn audit_ks_as7_anchoring_fails_closed() {
         let parsed = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
             .expect("KORE");
         let sorts = kink_pattern::SymbolSorts::from_definition(&parsed);
-        let bridged = kink_native::bridge::paths_from_execution(
-            &execution,
-            &kink_native::bridge::BridgeContext {
-                test_id: "ground-shared",
-                classify: &normal,
-                sorts: &sorts,
-            },
-        )
-        .expect("leaf ordinal paths");
+        let bridged = backend
+            .with_solver(None, |definition, solver| {
+                let decider = kink_native::step_events::ObservationDecider::new(
+                    definition,
+                    solver,
+                    &fixture.tests[0].initial_state,
+                );
+                Ok::<_, k_rust::backend::BackendError>(kink_native::bridge::paths_from_execution(
+                    &execution,
+                    &kink_native::bridge::BridgeContext {
+                        test_id: "ground-shared",
+                        classify: &normal,
+                        sorts: &sorts,
+                    },
+                    &|term| decider.definition_independent(term),
+                ))
+            })
+            .expect("backend definition")
+            .expect("leaf ordinal paths");
         assert!(bridged.paths.iter().all(|path| path.events.is_empty()));
         assert_eq!(bridged.paths.len(), execution.leaves().len());
         for (ordinal, path) in bridged.paths.iter().enumerate() {
@@ -3736,6 +3746,584 @@ fn audit_vi_scope_names_do_not_capture_stable_variables() {
                 .kind(),
             CampaignFailureKind::BaselineOracleFailed,
         );
+    });
+}
+
+// ---------------------------------------------------------------- TB-01: unbound equations (AT12)
+
+/// `unbound.k` with one `finish` step declaration per `run*` and `pass` rule, binding the
+/// value under `done`.
+struct Unbound {
+    validator: NativeValidator,
+    observation: Vec<StepEventSpec>,
+    vocabulary: EventVocabulary,
+}
+
+impl Unbound {
+    fn new() -> Self {
+        let validator =
+            NativeValidator::bind(support::load("unbound.k"), CompileOptions::default());
+        let observation = ["LblrunRes", "LblrunReq", "LblrunPart", "Lblpass"]
+            .into_iter()
+            .map(|symbol| StepEventSpec {
+                constructor: "finish".into(),
+                pre: support::k_config(
+                    support::app(symbol, vec![support::var("I", "SortInt")]),
+                    "SortProg",
+                    "R",
+                    "C",
+                ),
+                post: Some(support::k_config(
+                    app("done", vec![support::var("V", "SortInt")]),
+                    "SortProg",
+                    "R",
+                    "C2",
+                )),
+                payload: vec!["V".into()],
+            })
+            .collect::<Vec<_>>();
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        Self {
+            validator,
+            observation,
+            vocabulary,
+        }
+    }
+}
+
+/// One AT12 campaign's result: refused, or run with its per-test outcome vectors and status.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UnboundAudit {
+    Refused(CampaignFailureKind),
+    Ran(Vec<Vec<OracleOutcome>>, MutantStatus),
+}
+
+/// The initial states of one AT12 audit, by test id: the call reached by a rule (`run`,
+/// `runX(arg)` rewrites to `done(call(arg))`), written in the initial state and bound by a rule
+/// (`pass`), written under the free constructor `done` that no rule rewrites (`stuck`), alone
+/// in the `k` cell through the `Int` injection (`bare`), and the symbolic `run` and `stuck`
+/// with the argument an `Int` variable `N`.
+fn unbound_states(call: &str, run: &str, argument: i64) -> Vec<(&'static str, Pattern)> {
+    let call_of = |argument: Pattern| app(call, vec![argument]);
+    let n = || support::var("N", "SortInt");
+    let program = |program: Pattern| support::initial_state(program, "SortProg");
+    vec![
+        ("run", program(app(run, vec![support::int(argument)]))),
+        (
+            "pass",
+            program(app("pass", vec![call_of(support::int(argument))])),
+        ),
+        (
+            "stuck",
+            program(app("done", vec![call_of(support::int(argument))])),
+        ),
+        (
+            "bare",
+            support::initial_state(call_of(support::int(argument)), "SortInt"),
+        ),
+        ("sym-run", program(app(run, vec![n()]))),
+        ("sym-stuck", program(app("done", vec![call_of(n())]))),
+    ]
+}
+
+/// Runs each (state, oracle) of `expected` as its own one-test campaign in Full and FirstKill
+/// (a baseline refusal of one test would hide the others) and checks the result. The oracles
+/// are `whole` (the final state) and `bind` (the value under `done` bound by `finish`, with
+/// bindings). TV-01 pins every row after guarding definition-dependent terminal values.
+/// A refusal means the baseline slot is Unknown; neither profile may kill any row.
+fn unbound_audit(
+    operator: &str,
+    patch: &Patch,
+    site: &str,
+    states: &[(&str, Pattern)],
+    expected: &[(&str, &str, Option<UnboundAudit>)],
+) {
+    let fixture = Unbound::new();
+    let generation = fixed(
+        fixture.validator.baseline(),
+        &[(site, &[0])],
+        operator,
+        patch,
+    );
+    let oracle = |name: &str| match name {
+        "whole" => whole_term(),
+        "bind" => binds(&fixture.vocabulary, "finish", 0, "V", "SortInt", true),
+        _ => unreachable!("{name}"),
+    };
+    assert_eq!(expected.len(), 2 * states.len());
+    for (id, oracle_name, expected) in expected {
+        let state = &states
+            .iter()
+            .find(|(state_id, _)| state_id == id)
+            .expect("state")
+            .1;
+        let tests = [case(id, state.clone(), &[oracle(oracle_name)])];
+        let campaign = Campaign {
+            validator: &fixture.validator,
+            module: "UNBOUND",
+            observation: &fixture.observation,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let actual = match run_campaign(&campaign, &generation, mode) {
+                Ok(run) => {
+                    if run.mutants[0].report.status != MutantStatus::Killed {
+                        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+                    }
+                    UnboundAudit::Ran(outcomes(&run), run.mutants[0].report.status)
+                }
+                Err(error) => UnboundAudit::Refused(error.kind()),
+            };
+            match expected {
+                Some(expected) => {
+                    assert_eq!(&actual, expected, "{operator} {id} {oracle_name} {mode:?}");
+                }
+                None => assert!(
+                    !matches!(actual, UnboundAudit::Ran(_, MutantStatus::Killed)),
+                    "{operator} {id} {oracle_name} {mode:?}: an equation k-rust leaves unused \
+                     kills: {actual:?}"
+                ),
+            }
+        }
+    }
+}
+
+const REFUSED: Option<UnboundAudit> = Some(UnboundAudit::Refused(
+    CampaignFailureKind::BaselineOracleFailed,
+));
+
+/// AT12 (a), unbound result variable: `fres(X) => Y requires Y ==Int X +Int 1` against
+/// `fres(X) => X +Int 1`, semantically the same function. k-rust 927b9ce6 never uses an
+/// instance of the baseline equation: the call is kept with an `UndecidedCondition`
+/// (`UnboundResultVariables`) diagnostic, which the bridge maps to `BackendLimit`. Every
+/// baseline state slot and pattern slot is therefore Unknown and the campaign is refused,
+/// in both profiles, for every state; in `run` and `pass` the step that binds the partial
+/// call also leaves the remainder `not ceil(fres(3))`.
+#[test]
+fn audit_vi_unbound_result_equation_is_not_killed() {
+    with_stack(|| {
+        let fixture = Unbound::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![
+            replaced(
+                baseline,
+                "UNBOUND.fres",
+                &[0, 1],
+                term(baseline, "UNBOUND.fres", &[1, 1]),
+            ),
+            replaced(baseline, "UNBOUND.fres", &[1], ei_bool(true)),
+        ])
+        .expect("patch");
+        let states = unbound_states("fres", "runRes", 3);
+        let expected = states
+            .iter()
+            .flat_map(|(id, _)| [(*id, "whole", REFUSED), (*id, "bind", REFUSED)])
+            .collect::<Vec<_>>();
+        unbound_audit("unbound-result", &patch, "UNBOUND.fres", &states, &expected);
+    });
+}
+
+/// AT12 (b), requires-only variable: `freq(X) => 1 requires Z >Int X` against `freq(X) => 1`.
+/// kompile accepts the rule. Read as an axiom closed over `Z` the equation makes `freq(3) = 1`,
+/// but for a ground argument the condition is contingent, so k-rust keeps the call without a
+/// diagnostic (k-rust `simplify.rs:1171-1184, 1240-1242, 1264-1271`). Where a rule binds the
+/// call (`run`, `pass`) the step also leaves the remainder `not ceil(freq(3))`, whose
+/// feasibility is Unknown, so the baseline is refused. Where no rule touches it (`stuck`,
+/// `bare`), the baseline leaf is the ground `done(freq(3))` (or `freq(3)`), stuck, with no
+/// predicate, which the bridge previously took as a decided terminal; the mutant's leaf is `done(1)`
+/// (`1`), so the final-state slot was Distinguish and the mutant Killed, in both profiles and
+/// both schedules (TB-01, TV01-NEEDED; K-TERMINAL-CONSTRUCTOR). TV-01 makes those
+/// terminals incomplete (`SolverUnknown`), so both slots are Unknown and refused.
+/// The binding slot moves from Agree to Unknown because even an event-free terminal
+/// must be definition-independent. Every state is now refused in both profiles and schedules.
+#[test]
+fn audit_vi_unbound_requires_only_equation_is_not_killed() {
+    with_stack(|| {
+        let fixture = Unbound::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "UNBOUND.freq",
+            &[1],
+            ei_bool(true),
+        )])
+        .expect("patch");
+        let states = unbound_states("freq", "runReq", 3);
+
+        let expected = [
+            ("run", "whole", REFUSED),
+            ("run", "bind", REFUSED),
+            ("pass", "whole", REFUSED),
+            ("pass", "bind", REFUSED),
+            ("stuck", "whole", REFUSED),
+            ("stuck", "bind", REFUSED),
+            ("bare", "whole", REFUSED),
+            ("bare", "bind", REFUSED),
+            ("sym-run", "whole", REFUSED),
+            ("sym-run", "bind", REFUSED),
+            ("sym-stuck", "whole", REFUSED),
+            ("sym-stuck", "bind", REFUSED),
+        ];
+        unbound_audit("requires-only", &patch, "UNBOUND.freq", &states, &expected);
+    });
+}
+
+/// AT12 (c), K-TERMINAL-CONSTRUCTOR: `part` is a partial function with the one equation
+/// `part(0) => 7`; the mutant adds `part(1) => 7`. The two definitions agree on every input the
+/// baseline defines, and the baseline leaves `part(1)` unspecified, so a baseline model with
+/// `part(1) = 7` exists and no test can show a difference. The rows are as for (b): `run` and
+/// `pass` are refused (remainder `not ceil(part(1))`), symbolic states are refused, and `stuck`
+/// and `bare` keep the ground call `done(part(1))` against the mutant's `done(7)`, which was
+/// Distinguish and Killed in both profiles and both schedules (TB-01, TV01-NEEDED).
+/// TV-01 makes the kept call an incomplete terminal, so the whole slot moves to Unknown,
+/// and the binding slot moves from Agree to Unknown; every row is refused in both profiles
+/// and schedules, as in (b).
+#[test]
+fn audit_vi_unbound_partial_function_is_not_killed() {
+    with_stack(|| {
+        let fixture = Unbound::new();
+        let baseline = fixture.validator.baseline();
+        let mut added = unlabelled_copy(baseline, "UNBOUND.part");
+        if let k_rust::definition::Sentence::Rule { body, .. } = &mut added {
+            *body = Term::Rewrite {
+                left: Box::new(Term::apply("part", vec![int_token(1)])),
+                right: Box::new(term(baseline, "UNBOUND.part", &[0, 1])),
+            };
+        }
+        let patch = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::After(support::rule(baseline, "UNBOUND.part")),
+            ordinal: 0,
+            sentence: added,
+        }])
+        .expect("patch");
+        let states = unbound_states("part", "runPart", 1);
+
+        let expected = [
+            ("run", "whole", REFUSED),
+            ("run", "bind", REFUSED),
+            ("pass", "whole", REFUSED),
+            ("pass", "bind", REFUSED),
+            ("stuck", "whole", REFUSED),
+            ("stuck", "bind", REFUSED),
+            ("bare", "whole", REFUSED),
+            ("bare", "bind", REFUSED),
+            ("sym-run", "whole", REFUSED),
+            ("sym-run", "bind", REFUSED),
+            ("sym-stuck", "whole", REFUSED),
+            ("sym-stuck", "bind", REFUSED),
+        ];
+        unbound_audit(
+            "partial-equation",
+            &patch,
+            "UNBOUND.part",
+            &states,
+            &expected,
+        );
+    });
+}
+
+// ---------------------------------------------------------------- TV-01 review 2: kept calls in the mutant
+
+/// `unbound.k (TV01TERMINAL)` with one `finish` declaration from `mk` to `done(V)`.
+struct Tv01Terminal {
+    validator: NativeValidator,
+    observation: Vec<StepEventSpec>,
+    vocabulary: EventVocabulary,
+}
+
+impl Tv01Terminal {
+    fn new() -> Self {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("unbound.k"),
+                "TV01TERMINAL",
+            ),
+            CompileOptions::default(),
+        );
+        let observation = vec![StepEventSpec {
+            constructor: "finish".into(),
+            pre: support::k_config(app("mk", vec![]), "SortProg", "R", "C"),
+            post: Some(support::k_config(
+                app("done", vec![support::var("V", "SortVal")]),
+                "SortProg",
+                "R",
+                "C2",
+            )),
+            payload: vec!["V".into()],
+        }];
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        Self {
+            validator,
+            observation,
+            vocabulary,
+        }
+    }
+}
+
+/// `Normal` for a terminal that holds `done`, `Stuck` otherwise: a terminal-class oracle that
+/// tells a stuck `check(part(0))` from `done(7)`.
+fn tv01_classify(term: &Pattern) -> ExecutionTerminalKind {
+    let mut done = false;
+    k_rust::kore::walk::for_each_post_order(term, |node| {
+        if let Pattern::Application { symbol, .. } = node {
+            done |= symbol.name == "Lbldone";
+        }
+    });
+    if done {
+        ExecutionTerminalKind::Normal
+    } else {
+        ExecutionTerminalKind::Stuck
+    }
+}
+
+fn tv01_int_val(value: Pattern) -> Pattern {
+    k_rust::kompile::initial_configuration::kore_application(
+        "inj",
+        vec![kore_sort("SortInt"), kore_sort("SortVal")],
+        vec![value],
+    )
+}
+
+/// The review's initial states, by id. `argument` is the call's argument (`0`, or the `Int`
+/// variable `N` for the `sym-*` states).
+fn tv01_states() -> Vec<(&'static str, Pattern)> {
+    let part = |argument: Pattern| app("part", vec![argument]);
+    let zero = || support::int(0);
+    let n = || support::var("N", "SortInt");
+    let program = |program: Pattern| support::initial_state(program, "SortProg");
+    let parsed = |kore: &str| {
+        program(k_rust::kore::parser::parse_pattern(kore).expect("the review program parses"))
+    };
+    const PART0: &str = r#"inj{SortInt{}, SortKItem{}}(Lblpart{}(\dv{SortInt{}}("0")))"#;
+    vec![
+        (
+            "inj",
+            program(app("done", vec![tv01_int_val(part(zero()))])),
+        ),
+        (
+            "ctor",
+            program(app("done", vec![app("wrap", vec![part(zero())])])),
+        ),
+        ("code", program(app("code", vec![part(zero())]))),
+        (
+            "list",
+            parsed(&format!("Lblhold{{}}(LblListItem{{}}({PART0}))")),
+        ),
+        (
+            "map",
+            parsed(&format!(
+                r#"Lblkeep{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("1")), {PART0}))"#
+            )),
+        ),
+        ("class", program(app("check", vec![part(zero())]))),
+        ("owise-rule", program(app("sel", vec![part(zero())]))),
+        (
+            "owise-fn",
+            program(app(
+                "done",
+                vec![tv01_int_val(app("fsel", vec![part(zero())]))],
+            )),
+        ),
+        ("mk", program(app("mk", vec![]))),
+        (
+            "sym-inj",
+            program(app("done", vec![tv01_int_val(part(n()))])),
+        ),
+        ("sym-class", program(app("check", vec![part(n())]))),
+        ("sym-owise", program(app("sel", vec![part(n())]))),
+    ]
+}
+
+/// One review campaign's result: refused, or each test's run (as printed) and the status.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Tv01Audit {
+    Refused(CampaignFailureKind),
+    Ran(Vec<String>, MutantStatus),
+}
+
+/// Runs each (state, oracle) row as its own one-test campaign in Full and FirstKill, prints
+/// the measured result, and returns it. The oracles: `whole` (final state), `path` (the
+/// argument of the top program constructor), `exit` (terminal class through `tv01_classify`),
+/// `code` (terminal class and the `Int` under `code`), `bind` (the value `finish` binds).
+fn tv01_audit(
+    label: &str,
+    patch: &Patch,
+    rows: &[(&str, &str)],
+) -> Vec<((String, String, ScheduleMode), Tv01Audit)> {
+    let fixture = Tv01Terminal::new();
+    let generation = fixed(
+        fixture.validator.baseline(),
+        &[("TV01TERMINAL.part", &[0])],
+        label,
+        patch,
+    );
+    let state_oracle = |projection| {
+        OracleDeclaration::new(CrashPolicy::CompareIdentity, Projection::State(projection))
+            .expect("oracle")
+    };
+    let oracle = |name: &str| match name {
+        "whole" => whole_term(),
+        "path" => state_oracle(StateProjection::TermPaths(vec![vec![0, 0, 0, 0, 0]])),
+        "exit" => state_oracle(StateProjection::ExitStop {
+            exit_code_cell: None,
+        }),
+        "code" => state_oracle(StateProjection::ExitStop {
+            exit_code_cell: Some("Lblcode".into()),
+        }),
+        "bind" => binds(&fixture.vocabulary, "finish", 0, "V", "SortVal", true),
+        _ => unreachable!("{name}"),
+    };
+    let states = tv01_states();
+    let mut measured = Vec::new();
+    for (id, oracle_name) in rows {
+        let state = &states
+            .iter()
+            .find(|(state_id, _)| state_id == id)
+            .expect("state")
+            .1;
+        let tests = [case(id, state.clone(), &[oracle(oracle_name)])];
+        let campaign = Campaign {
+            validator: &fixture.validator,
+            module: "TV01TERMINAL",
+            observation: &fixture.observation,
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let actual = match run_campaign(&campaign, &generation, mode) {
+                Ok(run) => {
+                    let [mutant] = run.mutants.as_slice() else {
+                        panic!("one mutant")
+                    };
+                    if mutant.report.status != MutantStatus::Killed {
+                        assert!(mutant.report.killing_test_ids.is_empty());
+                    }
+                    Tv01Audit::Ran(
+                        mutant
+                            .plan
+                            .tests
+                            .iter()
+                            .map(|test| format!("{:?}", test.run))
+                            .collect(),
+                        mutant.report.status,
+                    )
+                }
+                Err(error) => Tv01Audit::Refused(error.kind()),
+            };
+            eprintln!("TV01-REVIEW {label} {id} {oracle_name} {mode:?}: {actual:?}");
+            measured.push((((*id).to_owned(), (*oracle_name).to_owned(), mode), actual));
+        }
+    }
+    measured
+}
+
+const TV01_ROWS: [(&str, &str); 25] = [
+    ("inj", "whole"),
+    ("inj", "path"),
+    ("inj", "exit"),
+    ("ctor", "whole"),
+    ("ctor", "path"),
+    ("code", "whole"),
+    ("code", "code"),
+    ("list", "whole"),
+    ("list", "path"),
+    ("map", "whole"),
+    ("class", "whole"),
+    ("class", "exit"),
+    ("owise-rule", "whole"),
+    ("owise-rule", "exit"),
+    ("owise-fn", "whole"),
+    ("owise-fn", "path"),
+    ("mk", "whole"),
+    ("mk", "bind"),
+    ("mk", "exit"),
+    ("sym-inj", "whole"),
+    ("sym-inj", "exit"),
+    ("sym-class", "whole"),
+    ("sym-class", "exit"),
+    ("sym-owise", "whole"),
+    ("sym-owise", "exit"),
+];
+
+/// TV-01 review 2: the mutant keeps a call the baseline evaluates. `part(0) => 7` gets
+/// `requires false`, so the mutant leaves `part(0)` unevaluated wherever the baseline has `7`.
+/// A model of the mutant with `part(0) = 7` behaves exactly as the baseline, so no row may be
+/// Killed in either profile or schedule: the call under an injection, a free constructor, the
+/// exit-code constructor, a list and a map; the call deciding whether `check(7)` applies
+/// (stuck against `done`, through the terminal class); the call against an owise rule and an
+/// owise equation (an owise that fired past the undecided match would give `done(0)`, a
+/// constructor term, against the baseline's `done(7)`); a rule that writes the call, with its
+/// binding; the same with a symbolic argument. Without the independence check the ground
+/// `inj`, `ctor` and `owise-fn` mutant leaves are complete terminals holding the call (kink-native
+/// `trust_base.rs` `review_kept_calls_are_terminals_only_for_a_lying_caller`), against the
+/// baseline's `done(7)`: Distinguish.
+///
+/// Measured in both profiles and both schedules: every ground row except `list` and `map` runs
+/// `[[Unknown]]`, Unknown; `list`, `map` and every `sym-*` row are refused
+/// (`BaselineOracleFailed`: a collection is not a free constructor, and a symbolic terminal is
+/// not a value). The control below kills.
+#[test]
+fn audit_vi_tv01_review_mutant_kept_calls_are_not_killed() {
+    with_stack(|| {
+        let fixture = Tv01Terminal::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "TV01TERMINAL.part",
+            &[1],
+            ei_bool(false),
+        )])
+        .expect("patch");
+        let measured = tv01_audit("tv01-disable", &patch, &TV01_ROWS);
+        for ((id, oracle_name, mode), actual) in &measured {
+            assert!(
+                !matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
+                "{id} {oracle_name} {mode:?}: a kept call kills: {actual:?}"
+            );
+        }
+        // The probe is live: the ground injection row reaches a comparison.
+        assert!(
+            measured
+                .iter()
+                .any(|((id, oracle_name, _), actual)| id == "inj"
+                    && oracle_name == "whole"
+                    && matches!(actual, Tv01Audit::Ran(..))),
+            "the inj whole row never ran"
+        );
+    });
+}
+
+/// TV-01 review 2 control: the same rows against a real difference, `part(0) => 8`. The
+/// ground rows whose baseline and mutant values are constructor terms must still kill, so the
+/// review campaign above is not vacuous.
+#[test]
+fn audit_vi_tv01_review_real_difference_still_kills() {
+    with_stack(|| {
+        let fixture = Tv01Terminal::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "TV01TERMINAL.part",
+            &[0, 1],
+            int_token(8),
+        )])
+        .expect("patch");
+        let measured = tv01_audit(
+            "tv01-control",
+            &patch,
+            &[("inj", "whole"), ("ctor", "whole"), ("mk", "bind")],
+        );
+        for ((id, oracle_name, mode), actual) in &measured {
+            if id == "inj" || id == "ctor" {
+                assert!(
+                    matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
+                    "{id} {oracle_name} {mode:?}: control does not kill: {actual:?}"
+                );
+            }
+        }
     });
 }
 

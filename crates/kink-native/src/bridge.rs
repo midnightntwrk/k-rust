@@ -13,8 +13,9 @@
 //! the adapter showed it feasible ([`LeafFeasibility::Syntactic`], or
 //! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`.
 //!
-//! A stuck leaf is complete for a ground term without a path condition. Otherwise it is complete
-//! when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
+//! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
+//! In either case its terminal term must be definition-independent (TV-01): every application is a free constructor or a sort injection, and every domain value has a trusted injective codec.
+//! An unevaluated function, anywhere head or uninterpreted application makes the path `SolverUnknown` before terminal classification.
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
 //! its pre-step state and no instance has a defined successor, because the rule's result
@@ -47,20 +48,95 @@
 //! and diagnosed (`docs/compatibility.md:792-815`), hence BackendLimit here.
 //! Unsat refutation also rests on the explicit definedness premise (T-UNSAT, TB-01).
 
-use k_rust::backend::SearchFailureOutput;
+use k_rust::backend::{Backend, SearchFailureOutput};
 use k_rust::kore::{
     ast::{Pattern, Sort},
-    codec,
+    codec, walk,
 };
+use k_rust_backend::term::{FunctionType, SymbolType};
 use kink_pattern::{
     CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventPresence, ExecutionStop,
     ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
 };
 
-use crate::execution::{AdaptedExecution, HaltClass, SteppedExecution};
+use crate::execution::{AdaptedExecution, ExecutionAdapterFailure, HaltClass, SteppedExecution};
 use crate::feasibility::LeafFeasibility;
 use crate::observation::AdaptedBranch;
 use crate::step_events::{ObservationDecider, StepObservation, StepPresence};
+
+/// Checks the definedness premise of a test-written initial constraint before execution.
+/// Only `\and`, `\or`, `\exists`, `\forall`, `\ceil`, term-level `\equals`, and `\in`
+/// with term operands preserve a positive position. Terms are not connectives. Every other
+/// connective marks its subtree as negated, including the notations defined through `\not`
+/// (`\implies`, `\iff`, `\floor`, predicate-level `\equals`). Negation is never reset.
+/// Non-total applications in negated positions fail closed using declared backend totality;
+/// constructors, injections and domain values remain admitted. This checks received syntax,
+/// before normalization can introduce or erase negations (TV-01, R2-F1/R3-F1).
+/// Campaign admission maps failure through its existing baseline oracle refusal gate.
+pub fn validate_test_initial_state(
+    backend: &mut Backend,
+    state: &Pattern,
+) -> Result<(), ExecutionAdapterFailure> {
+    backend.with_solver(None, |definition, _| {
+        let mut work = vec![(state, false)];
+        while let Some((node, negated)) = work.pop() {
+            if negated
+                && let Pattern::Application { symbol, .. }
+                | Pattern::AssociativeApplication { symbol, .. } = node
+                && symbol.name != "inj"
+                && !definition
+                    .symbols()
+                    .get(symbol.name.as_str())
+                    .is_some_and(|symbol| {
+                        matches!(
+                            symbol.attributes.symbol_type,
+                            SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+                        )
+                    })
+            {
+                return Err(ExecutionAdapterFailure::InvalidState(format!(
+                    "test constraint contains {} in a negated position without declared totality",
+                    symbol.name
+                )));
+            }
+            let negated = negated || !positive_input_position(node);
+            work.extend(
+                walk::children(node)
+                    .into_iter()
+                    .map(|child| (child, negated)),
+            );
+        }
+        Ok(())
+    })
+}
+
+/// Term-head classification used by input polarity and state conjunct partitioning.
+/// A logical connective, including top or bottom, is never a term operand.
+fn term_head(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Application { .. }
+            | Pattern::AssociativeApplication { .. }
+            | Pattern::DomainValue { .. }
+            | Pattern::String(_)
+            | Pattern::Variable(_)
+    )
+}
+
+/// Fail closed for every connective outside the supervisor's positive-position whitelist.
+fn positive_input_position(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::And { .. }
+        | Pattern::Or { .. }
+        | Pattern::Exists { .. }
+        | Pattern::Forall { .. }
+        | Pattern::Ceil { .. } => true,
+        Pattern::Equals { left, right, .. } | Pattern::In { left, right, .. } => {
+            term_head(left) && term_head(right)
+        }
+        _ => term_head(pattern),
+    }
+}
 
 /// What the bridge needs besides the adapted response.
 pub struct BridgeContext<'a> {
@@ -257,24 +333,17 @@ fn split_state(
 
 /// Separates term conjuncts from path predicates using the bridge's state classification.
 pub(crate) fn partition_conjuncts(conjuncts: Vec<Pattern>) -> (Vec<Pattern>, Vec<Pattern>) {
-    conjuncts.into_iter().partition(|conjunct| {
-        matches!(
-            conjunct,
-            Pattern::Application { .. }
-                | Pattern::AssociativeApplication { .. }
-                | Pattern::DomainValue { .. }
-                | Pattern::String(_)
-                | Pattern::Variable(_)
-        )
-    })
+    conjuncts.into_iter().partition(term_head)
 }
 
 impl SplitState {
-    /// The decided state: exactly one term conjunct, no predicate, and no free variable.
+    /// The decided state: one definition-independent term, no predicate, and no free variable.
     /// Anything else is neither complete terminal evidence nor a real prefix.
-    fn decided_term(&self) -> Option<Pattern> {
+    fn decided_term(&self, independent: &dyn Fn(&Pattern) -> bool) -> Option<Pattern> {
         match (self.terms.as_slice(), self.predicates.is_empty()) {
-            ([term], true) if term.free_variables().is_empty() => Some(term.clone()),
+            ([term], true) if term.free_variables().is_empty() && independent(term) => {
+                Some(term.clone())
+            }
             _ => None,
         }
     }
@@ -360,6 +429,7 @@ impl<'a> PathSet<'a> {
         &mut self,
         leaf: &crate::execution::AdaptedLeaf,
         key: String,
+        independent: &dyn Fn(&Pattern) -> bool,
     ) -> Result<(), BridgeFailure> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
@@ -378,12 +448,12 @@ impl<'a> PathSet<'a> {
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
         let complete_term = match split.terms.as_slice() {
-            [term] if feasible => Some(term.clone()),
+            [term] if feasible && independent(term) => Some(term.clone()),
             _ => None,
         };
         let mapped = match leaf_path(
             halt,
-            split.decided_term(),
+            split.decided_term(independent),
             feasible,
             complete_term,
             self.context.classify,
@@ -476,9 +546,12 @@ impl<'a> PathSet<'a> {
 }
 
 /// Reads an adapted execution as paths; see the module documentation.
+/// `independent` must check definition independence against this execution's own definition.
+/// Unevaluated calls cannot supply terminal values or terminal classes (TV-01).
 pub fn paths_from_execution(
     execution: &AdaptedExecution,
     context: &BridgeContext<'_>,
+    independent: &dyn Fn(&Pattern) -> bool,
 ) -> Result<BridgedPaths, BridgeFailure> {
     if execution.timed_out {
         return Ok(BridgedPaths {
@@ -495,7 +568,7 @@ pub fn paths_from_execution(
     }
     let mut paths = PathSet::new(context);
     for (leaf, key) in execution.leaves.iter().zip(leaf_keys(&execution.leaves)) {
-        paths.push(leaf, key)?;
+        paths.push(leaf, key, independent)?;
     }
     Ok(paths.finish())
 }
@@ -560,12 +633,12 @@ pub fn paths_from_steps(
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
         let complete_term = match split.terms.as_slice() {
-            [term] if feasible => Some(term.clone()),
+            [term] if feasible && decider.definition_independent(term) => Some(term.clone()),
             _ => None,
         };
         let mapped = match leaf_path(
             leaf.halt,
-            split.decided_term(),
+            split.decided_term(&|term| decider.definition_independent(term)),
             feasible,
             complete_term,
             context.classify,
@@ -871,6 +944,24 @@ mod tests {
         ])
     }
 
+    fn independent(term: &Pattern) -> bool {
+        let definition = k_rust_backend::definition::BackendDefinition::internalize(
+            &k_rust::kore::parser::parse_definition(
+                r"[]
+                module MAIN
+                    sort SortS{} []
+                    symbol Lbla{}() : SortS{} [constructor{}()]
+                    symbol Lblcrash{}() : SortS{} [constructor{}()]
+                endmodule []",
+            )
+            .expect("KORE"),
+            "MAIN",
+        )
+        .expect("definition");
+        ObservationDecider::new(&definition, &k_rust_backend::smt::NoSolver, term)
+            .definition_independent(term)
+    }
+
     fn classify(term: &Pattern) -> ExecutionTerminalKind {
         if *term == parse_pattern(CRASH).expect("crash term") {
             ExecutionTerminalKind::SemanticCrash
@@ -1095,7 +1186,7 @@ mod tests {
                 },
                 "{id}"
             );
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts));
+            let bridged = paths_from_execution(&execution, &bridge_context(&sorts), &independent);
             if let Violation = expected {
                 assert_eq!(bridged, Err(BridgeFailure::ContractViolation(halt)), "{id}");
                 continue;
@@ -1162,7 +1253,7 @@ mod tests {
         }
         // The path predicate keeps the constrained leaf's condition.
         let split = split_state(&kore(CONSTRAINED), &sorts).expect("split");
-        assert_eq!(split.decided_term(), None);
+        assert_eq!(split.decided_term(&independent), None);
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
     }
 
@@ -1189,7 +1280,8 @@ mod tests {
                 timed_out: false,
             };
             assert_eq!(discarded(&execution.leaves[0]), None);
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+            let bridged =
+                paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
             assert_eq!(bridged.paths.len(), 1, "{halt:?}");
             assert_eq!(bridged.paths[0].stop, P::BackendLimit, "{halt:?}");
         }
@@ -1236,7 +1328,8 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
             };
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+            let bridged =
+                paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
             assert_eq!(bridged.paths[0].stop, expected, "{cause:?} {diagnosed}");
             assert!(!bridged.paths[0].complete);
             assert_eq!(presence(&bridged), PatternOutcome::Unknown);
@@ -1257,7 +1350,8 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
         };
-        let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+        let bridged =
+            paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
         assert_eq!(bridged.paths.len(), 1);
         assert!(bridged.paths[0].complete);
         assert_eq!(
@@ -1351,7 +1445,8 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
             };
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+            let bridged =
+                paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
             assert_eq!(bridged.collection.stop, CollectionStop::BackendLimit);
             assert!(bridged.paths[0].complete);
             assert_eq!(bridged.paths[1].stop, P::BackendLimit);
@@ -1376,7 +1471,8 @@ mod tests {
             timed_out: false,
         };
         assert_eq!(leaf_keys(&execution.leaves), ["leaf:0", "leaf:1", "leaf:2"]);
-        let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+        let bridged =
+            paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
         assert_eq!(
             bridged
                 .paths
@@ -1407,7 +1503,7 @@ mod tests {
             sorts: &sorts,
         };
         assert_eq!(
-            paths_from_execution(&execution, &context),
+            paths_from_execution(&execution, &context, &independent),
             Err(BridgeFailure::ClassifiedUndefinedStep)
         );
     }
@@ -1441,7 +1537,8 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
         };
-        let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+        let bridged =
+            paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
         assert_eq!(bridged.paths.len(), 2);
         assert_eq!(bridged.paths[0].path_key.as_deref(), Some("leaf:0"));
         assert_eq!(bridged.paths[1].path_key.as_deref(), Some("leaf:1"));

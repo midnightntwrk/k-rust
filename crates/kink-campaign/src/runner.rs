@@ -64,6 +64,7 @@ use k_rust::kore::{
 };
 use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution, paths_from_steps,
+    validate_test_initial_state,
 };
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile, StepRunFailure,
@@ -373,6 +374,13 @@ pub fn run_campaign(
     };
     let mut runtime = Runtime::prepare(campaign, &baseline)
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    // Test-written predicates do not inherit the definedness premise of backend-built
+    // predicates. Refuse unsafe input through the existing declaration admission gate,
+    // before any baseline or mutant execution (TV-01, R2-F1).
+    for test in campaign.tests {
+        validate_test_initial_state(&mut runtime.backend, &test.initial_state)
+            .map_err(|_| admission_failure(BaselineAdmission::OracleFailed))?;
+    }
     let observation = StepObservation::new(&mut runtime.backend, campaign.observation.to_vec())
         .map_err(|failure| {
             CampaignFailure::new(
@@ -889,16 +897,23 @@ impl Runtime {
             Ok(execution) if execution.timed_out() => {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
             }
-            Ok(execution) => match paths_from_execution(
-                &execution,
-                &BridgeContext {
-                    test_id: &test.id,
-                    classify: campaign.classify,
-                    sorts: &self.context.symbol_sorts,
+            Ok(execution) => match self.backend.with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(definition, solver, &test.initial_state);
+                Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
+                    &execution,
+                    &BridgeContext {
+                        test_id: &test.id,
+                        classify: campaign.classify,
+                        sorts: &self.context.symbol_sorts,
+                    },
+                    &|term| decider.definition_independent(term),
+                ))
+            }) {
+                Err(_) => SideRun::Sides {
+                    sides: vec![OracleSide::Unknown; test.oracles.len()],
                 },
-            ) {
-                Err(failure) => SideRun::Failed((&failure).into()),
-                Ok(bridged) => SideRun::Sides {
+                Ok(Err(failure)) => SideRun::Failed((&failure).into()),
+                Ok(Ok(bridged)) => SideRun::Sides {
                     sides: test
                         .oracles
                         .iter()
@@ -1063,6 +1078,8 @@ const fn collection_stop_side(stop: CollectionStop) -> Option<OracleSide> {
 }
 
 /// The side of a state oracle over one run's bridged paths; see the module documentation.
+/// Complete terminals must come from the bridge guarded by definition independence
+/// against that run's own definition (TV-01).
 #[must_use]
 pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> OracleSide {
     let incomplete = bridged
@@ -1270,8 +1287,146 @@ impl From<&MutantRejection> for MutantScopeFailure {
 }
 
 #[cfg(test)]
+#[path = "../../../testdata/k/support.rs"]
+mod input_test_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TV-01 input refusals use the existing BaselineOracleFailed admission path in both
+    /// schedules, before classification or mutant execution; the native test pins the
+    /// shared boundary itself. These are the only deliverable-5 rows allowed to move.
+    #[test]
+    fn test_written_partial_negations_refuse_campaign_admission() {
+        use kink_patch::{Edit, SelectionPolicy, SiteSelector, TermRef, derive_sites, select};
+        let validator = NativeValidator::bind(
+            input_test_support::load_path(
+                &std::path::Path::new(input_test_support::DIR).join("partialreq.k"),
+                "TV01UNSAT",
+            ),
+            k_rust::kompile::CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let at = TermRef::new(input_test_support::rule(baseline, "TV01UNSAT.part"), [0, 1]);
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: baseline.term(&at).expect("rhs").clone(),
+            replacement: k_rust::kast::Term::Token {
+                token: "8".into(),
+                sort: k_rust::kast::Sort::new("Int"),
+            },
+            at,
+        }])
+        .expect("patch");
+        let discovery = derive_sites(
+            baseline,
+            "input-guard",
+            &[
+                SiteSelector::RuleLabel("TV01UNSAT.part".into()),
+                SiteSelector::Path(vec![0, 1]),
+            ],
+        )
+        .expect("site");
+        let generation = select(&discovery, SelectionPolicy::Each, 1)
+            .expect("selection")
+            .fold("input-guard", |_| patch.clone())
+            .expect("generation");
+        const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{},Y:SortInt{})";
+        let not_equals = |atom: &str, value: &str| {
+            format!(
+                r#"\not{{SortGeneratedTopCell{{}}}}(\equals{{SortBool{{}},SortGeneratedTopCell{{}}}}({atom},\dv{{SortBool{{}}}}("{value}")))"#
+            )
+        };
+        let positive = format!(r#"Lbl'Unds-GT-'Int'Unds'{{}}({DIV},\dv{{SortInt{{}}}}("0"))"#);
+        let reflexive = format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({DIV},{DIV})");
+        let part = "Lblpart{}(X:SortInt{})";
+        let reflexive_part = format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({part},{part})");
+        let negation_equivalent_pair = |connective: &str| {
+            let negate = |value: &str| {
+                format!(
+                    r#"\{connective}(\equals{{SortBool{{}},SortGeneratedTopCell{{}}}}({positive},\dv{{SortBool{{}}}}("{value}")),\bottom{{SortGeneratedTopCell{{}}}}())"#
+                )
+            };
+            format!(
+                r"\and{{SortGeneratedTopCell{{}}}}({},{})",
+                negate("true"),
+                negate("false")
+            )
+        };
+        for (label, condition) in [
+            (
+                "neither",
+                format!(
+                    r"\and{{SortGeneratedTopCell{{}}}}({},{})",
+                    not_equals(&positive, "true"),
+                    not_equals(&positive, "false")
+                ),
+            ),
+            ("reflexive", not_equals(&reflexive, "true")),
+            ("reflexive-part", not_equals(&reflexive_part, "true")),
+            (
+                "implies",
+                negation_equivalent_pair("implies{SortGeneratedTopCell{}}"),
+            ),
+            (
+                "iff",
+                negation_equivalent_pair("iff{SortGeneratedTopCell{}}"),
+            ),
+            (
+                "pred-equals",
+                negation_equivalent_pair("equals{SortGeneratedTopCell{},SortGeneratedTopCell{}}"),
+            ),
+        ] {
+            let tests = [TestCase {
+                id: label.into(),
+                initial_state: Pattern::And {
+                    sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
+                    arguments: vec![
+                        input_test_support::initial_state(
+                            input_test_support::app(
+                                "Lblpair",
+                                vec![
+                                    input_test_support::var("X", "SortInt"),
+                                    input_test_support::var("Y", "SortInt"),
+                                ],
+                            ),
+                            "SortProg",
+                        ),
+                        k_rust::kore::parser::parse_pattern(&condition).expect("condition"),
+                    ],
+                },
+                oracles: vec![
+                    OracleDeclaration::new(
+                        CrashPolicy::Reject,
+                        Projection::State(StateProjection::WholeTerm),
+                    )
+                    .expect("oracle"),
+                ],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TV01UNSAT",
+                observation: &[],
+                classify: &|_| panic!("refused input must not be classified"),
+                tests: &tests,
+                budget: ExecutionBudget {
+                    time: std::time::Duration::from_secs(30),
+                    max_simplification_iterations: 1000,
+                    max_depth: None,
+                    max_breadth: None,
+                },
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let failure =
+                    run_campaign(&campaign, &generation, mode).expect_err("unsafe input refused");
+                assert_eq!(
+                    failure.kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{label} {mode:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn stepped_run_failures_make_only_pattern_slots_unknown() {
