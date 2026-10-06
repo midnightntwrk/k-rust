@@ -179,6 +179,11 @@ for name in "${selected[@]}"; do
   if ((${#hook_namespaces[@]})); then
     hook_args=(--hook-namespaces "${hook_namespaces[*]}")
   fi
+  # N42: options that change the reference definition, each case with a written reason why its
+  # programs cannot reach what they change (scripts/reference-manifest.py requires it).
+  mapfile -t reference_kompile_options < <(
+    jq -r '(.["reference-kompile-options"] // [])[]' <<<"$suite"
+  )
   if [[ ! -f "$source" ]]; then
     echo "error: missing $name semantics source: $source" >&2
     exit 2
@@ -190,6 +195,9 @@ for name in "${selected[@]}"; do
   definition="$work/$name-kompiled"
   export KAST_DEFINITION="$definition"
   echo "[$name] compiling the reference Haskell definition"
+  if ((${#reference_kompile_options[@]})); then
+    echo "[$name] reference kompile options ${reference_kompile_options[*]}: $(jq -r '.["reference-kompile-options-reason"]' <<<"$suite")"
+  fi
   (
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
@@ -201,6 +209,7 @@ for name in "${selected[@]}"; do
       --syntax-module "$syntax_module" \
       --output-definition "$definition" \
       "${hook_args[@]}" \
+      "${reference_kompile_options[@]}" \
       --warnings none
   )
 

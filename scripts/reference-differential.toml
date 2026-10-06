@@ -110,7 +110,7 @@ command = "scripts/reference-kast-differential.sh imp"
 [[gate]]
 name = "execution-cli"
 run = "certification"
-command = "scripts/reference-non-imp-execution-differential.sh io exit star-cell-map-nested-set"
+command = "scripts/reference-non-imp-execution-differential.sh io exit star-cell-map-nested-set star-cell-heating-set"
 
 [[gate]]
 name = "proof-imp"
@@ -1411,11 +1411,17 @@ programs = [
   "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/two.pgm",
 ]
 
+# Both results denote \bottom. k-rust's tasks finish as two equal cells of a Set collection, an
+# undefined step (docs/compatibility.md#set-concatenation-is-nilpotent). Every disjunct of the
+# reference's result carries a condition isKResult(n) = false for an integer n, while
+# `KResult ::= Int` makes isKResult(n) true; the comparator drops such disjuncts once the
+# simplifier reduces them to \bottom (N41).
 [[execution]]
 name = "star-cell-heating-set"
 requires = ["reference-toolchain"]
 constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
-manual = "The execution gate compiles the reference with the pinned Haskell backend, whose kompile rejects the fixture's [anywhere] rule. Under --allow-anywhere-haskell, which drops that rule and which the gate cannot pass, the pinned krun completes both programs (no program builds a _[_] term, so the rule is never reachable), while k-rust ends them in an undefined step (docs/compatibility.md#set-concatenation-is-nilpotent). Running it needs a per-case reference kompile option and an execution oracle exception; until then krun_completes_star_cell_heating_with_one_or_two_cells in crates/k-rust/tests/cli.rs pins k-rust's result for two.pgm."
+reference-kompile-options = ["--allow-anywhere-haskell"]
+reference-kompile-options-reason = "The pinned Haskell kompile rejects an [anywhere] rule; --allow-anywhere-haskell removes the fixture's one, I:Int[J:Int] => I +Int J, from the reference definition. The comparison is unaffected: neither program contains _[_], and no rule's right-hand side builds one (the strictness of _[_] only rearranges an existing one), so no reachable configuration holds a redex of the removed rule."
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
 main-module = "STAR-CELL-HEATING-SET"
 syntax-module = "STAR-CELL-HEATING-SYNTAX"

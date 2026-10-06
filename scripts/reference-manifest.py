@@ -84,12 +84,48 @@ def validate_compile_outcomes(manifest: dict) -> None:
                 )
 
 
+def validate_reference_kompile_options(manifest: dict) -> None:
+    """Options that change the reference definition an execution case compares against are read
+    only by the execution gate, and each case that carries them states why its programs cannot
+    reach what they change."""
+    for section in ("compile", "kast", "proof", "rpc", "symbolic"):
+        for case in manifest.get(section, []):
+            for key in ("reference-kompile-options", "reference-kompile-options-reason"):
+                if key in case:
+                    raise ValueError(
+                        f"{key} on {section} case {case.get('name')} is only read for execution"
+                    )
+    for case in manifest.get("execution", []):
+        name = case.get("name")
+        options = case.get("reference-kompile-options")
+        reason = case.get("reference-kompile-options-reason")
+        if options is None:
+            if reason is not None:
+                raise ValueError(
+                    f"reference-kompile-options-reason on execution case {name} has no options"
+                )
+            continue
+        if (
+            not isinstance(options, list)
+            or not options
+            or not all(isinstance(option, str) and option.startswith("--") for option in options)
+        ):
+            raise ValueError(
+                f"reference-kompile-options on execution case {name} must be a non-empty array of options"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"reference-kompile-options on execution case {name} need a written reason"
+            )
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
             manifest = expand(tomllib.load(source))
         validate_requirements(manifest)
         validate_compile_outcomes(manifest)
+        validate_reference_kompile_options(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

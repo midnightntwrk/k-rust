@@ -458,3 +458,11 @@ anchor_helpers = ["disjuncts_not_bottom", "simplifies_to_bottom"]
 rule = "When K_DIFFERENTIAL_DEFINITION supplies a definition and the disjuncts of an exact comparison do not pair (N15), drop from either side every disjunct that is \\bottom or that `krust kore-simplify` reduces to \\bottom against that definition, and pair the remaining disjuncts again. A disjunct the simplifier keeps, or fails on, is kept. The any-strategy (N26) and GotStuck (N17) comparisons do not use it."
 justification = "Simplification replaces a pattern by an equal one, and \\or(\\bottom, P) is P, so dropping such disjuncts leaves each result the same pattern. An engine may report a branch whose condition it did not refute, such as the reference without SMT (N14) keeping a heating step under isKResult(n) = false for an integer n that the definition makes a KResult. The verdict trusts the port's simplifier, as N15 trusts its prover."
 env = "K_DIFFERENTIAL_DEFINITION"
+
+[[normalisation]]
+id = "N42"
+gate = "execution"
+anchor = "scripts/reference-non-imp-execution-differential.sh:reference-kompile-options"
+anchor_symbol = "reference-kompile-options"
+rule = "Pass an execution case's reference-kompile-options to the reference kompile only, and print them with the case's reference-kompile-options-reason; scripts/reference-manifest.py refuses options without a reason and on any other section."
+justification = "An option that changes the reference definition (--allow-anywhere-haskell removes [anywhere] rules, which the pinned Haskell kompile otherwise rejects) leaves the comparison sound only for programs that cannot reach what it changes; the reason states why that holds for the case's programs, as for star-cell-heating-set, whose programs never build a redex of its removed rule."

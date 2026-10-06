@@ -1000,6 +1000,107 @@ fn differential_manifest_rejects_prerequisites_the_gates_cannot_enforce() {
     fs::remove_dir_all(fixture).unwrap();
 }
 
+/// N42: options that change the reference definition an execution case compares against are
+/// sound only for programs that cannot reach what they change, so each case that carries them
+/// states why (`reference-kompile-options-reason`); only the execution gate reads them.
+#[test]
+fn reference_kompile_options_need_a_reason_and_an_execution_case() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-reference-options");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let reason = "reference-kompile-options-reason = \"no program reaches the removed rule\"\n";
+    for (manifest, valid) in [
+        (case("execution", ""), true),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = [\"--allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            true,
+        ),
+        (
+            case(
+                "execution",
+                "reference-kompile-options = [\"--allow-anywhere-haskell\"]\n",
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                "reference-kompile-options = [\"--allow-anywhere-haskell\"]\nreference-kompile-options-reason = \" \"\n",
+            ),
+            false,
+        ),
+        (case("execution", reason), false),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = []\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = [\"allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!("reference-kompile-options = [\"--allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            false,
+        ),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_options = manifest["execution"]
+        .as_array()
+        .expect("execution cases")
+        .iter()
+        .filter(|entry| entry.get("reference-kompile-options").is_some())
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_options, ["star-cell-heating-set"]);
+
+    // The options reach the reference kompile and nothing else.
+    let uses = EXECUTION_SCRIPT
+        .match_indices("\"${reference_kompile_options[@]}\"")
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [use_index] = uses.as_slice() else {
+        panic!("the execution gate passes the reference options once: {uses:?}");
+    };
+    let kompile = EXECUTION_SCRIPT[..*use_index]
+        .rfind("reference_cached kompile ")
+        .expect("the options are passed to the reference kompile");
+    assert!(
+        !EXECUTION_SCRIPT[kompile..*use_index].contains(')'),
+        "the options are arguments of the reference kompile command"
+    );
+}
+
 #[test]
 fn every_gate_normalisation_is_registered() {
     let register = NORMALISATIONS
@@ -1015,13 +1116,13 @@ fn every_gate_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     let expected = (1..=28)
         .filter(|id| *id != 2)
-        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41])
+        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, and N30 through N41 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N42 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()
