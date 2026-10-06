@@ -4,6 +4,79 @@ The permanent regression suite must express the Rust implementation's contracts 
 A reference implementation helps establish an expected answer when a contract is uncertain and detects compatibility changes when its pin moves.
 Live differential tests are supplementary evidence; they are not required for every new Rust test.
 
+## Running the suites
+
+### After a change
+
+The workspace suite runs with `cargo test --workspace`, or, with [cargo-nextest](https://nexte.st) installed, with `cargo nextest run --workspace`, which runs every test in its own process across all CPUs instead of one test binary after another.
+`.config/nextest.toml` (nextest 0.9.91 or newer) gives the tests that measure the machine a slot of their own and starts the tests that reserve several slots first.
+nextest does not run doc-tests, so the loop after a change is:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo nextest run --workspace --locked
+cargo test --doc --workspace --exclude k-rust-napi --locked
+```
+
+The default features download the Z3 release into each target directory (README, "Install and build").
+To link a system or otherwise preinstalled Z3 instead, give every workspace command `--exclude k-rust-napi --no-default-features --features k-rust/cli`: `k-rust-napi` always selects the downloaded release, and it has no Rust tests.
+Keep the same flags on every command, including the narrower ones below, so that they share one build.
+
+While iterating, run one crate, one test binary, or a filterset, and the whole loop once before handing the change on.
+A filterset over the workspace reuses the workspace build:
+
+```sh
+cargo nextest run --workspace -E 'package(k-rust-backend)'
+cargo nextest run --workspace -E 'binary_id(k-rust::inner_rules)'
+cargo nextest run --workspace -E 'binary_id(k-rust::cli) & test(/kprove/)'
+```
+
+`-p k-rust --test inner_rules` builds less after a change, but Cargo resolves the features of the selected crates alone, so its first run builds a second copy of the workspace crates.
+
+A change to code under a `cfg(feature = ...)` gate, to the backend's `z3` sites, or to the bindings also needs the portable build, which compiles the other side of those gates:
+
+```sh
+cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend --no-default-features
+```
+
+CI runs the workspace suite under checked sort inference, which runs the portable and Z3 engines on every inference and fails when they disagree; reproduce it with `KRUST_TYPE_INFERENCE_MODE=checked cargo nextest run --workspace --profile ci-checked`.
+The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots pin one engine's work, and `k-rust-wasm`, which ships without Z3; `scripts/measure-ratchet.sh` runs the former in the default mode.
+`inner_rules` also reruns itself under checked inference in an ordinary run, so parser changes get the engine-agreement check without the whole checked run.
+
+### In CI
+
+| When | Workflow | Checks |
+|---|---|---|
+| Every push and pull request | `ci.yml` | formatting; the benchmark harness's syntax; the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate |
+| A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
+| Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), and `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend |
+| Every week, or on demand | `differential.yml` | the reference differential gates of the manifest's `weekly` gate set |
+
+`scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
+The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
+A push is compared with the commit before it and a pull request with its merge base; a new branch, a force push, a previous commit missing from the clone, or a failing comparison runs every path-triggered check.
+A check that is not needed appears as a skipped job, which GitHub counts as passing for a required check.
+A failed scheduled run shows only on the repository's Actions page; `gh run list --workflow nightly.yml --limit 1` reads the latest one.
+
+### Reference gates, the conformance ratchet, and coverage
+
+The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence"); choose them by the contract a change affects.
+The reference-output cache (below) replays unchanged reference results, so a repeated run costs mostly the krust side.
+
+| A change to | Run |
+|---|---|
+| outer loading, definitions, kompile passes, sort inference, macros, hooks, module selection, KORE emission, or the embedded prelude (`crates/k-rust/builtin/`) | the compile and kast differentials of the affected cases, then the README's real-semantics certification protocol |
+| the backend's rewriting, matching, unification, simplification, builtins, or proof search | the execution, proof and symbolic differentials of the affected cases, and the RPC differential, which also covers the `krust kore-rpc` setup in `crates/k-rust/src/main.rs`; for builtins, matching and rewriting, the MIR execution differential too |
+| the code of one subsystem in `scripts/conformance/subsystems.toml` | `scripts/conformance-ratchet.sh --cases` with that subsystem's cases |
+| the conformance driver (`scripts/conformance/`), or before merging an integration branch | `scripts/conformance-ratchet.sh --all` |
+
+No workflow runs the ratchet: its LLVM recipes need the pinned reference tools under a user systemd scope (see "Manual conformance acceptance"), so even `--all` is a manual run.
+`scripts/reference-fixtures-refresh.sh` is for reference pin moves only.
+
+`scripts/coverage.sh` measures which production lines the Z3 and portable suites execute, per crate, per test and per algorithm card; its header documents the options and the report.
+It is a manual check, not a gate: run it before removing tests or restructuring a suite, and now and then to follow the trend.
+
 ## Choosing a test home
 
 | Contract | Test home | Expected answer |

@@ -1,0 +1,144 @@
+name: Nightly
+
+# Checks that do not run on every push. The schedule and a manual dispatch run all of them on the
+# default branch; CI calls this workflow on every push and pull request with the path-triggered
+# checks whose trigger paths changed (scripts/ci-changed-paths.sh), and the others are skipped.
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      portable-suite:
+        description: Run the full portable test suite
+        type: boolean
+        required: true
+      z3-acquisition:
+        description: Run the system-linked Z3 acquisition check
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  portable-suite:
+    name: Full portable suite
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.portable-suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
+      # Every test of the crates the WebAssembly package ships, built without Z3 inference, MPFR
+      # constant folding or the backend's Z3 solver.
+      - name: Test the portable feature set
+        run: >-
+          cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
+          -p k-rust -p k-rust-wasm -p k-rust-backend
+
+      - name: Run the portable feature set's doc-tests
+        run: cargo test --doc --locked --no-default-features -p k-rust -p k-rust-wasm -p k-rust-backend
+
+  z3-acquisition:
+    name: System-linked Z3 acquisition
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.z3-acquisition
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The check builds in a fresh target directory of its own, so only the registry is cached.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+
+      - name: Install system Z3 development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev
+
+      # The feature graphs select no Z3 download, and a build linked to the system library runs
+      # Z3 inference. The runner image's Z3 package can change without a commit, which the
+      # nightly run notices.
+      - name: Check system-linked Z3 acquisition
+        run: scripts/z3-acquisition-check.sh
+
+  # The Rust half of the script also runs on every push, as `backend_smoke_*` tests in cli.rs.
+  # Here it runs with the release CLI, and its LLVM half compiles decision trees and a native
+  # interpreter with the pinned K release's LLVM backend.
+  backend-smoke:
+    name: Backend smoke test with LLVM
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read the pinned K reference
+        id: k
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import tomllib
+
+          with open("scripts/reference-differential.toml", "rb") as manifest:
+              k = tomllib.load(manifest)["reference"]["k"]
+          print(f"revision={k['revision']}")
+          print(f"version={k['version'].removeprefix('v')}")
+          EOF
+
+      - name: Check out pinned K sources
+        uses: actions/checkout@v7
+        with:
+          repository: runtimeverification/k
+          ref: ${{ steps.k.outputs.revision }}
+          path: k
+          sparse-checkout: |
+            k-distribution/include/kframework/builtin
+            k-distribution/tests/regression-new/cell_map
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned K release
+        env:
+          K_VERSION: ${{ steps.k.outputs.version }}
+        run: |
+          curl -fsSLo /tmp/kframework.deb \
+            "https://github.com/runtimeverification/k/releases/download/v${K_VERSION}/kframework_${K_VERSION}_amd64_ubuntu_noble.deb"
+          sudo apt-get install -y /tmp/kframework.deb
+
+      - name: Build the release CLI
+        run: cargo build --release -p k-rust --bin krust --locked
+
+      - name: Smoke-test the in-process and LLVM backends
+        env:
+          KRUST_BIN: ${{ github.workspace }}/target/release/krust
+        run: |
+          llvm_kompile=$(command -v llvm-kompile) \
+            || { echo "error: the K release put no llvm-kompile on PATH" >&2; exit 1; }
+          K_BACKEND_BIN=$(dirname "$llvm_kompile") scripts/backend-smoke.sh

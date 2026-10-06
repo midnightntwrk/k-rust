@@ -131,7 +131,7 @@ cargo build -p k-rust --no-default-features --features cli
 
 System mode requires the development library and headers to be discoverable by the platform linker or `pkg-config`; a `z3` executable alone is insufficient.
 It commonly links dynamically, so the selected library must also be discoverable at runtime.
-The repository checks both system feature graphs and exercises a clean system-linked build with `scripts/z3-acquisition-check.sh`.
+The repository checks both system feature graphs and exercises a clean system-linked build with `scripts/z3-acquisition-check.sh`, which CI runs when a manifest, the lockfile, or one of the check's inputs changes, and every night.
 
 The portable library subset disables native inference and floating-point folding:
 
@@ -669,8 +669,9 @@ scripts/backend-smoke.sh
 ```
 
 Set `KRUST_BIN` to an existing CLI executable to run the gate without invoking Cargo.
-CI uses its workspace-built `target/debug/krust` so the smoke test does not rebuild dependencies or download Z3 again.
 Without `KRUST_BIN`, the script builds and runs the CLI with the committed Cargo lockfile.
+Its in-process flows also run on every push as the `backend_smoke_*` tests of `crates/k-rust/tests/cli.rs`;
+the nightly workflow runs the whole script, LLVM half included, with the release CLI.
 
 No Haskell executable is required. The gate also generates LLVM matching decision trees for the
 collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` points to an LLVM
@@ -686,17 +687,25 @@ See [finding structural optimizations](docs/optimization-method.md) for the meas
 The workspace requires Rust 1.88 or newer.
 CI checks all targets with the locked dependency graph on exactly Rust 1.88 so source and dependency changes cannot silently exceed the declared minimum supported Rust version.
 
-CI runs the release-independent gates:
+CI runs the release-independent gates on every push and pull request:
 
 ```console
 cargo fmt --all -- --check
 cargo build --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+KRUST_TYPE_INFERENCE_MODE=checked cargo nextest run --workspace --locked --no-fail-fast --profile ci-checked
+cargo test --doc --workspace --exclude k-rust-napi --locked
+scripts/measure-ratchet.sh --gh-release
 cargo clippy -p k-rust -p k-rust-wasm --all-targets --no-default-features --locked -- -D warnings
-cargo test -p k-rust -p k-rust-wasm --no-default-features --locked
+cargo nextest run --locked --no-fail-fast --profile ci --no-default-features -p k-rust -p k-rust-wasm --lib --test inner_parser --test definition_regex
+cargo nextest run --locked --no-fail-fast --profile ci -p k-rust-backend
 cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
 ```
+
+The full portable suite (`cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend --no-default-features`)
+and `scripts/z3-acquisition-check.sh` run when a push or pull request changes their trigger paths, and
+every night together with `scripts/backend-smoke.sh`. [Testing contracts](docs/testing.md#running-the-suites)
+describes the local loop, the trigger paths, and when to run the reference gates.
 
 Snapshot updates are intentional and source-driven. Review them locally with `cargo insta review`;
 CI only runs ordinary tests and never accepts snapshots.
