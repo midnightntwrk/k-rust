@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -387,7 +387,20 @@ fn simplified_ceil_condition(
     }
 }
 
+/// The definedness of the partial application `term` beyond that of its arguments, which
+/// `ceil_term_node` adds: the condition of the first unconditional ceil equation that matches it,
+/// or, for an application of a `value-production` symbol that no equation reduces on any
+/// instance, nothing, since that marker makes such an application a value
+/// (`BackendDefinition::irreducible_application_is_defined`). `None` keeps the opaque `\ceil`.
 fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
+    ceil_theory_condition(definition, term).or_else(|| {
+        definition
+            .irreducible_application_is_defined(term)
+            .then(Vec::new)
+    })
+}
+
+fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let indexes = [term_index(term), TermIndex::Variable];
     for index in indexes {
         let Some(groups) = definition.ceil_theory().get(&index) else {

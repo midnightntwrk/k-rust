@@ -1036,14 +1036,30 @@ def do_kompile(case, rec, expect_fail):
                 divergence="\n".join((verr or vout).splitlines()[:DIFF_LINES]),
             )
             return step_record(case, **step)
-        vrc, vout, verr, vsecs, vto = reference_sh(
-            case, [KORE_PARSER, rust_kore], case.remaining(), "kore-parser",
-            env={"GHCRTS": ""}, tool_path=KORE_PARSER,
-        )
-        case.logfile("kompile.krust-verify.log", vout + "\n--- stderr ---\n" + verr)
+        verify_kore = rust_kore
+        verify_note = ""
+        if args[args.index("--backend") + 1] == "llvm":
+            # N38 (docs/compatibility.md): the LLVM target emits a partial value production
+            # without `function`, so that an irreducible application stays a value, and the
+            # verifier requires `function` or `functional` of an equation head. Verify a copy
+            # with `function{}()` added to exactly the `value-production` declarations; the
+            # compared and executed definition is never changed.
+            verify_kore = f"{case.dir}/krust-kompiled/definition.verify.kore"
+            try:
+                count = llvm_verification_copy(rust_kore, verify_kore)
+                verify_note = f"N38 LLVM verification value-production declarations: {count}\n"
+            except (OSError, UnicodeError, ValueError) as error:
+                verify_kore = None
+                vrc, vout, verr, vsecs, vto = 1, "", f"N38: {error}", 0.0, False
+        if verify_kore is not None:
+            vrc, vout, verr, vsecs, vto = reference_sh(
+                case, [KORE_PARSER, verify_kore], case.remaining(), "kore-parser",
+                env={"GHCRTS": ""}, tool_path=KORE_PARSER,
+            )
+        case.logfile("kompile.krust-verify.log", verify_note + vout + "\n--- stderr ---\n" + verr)
         step["krust_verify_rc"] = vrc
         step["krust_verify_seconds"] = round(vsecs, 1)
-        step["verification"] = "kore-parser --verify"
+        step["verification"] = "kore-parser --verify" + (" (N38 copy)" if verify_note else "")
         if vto or vrc != 0:
             # The rejection is its own step, ranked after every other step of the case, and the
             # definition.kore comparison still runs: a step exclusion for this rejection then
@@ -2446,6 +2462,21 @@ VERDICT_RANK = {
     "match": 3,
 }
 STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
+
+
+def llvm_verification_copy(source, destination):
+    """Write the N38 verifier copy of an LLVM-target definition (scripts/reference-llvm-verification.py)
+    and return the number of declarations it marked `function`."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "reference_llvm_verification", HERE.parent / "reference-llvm-verification.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with open(source, "rb") as handle:
+        normalized, count = module.normalize_llvm_value_productions(handle.read().decode())
+    with open(destination, "wb") as handle:
+        handle.write(normalized.encode())
+    return count
 
 
 def kore_verify_error(text):

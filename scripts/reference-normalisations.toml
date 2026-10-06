@@ -435,10 +435,10 @@ justification = "The hooked Map carries KItem values, while a configuration decl
 
 [[normalisation]]
 id = "N38"
-gate = "reference-tool verification of kore/llvm compile output"
+gate = "reference-tool verification of kore/llvm compile output and of conformance --backend llvm recipes"
 anchor = "scripts/reference-llvm-verification.py:normalize_llvm_value_productions"
 anchor_symbol = "normalize_llvm_value_productions"
-rule = "In a separate verification copy of the k-rust definition.kore for the kore/llvm pairing only, add `function{}()` to exactly the symbol declarations carrying bare `value-production{}()`, and print the number changed. Refuse with exit 1 if a marked declaration already carries `function` or `functional`. The LLVM backend and the compile comparison consume the original definition. The Rust/Haskell pairing verifies its original definition without this normalization."
+rule = "In a separate verification copy of the k-rust LLVM-target definition.kore (the kore/llvm compile pairing, and the conformance driver's kore-verify step of a --backend llvm recipe) only, add `function{}()` to exactly the symbol declarations carrying bare `value-production{}()`, and print the number changed. Refuse with exit 1 if a marked declaration already carries `function` or `functional`. The LLVM backend and the compile comparison consume the original definition. The Rust/Haskell pairing verifies its original definition without this normalization."
 justification = "The equation-head verifier requires function or functional, but a partial value production has no evidence for functional. The external LLVM backend reads function to exclude irreducible applications from values and does not read value-production to restore them, so adding function to the executed LLVM definition would change its meaning. The verification copy supplies only the verifier's required head classification and retains the marker that the Rust target uses to restore the value reading; the original output preserves LLVM value applications. See docs/compatibility.md#anywhere-rules."
 
 [[normalisation]]
@@ -465,3 +465,21 @@ anchor = "scripts/reference-non-imp-execution-differential.sh:reference-kompile-
 anchor_symbol = "reference-kompile-options"
 rule = "Pass an execution case's reference-kompile-options to the reference kompile only, and print them with the case's reference-kompile-options-reason; scripts/reference-manifest.py refuses options without a reason and on any other section."
 justification = "An option that changes the reference definition (--allow-anywhere-haskell removes [anywhere] rules, which the pinned Haskell kompile otherwise rejects) leaves the comparison sound only for programs that cannot reach what it changes; the reason states why that holds for the case's programs, as for star-cell-heating-set, whose programs never build a redex of its removed rule."
+
+[[normalisation]]
+id = "N43"
+gate = "compile semantic KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_derived_projection_totality"
+anchor_symbol = "normalize_derived_projection_totality"
+anchor_helpers = ["emitted_equation", "declare_totality_claim", "conjuncts"]
+rule = "On the reference side only, give a field projection `project:S:f` (one argument of a sort without parameters, `function{}()` and no `functional`/`total`) the attributes `functional{}(), total{}()` after `function{}()` and its functional axiom `\\exists{R}(Val, \\equals(Val, project:S:f(K0)))` exactly when the reference itself states the no-junk axiom of `S` whose only alternative is `\\exists X0 ... . C(X0, ...)` for a declared constructor `C`, and exactly one equation for the projection, unconditional, `project:S:f(C(Y0, ...)) = Yi` over distinct variables. A projection whose derivation lacks a premise is compared unchanged; the comparison prints the number of declarations changed."
+justification = "The no-junk axiom makes every value of `S` an application of `C`, and the equation gives each such application the value `Yi`, so the totality claim is a theorem of the reference definition and adding it does not change its models. The port states exactly this claim (its SoleGenerator evidence). A port that claims a projection the reference cannot derive, or omits a derivable claim, still differs. See docs/compatibility.md#comparison-contract."
+
+[[normalisation]]
+id = "N44"
+gate = "compile semantic KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_unsupported_lambda_totality"
+anchor_symbol = "normalize_unsupported_lambda_totality"
+anchor_helpers = ["emitted_equation", "functional_axiom_symbol"]
+rule = "On the reference side only, remove `total{}()`, `functional{}()` and the bare functional axiom of a generated `#lambda` symbol (name prefix `Lbl'Hash'lambda`) whose reference equations do not support the claim: it does not have exactly one equation, unconditional, whose every argument pattern is a variable of the declared parameter sort, or its right-hand side applies a lambda whose claim is removed (least fixed point). A supported claim stays, and so does the claim of a lambda for which the definition states no equation (a syntax definition); the comparison prints the number of declarations changed."
+justification = "A lambda is the function of one `#fun`/`#let` rule, and nothing in the definition gives a value to an argument that rule does not match, so a totality claim over a parameter sort the equation does not cover is not derivable; the port withholds it (docs/compatibility.md#configuration-value-transport). Withdrawing only unsupported claims keeps every supported one compared, so a port that withholds a supported claim still differs. See docs/compatibility.md#comparison-contract."

@@ -6003,10 +6003,9 @@ endmodule
 /// `wrap(s(X))` equals `wrap(z)` at `X = z`, so neither the `owise` rule nor the `owise`
 /// equation may fire on it for every `X`: the symbolic claims, false at `X = z`, are not proven.
 /// `wrap(s(z)) = wrap(z)` reapplies its own head, so the least fixed point cannot establish
-/// totality for `wrap` (Unshown(Cycle)). Without `functional`, the normal form retains
-/// `ceil(wrap(z))`, preventing certification of the ground counterexample: its verdict is
-/// `failed`. This is a precision loss, not a soundness change; omitting definedness obligations
-/// for certified evaluated EquationHead normal forms would restore `disproved`.
+/// totality for `wrap` (Unshown(Cycle)), and `wrap` is a `value-production`. No equation reduces
+/// `wrap(z)`, so it is a value and its definedness is that of `z`: the ground counterexample's
+/// stuck state carries no `ceil(wrap(z))` obligation, is certified, and the claim is `disproved`.
 #[test]
 fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
     for (source, module) in [
@@ -6041,7 +6040,7 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
                 .to_owned()
         };
         assert_ne!(verdict("symbolic"), "proven", "{module}: {stdout}");
-        assert_eq!(verdict("ground"), "failed", "{module}: {stdout}");
+        assert_eq!(verdict("ground"), "disproved", "{module}: {stdout}");
         let ground_output = stdout
             .split_once(&format!("claim {module}-SPEC.ground: "))
             .unwrap()
@@ -6050,10 +6049,10 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
             .next()
             .unwrap();
         assert!(
-            ground_output.contains("Stuck at depth ")
-                && ground_output
-                    .contains(r"\ceil{SortAddress{}, SortGeneratedTopCell{}}(Lblwrap{}(Lblz{}()))"),
-            "{module}: no ground stuck-state definedness obligation in {ground_output}"
+            ground_output.contains("Stuck (certified) at depth ")
+                && !ground_output.contains(r"\ceil{SortAddress{}"),
+            "{module}: the ground stuck state is not a certified, obligation-free counterexample \
+             in {ground_output}"
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -11153,6 +11152,104 @@ fn kcompile_for_proving(
 /// `kcompile` of `source` with the compile options `options` (modules, include directories) into
 /// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
 /// once with this and passes `output` to `krun --definition`.
+/// domains.md makes a map concatenation undefined exactly when its operands share a key (and a
+/// set concatenation when they share an element). A configuration map or set of pairwise
+/// distinct literal keys is therefore defined, and so is the initializer that builds it
+/// (`issue-946`); a repeated key, a key that differs only in spelling (`1`, `+1`), keys of
+/// different sorts, or a key computed by a function leaves the initializer without the claim.
+#[test]
+fn kcompile_claims_initializers_of_disjoint_literal_collections_total() {
+    for (content, total) in [
+        (
+            "<env> 1 |-> ListItem(2) ListItem(3) 5 |-> ListItem(6) 8 |-> .List </env>",
+            true,
+        ),
+        ("<env> 1 |-> 2 1 |-> 3 </env>", false),
+        ("<env> 1 |-> 2 +1 |-> 3 </env>", false),
+        (r#"<env> 1 |-> 2 "1" |-> 3 </env>"#, false),
+        ("<env> f(1) |-> 2 5 |-> 3 </env>", false),
+        (
+            r#"<env> SetItem(true) SetItem(false) SetItem("a") </env>"#,
+            false,
+        ),
+        (r#"<env> SetItem("a") SetItem("b") </env>"#, true),
+        ("<env> SetItem(2) SetItem(2) </env>", false),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            format!(
+                "module MAIN\n  imports INT\n  imports STRING\n  imports MAP\n  imports SET\n  imports LIST\n  syntax Int ::= f(Int) [function, symbol(f)]\n  syntax KItem ::= \"start\"\n  configuration <k> start </k> {content}\nendmodule\n"
+            ),
+        )
+        .unwrap();
+        let compiled = root.join("compiled");
+        kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
+        let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+        for initializer in ["LblinitEnvCell", "LblinitGeneratedTopCell"] {
+            let declaration = kore
+                .split("\n  symbol ")
+                .find(|declaration| declaration.starts_with(&format!("{initializer}{{}}()")))
+                .unwrap_or_else(|| panic!("{content}: no {initializer} declaration"));
+            // The declaration ends with its attribute list, which may span several lines.
+            let open = declaration.find('[').expect("attribute list");
+            let mut depth = 0;
+            let end = declaration[open..]
+                .char_indices()
+                .find_map(|(index, character)| {
+                    match character {
+                        '[' => depth += 1,
+                        ']' => depth -= 1,
+                        _ => {}
+                    }
+                    (depth == 0).then_some(open + index + 1)
+                })
+                .expect("closed attribute list");
+            let declaration = &declaration[..end];
+            assert_eq!(
+                declaration.contains("total{}()"),
+                total,
+                "{content}: {initializer} {declaration}"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// A token production conflicts with `Int`'s identical lexeme only in a view that contains
+/// both: the upstream `checks/invalidPrec.k` module, which imports nothing, compiles, and the
+/// same production beside `imports INT-SYNTAX` is rejected (docs/compatibility.md, "Grammar
+/// scope of token precedence").
+#[test]
+fn kcompile_judges_token_precedence_in_the_module_s_own_view() {
+    for (imports, accepted) in [("", true), ("  imports INT-SYNTAX\n", false)] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            format!(
+                "module INVALIDPREC\n{imports}  syntax Foo ::= r\"[0-9]+\" [token]\nendmodule\n"
+            ),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(&definition)
+            .args(["--main-module", "INVALIDPREC", "--output-directory"])
+            .arg(root.join("compiled"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), accepted, "{imports:?}: {stderr}");
+        assert_eq!(
+            stderr.contains("Inconsistent token precedence detected."),
+            !accepted,
+            "{imports:?}: {stderr}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
     let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")

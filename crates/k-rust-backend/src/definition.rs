@@ -585,6 +585,10 @@ pub struct BackendDefinition {
     simplification_theory: Theory,
     predicate_simplification_theory: PredicateTheory,
     ceil_theory: Theory,
+    /// The symbols declared with the KORE `value-production` attribute, which states that an
+    /// application no equation reduces is a value of its sort; read by
+    /// [`Self::irreducible_application_is_defined`].
+    value_productions: BTreeSet<Name>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -1290,6 +1294,28 @@ impl BackendDefinition {
         &self.ceil_theory
     }
 
+    /// Whether `term` is an application of a `value-production` symbol that no equation of the
+    /// definition reduces, on any instance, so that the application is defined wherever its
+    /// arguments are.
+    ///
+    /// `value-production` states that an application no equation reduces is a value of its
+    /// sort. Evidence that no equation reduces the application is either the simplifier's
+    /// certificate on a ground normal form (`term::head::certified_ground_normal_form`) or
+    /// instance normality (`instance_normal`): every equation equation selection could offer the
+    /// application or one of its instances fails to unify with it or to match it. Either holds
+    /// for every valuation, so the answer does not depend on a path condition. Without the
+    /// marker an equation head claims nothing about its irreducible applications, and a
+    /// conditional equation whose left-hand side reaches the application withholds both kinds of
+    /// evidence, so the answer is `false` there.
+    pub(crate) fn irreducible_application_is_defined(&self, term: &Term) -> bool {
+        let TermKind::Application { symbol, .. } = term.kind() else {
+            return false;
+        };
+        self.value_productions.contains(&symbol.name)
+            && (crate::term::head::certified_ground_normal_form(term)
+                || self.instance_normal(term).is_some())
+    }
+
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function
     /// ([`HeadRole::Function`]); a declared function that is also a macro or alias, or also a
     /// constructor or sort injection, has another role.
@@ -1662,6 +1688,22 @@ impl BackendDefinition {
             }
         }
         let overloads = OverloadGraph::from_relations(overloads)?;
+        let value_productions = ordered
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                kore::Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } => attributes
+                    .has(KoreAttribute::ValueProduction)
+                    .then(|| Name::from(symbol.name.as_str())),
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SortDeclaration { .. }
+                | kore::Sentence::AliasDeclaration { .. }
+                | kore::Sentence::Axiom { .. }
+                | kore::Sentence::Claim { .. } => None,
+            })
+            .collect();
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -1682,6 +1724,7 @@ impl BackendDefinition {
             simplification_theory: Theory::new(),
             predicate_simplification_theory: PredicateTheory::new(),
             ceil_theory: Theory::new(),
+            value_productions,
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),

@@ -43,6 +43,168 @@ pub(crate) fn term_is_defined(term: &Term, defined: &mut dyn FnMut(&Label) -> bo
     }
 }
 
+/// The labels of the hooked map and set concatenations and elements, for the literal case of
+/// [`term_is_defined_with`].
+///
+/// domains.md specifies a map concatenation as undefined (`#False`) exactly when its operands
+/// have a key in common, and a set concatenation likewise for a common element; an element
+/// application of defined arguments is a value. So a concatenation tree whose leaves are element
+/// applications with pairwise distinct literal keys denotes a collection, although the
+/// concatenation itself is only a `function`. A concatenation label that heads a
+/// non-simplification rule is left out: such a rule could give it another meaning.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CollectionLiterals {
+    map_concat: BTreeSet<String>,
+    map_element: BTreeSet<String>,
+    set_concat: BTreeSet<String>,
+    set_element: BTreeSet<String>,
+}
+
+impl CollectionLiterals {
+    /// The hooked collection labels of `productions` that no label in `headed` names.
+    pub(crate) fn of(productions: &ProductionCatalog<'_>, headed: &BTreeSet<String>) -> Self {
+        let mut literals = Self::default();
+        for (_, production) in productions.productions() {
+            let Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } = production
+            else {
+                continue;
+            };
+            if headed.contains(&label.name) {
+                continue;
+            }
+            let set = match attributes.string(AttributeKey::Hook) {
+                Some("MAP.concat") => &mut literals.map_concat,
+                Some("MAP.element") => &mut literals.map_element,
+                Some("SET.concat") => &mut literals.set_concat,
+                Some("SET.element") => &mut literals.set_element,
+                _ => continue,
+            };
+            set.insert(label.name.clone());
+        }
+        literals
+    }
+
+    /// Whether `term`, an application of a concatenation label, is a concatenation tree of
+    /// element applications whose keys (map) or elements (set) are pairwise distinct literals
+    /// and whose map values `value_is_defined` accepts.
+    fn disjoint_literal(
+        &self,
+        term: &Term,
+        value_is_defined: &mut dyn FnMut(&Term) -> bool,
+    ) -> bool {
+        let Term::Apply { label, .. } = term.unannotated() else {
+            return false;
+        };
+        let (concat, element, map) = if self.map_concat.contains(&label.name) {
+            (&self.map_concat, &self.map_element, true)
+        } else if self.set_concat.contains(&label.name) {
+            (&self.set_concat, &self.set_element, false)
+        } else {
+            return false;
+        };
+        let mut keys = Vec::new();
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            let Term::Apply { label, arguments } = term.unannotated() else {
+                return false;
+            };
+            if concat.contains(&label.name) && arguments.len() == 2 {
+                pending.extend(arguments);
+                continue;
+            }
+            let (true, Some(key)) = (element.contains(&label.name), arguments.first()) else {
+                return false;
+            };
+            let Some(key) = LiteralValue::of(key) else {
+                return false;
+            };
+            match (map, &arguments[1..]) {
+                (true, [value]) if value_is_defined(value) => {}
+                (false, []) => {}
+                _ => return false,
+            }
+            keys.push(key);
+        }
+        let count = keys.len();
+        keys.sort();
+        keys.dedup();
+        keys.len() == count && keys.windows(2).all(|pair| pair[0].comparable(&pair[1]))
+    }
+}
+
+/// A literal token whose value its spelling determines, compared by that value: an integer (the
+/// decimal `Int` token of domains.md, optionally signed), a Boolean, or a string without escape
+/// sequences, whose quoted spelling is then its only spelling.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum LiteralValue {
+    Int(num_bigint::BigInt),
+    Bool(bool),
+    String(String),
+}
+
+impl LiteralValue {
+    fn of(term: &Term) -> Option<Self> {
+        let Term::Token { token, sort } = term.unannotated() else {
+            return None;
+        };
+        if *sort == Sort::builtin(BuiltinSort::Int) {
+            let digits = token.strip_prefix('+').unwrap_or(token);
+            let unsigned = digits.strip_prefix('-').unwrap_or(digits);
+            (!unsigned.is_empty() && unsigned.bytes().all(|byte| byte.is_ascii_digit()))
+                .then(|| digits.parse().ok().map(Self::Int))
+                .flatten()
+        } else if *sort == Sort::builtin(BuiltinSort::Bool) {
+            match token.as_str() {
+                "true" => Some(Self::Bool(true)),
+                "false" => Some(Self::Bool(false)),
+                _ => None,
+            }
+        } else if *sort == Sort::builtin(BuiltinSort::String) {
+            (token.len() >= 2
+                && token.starts_with('"')
+                && token.ends_with('"')
+                && !token.contains('\\'))
+            .then(|| Self::String(token.clone()))
+        } else {
+            None
+        }
+    }
+
+    /// Literals of one sort; distinct literals of different sorts are not known to differ.
+    fn comparable(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+/// [`term_is_defined`], which also accepts a map or set concatenation of pairwise distinct
+/// literal keys or elements with defined values ([`CollectionLiterals`]).
+pub(crate) fn term_is_defined_with(
+    term: &Term,
+    collections: &CollectionLiterals,
+    defined: &mut dyn FnMut(&Label) -> bool,
+) -> bool {
+    match term.unannotated() {
+        Term::Variable { .. } | Term::Token { .. } | Term::InjectedLabel(_) => true,
+        Term::Sequence(items) => items
+            .iter()
+            .all(|item| term_is_defined_with(item, collections, defined)),
+        Term::Apply { label, arguments } => {
+            collections.disjoint_literal(term, &mut |value| {
+                term_is_defined_with(value, collections, defined)
+            }) || (defined(label)
+                && arguments
+                    .iter()
+                    .all(|item| term_is_defined_with(item, collections, defined)))
+        }
+        Term::Rewrite { .. } | Term::As { .. } => false,
+        Term::Annotated { .. } => unreachable!("unannotated terms carry no annotation"),
+    }
+}
+
 /// Judge the right-hand side of a rule body without constructing it.
 pub(crate) fn right_side_is_defined(body: &Term, defined: &mut dyn FnMut(&Label) -> bool) -> bool {
     match body.unannotated() {

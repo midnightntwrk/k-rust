@@ -3,7 +3,9 @@
 //! RHS preparation allocates O(T + U) once.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use crate::definition::head_totality::{EquationTotality, is_true, term_is_defined};
+use crate::definition::head_totality::{
+    CollectionLiterals, EquationTotality, is_true, term_is_defined_with,
+};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, ProductionItem, ResolveError, Sentence, match_rule_label};
 use crate::kast::{InternalLabel, Label, Sort, Term};
@@ -112,8 +114,14 @@ pub(crate) fn declare_deferred_totality_pass(
             deferred_labels.insert(label.name.clone());
         }
     }
-    let deferred_rules =
-        DeferredEquations::gather(&main_rules, deferred_labels, &cells, &child_units);
+    let collections = CollectionLiterals::of(&productions, &headed);
+    let deferred_rules = DeferredEquations::gather(
+        &main_rules,
+        deferred_labels,
+        &cells,
+        &child_units,
+        collections,
+    );
     let proven = proven_deferred_labels(&deferred_rules, &lambdas, &defined, totality.as_ref());
     let mut declarations = Vec::new();
     // Gather proven writes before cloning: an empty set preserves the input and its views.
@@ -221,10 +229,11 @@ fn initializer_child_units(
 
 fn deferred_result_is_defined(
     rule: &DeferredRule,
+    collections: &CollectionLiterals,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
     is_true(&rule.ensures)
-        && term_is_defined(&rule.rule_right, defined)
+        && term_is_defined_with(&rule.rule_right, collections, defined)
         && rule
             .child_units
             .iter()
@@ -233,6 +242,7 @@ fn deferred_result_is_defined(
 
 fn initializer_rules_are_defined(
     rules: &[DeferredRule],
+    collections: &CollectionLiterals,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> bool {
     // A partial function needs an applicable equation, not only defined possible results.
@@ -240,7 +250,7 @@ fn initializer_rules_are_defined(
     rules.iter().any(|rule| is_true(&rule.requires))
         && rules
             .iter()
-            .all(|rule| deferred_result_is_defined(rule, defined))
+            .all(|rule| deferred_result_is_defined(rule, collections, defined))
 }
 
 pub(super) use deferred_equations::DeferredEquations;
@@ -269,6 +279,7 @@ mod deferred_equations {
     /// looks up the covering receipt's label itself rather than accepting an equation slice.
     pub(in crate::kompile::passes) struct DeferredEquations {
         equations_by_label: BTreeMap<String, Vec<DeferredRule>>,
+        collections: CollectionLiterals,
     }
 
     impl DeferredEquations {
@@ -277,6 +288,7 @@ mod deferred_equations {
             labels: BTreeSet<String>,
             cells: &BTreeSet<String>,
             child_units: &BTreeMap<String, BTreeSet<String>>,
+            collections: CollectionLiterals,
         ) -> Self {
             let mut equations_by_label = labels
                 .into_iter()
@@ -318,7 +330,10 @@ mod deferred_equations {
                     });
                 }
             }
-            Self { equations_by_label }
+            Self {
+                equations_by_label,
+                collections,
+            }
         }
 
         pub(super) fn labels(&self) -> impl Iterator<Item = &String> {
@@ -334,7 +349,11 @@ mod deferred_equations {
             label: &str,
             defined: &mut dyn FnMut(&Label) -> bool,
         ) -> Option<DefinedInitializer> {
-            super::defined_initializer(self.equations_by_label.get(label)?, defined)
+            super::defined_initializer(
+                self.equations_by_label.get(label)?,
+                &self.collections,
+                defined,
+            )
         }
 
         pub(in crate::kompile::passes) fn lambda_is_defined(
@@ -347,7 +366,8 @@ mod deferred_equations {
                 .is_some_and(|rules| {
                     !rules.is_empty()
                         && rules.iter().all(|rule| {
-                            is_true(&rule.requires) && deferred_result_is_defined(rule, defined)
+                            is_true(&rule.requires)
+                                && deferred_result_is_defined(rule, &self.collections, defined)
                         })
                 })
         }
@@ -377,9 +397,10 @@ fn deferred_rules_are_defined(
 
 fn defined_initializer(
     rules: &[DeferredRule],
+    collections: &CollectionLiterals,
     defined: &mut dyn FnMut(&Label) -> bool,
 ) -> Option<DefinedInitializer> {
-    if initializer_rules_are_defined(rules, defined) {
+    if initializer_rules_are_defined(rules, collections, defined) {
         Some(DefinedInitializer(()))
     } else {
         None
@@ -566,6 +587,7 @@ mod tests {
             labels,
             cells,
             child_units,
+            CollectionLiterals::default(),
         )
     }
 
@@ -672,7 +694,7 @@ mod tests {
                 ensures: truth(),
                 child_units: BTreeSet::new(),
             };
-            defined_initializer(&[rule], &mut |label| {
+            defined_initializer(&[rule], &CollectionLiterals::default(), &mut |label| {
                 cells.contains(&label.name) || label.name == "content"
             })
             .is_some()
@@ -728,7 +750,9 @@ mod tests {
             requires: truth(),
             ..conditional()
         };
-        let judge = |rules: &[DeferredRule]| defined_initializer(rules, &mut |_| false).is_some();
+        let judge = |rules: &[DeferredRule]| {
+            defined_initializer(rules, &CollectionLiterals::default(), &mut |_| false).is_some()
+        };
         assert!(!judge(&[]));
         assert!(!judge(&[conditional()]));
         assert!(judge(&[unconditional()]));
