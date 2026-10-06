@@ -29,7 +29,7 @@ use crate::{
     stop::{Layered, Stoppable, Unwind},
     term::{
         Sort, Term, TermKind,
-        head::{FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
+        head::{Fixed, FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
     },
     transition::ExecutionEvaluationContext,
@@ -966,59 +966,75 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
 
 /// Compare operands after the shared apartness walk found no separation.
 /// That walk already visits free-constructor argument pairs and equivalent injection
-/// operands, so recursion through those pairs need not scan their subtrees again.
+/// operands, so the pairs below them need not be scanned for apartness again.
+///
+/// The answer is `Some(false)` when some pair reached through free-constructor arguments and
+/// equivalent injection operands is decided unequal, otherwise `None` when some such pair is
+/// undecided, otherwise `Some(true)`; it does not depend on the order the pairs are visited in,
+/// so they are kept on a work list rather than the native stack. The hook runs between two
+/// stack checks of the simplifier on operands of any height.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn evaluate_equality_by_roots(
     left: &Term,
     right: &Term,
     sort_graph: Option<&SortGraph>,
 ) -> Option<bool> {
-    if left.attributes().constructor_like && right.attributes().constructor_like {
-        return Some(left == right);
-    }
-    let fixed = |term| match classify_value(term, &mut NoEvidence) {
-        Head::Fixed(fixed) => Some(fixed),
-        Head::Open(_) | Head::Residual => None,
-    };
-    if let (Some(left_root), Some(right_root)) = (fixed(left), fixed(right))
-        && (left_root.root() == FixedRoot::FreeConstructor
-            || right_root.root() == FixedRoot::FreeConstructor)
-    {
-        let arguments_equal = |pairs: &mut dyn Iterator<Item = (&Term, &Term)>| {
-            let mut undecided = false;
-            for (left, right) in pairs {
-                match evaluate_equality_by_roots(left, right, sort_graph) {
-                    Some(false) => return Some(false),
-                    None => undecided = true,
-                    Some(true) => {}
-                }
-            }
-            (!undecided).then_some(true)
-        };
-        return match compare_roots(left_root, right_root) {
-            RootComparison::Distinct(_) | RootComparison::ArityMismatch => Some(false),
-            RootComparison::SameApplication(same) => arguments_equal(&mut same.pairs()),
-            RootComparison::DomainValues
-            | RootComparison::Injections
-            | RootComparison::Collections(_) => {
-                unreachable!("one of the two roots is a free-constructor application")
-            }
-        };
-    }
-    match (left.kind(), right.kind()) {
-        (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
-            match match_injection_equality(sort_graph, left, right)? {
-                InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right) => {
-                    evaluate_equality_by_roots(&left, &right, sort_graph)
-                }
-                InjectionEquality::Distinct => Some(false),
-                InjectionEquality::Unknown => None,
-            }
+    fn fixed(term: &Term) -> Option<Fixed<'_>> {
+        match classify_value(term, &mut NoEvidence) {
+            Head::Fixed(fixed) => Some(fixed),
+            Head::Open(_) | Head::Residual => None,
         }
-        (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => Some(left == right),
-        _ if left == right => Some(true),
-        _ => None,
     }
+    let mut undecided = false;
+    let mut pending = vec![(left.clone(), right.clone())];
+    while let Some((left, right)) = pending.pop() {
+        if left.attributes().constructor_like && right.attributes().constructor_like {
+            if left != right {
+                return Some(false);
+            }
+            continue;
+        }
+        if let (Some(left_root), Some(right_root)) = (fixed(&left), fixed(&right))
+            && (left_root.root() == FixedRoot::FreeConstructor
+                || right_root.root() == FixedRoot::FreeConstructor)
+        {
+            match compare_roots(left_root, right_root) {
+                RootComparison::Distinct(_) | RootComparison::ArityMismatch => return Some(false),
+                // Two applications of one free symbol are equal exactly when their arguments
+                // are.
+                RootComparison::SameApplication(same) => pending.extend(
+                    same.pairs()
+                        .map(|(left, right)| (left.clone(), right.clone())),
+                ),
+                RootComparison::DomainValues
+                | RootComparison::Injections
+                | RootComparison::Collections(_) => {
+                    unreachable!("one of the two roots is a free-constructor application")
+                }
+            }
+            continue;
+        }
+        match (left.kind(), right.kind()) {
+            (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
+                match match_injection_equality(sort_graph, &left, &right) {
+                    Some(
+                        InjectionEquality::Direct(left, right)
+                        | InjectionEquality::Split(left, right),
+                    ) => pending.push((left, right)),
+                    Some(InjectionEquality::Distinct) => return Some(false),
+                    Some(InjectionEquality::Unknown) | None => undecided = true,
+                }
+            }
+            (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => {
+                if left != right {
+                    return Some(false);
+                }
+            }
+            _ if left == right => {}
+            _ => undecided = true,
+        }
+    }
+    (!undecided).then_some(true)
 }
 
 pub(crate) fn k_sequence_item(term: &Term) -> Option<&Term> {
@@ -1197,6 +1213,47 @@ mod tests {
         assert_eq!(evaluate_equality(&left, &pair("B", 1), None), None);
         assert_eq!(evaluate_equality(&left, &left, None), Some(true));
         assert_eq!(evaluate_equality(&pair("B", 2), &left, None), Some(false));
+    }
+
+    /// `KEQUAL` over operands 20,000 free-constructor applications deep, on a 256 KiB thread:
+    /// the equality walks the common spine with its pending pairs on the heap (a recursion per
+    /// level overflowed here in every build). The operands share no node and end in a variable,
+    /// so neither is constructor-like and the spine is walked to its end, where `X` against a
+    /// copy of `X` is equal and `X` against `Y` undecided. They are built and dropped on a
+    /// larger thread, since dropping a term recurses.
+    #[test]
+    fn equality_of_deep_operands_is_decided_on_a_small_stack() {
+        const LEVELS: usize = 20_000;
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let sort = Sort::simple("SortS");
+                let wrap = Arc::new(Symbol::constructor("w", vec![sort.clone()], sort.clone()));
+                let chain = |name: &str| {
+                    (0..LEVELS).fold(
+                        Term::variable(Variable::new(name, sort.clone())),
+                        |term, _| Term::application(wrap.clone(), Vec::new(), vec![term]),
+                    )
+                };
+                let (x, x_copy, y) = (chain("X"), chain("X"), chain("Y"));
+                let decided = std::thread::scope(|scope| {
+                    std::thread::Builder::new()
+                        .stack_size(256 * 1024)
+                        .spawn_scoped(scope, || {
+                            (
+                                evaluate_equality(&x, &x_copy, None),
+                                evaluate_equality(&x, &y, None),
+                            )
+                        })
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                });
+                assert_eq!(decided, (Some(true), None));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     /// Identifying axioms permit different roots or arguments to denote the same value.
