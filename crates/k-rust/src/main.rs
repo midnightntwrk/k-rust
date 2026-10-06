@@ -2489,63 +2489,76 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
-    let function_symbols = backend.function_symbol_names();
-    backend.validate_executable_pattern(&initial)?;
-    let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
-    let match_target = match match_target_source {
-        Some(MatchTargetSource::Surface(compiled)) => {
-            Some(prepare_backend_match_target(&backend, compiled)?)
-        }
-        Some(MatchTargetSource::KoreFile(path)) => {
-            debug_assert_eq!(
-                options
-                    .search
-                    .as_ref()
-                    .and_then(|search| search.pattern.as_ref()),
-                Some(&path)
-            );
-            None
-        }
-        None => None,
-    };
-    let internalize_seconds = definition_parse_seconds + started.elapsed().as_secs_f64();
-    drop(internalize_phase);
-    let execute_phase =
-        tracing::info_span!("phase", name = tracing::field::display("execute")).entered();
-    let started = Instant::now();
-    let mut backend = Backend::from_internalized(
-        backend,
-        BackendOptions {
-            smt_timeout_ms: options.smt.timeout_ms,
-            smt_retry_limit: options.smt.retry_limit,
-        },
-    )?;
-    let output = backend.run_cli(
-        None,
-        vec![Pattern {
-            term: initial,
-            constraints: Vec::new(),
-        }],
-        BackendRunOptions {
-            depth: options.depth,
-            max_simplification_iterations: options.max_simplification_iterations,
-            breadth_limit: options.breadth_limit,
-            execute_to_branch: options.execute_to_branch,
-            cut_point_rules: options.cut_point_rules,
-            terminal_rules: options.terminal_rules,
-            strategy: options.strategy,
-            search: options.search,
-            match_target,
-            function_symbols,
-            stop_leaves: None,
-            step_timeout: options.step_timeout,
-            moving_average_timeout: options.moving_average_timeout,
-            capture_stdout: options.output == KrunOutputArg::Captured,
-            execution_input,
-        },
-    )?;
-    let execute_seconds = started.elapsed().as_secs_f64();
-    drop(execute_phase);
+    // The initial configuration is as deep as the program and the configuration values, which
+    // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
+    // drops of the internal terms built from it. All of it runs on a stack the backend measures
+    // from the configuration and the definition (`BackendDefinition::with_stack_for`), which
+    // refuses a configuration too deep for any stack it provides.
+    let zone = backend.operation_depth(&[&initial]);
+    let (output, backend, internalize_seconds, execute_seconds) =
+        k_rust_backend::nesting::with_stack(zone, || -> Result<_, Box<dyn Error>> {
+            let function_symbols = backend.function_symbol_names();
+            backend.validate_executable_pattern(&initial)?;
+            let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
+            let match_target = match match_target_source {
+                Some(MatchTargetSource::Surface(compiled)) => {
+                    Some(prepare_backend_match_target(&backend, compiled)?)
+                }
+                Some(MatchTargetSource::KoreFile(path)) => {
+                    debug_assert_eq!(
+                        options
+                            .search
+                            .as_ref()
+                            .and_then(|search| search.pattern.as_ref()),
+                        Some(&path)
+                    );
+                    None
+                }
+                None => None,
+            };
+            let internalize_seconds = definition_parse_seconds + started.elapsed().as_secs_f64();
+            drop(internalize_phase);
+            let execute_phase =
+                tracing::info_span!("phase", name = tracing::field::display("execute")).entered();
+            let started = Instant::now();
+            let mut backend = Backend::from_internalized(
+                backend,
+                BackendOptions {
+                    smt_timeout_ms: options.smt.timeout_ms,
+                    smt_retry_limit: options.smt.retry_limit,
+                },
+            )?;
+            let output = backend.run_cli(
+                None,
+                vec![Pattern {
+                    term: initial,
+                    constraints: Vec::new(),
+                }],
+                BackendRunOptions {
+                    depth: options.depth,
+                    max_simplification_iterations: options.max_simplification_iterations,
+                    breadth_limit: options.breadth_limit,
+                    execute_to_branch: options.execute_to_branch,
+                    cut_point_rules: options.cut_point_rules,
+                    terminal_rules: options.terminal_rules,
+                    strategy: options.strategy,
+                    search: options.search,
+                    match_target,
+                    function_symbols,
+                    stop_leaves: None,
+                    step_timeout: options.step_timeout,
+                    moving_average_timeout: options.moving_average_timeout,
+                    capture_stdout: options.output == KrunOutputArg::Captured,
+                    execution_input,
+                },
+            )?;
+            let execute_seconds = started.elapsed().as_secs_f64();
+            drop(execute_phase);
+            Ok((output, backend, internalize_seconds, execute_seconds))
+        })
+        .map_err(|error| {
+            format!("the initial configuration is too deep for the backend: {error}")
+        })??;
     let output_phase =
         tracing::info_span!("phase", name = tracing::field::display("output")).entered();
     let started = Instant::now();
