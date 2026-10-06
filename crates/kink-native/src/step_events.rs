@@ -48,6 +48,11 @@ impl From<BackendError> for StepObservationError {
         Self::Internalization(error.to_string())
     }
 }
+impl From<k_rust_backend::stop::StopCause> for StepObservationError {
+    fn from(cause: k_rust_backend::stop::StopCause) -> Self {
+        Self::Internalization(cause.to_string())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct StepObservation {
@@ -165,7 +170,8 @@ fn validate_pattern(
 ) -> Result<(), StepObservationError> {
     validate_node(definition, pattern, None)?;
     let term = definition
-        .internalize_term(pattern, &[])
+        .admit_unverified(pattern, &[])
+        .internalize_term()
         .map_err(|error| StepObservationError::Internalization(error.to_string()))?;
     if term.sort() != InternalSort::simple("SortGeneratedTopCell") {
         return Err(StepObservationError::Internalization(
@@ -229,7 +235,7 @@ fn validate_node(
         }
         Pattern::Application { symbol, arguments } => {
             let backend_symbol = definition
-                .symbols
+                .symbols()
                 .get(symbol.name.as_str())
                 .ok_or_else(|| StepObservationError::Internalization(symbol.name.clone()))?;
             if !free_constructor(backend_symbol) {
@@ -293,7 +299,7 @@ impl<'a> ObservationDecider<'a> {
             }
             Pattern::Application { symbol, arguments } => {
                 self.definition
-                    .symbols
+                    .symbols()
                     .get(symbol.name.as_str())
                     .is_some_and(|s| free_constructor(s))
                     && arguments.iter().all(|arg| self.definition_independent(arg))
@@ -501,7 +507,7 @@ impl Walk {
                     return;
                 };
                 if definition
-                    .sort_graph
+                    .sort_graph()
                     .check_subsort(&s_sort, &p_sort)
                     .unwrap_or(false)
                 {
@@ -521,7 +527,7 @@ impl Walk {
                         );
                     }
                 } else if definition
-                    .sort_graph
+                    .sort_graph()
                     .check_subsort(&p_sort, &s_sort)
                     .unwrap_or(false)
                 {
@@ -555,13 +561,13 @@ impl Walk {
 
 fn free_symbol(definition: &BackendDefinition, name: &str) -> bool {
     definition
-        .symbols
+        .symbols()
         .get(name)
         .is_some_and(|symbol| free_constructor(symbol))
 }
 fn free_top(definition: &BackendDefinition, pattern: &Pattern, sort: &InternalSort) -> bool {
     matches!(pattern, Pattern::Application { symbol, .. }
-        if definition.symbols.get(symbol.name.as_str()).is_some_and(|head|
+        if definition.symbols().get(symbol.name.as_str()).is_some_and(|head|
             free_constructor(head) && head.result_sort == *sort))
 }
 
@@ -570,14 +576,14 @@ fn closures_disjoint(
     left: &InternalSort,
     right: &InternalSort,
 ) -> bool {
-    !definition.sorts.keys().any(|sort| {
+    !definition.sorts().keys().any(|sort| {
         let sort = InternalSort::simple(sort.as_ref());
         definition
-            .sort_graph
+            .sort_graph()
             .check_subsort(&sort, left)
             .unwrap_or(false)
             && definition
-                .sort_graph
+                .sort_graph()
                 .check_subsort(&sort, right)
                 .unwrap_or(false)
     })
@@ -609,7 +615,10 @@ mod tests {
                     "kseq",
                     "dotk",
                 ] {
-                    let symbol = definition.symbols.get(name).expect("declared constructor");
+                    let symbol = definition
+                        .symbols()
+                        .get(name)
+                        .expect("declared constructor");
                     assert!(
                         free_constructor(symbol),
                         "{name} must be a free constructor"

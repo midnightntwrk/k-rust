@@ -3341,6 +3341,7 @@ fn audit_so_at10_withdrawn_rule_competition_is_not_killed() {
 }
 
 /// AT11: a simplification headed by a constructor is Invalid; an anywhere axiom changes the signature, making every pattern slot Unknown.
+/// Precision loss (VI-03F, k-rust 4d80cea6): the anywhere variant is [[U,U,U]] in both profiles because value-production definedness is withheld; status stays Unknown.
 #[test]
 fn audit_ei_at11_constructor_lemma_is_refused() {
     with_stack(|| {
@@ -3391,7 +3392,7 @@ fn audit_ei_at11_constructor_lemma_is_refused() {
                 );
                 assert!(mutant.certificate_checks.is_empty());
             } else {
-                assert_eq!(outcomes(&run), vec![vec![A, U, U]]);
+                assert_eq!(outcomes(&run), vec![vec![U, U, U]]);
                 assert!(mutant.certificate_checks.is_empty());
             }
         }

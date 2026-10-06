@@ -1032,7 +1032,11 @@ fn runner_mapping_is_exhaustive() {
     .expect("one edit");
     let patch_failure = apply(&counter, &stale).expect_err("the precondition is stale");
     assert_eq!(patch_failure.kind(), PatchFailureKind::StalePrecondition);
+    // New row (VI-03F): a loaded-stage relink refusal is Rejected / Invalid.
     let rejections = [
+        MutantRejection::Relink(k_rust::outer::LoadError::MissingSyntaxModule(
+            "missing".into(),
+        )),
         MutantRejection::Patch(patch_failure),
         MutantRejection::Compilation(CompileError {
             stage: "definition checks",

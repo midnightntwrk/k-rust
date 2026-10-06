@@ -1262,7 +1262,9 @@ impl From<&MutantRejection> for MutantScopeFailure {
     fn from(rejection: &MutantRejection) -> Self {
         match rejection {
             // Unreachable for a candidate that generation pre-applied, and mapped anyway.
-            MutantRejection::Patch(_) | MutantRejection::Compilation(_) => Self::Rejected,
+            MutantRejection::Patch(_)
+            | MutantRejection::Compilation(_)
+            | MutantRejection::Relink(_) => Self::Rejected,
         }
     }
 }

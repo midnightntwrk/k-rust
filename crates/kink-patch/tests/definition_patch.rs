@@ -1,7 +1,7 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
+use k_rust::definition::{AttributeKey, Definition, Sentence, sentence_mut};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::outer::LoadedDefinition;
@@ -647,13 +647,10 @@ fn permuted_edits_build_equal_patches_and_equal_mutants() {
 
 /// Relinks a raw definition edit, bypassing kink-patch, for compilation.
 fn relink(baseline: &Baseline, definition: Definition) -> LoadedDefinition {
-    LoadedDefinition {
-        files: baseline.loaded().files.clone(),
-        source_table: baseline.loaded().source_table.clone(),
-        resolved: ResolvedDefinition::resolve(&definition).expect("resolves"),
-        definition,
-        diagnostics: baseline.loaded().diagnostics.clone(),
-    }
+    baseline
+        .loaded()
+        .with_definition(definition)
+        .expect("the edited definition relinks")
 }
 
 fn raw_term_mut<'a>(sentence: &'a mut Sentence, path: &[u32]) -> &'a mut Term {
@@ -768,7 +765,8 @@ fn a_bare_variable_accepted_by_k_rust_can_be_patched() {
     )])
     .expect("patch");
     let mutant = apply(&counter, &patch).expect("k-rust accepts the variable at this position");
-    support::compile(&mutant.to_loaded(&counter)).expect("the mutant compiles");
+    support::compile(&mutant.to_loaded(&counter).expect("the mutant relinks"))
+        .expect("the mutant compiles");
 }
 
 #[test]

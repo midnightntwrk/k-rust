@@ -40,8 +40,12 @@
 //! is a `Vacuous` leaf, or a stuck, trivial or bounded leaf whose predicate the solver refuted
 //! ([`LeafFeasibility::Unsat`]). An undecided `Trivial` leaf is `SolverUnknown`, like an
 //! undecided stuck leaf. A diagnosed leaf is never discarded. The refutation is about the real
-//! leaf: under k-rust's variable-identity contract the decoded state is the internal one, with
-//! no two variables printed alike (execution-identity ticket EI-T02 (iii), closed).
+//! leaf: variable identity 3 (T-VI) reads names verbatim (`definition.rs:1046-1066`);
+//! injective printing with binder renaming (`term/names.rs:33-61`, `externalize.rs:791-880`)
+//! preserves it up to a renaming fixing request names. One growing counter skips every
+//! request spelling (`fresh.rs:1082-1099`). Unbound-result equation instances are unused
+//! and diagnosed (`docs/compatibility.md:792-815`), hence BackendLimit here.
+//! Unsat refutation also rests on the explicit definedness premise (T-UNSAT, TB-01).
 
 use k_rust::backend::SearchFailureOutput;
 use k_rust::kore::{

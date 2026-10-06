@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, fmt};
 use k_rust::{
     definition::Definition,
     kompile::{CompileError, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
-    outer::LoadedDefinition,
+    outer::{LoadError, LoadedDefinition},
 };
 use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
@@ -68,7 +68,7 @@ impl NativeValidator {
                     }),
             })?;
         Ok(ValidatedDefinition {
-            definition: loaded.definition.clone(),
+            definition: loaded.definition().clone(),
             artifacts,
             options: self.options.clone(),
             origins: None,
@@ -81,12 +81,14 @@ impl NativeValidator {
     /// patched definition is published only inside a [`ValidatedDefinition`].
     pub fn validate(&self, patch: &Patch) -> Result<ValidatedDefinition, MutantRejection> {
         let mutant = apply(&self.baseline, patch).map_err(MutantRejection::Patch)?;
-        let loaded = mutant.to_loaded(&self.baseline);
+        let loaded = mutant
+            .to_loaded(&self.baseline)
+            .map_err(MutantRejection::Relink)?;
         let artifacts = self
             .compile(&loaded)
             .map_err(MutantRejection::Compilation)?;
         Ok(ValidatedDefinition {
-            definition: loaded.definition,
+            definition: loaded.into_definition(),
             artifacts,
             options: self.options.clone(),
             origins: Some(mutant.origins().clone()),
@@ -106,6 +108,9 @@ pub enum MutantRejection {
     /// k-rust rejected the patched definition; the error holds its stage
     /// and diagnostics only.
     Compilation(CompileError),
+    /// k-rust refused to rebuild the patched definition at the loaded
+    /// stage (`LoadedDefinition::with_definition`); nothing was compiled.
+    Relink(LoadError),
 }
 
 impl fmt::Display for MutantRejection {
@@ -113,6 +118,7 @@ impl fmt::Display for MutantRejection {
         match self {
             Self::Patch(failure) => write!(formatter, "patch rejected: {failure}"),
             Self::Compilation(error) => error.fmt(formatter),
+            Self::Relink(error) => write!(formatter, "relink rejected: {error}"),
         }
     }
 }

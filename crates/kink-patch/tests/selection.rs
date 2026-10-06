@@ -1154,9 +1154,8 @@ fn term_mut<'t>(term: &'t mut Term, path: &[u32]) -> &'t mut Term {
 /// An edited copy of either written rule's body in `annotated.k`.
 fn written(annotated: &Baseline, rule_label: &str, edit: impl FnOnce(&mut Term)) -> Baseline {
     let rule = support::rule(annotated, rule_label);
-    let mut loaded = annotated.loaded().clone();
-    let module = loaded
-        .definition
+    let mut definition = annotated.loaded().definition().clone();
+    let module = definition
         .modules
         .iter_mut()
         .find(|module| module.name == rule.module)
@@ -1166,7 +1165,12 @@ fn written(annotated: &Baseline, rule_label: &str, edit: impl FnOnce(&mut Term))
         panic!("{rule_label} is a rule");
     };
     edit(body);
-    Baseline::new(loaded)
+    Baseline::new(
+        annotated
+            .loaded()
+            .with_definition(definition)
+            .expect("the edited definition relinks"),
+    )
 }
 
 fn nat_variable(name: &str) -> Term {
@@ -1376,9 +1380,8 @@ fn an_undecided_sort_makes_the_discovery_incomplete() {
     let counter = support::load("counter.k");
     let increment = support::rule(&counter, "COUNTER.increment");
     // `increment`'s `requires` becomes a variable without a sort or cast.
-    let mut loaded = counter.loaded().clone();
-    let module = loaded
-        .definition
+    let mut definition = counter.loaded().definition().clone();
+    let module = definition
         .modules
         .iter_mut()
         .find(|module| module.name == increment.module)
@@ -1391,7 +1394,12 @@ fn an_undecided_sort_makes_the_discovery_incomplete() {
         name: "B".to_owned(),
         sort: None,
     };
-    let unsorted = Baseline::new(loaded);
+    let unsorted = Baseline::new(
+        counter
+            .loaded()
+            .with_definition(definition)
+            .expect("the edited definition relinks"),
+    );
 
     let requires =
         derive_sites(&unsorted, "requires", &[path(&[1]), sort("Bool")]).expect("valid selector");
@@ -1478,7 +1486,8 @@ fn operators_build_their_patches_from_bound_terms() {
         "the hand-built increment mutant of the validator tests"
     );
     let mutant = apply(&counter, &candidate.patch).expect("applies");
-    support::compile(&mutant.to_loaded(&counter)).expect("the mutant compiles");
+    support::compile(&mutant.to_loaded(&counter).expect("the mutant relinks"))
+        .expect("the mutant compiles");
 
     // `coupled-memory-representation`: the value `write` stores and the value
     // `load` reads change representation together, as one mutant. Exactly
@@ -1536,5 +1545,6 @@ fn operators_build_their_patches_from_bound_terms() {
             "{rule}"
         );
     }
-    support::compile(&mutant.to_loaded(&memory)).expect("the mutant compiles");
+    support::compile(&mutant.to_loaded(&memory).expect("the mutant relinks"))
+        .expect("the mutant compiles");
 }

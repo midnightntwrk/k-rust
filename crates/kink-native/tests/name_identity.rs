@@ -73,11 +73,35 @@ fn check_names(
     pattern: &Pattern,
     initial_variables: &BTreeSet<Variable>,
     initial_names: &BTreeSet<String>,
-    decoded_initial_names: &BTreeSet<String>,
+    classified_initial_names: &BTreeSet<String>,
 ) -> bool {
     let internal = definition
-        .internalize_pattern(pattern, &[])
-        .expect("decoded state internalizes");
+        .admit_unverified(pattern, &[])
+        .internalize_pattern()
+        .expect("read state internalizes");
+    let internal_variables = internal
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            internal
+                .constraints
+                .iter()
+                .flat_map(|predicate| predicate.free_variables()),
+        )
+        .map(|variable| variable.name.to_string())
+        .collect::<BTreeSet<_>>();
+    let wire_names = pattern
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        internal_variables, wire_names,
+        "v3 reads free names verbatim"
+    );
     let printed = externalize::constrained_pattern(&internal);
     assert_eq!(pattern.free_variables(), printed.free_variables());
     assert_eq!(bound_variables(pattern), bound_variables(&printed));
@@ -91,8 +115,8 @@ fn check_names(
         );
         let name = decode_variable_name(&variable.name).expect("name is in the encoding image");
         assert!(
-            !decoded_initial_names.contains(&name),
-            "non-initial variable shares an initial decoded name: {variable:?}"
+            !classified_initial_names.contains(&name),
+            "non-initial variable shares an initial classified name: {variable:?}"
         );
         // conflate's non-initial free variables are narrowing mints. A mint must never
         // share an initial name, regardless of its kind or sort.
@@ -110,9 +134,10 @@ fn check_names(
 /// conflate's initial ExVarI0/ExVarI1 remain distinct from its narrowing mints.
 /// With Z3 the five leaves and their stepped pre-states exercise free mints and binders;
 /// without Z3 the one Indeterminate leaf still exercises the name round trip.
+/// Contract change (VI-03F): version 3 reads names verbatim and preserves printed identity.
 #[test]
 fn decoded_leaf_and_step_names_round_trip() {
-    assert_eq!(VARIABLE_IDENTITY, 2);
+    assert_eq!(VARIABLE_IDENTITY, 3);
     let validator = NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
     let side = validator.compile_baseline().expect("conflate compiles");
     let mut backend = Backend::new(
@@ -127,7 +152,7 @@ fn decoded_leaf_and_step_names_round_trip() {
     let initial = program();
     let initial_variables = initial.free_variables();
     let initial_names = initial_variables.iter().map(|v| v.name.clone()).collect();
-    let decoded_initial_names = initial_variables
+    let classified_initial_names = initial_variables
         .iter()
         .map(|v| decode_variable_name(&v.name).expect("initial name is in the encoding image"))
         .collect();
@@ -153,7 +178,7 @@ fn decoded_leaf_and_step_names_round_trip() {
     let leaves = execution
         .leaves()
         .iter()
-        .map(|leaf| codec::from_value(&leaf.branch.state).expect("leaf KORE decodes"))
+        .map(|leaf| codec::from_value(&leaf.branch.state).expect("leaf KORE reads"))
         .collect::<Vec<_>>();
     backend
         .with_solver(None, |definition, _| {
@@ -166,10 +191,11 @@ fn decoded_leaf_and_step_names_round_trip() {
                     pattern,
                     &initial_variables,
                     &initial_names,
-                    &decoded_initial_names,
+                    &classified_initial_names,
                 ));
                 checked += 1;
             }
+            assert_eq!(checked, if cfg!(feature = "z3") { 21 } else { 2 });
             eprintln!(
                 "{}: {checked} states checked, {byte_identical} byte-identical re-encodings",
                 SolverProfile::BUILD.name()
@@ -337,7 +363,8 @@ fn scope_sequences(backend: &mut Backend, initial: &Pattern) -> StateSequences {
 
 /// VI-AT1: the identical-relation existential mutant has NoWitness in both profiles.
 /// Per-position scope prefixes contain `.`, so the forged EI!M0!1 cannot equal a scope
-/// name (variable-identity README 5.4). A name outside the decoding image is refused.
+/// name (variable-identity README 16.3). Contract change (VI-03F): every KORE identifier
+/// is accepted verbatim, including EI-bB0-u2e-0-b1; a non-identifier is refused.
 /// The positive control always returns pair(a,a), proving [Clash, Clash] under Z3.
 /// Without Z3 baseline narrowing stops at the initial state, so that control has NoWitness.
 #[test]
@@ -385,13 +412,24 @@ fn scope_name_forgery_does_not_prove_an_identical_relation() {
         support::app("Lblstart", vec![support::var("EI-bB0-u2e-0-b1", "SortAb")]),
         "SortProg",
     );
+    let bs = scope_sequences(&mut baseline, &initial);
+    let ms = scope_sequences(&mut mutant, &initial);
+    assert_eq!(
+        certify_difference(&mut baseline, &initial, &facts, &mutant_facts, &bs, &ms),
+        DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
+        "ordinary identifier EI-bB0-u2e-0-b1",
+    );
+    let invalid = support::initial_state(
+        support::app("Lblstart", vec![support::var("EI!B0.0!1", "SortAb")]),
+        "SortProg",
+    );
     let failure = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-        .execute_steps(&mut baseline, &initial, BUDGET)
-        .expect_err("name outside the decoding image");
+        .execute_steps(&mut baseline, &invalid, BUDGET)
+        .expect_err("non-identifier refused");
     assert_eq!(
         failure,
         ExecutionAdapterFailure::InvalidState(
-            "VariableName(VariableNameError { name: \"EI-bB0-u2e-0-b1\" })".into(),
+            "VariableName { name: \"EI!B0.0!1\", set: false }".into(),
         )
     );
 }

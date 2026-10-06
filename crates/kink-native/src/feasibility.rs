@@ -9,11 +9,13 @@
 //! so every valuation of the variables over their inhabited sorts gives a value: the state has
 //! an instance. With a solver present, a constrained state over such a term is
 //! [`LeafFeasibility::Solver`] when the solver answers `Sat` for exactly its predicate
-//! conjuncts and they translate without approximation (`smt::translates_exactly`: no term
+//! conjuncts and they translate without approximation (`smt::translation_exactness`: no term
 //! abstracted to a fresh constant, no uninterpreted `smtlib` function, no partial function
 //! made total, and only `Int`/`Bool` variables and quantifiers; otherwise a `Sat` is not
-//! evidence), and [`LeafFeasibility::Unsat`] when the solver answers `Unsat` (always sound:
-//! abstraction only weakens the query). A feasible state has an instance, and that instance
+//! evidence), and [`LeafFeasibility::Unsat`] when the solver answers `Unsat` under the
+//! definedness premise of k-rust `smt.rs:176-183,736-744`: every partial term relied on by
+//! the predicate has its definedness explicit in it. This is trust-base item T-UNSAT
+//! (variable-identity README 16.4, D-B), pinned by TB-01. A feasible state has an instance, and that instance
 //! follows the leaf's path, because k-rust keeps every rule condition it relied on (`requires`
 //! with the definedness of its partial terms, narrowing conditions, remainders, and the
 //! definedness of partial terms in right-hand sides and simplified states) in the leaf
@@ -48,22 +50,23 @@
 //! that query with all of it translating without approximation and every variable of it an
 //! initial-state variable: the model then values the query's `Int`/`Bool` variables, every other
 //! variable takes any value of its inhabited sort, and the eliminated ones follow. A solver
-//! `Unsat` always counts, because the query is implied by the path predicate and the
-//! assumptions. Such an instance follows the path: without a solver every valuation does
+//! `Unsat` counts under the same explicit definedness premise (T-UNSAT), because the query
+//! is implied by the path predicate and the assumptions. Such an instance follows the path: without a solver every valuation does
 //! (k-rust turns every binding of a subject variable into a match condition and needs the
 //! solver to accept one, `rewrite/apply.rs` phases P7 and P10); with Z3, every rule condition
 //! k-rust relied on stays in the leaf predicate (the evidence behind [`LeafFeasibility::Solver`]),
 //! so every model of the path predicate does.
 //!
-//! **Variable identity.** Every state decided here is decoded from k-rust's externalized KORE.
-//! Under k-rust's variable-identity contract (`VARIABLE_IDENTITY == 2`, asserted at compile time
-//! below; `draft/tasks/variable-identity/` README 3) decoding is the exact inverse of printing,
-//! and every free variable a request mints is new: it is minted once, from one counter seeded
-//! past the request's names, and never has a request variable's name. So a decoded state is the
-//! internal state: within one request a decoded name, with its kind and sort, is one variable,
-//! and two distinct variables never share a name. A leaf `Unsat` is about the real state, and
-//! the relations compare variables by identity. Across requests only the test's initial
-//! variables are shared ([`InitialVariables`]).
+//! **Variable identity (T-VI).** Names are read verbatim (`definition.rs:1046-1066`).
+//! Printing is injective with capture-avoiding binder renaming (`term/names.rs:33-61`,
+//! `externalize.rs:791-880`): a printed response read back is a bijective renaming of the
+//! internal response that fixes the request's names. One growing counter per request skips
+//! every request spelling (`fresh.rs:1082-1099`), so no free mint is reused or prints like a
+//! request variable. Within a request one name, kind and sort identifies one variable.
+//! Across requests only the test's initial variables are shared ([`InitialVariables`]).
+//! An equation instance with unbound result variables is unused and carries an
+//! UndecidedCondition diagnostic (`docs/compatibility.md:792-815`); the bridge maps a
+//! diagnosed leaf to BackendLimit, never a complete path.
 
 use std::collections::BTreeSet;
 
@@ -72,23 +75,23 @@ use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
 use k_rust_backend::rule::Predicate;
-use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
+use k_rust_backend::smt::{Exactness, Satisfiability, SmtSolver, translation_exactness};
 use k_rust_backend::substitution::{Substitution, substitute};
-use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
+use k_rust_backend::term::{
+    HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+};
 use k_rust_backend::unification::{
     Unification, UnificationFailure, UnificationResult, unify_term_pairs,
 };
 use kink_pattern::{Feasibility, PathInput, RelationDecider, RelationDecision, TermRelation};
 
-/// k-rust's variable-identity contract, version 2 (`k_rust_backend::term::names`): printing and
-/// reading variable names are a bijection, and every free rewrite mint of a request is unique in
-/// the request, never reused on a path, and distinct from every request name. kink decides on
-/// decoded names as variable identities because of it: leaf `Unsat` and the bridge's discard,
-/// the relations' `Equal`, `Unequal` and `Unsat`, identity `Equal` in step observations, the
-/// certificate's stable set, its `Vacuous` exclusion and its consistent renaming. A pin with only
-/// half of the contract, or a later regression, fails to compile here instead of silently
-/// removing a premise.
-const _: () = assert!(k_rust_backend::term::names::VARIABLE_IDENTITY == 2);
+/// k-rust's variable-identity contract, version 3 (T-VI; module documentation): verbatim
+/// reading, injective printing with binder renaming, and unique free mints from one growing
+/// counter per request that skips every request spelling. These premises justify leaf Unsat
+/// and discard, relation Equal/Unequal/Unsat, step identity, and certificate generalization.
+/// Unbound-result equation instances are unused and diagnosed, hence incomplete in the bridge.
+/// A contract mismatch fails compilation instead of silently removing a premise.
+const _: () = assert!(k_rust_backend::term::names::VARIABLE_IDENTITY == 3);
 
 /// Whether a leaf state is shown to have an instance, or shown to have none.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -119,7 +122,7 @@ impl Inhabitation {
     /// The least fixpoint over `definition`.
     pub(crate) fn of(definition: &BackendDefinition) -> Self {
         let simple = definition
-            .sorts
+            .sorts()
             .iter()
             .filter(|(_, info)| info.parameters.is_empty())
             .map(|(name, info)| {
@@ -138,7 +141,7 @@ impl Inhabitation {
             .collect::<BTreeSet<_>>();
         loop {
             let before = sorts.len();
-            for symbol in definition.symbols.values() {
+            for symbol in definition.symbols().values() {
                 if free_constructor(symbol)
                     && symbol
                         .argument_sorts
@@ -152,7 +155,7 @@ impl Inhabitation {
                 if !sorts.contains(sort)
                     && sorts.iter().any(|sub| {
                         definition
-                            .sort_graph
+                            .sort_graph()
                             .check_subsort(sub, sort)
                             .unwrap_or(false)
                     })
@@ -199,7 +202,8 @@ impl InitialVariables {
             .into_iter()
             .map(|variable| {
                 match definition
-                    .internalize_term(&Pattern::Variable(variable), &[])
+                    .admit_unverified(&Pattern::Variable(variable), &[])
+                    .internalize_term()
                     .as_ref()
                     .map(Term::kind)
                 {
@@ -217,22 +221,39 @@ impl InitialVariables {
 }
 
 /// A constructor of K's free term algebra: total, injective, and distinct from every other
-/// constructor and from every injection. Hooked, associative, idempotent, binder, collection,
-/// `anywhere`, macro and sort-parametric symbols are excluded, because they are not free, and
-/// so is a symbol that also carries the KORE `function` attribute (k-rust types it as a
-/// constructor; k-rust's kompile never emits both, hand-written KORE may).
+/// constructor and injection. Freeness is trust-base item T-FREE (D-A, variable-identity
+/// README 16.4): Constructor plus HeadRole::FreeConstructor (`term.rs:283-289,520-552`),
+/// with no sort variables, hook, collection, binder, macro or alias. Load refuses
+/// constructor-headed function equations (`verify.rs:823-867`); kompile never emits both
+/// constructor and function (`kompile/module_to_kore/roles.rs:361-380`). A hand-written
+/// constructor+function declaration is free under that contract, as decided by D-A.
 pub(crate) fn free_constructor(symbol: &Symbol) -> bool {
     let attributes = &symbol.attributes;
     attributes.symbol_type == SymbolType::Constructor
-        && !attributes.declared_function
+        && attributes.head_role() == HeadRole::FreeConstructor
         && symbol.sort_variables.is_empty()
         && attributes.hook.is_none()
         && attributes.collection.is_none()
-        && !attributes.anywhere
-        && !attributes.associative
-        && !attributes.idempotent
         && !attributes.binder
         && !attributes.macro_or_alias
+}
+
+/// The solver's answer to `query`, or `None` when it has none. A stop withholds only a
+/// refinement: every caller's outcome without an answer (`Unknown`, not proved) is sound, so
+/// the stop is dismissed and its owner observes it again.
+pub(crate) fn solver_answer(solver: &dyn SmtSolver, query: &[Predicate]) -> Option<Satisfiability> {
+    match solver.is_sat(query, &Substitution::new()) {
+        Ok(answer) => answer.ok(),
+        Err(stop) => {
+            stop.forgo_refinement();
+            None
+        }
+    }
+}
+
+/// Whether the SMT translation of `query` is exact (`smt::translation_exactness`).
+pub(crate) fn translates_exactly(query: &[Predicate]) -> bool {
+    translation_exactness(query) == Exactness::Exact
 }
 
 /// Whether `term` is built only from free constructors, injections, domain values and element
@@ -270,7 +291,10 @@ pub(crate) fn leaf_feasibility(
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
         return LeafFeasibility::Unknown;
     };
-    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
+    let Ok(internal) = definition
+        .admit_unverified(&pattern, &[])
+        .internalize_pattern()
+    else {
         return LeafFeasibility::Unknown;
     };
     let instances = constructor_term(&internal.term, inhabitation);
@@ -281,12 +305,12 @@ pub(crate) fn leaf_feasibility(
             LeafFeasibility::Unknown
         };
     }
-    match solver.is_sat(&internal.constraints, &Substitution::new()) {
-        Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+    match solver_answer(solver, &internal.constraints) {
+        Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
+        Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
             LeafFeasibility::Solver
         }
-        Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
+        Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => LeafFeasibility::Unknown,
     }
 }
 
@@ -306,7 +330,10 @@ pub(crate) fn shared_leaf_feasibility(
     {
         return LeafFeasibility::Unknown;
     }
-    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
+    let Ok(internal) = definition
+        .admit_unverified(&pattern, &[])
+        .internalize_pattern()
+    else {
         return LeafFeasibility::Unknown;
     };
     let instances = constructor_term(&internal.term, inhabitation);
@@ -324,12 +351,12 @@ pub(crate) fn shared_leaf_feasibility(
     {
         return LeafFeasibility::Unknown;
     }
-    match solver.is_sat(&internal.constraints, &Substitution::new()) {
-        Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+    match solver_answer(solver, &internal.constraints) {
+        Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
+        Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
             LeafFeasibility::Solver
         }
-        Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
+        Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => LeafFeasibility::Unknown,
     }
 }
 
@@ -350,7 +377,7 @@ pub(crate) fn strict_injection_sorts(
     };
     source != target
         && definition
-            .sort_graph
+            .sort_graph()
             .check_subsort(&source, &target)
             .unwrap_or(false)
 }
@@ -395,7 +422,7 @@ pub(crate) fn domain_value_identity_safe(
 }
 
 fn domain_bytes_identity_safe(definition: &BackendDefinition, name: &str, bytes: &[u8]) -> bool {
-    let Some(info) = definition.sorts.get(name) else {
+    let Some(info) = definition.sorts().get(name) else {
         return false;
     };
     if !info.has_domain_values {
@@ -488,7 +515,8 @@ pub(crate) fn uninhabited_variable(
 ) -> Result<Option<KoreVariable>, String> {
     for variable in state.free_variables() {
         let term = definition
-            .internalize_term(&Pattern::Variable(variable.clone()), &[])
+            .admit_unverified(&Pattern::Variable(variable.clone()), &[])
+            .internalize_term()
             .map_err(|error| format!("{error:?}"))?;
         if let TermKind::Variable(internal) = term.kind()
             && internal.kind == VariableKind::Element
@@ -504,7 +532,8 @@ pub(crate) fn uninhabited_variable(
 /// constructor algebra (see the module documentation).
 pub(crate) fn proves_clash(failure: &UnificationFailure) -> bool {
     match failure {
-        UnificationFailure::DifferentSymbols(left, right) => {
+        UnificationFailure::DifferentSymbols(clash) => {
+            let (left, right) = (clash.left(), clash.right());
             let free = |term: &Term| {
                 matches!(term.kind(), TermKind::Application { symbol, .. }
                     if free_constructor(symbol))
@@ -523,11 +552,13 @@ pub(crate) fn proves_clash(failure: &UnificationFailure) -> bool {
             };
             canonical(left) && canonical(right)
         }
-        UnificationFailure::VariableRecursion(variable, term) => {
-            occurs_under_free_constructors(variable, term)
+        UnificationFailure::VariableRecursion(cycle) => {
+            occurs_under_free_constructors(cycle.variable(), cycle.term())
         }
         // Raised for disjoint injections and ill-sorted pairs alike; not claimed.
         UnificationFailure::DifferentSorts(..) => false,
+        // An argument-length mismatch is ill-formed, not constructor-algebra evidence.
+        UnificationFailure::ArgumentLengthsDiffer(..) => false,
     }
 }
 
@@ -570,8 +601,9 @@ fn occurs_under_free_constructors(variable: &Variable, term: &Term) -> bool {
 /// equations; it does not read `injective` for such a symbol. A non-`anywhere` `injective`
 /// symbol instead decomposes on the declared axiom, which k-rust does not check against those
 /// equations. The declaration can come from kompile, hand-written KORE, or a mutant, so this
-/// decider refuses it unless the symbol is a free constructor. A non-free `constructor`, such
-/// as hand-written KORE that also declares `function`, is refused for the same reason.
+/// decider refuses it unless the symbol satisfies T-FREE (see [`free_constructor`]).
+/// EquationHead (anywhere) decomposition is left to k-rust: both applications must be normal
+/// on every instance (`unification.rs:154-160`). This is the freeness trust base of README 16.4.
 /// Collections are unsupported by the unifier and conservatively excluded.
 fn decomposes_freely(term: &Term) -> bool {
     match term.kind() {
@@ -580,8 +612,16 @@ fn decomposes_freely(term: &Term) -> bool {
         TermKind::Application {
             symbol, arguments, ..
         } => {
-            let decomposed = (symbol.attributes.injective && !symbol.attributes.anywhere)
-                || symbol.attributes.symbol_type == SymbolType::Constructor;
+            // A non-anywhere injective head is decomposed on its declaration; it must be free.
+            // EquationHead is left to k-rust's normal-on-every-instance decomposition.
+            let decomposed = matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor
+                    | HeadRole::Function {
+                        injective: true,
+                        ..
+                    }
+            ) || symbol.attributes.symbol_type == SymbolType::Constructor;
             (!decomposed || free_constructor(symbol)) && arguments.iter().all(decomposes_freely)
         }
         TermKind::And(left, right) => decomposes_freely(left) && decomposes_freely(right),
@@ -634,7 +674,11 @@ impl<'a> BackendRelations<'a> {
 
     /// The internalized term, when every variable in it is a stable initial-state variable.
     fn term(&self, pattern: &Pattern) -> Option<Term> {
-        let term = self.definition.internalize_term(pattern, &[]).ok()?;
+        let term = self
+            .definition
+            .admit_unverified(pattern, &[])
+            .internalize_term()
+            .ok()?;
         let variables = &term.attributes().variables;
         let stable = match &self.variables {
             Some(stable) => variables.is_subset(stable),
@@ -679,7 +723,8 @@ impl<'a> BackendRelations<'a> {
             Pattern::Top { .. } => Vec::new(),
             predicate => vec![
                 self.definition
-                    .internalize_predicate(predicate, &[])
+                    .admit_unverified(predicate, &[])
+                    .internalize_predicate()
                     .ok()?
                     .0,
             ],
@@ -732,12 +777,12 @@ impl<'a> BackendRelations<'a> {
                 .iter()
                 .all(|predicate| predicate.free_variables().is_subset(stable))
         });
-        match self.solver.is_sat(&query, &Substitution::new()) {
-            Ok(Satisfiability::Unsat) => Feasibility::Unsat,
-            Ok(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
+        match solver_answer(self.solver, &query) {
+            Some(Satisfiability::Unsat) => Feasibility::Unsat,
+            Some(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
                 Feasibility::Sat
             }
-            Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => Feasibility::Unknown,
+            Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => Feasibility::Unknown,
         }
     }
 }
@@ -875,6 +920,7 @@ mod tests {
     use k_rust::kompile::CompileOptions;
     use k_rust::kore::{codec, parser::parse_definition};
     use k_rust_backend::smt::{SmtError, Validity};
+    use k_rust_backend::stop::Stoppable;
     use kink_pattern::{ExecutionStop, PathStop};
 
     use crate::{NativeValidator, support};
@@ -932,7 +978,8 @@ mod tests {
                         value: bytes.to_vec().into(),
                     };
                     let internal = definition
-                        .internalize_term(&value, &[])
+                        .admit_unverified(&value, &[])
+                        .internalize_term()
                         .expect("Int accepts this decimal form");
                     assert_eq!(
                         externalize::term(&internal),
@@ -1077,7 +1124,7 @@ mod tests {
         let function = guarded
             .with_solver(None, |definition, solver| {
                 let plus = definition
-                    .symbols
+                    .symbols()
                     .values()
                     .find(|symbol| symbol.attributes.hook.as_deref() == Some("INT.add"))
                     .expect("+Int")
@@ -1319,7 +1366,7 @@ mod tests {
         let answers = guarded
             .with_solver(None, |definition, solver| {
                 let plus = definition
-                    .symbols
+                    .symbols()
                     .values()
                     .find(|symbol| symbol.attributes.hook.as_deref() == Some("INT.add"))
                     .expect("+Int")
@@ -1347,8 +1394,8 @@ mod tests {
             &self,
             _predicates: &[Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            self.0.clone()
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(self.0.clone())
         }
 
         fn check_predicates(
@@ -1356,8 +1403,8 @@ mod tests {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            Err(SmtError::Unavailable)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Err(SmtError::Unavailable))
         }
     }
 
@@ -1373,10 +1420,10 @@ mod tests {
             &self,
             predicates: &[Predicate],
             substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
             assert!(substitution.is_empty(), "bindings are sent as predicates");
             self.queries.borrow_mut().push(predicates.to_vec());
-            self.answer.clone()
+            Ok(self.answer.clone())
         }
 
         fn check_predicates(
@@ -1384,8 +1431,8 @@ mod tests {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            Err(SmtError::Unavailable)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Err(SmtError::Unavailable))
         }
     }
 
@@ -1473,12 +1520,14 @@ mod tests {
             .with_solver(None, |definition, _| {
                 let term = |pattern: &Pattern| {
                     definition
-                        .internalize_term(pattern, &[])
+                        .admit_unverified(pattern, &[])
+                        .internalize_term()
                         .expect("term internalizes")
                 };
                 let predicate = |pattern: &Pattern| {
                     definition
-                        .internalize_predicate(pattern, &[])
+                        .admit_unverified(pattern, &[])
+                        .internalize_predicate()
                         .expect("predicate internalizes")
                         .0
                 };
@@ -1641,12 +1690,14 @@ mod tests {
             .with_solver(None, |definition, _| {
                 let term = |pattern: &Pattern| {
                     definition
-                        .internalize_term(pattern, &[])
+                        .admit_unverified(pattern, &[])
+                        .internalize_term()
                         .expect("term internalizes")
                 };
                 let predicate = |pattern: &Pattern| {
                     definition
-                        .internalize_predicate(pattern, &[])
+                        .admit_unverified(pattern, &[])
+                        .internalize_predicate()
                         .expect("predicate internalizes")
                         .0
                 };
@@ -1727,7 +1778,7 @@ mod tests {
     /// The guardedmem symbol named by `hook`.
     fn hooked(definition: &BackendDefinition, hook: &str) -> String {
         definition
-            .symbols
+            .symbols()
             .values()
             .find(|symbol| symbol.attributes.hook.as_deref() == Some(hook))
             .unwrap_or_else(|| panic!("{hook}"))
@@ -1799,7 +1850,8 @@ mod tests {
         assert_eq!(rows, expected);
     }
 
-    /// Leaf feasibility uses the solver's `Unsat` always and its `Sat` only for an exactly
+    /// Under the documented explicit-definedness premise, leaf feasibility uses the solver's
+    /// `Unsat`, and uses its `Sat` only for an exactly
     /// translated predicate over a constructor term; `NoSolver` adds nothing.
     #[test]
     fn solver_feasibility_needs_exact_sat_and_counts_every_unsat() {
@@ -1933,8 +1985,9 @@ mod tests {
         endmodule []"#;
 
     /// The wrap equation can identify distinct arguments, while the tag equation cannot reach
-    /// `tag(s(s(X)))`. A non-`anywhere` `injective` declaration and a non-free constructor remain
-    /// untrusted even when unification returns a solved form.
+    /// `tag(s(s(X)))`. A non-anywhere injective function remains untrusted.
+    /// Trust-base change (VI-03F, D-A): row 6 is Unequal in both profiles because
+    /// constructor+function is HeadRole::FreeConstructor under k-rust's freeness contract.
     #[test]
     fn non_free_injective_symbols_leave_relations_undecided() {
         let definition =
@@ -1967,7 +2020,7 @@ mod tests {
                 Equal,
                 Unequal,
                 EqualIf(vec![relation(x.clone(), y.clone())]),
-                Indeterminate,
+                Unequal,
                 Unequal,
                 EqualIf(vec![relation(x.clone(), y.clone())]),
                 Indeterminate,
@@ -1988,26 +2041,27 @@ mod tests {
     /// contract no mint re-binds an initial name, so the initial variables stay comparable.
     #[test]
     fn existential_rules_keep_initial_variable_comparisons() {
-        let mut symmem = backend("symmem.k", "SYMMEM");
+        let mut symmem = backend(
+            "symmem_existential.k",
+            &k_rust::kast::identifier::encode("SYMMEM_EXISTENTIAL"),
+        );
         let state = symmem_state();
         let (x, y) = (nat("X"), nat("Y"));
         let real = path(PathStop::DepthLimit, top());
         let answers = symmem
             .with_solver(None, |definition, solver| {
-                let mut definition = definition.clone();
-                let rule = definition
-                    .rewrite_theory
-                    .values_mut()
-                    .flat_map(|priorities| priorities.values_mut())
-                    .flatten()
-                    .next()
-                    .expect("a rewrite rule");
-                let mut changed = (*rule.rule).clone();
-                changed
-                    .existentials
-                    .insert(Variable::new("Ex#Fresh", Sort::simple("SortNat")));
-                rule.rule = std::sync::Arc::new(changed);
-                let relations = BackendRelations::shared(&definition, solver, &state);
+                // Construction change (VI-03F): immutable BackendDefinition is supplied
+                // by a fixture with an existential rewrite rule instead of an in-memory edit.
+                assert!(
+                    definition
+                        .rewrite_theory()
+                        .values()
+                        .flat_map(|priorities| priorities.values())
+                        .flatten()
+                        .any(|rule| !rule.rule.existentials.is_empty()),
+                    "fixture must introduce an existential"
+                );
+                let relations = BackendRelations::shared(definition, solver, &state);
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &addr(x.clone()), &addr(x.clone())),
                     relations.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
@@ -2022,8 +2076,8 @@ mod tests {
     }
 
     /// The test's initial variables are linked whatever their spelling: a digit suffix, an old
-    /// mint spelling (`ExVarI0`, `RuleX`) and a wire name that decodes to a marked, counted
-    /// name (`Ex-hX-b0` is `Ex#X!0`) all name request variables. All or nothing: one variable
+    /// mint spelling (`ExVarI0`, `RuleX`) and a printed mint spelling (`Ex-hX-b0`) all
+    /// name request variables. Rename-only change (VI-03F): v3 reads Ex-hX-b0 verbatim. All or nothing: one variable
     /// of an uninhabited sort leaves no initial variable.
     #[test]
     fn initial_variables_are_every_inhabited_initial_variable() {
@@ -2062,7 +2116,7 @@ mod tests {
         assert_eq!(
             variables,
             Some(
-                ["X1", "ExVarI0", "RuleX", "Ex#X!0"]
+                ["X1", "ExVarI0", "RuleX", "Ex-hX-b0"]
                     .into_iter()
                     .map(|name| Variable::new(name, Sort::simple("SortNat")))
                     .collect()

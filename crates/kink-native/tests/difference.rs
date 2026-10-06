@@ -582,7 +582,7 @@ fn values_clash_and_function_residues_do_not() {
         .with_solver(None, |definition, _| {
             Ok::<_, k_rust::backend::BackendError>(
                 definition
-                    .symbols
+                    .symbols()
                     .values()
                     .find(|symbol| symbol.attributes.hook.as_deref() == Some("INT.add"))
                     .expect("+Int")

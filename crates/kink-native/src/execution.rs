@@ -24,7 +24,7 @@ use k_rust::backend::{
     TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
-use k_rust_backend::cancellation::CancellationToken;
+use k_rust_backend::stop::{CancellationToken, StopCause};
 use kink_pattern::ExecutionBounds;
 
 use crate::execution_difference::{NotProvedReason, StateSequence, StateSequences};
@@ -350,9 +350,8 @@ pub enum ExecutionAdapterFailure {
 /// collection candidate per rule, so an instance matched only through another candidate may have
 /// a defined successor although its leaf is `Trivial`. Stop-at-branch, cut-point and terminal
 /// rules are off, so no leaf stops at a branch or a designated rule.
-fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest {
+fn request(state: Pattern, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
-        state,
         max_depth: budget.max_depth,
         max_breadth: budget.max_breadth.map(NonZeroUsize::get),
         max_simplification_iterations: budget.max_simplification_iterations,
@@ -363,7 +362,7 @@ fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest 
         terminal_rules: Vec::new(),
         step_timeout_ms: None,
         moving_average_timeout: false,
-        ..ExecuteRequest::default()
+        ..ExecuteRequest::new(state)
     }
 }
 
@@ -409,8 +408,7 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        let encoded = codec::to_value(state)
-            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let encoded = state.clone();
         let inhabitation = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
@@ -453,8 +451,7 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
     ) -> Result<Result<SteppedExecution, StepRunFailure>, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        let encoded = codec::to_value(state)
-            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let encoded = state.clone();
         let (inhabitation, ids) = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
@@ -520,8 +517,7 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
     ) -> Result<Vec<BaselineLeaf>, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        let encoded = codec::to_value(state)
-            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let encoded = state.clone();
         let (result, _) = execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
         result
             .leaves
@@ -603,12 +599,18 @@ impl ExecutionAdapter {
 
 fn execute_with_watchdog(
     backend: &mut Backend,
-    state: serde_json::Value,
+    state: Pattern,
     budget: ExecutionBudget,
     execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<ExecutionResult, BackendError>,
 ) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
     let token = CancellationToken::new();
     let fired = Arc::new(AtomicBool::new(false));
+    // A zero budget has already expired; do not race the solver's entry poll against
+    // scheduling the watchdog thread.
+    if budget.time.is_zero() {
+        fired.store(true, Ordering::Release);
+        token.cancel();
+    }
     let (done, finished) = mpsc::channel::<()>();
     let watchdog = {
         let token = token.clone();
@@ -624,9 +626,21 @@ fn execute_with_watchdog(
     // Stop the watchdog, then read whether it fired before the run ended.
     drop(done);
     watchdog.join().expect("watchdog thread does not panic");
-    let result = outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
+    let timed_out = fired.load(Ordering::Acquire);
+    let result = match outcome {
+        Ok(result) => result,
+        // Cancellation on the operation's entry poll can return an error rather than
+        // leaves. The fired watchdog still means Timeout; publish no completed state.
+        Err(_) if timed_out => ExecutionResult {
+            modality: ResultModalityOutput::PathSet,
+            leaves: Vec::new(),
+            effects: Vec::new(),
+            discarded: Vec::new(),
+        },
+        Err(error) => return Err(ExecutionAdapterFailure::Backend(error.to_string())),
+    };
     assert_eq!(result.modality, ResultModalityOutput::PathSet);
-    Ok((result, fired.load(Ordering::Acquire)))
+    Ok((result, timed_out))
 }
 
 /// Mirror the ambiguity checks of k-rust's observation allow-list before a run, so a
@@ -636,13 +650,13 @@ fn rewrite_ids(
 ) -> Result<Vec<String>, StepRunFailure> {
     let mut available = BTreeMap::<(String, Option<usize>), usize>::new();
     let mut identities = BTreeMap::<&str, usize>::new();
-    for axiom in &definition.classified_axioms {
+    for axiom in definition.classified_axioms() {
         *identities
             .entry(axiom.attributes().unique_id.as_str())
             .or_default() += 1;
     }
     let mut selected = BTreeSet::new();
-    for priorities in definition.rewrite_theory.values() {
+    for priorities in definition.rewrite_theory().values() {
         for rules in priorities.values() {
             for rule in rules {
                 let id = &rule.rule.attributes.unique_id;
@@ -654,9 +668,9 @@ fn rewrite_ids(
         }
     }
     for theory in [
-        &definition.function_theory,
-        &definition.simplification_theory,
-        &definition.ceil_theory,
+        definition.function_theory(),
+        definition.simplification_theory(),
+        definition.ceil_theory(),
     ] {
         for priorities in theory.values() {
             for rules in priorities.values() {
@@ -732,6 +746,14 @@ fn with_definition<T>(
 
 impl From<BackendError> for ExecutionAdapterFailure {
     fn from(value: BackendError) -> Self {
+        Self::Backend(value.to_string())
+    }
+}
+
+/// A stop of the solver operation (cancellation, deadline, exhausted stack or a failed solver
+/// prelude) is a backend failure: the adapter returns no execution.
+impl From<StopCause> for ExecutionAdapterFailure {
+    fn from(value: StopCause) -> Self {
         Self::Backend(value.to_string())
     }
 }

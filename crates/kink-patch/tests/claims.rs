@@ -105,7 +105,8 @@ fn withdraw(baseline: &Baseline, edits: Vec<Edit>) -> Withdrawal {
 fn assert_withdrawn_patch(baseline: &Baseline, withdrawal: &Withdrawal) {
     let patch = withdrawal.patch().expect("something is withdrawn");
     let mutant = apply(baseline, patch).expect("the withdrawn patch applies");
-    support::compile(&mutant.to_loaded(baseline)).expect("the withdrawn mutant compiles");
+    support::compile(&mutant.to_loaded(baseline).expect("the mutant relinks"))
+        .expect("the withdrawn mutant compiles");
     for claim in &withdrawal.withdrawn {
         let SentenceOrigin::Baseline(at) = &claim.origin else {
             panic!("a withdrawn claim of a baseline sentence");
@@ -318,7 +319,8 @@ fn inserted_and_replaced_sentences() {
 
 /// An edit whose effect on what terms denote is not known symbol by symbol, here deleting a
 /// production (which changes its sort's values), withdraws every claim and leaves every
-/// lemma unsupported.
+/// lemma unsupported. Load-stage change (VI-03F, k-rust 378a97ca): initKCell totality
+/// is derived during compilation per side, so it is not a trusted loaded-stage claim.
 #[test]
 fn an_unknown_effect_withdraws_every_claim() {
     let baseline = baseline();
@@ -336,7 +338,6 @@ fn an_unknown_effect_withdraws_every_claim() {
             ("g", TOTAL),
             ("step", DEFINED),
             ("go", DEFINED),
-            ("initKCell", TOTAL),
         ])
     );
     assert_eq!(

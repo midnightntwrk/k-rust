@@ -5,7 +5,7 @@ use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, 
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
 use k_rust::kast::Term;
 use k_rust::kompile::SentenceTyper;
-use k_rust::outer::LoadedDefinition;
+use k_rust::outer::{LoadError, LoadedDefinition};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 use std::sync::Arc;
@@ -29,7 +29,6 @@ const PROTECTED_KEYS: [AttributeKey; 11] = [
 #[derive(Clone, Debug)]
 pub struct Mutant {
     definition: Definition,
-    resolved: ResolvedDefinition,
     origins: BTreeMap<SentenceRef, SentenceOrigin>,
 }
 
@@ -65,18 +64,15 @@ impl Mutant {
     ///
     /// A loaded definition cannot be fed back through `load_structured`, so
     /// the mutant reuses the baseline's files, source table and load
-    /// diagnostics with its own definition and resolution, as k-rust's
-    /// structured-definition conformance tests do.
-    #[must_use]
-    pub fn to_loaded(&self, baseline: &Baseline) -> LoadedDefinition {
-        let base = baseline.loaded();
-        LoadedDefinition {
-            files: base.files.clone(),
-            source_table: base.source_table.clone(),
-            definition: self.definition.clone(),
-            resolved: self.resolved.clone(),
-            diagnostics: base.diagnostics.clone(),
-        }
+    /// diagnostics with its own definition
+    /// (`LoadedDefinition::with_definition`), which resolves it again and
+    /// checks the loaded stage.
+    ///
+    /// # Errors
+    ///
+    /// Returns k-rust's loaded-stage rejection of the mutant definition.
+    pub fn to_loaded(&self, baseline: &Baseline) -> Result<LoadedDefinition, LoadError> {
+        baseline.loaded().with_definition(self.definition.clone())
     }
 }
 
@@ -106,7 +102,6 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
     check_edited_sentences(&definition, &resolved, &origins, patch.edits())?;
     Ok(Mutant {
         definition,
-        resolved,
         origins,
     })
 }

@@ -9,7 +9,8 @@ use k_rust::kore::ast::Pattern;
 use k_rust_backend::definition::{BackendDefinition, SortInfo};
 use k_rust_backend::matching::SortGraph;
 use k_rust_backend::rule::Predicate;
-use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
+use k_rust_backend::smt::{Satisfiability, SmtSolver};
+use k_rust_backend::stop::StopCause;
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::term::{Name, Sort, Symbol, Term, TermKind, Variable, VariableKind};
 use k_rust_backend::unification::{UnificationResult, unify_term_pairs};
@@ -18,7 +19,7 @@ use crate::{
     execution::HaltClass,
     feasibility::{
         Inhabitation, InitialVariables, LeafFeasibility, free_constructor, interpreted_predicate,
-        proves_clash,
+        proves_clash, solver_answer, translates_exactly,
     },
 };
 
@@ -106,6 +107,13 @@ impl From<BackendError> for NotProvedReason {
     }
 }
 
+impl From<StopCause> for NotProvedReason {
+    /// A stopped solver operation fails closed.
+    fn from(_: StopCause) -> Self {
+        Self::Backend
+    }
+}
+
 /// The part of a symbol declaration that the certificate relies on: its sorts, whether it is a
 /// free constructor, and its hook.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,10 +150,10 @@ pub struct SignatureProjection {
 impl SignatureProjection {
     fn of(definition: &BackendDefinition) -> Self {
         Self {
-            sorts: definition.sorts.clone(),
-            sort_graph: definition.sort_graph.clone(),
+            sorts: definition.sorts().clone(),
+            sort_graph: definition.sort_graph().clone(),
             symbols: definition
-                .symbols
+                .symbols()
                 .iter()
                 .map(|(name, symbol)| (name.clone(), SymbolShape::of(symbol)))
                 .collect(),
@@ -215,8 +223,11 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 /// equals.
 ///
 /// **Proof.** Every state is read under k-rust's variable-identity contract
-/// (`feasibility`'s `VARIABLE_IDENTITY` assertion): decoding inverts printing, so a decoded
-/// state and its pc are the real ones, and within the request that produced them one name is
+/// (`feasibility`'s VARIABLE_IDENTITY == 3 assertion, T-VI): names are read verbatim;
+/// injective printing and binder renaming preserve the state and pc up to a bijective
+/// renaming that fixes initial names. One growing counter skips every request spelling.
+/// Unbound-result equation instances are unused and diagnosed (BackendLimit in the bridge).
+/// Within the request that produced the state one name is
 /// one variable, no minted variable has a request variable's name, and a request variable
 /// keeps its meaning in every state of every path. Both sides' runs are requests whose input
 /// is `initial`, so their only shared names are its variables. The witness `p` is feasible, so
@@ -247,7 +258,7 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 /// (EI-T05). Duplicate paths, leaf order and which rule fired are not evidence.
 ///
 /// **Trust base.** k-rust's `all`-mode coverage, symbolic soundness and feasibility contracts
-/// (every symbolic verdict trusts them) and its variable-identity contract (version 2, asserted
+/// (every symbolic verdict trusts them) and its variable-identity contract (version 3, asserted
 /// at compile time and pinned by `tests/name_identity.rs`); the unifier's clash soundness
 /// (`proves_clash`, as `BackendRelations`); solver `Unsat` and the consistency of the
 /// baseline's smt-lemmas, which a `Disjoint` query asserts. A mutant-side witness's feasibility
@@ -383,7 +394,11 @@ impl<'a> Prover<'a> {
         let mut terms = Vec::with_capacity(sequence.states.len());
         let mut pc = Vec::new();
         for (position, state) in sequence.states.iter().enumerate() {
-            let pattern = self.definition.internalize_pattern(state, &[]).ok()?;
+            let pattern = self
+                .definition
+                .admit_unverified(state, &[])
+                .internalize_pattern()
+                .ok()?;
             let mut scope = Scope {
                 stable: &self.stable,
                 prefix: format!("EI!{side}{leaf}.{position}"),
@@ -432,8 +447,8 @@ impl<'a> Prover<'a> {
             predicate.free_variables().is_subset(&self.stable) && interpreted_predicate(predicate)
         }) && translates_exactly(&query)
             && matches!(
-                self.solver.is_sat(&query, &Substitution::new()),
-                Ok(Satisfiability::Unsat)
+                solver_answer(self.solver, &query),
+                Some(Satisfiability::Unsat)
             )
     }
 }

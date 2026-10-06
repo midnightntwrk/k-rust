@@ -594,7 +594,7 @@ pub fn derive_sites<'b>(
             _ => None,
         })
         .collect::<Vec<_>>();
-    let resolved = &baseline.loaded().resolved;
+    let resolved = baseline.loaded().resolved();
     let mut exhaustive = true;
     let mut sites = Vec::new();
     let mut typers = std::collections::BTreeMap::new();

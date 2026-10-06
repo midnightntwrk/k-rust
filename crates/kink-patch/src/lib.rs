@@ -81,8 +81,8 @@ impl Baseline {
     }
 
     #[must_use]
-    pub const fn definition(&self) -> &Definition {
-        &self.loaded.definition
+    pub fn definition(&self) -> &Definition {
+        self.loaded.definition()
     }
 
     #[must_use]

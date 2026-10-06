@@ -14,8 +14,9 @@ use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition, walk::for_each_post_order};
 use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{
-    NoSolver, Satisfiability, SmtError, SmtSolver, Validity, translates_exactly,
+    Exactness, NoSolver, Satisfiability, SmtError, SmtSolver, Validity, translation_exactness,
 };
+use k_rust_backend::stop::{Stop, Stoppable};
 use k_rust_backend::substitution::Substitution;
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_steps};
 use kink_native::execution::{
@@ -1297,22 +1298,74 @@ fn non_free_injective_symbol_does_not_prove_a_clash() {
             seq(load(wrap(z()), nat("W")), halt()),
         )
     };
-    // The ground instance X = z is a match: the backend collapses the written address.
+    // Precision loss (VI-03F, k-rust 4d80cea6): withheld value-production definedness
+    // leaves the ground instance Unknown in both profiles.
     let (mut ground, vocabulary) = run(Fixture::Wrap, program(s(z())), BUDGET);
     let plan = wl_after(&vocabulary);
-    assert_eq!(decided(&mut ground, &plan).outcome, PatternOutcome::Match);
+    assert_eq!(decided(&mut ground, &plan).outcome, PatternOutcome::Unknown);
     let (mut symbolic, vocabulary) = run(Fixture::Wrap, program(s(nat("X"))), BUDGET);
     let plan = wl_after(&vocabulary);
-    let [path] = symbolic.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert!(path.complete, "{path:?}");
+    // Precision loss (VI-03F, k-rust 4d80cea6): the symbolic run splits on wrap
+    // definedness under Z3; without Z3 it stops before any event. Both are incomplete.
+    let paths = &symbolic.bridged.paths;
+    assert_eq!(paths.len(), by_profile(1, 2));
     assert_eq!(
         symbolic.bridged.collection.stop,
-        CollectionStop::SearchExhausted
+        CollectionStop::SolverUnknown
     );
-    assert_eq!(path.events[0].payload[0], wrap(s(nat("X"))));
-    assert_eq!(path.events[1].payload[0], wrap(z()));
+    for (ordinal, path) in paths.iter().enumerate() {
+        assert_eq!(path.path_key, Some(format!("leaf:{ordinal}")));
+        assert!(!path.complete, "{path:?}");
+        assert_eq!(path.stop, PathStop::SolverUnknown);
+        assert_eq!(
+            path.execution_stop,
+            kink_pattern::ExecutionStop::SolverUnknown
+        );
+        assert!(path.execution_terminal.is_none());
+    }
+    assert!(paths[0].events.is_empty());
+    if cfg!(feature = "z3") {
+        let defined = Pattern::And {
+            sort: kore_sort("SortGeneratedTopCell"),
+            arguments: vec![wrap(s(nat("X"))), wrap(z())]
+                .into_iter()
+                .map(|argument| Pattern::Ceil {
+                    operand_sort: Box::new(kore_sort("SortAddress")),
+                    result_sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(argument),
+                })
+                .collect(),
+        };
+        assert_eq!(
+            paths[0].path_predicate,
+            Pattern::Not {
+                sort: kore_sort("SortGeneratedTopCell"),
+                argument: Box::new(defined.clone()),
+            }
+        );
+        assert_eq!(paths[1].path_predicate, defined);
+        assert_eq!(paths[1].events.len(), 2);
+        assert_eq!(paths[1].events[0].constructor, "memoryWrite");
+        assert_eq!(paths[1].events[1].constructor, "memoryLoad");
+        assert_eq!(
+            paths[1].events[0].payload,
+            vec![wrap(s(nat("X"))), nat("V")]
+        );
+        assert_eq!(paths[1].events[1].payload, vec![wrap(z()), nat("W")]);
+        assert!(
+            paths[1]
+                .events
+                .iter()
+                .all(|event| event.presence == kink_pattern::EventPresence::Certain)
+        );
+    } else {
+        assert_eq!(
+            paths[0].path_predicate,
+            Pattern::Top {
+                sort: kore_sort("SortGeneratedTopCell"),
+            }
+        );
+    }
     // A clash below the free `addr` constructor (P7) is still proved.
     let (mut free, free_vocabulary) = run(Fixture::Sym, p7(), BUDGET);
     assert_eq!(
@@ -2112,12 +2165,13 @@ fn profile_table_rows() {
             decided: matched,
         },
         ProfileRow {
+            // Precision loss (VI-03F, k-rust 4d80cea6): definedness remains undecided.
             id: "symwrap-WL-after",
             fixture: Fixture::Wrap,
             program: wrap_program,
             plan: wl_after,
             budget: BUDGET,
-            stops: (&[Terminal], &[Terminal]),
+            stops: (&[SolverUnknown], &[SolverUnknown, SolverUnknown]),
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
@@ -2435,8 +2489,8 @@ impl SmtSolver for AlwaysSat {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
-        Ok(Satisfiability::Sat)
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Sat))
     }
 
     fn check_predicates(
@@ -2444,8 +2498,8 @@ impl SmtSolver for AlwaysSat {
         _known: &[Predicate],
         _substitution: &Substitution,
         _checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
-        Err(SmtError::Unavailable)
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(Err(SmtError::Unavailable))
     }
 }
 
@@ -2492,18 +2546,26 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
             )
             .expect("evaluation");
             // The build's own solver on the relation query as `feasible` sends it.
-            let term = |pattern: &Pattern| definition.internalize_term(pattern, &[]).expect("term");
+            let term = |pattern: &Pattern| {
+                definition
+                    .admit_unverified(pattern, &[])
+                    .internalize_term()
+                    .expect("term")
+            };
             let query = [
                 definition
-                    .internalize_predicate(&abstracted, &[])
+                    .admit_unverified(&abstracted, &[])
+                    .internalize_predicate()
                     .expect("predicate")
                     .0,
                 Predicate::Equals(term(&nat("X")), term(&nat("Y"))),
             ];
-            let answer = solver.is_sat(&query, &Substitution::new());
+            let answer = solver
+                .is_sat(&query, &Substitution::new())
+                .map_err(Stop::into_cause);
             Ok::<_, k_rust::backend::BackendError>((
                 evaluation,
-                (answer, translates_exactly(&query)),
+                (answer, translation_exactness(&query) == Exactness::Exact),
             ))
         })
         .expect("backend definition");
@@ -2512,7 +2574,10 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     assert!(!z3_answer.1, "the query abstracts a user-sort term");
     assert_eq!(
         z3_answer.0,
-        by_profile(Err(SmtError::Unavailable), Ok(Satisfiability::Sat))
+        Ok(by_profile(
+            Err(SmtError::Unavailable),
+            Ok(Satisfiability::Sat)
+        ))
     );
     for (decider, evaluation) in [
         ("build", solver),

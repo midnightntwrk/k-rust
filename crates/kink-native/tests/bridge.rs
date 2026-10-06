@@ -612,6 +612,31 @@ fn nonterminating_execution_is_timeout() {
     assert_eq!(result.outcome, PatternOutcome::Unknown);
 }
 
+/// VI-03F: cancellation before the solver operation starts may return a backend error.
+/// A zero wall-clock budget is TimeLimit in both profiles, with no complete path.
+#[test]
+fn zero_budget_execution_is_timeout() {
+    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
+    let baseline = validator.compile_baseline().expect("nd.k compiles");
+    let spin = support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
+    let vocabulary = vocabulary(&[("spin", &[])]);
+    let run = run(
+        &validator,
+        &baseline,
+        "ND",
+        &[nd_event("spin", "Lblspin", "Lblspin")],
+        &vocabulary,
+        &spin,
+        ExecutionBudget {
+            time: Duration::ZERO,
+            ..BUDGET
+        },
+    );
+    assert!(run.execution.timed_out());
+    assert!(run.bridged.paths.is_empty());
+    assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
+}
+
 /// The side of `undecided.k` on which the rule `label` applies: its `requires false` is
 /// replaced with `true`.
 fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {

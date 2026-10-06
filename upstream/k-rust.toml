@@ -4,22 +4,24 @@
 # and status-report.html; those files remain in git history.
 
 schema = 1
-updated = "2026-09-30"
+updated = "2026-10-06"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
-# Provisional: 9494bb48 is the head of k-rust kink/integration-vi; it becomes final when k-rust main fast-forwards to it.
-k_rust_commit = "9494bb488109a833031e280f3305fee45e6dba21"
+# 927b9ce6 is k-rust main on 2026-10-06. Variable identity reached main redesigned (VARIABLE_IDENTITY = 3) in the fast-forward to 3796d5b7.
+# Seven pre/* merges followed 3796d5b7 before this pin.
+k_rust_commit = "927b9ce6352357db340c221ff5377b294b8324e9"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
 # The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-9494bb48"
+checkout = "../k-rust-927b9ce6"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
+"9494bb488109a833031e280f3305fee45e6dba21" = "Former provisional pin, head of k-rust kink/integration-vi (KK-82..KK-85, VARIABLE_IDENTITY = 2); never on k-rust main. Retired on 2026-10-06 for main 927b9ce6, where variable identity was redesigned (names read verbatim, VARIABLE_IDENTITY = 3) and landed at 3796d5b7."
 "eea634ce66133625500513cec4414129a3430bd1" = "Former API-only base pin; retired on 2026-09-30 for provisional variable-identity integration head 9494bb48 (KK-82..KK-85)."
 "c26386261f4b9e7a9a0483661e3a05928e680c41" = "Former K-in-K2 read-only archive pin; retired on 2026-09-29 for eea634ce, the k-rust main API base of variable identity before its naming change."
 "9b91332e06f9b3f706119dfbe0019842432f2d08" = "Former K-in-K2 read-only archive pin; retired on 2026-09-28 for c2638626 (k-rust KK-77, KK-80: concrete Set/Map concatenation agrees with its symbolic meaning)."
@@ -37,7 +39,7 @@ title = "Lossless nested definition provenance and context-alias persistence"
 kind = "correctness"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-native all_transitions_uses_typed_provenance_without_source_attributes and rule_identities_resolve_by_source_position_per_compiled_side), plus k-rust KRUST-PROVENANCE v7 contract; K-in-K2 has no serialization test yet"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-patch written_sentences_are_the_distinct_existing_targets and identity_and_position_attributes_are_never_edited), plus k-rust KRUST-PROVENANCE v7 contract and the intake static re-screen; K-in-K2 has no serialization test yet. Historical citations all_transitions_uses_typed_provenance_without_source_attributes and rule_identities_resolve_by_source_position_per_compiled_side were retired by SO-07 and were not run at this pin."
 blocking = false
 needed_by = ["emitting-sentence provenance"]
 summary = "KRUST-PROVENANCE v7 round-trips definitions and source tables, including context aliases and nested spans. KAST v4 is not a lossless context-alias archive; its unsupported marker is rejected on decode. K-in-K2 currently uses the in-process typed sentence relation and has not implemented SemanticInput serialization."
@@ -52,7 +54,7 @@ id = "claim-observation"
 title = "Proof claim observation remains unavailable"
 kind = "missing-feature"
 status = "partial"
-status_basis = "static re-screen at 9494bb48 on 2026-09-30: TransitionClass::Claim remains reserved without a producer; proof claim applications are not observed. No longer needed by kink after SO-07; no proof caller or claim-specific test."
+status_basis = "static re-screen at 927b9ce6 on 2026-10-06: TransitionClass::Claim is still reserved with no producer (k-rust-backend transition.rs:76-80; only the wire mapping wire.rs:986 names it); proof results carry observations: Vec::new() (proof.rs:1567, 2008). No longer needed by kink after SO-07; no proof caller or claim-specific test."
 blocking = false
 needed_by = ["none in the goal; proofs and claim observation are outside its delivery steps"]
 summary = "Observed and unobserved execution preserve solver queries and non-observation results. Leaf effects retain the committed transcript. Claim remains a reserved transition class with no producer; proof claim applications are not observed."
@@ -65,15 +67,17 @@ sources = ["k-rust-agent-requests.toml KRUST-UP-002", "upstream-issues.toml KRUS
 id = "malformed-deep-json"
 title = "Malformed deeply nested KORE JSON can overflow the stack on the persistent host routes"
 kind = "bug"
-status = "partial"
-status_basis = "static re-screen at 9494bb48 on 2026-09-30: host request JSON still uses serde_json deserialization with recursion limits disabled (napi lib.rs deserialize_json); no ingress decoder change since eea634ce. K-in-K2 has no host JSON ingress or malformed-host-input test."
+status = "fixed"
+status_basis = "static re-screen at 927b9ce6 on 2026-10-06: request KORE fields are kore::ast::Pattern decoded from raw text by the iterative KORE decoder with serde's recursion limit on (k-rust backend/wire.rs:159-172); napi and wasm read every backend request through it (k-rust-napi lib.rs:442-447); disable_recursion_limit survives only in tests/kast_json.rs:39; regressions backend/mod.rs:2123 deep_malformed_kore_request_fields_are_ordinary_errors, :3575 deep_invalid_requests_are_ordinary_errors_on_every_route, k-rust-wasm lib.rs:693 and the rpc.rs 200,000-level tests. Not run by K-in-K2, which has no host JSON ingress."
 blocking = false
 needed_by = ["none in the goal; K-in-K2 calls k-rust in process and has no host JSON request ingress"]
-summary = "The in-process K-in-K2 execution path does not parse host request JSON. Deep malformed input remains a concern for separate napi, wasm, and JSON-RPC ingress routes at this pin."
+summary = "The in-process K-in-K2 execution path does not parse host request JSON. At 927b9ce6 the napi, wasm and JSON-RPC routes decode request KORE fields iteratively into kore::ast::Pattern and keep serde's recursion limit for every other value, so malformed input of any depth is an ordinary error; valid deep input runs on a grown stack segment and is refused (InsufficientStack) only above 4 GiB. The fix differs from the requested action: the decoder was not the cause, the recursive serde_json::Value round trips were. Outside this request: on wasm32 a valid pattern too deep for the engine's stack traps (docs/backend-port.md:139, 165), and an execution that deepens terms far beyond its input's depth can still overflow a pass other than the simplifier."
 reproducer = "Submit a 200,000-deep malformed KORE JSON request through the napi execute route."
 local_workaround = "none"
-requested_action = "Parse host request text with the iterative decoder and add a malformed-deep-input regression."
+requested_action = "Satisfied as redesigned: host request KORE is decoded into kore::ast::Pattern from raw text, and no recursive JSON value is built for KORE terms or responses."
 sources = ["k-rust-agent-requests.toml KRUST-COMPAT-001", "krs draft/upstream/k-rust.toml backend-deep-result"]
+fixed_in = "3796d5b7 (k-rust main fast-forward of kink/requests-integration on 2026-10-05: 64e0c977, ba1921ad, 10df3340, e7ab2f29, 7a1c3287, f042dc85), with 1bf3f94a, 13cd6e5f and 9f176c06 on main before 927b9ce6"
+
 
 [[request]]
 id = "execution-leaf-completeness"
@@ -81,7 +85,7 @@ title = "Typed halts and complete path leaves for observed execution"
 kind = "correctness"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-native converging_branches_reach_pattern_no_match_with_both_events, every_halt_variant_is_classified_exhaustively, execution_leaf_rows_map_to_paths)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-native converging_branches_reach_pattern_no_match_with_both_events, every_halt_variant_is_classified_exhaustively, execution_leaf_rows_map_to_paths)"
 blocking = false
 needed_by = ["execution-pattern NoMatch on branching executions", "binding sets on branching executions", "path-complete evidence without a StateSet merge assumption"]
 summary = "HaltReasonOutput is a closed enum. PathSet retains each explored path, including convergent paths with distinct observations; StateSet retains distinct final configurations. DepthBound frontier leaves are kept beside completed leaves, and BreadthBound retains finished leaves. StateSet merge-key behavior was deliberately not changed."
@@ -96,7 +100,7 @@ title = "Execution and search responses retain path diagnostics"
 kind = "missing-feature"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-native clean_sibling_survives_diagnosed_path and undecided_live_occurrences_are_no_witness; kink-campaign undecided_occurrences_neither_kill_nor_pass_admission)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-native clean_sibling_survives_diagnosed_path and undecided_live_occurrences_are_no_witness; kink-campaign undecided_occurrences_neither_kill_nor_pass_admission)"
 blocking = false
 needed_by = ["execution oracle slots that must tell budget exhaustion from a result"]
 summary = "Typed diagnostics are attached to the affected execution leaf, branch or cut-point candidate, and remainder; search entries retain their path diagnostics. There is no run-wide diagnostics list by design. A clean sibling remains usable evidence."
@@ -111,7 +115,7 @@ title = "Compiler-owned sort checks for structured rule terms"
 kind = "correctness"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-patch ill_sorted_edits_are_rejected_by_k_rust and path_through_semantic_cast_is_typed_at_the_cast_sort)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-patch ill_sorted_edits_are_rejected_by_k_rust and path_through_semantic_cast_is_typed_at_the_cast_sort)"
 blocking = false
 needed_by = ["mutant validity without a local sort check"]
 summary = "The k-rust compiler rejects ill-placed terms, incomparable casts, ambiguous parametric instances, conflicting variable cast bounds, and invalid token domains on every compile entry path. sentence_typing and SentenceTyper expose the compiler-owned per-position typing."
@@ -126,7 +130,7 @@ title = "TransitionIdOutput supports ordered identity keys"
 kind = "api"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-pattern every_execution_pattern_row_matches_its_denotation and kink-native converging_branches_reach_pattern_no_match_with_both_events)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-pattern every_execution_pattern_row_matches_its_denotation and kink-native converging_branches_reach_pattern_no_match_with_both_events)"
 blocking = false
 needed_by = ["ordered transition identities in execution patterns"]
 summary = "TransitionIdOutput derives Eq, PartialOrd, Ord, and Hash over its rule and target strings; K-in-K2 uses it directly as its ordered transition identity."
@@ -142,7 +146,7 @@ title = "Public rule classification and diagnostic evaluation events"
 kind = "missing-feature"
 status = "fixed"
 fixed_in = "present at 347f693e"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-native all_undecided_rewrite_rules_are_selected_in_definition_order, observed_rule_merged_with_unobserved_author_is_unknown, two_equal_observed_rules_with_same_spec_attribute_normally, and selected_rewrite_reclassified_as_equation_fails_closed)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and kink-native z3 gate; stepped_positions_keep_unobserved_leaves_and_order, label_swapped_copy_gives_identical_paths and declaration_validation_has_one_refusal_for_each_rule); classification also confirmed by the intake static re-screen of Backend::rule_catalog. Historical rule-attached observation citations all_undecided_rewrite_rules_are_selected_in_definition_order, observed_rule_merged_with_unobserved_author_is_unknown, two_equal_observed_rules_with_same_spec_attribute_normally and selected_rewrite_reclassified_as_equation_fails_closed were retired by SO-07 and were not run at this pin."
 blocking = false
 needed_by = ["AllTransitions as every rewrite rule without a second internalize"]
 summary = "Backend::rule_catalog classifies compiled rules without a second internalization; Evaluation events use branch ordinals and are diagnostic evidence. Equal written rules, including label-only differences, share one compiled execution identity with all authors. The requested per-written-position execution identity was declined because equal executable rules are indistinguishable. K-in-K2 attributes a multi-author event to one authored rule only when all authors have the same observation specification; otherwise attribution is Unknown."
@@ -161,7 +165,7 @@ title = "Symbolic execution keeps the definedness of partial terms in rule condi
 kind = "correctness"
 status = "fixed"
 fixed_in = "74f1356e (KK-45, KK-46, KK-47)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; kink-native dropped_definedness_condition_is_not_a_witness)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; kink-native dropped_definedness_condition_is_not_a_witness)"
 blocking = false
 needed_by = ["symbolic real prefixes for semantics whose rewrite rules use partial functions (IMP-like /Int)"]
 summary = "At 347f693e symbolic simplification dropped the definedness of a partial function in a rule condition: half(A) requires 10 /Int A ==Int 10 /Int A stepped on half(X) with predicate \\top although half(0) is stuck, and sympartial's write/half/load was a wrong match under [X = 0] in both profiles. Hook results now carry their arguments' definedness and rule and equation conditions state the \\ceil of their Boolean atoms at instantiation, so a leaf predicate implies the definedness of every partial term its path relied on (requires, ensures, right-hand side, state simplification), in both profiles. An undefined requires instance lies in the step's remainder."
@@ -176,12 +180,12 @@ title = "smt::translates_exactly counts uninterpreted smtlib functions and quant
 kind = "correctness"
 status = "fixed"
 fixed_in = "74f1356e (KK-48, KK-49, KK-50)"
-status_basis = "test run at c2638626 on 2026-09-28 (kink-native z3 gate; uninterpreted_smt_function_does_not_make_a_path_feasible, solver_sat_counts_only_for_the_exact_relation_query, solver_feasibility_needs_exact_sat_and_counts_every_unsat)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (kink-native z3 gate; uninterpreted_smt_function_does_not_make_a_path_feasible, solver_sat_counts_only_for_the_exact_relation_query, solver_feasibility_needs_exact_sat_and_counts_every_unsat); static re-screen at 927b9ce6 on 2026-10-06: ceca4fef replaced smt::translates_exactly by smt::translation_exactness -> Exactness, read from the translation SmtPrelude::query poses (smt.rs:735-751; tests smt.rs:1222-1330 reject smtlib symbols at any depth, quantifiers and free variables over sorts other than Int/Bool, abstracted terms and partial operations); Z3 is_sat drops no conjunct (smt/z3.rs:528-541)."
 blocking = false
 needed_by = ["solver Sat as feasibility evidence in the Z3 profile"]
-summary = "At 347f693e translates_exactly accepted predicates with smtlib symbols, which k-rust declares as uninterpreted declare-fun (&Int, |Int, xorInt, ~Int, user functions), and ignored quantifier sorts; Z3 answers Sat for X &Int 1 ==Int 2. At 74f1356e it rejects both, in addition to abstracted terms, non-Int/Bool free variables and partial functions. get_model (KK-49) and implies (KK-50) were made consistent with it; K-in-K2 calls neither."
+summary = "At 347f693e translates_exactly accepted predicates with smtlib symbols, which k-rust declares as uninterpreted declare-fun (&Int, |Int, xorInt, ~Int, user functions), and ignored quantifier sorts; Z3 answers Sat for X &Int 1 ==Int 2. At 74f1356e it rejects both, in addition to abstracted terms, non-Int/Bool free variables and partial functions. get_model (KK-49) and implies (KK-50) were made consistent with it; K-in-K2 calls neither. Since ceca4fef (in 927b9ce6) the check is smt::translation_exactness, Exact only when the posed translation abstracts nothing, and Validity::{Invalid, Indeterminate} are named {Refuted, Contingent}."
 reproducer = "symnarrow.k gate(X) requires X &Int 1 ==Int 2 under Z3: unknown at 74f1356e (was a wrong match before K-in-K2's wrapper)."
-local_workaround = "retired: feasibility.rs translates_without_approximation is removed and its callers use smt::translates_exactly, whose checks at 74f1356e contain the wrapper's two extra ones (smtlib symbols, Int/Bool quantifiers). Kept: a solver Sat counts only on an exact query, a solver Unsat always counts."
+local_workaround = "retired: feasibility.rs translates_without_approximation is removed and its callers use k-rust's exactness check (smt::translates_exactly through 9494bb48; smt::translation_exactness(..) == Exactness::Exact from 927b9ce6). Kept: a solver Sat counts only on an exact query, a solver Unsat counts under the explicit definedness premise (T-UNSAT, D-B; TB-01 pins it)."
 requested_action = "Satisfied. Bitwise operators stay undecided on Sat by design (k-rust declines an SMT encoding)."
 sources = ["draft/tasks/symbolic-branching/README.md R19, section 12.1", "k-rust draft/k-in-k/workers/KK-48-report.md, KK-49-report.md, KK-50-report.md"]
 
@@ -191,7 +195,7 @@ title = "Stuck on a symbolic state holds for every instance"
 kind = "correctness"
 status = "fixed"
 fixed_in = "74f1356e (KK-54, KK-52, KK-55)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; symbolic_stuck_leaf_is_complete_in_both_profiles, constrained_and_remainder_stuck_leaves_complete_under_z3, value_dependent_rule_patterns_are_narrowed_not_stuck, bridge execution_leaf_rows_map_to_paths)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; symbolic_stuck_leaf_is_complete_in_both_profiles, constrained_and_remainder_stuck_leaves_complete_under_z3, value_dependent_rule_patterns_are_narrowed_not_stuck, bridge execution_leaf_rows_map_to_paths)"
 blocking = false
 needed_by = ["no-match for symbolic programs whose final state is symbolic"]
 summary = "At 347f693e a subject with a non-rigid top was offered only the rules of its current index key, and anywhere heads were refuted on symbolic subjects, so a symbolic Stuck leaf did not claim every instance. At 74f1356e a non-rigid top is offered every rule bucket, a rule is refuted only at a head that is the same on every instance (constructor, domain value, collection, or an anywhere application no equation can rewrite), and an undecided step is Indeterminate: Stuck means no instance of the leaf under its constraints has a successor, in both profiles. It does not claim the leaf has an instance."
@@ -206,7 +210,7 @@ title = "Indeterminate execution leaves carry a structured cause"
 kind = "missing-feature"
 status = "fixed"
 fixed_in = "74f1356e (KK-56, KK-57)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; kink-native solver_dependent_guard_is_unknown_without_z3, indeterminate_leaves_map_by_their_cause, report_renders_bounded_feasibility_and_unknown)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-native solver_dependent_guard_is_unknown_without_z3, indeterminate_leaves_map_by_their_cause, report_renders_bounded_feasibility_and_unknown)"
 blocking = false
 needed_by = ["reports that tell a missing solver from a backend limit"]
 summary = "ExecutionLeaf.cause is the SearchFailureOutput of an indeterminate halt, and SearchFailureOutput::solver_unavailable() is true when the stopped step needed a solver the build lacks (Requires; Smt, SmtPredicate or Remainder with Unavailable). It is sufficient, not necessary: a Match cause can follow an equation left unevaluated for want of a solver."
@@ -221,7 +225,7 @@ title = "Observed and unobserved execution agree leaf by leaf, and identities ar
 kind = "api"
 status = "fixed"
 fixed_in = "74f1356e (KK-58)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; observation_erasure_preserves_live_leaves)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; observation_erasure_preserves_live_leaves)"
 blocking = false
 needed_by = ["section 9 erasure criterion: branch outcomes by identity"]
 summary = "Unobserved Backend::execute still returns no branch identities (declined: it would hash every step of every execution). k-rust states and tests that execute and execute_observed return the same leaves in the same order, equal except branch and observations, and that an observed run with rules: Some(vec![]) gives every identity and no event."
@@ -236,7 +240,7 @@ title = "Unification, matching and kompile treat anywhere and overloaded heads a
 kind = "correctness"
 status = "fixed"
 fixed_in = "74f1356e (KK-51, KK-52, KK-53, KK-59, KK-60, KK-61, KK-62)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; non_free_injective_symbol_does_not_prove_a_clash, non_free_injective_symbols_leave_relations_undecided)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; non_free_injective_symbol_does_not_prove_a_clash, non_free_injective_symbols_leave_relations_undecided)"
 blocking = false
 needed_by = ["sound relations and stuckness over definitions with anywhere or overloaded productions"]
 summary = "At 347f693e kompile emitted injective for anywhere and overloaded productions, and the unifier, the rewrite and equation matchers and the rule index decomposed and refuted such heads on symbolic subjects. At 74f1356e the unifier decomposes an anywhere application only when both sides are normal forms on every instance (otherwise the pair stays an equation), matching and the index treat an anywhere head as rigid only on such subjects, ground structural distinctness needs a certified normal form, and kompile withholds injective from anywhere and macro heads and from an overload family above one, and constructor from macro-rule heads. Named completeness trade: wrap(X) = wrap(Y) and overload-greater f(X) = f(Y) stay residual equations."
@@ -258,7 +262,7 @@ title = "Execution covers the instances a rule applies to but leaves without a d
 kind = "correctness"
 status = "fixed"
 fixed_in = "9b91332e (KK-63, KK-64; KK-73 for strategy any)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; ground_undefined_step_prefix_witnesses_a_match, apart_undefined_step_is_complete_evidence, root_undefined_step_completes_an_absence, guarded_division_covers_disjoint_and_shared_addresses, undefined_sub_cases_of_one_step_are_distinct_paths, a_classified_undefined_step_is_rejected, an_undefined_step_path_is_complete_evidence; kink-campaign dropping_a_division_guard_is_killed_by_its_undefined_step, an_undefined_step_is_its_own_exit_stop_class)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; ground_undefined_step_prefix_witnesses_a_match, apart_undefined_step_is_complete_evidence, root_undefined_step_completes_an_absence, guarded_division_covers_disjoint_and_shared_addresses, undefined_sub_cases_of_one_step_are_distinct_paths, a_classified_undefined_step_is_rejected, an_undefined_step_path_is_complete_evidence; kink-campaign dropping_a_division_guard_is_killed_by_its_undefined_step, an_undefined_step_is_its_own_exit_stop_class)"
 blocking = false
 needed_by = ["no-match and completeness for symbolic runs over rules with an ensures or a partial right-hand side", "mutation kills by an undefined step"]
 summary = "At 74f1356e the instances where a rule applies but its carried ensures or right-hand-side definedness fails, and a refuted application beside an applied sibling, had no leaf, so K-in-K2 withheld completeness by the definition-wide applicability_conditions guard. At 9b91332e every such instance is in a Trivial leaf whose state is the pre-step term and whose predicate is the undefined sub-case, restricted by every applied candidate of the priority; under strategy all, with no stop and no diagnostic, the leaves cover the initial state. An equation's own ensures is assumed where it applies (Simplification::assumed), not a condition of the step. kprove fails a claim on such instances (KK-64)."
@@ -273,7 +277,7 @@ title = "State when unify_term_pairs decomposes on the injective attribute"
 kind = "api"
 status = "fixed"
 fixed_in = "9b91332e (KK-67)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; non_free_injective_symbols_leave_relations_undecided, non_free_injective_symbol_does_not_prove_a_clash)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; non_free_injective_symbols_leave_relations_undecided, non_free_injective_symbol_does_not_prove_a_clash)"
 blocking = false
 needed_by = ["narrowing decomposes_freely without losing soundness"]
 summary = "unify_term_pairs documents its three grounds for decomposing equal heads: constructor, instance-normal anywhere applications (injective ignored there), and a declared injective on any other symbol, taken on the declaration alone. kompile still emits injective on some overload-greater productions and passes a user-written attribute through."
@@ -288,7 +292,7 @@ title = "A generated #let/#fun lambda is total only when its body is defined"
 kind = "correctness"
 status = "fixed"
 fixed_in = "9b91332e (KK-71)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; let_bound_partial_condition_keeps_its_definedness, and against 78cd00ca the same rule under Z3 gave one unconditioned stuck halt leaf; kink-campaign probe3_symbolic_test_does_not_kill_an_equivalent_mutant, probe2_symbolic_test_does_not_spare_a_killed_mutant, unrelated_and_claim_asserting_mutants; kink-patch claims)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; let_bound_partial_condition_keeps_its_definedness, and against 78cd00ca the same rule under Z3 gave one unconditioned stuck halt leaf; kink-campaign probe3_symbolic_test_does_not_kill_an_equivalent_mutant, probe2_symbolic_test_does_not_spare_a_killed_mutant, unrelated_and_claim_asserting_mutants; kink-patch claims)"
 blocking = false
 needed_by = ["symbolic verdicts over rules that use #let or #fun", "claim withdrawal in symbolic mutation campaigns"]
 summary = "Before KK-71 k-rust declared every variable-pattern lambda total whatever its body, so a condition over #let Y = A #in 10 /Int Y lost A =/=Int 0. At 9b91332e a lambda is total only when its body is built from constructors, total functions and total lambdas. The lambda is generated after a patch from the mutant's own body, so it needs no withdrawal; its body's user claims are withdrawn by K-in-K2's claim support (KK-70), which replaced the interim refusal of symbolic campaign states (KK-69)."
@@ -303,7 +307,7 @@ title = "The no-Z3 rule grammar parses #let, #fun and anonymous whole-cell conte
 kind = "bug"
 status = "fixed"
 fixed_in = "9b91332e (KK-72, KK-76)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace; let_bound_partial_condition_keeps_its_definedness loads a #let rule in the portable build, which failed to parse at 78cd00ca); <cell> _ </cell> by static screen of k-rust rule_cell_content at 9b91332e, K-in-K2 has no such rule"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; let_bound_partial_condition_keeps_its_definedness loads a #let rule in the portable build, which failed to parse at 78cd00ca); <cell> _ </cell> by static screen of k-rust rule_cell_content at 9b91332e, K-in-K2 has no such rule"
 blocking = false
 needed_by = ["loading real semantics in K-in-K2's qualified no-Z3 profile"]
 summary = "At 74f1356e the portable rule grammar lacked #let, #fun, :=K and :/=K, and pinned an anonymous whole-cell variable to its scaffolding sort #Rule<S>, so <k> _ </k> did not load. At 9b91332e both load and compile to the same KORE as the Z3 build. The loaded (pre-compilation) rule may read #fun(P => B)(A) as #fun3 where the Z3 build keeps #fun2 over a rewrite; the compiled lambda is the same."
@@ -318,7 +322,7 @@ title = "A Trivial execution leaf names the rule of its undefined step"
 kind = "missing-feature"
 status = "fixed"
 fixed_in = "9b91332e (KK-75)"
-status_basis = "test run at c2638626 on 2026-09-28 (cargo test --workspace and the kink-native z3 gate; undefined_step_names_its_rule_in_the_report, observation_erasure_preserves_live_leaves)"
+status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace and the kink-native z3 gate; undefined_step_names_its_rule_in_the_report, observation_erasure_preserves_live_leaves)"
 blocking = false
 needed_by = ["reporting an undefined step with its rule (KK-66 open point)"]
 summary = "ExecutionLeaf.rule_id and rule_label are the compiled rule-catalog identity and qualified label of the rule whose application is a Trivial leaf's undefined step; absent otherwise. The KORE RPC wire is unchanged."
@@ -332,84 +336,17 @@ id = "variable-identity"
 title = "Variable names are not identities: lossy printing and name reuse along a path"
 kind = "correctness"
 status = "fixed"
-fixed_in = "9494bb488109a833031e280f3305fee45e6dba21"
-status_basis = "static re-screen at 9494bb48 on 2026-09-30: provisional kink/integration-vi head (KK-82..KK-85); VARIABLE_IDENTITY = 2, encode/decode bijection, one request name scope and counter, unbound equations Indeterminate; VI-K3 contract tests and heavy gates accepted. kink guard retirement follows in VI-04; VI-03F makes the pin final after the main fast-forward."
-blocking = true
+fixed_in = "3796d5b7 (k-rust main fast-forward of kink/requests-integration on 2026-10-05; redesigned variable identity 8e911bdb..ef9f2fa2, VARIABLE_IDENTITY = 3 at 7e580870), with cf6525fe (request spellings as received, before alias unfolding) on main before 927b9ce6"
+status_basis = "static re-screen at 927b9ce6 on 2026-10-06: k-rust main; VARIABLE_IDENTITY = 3 (k-rust-backend term/names.rs:33-62): names read verbatim (a non-identifier is DefinitionError::VariableName), injective escape printing with capture-avoiding binder renaming, one FreshCounter per request skipping every request spelling as received (fresh.rs:31-112), equation instances with unbound result variables Indeterminate(UnboundResultVariables) and unused; contract tests tests/backend/names.rs:543, :718, :751 and k-rust tests/unbound_equations.rs:131 present. kink asserts VARIABLE_IDENTITY == 3; test run at 927b9ce6 on 2026-10-06 (VI-03F; decoded_leaf_and_step_names_round_trip, initial_names_do_not_conflate_with_narrowing_mints, fresh_counters_do_not_conflate_distinct_narrowing_mints, scope_name_forgery_does_not_prove_an_identical_relation and existential_rules_keep_initial_variable_comparisons in both profiles): workspace 290/0/0, Z3 kink-native 132/0/0 and Z3 kink-campaign 99/0/0; all clippy gates and fmt pass."
+blocking = false
 needed_by = ["state-observations SO-08", "variable-identity VI-04"]
-summary = "k-rust externalizes variables with a lossy Booster/Kore spelling: it drops provenance markers and prints fresh counters as bare digits, so distinct internal names can share one KORE name and an output mint can share a request name. Reading KORE back does not invert that spelling. Separately, freshen_existential strips the Ex# marker, keeps a rule variable's name, and avoids only names in the current pattern, so a name can be reused for different values along one path. Both mechanisms break docs/compatibility.md:485-489's output contract that only request variables have names shared with the query."
+summary = "k-rust externalizes variables with a lossy Booster/Kore spelling: it drops provenance markers and prints fresh counters as bare digits, so distinct internal names can share one KORE name and an output mint can share a request name. Reading KORE back does not invert that spelling. Separately, freshen_existential strips the Ex# marker, keeps a rule variable's name, and avoids only names in the current pattern, so a name can be reused for different values along one path. Both mechanisms break docs/compatibility.md:485-489's output contract that only request variables have names shared with the query. Resolved on k-rust main as VARIABLE_IDENTITY = 3, a redesign of the provisional v2 (9494bb48) K-in-K2 tested. v2 decoded printed names back into markers on reading (a bijection); v3 reads every name verbatim, so a printed mint read back is an ordinary request variable spelled like it, and a response read back is the internal one up to a bijective renaming that is the identity on the request's names. Every variable a rewrite introduces is minted from one per-request counter that skips every spelling of the request, so no mint is reused on a path or prints like a request name. Also unlike v2: an equation instance with unbound result variables is Indeterminate(UnboundResultVariables) and left unused, reported as an UndecidedCondition diagnostic (v2's SearchFailureOutput::IndeterminateEquation is gone), requires-only variables are decided as before, and search and state-set results are one result up to renaming of non-request variables (PathSet, which kink uses, is unchanged)."
 reproducer = "In the map-selection execution with an initial frame named ExFrame0, a fresh Ex#Frame!0 prints as ExFrame0: the printed leaf asserts ExFrame0 = mapConcat(mapItem(ExKEY1,ExVALUE2), ExFrame0) and ¬(ExKEY1 ∈ ExFrame0), while the remainder's ∃ ExFrame0 captures the user's free frame. With SUBJECTREST as the initial frame name, the output is correct. Distinct mints Ex#VarI1!0 and Ex#VarI!10 both print ExVarI10."
-local_workaround = "kink's identifies_one_variable and existential switches (EI-02b, SYM R9), incomplete: mint-versus-mint merges cannot be undone downstream"
-requested_action = '''
-### 5.1 k-rust names (VI-K1): one bijection
-
-**Internal-name alphabet** (documented in `term/names.rs`): element names are over `[A-Za-z0-9'#!-]`; set names are `@` followed by that alphabet. Names read from KORE are identifiers `[A-Za-z][A-Za-z0-9'-]*` (`k-rust-kore lexical.rs:42-59`); every mint adds `#` (a marker) or `!` (a counter). Set variables keep `@` first: `with_provenance` on a set variable places the marker after the `@` (`@Rule#M`), and `split_marker` / `Variable::provenance` read it there. (Today a marked set variable prints its `@` escaped mid-name, which is not a valid set-variable identifier; reachability was not verified, VI-K1 checks it.)
-
-**Encoding.** `-` is the only escape character:
-
-| internal | wire |
-| --- | --- |
-| `A-Z a-z 0-9 '` | unchanged |
-| `@` at position 0 | unchanged |
-| `-` | `--` |
-| `#` | `-h` |
-| `!` | `-b` |
-| `@` elsewhere | `-a` |
-| any other character | `-u{lowercase hex}-` (print-only; outside the alphabet, so only a k-rust bug produces it) |
-
-`decode_variable_name` inverts the escapes, rejects `-u`, any other `-` sequence and a trailing `-` with a typed error, and accepts a string only if `encode(decode(s)) == s`. So decoding is an exact partial inverse, and decoded names are always in the alphabet (they never contain `.`, for example).
-
-Properties:
-
-- Every `-`-free KORE identifier is a fixed point: `A`, `X1`, `ExVarI0`, `Var'Unds'X`, `Var'Ques'X`, `X'Bang'apart1`. K-frontend variable names never contain `-` (0 of the variable names in the 166 `.kore` fixtures of the snapshot and in 458 kompiled conformance and krs definitions, measured by two judges), so every user and frontend name keeps its spelling.
-- Examples: `Rule#VarX` → `Rule-hVarX`; `Ex#VarI!0` → `Ex-hVarI-b0`; `Ex#VarI1!0` → `Ex-hVarI1-b0`; `Ex#VarI!10` → `Ex-hVarI-b10`; `Ex#Frame!0` → `Ex-hFrame-b0`; `X!apart1` → `X-bapart1`; `@Rule#M` → `@Rule-hM`.
-- Measured (`prototype/injective-boundary/scheme.py`, re-run by a judge): all 33,333 names of up to 5 characters over {a,E,x,0,1,',-,#,!,.} starting with a letter: 0 invalid KORE identifiers, 0 collisions, 0 round-trip failures; every `-`-free identifier (4,665 of 4,665) is fixed; 3,372 of the 8,403 identifiers with a bare `-` are rejected on input.
-- An input identifier outside the image (a bare `-` such as `a-x`) is rejected, never guessed.
-
-**Why not the alternatives.** K's apostrophe words (`'Hash'`, `'Bang'`) make user apostrophe names such as `X'Bang'apart1` collide unless `'` itself is escaped, which would change every frontend name. A reserved-prefix namespace without decoding cannot round-trip decoded states, which kink internalizes and state observations re-evaluates. Structured identity next to the KORE (a variable table on the wire) leaves the KORE ambiguous for every other consumer (CLI, RPC, napi, wasm, `PatternDigest`), and KORE variables carry no attributes; once names are a bijection the name is the identity.
-
-**The change** (VI-K1 = KK-82, based on k-rust main when the intake starts, sections 5.6-5.7). Line numbers in 5.1-5.3 are at the pin `c2638626`; the change branches from main, where `definition.rs`, `rule.rs`, `fresh.rs`, `rewrite/step.rs` and the backend `search.rs` are unchanged but other files moved (at `eea634ce`: `externalize.rs` tests 1371 and 1434, `rpc.rs` `is_rewrite_existential` 1897 and its test 4048, the RPC projection tests 4902 and 4948, `docs/compatibility.md` 495-499, `proof.rs:272`, `rewrite/execute.rs:193`); each packet re-locates at its base commit:
-
-1. `crates/k-rust-backend/src/term/names.rs`:
-   - `pub const VARIABLE_IDENTITY: u32 = 1;` with a doc stating the contract (1: VI-a; 2: VI-a and VI-b);
-   - `pub fn encode_variable_name(name: &str) -> String` and `pub fn decode_variable_name(wire: &str) -> Result<String, VariableNameError>`, with `pub struct VariableNameError { pub name: String }` (`Display`, `Error`);
-   - the alphabet doc; `with_provenance`, `split_marker` and `provenance` handle a leading `@`;
-   - `VariableProvenance::external_prefix` is **kept** (kink's guard uses it until VI-04; its removal is VI-T04); its doc says the printer no longer uses it.
-2. `crates/k-rust-backend/src/externalize.rs`: `external_variable_name` keeps its name and public signature and becomes `encode_variable_name` (kink's re-spelled test pins call it); the Booster-marker logic and its "not injective" doc are deleted. Unit test `fresh_and_marked_variable_names_externalize_as_kore_identifiers` (1314-1346) and the set-variable test (1382-1394) are replaced by an exhaustive round-trip property (every name up to 5 characters on {a,E,x,0,1,',-,#,!,@}) plus explicit rows (fixed points, rejected `a-x`, `-u`, trailing `-`, set variables `@M`, `@Rule#M`, `@M!0`).
-3. `crates/k-rust-backend/src/definition.rs`: `decode_variable_name` at every place that builds a backend variable from a `kore::Variable`: `internalize_variable` (1144-1153), the `Variable` arm of `internalize_term_with` (1167-1173), the no-junk binder loop (1564-1576). New variant `DefinitionError::VariableName(VariableNameError)`; the packet owns every exhaustive match and `Display` arm on `DefinitionError` in k-rust-backend and in the facade, RPC, napi and wasm error mappings (at the pin only `Display` at `definition.rs:327`; re-check at the base commit).
-4. `crates/k-rust-backend/src/rule.rs`: the `concrete`/`symbolic` attribute names (`parse_concreteness`, 2829-2899, `format!("{}:{sort}", variable.name)` at 2888) are decoded too, so `rename_concreteness` (2652-2680) and `check_concreteness` (`rewrite/predicates.rs:160-170`) compare one spelling (a judge's finding: otherwise an escaped name silently makes the constraint vacuous). A bad name there is `AxiomError::InvalidConcreteness`.
-5. Every other printer or matcher of printed names uses `external_variable_name`: `crates/k-rust/src/backend/search.rs:452` (identity match) and `:502`, the RPC rule-substitution naming (comment at `rpc.rs:1609`), `main.rs` hidden-binding output.
-6. Compatibility: `docs/compatibility.md` gains a "Variable names" section (the bijection, the first-principles reason: the output contract at 485-489 and the measured `ExFrame0` contradiction, the divergence from Booster/Kore spelling); `crates/k-rust/tests/reference_differential.rs` `execution_generated_name` / `GeneratedNames` (2926-3016) and `scripts/conformance/run.py` N4 / C7 classify a name as generated by decoding it and finding a marker or a `!` counter; re-spelled expectations `tests/cli.rs:4079,4135`, `src/rpc.rs` tests near 4585-4600, `src/backend/search.rs:693`; a conformance-ratchet adjudication. `PatternDigest` values change (they hash the printed text, `transition.rs:21-25`); kink pins no digest.
-7. A scan of every kompiled definition and KORE fixture in k-rust's test and conformance corpora for variable names outside the image, reporting the count (expected 0; if not, STOP: it becomes a decision).
-
-### 5.2 k-rust minting (VI-K2): one counter per request
-
-1. `crates/k-rust-backend/src/fresh.rs`:
-   - `pub struct FreshCounter(u64)` with one constructor `FreshCounter::for_request(patterns: &[&Pattern]) -> Self`, which seeds to 1 + the largest `!N` rewrite counter (`split_fresh_counter`) of every variable name, free or bound, of the request's patterns (0 when there is none). It is `pub` because the public `rewrite_step*` functions take it.
-   - `fresh_variable`, the only minter of `FreshMarker::Rewrite` names, takes `&mut FreshCounter`. `fresh_name` keeps a `u64` counter for the local markers (`claim`, `exists`, `apart`, `binder`) and debug-asserts that it is never asked for `Rewrite`.
-   - `freshen_existential` and `increment_name_counter` are deleted; the algorithm-doc block is updated.
-   - Why this suffices: every free mint ends in `!N` with `N` drawn from one counter that only grows, so two mints of a request differ in `N`; and every request name with a `!N` suffix has `N` below the seed. So no mint equals another mint or a request name, even after a variable leaves the state, and even when a request carries marked names decoded from an earlier response.
-2. `rewrite/apply.rs`: `freshen_existentials(rule, pattern, counter)` mints with `fresh_variable`, keeping the `Ex#` marker (`Ex#Var'Ques'X!N`, printed `Ex-hVar'Ques'X-bN`). `instantiate` takes the counter (7 inputs, clippy's limit).
-3. The `&mut u64` counter parameters become `&mut FreshCounter` in `rewrite/step.rs`, `apply.rs`, `recover.rs` and the public `rewrite/mod.rs` `rewrite_step`, `rewrite_step_with_solver`, `rewrite_step_sequential_with_solver` (a breaking API change; kink does not call them). Every initialisation uses `for_request` on that request's input: `rewrite/execute.rs:189`, `search.rs:480` and `1208`, `proof.rs:248` and the call sites it threads. The type makes the compiler find every site, including the test callers that pass `&mut 0` (`definedness.rs`'s test module, `src/tests/rewrite.rs`, `src/tests/cascade.rs`, `tests/backend/overloaded_list_owise.rs`, `tests/backend/rewrite.rs`), which construct `FreshCounter::for_request`. The determinism tracker's probe copy (`step.rs:655-656`) clones the counter. The `fresh.rs` algorithm-doc block is anchored in k-rust's algorithm graph (`crates/algo-graph/tests/snapshots/graph.toml.snap`, node `backend.fresh.variables`: sites `freshen_existential`, `increment_name_counter`, cost mode "Booster existential spelling"), so that snapshot is regenerated and reviewed with the change.
-4. `crates/k-rust/src/rpc.rs` `is_rewrite_existential` (1666; test at 3601-3605) decides by provenance: `split_marker` gives `Existential`, then the K-decoded base starts with `?`. Today it K-decodes the whole internal name, which only works because `freshen_existential` strips `Ex#`; this is why the prototype's two RPC projection tests lost their substitution (`execute_projects_a_resolved_rewrite_existential_as_a_substitution`, `execute_reports_kequal_ensures_as_substitution`). Both keep their assertions, names re-spelled only. Its unit test `rewrite_existential_names_use_the_shared_identifier_decoder` (3596-3605) asserts that the unmarked `?X`, `Var?X` and `Var'Ques'X` are rewrite existentials; under provenance they are not, so its rows are rewritten: marked `Ex#?X!0`, `Ex#Var?X!1`, `Ex#Var'Ques'X!2` are existentials; unmarked `Var'Ques'X`, `Rule#Var'Ques'X` and `Ex#VarX!0` are not.
-5. Tests: `tests/backend/rewrite.rs` `freshens_existentials_against_the_current_pattern` becomes `no_name_is_reused_on_a_path` (an existential that leaves the state and a later existential of the same rule get distinct names); a request whose initial state contains `Ex#X!3` (wire `Ex-hX-b3`) mints no `Ex#X!3`; identical requests mint identical names; the search corpus's result counts are unchanged, or each change is adjudicated (counter-minted existentials can stop the per-configuration recombination at `search.rs:482-488`; ticket VI-T05).
-6. `VARIABLE_IDENTITY = 2`; `docs/compatibility.md`: right-hand-side existentials are printed as minted names, not `Var'Ques'X` / `Var'Ques'X0`.
-
-Not changed, by design: the local counters of `implication.rs:913-915` and `955`, `simplify.rs:1864` and `1960-1972`, `alias.rs:485-500`, and the thread-local `ApartScope` (`rule.rs:2339-2380`). Their names are bound or rule-scoped and never free in a rewrite response (VI-c); VI-K3 test (b) is the arbiter, and VI-K2's handoff lists every exempt site with its reason. Making them request-scoped is hygiene (VI-T04).
-
-### 5.3 k-rust contract tests and integration (VI-K3)
-
-New `crates/k-rust-backend/tests/backend/names.rs`:
-
-- (a) the `ExFrame0` map-selection execution (Z3, `max_depth` 1): for every leaf, re-internalizing the externalized leaf gives the same free variables (kind, sort, name) and the same bound names; no free name other than the request's `ExFrame0` is spelled or named `ExFrame0`;
-- (b) a response-level property over the backend's rewrite test corpus (execute, with observation of before, after and bindings): every emitted pattern round-trips at the level of names; no free non-request name equals a request name; no pattern has a name both bound and free; every free non-request name is a `FreshMarker::Rewrite` mint; along each path, a name that disappears from a state never reappears later (a direct check of VI-b);
-- (c) the conflate3 shape (two narrowings whose rule variables are `I1` and `I`, 9 burns): `Ex#VarI1!N` and `Ex#VarI!M` are printed distinctly.
-
-Also: the integration branch `kink/integration-vi` and its heavy gates (5.7), the ratchet adjudication entry, the final `docs/compatibility.md` text, the overlap report against `cbc/*`, and the answer entry for the k-in-k2 request `variable-identity` in k-rust's `draft/k-in-k/answers.toml`. Main is fast-forwarded only on Sebastien's explicit go-ahead.
-
-Whole-pattern equality `internalize(externalize(p)) == p` held on every `ExFrame0` leaf in the prototype; it is recorded, not required, because collection and predicate normalizations unrelated to names may differ (a judge's finding).
-
-Schedule (VI-D2, 2026-09-29): branched from k-rust main when the intake starts (main eea634ce on 2026-09-29), not stacked on cbc/integration; K-in-K2's variable-identity workflow is the k-rust intake owner for this request (tickets KK-82..KK-84 under draft/k-in-k/README.md Procedure), never touches cbc/* branches or worktrees, and k-rust main is fast-forwarded only on Sebastien's explicit go-ahead.'''
+local_workaround = "retired: VI-04 (ecc4cc8) deleted identifies_one_variable, names_exact, the existentials flag and the runner's per-pair baseline re-evaluation. VI-03F asserts VARIABLE_IDENTITY == 3 and restates the v3 premises in feasibility.rs, execution_difference.rs and bridge.rs."
+requested_action = "Satisfied as redesigned on k-rust main (VARIABLE_IDENTITY = 3; docs/compatibility.md 'Variable names', 'Result variables', 'Unbound equation variables'). The original VI-K1..VI-K3 specification (draft/tasks/variable-identity/README.md 5.1-5.3) is in this file's history at eb94ba1."
 sources = ["draft/tasks/variable-identity/README.md", "draft/tasks/variable-identity/decisions/human-decisions-2026-09-29.md", "draft/tasks/slot-evidence/README.md 3.1-3.2"]
+
+where_requested_shape_differs = "D-C: v3 reads identifiers verbatim instead of decoding; no RequestScope is needed because read names cannot contain # or !. One growing counter skips every request spelling as received. VI-D3 is superseded: instances with unbound result/ensures variables stay unused with an UndecidedCondition diagnostic; requires-only variables are decided by validity. Printing renames binders to avoid capture."
 
 # ---------------------------------------------------------------- tracked by KRS
 
@@ -417,26 +354,24 @@ sources = ["draft/tasks/variable-identity/README.md", "draft/tasks/variable-iden
 # KRS carries the workaround and the request; K-in-K2 is affected only through KRS-compiled definitions.
 krs_id = "semantic-cast-projection-widening"
 former_id = "KRUST-COMPAT-002"
-note = "Reproduced open at 985e0086 on 2026-09-24: the rewrite's least upper bound (sort_injections.rs:366-379) is computed before semantic_projection (:531-548)."
+note = "Fixed upstream (KRS ledger: 580c2f24, KR-03). Static re-screen at 927b9ce6 on 2026-10-06: sort_and_downcast sorts a downcast as the projection it builds (k-rust kompile/sort_injections.rs:967-1007); tests sort_injections.rs:1533, structured_definition_conformance.rs:534 and :599. The 985e0086 reproduction is historical."
 
 [[krs_owned]]
 krs_id = "z3-free-structured-compile"
-note = """
-Fixed at the current k-rust pin: the build without z3-inference loads the embedded prelude.md. K-in-K2 loads the real prelude, and KINK-1 deleted testdata/k/portable-prelude.k in c44b1c2. Builtin-catalog prelude sentences are not authored mutation sites or observable rules.
-"""
+note = "Fixed (KRS ledger: present at d4a50b3f); confirmed by static re-screen at 927b9ce6 on 2026-10-06: z3-inference is optional (k-rust Cargo.toml:69-86) and inner_rules.rs:3679 checks that the embedded prelude loads to the same definition in both builds. K-in-K2 loads the real prelude, and KINK-1 deleted testdata/k/portable-prelude.k in c44b1c2. Builtin-catalog prelude sentences are not authored mutation sites or observable rules.\n"
 
 [[krs_owned]]
 krs_id = "simplification-budget-default"
 former_id = "KRUST-COMPAT-003"
-note = "Default budget is still 100 at 985e0086 (simplify.rs:78). K-in-K2 callers must set max_simplification_iterations explicitly."
+note = "Fixed upstream without raising the default (KRS ledger: 2380b100, KR-06): determined ground function steps are not charged; the default stays 100 (k-rust-backend simplify.rs:103 at 927b9ce6) and max_simplification_iterations remains a per-request override, which K-in-K2 sets from its budget. Tests rewrite.rs:6168, :6576, :6581, :6906."
 
 [[krs_owned]]
 krs_id = "token-production-constructor"
-note = "Affects K-in-K2 only through KRS-compiled definitions."
+note = "Fixed upstream (KRS ledger: 1e6226e4, KR-02/KR-16); test structured_definition_conformance.rs:677 at 927b9ce6. Affects K-in-K2 only through KRS-compiled definitions."
 
 [[krs_owned]]
 krs_id = "bracket-production-constructor"
-note = "Affects K-in-K2 only through KRS-compiled definitions."
+note = "Fixed upstream (KRS ledger: c389b165, KR-01/KR-15); tests structured_definition_conformance.rs:1144, :1157, :1162 at 927b9ce6; documented in docs/compatibility.md:235 by b7c3bd3f. Affects K-in-K2 only through KRS-compiled definitions."
 
 # ---------------------------------------------------------------- closed
 
@@ -527,3 +462,66 @@ reason = "K-in-K2 deleted its search path; recover it from tag archive/search-20
 [[withdrawn]]
 id = "path-witness-identity"
 reason = "K-in-K2 deleted its search path; recover it from tag archive/search-2026-09 if a search oracle is added. The request comes back with that oracle."
+
+# result-md-stale: note to the k-rust agent; refresh RESULT.md per the intake, no code request.
+# prestart-cancel-profile-divergence: no k-rust action; kink adapts its watchdog (VI-03F).
+# constructor-function-free: no k-rust action; kink adapts under HeadRole::FreeConstructor (D-A).
+
+[[request]]
+id = "unsat-definedness-contract"
+title = "State as a facade contract that execution-leaf constraints meet the definedness premise for a conclusive SMT Unsat"
+kind = "correctness"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 on 2026-10-06 (adversarial verification: PLAUSIBLE; no violating leaf produced)"
+blocking = false
+needed_by = ["K-in-K2 SO-08 (pattern kills rest directly on relation Unsat->Absent and leaf Unsat discards once the EI certificate is deleted)", "K-in-K2 SO-09 trust-base audit"]
+summary = "k-rust's docs disagree on when an SMT Unsat is conclusive. N/crates/k-rust-backend/src/smt.rs:180-183 (ceca4fef): a partial function translated as a total SMT operation 'is not an over-approximation ... Unsat stays conclusive for it only under the definedness premise that SmtSolver::check_predicates documents'; smt.rs:740-744: that premise is that the definedness of the predicate's partial terms is explicit in it. N/docs/compatibility.md:626 (unchanged from O/docs/compatibility.md:422) still says 'A solver Unsat is sound under every approximation of the translation'. The facade promises only that a leaf predicate implies the definedness of every partial term 'relied on by its conditions, right-hand sides, and simplified states' (N/crates/k-rust/src/backend/mod.rs:133-136; N/docs/backend-port.md:194), which is weaker than 'every partial term in the predicate has its definedness explicit'. definedness::condition_definedness is pub(crate) (N/crates/k-rust-backend/src/definedness.rs:373), so a consumer cannot apply it. K-in-K2 calls SmtSolver::is_sat on leaf constraints and treats Unsat as refuting the leaf (K/crates/kink-native/src/feasibility.rs:284-285, 327-328 -> bridge.rs:132-133) and on relation queries that include the leaf path predicate (feasibility.rs:677-699, 735-736). A leaf wrongly discarded on one side of a mutant pair could make leaf sets differ, which in kink is a spurious kill. Verification found the premise probably holds: rule conditions are hoisted with their definedness (N/crates/k-rust-backend/src/condition.rs:171-182, 255-261), the applicability A is built from them (rewrite/apply.rs:1245-1249) and a remainder is not A (rewrite/roles.rs:66-72), so each partial term's ceil sits inside the negation next to its atom. k-rust's own requires refutation and claim-leaf pruning (compatibility.md:1008) rely on the same premise. Not a regression: O already translated partial functions as total (O/crates/k-rust-backend/src/smt.rs:602-612)."
+reproducer = "Static. The shape to rule out is a leaf predicate with a partial term under a negation and without its definedness, e.g. not(X /Int 0 ==Int 5) and not(X /Int 0 =/=Int 5): K-satisfiable where X /Int 0 is undefined, SMT-Unsat. No k-rust execution was shown to print such a leaf. A regression test should execute a rule whose requires uses a partial function (e.g. requires X /Int Y >Int 0) on a symbolic state with strategy All and PathSet, take every leaf including the remainder, and check that is_sat on each leaf's constraints is not Unsat when the leaf has a K instance (e.g. Y = 0)."
+local_workaround = "none yet. Options for K-in-K2 (its decision D3): name the premise in kink's trust base and pin it with a regression test, or treat Unsat as Unknown when a partial function occurs under a negation (loses Z3 precision)."
+requested_action = "Document as a facade contract, with a regression test that includes the remainder of a requires over a partial term, that the constraints of every execution leaf (and the residual constraints of unify_term_pairs) satisfy the definedness premise of smt.rs:740-744, so that is_sat = Unsat on them refutes the leaf. Reconcile docs/compatibility.md:626 with smt.rs:180-183. Only if that cannot be promised: export a public 'refute these constraints' query that applies condition_definedness."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 2", "findings/api-semantics.md (K9, issue unsat-definedness-contract)"]
+
+
+[[request]]
+id = "anywhere-value-production-precision"
+title = "A self-rewriting anywhere value production in the initial state gives an empty depth-0 remainder (Z3) or an Indeterminate first step (no Z3)"
+kind = "precision"
+status = "open"
+status_basis = "test run in K-in-K2 probe worktree W at b7c3b88 against 927b9ce6 on 2026-10-06, plus decoded execution JSON (adversarial verification: CONFIRMED)"
+blocking = false
+needed_by = ["K-in-K2 precision on definitions whose states hold self-rewriting anywhere productions (testdata symwrap.k; audit AT11)"]
+summary = "Since 4d80cea6 (feat(totality): require equation evidence and preserve value normal forms; in base 4cea2f4c, not in O) kompile withholds functional from a production that an anywhere equation headed by itself rewrites: symwrap.k's Lblwrap compiles as [anywhere{}(), function{}(), value-production{}()] (was functional{}() at O). Executing seq(write(wrap(s(X)),V), seq(load(wrap(z),W), halt)) with strategy All, PathSet, Z3 at 927b9ce6 gives two leaves: stuck@2 under \\ceil(wrap(s(X))) /\\ \\ceil(wrap(z)), and stuck@0 (trace 'remainder') whose term still contains wrap(s(X)) and wrap(z) under \\not(\\ceil(wrap(s(X))) /\\ \\ceil(wrap(z))). That remainder denotes nothing: a pattern t /\\ phi denotes \\ceil(t) /\\ t /\\ phi, feb0eeec's own premise. But feb0eeec uses the initial pattern's facts only to refute admission (N/crates/k-rust-backend/src/rewrite/execute.rs:556-565: FactsVerdict::NotRefuted(_) => {}), and \\ceil(subject) enters path knowledge only under assume_initial_defined (rewrite/apply.rs:572-588). Ground run seq(write(wrap(s(z)),V), ...): no-Z3 gives one Indeterminate leaf at depth 0 with cause Smt{error: Unavailable}; Z3 adds a Stuck remainder leaf under \\not(\\ceil(wrap(z))). dfd3365b fixed the same class of empty remainder for implication only. K-in-K2 reads these leaves as SolverUnknown (precision loss, never a spurious kill): its symwrap clash test goes Match -> Unknown and audit AT11 goes [[A,U,U]] -> [[U,U,U]]."
+reproducer = "Compile k-in-k2 testdata/k/symwrap.k at 927b9ce6 (rule wrap(s(z)) => wrap(z) [anywhere]; rule seq(write(A,V),P) => P) and execute seq(write(wrap(s(X)),V), seq(load(wrap(z),W), halt)) with z3, strategy all, PathSet: observe the depth-0 remainder leaf. Without z3: execute the ground seq(write(wrap(s(z)),V), seq(load(wrap(z),W), halt)) and observe Indeterminate@0, smt unavailable. In k-in-k2 worktree W: cargo test -p kink-native --test symbolic -- --exact non_free_injective_symbol_does_not_prove_a_clash (Unknown, pinned Match)."
+local_workaround = "K-in-K2 re-pins symwrap and AT11 as measured Unknown, citing 4d80cea6. Adding the public ceil_term(leaf term) to a leaf query would refute the symbolic depth-0 remainder, but cannot discharge \\ceil(wrap(z)) on the surviving leaf."
+requested_action = "Preferred: when assume_state_defined is false, use the initial pattern's undecided definedness facts (UndecidedFacts::of_pattern) as path knowledge for the first step, and conjoin them to the path predicate so leaves still imply them (as mod.rs:133-136 and backend-port.md:194-196 describe). This is sound by the pattern semantics and removes both the empty remainder and the no-Z3 indeterminacy. Alternative or additional: implement the 'evaluated-normal-form precision extension' that 4d80cea6 defers, so a value-production application that no equation rewrites counts as defined."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 3", "findings/probe.md section 4.2", "findings/soundness-regressions.md (symwrap)"]
+
+
+[[request]]
+id = "deep-execution-overflow"
+title = "Execution that deepens terms beyond the depth measured up front can overflow the native stack outside the simplifier"
+kind = "bug"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 on 2026-10-06 (adversarial verification: PLAUSIBLE; not reproduced); listed as open in R/RESULT.md 'Open issues'"
+blocking = false
+needed_by = ["K-in-K2 campaign availability on definitions whose rules grow the configuration without a depth bound"]
+summary = "stop::check_stack is called only from N/crates/k-rust-backend/src/simplify.rs:1422 and :2829 (grep over src/). nesting::with_stack sizes the stack from a depth measured before the work starts (N/crates/k-rust-backend/src/nesting.rs:11-14, 101-138), and the facade applies it once per operation (N/crates/k-rust/src/backend/mod.rs:1336-1337). Matching, rewriting, externalization or recursive TermData drop on terms that grew during execution may therefore overflow and abort the process. For K-in-K2 this is availability only (the campaign dies; never a Killed verdict). Not a regression: O had no stack sizing at all."
+reproducer = "Not run. A definition whose rule wraps the configuration in one more constructor per step (rule <k> run(T) => run(c(T)) </k>), executed in process with max_depth None on a 16 MiB thread under a wall-clock watchdog: the thread may overflow before it is cancelled."
+local_workaround = "K-in-K2 can bound depth (ExecutionBudget.max_depth, K/crates/kink-native/src/execution.rs:158) and may pass leaf patterns to with_solver_over; neither covers growth inside one execute call."
+requested_action = "Re-measure the depth between steps and grow the stack segment or refuse; or make matching, externalization and TermData drop iterative; so that deep growth ends as StopCause::StackExhausted instead of a process abort."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 5", "R/RESULT.md 'Open issues'"]
+
+
+[[request]]
+id = "ratchet-below-floor-triage"
+title = "15 conformance-ratchet cases are below their floor on main with no backlog ticket"
+kind = "conformance"
+status = "open"
+status_basis = "static screen of R/gates logs and N/scripts/conformance at 927b9ce6 on 2026-10-06 (adversarial verification: CONFIRMED; ratchet not run)"
+blocking = false
+needed_by = ["K-in-K2 work on KRS and larger definitions (same kompile and execution pipeline); none of K-in-K2's current corpora"]
+summary = "R/gates/base/ratchet-all.log (main 4cea2f4c) and R/gates/head2/ratchet-all.log:526-527 list the same 15 cases below their required floor. At head2: mismatch kompile (checks, issue-1273); mismatch krun (fun-llvm, issue-1263, issue-946, let-test, pattern-macro, pattern-macro-productions, pl-tutorial simple/2_typed/1_static, kool/1_untyped, kool/2_typed/1_dynamic); mismatch kprove (issue-1879-kproveTrans/haskell); krust-error search (simple/1_untyped, kool/2_typed/2_static); mismatch search (3_fun/1_untyped/1_environment, krust-error at base). Floors: N/scripts/conformance/expectations.toml (e.g. let-test accepted_verdict = match at :1578-1584). N/draft/conformance-backlog/tickets.toml has no ticket for any of them, and N/draft/conformance-backlog/README.md still says zero pending (floors raised at 5381427f; 4d80cea6 landed after). R/reviews/variable-identity-review-rounds-1-3.json round 1 cites a missing #lambdaF functional axiom and total attribute (let-test, consistent with 4d80cea6 but not verified), a kore-parser --verify rejection, and C9 'requires exactly one execution leaf'. RESULT.md:188 calls them pre-existing, which is true at 4cea2f4c, but they are untracked. K-in-K2's testdata corpus compiles byte-identically at O and N except symwrap.k, so K-in-K2 is not affected now; both sides of a kink mutant pair run on the same k-rust, so a deviation here is fidelity, not a spurious-kill risk."
+reproducer = "As the human UID with the reference toolchain, at 927b9ce6: scripts/conformance-ratchet.sh --label triage --cases let-test issue-946 issue-1263 pattern-macro fun-llvm 'pl-tutorial/2_languages/2_kool/1_untyped'; inspect the C8/C9 comparator output per case."
+local_workaround = "none needed now"
+requested_action = "Open conformance-backlog tickets for the 15 cases. For each krun/search case, state whether ground execution changed (extra leaves, a different final state; check whether 4d80cea6's withheld functional causes the C9 multi-leaf failures, cf. anywhere-value-production-precision) or only the comparison or verifier acceptance. Adjudicate with recorded reasons and restore ratchet rc 0 as a usable gate."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 4", "findings/soundness-regressions.md"]

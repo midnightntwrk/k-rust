@@ -416,7 +416,7 @@ fn unknown_domain_codec_blocks_identity() {
             };
             assert_eq!(
                 definition
-                    .sorts
+                    .sorts()
                     .get("SortFloat")
                     .and_then(|info| info.hook.as_deref()),
                 Some("FLOAT.Float")
