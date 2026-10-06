@@ -582,14 +582,118 @@ fn production_items_equivalent(left: &[ProductionItem], right: &[ProductionItem]
             })
 }
 
+/// The pairs of corresponding children of two term nodes whose own fields agree.
+#[derive(Clone, Copy)]
+pub(crate) enum ChildPairs<'a> {
+    None,
+    Two([(&'a Term, &'a Term); 2]),
+    /// Two slices of equal length.
+    Slices(&'a [Term], &'a [Term]),
+}
+
+impl<'a> ChildPairs<'a> {
+    pub(crate) fn len(self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Two(_) => 2,
+            Self::Slices(left, _) => left.len(),
+        }
+    }
+
+    pub(crate) fn get(self, index: usize) -> (&'a Term, &'a Term) {
+        match self {
+            Self::None => unreachable!("a node without children has no child pair"),
+            Self::Two(pairs) => pairs[index],
+            Self::Slices(left, right) => (&left[index], &right[index]),
+        }
+    }
+
+    /// Whether `pair` holds for every pair, tried in order.
+    #[inline]
+    pub(crate) fn all(self, mut pair: impl FnMut(&'a Term, &'a Term) -> bool) -> bool {
+        match self {
+            Self::None => true,
+            Self::Two([(left, right), (left_second, right_second)]) => {
+                pair(left, right) && pair(left_second, right_second)
+            }
+            Self::Slices(left, right) => left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| pair(left, right)),
+        }
+    }
+
+    /// The first unequal ordering `pair` gives, trying the pairs in order.
+    #[inline]
+    pub(crate) fn first_unequal(
+        self,
+        mut pair: impl FnMut(&'a Term, &'a Term) -> std::cmp::Ordering,
+    ) -> std::cmp::Ordering {
+        match self {
+            Self::None => std::cmp::Ordering::Equal,
+            Self::Two([(left, right), (left_second, right_second)]) => {
+                pair(left, right).then_with(|| pair(left_second, right_second))
+            }
+            Self::Slices(left, right) => left
+                .iter()
+                .zip(right)
+                .map(|(left, right)| pair(left, right))
+                .find(|ordering| ordering.is_ne())
+                .unwrap_or(std::cmp::Ordering::Equal),
+        }
+    }
+}
+
+/// Recursion depth below which term comparisons recurse; deeper subterms are compared with an
+/// explicit work list. Recursing over the shallow part, where nearly every comparison is
+/// decided, costs no allocation; the bound keeps the stack a comparison uses constant.
+pub(crate) const COMPARISON_RECURSION_LIMIT: usize = 64;
+
 /// Structural term equality that ignores annotations and variable sorts.
 ///
 /// K compares rule bodies as `K` terms, whose variable equality ignores the sort and
 /// which never carry the parser's metadata annotations.
-// Invariant: each recursive call, directly or through `terms_equivalent`, compares a pair of strict subterms of `left` and `right`, so the size of `left` bounds the calls.
+///
+/// Terms of any depth are compared in constant stack: the first
+/// [`COMPARISON_RECURSION_LIMIT`] levels recurse, and the subterms below are compared with an
+/// explicit work list.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
+    term_equivalent_at(left, right, 0)
+}
+
+// Invariant: each recursive call compares a pair of strict subterms of `left` and `right` one
+// level deeper, and the depth stops at `COMPARISON_RECURSION_LIMIT`, so the stack is bounded.
+fn term_equivalent_at(left: &Term, right: &Term, depth: usize) -> bool {
+    if depth == COMPARISON_RECURSION_LIMIT {
+        return term_equivalent_iteratively(left, right);
+    }
+    equivalent_nodes(left, right).is_some_and(|children| {
+        children.all(|left, right| term_equivalent_at(left, right, depth + 1))
+    })
+}
+
+// Invariant: `pending` holds the pairs of corresponding subterms not yet compared; each pair
+// popped either is unequal at its root or pushes its pairs of strict subterms, so the size of
+// `left` bounds the iterations.
+pub(crate) fn term_equivalent_iteratively(left: &Term, right: &Term) -> bool {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        let Some(children) = equivalent_nodes(left, right) else {
+            return false;
+        };
+        pending.extend((0..children.len()).map(|index| children.get(index)));
+    }
+    true
+}
+
+/// Whether the roots of two terms agree, annotations and variable sorts aside, and if so the
+/// pairs of their children.
+#[inline(always)]
+fn equivalent_nodes<'a>(left: &'a Term, right: &'a Term) -> Option<ChildPairs<'a>> {
     match (left.unannotated(), right.unannotated()) {
-        (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left == right,
+        (Term::InjectedLabel(left), Term::InjectedLabel(right)) => {
+            (left == right).then_some(ChildPairs::None)
+        }
         (
             Term::Rewrite {
                 left: left_lhs,
@@ -599,7 +703,10 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
                 left: right_lhs,
                 right: right_rhs,
             },
-        ) => term_equivalent(left_lhs, right_lhs) && term_equivalent(left_rhs, right_rhs),
+        ) => Some(ChildPairs::Two([
+            (left_lhs, right_lhs),
+            (left_rhs, right_rhs),
+        ])),
         (
             Term::As {
                 pattern: left_pattern,
@@ -609,11 +716,16 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
                 pattern: right_pattern,
                 alias: right_alias,
             },
-        ) => {
-            term_equivalent(left_pattern, right_pattern) && term_equivalent(left_alias, right_alias)
+        ) => Some(ChildPairs::Two([
+            (left_pattern, right_pattern),
+            (left_alias, right_alias),
+        ])),
+        (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
+            (left == right).then_some(ChildPairs::None)
         }
-        (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => left == right,
-        (Term::Sequence(left), Term::Sequence(right)) => terms_equivalent(left, right),
+        (Term::Sequence(left), Term::Sequence(right)) => {
+            (left.len() == right.len()).then_some(ChildPairs::Slices(left, right))
+        }
         (
             Term::Apply {
                 label: left_label,
@@ -623,7 +735,8 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
                 label: right_label,
                 arguments: right_arguments,
             },
-        ) => left_label == right_label && terms_equivalent(left_arguments, right_arguments),
+        ) => (left_label == right_label && left_arguments.len() == right_arguments.len())
+            .then_some(ChildPairs::Slices(left_arguments, right_arguments)),
         (
             Term::Token {
                 token: left_token,
@@ -633,17 +746,9 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
                 token: right_token,
                 sort: right_sort,
             },
-        ) => left_token == right_token && left_sort == right_sort,
-        _ => false,
+        ) => (left_token == right_token && left_sort == right_sort).then_some(ChildPairs::None),
+        _ => None,
     }
-}
-
-fn terms_equivalent(left: &[Term], right: &[Term]) -> bool {
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|(left, right)| term_equivalent(left, right))
 }
 
 #[cfg(test)]
@@ -664,6 +769,38 @@ mod tests {
             ],
             attributes: Attributes::default(),
         }
+    }
+
+    /// Two terms of any depth are compared on a small stack: equal chains 100,000 levels deep
+    /// through applications, sequences, rewrites, `as` patterns and annotations are equivalent,
+    /// and chains that differ only at the bottom are not.
+    #[test]
+    fn terms_of_any_depth_are_compared_on_a_small_stack() {
+        let chain = |bottom: &str| {
+            (0..100_000).fold(Term::variable(bottom), |term, index| match index % 5 {
+                0 => Term::apply("s", vec![Term::variable("X"), term]),
+                1 => Term::Sequence(vec![term]),
+                2 => Term::Rewrite {
+                    left: Box::new(Term::variable("L")),
+                    right: Box::new(term),
+                },
+                3 => Term::As {
+                    pattern: Box::new(term),
+                    alias: Box::new(Term::variable("A")),
+                },
+                _ => term.with_metadata(crate::kast::TermMetadata::default()),
+            })
+        };
+        let (a, a_again, b) = (chain("A"), chain("A"), chain("B"));
+        std::thread::Builder::new()
+            .stack_size(64 << 10)
+            .spawn(move || {
+                assert!(term_equivalent(&a, &a_again));
+                assert!(!term_equivalent(&a, &b));
+            })
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish");
     }
 
     proptest! {
