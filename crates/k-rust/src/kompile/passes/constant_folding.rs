@@ -244,6 +244,12 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             .collect::<BTreeMap<_, _>>();
         let result_sort = substitute_sort(sort, &substitution);
         let value = self.evaluate(hook, &tokens)?;
+        let bits = value_bits(&value);
+        if bits > MAX_FOLDED_BITS {
+            return Err(Unfolded::TooLarge(format!(
+                "the value of hook {hook} has {bits} bits, more than {MAX_FOLDED_BITS}"
+            )));
+        }
         Ok(Some(Term::Token {
             token: self.wrap(value, &result_sort),
             sort: result_sort,
@@ -268,7 +274,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             "BOOL.eq" => binary_bool(&values, |a, b| a == b),
             "BOOL.ne" => binary_bool(&values, |a, b| a != b),
             "INT.not" => unary_int(&values, |a| Ok(Value::Int(!a))),
-            "INT.pow" => binary_int(&values, |a, b| Ok(a.pow(unsigned_32(&b, "INT.pow")?))),
+            "INT.pow" => binary_int(&values, |a, b| int_pow(a, unsigned_32(&b, "INT.pow")?)),
             "INT.powmod" => ternary_int(&values, int_powmod),
             "INT.mul" => binary_int(&values, |a, b| Ok(a * b)),
             "INT.tdiv" => binary_int(&values, |a, b| checked_div(a, b, false)),
@@ -278,7 +284,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             "INT.add" => binary_int(&values, |a, b| Ok(a + b)),
             "INT.sub" => binary_int(&values, |a, b| Ok(a - b)),
             "INT.shr" => binary_int(&values, |a, b| Ok(a >> unsigned_32(&b, "INT.shr")?)),
-            "INT.shl" => binary_int(&values, |a, b| Ok(a << unsigned_32(&b, "INT.shl")?)),
+            "INT.shl" => binary_int(&values, |a, b| int_shl(a, unsigned_32(&b, "INT.shl")?)),
             "INT.and" => binary_int(&values, |a, b| Ok(a & b)),
             "INT.xor" => binary_int(&values, |a, b| Ok(a ^ b)),
             "INT.or" => binary_int(&values, |a, b| Ok(a | b)),
@@ -394,15 +400,45 @@ impl<'view, 'definition> Folder<'view, 'definition> {
 enum Unfolded {
     /// The hook is undefined (`#Bottom`) on these arguments.
     Undefined(String),
+    /// The value is defined but larger than `MAX_FOLDED_BITS`.
+    TooLarge(String),
     /// The fold does not evaluate this hook, or cannot read these arguments.
     Unsupported(String),
+}
+
+/// The largest value the fold writes into a definition, in bits: an `Int`'s bit length, eight
+/// times a `String`'s UTF-8 length, a `Float`'s precision. A compile must not spend time or
+/// memory unrelated to the size of its input, and a folded token is part of the emitted
+/// definition, so a larger value is left for execution. The backend computes `^Int` and `<<Int`
+/// results up to the same bound, so the fold never writes one the backend would refuse.
+pub(crate) const MAX_FOLDED_BITS: u64 = k_rust_backend::builtin::MAX_INT_RESULT_BITS;
+
+/// The size of a value in the unit of `MAX_FOLDED_BITS`.
+fn value_bits(value: &Value) -> u64 {
+    match value {
+        Value::Bool(_) => 1,
+        Value::Int(value) => value.bits(),
+        Value::String(value) => 8 * value.len() as u64,
+        #[cfg(feature = "mpfr-folding")]
+        Value::Float(value) => value.bits(),
+        #[cfg(not(feature = "mpfr-folding"))]
+        Value::Float(value) => 8 * value.len() as u64,
+    }
+}
+
+fn too_large(hook: &str, bits: impl fmt::Display) -> Unfolded {
+    Unfolded::TooLarge(format!(
+        "the value of hook {hook} has at least {bits} bits, more than {MAX_FOLDED_BITS}"
+    ))
 }
 
 impl Unfolded {
     #[cfg(feature = "mpfr-folding")]
     fn message(&self) -> &str {
         match self {
-            Self::Undefined(message) | Self::Unsupported(message) => message,
+            Self::Undefined(message) | Self::TooLarge(message) | Self::Unsupported(message) => {
+                message
+            }
         }
     }
 }
@@ -585,6 +621,25 @@ fn checked_rem(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, Unfolded
         rem
     })
 }
+/// `base ^Int exponent`, computed only when its result fits the bound: |base|^exponent has at
+/// least (bits - 1) * exponent + 1 bits, and the result is checked again when it is folded.
+fn int_pow(base: BigInt, exponent: u32) -> Result<BigInt, Unfolded> {
+    let minimum = (base.bits().saturating_sub(1))
+        .saturating_mul(u64::from(exponent))
+        .saturating_add(1);
+    if exponent > 0 && base.magnitude().bits() > 1 && minimum > MAX_FOLDED_BITS {
+        return Err(too_large("INT.pow", minimum));
+    }
+    Ok(base.pow(exponent))
+}
+/// `value <<Int amount`, which has `amount` more bits than a nonzero `value`.
+fn int_shl(value: BigInt, amount: u32) -> Result<BigInt, Unfolded> {
+    let bits = value.bits() + u64::from(amount);
+    if !value.is_zero() && bits > MAX_FOLDED_BITS {
+        return Err(too_large("INT.shl", bits));
+    }
+    Ok(value << amount)
+}
 fn int_log2(mut value: BigInt) -> Result<Value, Unfolded> {
     if value <= BigInt::zero() {
         return Err("Argument to hook INT.log2 out of range. Expected a positive integer.".into());
@@ -597,32 +652,48 @@ fn int_log2(mut value: BigInt) -> Result<Value, Unfolded> {
     }
     Ok(Value::Int(result.into()))
 }
+/// `bitRangeInt(I, IDX, LEN)` is `(I >>Int IDX) modInt (1 <<Int LEN)` (`domains.md`). A
+/// nonnegative `I >>Int IDX` shorter than `LEN` bits is its own residue; otherwise the residue
+/// has at most `LEN` bits.
 fn int_bit_range(value: BigInt, index: BigInt, length: BigInt) -> Result<BigInt, Unfolded> {
     let index = unsigned_32(&index, "INT.bitRange")? as usize;
-    let length = unsigned_32(&length, "INT.bitRange")? as usize;
-    Ok((value & ((BigInt::one() << length) - 1u8) << index) >> index)
+    let length = unsigned_32(&length, "INT.bitRange")?;
+    let shifted = value >> index;
+    if !shifted.is_negative() && shifted.bits() <= u64::from(length) {
+        return Ok(shifted);
+    }
+    if u64::from(length) > MAX_FOLDED_BITS {
+        return Err(too_large("INT.bitRange", length));
+    }
+    Ok(shifted & ((BigInt::one() << length) - 1u8))
 }
+/// `signExtendBitRangeInt(I, IDX, LEN)` is `(bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int
+/// 1))) modInt (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1))` (`domains.md`): the residue of
+/// `I >>Int IDX` modulo 2^LEN in [-2^(LEN - 1), 2^(LEN - 1)), which is `I >>Int IDX` itself when
+/// that already lies there. A zero length shifts by -1 and is undefined.
 fn int_sign_extend_bit_range(
     value: BigInt,
     index: BigInt,
     length: BigInt,
 ) -> Result<BigInt, Unfolded> {
-    let index_u = unsigned_32(&index, "INT.signExtendBitRange")? as usize;
-    let length_u = unsigned_32(&length, "INT.signExtendBitRange")? as usize;
-    // `domains.md` defines the result through `1 <<Int (LEN -Int 1)`, a shift by a negative
-    // quantity, and therefore undefined, when the length is zero.
-    if length_u == 0 {
-        return Err(
+    let index = unsigned_32(&index, "INT.signExtendBitRange")? as usize;
+    let length = unsigned_32(&length, "INT.signExtendBitRange")?;
+    if length == 0 {
+        return Err(Unfolded::Undefined(
             "Argument to hook INT.signExtendBitRange out of range. Expected a positive length."
                 .into(),
-        );
+        ));
     }
-    let result = int_bit_range(value.clone(), index, length.clone())?;
-    if ((value >> (index_u + length_u - 1)) & BigInt::one()).is_one() {
-        Ok(result - (BigInt::one() << length_u))
-    } else {
-        Ok(result)
+    let shifted = value >> index;
+    // A value of fewer than LEN bits in magnitude, or -2^(LEN - 1), lies in the signed range.
+    if shifted.bits() < u64::from(length) {
+        return Ok(shifted);
     }
+    // Otherwise LEN is at most the magnitude's bit length, so the masks stay that small.
+    let modulus = BigInt::one() << length;
+    let half = BigInt::one() << (length - 1);
+    let residue = ((shifted + &half) % &modulus + &modulus) % &modulus;
+    Ok(residue - half)
 }
 fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, Unfolded> {
     const INVALID: &str = "Argument to hook INT.powmod is invalid. Modulus must be nonzero and negative exponents are only allowed when value and modulus are relatively prime.";
@@ -798,7 +869,7 @@ fn replace_string(
             "constant-folding hook expected at least three arguments".into(),
         ));
     };
-    let mut remaining = string_value(haystack)?.to_owned();
+    let haystack = string_value(haystack)?;
     let needle = string_value(needle)?;
     let replacement = string_value(replacement)?;
     let count = if first {
@@ -809,8 +880,24 @@ fn replace_string(
         usize::MAX
     };
     if count == 0 {
-        return Ok(Value::String(remaining));
+        return Ok(Value::String(haystack.to_owned()));
     }
+    let hook = match (first, count_index) {
+        (true, _) => "STRING.replaceFirst",
+        (false, Some(_)) => "STRING.replace",
+        (false, None) => "STRING.replaceAll",
+    };
+    // The result's length in bytes, from the number of replacements, checked before it is built.
+    let fits = |replaced: usize, removed: usize| {
+        let bytes = (haystack.len() as u64 - removed as u64)
+            .saturating_add((replaced as u64).saturating_mul(replacement.len() as u64));
+        let bits = bytes.saturating_mul(8);
+        if bits > MAX_FOLDED_BITS {
+            Err(too_large(hook, bits))
+        } else {
+            Ok(())
+        }
+    };
     if needle.is_empty() {
         // `domains.md` defines `replace` by finding the needle from index 0 and recursing on the
         // rest of the haystack after it. An empty needle is found at 0 and leaves the whole
@@ -818,21 +905,26 @@ fn replace_string(
         // replacement in front. `replaceAll` first counts the occurrences, a recursion that
         // does not terminate for an empty needle; it keeps the haystack unchanged.
         if count_index.is_none() && !first {
-            return Ok(Value::String(remaining));
+            return Ok(Value::String(haystack.to_owned()));
         }
-        return Ok(Value::String(replacement.repeat(count) + &remaining));
+        fits(count, 0)?;
+        return Ok(Value::String(replacement.repeat(count) + haystack));
     }
+    let occurrences = haystack
+        .match_indices(needle)
+        .take(count)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    fits(occurrences.len(), occurrences.len() * needle.len())?;
     let mut out = String::new();
-    // Invariant: `out` holds the input before `remaining` with every occurrence of `needle` found so far replaced by `replacement`; each iteration consumes one occurrence, and at most `count` iterations run.
-    for _ in 0..count {
-        let Some(index) = remaining.find(needle) else {
-            break;
-        };
-        out.push_str(&remaining[..index]);
+    let mut rest = 0;
+    // Invariant: `out` holds `haystack[..rest]` with the occurrences before `rest` replaced; each iteration consumes one of the at most `count` leftmost non-overlapping occurrences.
+    for index in occurrences {
+        out.push_str(&haystack[rest..index]);
         out.push_str(replacement);
-        remaining = remaining[index + needle.len()..].to_owned();
+        rest = index + needle.len();
     }
-    out.push_str(&remaining);
+    out.push_str(&haystack[rest..]);
     Ok(Value::String(out))
 }
 fn count_occurrences(values: &[Value]) -> Result<Value, Unfolded> {
@@ -969,6 +1061,65 @@ mod tests {
             Ok(int(5))
         );
         assert_eq!(int_bit_range(int(5), int(0), int(0)), Ok(int(0)));
+    }
+
+    /// The fold writes values of at most 2^20 bits and leaves larger ones, checking the operations
+    /// whose result can outgrow their arguments before computing them.
+    #[test]
+    fn folds_results_only_up_to_the_result_bound() {
+        let bound = 1u32 << 20;
+        assert_eq!(MAX_FOLDED_BITS, u64::from(bound));
+        let too_large =
+            |result: Result<BigInt, Unfolded>| matches!(result, Err(Unfolded::TooLarge(_)));
+        assert_eq!(
+            int_pow(int(2), bound - 1).map(|value| value.bits()),
+            Ok(u64::from(bound))
+        );
+        assert!(too_large(int_pow(int(2), bound)));
+        assert!(too_large(int_pow(int(-3), bound)));
+        assert_eq!(int_pow(int(-1), bound + 1), Ok(int(-1)));
+        assert_eq!(int_pow(int(0), bound), Ok(int(0)));
+        assert_eq!(
+            int_shl(int(1), bound - 1).map(|value| value.bits()),
+            Ok(u64::from(bound))
+        );
+        assert!(too_large(int_shl(int(1), bound)));
+        assert_eq!(int_shl(int(0), i32::MAX as u32), Ok(int(0)));
+        let range = |value: i64, length: u32| int_bit_range(int(value), int(0), length.into());
+        assert_eq!(range(5, i32::MAX as u32), Ok(int(5)));
+        assert_eq!(
+            range(-1, bound).map(|value| value.bits()),
+            Ok(u64::from(bound))
+        );
+        assert!(too_large(range(-1, bound + 1)));
+        let extend =
+            |value: i64, length: u32| int_sign_extend_bit_range(int(value), int(0), length.into());
+        assert_eq!(extend(-1, i32::MAX as u32), Ok(int(-1)));
+        assert_eq!(extend(5, i32::MAX as u32), Ok(int(5)));
+        assert_eq!(extend(5, 3), Ok(int(-3)));
+
+        let text = |value: &str| Value::String(value.into());
+        let replaced = |values: &[Value]| match replace_string(values, Some(3), false) {
+            Ok(Value::String(text)) => Ok(text.len()),
+            Err(unfolded) => Err(unfolded),
+            other => panic!("{other:?}"),
+        };
+        let prepend = |count: usize| [text(""), text(""), text("x"), Value::Int(count.into())];
+        assert_eq!(replaced(&prepend(1 << 17)), Ok(1 << 17));
+        assert!(matches!(
+            replaced(&prepend((1 << 17) + 1)),
+            Err(Unfolded::TooLarge(_))
+        ));
+        let wide = "x".repeat(1 << 16);
+        let every = |haystack: &str| [text(haystack), text("a"), text(&wide), Value::Int(int(9))];
+        assert_eq!(replaced(&every("aa")), Ok(1 << 17));
+        assert!(matches!(
+            replaced(&every("aaa")),
+            Err(Unfolded::TooLarge(_))
+        ));
+
+        assert_eq!(value_bits(&Value::String("ab".into())), 16);
+        assert_eq!(value_bits(&Value::Int(int(-8))), 4);
     }
 
     /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of

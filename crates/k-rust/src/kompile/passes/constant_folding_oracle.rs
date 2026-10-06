@@ -28,7 +28,7 @@ use proptest::{
 };
 use serde_json::json;
 
-use super::{Folder, Unfolded};
+use super::{Folder, MAX_FOLDED_BITS, Unfolded};
 use crate::{
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
@@ -288,6 +288,19 @@ enum Out {
 }
 
 impl Out {
+    /// The size of the value in the unit of the fold's result bound.
+    fn bits(&self) -> u64 {
+        match self {
+            Self::Bool(_) => 1,
+            Self::Int(value) => value.bits(),
+            Self::Str(bytes) => 8 * bytes.len() as u64,
+            Self::Float(Fl::B32(_)) => 24,
+            Self::Float(Fl::B64(_)) => 53,
+            Self::FloatToken(token) => float_parts(token).map_or(0, |parts| u64::from(parts.1)),
+            Self::Id(text) => 8 * text.len() as u64,
+        }
+    }
+
     fn same(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Bool(a), Self::Bool(b)) => a == b,
@@ -1459,6 +1472,7 @@ struct Tally {
     values: usize,
     undefined: usize,
     refused: usize,
+    too_large: usize,
     unchecked: usize,
 }
 
@@ -1515,6 +1529,12 @@ fn check_case(
                 ));
             }
             tally.values += 1;
+        }
+        // The fold writes no value larger than its bound, the backend's result bound.
+        (Expect::Value(expected), Err(Unfolded::TooLarge(_)))
+            if expected.bits() > MAX_FOLDED_BITS =>
+        {
+            tally.too_large += 1;
         }
         (Expect::Value(expected), Err(unfolded)) => {
             if !fold_may_refuse(hook, arguments) {

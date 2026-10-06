@@ -26,7 +26,7 @@ use rug::{
     ops::Pow,
 };
 
-use super::{Unfolded, Value, int_value, string_value};
+use super::{MAX_FOLDED_BITS, Unfolded, Value, int_value, string_value, too_large};
 
 #[derive(Clone, Debug)]
 pub(super) struct KFloat {
@@ -42,6 +42,7 @@ impl KFloat {
         let (text, precision, exponent_bits) = parse_parts(token)?;
         validate_context(precision, exponent_bits)
             .map_err(|_| format!("invalid Float token {token:?}"))?;
+        check_precision(precision)?;
         match text {
             "Infinity" => Ok(Self::special(precision, exponent_bits, Special::Infinity)),
             "-Infinity" => Ok(Self::special(
@@ -58,6 +59,11 @@ impl KFloat {
                 Self::from_rounded(value, exponent_bits, direction)
             }
         }
+    }
+
+    /// The size of the value in the unit of `MAX_FOLDED_BITS`: its precision.
+    pub(super) fn bits(&self) -> u64 {
+        u64::from(self.value.prec())
     }
 
     pub(super) fn token(&self) -> String {
@@ -107,6 +113,9 @@ impl KFloat {
             let length = mpfr::snprintf(ptr::null_mut(), 0, format.as_ptr(), self.value.as_raw());
             if length < 0 {
                 return Err("invalid MPFR Float format".into());
+            }
+            if (length as u64).saturating_mul(8) > MAX_FOLDED_BITS {
+                return Err(too_large("STRING.floatFormat", (length as u64) * 8));
             }
             let mut buffer = vec![0u8; length as usize + 1];
             let written = mpfr::snprintf(
@@ -303,6 +312,12 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
         "FLOAT.round" => round_float(values),
         "FLOAT.int2float" => int_to_float(values),
         "FLOAT.float2int" => unary_float(values, |a| {
+            // A finite value below 2^e has an integer part of at most e bits.
+            if let Some(exponent) = a.value.get_exp()
+                && i64::from(exponent) > MAX_FOLDED_BITS as i64
+            {
+                return Err(too_large("FLOAT.float2int", exponent));
+            }
             let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| "Argument to hook FLOAT.float2int cannot be rounded to an integer.".to_owned())?.0;
             Ok(BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())?)
         }),
@@ -418,21 +433,35 @@ fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, Unfold
 }
 
 fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), Unfolded> {
-    let precision = int_value(precision)?
-        .to_u32()
-        .ok_or_else(|| "Float precision is outside the supported range".to_owned())?;
-    let exponent = int_value(exponent)?
-        .to_u32()
-        .ok_or_else(|| "Float exponent bits are outside the supported range".to_owned())?;
-    validate_context(precision, exponent)
+    let precision = int_value(precision)?.to_u32().ok_or_else(|| {
+        Unfolded::Unsupported("Float precision is outside the supported range".into())
+    })?;
+    let exponent = int_value(exponent)?.to_u32().ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent bits are outside the supported range".into())
+    })?;
+    validate_context(precision, exponent)?;
+    check_precision(precision)?;
+    Ok((precision, exponent))
+}
+
+/// A precision the fold computes with: the value it describes has that many bits.
+fn check_precision(precision: u32) -> Result<(), Unfolded> {
+    if u64::from(precision) > MAX_FOLDED_BITS {
+        return Err(too_large("FLOAT", precision));
+    }
+    Ok(())
 }
 
 fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolded> {
     if precision > i32::MAX as u32 || precision > float::prec_max() {
-        return Err("Float precision is outside the supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float precision is outside the supported range".into(),
+        ));
     }
     if exponent > i32::MAX as u32 {
-        return Err("Float exponent bits are outside the supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float exponent bits are outside the supported range".into(),
+        ));
     }
     if precision < 2 || exponent < 2 {
         return Err("Float precision and exponent bits must both be at least 2.".into());
@@ -445,10 +474,10 @@ fn exponent_limits(bits: u32) -> Result<(i32, i32), Unfolded> {
     let maximum = 1i32
         .checked_shl(bits.saturating_sub(1))
         .filter(|maximum| *maximum > 0)
-        .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
+        .ok_or_else(|| Unfolded::Unsupported("Float exponent bits are too large".into()))?;
     let minimum = 1i32
         .checked_sub(maximum)
-        .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
+        .ok_or_else(|| Unfolded::Unsupported("Float exponent bits are too large".into()))?;
     Ok((minimum, maximum))
 }
 
@@ -457,18 +486,21 @@ fn context_exponent_limits(
     exponent_bits: u32,
 ) -> Result<(i32, i32, i32), Unfolded> {
     let (minimum, maximum) = exponent_limits(exponent_bits)?;
-    let precision = i32::try_from(precision)
-        .map_err(|_| "Float precision is outside the supported range".to_owned())?;
-    let normal_minimum = minimum
-        .checked_add(2)
-        .ok_or_else(|| "Float exponent range is outside the supported range".to_owned())?;
-    let subnormal_minimum = normal_minimum
-        .checked_sub(precision - 1)
-        .ok_or_else(|| "Float exponent range is outside the supported range".to_owned())?;
+    let precision = i32::try_from(precision).map_err(|_| {
+        Unfolded::Unsupported("Float precision is outside the supported range".into())
+    })?;
+    let normal_minimum = minimum.checked_add(2).ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent range is outside the supported range".into())
+    })?;
+    let subnormal_minimum = normal_minimum.checked_sub(precision - 1).ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent range is outside the supported range".into())
+    })?;
     // K's BigFloat validates contexts against MPFR's active default range, not its wider platform limit.
     let (allowed_minimum, allowed_maximum) = (float::exp_min(), float::exp_max());
     if subnormal_minimum < allowed_minimum || maximum > allowed_maximum {
-        return Err("Float exponent range is outside MPFR's supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float exponent range is outside MPFR's supported range".into(),
+        ));
     }
     Ok((normal_minimum, subnormal_minimum, maximum))
 }
@@ -482,7 +514,9 @@ fn limit_exponent(
         context_exponent_limits(value.prec(), exponent_bits)?;
     let direction = value
         .clamp_exp(direction, Round::Nearest, subnormal_minimum, maximum)
-        .ok_or_else(|| "Float exponent range is outside MPFR's supported range".to_owned())?;
+        .ok_or_else(|| {
+            Unfolded::Unsupported("Float exponent range is outside MPFR's supported range".into())
+        })?;
     value.subnormalize_round(normal_minimum, direction, Round::Nearest);
     Ok(())
 }
@@ -806,6 +840,31 @@ mod tests {
         assert!(special.value.is_nan());
         assert_eq!(special.value.prec(), 24);
         assert_eq!(special.exponent_bits, 30);
+    }
+
+    /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build
+    /// it or a token names it.
+    #[test]
+    fn leaves_floats_above_the_result_bound_unfolded() {
+        let int = |value: i64| Value::Int(value.into());
+        let converted = |precision: i64| {
+            int_to_float(&[int(1), int(precision), int(11)]).expect("Int2Float has an evaluator")
+        };
+        assert!(converted(1 << 20).is_ok());
+        assert!(matches!(
+            converted((1 << 20) + 1),
+            Err(Unfolded::TooLarge(_))
+        ));
+        assert!(KFloat::parse("1.5p1048576x11").is_ok());
+        assert!(matches!(
+            KFloat::parse("1.5p1048577x11"),
+            Err(Unfolded::TooLarge(_))
+        ));
+        let huge = KFloat::parse("1e400000p53x30").unwrap();
+        assert!(matches!(
+            evaluate("FLOAT.float2int", &[Value::Float(huge)]),
+            Some(Err(Unfolded::TooLarge(_)))
+        ));
     }
 
     #[test]

@@ -3312,6 +3312,33 @@ fn leaves_shifts_it_does_not_compute_unfolded() {
     }
 }
 
+/// A folded value is part of the emitted definition, so the fold writes none above 2^20 bits, the
+/// backend's own bound on `^Int` results; a larger one stays for execution.
+#[test]
+fn leaves_results_above_the_result_bound_unfolded() {
+    let source = |exponent: &str| {
+        format!(
+            r#"
+            module MAIN
+              syntax Int [hook(INT.Int)]
+              syntax Int ::= r"[\\+\\-]?[0-9]+" [token]
+              syntax Int ::= "result" [function, symbol(result)]
+              syntax Int ::= Int "^Int" Int [function, hook(INT.pow), symbol(powInt)]
+              rule result => 2 ^Int {exponent}
+            endmodule
+            "#
+        )
+    };
+    let Term::Token { token, .. } = constant_folded_right_hand_side(&source("1048575")) else {
+        panic!("2 ^Int 1048575 has 2^20 bits and folds");
+    };
+    assert_eq!(token.len(), 315_653);
+    assert_eq!(
+        Printer::new().print_term(&constant_folded_right_hand_side(&source("1048576"))),
+        r#"powInt(#token("2","Int"),#token("1048576","Int"))"#
+    );
+}
+
 /// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and
 /// `STRING.directionality` whose meaning `domains.md` does not give, stay as written.
 #[test]
