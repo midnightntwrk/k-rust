@@ -6710,6 +6710,68 @@ fn kprove_proves_nothing_from_a_power_where_no_integer_is_its_value() {
     fs::remove_dir_all(root).unwrap();
 }
 
+const PARTIAL_HALF: &str = r#"
+module HALF
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= go(Int)
+  syntax KItem ::= "yes" | "no"
+  syntax Int ::= half(Int) [function, smt-hook((div #1 2)), symbol(half)]
+  rule half(X) => X /Int 2 requires X %Int 2 ==Int 0
+  rule <k> go(X) => yes </k> requires half(X) ==Int 0
+  rule <k> go(_) => no </k> [owise]
+endmodule
+module HALF-SPEC
+  imports HALF
+  claim [symbolic-yes]: <k> go(X) => yes </k> requires 0 <Int X andBool X <Int 2
+  claim [concrete-yes]: <k> go(1) => yes </k>
+  claim [even-yes]: <k> go(X) => yes </k> requires X ==Int 0
+endmodule
+"#;
+
+/// `half` is partial and its equations give it a value only at even arguments, so the
+/// definition leaves open whether `half(1)` is defined: `go(1)` reaches `yes` if it is (with
+/// value 0) and `no` if it is not. Its `smt-hook` is SMT-LIB's `div`, which has a value at every
+/// argument, so the solver reads `half(1) = 0` as true; the claims that `go` reaches `yes` at 1
+/// must not be proven from that reading. The definedness of `half(X)` is stated next to the
+/// condition `half(X) = 0` and not discharged through it, so the solver decides the condition
+/// only under it. At an even argument the equations give the value, and the claim is proven.
+#[test]
+fn kprove_decides_a_partial_smt_hook_only_under_its_definedness() {
+    let (root, definition) = fixture();
+    fs::write(&definition, PARTIAL_HALF).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "HALF-SPEC",
+            "--definition-module",
+            "HALF",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim HALF-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(verdict("symbolic-yes"), "proven", "{stdout}");
+    assert_ne!(verdict("concrete-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("even-yes"), "proven", "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 const APART_COLLECTIONS: &str = r#"
 module APART
   imports INT

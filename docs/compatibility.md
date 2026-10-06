@@ -1060,6 +1060,14 @@ The claim's left-hand side is therefore empty, and the claim holds vacuously; no
 k-rust reaches a `Trivial` leaf, which the vacuity policy rejects as `failed`, and `--allow-vacuous` proves the claim.
 The reference toolchain's rejection of the claim remains checked as the case's oracle observation; k-rust's `failed` verdict records that this rejection is not a refutation.
 
+## Solver decisions over partial operations
+
+An `smt-hook` states its symbol's operation to the solver, and for a partial symbol that statement is exact only where the symbol is defined: an SMT operation has a value at every argument, and an `smt-hook` such as `(div #1 2)` on a symbol whose equations define it only at even arguments gives the solver a value where the definition gives none.
+A solver answer about a condition over a partial term `t` is therefore a K answer only under `\ceil(t)`, which the backend states as its own conjunct wherever it introduces `t` (a rule's conditions, a hook's arguments).
+In a conjunction, a `\ceil(t)` conjunct is simplified under the equalities of the known path condition but not under its sibling conjuncts': a sibling `t = c` would make it `\ceil(c)`, which holds, and leave the definedness of `t` to an equality that the solver may then decide valid with `t`'s SMT reading and drop.
+So `\ceil(t)` stays beside `t = c`, and every solver decision over `t` is taken under it; the path condition is kept by the step, so its own equalities may still discharge it (`a_ceil_conjunct_is_not_discharged_through_a_sibling_equality` in the [backend tests](../crates/k-rust-backend/tests/backend), `kprove_decides_a_partial_smt_hook_only_under_its_definedness` in [cli.rs](../crates/k-rust/tests/cli.rs)).
+A definition is not checked for `smt-hook`s whose out-of-domain values are determined: whether a template leaves them open cannot be read from the template, and `domains.md`'s own `MInt` division hooks have SMT-LIB values at zero.
+
 ## Undefined steps in proofs
 
 A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.

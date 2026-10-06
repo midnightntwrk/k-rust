@@ -1692,6 +1692,43 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     assert_eq!(result, [defined, first, second]);
 }
 
+/// A conjunct `\ceil(t)` keeps stating the definedness of a partial `t` beside a sibling
+/// equality `t = c`. Rewritten through that equality it would become `\ceil(c)`, which holds,
+/// and leave the definedness of `t` to the equality alone; the solver may later decide the
+/// equality valid with `t`'s SMT reading, which is exact only where `t` is defined, and drop it.
+/// An equality among the known predicates, which the caller keeps, still discharges it.
+#[test]
+fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
+    let definition = definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           symbol p{}(SortInt{}) : SortInt{} [function{}()]"#,
+    );
+    let applied = term(&definition, "p{}(X:SortInt{})");
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let defined = Predicate::Ceil(applied.clone());
+    let equality = Predicate::Equals(applied, zero);
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
+    assert!(
+        siblings.contains(&defined) && siblings.contains(&equality),
+        "{siblings:?}"
+    );
+    assert!(
+        simplified(&[defined], &[equality]).is_empty(),
+        "a known equality discharges the ceil"
+    );
+}
+
 /// Each conjunct may be simplified under the others, but not under conjuncts that were
 /// themselves simplified under it: the result must stay equivalent to the conjunction. Two
 /// conjuncts that restate one another (`X = v` and `v = X`, `X = Y` and `Y = X`) leave one of

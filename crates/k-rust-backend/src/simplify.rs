@@ -885,6 +885,14 @@ fn simplify_predicates_with_budget(
     };
     // The path condition of every current equality, rebuilt only after one of them changed.
     let mut full_path_condition = None;
+    // The path condition of the known predicates alone, under which a `\ceil` conjunct is
+    // simplified: a sibling equality `t = c` would turn `\ceil(t)` into `\ceil(c)`, which
+    // holds, and leave the definedness of `t` stated only by that equality. The equality is a
+    // conjunct the solver may later decide valid with `t`'s SMT reading and drop; that reading
+    // is exact only where `t` is defined, so the decision is a K one only while `\ceil(t)` is
+    // stated beside it. The known predicates are kept by the caller, so their equalities may
+    // rewrite it.
+    let mut known_path_condition = None;
     // The conjunct parts of the additional conjuncts simplified so far.
     let mut simplified_conjuncts = FxHashSet::default();
     let mut simplified = Vec::with_capacity(conjuncts.len());
@@ -896,10 +904,19 @@ fn simplify_predicates_with_budget(
         let result = {
             let excluded_path_condition = (!conjunct_equalities[index].is_empty())
                 .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
-            let path_condition = match &excluded_path_condition {
-                Some(path_condition) => path_condition,
-                None => full_path_condition
-                    .get_or_insert_with(|| path_condition_excluding(&conjunct_equalities, None)),
+            let path_condition = if matches!(predicate, Predicate::Ceil(_)) {
+                &*known_path_condition.get_or_insert_with(|| {
+                    PathConditionReplacements::from_equalities(
+                        known_equalities.iter().map(|(left, right)| (left, right)),
+                    )
+                })
+            } else {
+                match &excluded_path_condition {
+                    Some(path_condition) => path_condition,
+                    None => full_path_condition.get_or_insert_with(|| {
+                        path_condition_excluding(&conjunct_equalities, None)
+                    }),
+                }
             };
             let assumptions = PredicateAssumptions {
                 terms: TermAssumptions {
