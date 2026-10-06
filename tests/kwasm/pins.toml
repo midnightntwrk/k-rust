@@ -2,7 +2,7 @@ schema = 1
 corpus_sha256 = "6b58f34fa9d56176ccbc22b05a980a0810e70eb357361db8b7fdbc0f6f5896d7"
 expansion_sha256 = "7342ff8f75d6956f767d4a66013daf3d6b8777c7c2702eac998a638cdb042ec3"
 behavior_sha256 = "91850d85475b9c4d510147dc274a5383b694b88fbdf05103c911b14ec1670f02"
-definition_kore_sha256 = "ab31122138f4467cf2f01ed4b002bfde97fcacface27b5114ec9e2363be85ca5"
+definition_kore_sha256 = "a165f4ff07accaf02dc0f9aff249000f7db4ac96f297c749ce3854acba31470f"
 native_definition_kore_sha256 = "c00b9a0c3079c3676b3fdfdc9016221eb3c395cfffe1f10b875d5e951998a993"
 
 [kwasm]
