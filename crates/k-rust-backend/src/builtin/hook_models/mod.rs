@@ -39,7 +39,7 @@ use proptest::{
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{BuiltinResult, evaluate_hook};
+use super::{BuiltinResult, UnsupportedHookReason, evaluate_hook};
 use crate::term::{
     CollectionSymbols, ListDefinition, MapDefinition, SetDefinition, Sort, Symbol, Term, TermKind,
     Variable,
@@ -83,6 +83,9 @@ pub(super) enum Expect {
     /// The documentation does not determine the result; any answer is accepted, and the
     /// symbolic evaluation must still agree with the concrete one.
     Open,
+    /// The hook is `total` and its documentation gives no value here: the hook must leave the
+    /// application unevaluated as `Unspecified`, and no symbolic evaluation may decide it.
+    Unspecified,
 }
 
 /// A model's verdict: the expected result, and whether the hook may decline these concrete
@@ -115,6 +118,13 @@ impl Spec {
     pub(super) fn open() -> Self {
         Self {
             expect: Expect::Open,
+            may_decline: true,
+        }
+    }
+
+    pub(super) fn unspecified() -> Self {
+        Self {
+            expect: Expect::Unspecified,
             may_decline: true,
         }
     }
@@ -494,6 +504,7 @@ fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, String> {
 fn admits(expect: &Expect, actual: Option<&Val>) -> bool {
     match (expect, actual) {
         (Expect::Open, _) => true,
+        (Expect::Unspecified, _) => false,
         (Expect::Bottom, actual) => actual.is_none(),
         (_, None) => false,
         (Expect::Value(expected), Some(actual)) => expected == actual,
@@ -559,6 +570,16 @@ pub(super) fn check(
         TestCaseError::fail(report)
     };
     let concrete = evaluate(case.hook, &concrete_arguments).map_err(&fail)?;
+    if matches!(spec.expect, Expect::Unspecified)
+        && !matches!(
+            concrete,
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+        )
+    {
+        return Err(fail(format!(
+            "the hook gives {concrete:?} where its value is unspecified"
+        )));
+    }
     let concrete_value = outcome(&concrete, &Env::new()).map_err(&fail)?;
     match &concrete_value {
         None if !spec.may_decline => {

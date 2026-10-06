@@ -400,6 +400,9 @@ impl<'view, 'definition> Folder<'view, 'definition> {
 enum Unfolded {
     /// The hook is undefined (`#Bottom`) on these arguments.
     Undefined(String),
+    /// The hook is `total` and its documentation gives no value on these arguments: the
+    /// application denotes a value the definition does not determine.
+    Unspecified(String),
     /// The value is defined but larger than `MAX_FOLDED_BITS`.
     TooLarge(String),
     /// The fold does not evaluate this hook, or cannot read these arguments.
@@ -436,9 +439,10 @@ impl Unfolded {
     #[cfg(feature = "mpfr-folding")]
     fn message(&self) -> &str {
         match self {
-            Self::Undefined(message) | Self::TooLarge(message) | Self::Unsupported(message) => {
-                message
-            }
+            Self::Undefined(message)
+            | Self::Unspecified(message)
+            | Self::TooLarge(message)
+            | Self::Unsupported(message) => message,
         }
     }
 }
@@ -592,23 +596,6 @@ fn natural<'a>(value: &'a BigInt, hook: &str) -> Result<&'a BigInt, Unfolded> {
 /// the saturated value as larger than any string or bit length it compares it with.
 fn saturating_usize(value: &BigInt) -> usize {
     value.to_usize().unwrap_or(usize::MAX)
-}
-/// A nonnegative parameter the fold computes with: a negative one is undefined for every hook
-/// that reads one, a larger one than 2^31 - 1 is not computed by the fold.
-fn unsigned_32(value: &BigInt, hook: &str) -> Result<u32, Unfolded> {
-    if value.is_negative() {
-        return Err(Unfolded::Undefined(format!(
-            "Argument to hook {hook} out of range. Expected a nonnegative integer."
-        )));
-    }
-    value
-        .to_u32()
-        .filter(|value| *value <= i32::MAX as u32)
-        .ok_or_else(|| {
-            Unfolded::Unsupported(format!(
-                "Argument to hook {hook} is above the fold's parameter bound 2^31 - 1."
-            ))
-        })
 }
 fn checked_div(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, Unfolded> {
     if b.is_zero() {
@@ -805,19 +792,24 @@ fn string_ord(value: &str) -> Result<Value, Unfolded> {
     }
     Ok(Value::Int((character as u32).into()))
 }
+/// `substrString(S, START, END)`: the characters in `[START..END)` on the valid indices
+/// `0 <= START <= END <= lengthString(S)`. The hook is `total`, and `domains.md` gives it no
+/// value on other indices.
 fn string_substr(values: &[Value]) -> Result<Value, Unfolded> {
     let [text, start, end] = values else {
         return Err(Unfolded::Unsupported(
             "constant-folding hook expected three arguments".into(),
         ));
     };
-    let text = string_value(text)?;
-    let start = unsigned_32(&int_value(start)?, "STRING.substr")? as usize;
-    let end = unsigned_32(&int_value(end)?, "STRING.substr")? as usize;
-    let chars = text.chars().collect::<Vec<_>>();
-    if start > end || end > chars.len() {
-        return Err("Argument to hook STRING.substr out of range. Expected two indices >= 0 and <= the length of the string.".into());
+    let chars = string_value(text)?.chars().collect::<Vec<_>>();
+    let (start, end) = (int_value(start)?, int_value(end)?);
+    if start.is_negative() || start > end || end > BigInt::from(chars.len()) {
+        return Err(Unfolded::Unspecified(format!(
+            "substrString from {start} to {end} on a string of length {}, outside the valid indices",
+            chars.len()
+        )));
     }
+    let (start, end) = (saturating_usize(&start), saturating_usize(&end));
     Ok(Value::String(chars[start..end].iter().collect()))
 }
 fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value, Unfolded> {
@@ -1064,6 +1056,42 @@ mod tests {
         assert_eq!(found("ab", "b", 2), int(1));
         assert_eq!(found("ab", "b", 0), int(-1));
         assert_eq!(found("aba", "ab", 1), int(1));
+    }
+
+    /// `substrString` is folded on `0 <= start <= end <= length`, empty ranges included; it is
+    /// `total`, and `domains.md` gives it no value on other indices, so those stay unfolded.
+    #[test]
+    fn folds_substrings_only_on_valid_indices() {
+        let substring = |start: BigInt, end: BigInt| {
+            string_substr(&[
+                Value::String("héllo".into()),
+                Value::Int(start),
+                Value::Int(end),
+            ])
+        };
+        for (start, end, expected) in [(0, 0, ""), (5, 5, ""), (1, 3, "él"), (0, 5, "héllo")] {
+            assert!(
+                matches!(substring(int(start), int(end)), Ok(Value::String(text)) if text == expected),
+                "substrString(héllo, {start}, {end})"
+            );
+        }
+        let huge = BigInt::one() << 100u32;
+        for (start, end) in [
+            (int(-2), int(3)),
+            (int(1), int(10)),
+            (int(3), int(1)),
+            (int(-3), int(-1)),
+            (int(6), int(6)),
+            (huge.clone(), huge),
+        ] {
+            assert!(
+                matches!(
+                    substring(start.clone(), end.clone()),
+                    Err(Unfolded::Unspecified(_))
+                ),
+                "substrString(héllo, {start}, {end})"
+            );
+        }
     }
 
     /// The search hooks find the first occurrence at or after their index, or the last at or

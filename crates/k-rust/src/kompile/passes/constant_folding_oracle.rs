@@ -325,6 +325,9 @@ enum Expect {
     /// The value is defined and larger than the fold's result bound, so the fold must leave the
     /// application unfolded as too large.
     TooLarge,
+    /// The hook is `total` and its documentation gives no value here (the backend leaves it
+    /// `Unspecified`), so the fold must leave the application unfolded as unspecified.
+    Unspecified,
     /// No oracle covers this case; the fold must still finish without panicking.
     Unchecked,
 }
@@ -1015,6 +1018,9 @@ fn backend_expectation(
             decode_backend(&value, result).map(Expect::Value).map(Some)
         }
         Ok(BuiltinResult::Bottom) => Ok(Some(Expect::Undefined)),
+        Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
+            Ok(Some(Expect::Unspecified))
+        }
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented
             | UnsupportedHookReason::ArgumentOutOfRange { .. }
@@ -1029,12 +1035,6 @@ fn backend_expectation(
         ) => Ok(None),
         other => Err(format!("unexpected backend outcome {other:?}")),
     }
-}
-
-fn character_index(text: &str, value: &BigInt) -> Option<usize> {
-    value
-        .to_usize()
-        .filter(|index| *index <= text.chars().count())
 }
 
 /// The documented syntax of `String2Int`: a nonempty sequence of decimal digits, optionally
@@ -1467,18 +1467,6 @@ fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
 /// Cases where the fold leaves the application unfolded although the backend computes a value.
 fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
     match hook {
-        // `domains.md`: substrString is only defined on indices 0 <= start <= end <= length.
-        // The backend clamps the others, the fold rejects them.
-        "STRING.substr" => {
-            let text = arguments[0].str();
-            match (
-                character_index(text, arguments[1].int()),
-                character_index(text, arguments[2].int()),
-            ) {
-                (Some(start), Some(end)) => start > end,
-                _ => true,
-            }
-        }
         // A surrogate code point is not a Unicode scalar value, so no string holds it as one
         // character; the backend substitutes U+FFFD, the fold rejects it.
         "STRING.chr" => arguments[0]
@@ -1495,6 +1483,7 @@ struct Tally {
     undefined: usize,
     refused: usize,
     too_large: usize,
+    unspecified: usize,
     unchecked: usize,
 }
 
@@ -1573,6 +1562,12 @@ fn check_case(
         }
         (Expect::Undefined, Err(Unfolded::Undefined(_))) => tally.undefined += 1,
         (Expect::TooLarge, Err(Unfolded::TooLarge(_))) => tally.too_large += 1,
+        (Expect::Unspecified, Err(Unfolded::Unspecified(_))) => tally.unspecified += 1,
+        (Expect::Unspecified, folded) => {
+            return Err(format!(
+                "the fold gives {folded:?} where the hook's value is unspecified"
+            ));
+        }
         (Expect::TooLarge, folded) => {
             return Err(format!(
                 "the fold gives {folded:?} where the value is larger than the result bound"

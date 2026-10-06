@@ -109,8 +109,19 @@ pub enum BuiltinResult {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnsupportedHookReason {
     NotImplemented,
-    ArgumentOutOfRange { detail: String },
-    ResultTooLarge { detail: String },
+    ArgumentOutOfRange {
+        detail: String,
+    },
+    ResultTooLarge {
+        detail: String,
+    },
+    /// The hook is `total`, and its documentation gives it no value on these arguments: the
+    /// application denotes a value of its sort that the definition does not determine. It is
+    /// left unevaluated, and unlike the other reasons it is not an unsupported-hook error on
+    /// constructor-like arguments, since there is no value for an implementation to compute.
+    Unspecified {
+        detail: String,
+    },
 }
 
 impl fmt::Display for UnsupportedHookReason {
@@ -120,6 +131,12 @@ impl fmt::Display for UnsupportedHookReason {
                 .write_str("no evaluator in this backend and no equations in the definition"),
             Self::ArgumentOutOfRange { detail } | Self::ResultTooLarge { detail } => {
                 formatter.write_str(detail)
+            }
+            Self::Unspecified { detail } => {
+                write!(
+                    formatter,
+                    "the definition does not determine its value: {detail}"
+                )
             }
         }
     }

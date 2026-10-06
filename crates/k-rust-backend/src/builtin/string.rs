@@ -69,6 +69,11 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
+/// `substrString(S, START, END)` is the code points of S in `[START..END)` when
+/// `0 <= START <= END <= lengthString(S)`. `domains.md` declares it `total` but says it is "only
+/// defined on valid indices", so outside them it has a value the definition does not give: the
+/// application is left unevaluated (`Unspecified`). Valid indices include `START == END`, which
+/// the `domains.md` equations of `replaceFirst`, `findChar` and `countAllOccurrences` use.
 fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.substr", arguments, 3)?;
     let Some(value) = read_string_bytes(&arguments[0]) else {
@@ -77,25 +82,26 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let start = saturating_i64(&start);
-    let end = saturating_i64(&end);
-    let start_unit = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    let count = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
-    let end_unit = start_unit.saturating_add(count);
-    // Unit indices past the end clamp to the end of the value.
-    let mut start_index = value.len();
-    let mut end_index = value.len();
-    for (unit, offset) in code_point_units(value).enumerate() {
-        if unit == start_unit {
-            start_index = offset;
-        }
-        if unit == end_unit {
-            end_index = offset;
-            break;
-        }
+    let mut starts = code_point_units(value).collect::<Vec<_>>();
+    let units = starts.len();
+    starts.push(value.len());
+    if start.sign() == Sign::Minus || start > end || end > BigInt::from(units) {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "substrString from {start} to {end} on a string of length {units}, outside the valid indices 0 <= start <= end <= length"
+                ),
+            },
+        ));
     }
+    let (start, end) = (
+        start
+            .to_usize()
+            .expect("a valid start is at most the length"),
+        end.to_usize().expect("a valid end is at most the length"),
+    );
     Ok(BuiltinResult::Value(string_term(
-        value[start_index..end_index].to_vec(),
+        value[starts[start]..starts[end]].to_vec(),
     )))
 }
 
@@ -529,15 +535,11 @@ mod tests {
         );
     }
 
+    /// `substrString` has its value on `0 <= start <= end <= length`, including empty ranges, and
+    /// a value the definition leaves open elsewhere, so it is left unevaluated there.
     #[test]
-    fn substr_follows_kore_take_and_drop() {
-        for (start, end, expected) in [
-            (-2, 3, "hello"),
-            (1, 10, "ello"),
-            (3, 1, ""),
-            (-3, -1, "he"),
-            (0, 0, ""),
-        ] {
+    fn substr_is_unspecified_outside_valid_indices() {
+        for (start, end, expected) in [(0, 0, ""), (5, 5, ""), (1, 3, "el"), (0, 5, "hello")] {
             assert_eq!(
                 evaluate(
                     "STRING.substr",
@@ -551,30 +553,31 @@ mod tests {
                 "substrString(hello, {start}, {end})"
             );
         }
-
         let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
-        assert_eq!(
-            evaluate(
-                "STRING.substr",
-                vec![
-                    string_term("hello"),
-                    int_term(-&beyond_i64),
-                    int_term(beyond_i64.clone()),
-                ],
-            ),
-            BuiltinResult::Value(string_term("hello"))
-        );
-        assert_eq!(
-            evaluate(
-                "STRING.substr",
-                vec![
-                    string_term("hello"),
-                    int_term(beyond_i64.clone()),
-                    int_term(beyond_i64),
-                ],
-            ),
-            BuiltinResult::Value(string_term(""))
-        );
+        for (start, end) in [
+            (BigInt::from(-2), BigInt::from(3)),
+            (BigInt::from(1), BigInt::from(10)),
+            (BigInt::from(3), BigInt::from(1)),
+            (BigInt::from(-3), BigInt::from(-1)),
+            (BigInt::from(6), BigInt::from(6)),
+            (-&beyond_i64, beyond_i64.clone()),
+            (beyond_i64.clone(), beyond_i64.clone()),
+        ] {
+            assert!(
+                matches!(
+                    evaluate(
+                        "STRING.substr",
+                        vec![
+                            string_term("hello"),
+                            int_term(start.clone()),
+                            int_term(end.clone())
+                        ],
+                    ),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "substrString(hello, {start}, {end})"
+            );
+        }
     }
 
     #[test]

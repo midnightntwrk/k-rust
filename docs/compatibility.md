@@ -81,6 +81,7 @@ The conformance driver retains LLVM output for its frontend comparison and accou
 
 A hook without an evaluator or applicable K equation must report an unsupported-hook error when every argument is constructor-like.
 Symbolic applications remain unevaluated.
+A `total` hook whose value the definition does not give on its arguments is not such a hook: the application stays unevaluated with the `UnsupportedHookUnevaluated` diagnostic, and no error ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
 This follows the missing-evaluator checks in `kore/src/Kore/Equation/EvaluationStrategy.hs` and the port's completion contract; an exclusion must not turn the unsupported outcome into a successful execution.
 
 Ordinary committed execution implements the console operations `IO.getc` and `IO.read` on descriptor 0 and `IO.putc` and `IO.write` on descriptors 1 and 2.
@@ -576,6 +577,7 @@ Where `domains.md` describes a hook's value without settling an edge of its doma
 A partial hook whose description gives no value of its result sort on some arguments is undefined there (`\bottom`).
 A `total` hook always has a value, so where its description gives none, the value exists but is not determined by the definition: the backend leaves such an application unevaluated, as a term denoting an unknown value of its sort, without reporting an unsupported hook, and the fold leaves it too; neither `\bottom` nor a chosen value is a consequence of the definition.
 
+- `substrString(S, START, END)` is the code points of `S` in `[START..END)` on the valid indices `0 <= START <= END <= lengthString(S)`; `domains.md` declares it `total` and says it is "only defined on valid indices", so outside them its value is not determined. Valid indices include `START == END` (the empty string), which the `domains.md` equations of `replaceFirst`, `findChar` and `countAllOccurrences` use on every string. (`substr_is_unspecified_outside_valid_indices` in [string.rs](../crates/k-rust-backend/src/builtin/string.rs), `folds_substrings_only_on_valid_indices` in the fold, `an_unspecified_hook_value_stays_unevaluated_without_an_error` in the [backend tests](../crates/k-rust-backend/tests/backend), and the `string-index-boundaries` oracle exception.)
 - `findString(S, N, I)` is the first occurrence of `N` in `S` starting at or after code point `I`, and `rfindString(S, N, I)` the last one starting at or before it, -1 when there is none, for every integer `I`: a negative `I` searches `findString` from the start and gives `rfindString` no candidate, and an `I` past the end gives `findString` none and searches `rfindString` from the end. `findChar` and `rfindChar` follow, since their `domains.md` equations pass `I` to these two. (`find_searches_forward_from_any_index` and `rfind_searches_back_from_any_index` in [string.rs](../crates/k-rust-backend/src/builtin/string.rs), `searches_from_any_integer_index` in the fold.)
 
 ## ECDSA recovery on invalid input

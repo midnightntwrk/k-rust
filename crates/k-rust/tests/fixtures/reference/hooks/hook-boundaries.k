@@ -20,8 +20,6 @@ module HOOK-BOUNDARIES
                     ListItem((i(1) |-> 2) <=Map (i(1) |-> 3 i(2) |-> 4))
                     ListItem((i(1) |-> 2 i(5) |-> 6) <=Map (i(1) |-> 2))
                     ListItem(i(1) ^Int i(4294967296))
-                    ListItem(lengthString(chrChar(i(55296))))
-                    ListItem(ordChar(chrChar(i(55296))))
-                    ListItem(lengthString(substrString(s("hello"), i(3), i(1))))
-                    ListItem(substrString(s("hello"), i(-3), i(-1))) ... </k>
+                    ListItem(lengthString(chrChar(i(55295))))
+                    ListItem(substrString(s("hello"), i(3), i(3))) ... </k>
 endmodule

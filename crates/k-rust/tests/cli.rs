@@ -3867,14 +3867,34 @@ fn reference_hook_string_index_boundaries_follow_domains_md() {
             value.parse::<i64>().ok()
         })
         .collect::<Vec<_>>();
-    let integer = Regex::new(r#"\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The list's Int items, as opposed to the Int arguments of the substrString applications.
+    let integer =
+        Regex::new(r#"inj\{SortInt\{\}, SortKItem\{\}\}\(\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)\)"#)
+            .unwrap();
     let actual = integer
-        .captures_iter(&String::from_utf8(output.stdout).unwrap())
-        .take(expected.len())
+        .captures_iter(&stdout)
         .map(|captures| captures[1].parse::<i64>().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(expected, vec![2, 3, 5, -1, 0]);
     assert_eq!(actual, expected);
+
+    // substrString outside its valid indices has a value `domains.md` does not give, so it stays
+    // unevaluated with the indices it was given.
+    let substring = Regex::new(
+        r#"LblsubstrString[^{]*\{\}\(\s*\\dv\{SortString\{\}\}\(\"hello\"\),\s*\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\),\s*\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#,
+    )
+    .unwrap();
+    let unevaluated = substring
+        .captures_iter(&stdout)
+        .map(|captures| {
+            (
+                captures[1].parse::<i64>().unwrap(),
+                captures[2].parse::<i64>().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(unevaluated, vec![(-2, 3), (1, 10), (3, 1)], "{stdout}");
 }
 
 #[test]
@@ -3913,7 +3933,7 @@ fn krun_executes_hook_edges_to_the_backend_results() {
         .collect::<Vec<_>>();
     let ints = int_value
         .captures_iter(&stdout)
-        .take(4)
+        .take(2)
         .map(|captures| captures[1].parse::<i64>().unwrap())
         .collect::<Vec<_>>();
     let strings = string_value
@@ -3922,8 +3942,8 @@ fn krun_executes_hook_edges_to_the_backend_results() {
         .collect::<Vec<_>>();
 
     assert_eq!(bools, vec![false, false, false], "{stdout}");
-    assert_eq!(ints, vec![1, 1, 65_533, 0], "{stdout}");
-    assert_eq!(strings, vec!["he"], "{stdout}");
+    assert_eq!(ints, vec![1, 1], "{stdout}");
+    assert_eq!(strings, vec![""], "{stdout}");
 }
 
 #[test]

@@ -669,8 +669,8 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             Spec::value(Str(left.iter().chain(right).copied().collect()))
         }
         ("STRING.length", [Str(value)]) => Spec::value(Val::int(units(value).len())),
-        // `[startIndex..endIndex)`, defined on valid indices. The symbol is also declared
-        // total, so outside them the documentation is contradictory and the result is open.
+        // `[startIndex..endIndex)` on valid indices `0 <= start <= end <= length`. The symbol
+        // is declared total, so outside them it has a value the documentation does not give.
         ("STRING.substr", [Str(value), Int(start), Int(end)]) => {
             let units = units(value);
             match at_most(end, units.len())
@@ -678,7 +678,7 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                 .filter(|(end, start)| start <= end)
             {
                 Some((end, start)) => Spec::value(Str(units[start..end].concat())),
-                None => Spec::open(),
+                None => Spec::unspecified(),
             }
         }
         // The first occurrence at or after `index` (`find`), or the last at or before it

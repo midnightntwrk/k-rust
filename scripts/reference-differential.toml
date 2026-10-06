@@ -1476,7 +1476,7 @@ programs = [
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.hooks"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.expected.kore"
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.reference.kore"
-reason = "docs/compatibility.md#hook-specification-exceptions: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack."
+reason = "docs/compatibility.md#hook-specification-exceptions: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack. docs/compatibility.md#hook-values-at-the-edges-of-their-domains: substrString outside 0 <= start <= end <= length has a value the definition does not give, which k-rust leaves unevaluated; Kore clamps the indices."
 
 [[execution.oracle-exception]]
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/bytes-replacement-range.hooks"

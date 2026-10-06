@@ -3503,6 +3503,15 @@ fn simplify_root(
                 || definition.simplification_theory().contains_key(&index);
             let reason = match unsupported {
                 Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
+                // A value the definition leaves open stays an unevaluated application, which
+                // denotes it; no implementation could compute it.
+                Some(reason @ UnsupportedHookReason::Unspecified { .. }) => {
+                    diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
+                        hook: hook.to_owned(),
+                        reason,
+                    });
+                    None
+                }
                 Some(reason) => Some(reason),
                 None => Some(UnsupportedHookReason::ArgumentOutOfRange {
                     detail: "the evaluator did not reduce constructor-like arguments".into(),

@@ -800,6 +800,60 @@ fn unimplemented_hook_on_constructor_like_arguments_is_an_error() {
     assert!(message.contains("TEST.missing"), "{message}");
 }
 
+/// A `total` hook whose value the definition does not give on its arguments, such as
+/// `substrString` outside its valid indices, is not an unsupported hook: the application denotes
+/// that value and stays as it is, with a diagnostic, and a context that does not depend on the
+/// value still simplifies (`false andBool _` is `false`).
+#[test]
+fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol substr{}(SortString{}, SortInt{}, SortInt{}) : SortString{}
+                [function{}(), total{}(), hook{}("STRING.substr")]
+            hooked-symbol eqString{}(SortString{}, SortString{}) : SortBool{}
+                [function{}(), total{}(), hook{}("STRING.eq")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            "#,
+    );
+    let unspecified =
+        r#"substr{}(\dv{SortString{}}("hello"), \dv{SortInt{}}("3"), \dv{SortInt{}}("1"))"#;
+    let input = term(&definition, unspecified);
+
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+
+    assert_eq!(
+        result.expect("an unspecified value is not an error").term,
+        input
+    );
+    assert!(
+        matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UnsupportedHookUnevaluated {
+                hook,
+                reason: UnsupportedHookReason::Unspecified { .. },
+            }] if hook == "STRING.substr"
+        ),
+        "{diagnostics:?}"
+    );
+
+    let guarded = term(
+        &definition,
+        &format!(
+            r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), eqString{{}}({unspecified}, \dv{{SortString{{}}}}("x")))"#
+        ),
+    );
+    let (result, _) =
+        diagnostic::collect(|| simplify(&definition, &guarded, SimplificationOptions::default()));
+    assert_eq!(
+        result.expect("an unspecified value is not an error").term,
+        term(&definition, r#"\dv{SortBool{}}("false")"#)
+    );
+}
+
 #[test]
 fn unimplemented_hook_on_symbolic_arguments_stays_unevaluated() {
     let definition = definition("");
