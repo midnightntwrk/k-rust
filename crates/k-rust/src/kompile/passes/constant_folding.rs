@@ -942,3 +942,7 @@ mod tests {
         assert_eq!(parsed("12", 2), None);
     }
 }
+
+#[cfg(test)]
+#[path = "constant_folding_oracle.rs"]
+mod oracle;
