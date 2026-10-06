@@ -21,7 +21,7 @@ from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Snapshot, add_refresh_argument, live_tools, reduce_kprove_temp, sorted_kore_claims,
+    Key, Output, Pin, Snapshot, add_refresh_argument, reduce_kprove_temp, sorted_kore_claims,
 )
 from support.report import Results  # noqa: E402
 from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
@@ -34,9 +34,7 @@ DOLLAR_IDS_PACKAGE = "krs-cli-oracle-dollar-ids"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
-REFERENCE = HERE / "reference" / "execution"
 REFERENCE_TOOLS = ("kompile", "krun")
-CLAIMS_REFERENCE = HERE / "reference" / "dollar-id-claims"
 CLAIMS_REFERENCE_TOOLS = ("kompile", "kprove")
 
 
@@ -360,27 +358,19 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
 
 
 def reference_execution(
-    results: Results, artifacts: dict[str, bytes], workspace: Path, *, refresh: bool
+    results: Results, artifacts: dict[str, bytes], workspace: Path, pins: Ledger, *, refresh: bool
 ) -> Snapshot | None:
-    """Compile and execute the emitted K with the recorded (or, on refresh, live) Java K.
+    """Compile and execute the emitted K with Java K, replayed from the reference cache or live.
 
     The snapshot is keyed by the digest of the emitted `definition.k`; the
     caller finishes it only after every other check passed.
     """
 
-    executables = None
-    if refresh:
-        try:
-            executables = live_tools(REFERENCE_TOOLS)
-        except GateError as error:
-            results.add("reference_execution", "MISMATCH", f"{error}; execution was refused")
-            return None
-
     workspace.mkdir(parents=True)
     try:
         k = Snapshot(
-            REFERENCE, Key(tools=REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
-            executables=executables,
+            "cli/execution", Key(tools=REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
+            pin=Pin(pins, "execution"),
         )
     except GateError as error:
         results.add("reference_execution", "FAIL", str(error))
@@ -417,7 +407,7 @@ def reference_execution(
     except (GateError, OSError, UnicodeError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return None
-    source_mode = "live" if refresh else "recorded"
+    source_mode = "live" if k.live else "cached"
     results.add(
         "reference_execution", "PASS",
         f"{source_mode} K {k_version()} compiled canonical output and executed foo -> bar",
@@ -461,7 +451,7 @@ def reference_runs(
 
 
 def dollar_id_claims(
-    binary: Path, workspace: Path, results: Results, gate: Path, *, refresh: bool
+    binary: Path, workspace: Path, results: Results, gate: Path, pins: Ledger, *, refresh: bool
 ) -> tuple[dict[str, bytes], Snapshot] | None:
     """Require K to read back emitted claims that name `$`-prefixed identifiers (C2-002).
 
@@ -469,18 +459,11 @@ def dollar_id_claims(
     `$x` stops `kprove` at its scanner; the emitted claims spell it
     `#token("$x","Id")`. The Haskell `kompile` of the emitted `definition.k` and
     `kprove --dry-run` of the emitted `spec.k`, with nothing upstream on the
-    include path, replay `reference/dollar-id-claims/`, keyed by the digests of
-    both files. The caller finishes the snapshot only after every other check
-    passed.
+    include path, form the reference snapshot `dollar-id-claims`, keyed by the
+    digests of both files. The caller finishes the snapshot only after every
+    other check passed.
     """
 
-    executables = None
-    if refresh:
-        try:
-            executables = live_tools(CLAIMS_REFERENCE_TOOLS)
-        except GateError as error:
-            results.add("dollar_id_claims", "MISMATCH", f"{error}; the dry run was refused")
-            return None
     manifest = materialize(workspace / "language", DOLLAR_IDS)
     emitted = workspace / "emitted"
     emit = cli_command(
@@ -498,8 +481,8 @@ def dollar_id_claims(
     spec_module = f"{main_module}-SPEC"
     try:
         k = Snapshot(
-            CLAIMS_REFERENCE, Key(tools=CLAIMS_REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
-            executables=executables,
+            "cli/dollar-id-claims", Key(tools=CLAIMS_REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
+            pin=Pin(pins, "dollar-id-claims"),
         )
         definition = workspace / "compiled-definition"
         compile_process = k.run(
@@ -533,7 +516,7 @@ def dollar_id_claims(
     except (GateError, OSError) as error:
         results.add("dollar_id_claims", "FAIL", str(error))
         return None
-    source_mode = "live" if refresh else "recorded"
+    source_mode = "live" if k.live else "cached"
     results.add(
         "dollar_id_claims", "PASS",
         f"{source_mode} K {k_version()} kompile and kprove --dry-run read the emitted #token(\"$x\",\"Id\") claim",
@@ -575,14 +558,14 @@ def main() -> int:
         if first is not None and second is not None:
             verify_relocation(results, first, second)
             claims = dollar_id_claims(
-                binary, first_root / "dollar-ids", results, gate, refresh=arguments.refresh_reference,
+                binary, first_root / "dollar-ids", results, gate, pins, refresh=arguments.refresh_reference,
             )
             if claims is not None:
                 claim_artifacts, claim_snapshot = claims
                 snapshots.append(claim_snapshot)
                 verify_pins(results, pins, {**first, **claim_artifacts})
             snapshot = reference_execution(
-                results, first, first_root / "reference", refresh=arguments.refresh_reference,
+                results, first, first_root / "reference", pins, refresh=arguments.refresh_reference,
             )
             if snapshot is not None:
                 snapshots.append(snapshot)

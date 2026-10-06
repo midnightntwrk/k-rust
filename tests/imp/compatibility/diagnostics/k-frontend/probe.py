@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Map one induced K frontend Location through sources.json, without guessing.
 
-With `--frontend`, the induced `kompile` failure replays the reference
-snapshot `tests/imp/reference/frontend-diagnostic`, keyed by the digests of the
-emitted `definition.k` and of the mutated spec; `--refresh-reference` runs
+With `--frontend`, the induced `kompile` failure forms the reference snapshot
+`imp/frontend-diagnostic`, keyed by the digests of the emitted `definition.k`
+and of the mutated spec. It replays the reference cache entry that
+`--reference-sha256` names; a cache miss or `--refresh-reference` runs
 `kompile` live instead.
 """
 
@@ -20,14 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import ROOT, GateError, krs_gate  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Snapshot, add_refresh_argument, add_staging_argument, live_tools, snapshot_directory,
+    Key, Snapshot, add_child_arguments, add_refresh_argument,
 )
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
 EMITTED_CLAIMS = 20
-REFERENCE = ROOT / "tests/imp/reference/frontend-diagnostic"
 
 
 def frontend_key(definition: Path) -> Key:
@@ -63,7 +63,7 @@ def main() -> int:
     )
     parser.add_argument("--module")
     add_refresh_argument(parser)
-    add_staging_argument(parser)
+    add_child_arguments(parser)
     arguments = parser.parse_args()
     spec = arguments.spec.read_bytes()
     gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
@@ -115,9 +115,8 @@ def main() -> int:
         broken_path = temporary / "spec.k"
         broken_path.write_bytes(broken)
         k = Snapshot(
-            snapshot_directory(REFERENCE, refresh, arguments.reference_staging),
-            frontend_key(temporary / "execution.k"), workspace=temporary, refresh=refresh,
-            executables=live_tools(("kompile",)) if refresh else None,
+            "imp/frontend-diagnostic", frontend_key(temporary / "execution.k"), workspace=temporary,
+            refresh=refresh, expected=arguments.reference_sha256, staging=arguments.reference_staging,
         )
         process = k.run(
             "kompile/induced-spec-error", "kompile",
@@ -129,8 +128,8 @@ def main() -> int:
     locations = [tuple(map(int, match.groups())) for match in LOCATION.finditer(process.stderr)]
     if process.returncode == 0 or not any(location[:2] == (line, column) for location in locations):
         raise GateError("K frontend failure did not select the exact induced generated range")
-    # Only a passing check completes the snapshot, so a failing refresh
-    # rewrites neither the committed snapshot nor the staged one.
+    # Only a passing check completes the snapshot, so a failing live run
+    # stages nothing for the calling gate to store.
     k.finish()
     print(json.dumps({
         "artifact_generated_location": [artifact_line, artifact_column],

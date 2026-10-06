@@ -13,8 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError, entry, krs_gate  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
+from support.pins import Ledger  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Snapshot, add_refresh_argument, live_tools, repository_inputs, substitute,
+    Key, Pin, Snapshot, add_refresh_argument, repository_inputs, substitute,
 )
 from support.tools import z3_environment  # noqa: E402
 
@@ -23,7 +24,7 @@ HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "rust-definition" / "Cargo.toml"
 PACKAGE = "krs-precedence-associativity"
 MODULE = "KRS-PRECEDENCE-ASSOCIATIVITY"
-REFERENCE = HERE / "reference" / "parse"
+PINS = HERE / "pins.json"
 TOOLS = ("kompile", "kast")
 ACCEPTED = HERE / "corpus" / "accepted" / "iterated-unary.probe"
 REJECTED = HERE / "corpus" / "rejected" / "non-associative-equality.probe"
@@ -34,9 +35,12 @@ first_line = substitute(r"\n[\s\S]*", "\n")
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
     add_refresh_argument(parser)
     arguments = parser.parse_args()
-    executables = live_tools(TOOLS) if arguments.refresh_reference else None
+    pins = Ledger(PINS, record=arguments.record)
+    if pins.get("schema") != 1:
+        raise GateError("pins.json is not the schema-1 precedence/associativity ledger")
 
     with tempfile.TemporaryDirectory(prefix="krs-precedence-associativity-") as temporary:
         workspace = Path(temporary)
@@ -57,10 +61,10 @@ def main() -> int:
             raise GateError("emitted definition must contain one explicit non-assoc sentence")
 
         # The emitted definition.k is keyed by its digest, so any change to
-        # what KRS emits requires a refresh.
+        # what KRS emits changes the pinned reference digest.
         k = Snapshot(
-            REFERENCE, Key(tools=TOOLS, inputs=repository_inputs([ACCEPTED, REJECTED])),
-            workspace=workspace, refresh=arguments.refresh_reference, executables=executables,
+            "precedence-associativity/parse", Key(tools=TOOLS, inputs=repository_inputs([ACCEPTED, REJECTED])),
+            workspace=workspace, refresh=arguments.refresh_reference, pin=Pin(pins, "parse"),
         )
         compiled = workspace / "compiled"
         compile_process = k.run(
@@ -107,6 +111,7 @@ def main() -> int:
         if rejected.returncode == 0 or not rejected.stderr.startswith(ASSOCIATIVITY_ERROR):
             raise GateError(f"explicit non_assoc direct nesting was not rejected by the associativity filter: {rejected.stderr}")
         print(f"PASS precedence/associativity reference snapshot: {k.finish()}")
+    pins.finish("precedence/associativity")
 
     print("PASS precedence/associativity: bare iterated unary accepted; explicit non_assoc nesting rejected")
     return 0

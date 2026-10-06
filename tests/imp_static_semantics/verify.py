@@ -17,8 +17,8 @@ from support.lock import k_commit  # noqa: E402
 from support.hashing import json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Snapshot, add_refresh_argument, json_without_members, live_tools, reduce_kore_exec_log,
-    repository_inputs,
+    PIN_TABLE, Key, Output, Pin, Snapshot, add_refresh_argument, json_without_members, live_tools,
+    reduce_kore_exec_log, repository_inputs,
 )
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
@@ -33,7 +33,6 @@ FIXTURE = HERE / "fixtures/static-adjunct.k"
 STATIC_SPEC = HERE / "claims/static-spec.k"
 STATIC_PROGRAM = HERE / "corpus/static-evaluation.imp"
 PINS = HERE / "pins.json"
-REFERENCE = HERE / "reference" / "oracle"
 TOOLS = ("kompile", "kprove", "krun")
 reduce_spec = json_without_members(("org.kframework.attributes.Source", "org.kframework.attributes.Location"))
 """The stored `--emit-json-spec` output omits source locations, which the claim normalization removes."""
@@ -222,10 +221,12 @@ def main() -> int:
         raise GateError("--timeout must be positive")
     pins = Ledger(PINS, record=options.record)
 
-    executables = None
-    if options.refresh_reference:
+    def tools() -> dict[str, str]:
+        # Only a live run reads the K installation.
         executables = live_tools(TOOLS)
         verify_checkout(K, k_commit(), label="K")
+        return executables
+
     upstream_commit = str(pins.table("upstream_imp").get("commit"))
     verify_checkout(IMP, upstream_commit, label="IMP")
     key = Key(
@@ -241,8 +242,8 @@ def main() -> int:
     ):
         workspace = Path(temporary)
         k = Snapshot(
-            REFERENCE, key, workspace=workspace, refresh=options.refresh_reference,
-            executables=executables,
+            "imp_static_semantics/oracle", key, workspace=workspace, refresh=options.refresh_reference,
+            pin=Pin(pins, "oracle"), tools=tools,
         )
         definition = workspace / "static-kompiled"
         compiled = k.run(
@@ -313,7 +314,8 @@ def main() -> int:
 
     observed = observed_ledger(outcomes, upstream_commit)
     observed_keys = set(observed)
-    pin_keys = set(pins.data)
+    # The reference snapshot digest is pinned beside the reconstructed ledger and checked by the snapshot.
+    pin_keys = set(pins.data) - {PIN_TABLE}
     missing_keys = observed_keys - pin_keys
     if (
         observed_keys != INPUT_PIN_KEYS | OUTPUT_PIN_KEYS

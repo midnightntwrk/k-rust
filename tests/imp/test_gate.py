@@ -28,15 +28,25 @@ class InputPinTests(unittest.TestCase):
 
 
 class PreflightToolTests(unittest.TestCase):
-    def test_java_tools_are_required_only_by_a_refresh(self) -> None:
-        replay = verify.required_tools(False)
-        live = verify.required_tools(True)
-        for name in verify.JAVA_TOOLS:
-            self.assertNotIn(name, replay)
-            self.assertIn(name, live)
+    def test_every_run_requires_only_the_rust_and_lsp_tools(self) -> None:
+        required = verify.required_tools()
+        for name in (*verify.K_TOOLS, *verify.SOLVER_TOOLS):
+            self.assertNotIn(name, required)
         for name in (*verify.BASE_TOOLS, *verify.LSP_TOOLS):
-            self.assertIn(name, replay)
-            self.assertIn(name, live)
+            self.assertIn(name, required)
+
+    def test_every_snapshot_is_pinned_and_only_misses_or_a_refresh_run_live(self) -> None:
+        pins = Ledger(verify.PINS_PATH)
+        self.assertEqual(set(pins.table("reference_sha256")), set(verify.SNAPSHOTS))
+        with tempfile.TemporaryDirectory() as empty, patch.dict("os.environ", {"KRS_REFERENCE_CACHE_DIR": empty}):
+            def context(**options: bool) -> verify.Context:
+                return verify.Context(pins, {}, Path(empty), Path(empty), **options)
+
+            self.assertEqual(context().live_snapshots(), list(verify.SNAPSHOTS))
+            self.assertEqual(context(artifacts_only=True).live_snapshots(), list(verify.ARTIFACT_SNAPSHOTS))
+            with patch.object(verify.Cache, "holds", return_value=True):
+                self.assertEqual(context().live_snapshots(), [])
+                self.assertEqual(context(refresh=True).live_snapshots(), list(verify.SNAPSHOTS))
 
 
 class ExactSummaryTests(unittest.TestCase):

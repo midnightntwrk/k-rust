@@ -4,9 +4,10 @@
 Every K invocation (the two `kompile` runs; the 21 reference, 21 actual, and
 21 dry-run `kprove` runs, plus one residual KORE `kprove` run per incomplete
 proof; and the 21 `kore-exec` runs on the native build) goes through the
-reference snapshot `tests/imp/reference/proofs`.
-A default run replays it and needs no K tool; `--refresh-reference` runs K
-live. The stored proof results are readable: each invocation's exit status is
+reference snapshot `imp/proofs`.
+A default run replays the reference cache entry that `--reference-sha256`
+names and needs no K tool; a cache miss or `--refresh-reference` runs K live.
+The stored proof results are readable: each invocation's exit status is
 in the manifest, and its JSON result and claim are stored indented.
 The KRS native build, its split, and every classification and comparison
 always run live.
@@ -34,8 +35,8 @@ from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Snapshot, add_refresh_argument, add_staging_argument, indented_json,
-    json_without_members, reduce_kore_exec_log, reduce_kprove_temp, repository_inputs, snapshot_directory,
+    Key, Output, Snapshot, add_child_arguments, add_refresh_argument, indented_json,
+    json_without_members, reduce_kore_exec_log, reduce_kprove_temp, repository_inputs,
 )
 from support.tools import checkout_scratch, k_executable, k_tool, z3_environment  # noqa: E402
 
@@ -60,7 +61,6 @@ ADJUNCT_NAMES = frozenset(
     {"total-equation", "partial-equation", "explicit-priority", "static-alias", "context-alias"}
 )
 SUM_SPEC_NAMES = frozenset({"sum-spec", "two-sum-spec"})
-REFERENCE = ROOT / "tests/imp/reference/proofs"
 TOOLS = ("kompile", "kprove", "kore-exec")
 SOURCE_LOCATIONS = ("org.kframework.attributes.Source", "org.kframework.attributes.Location")
 
@@ -219,7 +219,7 @@ def compile_definitions(
         process = outcome.get()
         if process.returncode != 0:
             raise GateError(f"{label} failed: {compact(process)}")
-    if k.refresh:
+    if k.live:
         for definition in (actual_definition, reference_definition):
             for name in ("definition.kore", "parsed.json", "compiled.json"):
                 if not definition.joinpath(name).is_file():
@@ -395,7 +395,7 @@ def native_proof(
     result = workspace / "native-results" / f"{case['name']}.kore"
     result.parent.mkdir(exist_ok=True)
     # kore-exec is keyed by the digests of the native definition and claim
-    # KORE that KRS built, so a change to the native lowering needs a refresh.
+    # KORE that KRS built, so a change to the native lowering changes the pinned digest.
     process = k.run(
         f"kore-exec/{case['name']}", "kore-exec",
         [
@@ -462,7 +462,7 @@ def main() -> int:
     parser.add_argument("--k-commit", required=True, help="the Krs.lock K commit")
     parser.add_argument("--krs", type=Path, required=True, help="the KRS CLI the IMP gate built")
     add_refresh_argument(parser)
-    add_staging_argument(parser)
+    add_child_arguments(parser)
     arguments = parser.parse_args()
     pins_path = arguments.pins.resolve(strict=True)
     workspace = arguments.workspace.resolve()
@@ -475,9 +475,8 @@ def main() -> int:
     if arguments.k_version != lock.k_version() or arguments.k_commit != lock.k_commit():
         raise GateError("--k-version and --k-commit must name the Krs.lock K release")
     verify_checkout(IMP, revisions["imp"]["commit"], label="IMP", clean=False)
-    refresh = arguments.refresh_reference
-    executables = None
-    if refresh:
+
+    def tools() -> dict[str, str]:
         # Only a live run reads the K installation.
         verify_checkout(K, arguments.k_commit, label="K", clean=False)
         executables = {
@@ -488,8 +487,10 @@ def main() -> int:
         kore = run([executables["kore-exec"], "--version"], timeout=30).stdout.strip()
         if kore != lock.value("k", "kore_exec_version"):
             raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
+        return executables
+
     k = Snapshot(
-        snapshot_directory(REFERENCE, refresh, arguments.reference_staging),
+        "imp/proofs",
         Key(
             tools=TOOLS,
             upstream={
@@ -498,7 +499,8 @@ def main() -> int:
             },
             inputs=repository_inputs([REFERENCE_SOURCE, ADJUNCT_SPEC]),
         ),
-        workspace=workspace, refresh=refresh, executables=executables,
+        workspace=workspace, refresh=arguments.refresh_reference, expected=arguments.reference_sha256,
+        staging=arguments.reference_staging, tools=tools,
     )
 
     workers = worker_count("KRS_IMP_ORACLE_WORKERS", 4)
@@ -623,8 +625,8 @@ def main() -> int:
             raise GateError("native proof coverage is incomplete")
 
         # The gate requires the exact PASS summary and nothing else, so the
-        # snapshot's report line is not printed; a staged refresh is reported
-        # when the gate promotes it.
+        # snapshot's report line is not printed; the gate reports the staged
+        # snapshot when it promotes it.
         k.finish()
         print(
             "PASS IMP proofs: reference_source=21 actual_source=21 "

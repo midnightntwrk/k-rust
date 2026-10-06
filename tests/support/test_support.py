@@ -227,7 +227,7 @@ class ToolTests(unittest.TestCase):
                 with self.assertRaisesRegex(GateError, "krun is not pinned to K v7.1.337"):
                     tools.k_tool("krun", "7.1.337")
                 self.assertIsNone(tools.find_k_tool("kast"))
-                with self.assertRaisesRegex(GateError, "required K tool 'kast' is unavailable"):
+                with self.assertRaisesRegex(GateError, "required K tool 'kast' is not in KRS_K_BIN=.*; install K v.* or set KRS_K_BIN"):
                     tools.k_executable("kast")
 
     def test_k_version_match_requires_success_and_the_pinned_version(self) -> None:

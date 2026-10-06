@@ -19,5 +19,9 @@
     "semantic-ir.json": "cb8833936ad40dddd6720f886aa1c3c8987f25655bab15365811b85def3833b8",
     "sources.json": "4a3079273d9f44f7e3186f76798ff7170f20359f8e7faa9ad9a96349822b76d9",
     "symbols.json": "0f881d571b6083f95c8a66e7b036ecdd6f93c93a02b4967a3153262acdd8eed9"
+  },
+  "reference_sha256": {
+    "execution": "2d7fae7c31b953bfc8e364e29acbf5b5ec8f33ed4d9b8fdeeff4f7c612b4c838",
+    "dollar-id-claims": "d0bf031205cc9bfab1d325560560f0c3b07bde1371d6e08c765cc7a08768f033"
   }
 }

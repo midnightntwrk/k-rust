@@ -190,5 +190,8 @@
   },
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
+  },
+  "reference_sha256": {
+    "oracle": "a005d87cf3df1c6e2b4db3b8365cf8d412f0109443939fed9cca3db143a03b48"
   }
 }

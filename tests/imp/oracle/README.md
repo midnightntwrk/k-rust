@@ -17,7 +17,7 @@ KAST output must be read and normalized through k-rust's readers in krs-gate.
    Unknown structure must fail before behavior comparison.
 2. Construct `behavior.Route` values from the compiled source definitions and the pin's term-policy side tables.
    Construct a `BehaviorPlan` from the checked corpus manifest and call `behavior.compare_behavior(k=..., workspace=..., gate=..., reference=..., actual=..., plan=...)`.
-   `k` is the reference snapshot (`support.reference.Snapshot`) that replays or refreshes every `kast` and `krun` invocation; `workspace` must be a new directory inside the snapshot's workspace.
+   `k` is the reference snapshot (`support.reference.Snapshot`) that replays or runs live every `kast` and `krun` invocation; `workspace` must be a new directory inside the snapshot's workspace.
    The comparison must use one session for `kast.normalize` with the `behavior` variant and `kast.frontier` with the `search_set` action.
 3. Construct one `proofs.ProofCase` per invocation with explicit `ProofBounds(depth, branching_allowed)`.
    The proof runner must own and terminate each complete process group on timeout.

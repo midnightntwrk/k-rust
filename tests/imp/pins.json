@@ -2166,5 +2166,13 @@
     "definition.kore": "8ae4c3378ea77d522ac1829cdba2cecf7825c72ece4e031100e51c2a72989d0f",
     "macros.kore": "3f6ba528758f62496fe19ab44ba8a483b8114740b5f6f99b4e4c47928269e8b8",
     "syntaxDefinition.kore": "2822ee63a661354334d9b89df3014d200d4473973ba885b9460df22973345d15"
+  },
+  "reference_sha256": {
+    "kompile-tests": "1b5db88b43f7e31fb38a025f958f7086dfe16506e8d5d13757052234f9711c0a",
+    "source-definitions": "96d6c008011766e381e7ab850d05fcac23932cf723ff351a6ef90d0c6b7e7b20",
+    "native-claims": "65653d79c82dcbfcce3105e986ad95b70f8ef601cc2c50e0c80fd1edd4646d29",
+    "behavior": "2939b868667993f88890ff06c691640c7372ffff88da59011ca2cae5b4bce6fe",
+    "proofs": "39303deb34b3ffa601c268883d13e2713836a3af558a70719a2b9b12baf44226",
+    "frontend-diagnostic": "f0be4b7d22fb678249bf1c3932b0ef12302fd5a69822afb083ac40be3663a426"
   }
 }

@@ -3,8 +3,8 @@
 This directory freezes the external acceptance contract for the third explicit IMP vertical slice.
 The verifier reads the KAST JSON output of the pinned K command-line tools through k-rust's reader in krs-gate.
 Oracle independence rests on Java K having produced that output:
-by default the verifier replays the Java K results recorded in `reference/oracle/`,
-and `--refresh-reference` runs the pinned K tools live and re-records them.
+by default the verifier replays the Java K results of the reference snapshot `oracle` from the per-user reference cache,
+and runs the pinned K tools live when the cache does not hold them or under `--refresh-reference`.
 Neither the handwritten definition nor the corpus may import a KRS crate or KRS-generated artifact.
 
 `fixtures/imp.k` layers directly on `tests/imp-state/fixtures/calc.k` with an ordinary
@@ -97,25 +97,30 @@ Run exactly:
 PYTHONDONTWRITEBYTECODE=1 python3 tests/imp-control-flow/verify.py
 ```
 
-By default the verifier needs no K tool.
-It replays the recorded Java K invocations in `reference/oracle/`, whose `manifest.toml` holds the snapshot key
+With a warm reference cache the verifier needs no K tool.
+`pins.json` `reference_sha256.oracle` pins the manifest digest of the snapshot, and the verifier replays the cache entry stored under it
+(`tests/support/reference.py`; `${XDG_CACHE_HOME:-~/.cache}/krs/reference-outputs/v1` by default).
+The manifest holds the snapshot key
 (the `Krs.lock` K version, the K tools, and the digest of every fixture and corpus file)
 and the digest of every stored file.
 The stored `parsed.json` and `compiled.json` keep every module and sentence but omit the metadata attributes
 (source locations, install paths, and production identifiers) that the normalized definition hashes remove,
 and list each module's `localSentences` and `imports` in sorted order,
 because K writes both in an order that varies between runs and checkouts and every check reads them as sets.
-A changed fixture, corpus file, K version, or argument vector fails closed and names `--refresh-reference`;
-the verifier never falls back to running Java K.
+A cached entry whose key or argument vectors differ from the current ones fails closed;
+the verifier never falls back from a cached entry to running Java K.
 
-To re-record the snapshot, put the pinned K 7.1.337 `bin` directory on `PATH` and run:
+When the cache does not hold the pinned entry, the verifier runs the pinned K 7.1.337 tools live, from `KRS_K_BIN` or `PATH`,
+and fails closed naming a missing tool.
+The live result must reproduce the pinned digest, and it is stored only when every check passes.
+After an intended change to a fixture, a corpus file, or the K version, re-record the pins with the K tools available:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 tests/imp-control-flow/verify.py --refresh-reference
+PYTHONDONTWRITEBYTECODE=1 python3 tests/imp-control-flow/verify.py --refresh-reference --record
 ```
 
-The refresh reruns every recorded invocation live and rewrites `reference/oracle/` only when every check passes.
-`--record` rewrites output pins in `pins.json`; it is independent of `--refresh-reference`, and the two may be combined.
+`--refresh-reference` reruns every invocation live whatever the cache holds,
+and `--record` rewrites the output pins in `pins.json`, including `reference_sha256`.
 
 On a disk-constrained host, set `KRS_IMP_CONTROL_FLOW_ORACLE_WORKERS=1` to serialize the
 same pinned checks and reduce simultaneous K scanner temporaries. The default

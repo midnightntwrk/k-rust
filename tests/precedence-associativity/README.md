@@ -12,9 +12,11 @@ Run `PYTHONDONTWRITEBYTECODE=1 python3 tests/precedence-associativity/verify.py`
 root. The verifier builds the production `krs` CLI, emits this Rust-authored
 definition, compiles it with the pinned K frontend, and checks both parses.
 
-The K frontend results are recorded in `reference/parse/`.
-By default the verifier needs no K tool and replays them;
-the snapshot is keyed by the `Krs.lock` K version, the two probe digests, and the digest of the emitted `definition.k`,
-so a change to what KRS emits fails closed and names `--refresh-reference`.
-To re-record, put the pinned K 7.1.337 `bin` directory on `PATH` and run the verifier with `--refresh-reference`;
-it rewrites the snapshot only when every check passes.
+The K frontend results form the reference snapshot `parse` (`tests/support/reference.py`),
+keyed by the `Krs.lock` K version, the two probe digests, and the digest of the emitted `definition.k`.
+`pins.json` `reference_sha256.parse` pins its manifest digest, and the verifier replays the per-user reference cache entry stored under it,
+so with a warm cache it needs no K tool.
+When the cache does not hold the entry, and under `--refresh-reference`, it runs the pinned K 7.1.337 tools live from `KRS_K_BIN` or `PATH`
+and fails closed naming a missing tool; the live result must reproduce the pin and is stored only when every check passes.
+A change to what KRS emits fails closed against a cached entry;
+after an intended change, run the verifier with `--refresh-reference --record`, which rewrites `reference_sha256` in `pins.json`.

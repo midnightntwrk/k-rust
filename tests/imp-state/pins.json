@@ -29,5 +29,8 @@
     "stuck_state_aggregate": "77047774da2678921bb571b8081932852cb252bb84c3df96b843f18015dc6df0",
     "division_error": "be844b66bf88e4092ce9822da261808118bcfd84e4cdb1b090a92271aa458dae"
   },
-  "trace_normalizer_version": 1
+  "trace_normalizer_version": 1,
+  "reference_sha256": {
+    "oracle": "6cf00db0744285608ca4059411a2121dd9ec40f52bdada11949ee48be252c885"
+  }
 }

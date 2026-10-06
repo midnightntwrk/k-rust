@@ -1,20 +1,22 @@
-"""Recorded reference-K results: committed snapshots replayed by default.
+"""Reference-K results: a per-user cache of reduced Java K evidence, pinned by digest.
 
 A reference-K (Java K) invocation is a function of the K release, the tool, its
 argument vector, the upstream revisions it reads, and the bytes of its inputs.
-None of these change between ordinary gate runs, so a gate replays a committed
-snapshot of the invocation instead of running Java K again.
+None of these change between ordinary gate runs, so a gate replays a stored
+result instead of running Java K again. A stored result is a cache entry that
+any run with the pinned K tools can regenerate, not repository content.
 
-A snapshot is one directory under the owning gate's directory.
-Its `manifest.toml` holds the key and the digest of every stored file:
+A snapshot is the evidence of the invocations one gate step runs together,
+spelled as a directory whose `manifest.toml` holds the key and the digest of
+every stored file:
 
 - the key: the K version from `Krs.lock`, the K tool names the snapshot may
   run, the upstream revisions it reads, and the digests of its declared input
   files (fixtures, corpora, and the files they `require`);
-- one `[[invocation]]` table per recorded tool run: a label, the argument
-  vector, the digest of every regular file the argument vector names (so a
-  KRS-emitted `.k` or `spec.k` is keyed by its digest), the exit status, the
-  standard stream digests, and the digests of the declared output files the
+- one `[[invocation]]` table per tool run: a label, the argument vector, the
+  digest of every regular file the argument vector names (so a KRS-emitted
+  `.k` or `spec.k` is keyed by its digest), the exit status, the standard
+  stream digests, and the digests of the declared output files the
   comparators read.
 
 A declared output, and either standard stream, may name a reducer that
@@ -37,28 +39,47 @@ Absolute paths of the gate workspace, the repository, and its parent directory
 are stored as the placeholders `{{work}}`, `{{root}}`, and `{{external}}`, and
 restored on replay, so a snapshot is independent of the checkout location.
 
-A gate opens its snapshots in one of two modes:
+The SHA-256 of `manifest.toml` names the whole snapshot, because the manifest
+holds the digest of every other file. A gate pins it in its ledger table
+`reference_sha256` (an output pin that `--record` rewrites), and the cache
+stores the snapshot under it:
 
-- replay (the default): the manifest key must equal the current key, each
-  requested invocation must have been recorded with the same argument vector
-  and input digests, every stored file must match its digest, and every
-  recorded invocation must be requested exactly once.
-  A missing snapshot or any difference fails closed and names
-  `--refresh-reference`; replay never falls back to running Java K and never
-  skips;
-- refresh (`--refresh-reference`): the pinned K tools run live, and
-  `Snapshot.finish` rewrites the snapshot from exactly the invocations that ran.
-  A gate calls `finish` only after every step passed, so a failing run leaves
-  the committed snapshot unchanged.
+    ${XDG_CACHE_HOME:-~/.cache}/krs/reference-outputs/v1/entries/<first two digits>/<digest>/
+
+`KRS_REFERENCE_CACHE_DIR` names another store directory; it must not lie in
+the repository. The store belongs to one Unix user. An entry unused for
+`KRS_REFERENCE_CACHE_MAX_UNUSED_DAYS` (30) days is deleted, at most once a day.
+
+A gate opens a snapshot in one of three ways:
+
+- hit: the cache holds a valid entry under the pinned digest. The entry's key
+  must equal the current key, each requested invocation must have been
+  recorded with the same argument vector and input digests, and every recorded
+  invocation must be requested exactly once. Any difference fails closed: the
+  pinned evidence no longer describes what the gate runs, which only an
+  intended change explains, and `--refresh-reference --record` re-records it.
+  A hit never falls back to running Java K and needs no K tool;
+- miss: no digest is pinned, or the cache holds no valid entry under it. The
+  pinned K tools run live, located on the first invocation; a missing tool
+  fails closed and says how to provide one;
+- refresh (`--refresh-reference`): the K tools run live whatever the cache holds.
+
+A live run is complete only when `Snapshot.finish` is called, which a gate
+does after every step passed. The digest of its manifest must equal the pin
+(with `--record` it becomes the pin), so a different or nondeterministic K
+installation fails instead of replacing the evidence; only then is the entry
+written, to a temporary directory in the store that is renamed into place.
+A failing run therefore stores nothing.
 
 `--refresh-reference` is distinct from `--record`: `--record` rewrites output
-pins in a gate ledger, and `--refresh-reference` rewrites reference snapshots.
-A gate accepts both together.
+pins in a gate ledger, including `reference_sha256`, and `--refresh-reference`
+reruns the K tools instead of replaying the cache. A gate accepts both together.
 
 A gate that runs a snapshot-backed helper as a child process passes it
-`--reference-staging DIR` with `--refresh-reference`: the helper writes its
-refreshed snapshot to that staging directory, and the gate's `Promotion`
-replaces the committed snapshot only after every one of its own steps passed.
+`--reference-staging DIR` and `--reference-sha256 DIGEST` (the pinned digest):
+the helper writes its finished snapshot, replayed or live, to the staging
+directory, and the gate's `Promotion` checks it against the pin and stores it
+only after every one of its own steps passed.
 """
 
 from __future__ import annotations
@@ -71,23 +92,38 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
+import time
+import tomllib
 from typing import Any, Callable, Mapping, Sequence
 
 from support import ROOT, GateError
-from support.hashing import sha256_file, sha256_text
+from support.hashing import sha256_bytes, sha256_file, sha256_text
 from support.lock import k_version
-from support.pins import load_toml
+from support.pins import Ledger
 from support.process import run
-from support.tools import k_tool
+from support.tools import install_k_advice, k_tool
 
 
 SCHEMA = 1
 MANIFEST = "manifest.toml"
+PIN_TABLE = "reference_sha256"
+"""The ledger table in which a gate pins the manifest digest of each of its snapshots."""
+CACHE_VARIABLE = "KRS_REFERENCE_CACHE_DIR"
+CACHE_LAYOUT = "v1"
+MAX_UNUSED_VARIABLE = "KRS_REFERENCE_CACHE_MAX_UNUSED_DAYS"
+DEFAULT_MAX_UNUSED_DAYS = 30.0
+PRUNE_INTERVAL_SECONDS = 86400.0
 REFRESH_OPTION = "--refresh-reference"
-REFRESH_ADVICE = f"run the gate with {REFRESH_OPTION} (Java K on PATH) to re-record it"
 STAGING_OPTION = "--reference-staging"
+DIGEST_OPTION = "--reference-sha256"
+CHANGE_ADVICE = (
+    f"if the change is intended, run the gate with {REFRESH_OPTION} --record "
+    "(with the pinned K tools) to re-record it"
+)
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*$")
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _STREAMS = ("stdout", "stderr")
 
 
@@ -99,30 +135,43 @@ def add_refresh_argument(parser: argparse.ArgumentParser) -> None:
         dest="refresh_reference",
         action="store_true",
         help=(
-            "run the pinned Java K tools live and rewrite the reference snapshots "
-            "they measured, only if every step passes"
+            "run the pinned Java K tools live instead of replaying the reference cache; "
+            "the results are stored only if every step passes"
         ),
     )
 
 
-def add_staging_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the `--reference-staging` option of a helper a gate runs as a child process."""
+def add_child_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the options a gate passes to a snapshot-backed helper it runs as a child process."""
 
     parser.add_argument(
         STAGING_OPTION,
         dest="reference_staging",
         type=Path,
-        help=(
-            f"with {REFRESH_OPTION}, write the refreshed snapshot to this directory "
-            "for the calling gate to promote, instead of rewriting the committed one"
-        ),
+        help="write the finished snapshot to this directory for the calling gate to check and store",
     )
+    parser.add_argument(
+        DIGEST_OPTION,
+        dest="reference_sha256",
+        help="the manifest digest the calling gate pins, which names the cache entry to replay",
+    )
+
+
+def child_arguments(staging: Path, pin: "Pin", refresh: bool) -> list[str]:
+    """The arguments that let a child process replay or run the snapshot `pin` names."""
+
+    expected = pin.value()
+    return [
+        STAGING_OPTION, os.fspath(staging),
+        *([DIGEST_OPTION, expected] if expected else []),
+        *([REFRESH_OPTION] if refresh else []),
+    ]
 
 
 def live_tools(names: Sequence[str]) -> dict[str, str]:
     """Locate each named K tool and require the `Krs.lock` K version.
 
-    Only a live (refresh) run calls this; replay needs no K tool.
+    Only a live run calls this; a cache hit needs no K tool.
     """
 
     return {name: k_tool(name, k_version()) for name in names}
@@ -397,92 +446,333 @@ class _Invocation:
         }
 
 
+
+def cache_root(environ: Mapping[str, str] = os.environ) -> Path:
+    """The store directory: `KRS_REFERENCE_CACHE_DIR`, or the per-user default.
+
+    The default is `${XDG_CACHE_HOME:-~/.cache}/krs/reference-outputs/v1`.
+    A store inside the repository is refused, so an entry is never committed.
+    """
+
+    explicit = environ.get(CACHE_VARIABLE)
+    if explicit:
+        root = Path(explicit).expanduser()
+    else:
+        base = environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+        root = Path(base) / "krs" / "reference-outputs" / CACHE_LAYOUT
+    root = root.absolute()
+    resolved = root.resolve()
+    if resolved == ROOT or ROOT in resolved.parents:
+        raise GateError(f"the reference cache {root} is inside the repository; set {CACHE_VARIABLE} to a directory outside it")
+    return root
+
+
+def max_unused_seconds(environ: Mapping[str, str] = os.environ) -> float:
+    value = environ.get(MAX_UNUSED_VARIABLE, "")
+    try:
+        days = float(value) if value else DEFAULT_MAX_UNUSED_DAYS
+    except ValueError as error:
+        raise GateError(f"{MAX_UNUSED_VARIABLE} must be a number of days: {value!r}") from error
+    if not days > 0:
+        raise GateError(f"{MAX_UNUSED_VARIABLE} must be positive: {value!r}")
+    return days * 86400.0
+
+
+def manifest_files(manifest: Mapping[str, Any]) -> dict[str, str]:
+    """Every file a snapshot directory holds besides its manifest, as name -> digest.
+
+    An empty standard stream is not stored. Raises `ValueError` for a
+    malformed manifest.
+    """
+
+    if manifest.get("schema") != SCHEMA:
+        raise ValueError(f"has schema {manifest.get('schema')!r}, not {SCHEMA}")
+    invocations = manifest.get("invocation", [])
+    if not isinstance(invocations, list):
+        raise ValueError("manifest invocation is not an array of tables")
+    files: dict[str, str] = {}
+    labels: set[str] = set()
+    for entry in invocations:
+        label = entry.get("label") if isinstance(entry, dict) else None
+        if not isinstance(label, str) or not _LABEL.match(label) or label in labels:
+            raise ValueError(f"manifest invocation label {label!r} is missing, invalid, or repeated")
+        labels.add(label)
+        for stream in _STREAMS:
+            digest = entry.get(stream)
+            if not isinstance(digest, str):
+                raise ValueError(f"invocation {label} has no {stream} digest")
+            if digest != sha256_text(""):
+                files[f"{label}.{stream}"] = digest
+        outputs = entry.get("outputs", {})
+        if not isinstance(outputs, dict):
+            raise ValueError(f"invocation {label} outputs are not a table")
+        for path, digest in outputs.items():
+            files[f"{label}.out.{path.rsplit('/', 1)[-1]}"] = digest
+    return files
+
+
+def snapshot_problem(files: Mapping[str, bytes]) -> str | None:
+    """Why a snapshot directory, as name -> bytes, is not complete and intact, or None."""
+
+    data = files.get(MANIFEST)
+    if data is None:
+        return f"has no {MANIFEST}"
+    try:
+        expected = manifest_files(tomllib.loads(data.decode("utf-8")))
+    except (UnicodeError, tomllib.TOMLDecodeError, ValueError) as error:
+        return f"has an unreadable manifest: {error}"
+    actual = set(files) - {MANIFEST}
+    if actual != set(expected):
+        return (
+            f"files differ from the manifest: unexpected={sorted(actual - set(expected))}, "
+            f"missing={sorted(set(expected) - actual)}"
+        )
+    for name, digest in sorted(expected.items()):
+        if sha256_bytes(files[name]) != digest:
+            return f"{name} differs from its manifest digest"
+    return None
+
+
+@dataclass(frozen=True)
+class Entry:
+    """A valid cache entry: its directory, its manifest digest, and the parsed manifest."""
+
+    directory: Path
+    digest: str
+    manifest: Mapping[str, Any]
+
+
+class Cache:
+    """The per-user store of snapshots, each under the SHA-256 of its manifest."""
+
+    def __init__(self, root: Path | None = None) -> None:
+        self.root = root if root is not None else cache_root()
+
+    def entry_path(self, digest: str) -> Path:
+        return self.root / "entries" / digest[:2] / digest
+
+    def load(self, digest: str | None) -> Entry | None:
+        """The valid entry stored under `digest`, or None; a hit marks the entry used."""
+
+        if not digest or not _DIGEST.match(digest):
+            return None
+        directory = self.entry_path(digest)
+        files = directory_files(directory)
+        if MANIFEST not in files or sha256_bytes(files[MANIFEST]) != digest or snapshot_problem(files):
+            return None
+        try:
+            os.utime(directory)
+        except OSError:
+            pass
+        return Entry(directory, digest, tomllib.loads(files[MANIFEST].decode("utf-8")))
+
+    def holds(self, digest: str | None) -> bool:
+        return self.load(digest) is not None
+
+    def store(self, files: Mapping[str, bytes]) -> str:
+        """Store a complete snapshot under its manifest digest and return the digest.
+
+        The files are written to a new directory below the store's `tmp/` and
+        renamed into place, so an interrupted store leaves no partial entry.
+        An existing valid entry is kept: equal digests mean equal contents.
+        """
+
+        problem = snapshot_problem(files)
+        if problem:
+            raise GateError(f"refusing to store an incomplete reference snapshot: it {problem}")
+        digest = sha256_bytes(files[MANIFEST])
+        if self.load(digest) is not None:
+            return digest
+        temporary_root = self.root / "tmp"
+        temporary_root.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{digest[:12]}.", dir=temporary_root))
+        try:
+            for name, data in files.items():
+                path = staging / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            final = self.entry_path(digest)
+            final.parent.mkdir(parents=True, exist_ok=True)
+            if final.exists():
+                # An invalid entry under this digest is replaced.
+                stale = final.with_name(f".{digest}.stale.{os.getpid()}.{time.time_ns()}")
+                os.rename(final, stale)
+                shutil.rmtree(stale, ignore_errors=True)
+            try:
+                os.rename(staging, final)
+            except OSError:
+                # Another process stored the same digest first.
+                if self.load(digest) is None:
+                    raise
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+        self.prune()
+        return digest
+
+    def prune(self, *, force: bool = False) -> int:
+        """Delete entries unused for the maximum unused age, at most once a day; return the count."""
+
+        stamp = self.root / "last-prune"
+        now = time.time()
+        try:
+            if not force and stamp.exists() and now - stamp.stat().st_mtime < PRUNE_INTERVAL_SECONDS:
+                return 0
+            self.root.mkdir(parents=True, exist_ok=True)
+            stamp.touch()
+        except OSError:
+            return 0
+        limit = max_unused_seconds()
+        removed = 0
+        for directory in sorted((self.root / "entries").glob("*/*")):
+            try:
+                unused = now - directory.stat().st_mtime
+            except OSError:
+                continue
+            if directory.is_dir() and unused > limit:
+                shutil.rmtree(directory, ignore_errors=True)
+                removed += 1
+        for directory in sorted((self.root / "tmp").glob("*")):
+            try:
+                if now - directory.stat().st_mtime > PRUNE_INTERVAL_SECONDS:
+                    shutil.rmtree(directory, ignore_errors=True)
+            except OSError:
+                continue
+        return removed
+
+
+@dataclass(frozen=True)
+class Pin:
+    """Where a gate pins one snapshot's manifest digest: `ledger[PIN_TABLE][name]`."""
+
+    ledger: Ledger
+    name: str
+
+    def value(self) -> str | None:
+        pinned = self.ledger.get(PIN_TABLE)
+        value = pinned.get(self.name) if isinstance(pinned, dict) else None
+        return value if isinstance(value, str) else None
+
+    def expect(self, digest: str) -> None:
+        self.ledger.expect((PIN_TABLE, self.name), digest)
+
+    def describe(self) -> str:
+        return f"{self.ledger.path.name} {PIN_TABLE}.{self.name}"
+
+
+def entry_difference(cache: Cache, expected: str | None, manifest: Mapping[str, Any]) -> str:
+    """Name what differs between the cached entry `expected` and a measured manifest."""
+
+    entry = cache.load(expected)
+    if entry is None:
+        return "the pinned entry is not in the reference cache, so the differing invocations are unknown"
+    parts = []
+    if entry.manifest.get("key") != manifest.get("key"):
+        parts.append(f"key: {describe_difference(entry.manifest.get('key'), manifest.get('key'))}")
+    recorded = {item["label"]: item for item in entry.manifest.get("invocation", [])}
+    measured = {item["label"]: item for item in manifest.get("invocation", [])}
+    labels = sorted(label for label in set(recorded) | set(measured) if recorded.get(label) != measured.get(label))
+    if labels:
+        parts.append(f"invocations {labels[:8]}{' and more' if len(labels) > 8 else ''}")
+    return "; ".join(parts) or "nothing but the manifest spelling"
+
+
+def check_pin(cache: Cache, pin: Pin | None, expected: str | None, digest: str, manifest: Mapping[str, Any], name: str) -> None:
+    """Compare a measured snapshot digest with its pin, or keep it under `--record`."""
+
+    if pin is None:
+        return
+    if not pin.ledger.record and expected is not None and digest != expected:
+        raise GateError(
+            f"reference snapshot {name}: the measured K evidence {digest} differs from its pin "
+            f"{pin.describe()}={expected} ({entry_difference(cache, expected, manifest)}); "
+            "a different or nondeterministic K installation produced it, or a reference input changed; "
+            "if the change is intended, run the gate with --record"
+        )
+    pin.expect(digest)
+
+
 class Snapshot:
-    """One snapshot directory, opened for replay or for a live refresh."""
+    """One snapshot, replayed from the reference cache or run live."""
 
     def __init__(
         self,
-        directory: Path,
+        name: str,
         key: Key,
         *,
         workspace: Path,
         refresh: bool,
-        executables: Mapping[str, str] | None = None,
+        pin: Pin | None = None,
+        expected: str | None = None,
+        staging: Path | None = None,
+        tools: Callable[[], Mapping[str, str]] | None = None,
+        cache: Cache | None = None,
     ) -> None:
-        """Open `directory`; replay checks the key now and fails closed.
+        """Open the snapshot `name`; a hit checks the entry's key now and fails closed.
 
-        A refresh needs `executables` for every tool in the key, normally from
-        `live_tools`.
+        `pin` names the gate ledger entry that holds the manifest digest;
+        a helper run as a child process gets the digest as `expected` and
+        writes its finished snapshot to `staging` instead of the cache.
+        `tools` locates the K tools of a live run (default `live_tools` for
+        the key's tools); it is called once, on the first live invocation.
         """
 
-        self.directory = directory
+        self.name = name
         self.key = key
-        self.refresh = refresh
+        self.pin = pin
+        self.expected = pin.value() if pin is not None else expected
+        self.staging = staging
+        self.cache = cache if cache is not None else Cache()
         self.placeholders = Placeholders(workspace)
         self.rendered_key = key.render()
+        self._tools = tools
+        self._executables: dict[str, str] | None = None
+        self._tool_error: GateError | None = None
         self._lock = threading.Lock()
+        self._tools_lock = threading.Lock()
         self._invocations: dict[str, _Invocation] = {}
         self._recorded: dict[str, dict[str, Any]] = {}
         self._consumed: set[str] = set()
+        self.entry: Entry | None = None
         if refresh:
-            missing = sorted(set(key.tools) - set(executables or {}))
-            if missing:
-                raise GateError(f"a reference refresh needs the K tools {', '.join(missing)}")
-            self.executables = dict(executables or {})
+            self.mode, self.reason = "refresh", f"{REFRESH_OPTION} runs the K tools live"
         else:
-            self.executables = {}
-            self._load()
+            self.entry = self.cache.load(self.expected)
+            if self.entry is not None:
+                self.mode, self.reason = "hit", f"replays the reference cache entry {self.expected}"
+                self._load(self.entry)
+            elif self.expected is None:
+                self.mode, self.reason = "miss", "no reference digest is pinned for it"
+            else:
+                self.mode = "miss"
+                self.reason = f"the reference cache {self.cache.root} holds no entry {self.expected}"
 
     @property
-    def name(self) -> str:
-        try:
-            return self.directory.relative_to(ROOT).as_posix()
-        except ValueError:
-            return os.fspath(self.directory)
+    def live(self) -> bool:
+        """Whether the K tools run live (a miss or a refresh) rather than replay."""
+
+        return self.mode != "hit"
 
     def _fail(self, problem: str) -> GateError:
-        return GateError(f"reference snapshot {self.name}: {problem}; {REFRESH_ADVICE}")
+        return GateError(f"reference snapshot {self.name}: {problem}; {CHANGE_ADVICE}")
 
-    def _load(self) -> None:
-        manifest_path = self.directory / MANIFEST
-        if not manifest_path.is_file():
-            raise self._fail("is missing")
-        manifest = load_toml(manifest_path)
-        if manifest.get("schema") != SCHEMA:
-            raise self._fail(f"has schema {manifest.get('schema')!r}, not {SCHEMA}")
-        recorded_key = manifest.get("key")
+    def _load(self, entry: Entry) -> None:
+        recorded_key = entry.manifest.get("key")
         if recorded_key != self.rendered_key:
-            raise self._fail(f"key differs: {describe_difference(recorded_key, self.rendered_key)}")
-        invocations = manifest.get("invocation", [])
-        if not isinstance(invocations, list):
-            raise self._fail("manifest invocation is not an array of tables")
-        expected_files = {MANIFEST}
-        for entry in invocations:
-            label = entry.get("label") if isinstance(entry, dict) else None
-            if not isinstance(label, str) or not _LABEL.match(label) or label in self._recorded:
-                raise self._fail(f"manifest invocation label {label!r} is missing, invalid, or repeated")
-            self._recorded[label] = entry
-            for stream in _STREAMS:
-                if entry.get(stream) != sha256_text(""):
-                    expected_files.add(f"{label}.{stream}")
-            for path in entry.get("outputs", {}):
-                expected_files.add(f"{label}.out.{path.rsplit('/', 1)[-1]}")
-        actual_files = {
-            path.relative_to(self.directory).as_posix()
-            for path in self.directory.rglob("*") if path.is_file()
-        }
-        if actual_files != expected_files:
             raise self._fail(
-                f"files differ from the manifest: unexpected={sorted(actual_files - expected_files)}, "
-                f"missing={sorted(expected_files - actual_files)}"
+                f"the pinned entry {entry.digest} was recorded for another key: "
+                f"{describe_difference(recorded_key, self.rendered_key)}"
             )
+        for item in entry.manifest.get("invocation", []):
+            self._recorded[item["label"]] = item
 
     def _stored_text(self, name: str, digest: str) -> str:
         if digest == sha256_text(""):
             return ""
-        text = (self.directory / name).read_text(encoding="utf-8")
+        assert self.entry is not None
+        text = (self.entry.directory / name).read_text(encoding="utf-8")
         if sha256_text(text) != digest:
-            raise self._fail(f"{name} differs from its manifest digest")
+            raise GateError(f"reference cache entry {self.entry.directory}: {name} changed while it was replayed")
         return text
 
     def _normalize_argv(self, argv: Sequence[str]) -> list[str]:
@@ -498,6 +788,26 @@ class Snapshot:
             if path.is_absolute() and path.is_file():
                 digests[self.placeholders.store(argument)] = sha256_file(path)
         return digests
+
+    def _live_executables(self) -> Mapping[str, str]:
+        """Locate the K tools once, on the first live invocation, or fail closed."""
+
+        with self._tools_lock:
+            if self._tool_error is not None:
+                raise self._tool_error
+            if self._executables is None:
+                try:
+                    found = dict(self._tools() if self._tools is not None else live_tools(self.key.tools))
+                    missing = sorted(set(self.key.tools) - set(found))
+                    if missing:
+                        raise GateError(f"the K tools {', '.join(missing)} are unavailable; {install_k_advice()}")
+                except GateError as error:
+                    self._tool_error = GateError(
+                        f"reference snapshot {self.name}: {self.reason}, so its K invocations must run live: {error}"
+                    )
+                    raise self._tool_error from error
+                self._executables = found
+            return self._executables
 
     def run(
         self,
@@ -539,14 +849,15 @@ class Snapshot:
             if label in self._consumed:
                 raise GateError(f"reference invocation label {label} is used twice")
             self._consumed.add(label)
-        if self.refresh:
-            return self._run_live(label, tool, resolved, argv, inputs, timeout, declared, prefix, reducers)
-        return self._replay(label, argv, inputs, [output.path for output in declared])
+        if not self.live:
+            return self._replay(label, argv, inputs, [output.path for output in declared])
+        executable = self._live_executables()[tool]
+        return self._run_live(label, executable, resolved, argv, inputs, timeout, declared, prefix, reducers)
 
     def _run_live(
         self,
         label: str,
-        tool: str,
+        executable: str,
         resolved: list[str],
         argv: list[str],
         inputs: dict[str, str],
@@ -561,7 +872,7 @@ class Snapshot:
             if wrapper is None:
                 raise GateError(f"the wrapper command {command[0]} is unavailable")
             command[0] = wrapper
-        command = [*command, self.executables[tool], *resolved]
+        command = [*command, executable, *resolved]
         process = run(command, timeout=timeout, check=False)
         stored_outputs = {}
         for output in outputs:
@@ -594,7 +905,7 @@ class Snapshot:
     ) -> subprocess.CompletedProcess[str]:
         entry = self._recorded.get(label)
         if entry is None:
-            raise self._fail(f"has no recorded invocation {label}")
+            raise self._fail(f"the pinned entry has no recorded invocation {label}")
         if entry.get("argv") != argv:
             raise self._fail(
                 f"invocation {label} was recorded for another argument vector: "
@@ -630,21 +941,35 @@ class Snapshot:
     def finish(self) -> str:
         """Complete the snapshot after every gate step passed; return a report line.
 
-        Replay requires that every recorded invocation was requested.
-        A refresh rewrites the directory from exactly the invocations that ran.
+        A hit requires that every recorded invocation was requested. A live
+        run checks its manifest digest against the pin and only then stores
+        the snapshot in the cache, or in the staging directory of a child.
         """
 
-        if not self.refresh:
+        if not self.live:
+            assert self.entry is not None
             unused = sorted(set(self._recorded) - self._consumed)
             if unused:
                 raise self._fail(f"recorded invocations were not requested: {unused}")
-            return f"replayed {len(self._consumed)} recorded invocations from {self.name}"
-        changed = self.write()
-        state = "rewrote" if changed else "already matched"
-        return f"refreshed {len(self._invocations)} invocations; {state} {self.name}"
+            if self.pin is not None:
+                self.pin.expect(self.entry.digest)
+            if self.staging is not None:
+                replace_directory(self.staging, directory_files(self.entry.directory))
+            return f"{self.name}: replayed {len(self._consumed)} invocations from the reference cache entry {self.entry.digest[:12]}"
+        files = {name: text.encode("utf-8") for name, text in self.render().items()}
+        digest = sha256_bytes(files[MANIFEST])
+        manifest = tomllib.loads(files[MANIFEST].decode("utf-8"))
+        check_pin(self.cache, self.pin, self.expected, digest, manifest, self.name)
+        if self.staging is not None:
+            replace_directory(self.staging, files)
+            stored = f"staged {digest[:12]} for the calling gate"
+        else:
+            self.cache.store(files)
+            stored = f"stored the reference cache entry {digest[:12]}"
+        return f"{self.name}: ran {len(self._invocations)} invocations live ({self.reason}); {stored}"
 
     def render(self) -> dict[str, str]:
-        """The complete refreshed directory as file name -> text."""
+        """The complete snapshot of a live run as file name -> text."""
 
         files: dict[str, str] = {}
         entries = []
@@ -658,14 +983,6 @@ class Snapshot:
         manifest = {"schema": SCHEMA, "key": self.rendered_key, "invocation": entries}
         files[MANIFEST] = dump_manifest(manifest)
         return files
-
-    def write(self) -> bool:
-        """Replace the snapshot directory with the refreshed one; return whether it changed."""
-
-        if not self.refresh:
-            raise GateError("only a refresh can write a reference snapshot")
-        files = {name: text.encode("utf-8") for name, text in self.render().items()}
-        return replace_directory(self.directory, files)
 
 
 def directory_files(directory: Path) -> dict[str, bytes]:
@@ -700,38 +1017,30 @@ def replace_directory(directory: Path, files: Mapping[str, bytes]) -> bool:
     return True
 
 
-def snapshot_directory(committed: Path, refresh: bool, staging: Path | None) -> Path:
-    """Where a helper opens its snapshot: the staging directory only for a staged refresh."""
-
-    if staging is None:
-        return committed
-    if not refresh:
-        raise GateError(f"{STAGING_OPTION} requires {REFRESH_OPTION}")
-    return staging
-
-
 @dataclass(frozen=True)
 class Promotion:
-    """A snapshot a child process refreshed into `staged`, promoted by the calling gate.
+    """A snapshot a child process finished into `staged`, checked and stored by the calling gate.
 
     `finish` has the same contract as `Snapshot.finish`: the gate calls it only
-    after every step passed, and only then is the committed snapshot rewritten.
+    after every step passed, and only then is the snapshot stored in the cache.
     """
 
     staged: Path
-    committed: Path
+    name: str
+    pin: Pin
+    cache: Cache | None = None
 
     def finish(self) -> str:
+        cache = self.cache if self.cache is not None else Cache()
         files = directory_files(self.staged)
-        if MANIFEST not in files:
-            raise GateError(f"the refreshed snapshot {self.staged} has no {MANIFEST}")
-        changed = replace_directory(self.committed, files)
-        try:
-            name = self.committed.relative_to(ROOT).as_posix()
-        except ValueError:
-            name = os.fspath(self.committed)
-        state = "rewrote" if changed else "already matched"
-        return f"promoted a child refresh; {state} {name}"
+        problem = snapshot_problem(files)
+        if problem:
+            raise GateError(f"the child's reference snapshot {self.name} in {self.staged} {problem}")
+        digest = sha256_bytes(files[MANIFEST])
+        manifest = tomllib.loads(files[MANIFEST].decode("utf-8"))
+        check_pin(cache, self.pin, self.pin.value(), digest, manifest, self.name)
+        cache.store(files)
+        return f"{self.name}: checked the child's snapshot against its pin; the reference cache holds entry {digest[:12]}"
 
 
 def describe_difference(recorded: Any, current: Any) -> str:

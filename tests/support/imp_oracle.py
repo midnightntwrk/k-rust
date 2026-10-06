@@ -19,14 +19,14 @@ from support.lock import k_version
 from support.pins import Ledger
 from support.process import compact, run
 from support.reference import (
-    Key, Output, Snapshot, add_refresh_argument, json_sorted_lists, json_without_members, repository_inputs,
+    Key, Output, Pin, Snapshot, add_refresh_argument, json_sorted_lists, json_without_members, repository_inputs,
 )
 from support.report import Results
-from support.tools import checkout_scratch, find_k_tool, k_version_matches, z3_environment
+from support.tools import checkout_scratch, find_k_tool, install_k_advice, k_version_matches, z3_environment
 
 
 TOOLS = ("kompile", "kast", "kparse", "krun")
-"""The Java K commands the oracle runs live under `--refresh-reference`."""
+"""The Java K commands the oracle runs live on a reference cache miss or `--refresh-reference`."""
 
 DEFINITION_METADATA = (
     "org.kframework.attributes.Source",
@@ -276,22 +276,28 @@ def verify_pins(spec: Spec, results: Results, pins: Ledger) -> None:
 
 
 def verify_tools(results: Results) -> dict[str, str]:
-    """Find and version-check the four Java K commands for a live refresh."""
+    """Find and version-check the four Java K commands for a live run.
+
+    The snapshot calls this on its first live invocation; a missing or
+    misversioned tool is reported here and then fails that invocation.
+    """
 
     tools: dict[str, str] = {}
     for name in TOOLS:
         executable = find_k_tool(name)
         if executable is None:
-            results.add(f"tool_{name}", "FAIL", "not found on PATH")
+            results.add(f"tool_{name}", "FAIL", f"not found in KRS_K_BIN or on PATH; {install_k_advice()}")
             continue
         version = run([executable, "--version"], timeout=30, check=False)
         output = "\n".join((version.stdout, version.stderr))
+        matches = k_version_matches(version, k_version())
         results.add(
             f"tool_{name}",
-            "PASS" if k_version_matches(version, k_version()) else "FAIL",
+            "PASS" if matches else "FAIL",
             output.strip().splitlines()[0] if output.strip() else "empty version output",
         )
-        tools[name] = executable
+        if matches:
+            tools[name] = executable
     return tools
 
 
@@ -638,8 +644,9 @@ def reference_oracle(
 def main(spec: Spec, kast: KAST) -> int:
     """Run a strict IMP oracle and finish its ledger and snapshot only after every check passes.
 
-    The Java K observations come from the committed snapshot under
-    `reference/oracle`; `--refresh-reference` runs Java K live instead.
+    The Java K observations replay the reference cache entry that
+    `reference_sha256.oracle` pins; a cache miss or `--refresh-reference`
+    runs Java K live instead.
     """
 
     parser = argparse.ArgumentParser(description=f"{spec.label} gate")
@@ -650,14 +657,14 @@ def main(spec: Spec, kast: KAST) -> int:
     pins = Ledger(spec.pins_path, record=arguments.record)
     binary = krs_gate.configured_or_build(checkout_scratch() / f"{spec.here.name}-root-target")
     verify_pins(spec, results, pins)
-    executables = verify_tools(results) if arguments.refresh_reference else None
     with krs_gate.Session(binary, environment=z3_environment()) as session:
         with tempfile.TemporaryDirectory(prefix=f"krs-{spec.here.name}-oracle-") as temporary:
             workspace = Path(temporary)
             try:
                 k = Snapshot(
-                    spec.here / "reference" / "oracle", reference_key(spec), workspace=workspace,
-                    refresh=arguments.refresh_reference, executables=executables,
+                    f"{spec.here.name}/oracle", reference_key(spec), workspace=workspace,
+                    refresh=arguments.refresh_reference, pin=Pin(pins, "oracle"),
+                    tools=lambda: verify_tools(results),
                 )
             except GateError as error:
                 results.add("reference_snapshot", "FAIL", str(error))

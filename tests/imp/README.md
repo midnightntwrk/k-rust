@@ -93,7 +93,8 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
   external file, so no external file is digested separately;
 - outputs KRS produces: the artifact and native artifact digests, the
   source-definition projection digests, the claim-free LLVM artifact digests,
-  the behavior summary, and the compatibility report digest;
+  the behavior summary, the compatibility report digest, and the manifest
+  digest of each reference snapshot (`reference_sha256`, see "Java K");
 - reviewed comparison policy: claim labels, the source-definition and term
   allowances, the native label map, and the 21 reference proof outcomes, which
   describe the upstream reference route rather than KRS output.
@@ -106,29 +107,32 @@ input or a reviewed policy value; edit those deliberately.
 
 ## Java K
 
-Every K invocation of the gate replays a committed reference snapshot by default (`tests/support/reference.py`),
-so neither a full run nor `--artifacts-only` needs a K tool, the `z3` binary, or the K source checkout.
+Every K invocation of the gate belongs to a reference snapshot (`tests/support/reference.py`).
+By default the gate replays the per-user reference cache entry that `pins.json` `reference_sha256` pins for each snapshot,
+so with a warm cache neither a full run nor `--artifacts-only` needs a K tool, the `z3` binary, or the K source checkout.
 IMP.1 requires the Rust toolchain, `git`, and `rust-analyzer` (for the live LSP probes of IMP.2 and IMP.8) on every run.
 Every KRS step stays live: the builds, the emitted and native artifacts, the native KORE comparator,
 krs-gate's normalization, projection, frontier, and proof classification, and the native proof split.
 
-Each snapshot is one directory under `reference/`:
+The gate pins one snapshot per layer:
 
-- `kompile-tests/` (IMP.2): `kompile` of the canonical sources the `control_flow_lowering` and `fixed_state_lowering` kompile tests export through `KRS_REFERENCE_EXPORT_DIR`, keyed by each exported source;
-- `source-definitions/` (IMP.4): the Haskell and LLVM `kompile` runs of the upstream reference (the static adjunct over upstream IMP) and of the emitted `definition.k`.
+- `kompile-tests` (IMP.2): `kompile` of the canonical sources the `control_flow_lowering` and `fixed_state_lowering` kompile tests export through `KRS_REFERENCE_EXPORT_DIR`, keyed by each exported source;
+- `source-definitions` (IMP.4): the Haskell and LLVM `kompile` runs of the upstream reference (the static adjunct over upstream IMP) and of the emitted `definition.k`.
   It stores the `parsed.json` and `compiled.json` of both Haskell definitions and the actual `definition.kore` IMP.5 compares;
-- `native-claims/` (IMP.5): `kprove --dry-run` on the emitted claims, storing the `spec.kore` the native comparator merges.
+- `native-claims` (IMP.5): `kprove --dry-run` on the emitted claims, storing the `spec.kore` the native comparator merges.
   The spec module imports only the emitted definition: the emitted claims spell every `Id` token as `#token`, so they need no upstream `Id` syntax;
-- `behavior/` (IMP.6): every `kast` and `krun` run of both routes, storing their output;
-- `proofs/` (IMP.7): the two `kompile` runs, the 21 reference, 21 actual, and 21 dry-run `kprove` runs, the residual KORE `kprove` run of each incomplete proof, and the 21 `kore-exec` runs on the native build.
+- `behavior` (IMP.6): every `kast` and `krun` run of both routes, storing their output;
+- `proofs` (IMP.7): the two `kompile` runs, the 21 reference, 21 actual, and 21 dry-run `kprove` runs, the residual KORE `kprove` run of each incomplete proof, and the 21 `kore-exec` runs on the native build.
   Each proof's exit status is in the manifest, and its JSON result and emitted claim are stored one member per line, without source locations, so a proof result reads and diffs as text;
-- `frontend-diagnostic/` (IMP.8): the `kompile` run of the K frontend probe's induced spec failure.
+- `frontend-diagnostic` (IMP.8): the `kompile` run of the K frontend probe's induced spec failure.
 
 The reference side of each snapshot is keyed by the `Krs.lock` K version, the upstream IMP revision, and the static adjunct fixture.
 The actual side is keyed by the digest of the emitted `definition.k`, which IMP.3 pins,
 and by the digest of every file the invocation's argument vector names, such as `spec.k`, a generated execution input, or the native `definition.kore`.
 `kore-exec` is keyed by the `Krs.lock` kore-exec version and the native definition and claim KORE that KRS built.
-A change to what KRS emits or builds therefore fails closed at the first stale invocation and names `--refresh-reference`; replay never falls back to a live tool and never skips a layer.
+A cached entry that no longer matches what KRS emits or builds therefore fails closed at the first stale invocation;
+after an intended change, run the gate with `--refresh-reference --record`, which reruns Java K and re-pins the digests.
+Replay never falls back to a live tool and never skips a layer.
 
 The stored evidence is reduced only where no comparator reads the difference, and a live run hands the comparators the same reduced text:
 the definitions omit the metadata attributes krs-gate removes and list each module's `localSentences` and `imports` in sorted order,
@@ -138,18 +142,18 @@ and `spec.kore` lists its claims in sorted order, because K writes all of these 
 krs-gate's projection reads a module's imports and sentences as sets, and its KORE comparator reads sentences as an alpha-normalized multiset, so none of these orders is evidence;
 the install path of K's prelude, the name of `kprove`'s directory under `--temp-dir`, and the run-dependent number of each `kore-exec` log line are replaced by fixed text.
 
-`--refresh-reference` runs every recorded invocation live instead.
-It requires the K tools (`kompile`, `kast`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) at the `Krs.lock` versions,
-the `z3` binary, and the clean K source checkout, and it rewrites only the snapshots it measured, only when every layer passed.
-The proof harness and the K frontend probe run as child processes; a refresh stages their snapshots in the gate workspace,
-and the gate promotes them with its own snapshots.
-A refresh is a full live Java K run of the gate.
-Under the host recipe below with a warm Cargo target it took 7.5 to 11 minutes, against under a minute for a replaying run,
-and it needs memory for `KRS_IMP_ORACLE_WORKERS` concurrent JVMs.
+A snapshot the cache does not hold, and every snapshot under `--refresh-reference`, runs Java K live.
+IMP.1 then requires the K tools (`kompile`, `kast`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) at the `Krs.lock` versions, in `KRS_K_BIN` or on `PATH`,
+the `z3` binary, and the clean K source checkout, and names the missing tool otherwise.
+A live snapshot must reproduce its pinned digest, and it is stored in the cache only when every layer passed.
+The proof harness and the K frontend probe run as child processes; each stages its finished snapshot in the gate workspace,
+and the gate checks it against the pin and stores it with its own snapshots.
+With an empty cache the run is a full live Java K run of the gate, and it needs memory for `KRS_IMP_ORACLE_WORKERS` concurrent JVMs.
+Under the host recipe below with a warm Cargo target, on a loaded 32-core host, a cold-cache run took about 6.5 minutes,
+against under 30 seconds with a warm cache (about 4 minutes when the Cargo target is cold as well).
 Under heavy machine load, the live LLVM division-by-zero execution of IMP.6 can reach its eight-second watchdog before it prints the hook diagnostic;
-that refresh then fails and writes nothing, and a rerun on a less loaded machine passes.
-It may be combined with `--artifacts-only`, which then refreshes only the IMP.2 snapshot, and with `--record`.
-Run it after an intended change to an emitted or native artifact, a K or upstream revision change, or a change to an argument vector, and review the snapshot diff with the output pins.
+that run then fails and stores nothing, and a rerun on a less loaded machine passes.
+`--refresh-reference` may be combined with `--artifacts-only`, which then reruns only the `kompile-tests` snapshot, and with `--record`.
 
 ## Proof policy
 
@@ -187,8 +191,8 @@ PYTHONDONTWRITEBYTECODE=1 \
 python3 tests/imp/verify.py
 ```
 
-`K_OPTS` matters only to a `--refresh-reference` run, the one that starts Java K.
-In a refresh, each worker runs one `kast`, `krun`, `kprove`, or `kore-exec` process at a
+`K_OPTS` matters only to a run that starts Java K: a cache miss or `--refresh-reference`.
+In such a run, each worker runs one `kast`, `krun`, `kprove`, or `kore-exec` process at a
 time, so the worker count bounds the number of concurrent JVMs and should be
 sized to the memory available, not only to the core count.
 
@@ -196,7 +200,7 @@ A memory-bounded environment uses the single-worker recipe below.
 The LLVM runtime reserves a sparse 2 TiB virtual region for its semispace allocator.
 This reservation does not consume 2 TiB of resident memory, but a hard `RLIMIT_AS` prevents the interpreter from starting.
 For a memory-bounded run, set only the soft address-space limit and leave its hard limit unlimited.
-In a refresh, the behavior oracle uses `prlimit` to restore the unlimited soft limit only for the two LLVM division-by-zero executions; Cargo, the K frontend, Haskell, and all proof routes retain the 12.5 GB ceiling.
+In a live run, the behavior oracle uses `prlimit` to restore the unlimited soft limit only for the two LLVM division-by-zero executions; Cargo, the K frontend, Haskell, and all proof routes retain the 12.5 GB ceiling.
 
 ```bash
 ulimit -S -v 12500000

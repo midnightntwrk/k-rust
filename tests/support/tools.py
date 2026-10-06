@@ -100,13 +100,22 @@ def find_k_tool(name: str) -> str | None:
     return shutil.which(name)
 
 
+def install_k_advice() -> str:
+    """How to provide the pinned K tools, for a message about a missing one."""
+
+    from support.lock import k_version
+
+    return (
+        f"install K v{k_version()} (the release Krs.lock pins) and put its bin directory on PATH, "
+        "or set KRS_K_BIN to that directory"
+    )
+
+
 def k_executable(name: str) -> str:
     found = find_k_tool(name)
     if found is None:
-        raise GateError(
-            f"required K tool {name!r} is unavailable; put the pinned K bin directory "
-            "on PATH or set KRS_K_BIN"
-        )
+        where = f"in KRS_K_BIN={os.environ['KRS_K_BIN']}" if os.environ.get("KRS_K_BIN") else "on PATH"
+        raise GateError(f"required K tool {name!r} is not {where}; {install_k_advice()}")
     return found
 
 

@@ -43,5 +43,8 @@
     "syntax_diagnostics": "c6773531d96d6bedfb47be29cf0c39219bd4a655a5062d4f3f29adc2646169f7"
   },
   "induced_diagnostic_sha256": "6a933c5f68605b93af7b391578e5e2da4384d183f0a9e8de08544b6ec802ee28",
-  "trace_normalizer_version": 1
+  "trace_normalizer_version": 1,
+  "reference_sha256": {
+    "oracle": "283f7703077bda00661db4f05b7724229d7cbaf50dae81681bee36e6c6e1f3b6"
+  }
 }

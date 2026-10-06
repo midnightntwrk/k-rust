@@ -41,19 +41,22 @@ Negative cases cover omitted and nonexistent facets, ambiguous Cargo package
 names, an authored Cargo-check failure, and preservation of an unowned
 nonempty artifact directory. The emitted K is compiled with the LLVM backend
 and executed to prove `foo -> bar`.
-By default the oracle replays the Java K results recorded in `reference/execution/` and `reference/dollar-id-claims/`,
-keyed by the `Krs.lock` K version and the digests of the emitted `definition.k` (and, for the dry run, `spec.k`), and needs no K tool;
-a missing snapshot or a changed emitted file fails closed and names `--refresh-reference`.
-With `--refresh-reference`, `kompile`, `krun`, and `kprove` must be present at the K version `Krs.lock` pins
-(present tools at a different version are a hard mismatch and are never used),
-and the snapshots are rewritten only when every other check passes.
+The Java K results form the reference snapshots `execution` and `dollar-id-claims` (`tests/support/reference.py`),
+keyed by the `Krs.lock` K version and the digests of the emitted `definition.k` (and, for the dry run, `spec.k`).
+`pins.json` `reference_sha256` pins their manifest digests, and by default the oracle replays the per-user reference cache entries stored under them,
+so with a warm cache it needs no K tool; a cached entry whose emitted file differs fails closed.
+When the cache does not hold an entry, and under `--refresh-reference`, `kompile`, `krun`, and `kprove` run live
+and must be present, in `KRS_K_BIN` or on `PATH`, at the K version `Krs.lock` pins
+(a missing tool fails closed, and present tools at a different version are a hard mismatch and are never used);
+the live result must reproduce the pin, and it is stored only when every other check passes.
 
-`pins.json` pins the fixtures (inputs, edited deliberately) and the artifact
-digests (outputs). After an intended output change, re-record the artifact
-digests by running the oracle:
+`pins.json` pins the fixtures (inputs, edited deliberately), the artifact
+digests, and the reference snapshot digests (outputs). After an intended output
+change, re-record the artifact digests by running the oracle
+(add `--refresh-reference`, with the K tools, when the emitted K changed):
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 tests/cli/verify.py --record
 ```
 
-It rewrites `artifacts_sha256` only when every other check passes.
+It rewrites `artifacts_sha256` and `reference_sha256` only when every other check passes.

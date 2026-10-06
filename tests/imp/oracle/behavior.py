@@ -5,9 +5,9 @@ IMP state, IMP control flow, and IMP static semantics corpus paths. It does not 
 their verifiers.
 
 Every `kast` and `krun` invocation of both routes goes through one reference
-snapshot (`support.reference`): a default run replays the recorded Java K
-results, and only `--refresh-reference` runs Java K live. The KRS normalization
-and comparison of those results always runs live.
+snapshot (`support.reference`): a default run replays the cached Java K
+results its pin names, and a cache miss or `--refresh-reference` runs Java K
+live. The KRS normalization and comparison of those results always runs live.
 """
 
 from __future__ import annotations
@@ -205,7 +205,7 @@ def _execute(
         # aligned 1 TiB semispaces. RLIMIT_AS measures that reservation, not
         # resident memory, so only this LLVM route may restore the inherited
         # unlimited soft address-space limit.
-        prefix = _without_address_space_limit(k.refresh)
+        prefix = _without_address_space_limit(k.live)
     if kill_after is not None:
         prefix = ("timeout", "--signal=KILL", f"{kill_after}s", *prefix)
         timeout = kill_after + 7

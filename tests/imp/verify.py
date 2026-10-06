@@ -38,11 +38,11 @@ from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.imp_oracle import reduce_stored_definition  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Promotion, STAGING_OPTION, Snapshot, add_refresh_argument,
+    Cache, Key, Output, Pin, Promotion, Snapshot, add_refresh_argument, child_arguments,
     reduce_kprove_temp, reduce_store_paths, renumbered_kore_generated_variables, repository_inputs,
     sorted_kore_claims, sorted_kore_imports,
 )
-from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, k_executable, k_version_matches, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -62,8 +62,10 @@ EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
 REPLACED_K_TAIL_CELLS = ["k"]
 PRESERVED_MAP_REMAINDER_CELLS = ["env"]
-REFERENCE = HERE / "reference"
-KOMPILE_TESTS_REFERENCE = REFERENCE / "kompile-tests"
+SNAPSHOTS = ("kompile-tests", "source-definitions", "native-claims", "behavior", "proofs", "frontend-diagnostic")
+"""The reference snapshots, each pinned in `pins.json` `reference_sha256`, in layer order."""
+ARTIFACT_SNAPSHOTS = ("kompile-tests",)
+"""The snapshots of IMP.1-IMP.3, the only ones `--artifacts-only` opens."""
 KOMPILE_TEST_COUNT = 2
 UPSTREAM_IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
 UPSTREAM_DEFINITION = UPSTREAM_IMP / "src/kimp/kdist/imp-semantics"
@@ -87,8 +89,10 @@ BASE_TOOLS = ("cargo", "rustc", "rustfmt", "clippy-driver", "git")
 """Tools every run needs: the Rust checks and the checkout verification."""
 LSP_TOOLS = ("rust-analyzer",)
 """The live LSP probes of IMP.2 (and IMP.8) start rust-analyzer from PATH."""
-JAVA_TOOLS = ("kompile", "kast", "krun", "kprove", "kore-exec", "llvm-kompile", "z3")
-"""The pinned K toolchain and the solver its Haskell backend starts."""
+K_TOOLS = ("kompile", "kast", "krun", "kprove", "kore-exec", "llvm-kompile")
+"""The pinned K toolchain, located in `KRS_K_BIN` or on PATH."""
+SOLVER_TOOLS = ("z3",)
+"""The solver the Haskell backend starts from PATH."""
 
 
 def require_exact_summary(
@@ -120,11 +124,14 @@ class Context:
     workspace: Path
     target: Path
     refresh: bool = False
-    """Whether the run refreshes the reference snapshots, running Java K live."""
+    """Whether `--refresh-reference` runs Java K live whatever the reference cache holds."""
+    artifacts_only: bool = False
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     snapshots: list[Snapshot | Promotion] = field(default_factory=list)
     """Reference snapshots to finish once every layer passed."""
+    java: dict[str, str] | None = None
+    """The qualified live Java K toolchain, located once when a snapshot first runs live."""
 
     def upstream(self) -> dict[str, str]:
         """The upstream revision every IMP.4-IMP.8 snapshot reads."""
@@ -132,40 +139,66 @@ class Context:
         revisions = table(self.pins.get("revisions"), "pins.revisions")
         return {"imp": str(table(revisions.get("imp"), "revisions.imp").get("commit"))}
 
-    def snapshot(self, name: str, tools: tuple[str, ...], inputs: Mapping[str, Path]) -> Snapshot:
-        """Open the layer snapshot `reference/<name>` and finish it with the gate."""
+    def pin(self, name: str) -> Pin:
+        return Pin(self.pins, name)
+
+    def live_snapshots(self) -> list[str]:
+        """The snapshots this run will run live: every one under a refresh, else the cache misses."""
+
+        names = ARTIFACT_SNAPSHOTS if self.artifacts_only else SNAPSHOTS
+        if self.refresh:
+            return list(names)
+        cache = Cache()
+        return [name for name in names if not cache.holds(self.pin(name).value())]
+
+    def java_tools(self) -> dict[str, str]:
+        """Locate and qualify the live Java K toolchain and the K checkout, once."""
+
+        if self.java is None:
+            # The K source checkout qualifies only the live toolchain.
+            verify_checkout(ROOT.parent / "inspirations/runtimeverification/k", lock.k_commit(), label="k")
+            tools = {name: k_executable(name) for name in K_TOOLS}
+            tools.update({name: executable(name) for name in SOLVER_TOOLS})
+            verify_java_tools(tools)
+            self.java = tools
+        return self.java
+
+    def snapshot(
+        self, name: str, tools: tuple[str, ...], inputs: Mapping[str, Path] | None = None, *, upstream: bool = True,
+    ) -> Snapshot:
+        """Open the layer snapshot `name` and finish it with the gate."""
 
         snapshot = Snapshot(
-            REFERENCE / name, Key(tools=tools, upstream=self.upstream(), inputs=inputs),
-            workspace=self.workspace, refresh=self.refresh,
-            executables={tool: self.tools[tool] for tool in tools} if self.refresh else None,
+            f"imp/{name}", Key(tools=tools, upstream=self.upstream() if upstream else {}, inputs=inputs or {}),
+            workspace=self.workspace, refresh=self.refresh, pin=self.pin(name),
+            tools=lambda: {tool: self.java_tools()[tool] for tool in tools},
         )
         self.snapshots.append(snapshot)
         return snapshot
 
     def child_snapshot(self, name: str) -> list[str]:
-        """The arguments that let a child process replay or refresh `reference/<name>`.
+        """The arguments that let a child process replay or run the snapshot `name`.
 
-        A refresh stages the child's snapshot in the workspace; the gate
-        promotes it only after every layer passed.
+        The child writes its finished snapshot to a staging directory in the
+        workspace; the gate checks it against the pin and stores it only
+        after every layer passed.
         """
 
-        if not self.refresh:
-            return []
         staged = self.workspace / "reference-staging" / name
-        self.snapshots.append(Promotion(staged, REFERENCE / name))
-        return ["--refresh-reference", STAGING_OPTION, os.fspath(staged)]
+        self.snapshots.append(Promotion(staged, f"imp/{name}", self.pin(name)))
+        return child_arguments(staged, self.pin(name), self.refresh)
 
 
-def required_tools(refresh: bool) -> tuple[str, ...]:
-    """The executables IMP.1 requires for the layers that will run.
+def required_tools() -> tuple[str, ...]:
+    """The executables IMP.1 requires on every run.
 
     IMP.2 always runs its LSP probes. Every K invocation of IMP.2 and
-    IMP.4-IMP.8 replays a recorded snapshot, so the K tools and the solver are
-    required only by a refresh.
+    IMP.4-IMP.8 replays the reference cache entry its snapshot pins, so the K
+    tools and the solver are required only by a snapshot that runs live
+    (`Context.java_tools`).
     """
 
-    return (*BASE_TOOLS, *LSP_TOOLS, *(JAVA_TOOLS if refresh else ()))
+    return (*BASE_TOOLS, *LSP_TOOLS)
 
 
 @dataclass(frozen=True)
@@ -245,10 +278,6 @@ def phase_preflight(context: Context) -> str:
         "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
         "k_rust": str(lock.value("k_rust", "commit")),
     }
-    if context.refresh:
-        # The K source checkout qualifies only the live toolchain.
-        checkouts["k"] = ROOT.parent / "inspirations/runtimeverification/k"
-        expected["k"] = lock.k_commit()
     # A clean checkout at the pinned commit fixes every input file; the gate
     # does not digest external files separately.
     for name, path in checkouts.items():
@@ -260,16 +289,29 @@ def phase_preflight(context: Context) -> str:
         if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
             raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
 
-    context.tools = {name: executable(name) for name in required_tools(context.refresh)}
-    if context.refresh:
-        verify_java_tools(context.tools)
+    context.tools = {name: executable(name) for name in required_tools()}
+    live = context.live_snapshots()
+    if live:
+        reason = "--refresh-reference" if context.refresh else "not in the reference cache"
+        try:
+            context.java_tools()
+        except GateError as error:
+            raise GateError(f"the reference snapshots {live} run Java K live ({reason}): {error}") from error
     context.environment = z3_environment()
     msrv = run(["rustc", f"+{lock.msrv()}", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith(f"rustc {lock.msrv()} "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
     native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
     lock.require_stable_at_least_msrv(native_rust)
-    java = "live Java K (refresh)" if context.refresh else "recorded Java K (no K tools required)"
+    if context.refresh:
+        java = "live Java K (refresh)"
+    elif live:
+        cached = [name for name in (ARTIFACT_SNAPSHOTS if context.artifacts_only else SNAPSHOTS) if name not in live]
+        java = f"live Java K for the reference snapshots {live} (not in the reference cache)"
+        if cached:
+            java += f", cached Java K results for {cached}"
+    else:
+        java = "cached Java K results (no K tools required)"
     return (
         f"external checkouts and files, corpus, tools, {java}, KRS schema {lock.krs_ir_schema()}, "
         f"MSRV {lock.msrv()}, and {native_rust}"
@@ -294,21 +336,17 @@ def verify_java_tools(tools: Mapping[str, str]) -> None:
 
 
 def kompile_exported_tests(context: Context, exports: Path) -> Snapshot:
-    """Compile the sources IMP.2's kompile tests exported through the recorded snapshot.
+    """Compile the sources IMP.2's kompile tests exported through the `kompile-tests` snapshot.
 
     Each exported source is keyed by its digest, so a change to what the
-    lowering emits requires `--refresh-reference`.
+    lowering emits changes the pinned reference digest.
     """
 
     requests = sorted(exports.glob("*.json"))
     sources = sorted(exports.glob("*.k"))
     if len(requests) != KOMPILE_TEST_COUNT or [path.with_suffix(".k") for path in requests] != sources:
         raise GateError(f"kompile tests exported {[path.name for path in sorted(exports.iterdir())]}")
-    executables = {"kompile": context.tools["kompile"]} if context.refresh else None
-    snapshot = Snapshot(
-        KOMPILE_TESTS_REFERENCE, Key(tools=("kompile",)), workspace=context.workspace,
-        refresh=context.refresh, executables=executables,
-    )
+    snapshot = context.snapshot("kompile-tests", ("kompile",), upstream=False)
     for path in requests:
         request = load_json(path)
         main, syntax = str(request.get("main")), str(request.get("syntax"))
@@ -324,7 +362,7 @@ def kompile_exported_tests(context: Context, exports: Path) -> Snapshot:
         )
         if process.returncode != 0:
             raise GateError(f"kompile rejected the canonical {main} source: {compact(process)}")
-        if context.refresh and not (definition / "definition.kore").is_file():
+        if snapshot.live and not (definition / "definition.kore").is_file():
             raise GateError(f"kompile produced no definition.kore for {main}")
     return snapshot
 
@@ -356,7 +394,7 @@ def phase_rust(context: Context) -> RustBuild:
         status != "ok" or int(failed) != 0 for status, _, failed in results
     ):
         raise GateError(f"expected exactly two passing kompile tests: {compact(kompile_tests)}")
-    context.snapshots.append(kompile_exported_tests(context, exports))
+    kompile_exported_tests(context, exports)
     doc_env = {**env, "RUSTDOCFLAGS": "-D warnings"}
     run(
         [
@@ -569,7 +607,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
         process = k.run(label, "kompile", arguments, timeout=timeout, outputs=outputs)
         if process.returncode != 0:
             raise GateError(f"{label} failed: {compact(process)}")
-        if context.refresh:
+        if k.live:
             directory = Path(arguments[arguments.index("--output-definition") + 1])
             if not directory.joinpath("definition.kore").is_file():
                 raise GateError(f"source frontend omitted {directory.name}/definition.kore")
@@ -925,7 +963,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
         context = Context(
             pins, corpus, Path(temporary), arguments.target_dir.resolve(),
-            refresh=arguments.refresh_reference,
+            refresh=arguments.refresh_reference, artifacts_only=arguments.artifacts_only,
         )
         context.target.mkdir(parents=True, exist_ok=True)
         try:

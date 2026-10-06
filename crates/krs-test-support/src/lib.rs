@@ -301,8 +301,8 @@ macro_rules! krs_command {
 ///
 /// When it is set, [`KompileReference::run`] writes `<main>.k` (the source) and `<main>.json` (the
 /// main module, syntax module, and search flag) into the directory and does not start `kompile`.
-/// The complete IMP gate sets it and compiles each exported source through its recorded reference
-/// snapshot, so the gate replays the recorded Java K result by default.
+/// The complete IMP gate sets it and compiles each exported source through its `kompile-tests`
+/// reference snapshot, so the gate replays the cached Java K result by default.
 pub const REFERENCE_EXPORT_DIR: &str = "KRS_REFERENCE_EXPORT_DIR";
 
 /// Configure compilation of an emitted K definition with the pinned frontend.

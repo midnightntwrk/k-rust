@@ -32,8 +32,9 @@ The modules are:
 - `support.kdefinition`: emitted K definition checks;
 - `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;
 - `support.imp_oracle`: orchestration for the two strict IMP reference oracles;
-- `support.reference`: committed reference-K (Java K) snapshots, replayed by
-  default and rewritten by `--refresh-reference`;
+- `support.reference`: reference-K (Java K) snapshots in a per-user cache,
+  pinned by manifest digest, replayed by default and run live on a miss or
+  under `--refresh-reference`;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.
 
 The package needs only the standard library.
