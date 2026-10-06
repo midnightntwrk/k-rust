@@ -663,12 +663,13 @@ mod tests {
         assert!(!normal(&definition, "any{}(s{}(X:SortNat{}))"));
     }
 
-    /// `lift`, `pick` and `tagged` are anywhere heads with one equation each, whose left-hand
-    /// sides are a domain value, an as-pattern `s(X) #as Y` (a conjunction), and an injection
-    /// from `SortA` into `SortTop`. An application is instance-normal only when no instance of it
-    /// is an instance of the equation: a different domain value, a `z` against `s(X)`, and an
-    /// injection from a sort with no common subsort with `SortA`; with `SortC` below both
-    /// `SortA` and `SortB`, an injection from `SortB` may denote an injection from `SortA`.
+    /// `lift`, `pick` and `tagged` are anywhere heads with one equation each,
+    /// `lift(1) = lift(0)`, `pick(s(X) #as Y) = pick(z)` (an as-pattern is a conjunction) and
+    /// `tagged(inj{SortA, SortTop}(X)) = pick(z)`. An application is instance-normal only when
+    /// no instance of it is an instance of the equation's left-hand side: a different domain
+    /// value, a `z` against `s(X)`, and an injection from a sort with no common subsort with
+    /// `SortA`; with `SortC` below both `SortA` and `SortB`, an injection from `SortB` may
+    /// denote an injection from `SortA`.
     #[test]
     fn domain_values_conjunctions_and_injection_sources_decide_unifiability() {
         let definition = |overlap: bool| {
@@ -685,7 +686,7 @@ mod tests {
             } else {
                 String::new()
             };
-            let equation = |head: &str, argument_sort: &str, left: &str| {
+            let equation = |head: &str, argument_sort: &str, left: &str, right: &str| {
                 format!(
                     r"axiom{{R}} \implies{{R}}(
                         \and{{R}}(
@@ -694,7 +695,7 @@ mod tests {
                         ),
                         \equals{{SortAddress{{}}, R}}(
                             {head}{{}}(X0:{argument_sort}{{}}),
-                            \and{{SortAddress{{}}}}(pick{{}}(z{{}}()), \top{{SortAddress{{}}}}())
+                            \and{{SortAddress{{}}}}({right}, \top{{SortAddress{{}}}}())
                         )
                     ) [anywhere{{}}()]"
                 )
@@ -729,19 +730,31 @@ mod tests {
                     {pick}
                     {tagged}
                 endmodule []"#,
-                lift = equation("lift", "SortInt", r#"\dv{SortInt{}}("1")"#),
+                lift = equation(
+                    "lift",
+                    "SortInt",
+                    r#"\dv{SortInt{}}("1")"#,
+                    r#"lift{}(\dv{SortInt{}}("0"))"#
+                ),
                 pick = equation(
                     "pick",
                     "SortNat",
-                    r"\and{SortNat{}}(s{}(X:SortNat{}), Y:SortNat{})"
+                    r"\and{SortNat{}}(s{}(X:SortNat{}), Y:SortNat{})",
+                    "pick{}(z{}())"
                 ),
-                tagged = equation("tagged", "SortTop", r"inj{SortA{}, SortTop{}}(X:SortA{})"),
+                tagged = equation(
+                    "tagged",
+                    "SortTop",
+                    r"inj{SortA{}, SortTop{}}(X:SortA{})",
+                    "pick{}(z{}())"
+                ),
             );
             let syntax = parse_definition(&source).expect("definition should parse");
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
         };
         let apart = definition(false);
         assert!(normal(&apart, r#"lift{}(\dv{SortInt{}}("2"))"#));
+        assert!(normal(&apart, r#"lift{}(\dv{SortInt{}}("0"))"#));
         assert!(!normal(&apart, r#"lift{}(\dv{SortInt{}}("1"))"#));
         assert!(!normal(&apart, "lift{}(I:SortInt{})"));
         assert!(normal(&apart, "pick{}(z{}())"));
@@ -757,7 +770,9 @@ mod tests {
 
         // Unification decomposes an anywhere head only on instance-normal applications, so it
         // keeps as one equation each pair the equations may identify: `pick(s(N))` is
-        // `pick(z)` for every `N`, and `lift(I)` is `lift(0)` for `I = 0` and for `I = 1`.
+        // `pick(z)` for every `N`, and `lift(I)` is `lift(0)` for `I = 0` and, through the
+        // equation `lift(1) = lift(0)`, for `I = 1`; the substitution `I = 0` alone loses
+        // `I = 1`.
         let term = |source: &str| {
             apart
                 .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
