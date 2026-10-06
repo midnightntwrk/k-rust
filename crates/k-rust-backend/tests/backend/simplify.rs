@@ -5370,6 +5370,47 @@ fn a_call_dropped_later_in_the_same_simplification_is_not_reported() {
     }
 }
 
+/// A sub-predicate is an assumption only if it is equal to an assumed conjunct, so it has as many
+/// predicate nodes as one; a sub-predicate larger than every assumption other than the conjunct
+/// being simplified is looked up without hashing or copying it. A `\not` chain over
+/// `\ceil(f(X))` beside the known `\floor(f(X))` is the conjunct being simplified, and its lookups
+/// then walk a bounded number of nodes per level: four times the depth, about four times the
+/// nodes, where hashing and copying the rest of the chain at every level took sixteen times.
+#[test]
+fn assumption_lookups_in_a_connective_chain_are_bounded_by_the_assumptions() {
+    let definition = definition("");
+    let applied = term(&definition, "f{}(X:SortS{})");
+    let known = [Predicate::Floor(applied.clone())];
+    let walked = |depth: usize| {
+        k_rust_backend::nesting::with_stack(depth + 64, || {
+            let mut chain = Predicate::Ceil(applied.clone());
+            for _ in 0..depth {
+                chain = Predicate::Not(Box::new(chain));
+            }
+            let before = snapshot();
+            let result = simplify_predicates_with_solver(
+                &definition,
+                std::slice::from_ref(&chain),
+                &known,
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .unwrap();
+            let delta = snapshot().delta(&before);
+            // An even number of negations cancels.
+            assert_eq!(result, [Predicate::Ceil(applied.clone())], "{depth}");
+            delta.get(Counter::SimplifyAssumptionNodes)
+        })
+        .unwrap()
+    };
+    let (short, long) = (walked(100), walked(400));
+    assert!(short > 0, "the lookups are counted");
+    assert!(
+        long < 5 * short,
+        "{short} nodes for 100 levels, {long} for 400"
+    );
+}
+
 /// Retraction searches a result only for the subjects of its reports, and only where a subject
 /// can occur: a subject is a term the simplifier attempted an equation at, so it lacks the
 /// `evaluated` attribute, as does every term equal to it, and an evaluated subtree, whose

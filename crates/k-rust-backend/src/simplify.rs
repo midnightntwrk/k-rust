@@ -23,15 +23,19 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
-//! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
-//! counters = ["SimplifyInvocations"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within"]
+//! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; L = predicate nodes of the largest assumed conjunct other than the one being simplified"
+//! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "one round"
 //! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+//!
+//! [[cost]]
+//! mode = "assumption lookups"
+//! bound = "per visited sub-predicate and its simplified form: O(min(s, L)) to count its nodes against L, then a hash of it, and of a copy of its negation, only when s <= L; a connective chain of depth d beside assumptions of at most L nodes costs O(d x L), not O(d^2)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -45,11 +49,17 @@
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
 //! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyBuiltinEvaluations`,
 //! `Counter::SimplifyNodesSkippedEvaluated`, `Counter::SimplifyRetractionNodes`.
-//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, one predicate
-//! simplification per conjunct per round, budget-bounded re-entry through the ceil and
-//! predicate theories.
+//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index (`ConjunctIndex`, which
+//! also counts its conjuncts' sizes so that a sub-predicate larger than every assumption is looked
+//! up without hashing it), one predicate simplification per conjunct per round, budget-bounded
+//! re-entry through the ceil and predicate theories; `Counter::SimplifyAssumptionNodes`.
 
-use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
@@ -731,16 +741,188 @@ struct TermAssumptions<'a> {
     path_condition: &'a PathConditionReplacements,
 }
 
+/// The assumptions of one predicate simplification: the known predicates and their path
+/// condition, for terms, and the assumed conjuncts, of which `excluded` (the conjunct being
+/// simplified) is not one.
 struct PredicateAssumptions<'a> {
     terms: TermAssumptions<'a>,
-    conjuncts: &'a FxHashSet<Predicate>,
+    conjuncts: &'a ConjunctIndex,
     excluded: Option<&'a Predicate>,
+    /// The most predicate nodes ([`predicate_nodes_within`]) of an assumed conjunct other than
+    /// `excluded`, 0 when there is none: equal predicates have equal node counts, so a larger
+    /// predicate is not an assumption and is looked up without hashing it.
+    largest: usize,
 }
 
-impl PredicateAssumptions<'_> {
+impl<'a> PredicateAssumptions<'a> {
+    fn new(
+        terms: TermAssumptions<'a>,
+        conjuncts: &'a ConjunctIndex,
+        excluded: Option<&'a Predicate>,
+    ) -> Self {
+        Self {
+            terms,
+            largest: conjuncts.largest_except(excluded),
+            conjuncts,
+            excluded,
+        }
+    }
+
+    fn contains(&self, predicate: &Predicate) -> bool {
+        let Some(nodes) = self.nodes_within(predicate, self.largest) else {
+            return false;
+        };
+        self.contains_counted(predicate, nodes)
+    }
+
+    /// `Some(true)` when `predicate` is an assumption, `Some(false)` when its negation is (and
+    /// it is not), `None` otherwise. The negation is built only when it is no larger than an
+    /// assumption, so a lookup costs at most the size of the largest assumption beside the
+    /// count, whatever the size of `predicate`: one level of a deep connective chain no longer
+    /// hashes and copies the rest of the chain.
+    fn truth(&self, predicate: &Predicate) -> Option<bool> {
+        let nodes = self.nodes_within(predicate, self.largest)?;
+        if self.contains_counted(predicate, nodes) {
+            return Some(true);
+        }
+        // `\not predicate` has one node more than `predicate`.
+        if nodes < self.largest {
+            count_assumption_nodes(nodes);
+            let negation = Predicate::Not(Box::new(predicate.clone()));
+            if self.contains_counted(&negation, nodes + 1) {
+                return Some(false);
+            }
+        }
+        None
+    }
+
+    /// Whether `predicate`, of `nodes` nodes, is an assumed conjunct other than `excluded`.
+    fn contains_counted(&self, predicate: &Predicate, nodes: usize) -> bool {
+        count_assumption_nodes(nodes);
+        self.conjuncts.conjuncts.contains(predicate)
+            && self.excluded.is_none_or(|excluded| excluded != predicate)
+    }
+
+    /// [`predicate_nodes_within`], with the nodes it walked counted.
+    fn nodes_within(&self, predicate: &Predicate, bound: usize) -> Option<usize> {
+        let nodes = predicate_nodes_within(predicate, bound);
+        count_assumption_nodes(nodes.unwrap_or(bound.saturating_add(1)));
+        nodes
+    }
+}
+
+fn count_assumption_nodes(nodes: usize) {
+    measure::add(
+        Counter::SimplifyAssumptionNodes,
+        u64::try_from(nodes).unwrap_or(u64::MAX),
+    );
+}
+
+/// The number of predicate nodes of `predicate` (each constant, atom and connective once; a
+/// term is part of its atom), when it is at most `bound`. The walk keeps its pending nodes on a
+/// work list and stops once it has found more than `bound` nodes, so it takes a bounded native
+/// stack and O(min(nodes, bound)) steps.
+fn predicate_nodes_within(predicate: &Predicate, bound: usize) -> Option<usize> {
+    let mut nodes = 1usize;
+    let mut pending = Vec::new();
+    let mut next = Some(predicate);
+    loop {
+        if nodes > bound {
+            return None;
+        }
+        let Some(node) = next.take().or_else(|| pending.pop()) else {
+            return Some(nodes);
+        };
+        match node {
+            Predicate::True
+            | Predicate::False
+            | Predicate::Term(_)
+            | Predicate::Equals(..)
+            | Predicate::Ceil(_)
+            | Predicate::Floor(_)
+            | Predicate::In(..)
+            | Predicate::Absent(_) => {}
+            Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+                nodes += 1;
+                next = Some(inner);
+            }
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                nodes += 2;
+                pending.push(&**right);
+                next = Some(left);
+            }
+            Predicate::And(children) | Predicate::Or(children) => {
+                nodes = nodes.saturating_add(children.len());
+                if nodes <= bound {
+                    pending.extend(children.iter().rev());
+                }
+            }
+        }
+    }
+}
+
+/// The conjuncts a predicate simplification assumes, with the multiset of their node counts
+/// ([`predicate_nodes_within`]) from which [`PredicateAssumptions`] takes its `largest`.
+#[derive(Clone, Default)]
+struct ConjunctIndex {
+    conjuncts: FxHashSet<Predicate>,
+    /// For each node count, the number of conjuncts of that many nodes.
+    nodes: BTreeMap<usize, usize>,
+}
+
+impl ConjunctIndex {
     fn contains(&self, predicate: &Predicate) -> bool {
         self.conjuncts.contains(predicate)
-            && self.excluded.is_none_or(|excluded| excluded != predicate)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Predicate> {
+        self.conjuncts.iter()
+    }
+
+    fn insert(&mut self, predicate: Predicate) {
+        let nodes = predicate_nodes_within(&predicate, usize::MAX).unwrap_or(usize::MAX);
+        if self.conjuncts.insert(predicate) {
+            *self.nodes.entry(nodes).or_default() += 1;
+        }
+    }
+
+    /// Insert the conjuncts of `predicate`: itself, or those of a nested `And`.
+    fn insert_conjuncts(&mut self, predicate: &Predicate) {
+        if let Predicate::And(conjuncts) = predicate {
+            for conjunct in conjuncts {
+                self.insert_conjuncts(conjunct);
+            }
+        } else {
+            self.insert(predicate.clone());
+        }
+    }
+
+    fn remove(&mut self, predicate: &Predicate) {
+        if self.conjuncts.remove(predicate) {
+            let nodes = predicate_nodes_within(predicate, usize::MAX).unwrap_or(usize::MAX);
+            if let Some(count) = self.nodes.get_mut(&nodes) {
+                *count -= 1;
+                if *count == 0 {
+                    self.nodes.remove(&nodes);
+                }
+            }
+        }
+    }
+
+    /// The most nodes of a conjunct other than `excluded`, 0 when there is none.
+    fn largest_except(&self, excluded: Option<&Predicate>) -> usize {
+        let mut counts = self.nodes.iter().rev();
+        let Some((&largest, &count)) = counts.next() else {
+            return 0;
+        };
+        if count == 1
+            && let Some(excluded) = excluded
+            && predicate_nodes_within(excluded, largest) == Some(largest)
+            && self.conjuncts.contains(excluded)
+        {
+            return counts.next().map_or(0, |(&nodes, _)| nodes);
+        }
+        largest
     }
 }
 
@@ -750,7 +932,7 @@ impl PredicateAssumptions<'_> {
 struct UnshadowedAssumptions {
     predicates: Vec<Predicate>,
     path_condition: PathConditionReplacements,
-    conjuncts: FxHashSet<Predicate>,
+    conjuncts: ConjunctIndex,
 }
 
 impl UnshadowedAssumptions {
@@ -771,12 +953,12 @@ impl UnshadowedAssumptions {
             .cloned()
             .collect::<Vec<_>>();
         let path_condition = PathConditionReplacements::new(&predicates);
-        let conjuncts = assumptions
-            .conjuncts
-            .iter()
-            .filter(|predicate| assumptions.contains(predicate) && holds(predicate))
-            .cloned()
-            .collect();
+        let mut conjuncts = ConjunctIndex::default();
+        for predicate in assumptions.conjuncts.iter() {
+            if assumptions.contains(predicate) && holds(predicate) {
+                conjuncts.insert(predicate.clone());
+            }
+        }
         Some(Self {
             predicates,
             path_condition,
@@ -785,21 +967,21 @@ impl UnshadowedAssumptions {
     }
 
     fn view(&self) -> PredicateAssumptions<'_> {
-        PredicateAssumptions {
-            terms: TermAssumptions {
+        PredicateAssumptions::new(
+            TermAssumptions {
                 predicates: &self.predicates,
                 path_condition: &self.path_condition,
             },
-            conjuncts: &self.conjuncts,
-            excluded: None,
-        }
+            &self.conjuncts,
+            None,
+        )
     }
 }
 
-fn predicate_conjunct_index(predicates: &[Predicate]) -> FxHashSet<Predicate> {
-    let mut index = FxHashSet::default();
+fn predicate_conjunct_index(predicates: &[Predicate]) -> ConjunctIndex {
+    let mut index = ConjunctIndex::default();
     for predicate in predicates {
-        insert_conjuncts(predicate, &mut index);
+        index.insert_conjuncts(predicate);
     }
     index
 }
@@ -832,7 +1014,9 @@ fn simplify_predicates_with_budget(
     }
     let known_index = predicate_conjunct_index(known_predicates);
     let mut all_assumptions = known_index.clone();
-    all_assumptions.extend(conjunct_index.iter().cloned());
+    for predicate in &conjunct_index {
+        all_assumptions.insert(predicate.clone());
+    }
     // Each conjunct is simplified under the known predicates and the other conjuncts as they
     // stand when its turn comes: the earlier ones already simplified, the later ones as given.
     // A conjunct replaced by a form equivalent to it under the rest of the current conjunction
@@ -901,14 +1085,14 @@ fn simplify_predicates_with_budget(
                 None => full_path_condition
                     .get_or_insert_with(|| path_condition_excluding(&conjunct_equalities, None)),
             };
-            let assumptions = PredicateAssumptions {
-                terms: TermAssumptions {
+            let assumptions = PredicateAssumptions::new(
+                TermAssumptions {
                     predicates: &assumptions,
                     path_condition,
                 },
-                conjuncts: &all_assumptions,
-                excluded: (!known_index.contains(predicate)).then_some(predicate),
-            };
+                &all_assumptions,
+                (!known_index.contains(predicate)).then_some(predicate),
+            );
             let mut predicate_remaining = *remaining;
             simplify_predicate_with_budget(
                 definition,
@@ -936,7 +1120,7 @@ fn simplify_predicates_with_budget(
                 if !simplified_conjuncts.contains(predicate) {
                     all_assumptions.remove(predicate);
                 }
-                insert_conjuncts(&result, &mut all_assumptions);
+                all_assumptions.insert_conjuncts(&result);
             }
         }
         simplified.push(result);
@@ -1407,14 +1591,14 @@ fn simplify_predicate(
     let active_conditions = BTreeSet::new();
     let known_index = predicate_conjunct_index(known_predicates);
     let path_condition = PathConditionReplacements::new(known_predicates);
-    let assumptions = PredicateAssumptions {
-        terms: TermAssumptions {
+    let assumptions = PredicateAssumptions::new(
+        TermAssumptions {
             predicates: known_predicates,
             path_condition: &path_condition,
         },
-        conjuncts: &known_index,
-        excluded: None,
-    };
+        &known_index,
+        None,
+    );
     simplify_predicate_with_budget(
         definition,
         predicate,
@@ -1535,11 +1719,10 @@ fn simplify_predicate_with_budget(
     let _apart = crate::rule::ApartScope::enter();
     stop::check()?;
     stop::check_stack()?;
-    if assumptions.contains(predicate) {
-        return Ok(Predicate::True);
-    }
-    if assumptions.contains(&Predicate::Not(Box::new(predicate.clone()))) {
-        return Ok(Predicate::False);
+    match assumptions.truth(predicate) {
+        Some(true) => return Ok(Predicate::True),
+        Some(false) => return Ok(Predicate::False),
+        None => {}
     }
     let simplify_term = |term: &Term| {
         let mut term_remaining = *remaining;
@@ -1858,11 +2041,10 @@ fn simplify_predicate_with_budget(
     };
     let simplified =
         normalize_predicate(normalize_hooked_boolean_predicate(definition, simplified));
-    if assumptions.contains(&simplified) {
-        return Ok(Predicate::True);
-    }
-    if assumptions.contains(&Predicate::Not(Box::new(simplified.clone()))) {
-        return Ok(Predicate::False);
+    match assumptions.truth(&simplified) {
+        Some(true) => return Ok(Predicate::True),
+        Some(false) => return Ok(Predicate::False),
+        None => {}
     }
     // The diagnostics of the indeterminate ceil and predicate equation attempts, committed only
     // if neither theory rewrites the predicate.
