@@ -406,14 +406,32 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
     }
 }
 
-fn keys_list(arguments: &[Term]) -> HookResult<Option<Term>> {
-    expect_arity("MAP.keys_list", arguments, 1)?;
+/// The entries of a closed map whose keys are all constructor-like, in key order.
+///
+/// `keys_list` and `values` may order a map's bindings as the backend likes, but equal maps must
+/// give the same order. Constructor-like keys denote different values exactly when they differ,
+/// so their syntactic order is an order of the key values. A symbolic key has no place in that
+/// order: the syntactic order puts `b` before `X` in `keys_list(X |-> 1 b |-> 2)`, which
+/// under `X = a` claims `ListItem(b) ListItem(a)`, while the equal concrete map gives
+/// `ListItem(a) ListItem(b)`.
+fn ordered_entries(map: &Term) -> Option<&[(Term, Term)]> {
     let TermKind::Map {
         entries,
         rest: None,
         ..
-    } = arguments[0].kind()
+    } = map.kind()
     else {
+        return None;
+    };
+    entries
+        .iter()
+        .all(|(key, _)| key.attributes().constructor_like)
+        .then_some(entries)
+}
+
+fn keys_list(arguments: &[Term]) -> HookResult<Option<Term>> {
+    expect_arity("MAP.keys_list", arguments, 1)?;
+    let Some(entries) = ordered_entries(&arguments[0]) else {
         return Ok(None);
     };
     Ok(Some(Term::list(
@@ -448,12 +466,7 @@ fn keys(arguments: &[Term]) -> HookResult<Option<Term>> {
 
 fn values(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.values", arguments, 1)?;
-    let TermKind::Map {
-        entries,
-        rest: None,
-        ..
-    } = arguments[0].kind()
-    else {
+    let Some(entries) = ordered_entries(&arguments[0]) else {
         return Ok(None);
     };
     Ok(Some(Term::list(
@@ -972,6 +985,21 @@ mod tests {
                 None,
             )))
         );
+    }
+
+    /// The order of `keys_list` and `values` must be a function of the map's value; with a
+    /// symbolic key it would follow the key's syntax instead.
+    #[test]
+    fn key_and_value_projections_wait_for_constructor_like_keys() {
+        let symbolic = Term::variable(Variable::new("K", Sort::simple("SortKey")));
+        let map = Term::map(
+            definition("SortMap"),
+            vec![(symbolic, value("one")), (key("b"), value("two"))],
+            None,
+        );
+
+        assert_eq!(keys_list(std::slice::from_ref(&map)), Ok(None));
+        assert_eq!(values(&[map]), Ok(None));
     }
 
     #[test]
