@@ -15,7 +15,7 @@ pub use parser::{
     AmbiguousParse, CyclicDerivation, Grammar, NoParseInput, ParseError, TokenPrecedenceDeclaration,
 };
 #[cfg(feature = "cli")]
-pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions};
+pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions, parse_apply_priority};
 pub use programs::{
     ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
     definition_with_named_projections, parse_program,

@@ -136,6 +136,8 @@ use crate::kast::{
 use crate::names::BuiltinSort;
 use crate::provenance::SourceId;
 
+#[cfg(feature = "cli")]
+pub(crate) use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
 #[cfg(feature = "cli")]
 pub(crate) use self::parametric::concretize_parametric_productions;

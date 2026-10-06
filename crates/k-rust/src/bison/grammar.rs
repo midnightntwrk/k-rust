@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "derived_root_labels", "remove_uses_of_empty_restricted_sorts", "prepare_user_lists"]
+//! sites = ["transform_priority_and_associativity", "checked_operands", "constrain_side", "restricted_sort", "derived_root_labels", "remove_uses_of_empty_restricted_sorts", "prepare_user_lists"]
 //! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
@@ -27,7 +27,8 @@
 //! Deterministic Bison grammar rendering for standalone program parsers.
 //!
 //! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
-//! O(pairs * productions). A subsort child of a restricted sort is restricted too when it derives
+//! O(pairs * productions). The restricted operands of a labelled production are those its
+//! `applyPriority` names, else its first and last item when they are nonterminals. A subsort child of a restricted sort is restricted too when it derives
 //! an excluded label at its root, which one indexed DFS per child decides in O(productions);
 //! uses of restricted sorts left without productions are then removed by a worklist over use
 //! counts, linear in the exported productions. Reachability is a visited-set DFS, O(reachable sorts * productions).
@@ -71,6 +72,10 @@ enum GrammarError {
     },
     InvalidUserList {
         sort: Sort,
+        message: String,
+    },
+    InvalidApplyPriority {
+        label: String,
         message: String,
     },
     Scanner(String),
@@ -138,6 +143,9 @@ impl fmt::Display for GrammarError {
             ),
             Self::InvalidUserList { sort, message } => {
                 write!(formatter, "invalid user list {sort}: {message}")
+            }
+            Self::InvalidApplyPriority { label, message } => {
+                write!(formatter, "production {label}: {message}")
             }
         }
     }
@@ -330,6 +338,7 @@ fn transform_priority_and_associativity(
     let priorities = compute_priorities(sentences.iter())
         .map_err(|cycle| GrammarError::CircularPriority(cycle.path))?;
     let associativities = compute_associativities(sentences.iter());
+    let no_associativity = BTreeSet::new();
     sources.sort_by_key(structural_key);
 
     let mut ordinals = BTreeMap::<BTreeSet<String>, usize>::new();
@@ -349,33 +358,17 @@ fn transform_priority_and_associativity(
         }
         let mut transformed = source.items.clone();
         if let Some(label) = label {
-            if matches!(
-                transformed.first(),
-                Some(ProductionItem::NonTerminal { .. })
-            ) {
+            for (index, side) in checked_operands(&source.source)? {
                 constrain_side(
-                    0,
+                    index,
                     &label.name,
                     &mut transformed,
                     &priorities,
-                    &associativities.right,
-                    &mut ordinals,
-                    &mut pending,
-                );
-            }
-            let last = transformed.len().saturating_sub(1);
-            if last != 0
-                && matches!(
-                    transformed.get(last),
-                    Some(ProductionItem::NonTerminal { .. })
-                )
-            {
-                constrain_side(
-                    last,
-                    &label.name,
-                    &mut transformed,
-                    &priorities,
-                    &associativities.left,
+                    match side {
+                        OperandSide::First => &associativities.right,
+                        OperandSide::Last => &associativities.left,
+                        OperandSide::Inner => &no_associativity,
+                    },
                     &mut ordinals,
                     &mut pending,
                 );
@@ -447,6 +440,76 @@ fn transform_priority_and_associativity(
         .collect();
     remove_uses_of_empty_restricted_sorts(&mut productions, &restricted);
     Ok(productions)
+}
+
+/// Where an operand restricted by priority stands, which decides the associativity relation that
+/// restricts it too.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OperandSide {
+    /// The first item: a right-associative (or non-associative) group excludes its members.
+    First,
+    /// The last item: a left-associative (or non-associative) group excludes its members.
+    Last,
+    /// Any other operand: priority alone.
+    Inner,
+}
+
+/// The item indices of the operands of a labelled production that priority and associativity
+/// restrict, each with its side.
+///
+/// The operands are the positions (counted among the nonterminals from 1) that the production's
+/// `applyPriority` lists, and otherwise the first item and the last item when they are
+/// nonterminals: K's priority filter rejects a child of lesser priority, or of the same
+/// associativity group on the excluded side, only at those operands. Associativity is defined
+/// only for the leftmost and rightmost item, so an `applyPriority` operand elsewhere is
+/// restricted by priority alone; a listed position that names no operand restricts nothing.
+fn checked_operands(source: &Sentence) -> Result<Vec<(usize, OperandSide)>, GrammarError> {
+    let Sentence::Production {
+        label,
+        items,
+        attributes,
+        ..
+    } = source
+    else {
+        unreachable!("grammar productions come from production sentences")
+    };
+    let operands = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| matches!(item, ProductionItem::NonTerminal { .. }))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let count = operands.len();
+    let first = matches!(items.first(), Some(ProductionItem::NonTerminal { .. }));
+    let last = matches!(items.last(), Some(ProductionItem::NonTerminal { .. }));
+    let positions = match attributes.string(AttributeKey::ApplyPriority) {
+        Some(value) => crate::inner::parse_apply_priority(value).map_err(|error| {
+            GrammarError::InvalidApplyPriority {
+                label: label
+                    .as_ref()
+                    .map_or_else(String::new, |label| label.name.clone()),
+                message: error.to_string(),
+            }
+        })?,
+        None => [(first, 1), (last, count)]
+            .into_iter()
+            .filter_map(|(nonterminal, position)| nonterminal.then_some(position))
+            .collect(),
+    };
+    Ok(positions
+        .into_iter()
+        .filter(|position| (1..=count).contains(position))
+        .map(|position| {
+            let side = if position == 1 && first {
+                OperandSide::First
+            } else if position == count && last {
+                OperandSide::Last
+            } else {
+                OperandSide::Inner
+            };
+            (operands[position - 1], side)
+        })
+        .collect())
 }
 
 /// The labels of the productions `sort` derives at its root: its labeled productions and those
@@ -2130,6 +2193,78 @@ mod tests {
             .filter(|sort| sort.name.starts_with("Exp#"))
             .collect::<BTreeSet<_>>();
         assert_eq!(int_parents, 1 + restricted_exp.len());
+    }
+
+    /// `parser.bison.priorities`: `applyPriority` names the operands priority restricts, in place
+    /// of the first and last item. A named first or last item is also restricted by the
+    /// associativity of its side; a named inner operand by priority alone; an unnamed first item
+    /// is not restricted.
+    #[test]
+    fn apply_priority_names_the_operands_priority_restricts() {
+        let exp = || nonterminal("Exp");
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production(
+                "Exp",
+                vec![terminal("f("), exp(), terminal(","), exp(), terminal(")")],
+                Some("f"),
+                &[("applyPriority", "1")],
+            ),
+            production(
+                "Exp",
+                vec![exp(), terminal("?"), exp()],
+                Some("q"),
+                &[("applyPriority", "2")],
+            ),
+            production("Exp", vec![exp(), terminal("+"), exp()], Some("add"), &[]),
+            production("Exp", vec![terminal("1")], Some("one"), &[]),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["f".into(), "q".into()], vec!["add".into()]],
+                attributes: Attributes::default(),
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: Associativity::Left,
+                tags: vec!["f".into(), "q".into()],
+                attributes: Attributes::default(),
+            },
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+        let labels = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        let f = exported(&productions, "f");
+        assert_eq!(
+            root_labels(&productions, operand(f, 1)),
+            labels(&["f", "q", "one"])
+        );
+        assert_eq!(operand(f, 3), &Sort::new("Exp"));
+        let q = exported(&productions, "q");
+        assert_eq!(operand(q, 0), &Sort::new("Exp"));
+        assert_eq!(root_labels(&productions, operand(q, 2)), labels(&["one"]));
+        let add = exported(&productions, "add");
+        assert_eq!(operand(add, 0), &Sort::new("Exp"));
+        assert_eq!(operand(add, 2), &Sort::new("Exp"));
+
+        let invalid = [production(
+            "Exp",
+            vec![exp(), terminal("!")],
+            Some("bang"),
+            &[("applyPriority", "first")],
+        )];
+        let error =
+            transform_priority_and_associativity(&invalid, prepare(&invalid).unwrap().productions)
+                .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "production bang: invalid applyPriority value \"first\" in \"first\""
+        );
     }
 
     /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and

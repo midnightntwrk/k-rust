@@ -2471,7 +2471,7 @@ enum Side {
     Middle,
 }
 
-pub(super) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, ParseError> {
+pub(crate) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, ParseError> {
     source
         .split(|character: char| character == ',' || character.is_ascii_whitespace())
         .filter(|piece| !piece.is_empty())
