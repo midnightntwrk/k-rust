@@ -10857,8 +10857,8 @@ const MIN_RECURSIVE_GROWTH: usize = 1_000;
 fn a_terminating_macro_rec_recursion_over_a_deep_input_expands() {
     // 50 levels of growth beyond the fixed allowance. The growth is exact, so any excess tells
     // the input-depth allowance from the fixed one, and 50 levels leave room for a change of a
-    // few levels in how depth is counted. The expansion's cost grows much faster than the
-    // length, so the input is no longer than that.
+    // few levels in how depth is counted. Recording the provenance of the expanded rule grows
+    // with the input's size times its depth, so the input is no longer than that.
     const LENGTH: usize = 2 * MIN_RECURSIVE_GROWTH + 100;
     let (_, message) = macro_expansion_error(indoc! {r#"
         module MAIN
