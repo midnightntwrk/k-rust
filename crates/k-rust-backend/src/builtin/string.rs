@@ -82,26 +82,36 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut starts = code_point_units(value).collect::<Vec<_>>();
-    let units = starts.len();
-    starts.push(value.len());
-    if start.sign() == Sign::Minus || start > end || end > BigInt::from(units) {
+    // The byte offsets at which code points `start` and `end` begin, the end of the value
+    // being where the code point after the last would begin; scanning stops at `end`.
+    let mut offsets = (None, None);
+    if start.sign() != Sign::Minus
+        && start <= end
+        && let (Some(start), Some(end)) = (start.to_usize(), end.to_usize())
+    {
+        let boundaries = code_point_units(value).chain(std::iter::once(value.len()));
+        for (unit, offset) in boundaries.enumerate() {
+            if unit == start {
+                offsets.0 = Some(offset);
+            }
+            if unit == end {
+                offsets.1 = Some(offset);
+                break;
+            }
+        }
+    }
+    let (Some(start_offset), Some(end_offset)) = offsets else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::Unspecified {
                 detail: format!(
-                    "substrString from {start} to {end} on a string of length {units}, outside the valid indices 0 <= start <= end <= length"
+                    "substrString from {start} to {end} on a string of length {}, outside the valid indices 0 <= start <= end <= length",
+                    code_point_units(value).count()
                 ),
             },
         ));
-    }
-    let (start, end) = (
-        start
-            .to_usize()
-            .expect("a valid start is at most the length"),
-        end.to_usize().expect("a valid end is at most the length"),
-    );
+    };
     Ok(BuiltinResult::Value(string_term(
-        value[starts[start]..starts[end]].to_vec(),
+        value[start_offset..end_offset].to_vec(),
     )))
 }
 
