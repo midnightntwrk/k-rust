@@ -24,8 +24,8 @@ The root package exposes `main` and renames two dependencies:
 // [!include ~/snippets/composition-root.Cargo.toml]
 ```
 
-`root` selects the Rust module whose descriptors belong to the facet.
-`syntax-root` selects its exported syntax boundary.
+`root` and `syntax-root` name the facet's semantic root module and its program-syntax module.
+KRS currently records both in the composition plan but uses neither to restrict collection or to select a program grammar.
 The package-level `k-namespace` keeps emitted K names explicit.
 
 Cargo package names, Rust crate names, and local dependency aliases are different identities here.

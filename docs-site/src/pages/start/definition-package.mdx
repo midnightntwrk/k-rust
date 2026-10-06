@@ -30,8 +30,8 @@ The namespace separates emitted semantic identities from Rust crate names.
 Treat it as durable definition identity rather than presentation text.
 
 The `package.metadata.krs.definitions.main` table declares one definition facet whose `root` and `syntax-root` are both `crate`.
-A facet selects the Rust module used as the semantic root and the module used to collect concrete syntax.
-They coincide in this one-file package.
+The keys name the facet's semantic root module and its program-syntax module, and both default to `crate`.
+KRS currently records them in the composition plan but uses neither to restrict collection or to select a program grammar.
 Composition later shows why larger definitions may select facets explicitly and combine dependency facets.
 
 ## Establish the edit loop
