@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
@@ -54,6 +55,7 @@ kast=${kast:-"$reference_bin/kast"}
 kore_parser=${kore_parser:-"$reference_bin/kore-parser"}
 kore_rpc=${kore_rpc:-"$reference_bin/kore-rpc-booster"}
 rpc_client=${rpc_client:-"$reference_bin/kore-rpc-client"}
+kdep=${K_KDEP:-"$reference_bin/kdep"}
 for tool in "$krun" "$kast" "$kore_parser" "$kore_rpc" "$rpc_client"; do
   if [[ ! -x "$tool" ]]; then
     echo "error: missing matching pinned reference executable: $tool" >&2
@@ -126,6 +128,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+reference_cache_begin "$work"
 
 stop_server() {
   if [[ -n "$server_pid" ]]; then
@@ -176,7 +179,9 @@ run_reference_krun() {
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
-      "$krun" "$@" >"$output"
+      reference_cached krun "$name:$(basename "$output")" --input "$work/kompiled" --stdin \
+        --store-status 0 -- \
+        "$krun" "$@" >"$output"
     ); then
       return 0
     fi
@@ -200,7 +205,9 @@ generate_state() {
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    "$krun" "$input" \
+    reference_cached krun "$name:$stem" --input "$work/kompiled" --stdin \
+      --env K_KAST --env KAST_DEFINITION --env KAST_PROGRAM_SORT -- \
+      "$krun" "$input" \
       --definition "$work/kompiled" \
       --parser "$workspace/scripts/reference-kast-parser.sh" \
       "${configuration_args[@]}" \
@@ -211,7 +218,8 @@ generate_state() {
   (
     ulimit -v "$rust_memory_kib"
     export GHCRTS=
-    "$kore_parser" "$work/kompiled/definition.kore" \
+    reference_cached kore-parser "$name:$stem.json" -- \
+      "$kore_parser" "$work/kompiled/definition.kore" \
       --pattern "$work/$stem.kore" \
       --module "$main_module" \
       --print-pattern-json \
@@ -433,7 +441,8 @@ echo "[$name:rpc] compiling the reference Haskell definition"
   ulimit -v "$reference_memory_kib"
   export GHCRTS=${GHCRTS:--N1}
   export K_OPTS="$reference_k_opts"
-  "$kompile" "$semantics" \
+  reference_cached kompile "$name" --output-root "$work/kompiled" --kdep "$kdep" -- \
+    "$kompile" "$semantics" \
     --backend haskell \
     --main-module "$main_module" \
     --syntax-module "$syntax_module" \
@@ -455,7 +464,8 @@ if [[ "$name" == imp ]]; then
   (
     ulimit -v "$rust_memory_kib"
     export GHCRTS=
-    "$kore_parser" "$work/kompiled/definition.kore" \
+    reference_cached kore-parser "$name:state.json" -- \
+      "$kore_parser" "$work/kompiled/definition.kore" \
       --pattern "$work/state.kore" \
       --module "$main_module" \
       --print-pattern-json \
@@ -688,4 +698,5 @@ for reference_oracle in "${reference_oracles[@]}"; do
   done
 done
 
+reference_cache_finish
 echo "reference local JSON-RPC differential corpus passed"

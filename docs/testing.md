@@ -95,6 +95,21 @@ Do not commit full measurement histories or temporary run output.
 Expensive reference runs remain manual and selected according to the affected contract.
 Changes to CI coverage, frequency, or resource budgets require a separate cost decision.
 
+A `step_budget` in `scripts/conformance/expectations.toml` bounds the CPU seconds of one krust program execution (`RLIMIT_CPU`), and its companion `step_wall_budget` bounds that execution's wall seconds.
+The budgets exist so that one divergent program cannot consume the case budget of the programs behind it: the program's own CPU time measures divergence without depending on the other jobs on the machine, and the wall budget, set well above the program's measured cost, ends a program that stops accruing CPU time.
+The case budget still bounds the wall time of the whole case, and must leave room for the rest of the case after a step that uses its whole wall budget.
+
+### Reference-output cache
+
+The reference gates (`scripts/reference-*.sh`, through `scripts/reference-cache.sh`) and the conformance driver replay a pinned reference tool's result when none of its inputs changed (`scripts/reference_cache.py` defines the key and the entry).
+krust, every comparison, and every pin check still run; a hit restores the reference's exit status, streams, and files byte for byte from a digest-checked entry.
+`REFERENCE_CACHE` selects `on` (the default), `off`, `refresh` (recompute and overwrite), or `verify` (recompute each stored result, and fail when the fresh one differs beyond the reference's run-to-run variation: line order, generated-name numbering, binary artifacts, and any difference a second fresh run does not reproduce).
+The default is `off` when `CI` is true, because CI keeps no cache between runs, and always `off` under `REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED=1`.
+Entries live per user under `${XDG_CACHE_HOME:-~/.cache}/k-rust/reference-outputs/v1` (`REFERENCE_CACHE_DIR`), and an entry older than `REFERENCE_CACHE_MAX_AGE_DAYS` (14) is recomputed.
+The conformance ratchet runs every fourth measured `--all` run of a log in `verify` mode unless `REFERENCE_CACHE` is set.
+Each gate prints its hit and miss counts; the conformance driver records each step's reference calls as `reference_cache`.
+`scripts/reference-fixtures-refresh.sh` runs the reference tools directly and never reads the cache.
+
 ## Comparator evidence
 
 `scripts/reference-normalisations.toml` records the permitted normalizations and exclusions.

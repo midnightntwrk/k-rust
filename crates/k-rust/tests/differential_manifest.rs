@@ -1372,7 +1372,6 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
     let k_checkout = fake_k_checkout(&fixture, &[]);
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
-    let fake_cargo = fixture.join("cargo");
     fs::write(
         &fake_kompile,
         "#!/usr/bin/env bash\necho \"$FAKE_KOMPILE_MESSAGE\"\nexit \"$FAKE_KOMPILE_STATUS\"\n",
@@ -1383,18 +1382,15 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
         "#!/usr/bin/env bash\nexit \"$FAKE_PARSER_STATUS\"\n",
     )
     .unwrap();
-    fs::write(
-        &fake_cargo,
-        "#!/usr/bin/env bash\nif [[ \"$1\" == run ]]; then exit \"$FAKE_KRUST_STATUS\"; fi\nexit 0\n",
-    )
-    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        for executable in [&fake_kompile, &fake_kore_parser, &fake_cargo] {
+        for executable in [&fake_kompile, &fake_kore_parser] {
             fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
         }
     }
+    let gate_target = fake_gate_rust_toolchain(&fixture, "exit \"$FAKE_KRUST_STATUS\"", "");
+    let calls = fixture.join("calls");
     let path = format!(
         "{}:{}",
         fixture.display(),
@@ -1415,6 +1411,8 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
             .env("FAKE_KOMPILE_MESSAGE", message)
             .env("FAKE_KRUST_STATUS", krust.to_string())
             .env("FAKE_PARSER_STATUS", parser.to_string())
+            .env("KRUST_GATE_TARGET_DIR", &gate_target)
+            .env("ENVIRONMENT_CALLS", &calls)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
             .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .output()
@@ -1572,7 +1570,6 @@ fn compile_gate_normalises_only_the_llvm_verification_copy() {
     let calls = fixture.join("calls");
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
-    let fake_cargo = fixture.join("cargo");
     write_environment_probe(&fake_kompile, "kompile", "");
     write_environment_probe(
         &fake_kore_parser,
@@ -1588,11 +1585,10 @@ if [[ "$1" == */rust/* ]]; then
 fi
 "#,
     );
-    write_environment_probe(
-        &fake_cargo,
-        "cargo",
+    let gate_target = fake_gate_rust_toolchain(
+        &fixture,
         r#"
-if [[ "$1" == run ]]; then
+if [[ "$1" == kcompile ]]; then
   args=("$@")
   for ((i=0; i<${#args[@]}; i++)); do
     if [[ "${args[i]}" == --output-directory ]]; then
@@ -1604,7 +1600,10 @@ if [[ "$1" == run ]]; then
     attributes+=', function{}()'
   fi
   printf 'symbol Lblfoo{}():SortS{} [%s]\n' "$attributes" >"$output/definition.kore"
-elif [[ -n "${K_RUST_KORE:-}" ]]; then
+fi
+"#,
+        r#"
+if [[ -n "${K_RUST_KORE:-}" ]]; then
   [[ "$K_RUST_KORE" != */definition.verify.kore ]]
   if [[ "$K_RUST_KORE" == */definition.kore ]]; then
     if [[ "$TEST_PAIRING" == kore/llvm ]]; then
@@ -1624,6 +1623,7 @@ fi
             .env("PATH", &path)
             .env("ENVIRONMENT_CALLS", &calls)
             .env("TEST_PAIRING", pairing)
+            .env("KRUST_GATE_TARGET_DIR", &gate_target)
             .env("K_CHECKOUT", &k_checkout)
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
@@ -2116,12 +2116,19 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
             script.contains("reference_memory_kib=${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-}"),
             "the reference JVM must retain its independently optional virtual-memory ceiling",
         );
-        assert_eq!(
-            script
-                .matches("reference_run_rust_frontend cargo run")
-                .count(),
-            1,
-            "each frontend script must route its one Rust process through the aggregate-aware helper",
+        for rust_process in [
+            "reference_run_rust_frontend cargo build",
+            "reference_run_rust_frontend \"$krust_gate_binary\"",
+        ] {
+            assert_eq!(
+                script.matches(rust_process).count(),
+                1,
+                "each frontend script must route its one krust build and its one krust run through the aggregate-aware helper",
+            );
+        }
+        assert!(
+            !script.contains("cargo run"),
+            "the gate runs the krust binary it built once",
         );
     }
 
@@ -2403,7 +2410,6 @@ fn compile_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
     let calls = fixture.join("calls");
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
-    let fake_cargo = fixture.join("cargo");
     let environment_state = r#"
 if [[ ${GHCRTS+x} != x ]]; then
   ghcrts_state='<unset>'
@@ -2435,30 +2441,24 @@ printf 'parser|%s\n' "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
         ),
     )
     .expect("write fake kore-parser");
-    fs::write(
-        &fake_cargo,
-        format!(
-            r#"#!/usr/bin/env bash
-set -euo pipefail
-{environment_state}
-printf 'cargo-%s|%s\n' "${{1:-missing}}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
-if [[ "$1" == run ]]; then
-  while (($#)); do
-    if [[ "$1" == --output-directory ]]; then
-      : >"$2/definition.kore"
-      break
+    let gate_target = fake_gate_rust_toolchain(
+        &fixture,
+        r#"
+if [[ "$1" == kcompile ]]; then
+  args=("$@")
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    if [[ "${args[i]}" == --output-directory ]]; then
+      : >"${args[i+1]}/definition.kore"
     fi
-    shift
   done
 fi
-"#
-        ),
-    )
-    .expect("write fake cargo");
+"#,
+        "",
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        for executable in [&fake_kompile, &fake_kore_parser, &fake_cargo] {
+        for executable in [&fake_kompile, &fake_kore_parser] {
             let mut permissions = fs::metadata(executable)
                 .expect("fake executable metadata")
                 .permissions();
@@ -2483,6 +2483,7 @@ fi
             .env("K_CHECKOUT", &k_checkout)
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
+            .env("KRUST_GATE_TARGET_DIR", &gate_target)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
             .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .env("REFERENCE_DIFFERENTIAL_PAIRINGS", pairing);
@@ -2511,16 +2512,18 @@ fi
 
     assert_eq!(
         default_haskell,
-        "kompile|-N1\ncargo-run|<unset>\nparser|<empty>\nparser|<empty>\ncargo-test|<unset>\n",
+        "cargo-build|<unset>\ncargo-test|<unset>\nkompile|-N1\nkrust-kcompile|<unset>\nparser|<empty>\nparser|<empty>\ncomparator|<unset>\n",
         "the default must make only the reference Haskell frontend single-capability",
     );
     assert_eq!(
         overridden_haskell,
-        "kompile|-N3\ncargo-run|-N3\nparser|<empty>\nparser|<empty>\ncargo-test|-N3\n",
+        "cargo-build|-N3\ncargo-test|-N3\nkompile|-N3\nkrust-kcompile|-N3\nparser|<empty>\nparser|<empty>\ncomparator|-N3\n",
         "a caller Haskell override must reach kompile while parsers remain compatible",
     );
     assert!(
-        non_haskell.starts_with("kompile|<unset>\ncargo-run|<unset>\n"),
+        non_haskell.starts_with(
+            "cargo-build|<unset>\ncargo-test|<unset>\nkompile|<unset>\nkrust-kcompile|<unset>\n"
+        ),
         "the default must not reach the non-Haskell reference frontend: {non_haskell}",
     );
     assert_eq!(
@@ -2568,6 +2571,36 @@ printf '%s|%s\n' "{label}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).expect("make fixture executable");
     }
+}
+
+/// Fake the Rust side of a gate: `cargo build` and `cargo test --no-run` (which reports the
+/// comparator executable as a compiler artifact) succeed without building, the gate's krust
+/// (under the returned `KRUST_GATE_TARGET_DIR`) runs `krust_prologue`, and the comparator runs
+/// `comparator_prologue`. Each records `krust-<subcommand>`, `comparator` or `cargo-<subcommand>`
+/// with its GHCRTS state in `$ENVIRONMENT_CALLS`.
+fn fake_gate_rust_toolchain(
+    fixture: &Path,
+    krust_prologue: &str,
+    comparator_prologue: &str,
+) -> PathBuf {
+    let target = fixture.join("gates");
+    let krust = target.join("release/krust");
+    fs::create_dir_all(krust.parent().unwrap()).expect("create fake gate target directory");
+    let comparator = fixture.join("comparator");
+    write_environment_probe(&krust, "krust-${1:-missing}", krust_prologue);
+    write_environment_probe(&comparator, "comparator", comparator_prologue);
+    write_environment_probe(
+        &fixture.join("cargo"),
+        "cargo-${1:-missing}",
+        &format!(
+            r#"
+if [[ "$1" == test ]]; then
+  printf '{{"reason":"compiler-artifact","target":{{"name":"reference_differential"}},"profile":{{"test":true}},"executable":"%s"}}\n' {comparator:?}
+fi
+"#
+        ),
+    );
+    target
 }
 
 /// A fake `kompile` prologue: create the requested output definition like the real frontend.
@@ -2618,15 +2651,10 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
     let fake_kore_exec = fixture.join("kore-exec");
-    let fake_cargo = fixture.join("cargo");
-    let target = fixture.join("target");
-    let fake_krust = target.join("release/krust");
-    fs::create_dir_all(fake_krust.parent().unwrap()).expect("create fake release directory");
     write_environment_probe(&fake_kompile, "kompile", FAKE_KOMPILE_PROLOGUE);
     write_environment_probe(&fake_kore_parser, "parser", "");
     write_environment_probe(&fake_kore_exec, "kore-exec", "");
-    write_environment_probe(&fake_cargo, "cargo-${1:-missing}", "");
-    write_environment_probe(&fake_krust, "krust-${1:-missing}", "");
+    let target = fake_gate_rust_toolchain(&fixture, "", "");
     let path = format!(
         "{}:{}",
         fixture.display(),
@@ -2672,12 +2700,12 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
 
     assert_eq!(
         default,
-        "cargo-build|<unset>\nkompile|-N1\nparser|<empty>\nparser|<empty>\nkore-exec|-N1\nkrust-kore-exec|<unset>\ncargo-test|<unset>\n",
+        "cargo-build|<unset>\ncargo-test|<unset>\nkompile|-N1\nparser|<empty>\nparser|<empty>\nkore-exec|-N1\nkrust-kore-exec|<unset>\ncomparator|<unset>\n",
         "the default must make the reference Haskell frontend and backend single-capability and leave the parsers and Rust side alone",
     );
     assert_eq!(
         overridden,
-        "cargo-build|-N3\nkompile|-N3\nparser|<empty>\nparser|<empty>\nkore-exec|-N3\nkrust-kore-exec|-N3\ncargo-test|-N3\n",
+        "cargo-build|-N3\ncargo-test|-N3\nkompile|-N3\nparser|<empty>\nparser|<empty>\nkore-exec|-N3\nkrust-kore-exec|-N3\ncomparator|-N3\n",
         "a caller Haskell override must reach kompile and kore-exec while parsers remain compatible",
     );
 

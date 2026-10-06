@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 kompile=${K_KOMPILE:-}
 kore_exec=${K_KORE_EXEC:-}
@@ -43,6 +44,7 @@ fi
 reference_bin=$(dirname "$kompile")
 kore_exec=${kore_exec:-"$reference_bin/kore-exec"}
 kore_parser=${kore_parser:-"$reference_bin/kore-parser"}
+kdep=${K_KDEP:-"$reference_bin/kdep"}
 for tool in "$kore_exec" "$kore_parser"; do
   if [[ ! -x "$tool" ]]; then
     echo "error: missing matching pinned reference executable: $tool" >&2
@@ -88,6 +90,16 @@ reference_announce_krust_gate_build
     --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 )
 krust=$krust_gate_binary
+reference_comparator=$(reference_build_comparator "$workspace")
+reference_cache_begin "$work"
+
+# One comparison, by the comparator test binary built once above.
+compare_artifacts() {
+  (
+    cd "$workspace/crates/k-rust"
+    "$reference_comparator" --quiet --ignored --exact "$@"
+  )
+}
 
 for name in "${selected[@]}"; do
   suite=$(jq -c --arg name "$name" '.symbolic[] | select(.name == $name)' <<<"$manifest_json")
@@ -125,7 +137,9 @@ for name in "${selected[@]}"; do
 
   reference_definition="$work/$name/reference-kompiled"
   echo "[$name] compiling and verifying the reference Haskell definition"
-  run_reference_backend "$kompile" "$source" \
+  run_reference_backend reference_cached kompile "$name" \
+    --output-root "$reference_definition" --kdep "$kdep" -- \
+    "$kompile" "$source" \
     --backend haskell \
     --main-module "$main_module" \
     --output-definition "$reference_definition" \
@@ -134,7 +148,8 @@ for name in "${selected[@]}"; do
     "${syntax_args[@]}" \
     "${reference_hook_args[@]}" \
     --warnings none
-  run_reference_parser "$kore_parser" "$reference_definition/definition.kore" \
+  run_reference_parser reference_cached kore-parser "$name:verify-reference" -- \
+    "$kore_parser" "$reference_definition/definition.kore" \
     >"$work/$name/verify-reference.log" 2>&1
 
   rust_definition="$work/$name/rust-kompiled"
@@ -149,7 +164,8 @@ for name in "${selected[@]}"; do
       "${syntax_args[@]}" \
       "${rust_hook_args[@]}" \
       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
-    run_reference_parser "$kore_parser" "$rust_definition/definition.kore" \
+    run_reference_parser reference_cached kore-parser "$name:verify-rust" -- \
+      "$kore_parser" "$rust_definition/definition.kore" \
       >"$work/$name/verify-rust.log" 2>&1
   fi
 
@@ -240,13 +256,16 @@ for name in "${selected[@]}"; do
       definition=${definition_paths[index]}
       stem="$work/$name/$pattern_name-$definition_label"
       echo "[$name:$pattern_name:$definition_label] verifying the input pattern"
-      run_reference_parser "$kore_parser" "$definition" \
+      run_reference_parser reference_cached kore-parser "$name:$pattern_name:$definition_label:verify" -- \
+        "$kore_parser" "$definition" \
         --pattern "$pattern" \
         --module "$main_module" \
         --no-print-definition >"$stem.verify.log" 2>&1
 
       echo "[$name:$pattern_name:$definition_label] executing with kore-exec"
-      run_reference_backend "$kore_exec" "$definition" \
+      run_reference_backend reference_cached kore-exec "$name:$pattern_name:$definition_label" \
+        --output-root "$stem.reference.kore" -- \
+        "$kore_exec" "$definition" \
         --module "$main_module" \
         --pattern "$pattern" \
         "${depth_args[@]}" \
@@ -284,12 +303,13 @@ for name in "${selected[@]}"; do
           K_DIFFERENTIAL_STOP_LEAVES="$stop_leaves"
         )
       fi
-      env "${comparison_environment[@]}" \
-        cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-          -p k-rust --test reference_differential -- --ignored --exact \
-          executed_kore_matches_the_reference_backend
+      (
+        export "${comparison_environment[@]}"
+        compare_artifacts executed_kore_matches_the_reference_backend
+      )
     done
   done
 done
 
+reference_cache_finish
 echo "reference symbolic execution differential corpus passed"

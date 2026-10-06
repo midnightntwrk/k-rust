@@ -263,6 +263,26 @@ if [[ "$custom_driver" == false || "${REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED:-0}"
   reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 fi
 
+# The reference-output cache (scripts/reference_cache.py) replays a reference recipe whose inputs
+# are unchanged; krust and every comparison still run. It is chosen only after the pin checks
+# above. A key that misses an input would replay a stale result; the maximum entry age bounds
+# that, and so does a fixed cadence: every fourth measured --all run against one log recomputes
+# and compares each entry it would replay (verify) unless REFERENCE_CACHE says otherwise.
+reference_cache_mode=$(python3 "$workspace/scripts/reference_cache.py" mode | cut -f1)
+if [[ -z "${REFERENCE_CACHE:-}" && "$reference_cache_mode" == on && "$all" == true && -f "$log" ]]; then
+  measured_all_runs=$(python3 -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as source:
+    runs = tomllib.load(source).get("run", [])
+print(sum(1 for run in runs if run.get("selection") == "all" and run.get("sequence", 0) > 0))
+' "$log")
+  if (((measured_all_runs + 1) % 4 == 0)); then
+    reference_cache_mode=verify
+    echo "[conformance] measured --all run $((measured_all_runs + 1)) of this log verifies the reference cache (every fourth)"
+  fi
+fi
+echo "[conformance] reference cache: $reference_cache_mode"
+
 if [[ "$all" == true ]]; then
   if command -v agent-self >/dev/null; then
     echo "[conformance] memory envelope before the all-case run"
@@ -273,7 +293,6 @@ if [[ "$all" == true ]]; then
   fi
 fi
 
-cargo_target_dir=${CARGO_TARGET_DIR:-"$workspace/target"}
 krust=${CONFORMANCE_KRUST:-}
 if [[ -z "$krust" ]]; then
   command -v cargo >/dev/null || die "cargo is required to build krust"
@@ -287,18 +306,10 @@ fi
 
 test_binary=${CONFORMANCE_TEST_BINARY:-}
 if [[ -z "$test_binary" ]]; then
-  echo "[conformance] building the reference comparison test binary"
-  cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-    -p k-rust --test reference_differential --no-run
-  newest_time=0
-  for candidate in "$cargo_target_dir"/debug/deps/reference_differential-*; do
-    [[ -x "$candidate" && "$candidate" != *.d ]] || continue
-    candidate_time=$(stat -c %Y "$candidate")
-    if ((candidate_time > newest_time)); then
-      newest_time=$candidate_time
-      test_binary=$candidate
-    fi
-  done
+  # Release, beside the gate krust: a definition.kore mismatch report on a large definition
+  # takes minutes in a debug build and runs into the driver's comparator timeout.
+  echo "[conformance] building the release reference comparison test binary"
+  test_binary=$(reference_build_comparator "$workspace" --release "${krust_gate_cargo_args[@]}")
 fi
 [[ -x "$test_binary" ]] || die "reference comparison test binary is not executable: $test_binary"
 
@@ -330,6 +341,24 @@ fi
 results="$run_dir/results.toml"
 logs="$run_dir/logs"
 mkdir "$logs"
+export REFERENCE_CACHE_LOG=${REFERENCE_CACHE_LOG:-"$run_dir/reference-cache.jsonl"}
+
+# The latest case seconds of earlier runs order this run longest first (scripts/conformance/run.py).
+mapfile -t previous_results < <(python3 - "$runs_dir" <<'PY'
+import pathlib, re, sys
+runs = []
+for path in pathlib.Path(sys.argv[1]).glob("*/results.toml"):
+    match = re.match(r"([0-9]+)-", path.parent.name)
+    if match:
+        runs.append((int(match.group(1)), str(path)))
+for _, path in sorted(runs)[-5:]:
+    print(path)
+PY
+)
+previous_results_args=()
+for previous in "${previous_results[@]}"; do
+  previous_results_args+=(--previous-results "$previous")
+done
 
 driver_args=(
   --workspace "$workspace"
@@ -342,6 +371,8 @@ driver_args=(
   --logs "$logs"
   --expectations "$expectations"
   --jobs "$jobs"
+  --reference-cache "$reference_cache_mode"
+  "${previous_results_args[@]}"
   --cases "${selected[@]}"
 )
 driver_command=("$driver")

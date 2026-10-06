@@ -1991,24 +1991,31 @@ print(json.dumps({"step": step, "calls": calls}))
 #[test]
 fn conformance_driver_caps_each_program_by_the_step_budget_inside_the_case_budget() {
     // Without a per-program ceiling, one divergent program consumes the whole case
-    // budget and every program behind it is skipped. `step_budget` caps one execution; the
-    // kill is reported as that program's cost, and the next program still runs.
+    // budget and every program behind it is skipped. `step_budget` caps one execution's own CPU
+    // time, so the verdict does not depend on what else the machine runs, and `step_wall_budget`
+    // caps the wall time of a program that stops accruing CPU time. Either kill is reported as
+    // that program's cost, the next program still runs, and the case budget still bounds both.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
-import json, os, sys, tempfile
+import json, os, signal, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 import run
 
-timeouts = []
+calls = []
+outcome = {"kill": "cpu"}
 
 def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
-    timeouts.append(round(timeout, 1))
-    # The fake program diverges: it only ever ends by being killed.
+    calls.append({"cmd": cmd, "timeout": round(timeout, 1)})
+    # The fake program diverges or stalls: it only ever ends by being killed, by the CPU limit
+    # when one applies and the probe says so, else by the wall-clock timeout.
+    if outcome["kill"] == "cpu" and cmd[0] == "bash":
+        return -signal.SIGXCPU, "", "", 1.0, False
     return -9, "", "", timeout, True
 
 run.sh = fake_sh
 
-def probe(step_budget, remaining=None):
+def probe(step_budget, kill, remaining=None, wall_budget=None):
+    outcome["kill"] = kill
     root = tempfile.mkdtemp()
     case = run.Case("step-budget")
     case.dir = root
@@ -2021,6 +2028,7 @@ def probe(step_budget, remaining=None):
     case.budget = 100.0
     case.deadline = case.t0 + case.budget
     case.step_budget = step_budget
+    case.step_wall_budget = wall_budget
     if remaining is not None:
         case.deadline = run.time.monotonic() + remaining
     with open(os.path.join(root, "program.out"), "w") as output:
@@ -2031,10 +2039,11 @@ def probe(step_budget, remaining=None):
     return {"first": first, "second": second, "out_of_budget": case.out_of_budget()}
 
 print(json.dumps({
-    "capped": probe(5.0),
-    "uncapped": probe(None),
-    "case_budget_smaller": probe(50.0, remaining=20.0),
-    "timeouts": timeouts,
+    "capped": probe(5.0, "cpu", wall_budget=40.0),
+    "stalled": probe(5.0, "wall", wall_budget=40.0),
+    "uncapped": probe(None, "wall"),
+    "case_budget_smaller": probe(50.0, "wall", remaining=20.0, wall_budget=60.0),
+    "calls": calls,
 }))
 "#;
     let output = Command::new("python3")
@@ -2053,17 +2062,37 @@ print(json.dumps({
     let capped = &probes["capped"];
     assert_eq!(capped["first"]["verdict"], "krust-error", "{probes}");
     assert_eq!(
-        capped["first"]["reason"], "krust krun exceeded the step budget (5 s)",
+        capped["first"]["reason"], "krust krun exceeded the step budget (5 CPU-s)",
         "{probes}"
     );
     assert_eq!(capped["first"]["step_budget"], 5.0, "{probes}");
+    assert_eq!(capped["first"]["step_budget_exceeded"], true, "{probes}");
     assert_eq!(
-        capped["second"]["reason"], "krust krun exceeded the step budget (5 s)",
+        capped["second"]["reason"], "krust krun exceeded the step budget (5 CPU-s)",
         "the program after a killed one must still be measured: {probes}"
     );
     assert_eq!(
         capped["out_of_budget"], false,
         "two capped kills must not exhaust a 100 s case budget: {probes}"
+    );
+    let stalled = &probes["stalled"];
+    assert_eq!(stalled["first"]["verdict"], "krust-error", "{probes}");
+    assert_eq!(
+        stalled["first"]["reason"], "krust krun exceeded the step wall budget (40 s)",
+        "a program that accrues no CPU time is ended by the step wall budget: {probes}"
+    );
+    assert_eq!(stalled["first"]["step_wall_budget"], 40.0, "{probes}");
+    assert_eq!(
+        stalled["first"]["step_wall_budget_exceeded"], true,
+        "{probes}"
+    );
+    assert!(
+        stalled["first"].get("step_budget_exceeded").is_none(),
+        "{probes}"
+    );
+    assert_eq!(
+        stalled["second"]["reason"], "krust krun exceeded the step wall budget (40 s)",
+        "the program after a stalled one must still be measured: {probes}"
     );
     let uncapped = &probes["uncapped"];
     assert_eq!(
@@ -2074,18 +2103,48 @@ print(json.dumps({
     let smaller = &probes["case_budget_smaller"];
     assert_eq!(
         smaller["first"]["reason"], "krust krun timed out",
-        "a step budget above the remaining case budget must not be reported: {probes}"
+        "a wall-clock kill by the remaining case budget is not the step budget's: {probes}"
     );
-    assert!(smaller["first"].get("step_budget").is_none(), "{probes}");
-    let timeouts = probes["timeouts"].as_array().unwrap();
-    assert_eq!(timeouts[0], 5.0, "{probes}");
-    assert_eq!(timeouts[1], 5.0, "{probes}");
     assert!(
-        timeouts[2].as_f64().unwrap() > 90.0,
+        smaller["first"].get("step_budget_exceeded").is_none(),
+        "{probes}"
+    );
+    assert!(
+        smaller["first"].get("step_wall_budget_exceeded").is_none(),
+        "{probes}"
+    );
+    let calls = probes["calls"].as_array().unwrap();
+    // The step budget is the krust process's CPU limit: a SIGXCPU soft limit at the budget and a
+    // SIGKILL hard limit a few seconds above it, set before krust is executed unchanged.
+    let capped_command = calls[0]["cmd"].as_array().unwrap();
+    let capped_command: Vec<_> = capped_command
+        .iter()
+        .map(|argument| argument.as_str().unwrap())
+        .collect();
+    assert_eq!(capped_command[0], "bash", "{probes}");
+    assert!(
+        capped_command[2].contains("ulimit -S -t \"$2\""),
+        "{probes}"
+    );
+    assert_eq!(&capped_command[4..6], ["10", "5"], "{probes}");
+    assert_eq!(capped_command[6], "/krust", "{probes}");
+    for call in &calls[0..4] {
+        assert_eq!(
+            call["timeout"].as_f64().unwrap(),
+            40.0,
+            "a capped run's wall bound is the step wall budget inside the case budget: {probes}"
+        );
+    }
+    assert_eq!(
+        calls[4]["cmd"][0], "/krust",
+        "an uncapped program runs unwrapped: {probes}"
+    );
+    assert!(
+        calls[4]["timeout"].as_f64().unwrap() > 90.0,
         "the uncapped run gets the remaining case budget: {probes}"
     );
     assert!(
-        timeouts[4].as_f64().unwrap() <= 20.0,
+        calls[6]["timeout"].as_f64().unwrap() <= 20.0,
         "the capped run never exceeds the remaining case budget: {probes}"
     );
 }

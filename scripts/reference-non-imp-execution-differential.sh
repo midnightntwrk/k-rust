@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
@@ -46,6 +47,7 @@ if [[ -z "$krun" ]]; then
   krun=$(dirname "$kompile")/krun
 fi
 kast=${kast:-"$(dirname "$kompile")/kast"}
+kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
 for tool in "$krun" "$kast"; do
   if [[ ! -x "$tool" ]]; then
     echo "error: missing matching pinned reference executable: $tool" >&2
@@ -77,7 +79,12 @@ run_reference_krun() {
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
-      "$krun" "$@" >"$output"
+      # The program, the parser script and the definition are the run's inputs; krun reads
+      # standard input to its end when the definition declares $STDIN.
+      reference_cached krun "$(basename "$output")" --input "$definition" --stdin \
+        --env K_KAST --env KAST_DEFINITION --env KAST_PROGRAM_SORT \
+        --store-status "$expected_status" -- \
+        "$krun" "$@" >"$output"
     )
     status=$?
     set -e
@@ -102,9 +109,7 @@ compare_execution() {
     K_RUST_EXECUTION="$actual" \
     K_DIFFERENTIAL_DEFINITION="$definition" \
     K_DIFFERENTIAL_MODULE="$module" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      executed_kore_matches_the_reference_backend
+    compare_artifacts executed_kore_matches_the_reference_backend
 }
 
 # N26: the port ran plain krust krun (--strategy any, one successor per step); its result must
@@ -120,9 +125,15 @@ compare_execution_any() {
     K_DIFFERENTIAL_DEFINITION="$definition" \
     K_DIFFERENTIAL_MODULE="$module" \
     K_DIFFERENTIAL_STRATEGY=any \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      executed_kore_matches_the_reference_backend --nocapture
+    compare_artifacts executed_kore_matches_the_reference_backend --nocapture
+}
+
+# One comparison, by the comparator test binary built once below.
+compare_artifacts() {
+  (
+    cd "$workspace/crates/k-rust"
+    "$reference_comparator" --quiet --ignored --exact "$@"
+  )
 }
 
 mapfile -t available < <(
@@ -135,6 +146,14 @@ if (($#)); then
 fi
 
 reference_announce_krust_gate_build
+(
+  ulimit -v "$rust_memory_kib"
+  export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
+    -p k-rust --bin krust
+)
+reference_comparator=$(reference_build_comparator "$workspace")
+reference_cache_begin "$work"
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown runnable local execution case: $name" >&2
@@ -175,7 +194,8 @@ for name in "${selected[@]}"; do
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    "$kompile" "$source" \
+    reference_cached kompile "$name" --output-root "$definition" --kdep "$kdep" -- \
+      "$kompile" "$source" \
       --backend haskell \
       --main-module "$main_module" \
       --syntax-module "$syntax_module" \
@@ -215,9 +235,7 @@ for name in "${selected[@]}"; do
     set +e
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \
@@ -313,9 +331,7 @@ for name in "${selected[@]}"; do
     echo "[$name:$search_name] searching with krust krun"
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \
@@ -362,9 +378,7 @@ for name in "${selected[@]}"; do
     echo "[$name:$any_name] executing with krust krun (any strategy)"
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \
@@ -383,4 +397,5 @@ for name in "${selected[@]}"; do
   done
 done
 
+reference_cache_finish
 echo "reference local execution differential corpus passed"
