@@ -371,6 +371,10 @@ It is rejected where the rule matches (the left-hand side of a rewrite, or outsi
 It is also rejected anywhere in a context: the heating step builds the context's term and the cooling step matches it again, and a value one step allocates is not one the other can match.
 A local function (`#fun`, `#let`) on the right-hand side of a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
 
+The counter cell `<generatedCounter>` holds an `Int` that starts at the domain value `0`, so the configuration has it only when the main module sees a sort `Int` with domain values (token syntax).
+A `--no-prelude` definition without such an `Int` gets a `<generatedTop>` around its own top cell alone, and its claims get no counter cell; nothing in it can draw a fresh value, since a `freshGenerator` takes an `Int`.
+A `!` variable in such a definition is rejected with `InvalidFreshConstant` at its sentence (with no `INT` module, the report is that the counter increment needs `INT`).
+
 ## Anywhere rules
 
 Rust accepts and executes anywhere rules.

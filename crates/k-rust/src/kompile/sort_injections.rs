@@ -2771,7 +2771,8 @@ mod stage_tests {
     /// two sorts, and leaves an argument of the declared sort alone: `V:Val` under `pair(Exp,
     /// Exp)` becomes `inj{Val,Exp}(V)`, `E:Exp` stays, and the `Exp` term in the `<k>` cell,
     /// whose content is a `KItem`, is injected into `KItem`. (The stage also states the rule as
-    /// one rewrite of the whole configuration, as a KORE rewrite axiom has it.)
+    /// one rewrite of the whole configuration, as a KORE rewrite axiom has it; the definition has
+    /// no `Int`, so its configuration has no fresh counter cell.)
     #[test]
     fn a_subsort_argument_is_injected_into_the_declared_sort_and_only_then() {
         let run = run_to_stage(
@@ -2790,11 +2791,11 @@ endmodule
         let after = labelled(run.output(), "MAIN", "swap");
         assert_eq!(
             render(before[0]),
-            r#"rule `<generatedTop>`(`<k>`(pair(V,E)=>pair(E,V)),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool")"#
+            r#"rule `<generatedTop>`(`<k>`(pair(V,E)=>pair(E,V))) requires #token("true","Bool") ensures #token("true","Bool")"#
         );
         assert_eq!(
             render(after[0]),
-            r#"rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(inj{Val,Exp}(V),E))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(E,inj{Val,Exp}(V)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool")"#
+            r#"rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(inj{Val,Exp}(V),E))))=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(E,inj{Val,Exp}(V))))) requires #token("true","Bool") ensures #token("true","Bool")"#
         );
     }
 
