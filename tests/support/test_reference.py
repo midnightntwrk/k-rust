@@ -8,8 +8,9 @@ import tempfile
 import textwrap
 import tomllib
 import unittest
+from unittest.mock import patch
 
-from support import ROOT, GateError
+from support import ROOT, GateError, reference
 from support.lock import k_version
 from support.reference import (
     Key, Output, Placeholders, Promotion, Snapshot, dump_manifest, indented_json, json_sorted_lists,
@@ -198,6 +199,25 @@ class SnapshotTests(unittest.TestCase):
         self.exercise(live, workspace)
         with self.assertRaisesRegex(GateError, "used twice"):
             self.exercise(live, workspace)
+
+    def test_a_live_label_is_reserved_before_its_tool_runs(self) -> None:
+        workspace = self.workspace("live")
+        live = Snapshot(self.directory, self.key(), workspace=workspace, refresh=True, executables=self.executables)
+        concurrent: list[str] = []
+
+        def run_while_another_run_requests_the_label(command: list[str], **options: object):
+            # A second request for the label while the first tool still runs,
+            # as a concurrent job would make it.
+            try:
+                self.exercise(live, workspace)
+            except GateError as error:
+                concurrent.append(str(error))
+            return original_run(command, **options)
+
+        original_run = reference.run
+        with patch.object(reference, "run", run_while_another_run_requests_the_label):
+            self.exercise(live, workspace)
+        self.assertEqual(concurrent, ["reference invocation label kompile/definition is used twice"])
 
     def test_reduced_outputs_are_identical_live_and_replayed(self) -> None:
         def reduce(text: str) -> str:

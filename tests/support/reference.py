@@ -475,10 +475,11 @@ class Snapshot:
         argv = self._normalize_argv([*prefix, tool, *resolved])
         inputs = self._input_digests(resolved, declared)
         with self._lock:
-            if label in self._invocations or label in self._consumed:
+            # The label is reserved before a live run starts, so two
+            # concurrent runs cannot both record under it.
+            if label in self._consumed:
                 raise GateError(f"reference invocation label {label} is used twice")
-            if not self.refresh:
-                self._consumed.add(label)
+            self._consumed.add(label)
         if self.refresh:
             return self._run_live(label, tool, resolved, argv, inputs, timeout, declared, prefix, reducers)
         return self._replay(label, argv, inputs, [output.path for output in declared])
