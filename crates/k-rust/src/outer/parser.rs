@@ -210,7 +210,7 @@ impl<'a> Parser<'a> {
             }));
         }
         if self.consume_word("lexical") {
-            let name = self.sort_id()?.1.name;
+            let name = std::mem::take(&mut self.sort_id()?.1.name);
             self.expect_char('=')?;
             let regex = self.regex()?;
             if self.peek_char_after_trivia()? == Some('[') {

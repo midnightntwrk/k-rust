@@ -1974,12 +1974,12 @@ fn synthetic_unsorted_variables_use_expected_sort_then_k() {
         Sort::new("Exp")
     );
     assert!(matches!(
-        injector.inject(&variable, &Sort::new("Exp")).unwrap(),
-        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("Exp")
+        &injector.inject(&variable, &Sort::new("Exp")).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && *sort == Sort::new("Exp")
     ));
     assert!(matches!(
-        injector.inject_at_top(&variable).unwrap(),
-        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("K")
+        &injector.inject_at_top(&variable).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && *sort == Sort::new("K")
     ));
 }
 

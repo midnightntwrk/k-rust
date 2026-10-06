@@ -7,7 +7,7 @@ use crate::kore::ast::{Pattern, Sort as KoreSort, Symbol, Variable, VariableKind
 use crate::kore::normalize;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
-use super::ast::{Label, Sort, Term};
+use super::ast::{Label, Sort, Term, TermParts};
 use super::identifier::{self, DecodeError};
 use super::names::{FrontendSort, InternalLabel};
 use super::string;
@@ -258,18 +258,18 @@ impl<'a> Converter<'a> {
         let mut flattened = Vec::new();
         for argument in arguments {
             let argument = self.pattern(argument)?;
-            match argument {
-                Term::Apply {
+            match argument.into_parts() {
+                TermParts::Apply {
                     label: child,
                     arguments,
                 } if child == label => {
                     flattened.extend(arguments);
                 }
-                Term::Apply {
+                TermParts::Apply {
                     label: child,
                     arguments,
                 } if child == unit && arguments.is_empty() => {}
-                argument => flattened.push(argument),
+                argument => flattened.push(Term::from(argument)),
             }
         }
         Ok(Term::Apply {

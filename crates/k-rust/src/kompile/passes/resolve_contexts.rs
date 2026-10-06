@@ -28,7 +28,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedLabel, InternalLabel, Label, Sort, Term},
+    kast::{GeneratedLabel, InternalLabel, Label, Sort, Term, TermParts},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
@@ -582,12 +582,12 @@ fn insert(term: Term, rewrite: Term, productions: &ProductionCatalog<'_>) -> (Te
 
 // Invariant: each call stops at a main-cell application or recurses into the immediate subterms of `term`; the returned flag is true exactly when a three-argument main cell below `term` had its middle argument replaced by `rewrite`.
 fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>) -> (Term, bool) {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             let (term, found) = insert_inner(*term, rewrite, productions);
             (term.with_metadata(metadata), found)
         }
-        Term::Apply { label, arguments } if is_main_cell(&label, productions) => {
+        TermParts::Apply { label, arguments } if is_main_cell(&label, productions) => {
             if let [left, _, right] = arguments.as_slice() {
                 (
                     Term::Apply {
@@ -600,7 +600,7 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
                 (Term::Apply { label, arguments }, false)
             }
         }
-        Term::Rewrite { left, right } => {
+        TermParts::Rewrite { left, right } => {
             let (left, left_found) = insert_inner(*left, rewrite, productions);
             let (right, right_found) = insert_inner(*right, rewrite, productions);
             (
@@ -611,7 +611,7 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
                 left_found || right_found,
             )
         }
-        Term::As { pattern, alias } => {
+        TermParts::As { pattern, alias } => {
             let (pattern, pattern_found) = insert_inner(*pattern, rewrite, productions);
             let (alias, alias_found) = insert_inner(*alias, rewrite, productions);
             (
@@ -622,7 +622,7 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
                 pattern_found || alias_found,
             )
         }
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             let mut found = false;
             let items = items
                 .into_iter()
@@ -634,7 +634,7 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
                 .collect();
             (Term::Sequence(items), found)
         }
-        Term::Apply { label, arguments } => {
+        TermParts::Apply { label, arguments } => {
             let mut found = false;
             let arguments = arguments
                 .into_iter()
@@ -646,9 +646,9 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
                 .collect();
             (Term::Apply { label, arguments }, found)
         }
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
-            (leaf, false)
-        }
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => (Term::from(leaf), false),
     }
 }
 

@@ -51,7 +51,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     inner::ParsedProgram,
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
         fresh_names::{FreshNames, GeneratedVariableIdentity},
@@ -870,8 +870,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             settled.push(child_settled);
             Ok::<_, Diagnostic>(child)
         };
-        let (term, rules) = match term.into_unannotated() {
-            Term::Apply { label, arguments } => {
+        let (term, rules) = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
                     .map(|argument| expand(self, argument))
@@ -879,25 +879,25 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 let rules = self.macros.get(&LabelHead::from(&label)).cloned();
                 (Term::Apply { label, arguments }, rules)
             }
-            Term::Token { token, sort } => {
+            TermParts::Token { token, sort } => {
                 let rules = self.token_macros.get(&sort).cloned();
                 (Term::Token { token, sort }, rules)
             }
-            Term::Rewrite { left, right } => (
+            TermParts::Rewrite { left, right } => (
                 Term::Rewrite {
                     left: Box::new(expand(self, *left)?),
                     right: Box::new(expand(self, *right)?),
                 },
                 None,
             ),
-            Term::As { pattern, alias } => (
+            TermParts::As { pattern, alias } => (
                 Term::As {
                     pattern: Box::new(expand(self, *pattern)?),
                     alias: Box::new(expand(self, *alias)?),
                 },
                 None,
             ),
-            Term::Sequence(items) => (
+            TermParts::Sequence(items) => (
                 Term::Sequence(
                     items
                         .into_iter()
@@ -906,8 +906,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 ),
                 None,
             ),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. }) => (leaf, None),
-            Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Variable { .. }) => {
+                (Term::from(leaf), None)
+            }
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
         Ok(Expanded {
             term: with_metadata(term, metadata),
@@ -1388,8 +1390,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         fresh: &mut BTreeMap<String, Term>,
     ) -> (Term, Known) {
         let metadata = term.metadata().cloned();
-        let (rebuilt, known) = match term.into_unannotated() {
-            Term::Variable { name, sort } => {
+        let (rebuilt, known) = match term.into_unannotated().into_parts() {
+            TermParts::Variable { name, sort } => {
                 let last = bindings.get_mut(name.as_str()).map(|(_, uses)| {
                     *uses -= 1;
                     *uses == 0
@@ -1427,14 +1429,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     (variable, Known::Unknown)
                 }
             }
-            Term::Apply { label, arguments } => {
+            TermParts::Apply { label, arguments } => {
                 let (arguments, known) = arguments
                     .into_iter()
                     .map(|argument| self.substitute(argument, bindings, settled, fresh))
                     .unzip();
                 (Term::Apply { label, arguments }, Known::Children(known))
             }
-            Term::Rewrite { left, right } => {
+            TermParts::Rewrite { left, right } => {
                 let (left, left_known) = self.substitute(*left, bindings, settled, fresh);
                 let (right, right_known) = self.substitute(*right, bindings, settled, fresh);
                 (
@@ -1445,7 +1447,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     Known::Children(vec![left_known, right_known]),
                 )
             }
-            Term::As { pattern, alias } => {
+            TermParts::As { pattern, alias } => {
                 let (pattern, pattern_known) = self.substitute(*pattern, bindings, settled, fresh);
                 let (alias, alias_known) = self.substitute(*alias, bindings, settled, fresh);
                 (
@@ -1456,15 +1458,17 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     Known::Children(vec![pattern_known, alias_known]),
                 )
             }
-            Term::Sequence(items) => {
+            TermParts::Sequence(items) => {
                 let (items, known) = items
                     .into_iter()
                     .map(|item| self.substitute(item, bindings, settled, fresh))
                     .unzip();
                 (Term::Sequence(items), Known::Children(known))
             }
-            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => (leaf, Known::Unknown),
-            Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Token { .. }) => {
+                (Term::from(leaf), Known::Unknown)
+            }
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
         let rebuilt = match metadata {
             Some(metadata) => rebuilt.with_metadata(metadata),
@@ -1528,7 +1532,7 @@ fn take_bindings<'pattern>(
             arguments: patterns,
             ..
         } => {
-            let Term::Apply { arguments, .. } = subject.into_unannotated() else {
+            let TermParts::Apply { arguments, .. } = subject.into_unannotated().into_parts() else {
                 unreachable!("an application pattern matches only applications")
             };
             for (pattern, argument) in patterns.iter().zip(arguments) {

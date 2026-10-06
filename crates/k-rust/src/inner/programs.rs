@@ -47,7 +47,7 @@ use crate::definition::{
 use crate::kast::json as kast_json;
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::printer::Printer;
-use crate::kast::{ProductionIdentity, Sort, Term};
+use crate::kast::{ProductionIdentity, Sort, Term, TermParts};
 use crate::provenance::SourceId;
 
 use super::parser::{Grammar, ParseError, named_projection_productions};
@@ -402,27 +402,29 @@ pub fn definition_with_named_projections(definition: &Definition) -> Definition 
 }
 
 fn without_source_spans(term: Term) -> Term {
-    match term {
-        Term::Annotated { term, mut metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, mut metadata } => {
             metadata.span = None;
             without_source_spans(*term).with_metadata(metadata)
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(without_source_spans(*left)),
             right: Box::new(without_source_spans(*right)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(without_source_spans(*pattern)),
             alias: Box::new(without_source_spans(*alias)),
         },
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             Term::Sequence(items.into_iter().map(without_source_spans).collect())
         }
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments.into_iter().map(without_source_spans).collect(),
         },
-        term @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => term,
+        term @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(term),
     }
 }
 
@@ -595,8 +597,8 @@ fn strip_inferred_parameters(
         .as_ref()
         .and_then(|metadata| metadata.production)
         .is_some_and(|production| parametric_productions.contains(&production));
-    let rebuilt = match term.into_unannotated() {
-        Term::Apply {
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Apply {
             mut label,
             arguments,
         } => {
@@ -611,28 +613,28 @@ fn strip_inferred_parameters(
                     .collect(),
             }
         }
-        Term::InjectedLabel(mut label) => {
+        TermParts::InjectedLabel(mut label) => {
             if inferred_production_parameters {
                 label.parameters.clear();
             }
             Term::InjectedLabel(label)
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(strip_inferred_parameters(*left, parametric_productions)),
             right: Box::new(strip_inferred_parameters(*right, parametric_productions)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(strip_inferred_parameters(*pattern, parametric_productions)),
             alias: Box::new(strip_inferred_parameters(*alias, parametric_productions)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| strip_inferred_parameters(item, parametric_productions))
                 .collect(),
         ),
-        leaf @ (Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        leaf @ (TermParts::Variable { .. } | TermParts::Token { .. }) => Term::from(leaf),
+        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
     match metadata {
         Some(metadata) => rebuilt.with_metadata(metadata),

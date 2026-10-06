@@ -25,7 +25,9 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, FlatImport, LabelHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
+    kast::{
+        FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermParts, WellKnownModule,
+    },
     provenance::GeneratingPass,
 };
 
@@ -320,12 +322,12 @@ fn replace_initializer_body(
     cell_label: &str,
     contents: &[Term],
 ) -> Term {
-    match body {
-        Term::Annotated { term, metadata } => {
+    match body.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             replace_initializer_body(*term, init_label, cell_label, contents)
                 .with_metadata(metadata)
         }
-        Term::Rewrite { left, right } => {
+        TermParts::Rewrite { left, right } => {
             let is_initializer = matches!(left.unannotated(), Term::Apply { label, .. } if label.name == init_label)
                 && matches!(right.unannotated(), Term::Apply { label, .. } if label.name == cell_label);
             if is_initializer {
@@ -338,7 +340,7 @@ fn replace_initializer_body(
                 Term::Rewrite { left, right }
             }
         }
-        body => body,
+        body => Term::from(body),
     }
 }
 
@@ -347,12 +349,12 @@ fn replace_initializer_body(
     reason = "Term is syntax; only the listed variants are special here"
 )]
 fn replace_apply_arguments(term: Term, arguments: Vec<Term>) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             replace_apply_arguments(*term, arguments).with_metadata(metadata)
         }
-        Term::Apply { label, .. } => Term::Apply { label, arguments },
-        term => term,
+        TermParts::Apply { label, .. } => Term::Apply { label, arguments },
+        term => Term::from(term),
     }
 }
 
@@ -618,11 +620,11 @@ fn is_nullary_apply(term: &Term, name: &str) -> bool {
     reason = "Term is syntax; only the listed variants are special here"
 )]
 fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: &str) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             instantiate_unblock(*term, user_cell, sort, builtin_cell).with_metadata(metadata)
         }
-        Term::Apply { label, arguments }
+        TermParts::Apply { label, arguments }
             if label.generated()
                 == Some(GeneratedLabel::SemanticCast {
                     sort_text: BuiltinSort::String.k_name(),
@@ -649,7 +651,7 @@ fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: 
                 },
             }
         }
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label: if label.name == builtin_cell {
                 user_cell.clone()
             } else {
@@ -660,61 +662,67 @@ fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: 
                 .map(|argument| instantiate_unblock(argument, user_cell, sort, builtin_cell))
                 .collect(),
         },
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(instantiate_unblock(*left, user_cell, sort, builtin_cell)),
             right: Box::new(instantiate_unblock(*right, user_cell, sort, builtin_cell)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(instantiate_unblock(*pattern, user_cell, sort, builtin_cell)),
             alias: Box::new(instantiate_unblock(*alias, user_cell, sort, builtin_cell)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| instantiate_unblock(item, user_cell, sort, builtin_cell))
                 .collect(),
         ),
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 
 fn drop_rhs_and_replace_cell(term: Term, cell_label: &str, replacement: &Term) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             drop_rhs_and_replace_cell(*term, cell_label, replacement).with_metadata(metadata)
         }
-        Term::Rewrite { left, .. } => drop_rhs_and_replace_cell(*left, cell_label, replacement),
-        Term::Apply { label, .. } if label.name == cell_label => replacement.clone(),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Rewrite { left, .. } => {
+            drop_rhs_and_replace_cell(*left, cell_label, replacement)
+        }
+        TermParts::Apply { label, .. } if label.name == cell_label => replacement.clone(),
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| drop_rhs_and_replace_cell(argument, cell_label, replacement))
                 .collect(),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(drop_rhs_and_replace_cell(*pattern, cell_label, replacement)),
             alias: Box::new(drop_rhs_and_replace_cell(*alias, cell_label, replacement)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| drop_rhs_and_replace_cell(item, cell_label, replacement))
                 .collect(),
         ),
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 
 fn rename_label(term: Term, from: &str, to: &Label) -> Term {
-    match term {
-        Term::Annotated { term, mut metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, mut metadata } => {
             if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == from) {
                 metadata.production = None;
             }
             rename_label(*term, from, to).with_metadata(metadata)
         }
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label: if label.name == from {
                 to.clone()
             } else {
@@ -725,49 +733,53 @@ fn rename_label(term: Term, from: &str, to: &Label) -> Term {
                 .map(|argument| rename_label(argument, from, to))
                 .collect(),
         },
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(rename_label(*left, from, to)),
             right: Box::new(rename_label(*right, from, to)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(rename_label(*pattern, from, to)),
             alias: Box::new(rename_label(*alias, from, to)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| rename_label(item, from, to))
                 .collect(),
         ),
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 
 fn without_production_metadata(term: Term) -> Term {
-    match term {
-        Term::Annotated { term, mut metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, mut metadata } => {
             metadata.production = None;
             without_production_metadata(*term).with_metadata(metadata)
         }
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(without_production_metadata)
                 .collect(),
         },
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(without_production_metadata(*left)),
             right: Box::new(without_production_metadata(*right)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(without_production_metadata(*pattern)),
             alias: Box::new(without_production_metadata(*alias)),
         },
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             Term::Sequence(items.into_iter().map(without_production_metadata).collect())
         }
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 

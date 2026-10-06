@@ -8,7 +8,7 @@ use std::{collections::BTreeSet, convert::Infallible};
 
 use crate::{
     definition::{Definition, Sentence},
-    kast::Term,
+    kast::{Term, TermParts},
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
     provenance::GeneratingPass,
 };
@@ -86,11 +86,11 @@ fn transform(
     fresh: &mut FreshNames,
     generated: &mut BTreeSet<GeneratedVariableIdentity>,
 ) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             transform(*term, fresh, generated).with_metadata(metadata)
         }
-        Term::Variable { name, sort } if anonymous_prefix(&name).is_some() => {
+        TermParts::Variable { name, sort } if anonymous_prefix(&name).is_some() => {
             let prefix = anonymous_prefix(&name).expect("guard checked the prefix");
             let name = fresh.mint(&format!("{prefix}_Gen"));
             generated.insert(if prefix == "@" {
@@ -100,28 +100,30 @@ fn transform(
             });
             Term::Variable { name, sort }
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(transform(*left, fresh, generated)),
             right: Box::new(transform(*right, fresh, generated)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(transform(*pattern, fresh, generated)),
             alias: Box::new(transform(*alias, fresh, generated)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| transform(item, fresh, generated))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| transform(argument, fresh, generated))
                 .collect(),
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 

@@ -13,10 +13,49 @@ use crate::provenance::{OriginRecord, SourceId};
 use super::names::LabelName;
 use super::printer::Printer;
 
+/// A K sort: a name applied to sort parameters.
+///
+/// A sort is dropped with an explicit work list, so a sort nested to any depth is dropped on
+/// any thread. Because of that `Drop`, a sort cannot be destructured by move; take its fields
+/// with `std::mem::take` instead.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Sort {
     pub name: String,
     pub parameters: Vec<Sort>,
+}
+
+/// Dropping a sort frees each of its levels in turn rather than recursing into its parameters,
+/// so its depth does not bound the stack it takes: a reader accepts sorts of any depth, and
+/// their owner drops them wherever it is.
+impl Drop for Sort {
+    #[inline]
+    fn drop(&mut self) {
+        // Most sorts have no parameters; this check is all their drop adds.
+        if !self.parameters.is_empty() {
+            self.drop_parameters();
+        }
+    }
+}
+
+impl Sort {
+    #[inline(never)]
+    fn drop_parameters(&mut self) {
+        if self
+            .parameters
+            .iter()
+            .all(|parameter| parameter.parameters.is_empty())
+        {
+            // The parameters' own drops free them without going any deeper.
+            return;
+        }
+        let mut work = std::mem::take(&mut self.parameters);
+        // Invariant: `work` holds the detached sorts whose parameters are still attached; each
+        // pop detaches one sort's parameters into `work`, so each sort is popped once and is
+        // dropped with no parameters left.
+        while let Some(mut sort) = work.pop() {
+            work.append(&mut sort.parameters);
+        }
+    }
 }
 
 impl Sort {
@@ -155,6 +194,10 @@ pub struct TermMetadata {
 }
 
 /// A K term. Semantic variant order follows the Scala frontend's total ordering.
+///
+/// A term is dropped with an explicit work list, so a term nested to any depth is dropped on
+/// any thread. Because of that `Drop`, a term cannot be destructured by move: match on
+/// [`Term::into_parts`] to take a term apart by value.
 #[derive(Clone)]
 pub enum Term {
     InjectedLabel(Label),
@@ -186,7 +229,196 @@ pub enum Term {
     },
 }
 
+/// The fields of one [`Term`] node, owned, in a type without `Drop`, so that a term taken apart
+/// by value can be destructured by move: `match term.into_parts() { TermParts::Apply { label,
+/// arguments } => ..., parts => Term::from(parts) }`. Each variant has the fields of the
+/// [`Term`] variant of the same name.
+pub enum TermParts {
+    InjectedLabel(Label),
+    Rewrite {
+        left: Box<Term>,
+        right: Box<Term>,
+    },
+    As {
+        pattern: Box<Term>,
+        alias: Box<Term>,
+    },
+    Variable {
+        name: String,
+        sort: Option<Sort>,
+    },
+    Sequence(Vec<Term>),
+    Apply {
+        label: Label,
+        arguments: Vec<Term>,
+    },
+    Token {
+        token: String,
+        sort: Sort,
+    },
+    #[doc(hidden)]
+    Annotated {
+        term: Box<Term>,
+        metadata: TermMetadata,
+    },
+}
+
+impl From<TermParts> for Term {
+    fn from(parts: TermParts) -> Self {
+        match parts {
+            TermParts::InjectedLabel(label) => Self::InjectedLabel(label),
+            TermParts::Rewrite { left, right } => Self::Rewrite { left, right },
+            TermParts::As { pattern, alias } => Self::As { pattern, alias },
+            TermParts::Variable { name, sort } => Self::Variable { name, sort },
+            TermParts::Sequence(items) => Self::Sequence(items),
+            TermParts::Apply { label, arguments } => Self::Apply { label, arguments },
+            TermParts::Token { token, sort } => Self::Token { token, sort },
+            TermParts::Annotated { term, metadata } => Self::Annotated { term, metadata },
+        }
+    }
+}
+
+/// The height up to which a term is dropped by its fields' own drops, recursively: a few frames
+/// of stack, no work list, and each node is looked at by at most this many checks above it.
+const SHALLOW_DROP_HEIGHT: usize = 4;
+
+/// Dropping a term frees each of its nodes in turn rather than recursing into its children, so
+/// its depth does not bound the stack it takes. A term outlives the stack of the work that built
+/// it (a reader accepts terms of any depth, and a pass returns what it built), and its owner
+/// drops it wherever it is.
+impl Drop for Term {
+    #[inline]
+    fn drop(&mut self) {
+        // A term without subterms, a leaf or a node already taken apart, is freed by its fields'
+        // drops; this check is all its drop adds.
+        let has_children = match self {
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => !items.is_empty(),
+            Self::Rewrite { .. } | Self::As { .. } | Self::Annotated { .. } => true,
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => false,
+        };
+        if has_children {
+            self.drop_children();
+        }
+    }
+}
+
 impl Term {
+    #[inline(never)]
+    fn drop_children(&mut self) {
+        if self.height_at_most(SHALLOW_DROP_HEIGHT) {
+            // The fields' drops free a term this shallow within a few frames.
+            return;
+        }
+        let mut work = Vec::new();
+        self.detach_children(&mut work);
+        // Invariant: `work` holds the detached terms whose children are still attached; each
+        // pop detaches one term's children into `work`, so each term is popped once and is
+        // dropped with no children left.
+        while let Some(mut term) = work.pop() {
+            term.detach_children(&mut work);
+        }
+    }
+}
+
+impl Term {
+    /// Take this term apart into its owned fields; see [`TermParts`].
+    pub fn into_parts(self) -> TermParts {
+        let term = std::mem::ManuallyDrop::new(self);
+        // SAFETY: `term` is never used again and, being `ManuallyDrop`, never dropped, so each
+        // field of its variant is moved out exactly once, by the one `ptr::read` of that field
+        // below, and is owned by the result alone.
+        unsafe {
+            use std::ptr::read;
+            match &*term {
+                Self::InjectedLabel(label) => TermParts::InjectedLabel(read(label)),
+                Self::Rewrite { left, right } => TermParts::Rewrite {
+                    left: read(left),
+                    right: read(right),
+                },
+                Self::As { pattern, alias } => TermParts::As {
+                    pattern: read(pattern),
+                    alias: read(alias),
+                },
+                Self::Variable { name, sort } => TermParts::Variable {
+                    name: read(name),
+                    sort: read(sort),
+                },
+                Self::Sequence(items) => TermParts::Sequence(read(items)),
+                Self::Apply { label, arguments } => TermParts::Apply {
+                    label: read(label),
+                    arguments: read(arguments),
+                },
+                Self::Token { token, sort } => TermParts::Token {
+                    token: read(token),
+                    sort: read(sort),
+                },
+                Self::Annotated { term, metadata } => TermParts::Annotated {
+                    term: read(term),
+                    metadata: read(metadata),
+                },
+            }
+        }
+    }
+
+    /// Whether no path from this node down to a leaf has more than `bound` nodes, annotations
+    /// counted; it looks at most `bound` levels down.
+    fn height_at_most(&self, bound: usize) -> bool {
+        let Some(below) = bound.checked_sub(1) else {
+            return false;
+        };
+        match self {
+            Self::Rewrite { left, right } => {
+                left.height_at_most(below) && right.height_at_most(below)
+            }
+            Self::As { pattern, alias } => {
+                pattern.height_at_most(below) && alias.height_at_most(below)
+            }
+            Self::Annotated { term, .. } => term.height_at_most(below),
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => items.iter().all(|item| item.height_at_most(below)),
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => true,
+        }
+    }
+
+    /// Move the immediate subterms of this node to `work`, leaving it without children. The
+    /// first list of children moved to an empty `work` becomes `work`, so a chain of
+    /// applications is taken apart without any allocation of its own.
+    fn detach_children(&mut self, work: &mut Vec<Self>) {
+        let mut detach = |child: &mut Box<Self>| {
+            work.push(std::mem::replace(
+                child.as_mut(),
+                Self::Sequence(Vec::new()),
+            ));
+        };
+        match self {
+            Self::Rewrite { left, right } => {
+                detach(left);
+                detach(right);
+            }
+            Self::As { pattern, alias } => {
+                detach(pattern);
+                detach(alias);
+            }
+            Self::Annotated { term, .. } => detach(term),
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => {
+                if work.capacity() == 0 {
+                    std::mem::swap(work, items);
+                } else {
+                    work.append(items);
+                }
+            }
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => {}
+        }
+    }
+
     pub fn variable(name: impl Into<String>) -> Self {
         Self::Variable {
             name: name.into(),
@@ -204,15 +436,15 @@ impl Term {
     pub fn sequence(items: impl IntoIterator<Item = Self>) -> Self {
         let mut flattened = Vec::new();
         for item in items {
-            match item {
-                Self::Sequence(nested) => flattened.extend(nested),
-                Self::Annotated { term, .. } if matches!(*term, Self::Sequence(_)) => {
-                    let Self::Sequence(nested) = *term else {
+            match item.into_parts() {
+                TermParts::Sequence(nested) => flattened.extend(nested),
+                TermParts::Annotated { term, .. } if matches!(*term, Self::Sequence(_)) => {
+                    let TermParts::Sequence(nested) = term.into_parts() else {
                         unreachable!()
                     };
                     flattened.extend(nested);
                 }
-                item => flattened.push(item),
+                parts => flattened.push(Self::from(parts)),
             }
         }
         Self::Sequence(flattened)
@@ -222,8 +454,8 @@ impl Term {
         if metadata == TermMetadata::default() {
             return self;
         }
-        match self {
-            Self::Annotated {
+        match self.into_parts() {
+            TermParts::Annotated {
                 term,
                 metadata: mut existing,
             } => {
@@ -244,8 +476,8 @@ impl Term {
                     metadata: existing,
                 }
             }
-            term => Self::Annotated {
-                term: Box::new(term),
+            parts => Self::Annotated {
+                term: Box::new(Self::from(parts)),
                 metadata,
             },
         }
@@ -268,7 +500,10 @@ impl Term {
 
     pub fn into_unannotated(self) -> Self {
         let mut term = self;
-        while let Self::Annotated { term: inner, .. } = term {
+        while matches!(term, Self::Annotated { .. }) {
+            let TermParts::Annotated { term: inner, .. } = term.into_parts() else {
+                unreachable!()
+            };
             term = *inner;
         }
         term
@@ -643,5 +878,229 @@ mod tests {
         assert!(Label::with_parameters("inj", vec![Sort::new("Int")]).is(WellKnownSymbol::Inj));
         assert!(!Label::new("Lblinj").is(WellKnownSymbol::Inj));
         assert!(!Label::new("inj").is(WellKnownSymbol::KSeq));
+    }
+
+    /// Levels of the deep values below: more than a recursive drop takes on a 64 KiB thread in
+    /// any build.
+    const DEEP: usize = 100_000;
+
+    /// Run `work` on a thread with `bytes` of stack.
+    fn on_stack(bytes: usize, work: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(bytes)
+            .spawn(work)
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish");
+    }
+
+    fn deep_sort() -> Sort {
+        let mut sort = Sort::new("S");
+        for _ in 0..DEEP {
+            sort = Sort::with_parameters("S", vec![Sort::new("T"), sort]);
+        }
+        sort
+    }
+
+    fn origin() -> Arc<OriginRecord> {
+        Arc::new(OriginRecord {
+            pass: crate::provenance::GeneratingPass::ResolveFun,
+            origins: Arc::from(Vec::new()),
+            destination: None,
+        })
+    }
+
+    /// `DEEP` levels around a variable, the `index`th level being `wrap(index, term)`.
+    fn chain(wrap: impl Fn(usize, Term) -> Term) -> Term {
+        let mut term = Term::variable("X");
+        for index in 0..DEEP {
+            term = wrap(index, term);
+        }
+        term
+    }
+
+    /// One level of the `index`th kind of node a term nests through, around `term`, with a
+    /// sibling leaf where the node has more than one child.
+    fn level(index: usize, term: Term) -> Term {
+        let leaf = || Term::variable("Y");
+        match index % 8 {
+            0 => Term::apply("f", vec![leaf(), term, leaf()]),
+            1 => Term::Sequence(vec![term, leaf()]),
+            2 => Term::Rewrite {
+                left: Box::new(term),
+                right: Box::new(leaf()),
+            },
+            3 => Term::Rewrite {
+                left: Box::new(leaf()),
+                right: Box::new(term),
+            },
+            4 => Term::As {
+                pattern: Box::new(term),
+                alias: Box::new(leaf()),
+            },
+            5 => Term::As {
+                pattern: Box::new(leaf()),
+                alias: Box::new(term),
+            },
+            6 => Term::Annotated {
+                term: Box::new(term),
+                metadata: TermMetadata::default(),
+            },
+            _ => Term::apply("g", vec![term]),
+        }
+    }
+
+    /// Terms `DEEP` levels deep through each kind of child and each kind of sort a term holds.
+    fn deep_terms() -> Vec<(&'static str, Term)> {
+        vec![
+            ("applications", chain(|_, term| level(0, term))),
+            ("sequences", chain(|_, term| level(1, term))),
+            ("rewrite left sides", chain(|_, term| level(2, term))),
+            ("rewrite right sides", chain(|_, term| level(3, term))),
+            ("as patterns", chain(|_, term| level(4, term))),
+            ("as aliases", chain(|_, term| level(5, term))),
+            ("annotations", chain(|_, term| level(6, term))),
+            ("every kind of node", chain(level)),
+            (
+                "a variable's sort",
+                Term::Variable {
+                    name: "X".into(),
+                    sort: Some(deep_sort()),
+                },
+            ),
+            (
+                "a token's sort",
+                Term::Token {
+                    token: "t".into(),
+                    sort: deep_sort(),
+                },
+            ),
+            (
+                "a label's parameters",
+                Term::Apply {
+                    label: Label::with_parameters("f", vec![deep_sort()]),
+                    arguments: Vec::new(),
+                },
+            ),
+            (
+                "an injected label's parameters",
+                Term::InjectedLabel(Label::with_parameters("f", vec![deep_sort()])),
+            ),
+            (
+                "an annotation's sort",
+                Term::Annotated {
+                    term: Box::new(Term::variable("X")),
+                    metadata: TermMetadata {
+                        sort: Some(deep_sort()),
+                        ..TermMetadata::default()
+                    },
+                },
+            ),
+        ]
+    }
+
+    /// Dropping takes a term apart level by level, so a term of any depth, through any kind of
+    /// child or sort, and a sort of any depth, are dropped on a thread of 64 KiB of stack.
+    #[test]
+    fn terms_and_sorts_of_any_depth_are_dropped_on_a_small_stack() {
+        for (shape, term) in deep_terms() {
+            eprintln!("dropping a term deep through {shape}");
+            on_stack(64 << 10, move || drop(term));
+        }
+        let sort = deep_sort();
+        on_stack(64 << 10, move || drop(sort));
+    }
+
+    /// Dropping a deep term drops each of its nodes: every annotation of a term with deep and
+    /// wide parts holds a reference to one shared record, and dropping the term on a small stack
+    /// releases every reference.
+    #[test]
+    fn dropping_a_deep_term_drops_every_node() {
+        let record = origin();
+        let annotate = |term: Term| Term::Annotated {
+            term: Box::new(term),
+            metadata: TermMetadata {
+                origin: Some(Arc::clone(&record)),
+                ..TermMetadata::default()
+            },
+        };
+        let wide = |index: usize| {
+            Term::Sequence(
+                (0..index % 5)
+                    .map(|_| annotate(Term::variable("W")))
+                    .collect(),
+            )
+        };
+        let mut term = annotate(Term::variable("X"));
+        for index in 0..DEEP / 10 {
+            let node = match level(index, term).into_parts() {
+                TermParts::Apply {
+                    label,
+                    mut arguments,
+                } => {
+                    arguments.push(wide(index));
+                    Term::Apply { label, arguments }
+                }
+                node => Term::from(node),
+            };
+            term = annotate(node);
+        }
+        assert!(Arc::strong_count(&record) > DEEP / 10);
+        on_stack(64 << 10, move || drop(term));
+        assert_eq!(Arc::strong_count(&record), 1);
+    }
+
+    /// Taking a node apart and putting it back together gives the same node, every field
+    /// included, and moves each field exactly once: no reference a node holds is lost or
+    /// released twice.
+    #[test]
+    fn a_term_taken_apart_is_rebuilt_from_its_parts() {
+        let record = origin();
+        let metadata = TermMetadata {
+            span: None,
+            production: Some(ProductionIdentity::from_digest([7; 16])),
+            sort: Some(Sort::with_parameters("S", vec![Sort::new("T")])),
+            origin: Some(Arc::clone(&record)),
+        };
+        let annotated = |term: Term| Term::Annotated {
+            term: Box::new(term),
+            metadata: metadata.clone(),
+        };
+        let leaf = || annotated(Term::variable("X"));
+        let label = Label::with_parameters("f", vec![Sort::new("Int")]);
+        let nodes = vec![
+            Term::InjectedLabel(label.clone()),
+            Term::Rewrite {
+                left: Box::new(leaf()),
+                right: Box::new(Term::variable("Y")),
+            },
+            Term::As {
+                pattern: Box::new(Term::variable("Y")),
+                alias: Box::new(leaf()),
+            },
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(Sort::new("Int")),
+            },
+            Term::Sequence(vec![leaf(), Term::variable("Y")]),
+            Term::Apply {
+                label,
+                arguments: vec![leaf(), leaf()],
+            },
+            Term::Token {
+                token: "1".into(),
+                sort: Sort::new("Int"),
+            },
+            annotated(Term::apply("g", vec![leaf()])),
+        ];
+        for node in &nodes {
+            let references = Arc::strong_count(&record);
+            let rebuilt = Term::from(node.clone().into_parts());
+            assert!(rebuilt.identical(node), "{node:?} became {rebuilt:?}");
+            drop(rebuilt);
+            assert_eq!(Arc::strong_count(&record), references, "{node:?}");
+        }
+        drop((nodes, metadata));
+        assert_eq!(Arc::strong_count(&record), 1);
     }
 }

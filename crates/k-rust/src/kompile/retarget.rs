@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use crate::definition::{Definition, Sentence};
-use crate::kast::{ProductionIdentity, Term};
+use crate::kast::{ProductionIdentity, Term, TermParts};
 
 /// Replace production identities in all definition-local terms according to a pass-owned map.
 ///
@@ -57,30 +57,32 @@ fn retarget_term(
     {
         metadata.production = Some(*replacement);
     }
-    let rebuilt = match term.into_unannotated() {
-        Term::Rewrite { left, right } => Term::Rewrite {
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(retarget_term(*left, replacements)),
             right: Box::new(retarget_term(*right, replacements)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(retarget_term(*pattern, replacements)),
             alias: Box::new(retarget_term(*alias, replacements)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| retarget_term(item, replacements))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| retarget_term(argument, replacements))
                 .collect(),
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!(),
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
+        TermParts::Annotated { .. } => unreachable!(),
     };
     rebuilt.with_metadata(metadata)
 }

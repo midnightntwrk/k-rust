@@ -32,7 +32,7 @@ use crate::{
         SortCatalog,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, Label, Sort, Term, parser::parse_sort},
+    kast::{FrontendSort, Label, Sort, Term, TermParts, parser::parse_sort},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
@@ -638,33 +638,35 @@ fn default_alias(source_attributes: &Attributes) -> Alias {
 }
 
 fn replace_here(term: Term, replacement: &Term) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             replace_here(*term, replacement).with_metadata(metadata)
         }
-        Term::Variable { name, .. } if name == "HERE" => replacement.clone(),
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Variable { name, .. } if name == "HERE" => replacement.clone(),
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(replace_here(*left, replacement)),
             right: Box::new(replace_here(*right, replacement)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(replace_here(*pattern, replacement)),
             alias: Box::new(replace_here(*alias, replacement)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| replace_here(item, replacement))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| replace_here(argument, replacement))
                 .collect(),
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 

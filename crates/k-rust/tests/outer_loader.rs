@@ -199,7 +199,9 @@ endmodule
             items
                 .into_iter()
                 .filter_map(|item| match item {
-                    ProductionItem::NonTerminal { sort, .. } => Some(sort.name),
+                    ProductionItem::NonTerminal { mut sort, .. } => {
+                        Some(std::mem::take(&mut sort.name))
+                    }
                     _ => None,
                 })
                 .collect::<Vec<_>>()

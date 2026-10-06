@@ -319,10 +319,10 @@ fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + '
         .expect("the worker should finish")
 }
 
-/// Both definition readers decode the terms of a document with explicit work stacks, so a rule
-/// body 100,000 applications deep is read on a 1 MiB thread. The decoded term's own drop
-/// recurses once per level, so it is dropped on a larger thread. Each document takes about
-/// 9 MB, and the test peaks at about 210 MB of resident memory in a debug build.
+/// Both definition readers decode the terms of a document with explicit work stacks, and a term
+/// is dropped with an explicit work list, so a definition whose rule body is 100,000
+/// applications deep is read and dropped on a 1 MiB thread. Each document takes about 9 MB,
+/// and the test peaks at about 210 MB of resident memory in a debug build.
 #[test]
 fn definitions_of_any_depth_are_read_on_a_small_stack() {
     let levels = 100_000;
@@ -332,16 +332,15 @@ fn definitions_of_any_depth_are_read_on_a_small_stack() {
         &json::to_provenance_string(&shallow, &SourceTable::default()).unwrap(),
         levels,
     );
-    let (from_kast, from_provenance) = on_stack(1 << 20, move || {
+    on_stack(1 << 20, move || {
         let from_kast = json::from_str(&kast).expect("the KAST document is read");
         let from_provenance = json::from_provenance_str(&provenance)
             .expect("the provenance document is read")
             .definition;
-        (from_kast, from_provenance)
+        assert_eq!(rule_body_depth(&from_kast), levels);
+        assert_eq!(rule_body_depth(&from_provenance), levels);
+        drop((from_kast, from_provenance));
     });
-    assert_eq!(rule_body_depth(&from_kast), levels);
-    assert_eq!(rule_body_depth(&from_provenance), levels);
-    on_stack(256 << 20, move || drop((from_kast, from_provenance)));
 }
 
 /// The JSON text of a KAST term: `levels` applications of `wrap` around the variable `X`.
@@ -361,19 +360,14 @@ fn deep_sort_text(levels: usize) -> String {
 const BOGUS: &str = r#"{"node":"Bogus"}"#;
 
 /// Read each case's document with `read` on a 1 MiB thread and check that it is refused with an
-/// error whose text contains the case's expected text. A document that is read is leaked, not
-/// dropped, so that only the reader's own work is on the small stack.
+/// error whose text contains the case's expected text.
 fn assert_refused_on_a_small_stack<T: 'static, E: std::fmt::Display + 'static>(
     read: fn(&str) -> Result<T, E>,
     cases: Vec<(&'static str, String, &'static str)>,
 ) {
     for (case, document, expected) in cases {
-        let error = on_stack(1 << 20, move || match read(&document) {
-            Ok(value) => {
-                std::mem::forget(value);
-                None
-            }
-            Err(error) => Some(error.to_string()),
+        let error = on_stack(1 << 20, move || {
+            read(&document).err().map(|error| error.to_string())
         });
         let error = error.unwrap_or_else(|| panic!("{case}: the document is read"));
         assert!(error.contains(expected), "{case}: {error}");

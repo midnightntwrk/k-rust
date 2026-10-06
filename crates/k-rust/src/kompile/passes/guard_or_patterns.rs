@@ -9,7 +9,7 @@ use std::fmt;
 use crate::{
     definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{InternalLabel, Term},
+    kast::{InternalLabel, Term, TermParts},
     kompile::{SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
@@ -115,8 +115,8 @@ fn transform(
     fresh: &mut FreshNames,
 ) -> Result<Term, crate::kompile::SortInjectionError> {
     let metadata = term.metadata().cloned();
-    let rebuilt = match term.into_unannotated() {
-        Term::Apply { label, arguments } if label.is(InternalLabel::Or) => {
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Apply { label, arguments } if label.is(InternalLabel::Or) => {
             let application = Term::Apply { label, arguments };
             let application = match metadata.clone() {
                 Some(metadata) => application.with_metadata(metadata),
@@ -132,22 +132,24 @@ fn transform(
             }
         }
         // Java deliberately treats aliases and rewrites as traversal boundaries.
-        boundary @ (Term::As { .. } | Term::Rewrite { .. }) => boundary,
-        Term::Apply { label, arguments } => Term::Apply {
+        boundary @ (TermParts::As { .. } | TermParts::Rewrite { .. }) => Term::from(boundary),
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| transform(argument, injector, fresh))
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| transform(item, injector, fresh))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
+        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
     Ok(match metadata {
         Some(metadata) => rebuilt.with_metadata(metadata),

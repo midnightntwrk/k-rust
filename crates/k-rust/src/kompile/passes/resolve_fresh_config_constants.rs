@@ -11,7 +11,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::{Sort, Term},
+    kast::{Sort, Term, TermParts},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -114,8 +114,8 @@ fn transform(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Term {
     let metadata = term.metadata().cloned();
-    let rebuilt = match term.into_unannotated() {
-        Term::Variable { name, sort } if on_rhs && name.starts_with('!') => {
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Variable { name, sort } if on_rhs && name.starts_with('!') => {
             if !sort
                 .as_ref()
                 .is_some_and(|sort| sort.is_builtin(BuiltinSort::Int))
@@ -144,7 +144,7 @@ fn transform(
                 }
             }
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left,
             right: Box::new(transform(
                 *right,
@@ -155,7 +155,7 @@ fn transform(
                 diagnostics,
             )),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(transform(
                 *pattern,
                 on_rhs,
@@ -173,7 +173,7 @@ fn transform(
                 diagnostics,
             )),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| {
@@ -188,7 +188,7 @@ fn transform(
                 })
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
@@ -204,8 +204,10 @@ fn transform(
                 })
                 .collect(),
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
+        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
     match metadata {
         Some(metadata) => rebuilt.with_metadata(metadata),

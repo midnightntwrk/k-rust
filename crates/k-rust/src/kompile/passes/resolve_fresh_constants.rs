@@ -34,7 +34,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{
         FrontendSort, GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term,
-        WellKnownModule,
+        TermParts, WellKnownModule,
     },
     provenance::GeneratingPass,
 };
@@ -442,8 +442,8 @@ fn transform_term(
     generators: &BTreeMap<Sort, Label>,
 ) -> Result<Term, String> {
     let metadata = term.metadata().cloned();
-    match term.into_unannotated() {
-        Term::Variable { name, sort } if fresh.contains_key(&name) => {
+    match term.into_unannotated().into_parts() {
+        TermParts::Variable { name, sort } if fresh.contains_key(&name) => {
             let sort = sort
                 .or_else(|| metadata.and_then(|metadata| metadata.sort))
                 .ok_or_else(|| "Fresh constant used without a declared sort.".to_owned())?;
@@ -464,7 +464,7 @@ fn transform_term(
                 )],
             })
         }
-        Term::Apply { label, arguments } => Ok(with_metadata(
+        TermParts::Apply { label, arguments } => Ok(with_metadata(
             Term::Apply {
                 label,
                 arguments: arguments
@@ -474,21 +474,21 @@ fn transform_term(
             },
             metadata,
         )),
-        Term::Rewrite { left, right } => Ok(with_metadata(
+        TermParts::Rewrite { left, right } => Ok(with_metadata(
             Term::Rewrite {
                 left: Box::new(transform_term(*left, fresh, offsets, generators)?),
                 right: Box::new(transform_term(*right, fresh, offsets, generators)?),
             },
             metadata,
         )),
-        Term::As { pattern, alias } => Ok(with_metadata(
+        TermParts::As { pattern, alias } => Ok(with_metadata(
             Term::As {
                 pattern: Box::new(transform_term(*pattern, fresh, offsets, generators)?),
                 alias: Box::new(transform_term(*alias, fresh, offsets, generators)?),
             },
             metadata,
         )),
-        Term::Sequence(items) => Ok(with_metadata(
+        TermParts::Sequence(items) => Ok(with_metadata(
             Term::Sequence(
                 items
                     .into_iter()
@@ -497,10 +497,10 @@ fn transform_term(
             ),
             metadata,
         )),
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
-            Ok(with_metadata(leaf, metadata))
-        }
-        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Ok(with_metadata(Term::from(leaf), metadata)),
+        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     }
 }
 
@@ -559,13 +559,13 @@ fn add_counter_initializer(sentence: Sentence) -> Result<Sentence, String> {
     else {
         unreachable!()
     };
-    let Term::Rewrite { left, right } = body.into_unannotated() else {
+    let TermParts::Rewrite { left, right } = body.into_unannotated().into_parts() else {
         return Err("Malformed generated top-cell initializer rule".into());
     };
-    let Term::Apply {
+    let TermParts::Apply {
         label,
         mut arguments,
-    } = right.into_unannotated()
+    } = right.into_unannotated().into_parts()
     else {
         return Err("Malformed generated top-cell initializer result".into());
     };

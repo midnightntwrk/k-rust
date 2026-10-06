@@ -456,7 +456,9 @@ mod tests {
             name: "X".into(),
             sort: None,
         };
-        let Term::Apply { label, arguments } = witness.apply(term.clone()) else {
+        let crate::kast::TermParts::Apply { label, arguments } =
+            witness.apply(term.clone()).into_parts()
+        else {
             panic!("an injection is an application");
         };
         assert!(label.is(WellKnownSymbol::Inj));

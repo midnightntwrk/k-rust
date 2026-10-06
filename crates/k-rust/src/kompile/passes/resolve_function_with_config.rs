@@ -19,7 +19,7 @@ use crate::{
         Sentence, SortHead, production_identity,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term},
+    kast::{GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term, TermParts},
     provenance::GeneratingPass,
 };
 
@@ -480,25 +480,25 @@ fn resolve_with_config_body(
 
 // Invariant: each call rebuilds `term` from its transformed immediate subterms and appends the configuration variable to an application whose label is in `with_config` and whose last argument is not already a configuration argument; the finite `term` bounds the recursion.
 fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
             transform_term(*term, with_config).with_metadata(metadata)
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(transform_term(*left, with_config)),
             right: Box::new(transform_term(*right, with_config)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(transform_term(*pattern, with_config)),
             alias: Box::new(transform_term(*alias, with_config)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| transform_term(item, with_config))
                 .collect(),
         ),
-        Term::Apply {
+        TermParts::Apply {
             label,
             mut arguments,
         } => {
@@ -512,7 +512,9 @@ fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
             }
             Term::Apply { label, arguments }
         }
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 
