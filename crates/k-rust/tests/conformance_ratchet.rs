@@ -1992,8 +1992,9 @@ print(json.dumps({"step": step, "calls": calls}))
 fn conformance_driver_caps_each_program_by_the_step_budget_inside_the_case_budget() {
     // Without a per-program ceiling, one divergent program consumes the whole case
     // budget and every program behind it is skipped. `step_budget` caps one execution's own CPU
-    // time, so the verdict does not depend on what else the machine runs; the kill is reported as
-    // that program's cost, the next program still runs, and the case budget still bounds wall time.
+    // time, so the verdict does not depend on what else the machine runs, and `step_wall_budget`
+    // caps the wall time of a program that stops accruing CPU time. Either kill is reported as
+    // that program's cost, the next program still runs, and the case budget still bounds both.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
 import json, os, signal, sys, tempfile
@@ -2005,15 +2006,15 @@ outcome = {"kill": "cpu"}
 
 def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
     calls.append({"cmd": cmd, "timeout": round(timeout, 1)})
-    # The fake program diverges: it only ever ends by being killed, by the CPU limit when
-    # one applies and the probe says so, else by the wall-clock timeout.
+    # The fake program diverges or stalls: it only ever ends by being killed, by the CPU limit
+    # when one applies and the probe says so, else by the wall-clock timeout.
     if outcome["kill"] == "cpu" and cmd[0] == "bash":
         return -signal.SIGXCPU, "", "", 1.0, False
     return -9, "", "", timeout, True
 
 run.sh = fake_sh
 
-def probe(step_budget, kill, remaining=None):
+def probe(step_budget, kill, remaining=None, wall_budget=None):
     outcome["kill"] = kill
     root = tempfile.mkdtemp()
     case = run.Case("step-budget")
@@ -2027,6 +2028,7 @@ def probe(step_budget, kill, remaining=None):
     case.budget = 100.0
     case.deadline = case.t0 + case.budget
     case.step_budget = step_budget
+    case.step_wall_budget = wall_budget
     if remaining is not None:
         case.deadline = run.time.monotonic() + remaining
     with open(os.path.join(root, "program.out"), "w") as output:
@@ -2037,9 +2039,10 @@ def probe(step_budget, kill, remaining=None):
     return {"first": first, "second": second, "out_of_budget": case.out_of_budget()}
 
 print(json.dumps({
-    "capped": probe(5.0, "cpu"),
+    "capped": probe(5.0, "cpu", wall_budget=40.0),
+    "stalled": probe(5.0, "wall", wall_budget=40.0),
     "uncapped": probe(None, "wall"),
-    "case_budget_smaller": probe(50.0, "wall", remaining=20.0),
+    "case_budget_smaller": probe(50.0, "wall", remaining=20.0, wall_budget=60.0),
     "calls": calls,
 }))
 "#;
@@ -2072,6 +2075,25 @@ print(json.dumps({
         capped["out_of_budget"], false,
         "two capped kills must not exhaust a 100 s case budget: {probes}"
     );
+    let stalled = &probes["stalled"];
+    assert_eq!(stalled["first"]["verdict"], "krust-error", "{probes}");
+    assert_eq!(
+        stalled["first"]["reason"], "krust krun exceeded the step wall budget (40 s)",
+        "a program that accrues no CPU time is ended by the step wall budget: {probes}"
+    );
+    assert_eq!(stalled["first"]["step_wall_budget"], 40.0, "{probes}");
+    assert_eq!(
+        stalled["first"]["step_wall_budget_exceeded"], true,
+        "{probes}"
+    );
+    assert!(
+        stalled["first"].get("step_budget_exceeded").is_none(),
+        "{probes}"
+    );
+    assert_eq!(
+        stalled["second"]["reason"], "krust krun exceeded the step wall budget (40 s)",
+        "the program after a stalled one must still be measured: {probes}"
+    );
     let uncapped = &probes["uncapped"];
     assert_eq!(
         uncapped["first"]["reason"], "krust krun timed out",
@@ -2085,6 +2107,10 @@ print(json.dumps({
     );
     assert!(
         smaller["first"].get("step_budget_exceeded").is_none(),
+        "{probes}"
+    );
+    assert!(
+        smaller["first"].get("step_wall_budget_exceeded").is_none(),
         "{probes}"
     );
     let calls = probes["calls"].as_array().unwrap();
@@ -2102,22 +2128,23 @@ print(json.dumps({
     );
     assert_eq!(&capped_command[4..6], ["10", "5"], "{probes}");
     assert_eq!(capped_command[6], "/krust", "{probes}");
-    for call in &calls[0..2] {
-        assert!(
-            call["timeout"].as_f64().unwrap() > 90.0,
-            "the CPU-capped run keeps the remaining case budget as its wall bound: {probes}"
+    for call in &calls[0..4] {
+        assert_eq!(
+            call["timeout"].as_f64().unwrap(),
+            40.0,
+            "a capped run's wall bound is the step wall budget inside the case budget: {probes}"
         );
     }
     assert_eq!(
-        calls[2]["cmd"][0], "/krust",
+        calls[4]["cmd"][0], "/krust",
         "an uncapped program runs unwrapped: {probes}"
     );
     assert!(
-        calls[2]["timeout"].as_f64().unwrap() > 90.0,
+        calls[4]["timeout"].as_f64().unwrap() > 90.0,
         "the uncapped run gets the remaining case budget: {probes}"
     );
     assert!(
-        calls[4]["timeout"].as_f64().unwrap() <= 20.0,
+        calls[6]["timeout"].as_f64().unwrap() <= 20.0,
         "the capped run never exceeds the remaining case budget: {probes}"
     );
 }

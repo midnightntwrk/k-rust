@@ -95,9 +95,9 @@ Do not commit full measurement histories or temporary run output.
 Expensive reference runs remain manual and selected according to the affected contract.
 Changes to CI coverage, frequency, or resource budgets require a separate cost decision.
 
-A `step_budget` in `scripts/conformance/expectations.toml` bounds the CPU seconds of one krust program execution (`RLIMIT_CPU`), not its wall time.
-The budget exists so that one divergent program cannot consume the case budget of the programs behind it, and the program's own CPU time measures that divergence without depending on the other jobs on the machine.
-The case budget still bounds the wall time of the whole case.
+A `step_budget` in `scripts/conformance/expectations.toml` bounds the CPU seconds of one krust program execution (`RLIMIT_CPU`), and its companion `step_wall_budget` bounds that execution's wall seconds.
+The budgets exist so that one divergent program cannot consume the case budget of the programs behind it: the program's own CPU time measures divergence without depending on the other jobs on the machine, and the wall budget, set well above the program's measured cost, ends a program that stops accruing CPU time.
+The case budget still bounds the wall time of the whole case, and must leave room for the rest of the case after a step that uses its whole wall budget.
 
 ### Reference-output cache
 

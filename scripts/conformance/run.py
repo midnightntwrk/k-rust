@@ -15,8 +15,9 @@ ktest-group.mak SUBDIRS recursively) the driver:
      the two simplified patterns structurally (C8); a step that matches only this way says so,
   6. on a remaining mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
 Every case runs under a budget (--budget, or `budget` in expectations.toml); a program execution may
-additionally be capped by the case's `step_budget` of CPU seconds, so one divergent program is reported
-as its own krust-error instead of consuming the budget of every program behind it.
+additionally be capped by the case's `step_budget` of CPU seconds and `step_wall_budget` of wall seconds,
+so one divergent or stalled program is reported as its own krust-error instead of consuming the budget of
+every program behind it.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
 import argparse, hashlib, json, math, os, re, shlex, shutil, signal, subprocess, sys, tempfile, threading, time
@@ -46,10 +47,12 @@ BISON_PARSER_ONLY = False
 IGNORE_UNIQUE_ID = False
 CASE_BUDGET = 300.0
 CASE_BUDGETS = {}
-# Per-program ceiling inside the case budget (expectations `step_budget`), in CPU seconds of the
-# krust process; absent means the case budget alone bounds a program, so one divergent program
-# hides every program behind it.
+# Per-program ceilings inside the case budget: expectations `step_budget`, in CPU seconds of the
+# krust process, and `step_wall_budget`, in wall seconds, which bounds a program that stops
+# accruing CPU time (blocked, or throttled at its memory limit). Absent means the case budget alone
+# bounds a program, so one divergent program hides every program behind it.
 STEP_BUDGETS = {}
+STEP_WALL_BUDGETS = {}
 # Seconds between the step budget's SIGXCPU and the kernel's SIGKILL, for a program that ignores it.
 STEP_BUDGET_GRACE = 5
 DIFF_LINES = 20
@@ -116,7 +119,12 @@ def load_expectations(path):
         for row in rows
         if "step_budget" in row
     }
-    return document, budgets, step_budgets
+    step_wall_budgets = {
+        row["name"]: float(row["step_wall_budget"])
+        for row in rows
+        if "step_wall_budget" in row
+    }
+    return document, budgets, step_budgets, step_wall_budgets
 
 
 def load_bison_parsers(path):
@@ -536,6 +544,7 @@ class Case:
         self.t0 = time.monotonic()
         self.budget = CASE_BUDGETS.get(rel, CASE_BUDGET)
         self.step_budget = STEP_BUDGETS.get(rel)
+        self.step_wall_budget = STEP_WALL_BUDGETS.get(rel)
         self.deadline = self.t0 + self.budget
         self.ref_kompiled = None
         self.krust_runtime_definition = "krust-kompiled"
@@ -560,13 +569,22 @@ class Case:
     def out_of_budget(self):
         return self.remaining() <= 1
 
+    def step_timeout(self):
+        """Wall-clock timeout of one program execution: the remaining case budget, capped by the
+        step wall budget. Returns (seconds, capped); `capped` says the step wall budget is the
+        bound, so a kill is reported as the program's own cost rather than as budget exhaustion."""
+        remaining = self.remaining()
+        if self.step_wall_budget is not None and self.step_wall_budget < remaining:
+            return self.step_wall_budget, True
+        return remaining, False
+
     def step_limited(self, args):
         """One program execution under the step budget.
 
         The budget guards the programs behind a divergent one, so it bounds the program's own
         work: the CPU time of the krust process (RLIMIT_CPU, whose SIGXCPU ends it), which other
-        jobs on the machine do not inflate the way they stretch wall time. The remaining case
-        budget still bounds the execution's wall time.
+        jobs on the machine do not inflate the way they stretch wall time. A program that stops
+        accruing CPU time escapes that limit, so the step wall budget (step_timeout) bounds it.
         """
         if self.step_budget is None:
             return args
@@ -1268,24 +1286,30 @@ def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
 
 def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
     args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
-    rc, out, err, secs, to = sh(case.step_limited(args), case.dir, case.remaining(), stdin_path=stdin_path)
-    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to)
+    timeout, wall_capped = case.step_timeout()
+    rc, out, err, secs, to = sh(case.step_limited(args), case.dir, timeout, stdin_path=stdin_path)
+    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to, wall_capped)
 
 
 def run_krust_program_bytes(case, prog, stdin_path, extra, sort, syntax_module, step):
     args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
-    rc, out, err, secs, to = sh_bytes(case.step_limited(args), case.dir, case.remaining(), stdin_path=stdin_path)
-    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to)
+    timeout, wall_capped = case.step_timeout()
+    rc, out, err, secs, to = sh_bytes(case.step_limited(args), case.dir, timeout, stdin_path=stdin_path)
+    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to, wall_capped)
 
 
-def step_budget_outcome(case, step, rc, timed_out):
-    """Record the step budget on the step; a SIGXCPU death is the program exceeding it."""
-    if case.step_budget is None:
-        return timed_out
-    step["step_budget"] = case.step_budget
-    if rc == -signal.SIGXCPU:
+def step_budget_outcome(case, step, rc, timed_out, wall_capped):
+    """Record the step budgets on the step: a SIGXCPU death is the program exceeding its CPU
+    budget, and a timeout under the step wall budget is the program exceeding that one."""
+    if case.step_budget is not None:
+        step["step_budget"] = case.step_budget
+    if case.step_wall_budget is not None:
+        step["step_wall_budget"] = case.step_wall_budget
+    if case.step_budget is not None and rc == -signal.SIGXCPU:
         step["step_budget_exceeded"] = True
         return True
+    if timed_out and wall_capped:
+        step["step_wall_budget_exceeded"] = True
     return timed_out
 
 
@@ -1293,6 +1317,8 @@ def krust_timeout_reason(step, tool):
     """The kill reason of a krust program run: its own step budget, or the case budget."""
     if step.get("step_budget_exceeded"):
         return f"krust {tool} exceeded the step budget ({step['step_budget']:g} CPU-s)"
+    if step.get("step_wall_budget_exceeded"):
+        return f"krust {tool} exceeded the step wall budget ({step['step_wall_budget']:g} s)"
     return f"krust {tool} timed out"
 
 
@@ -2712,6 +2738,7 @@ def main():
     CASE_BUDGET = a.budget
     CASE_BUDGETS = {}
     STEP_BUDGETS.clear()
+    STEP_WALL_BUDGETS.clear()
     a.results = RESULTS
 
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
@@ -2759,7 +2786,8 @@ def main():
         return 0
 
     try:
-        expectations_document, expectation_budgets, expectation_step_budgets = load_expectations(EXPECTATIONS)
+        (expectations_document, expectation_budgets, expectation_step_budgets,
+         expectation_step_wall_budgets) = load_expectations(EXPECTATIONS)
     except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ValueError) as error:
         ap.error(f"cannot load expectations {EXPECTATIONS}: {error}")
     expectations = {}
@@ -2779,7 +2807,21 @@ def main():
             ap.error(f"expectation step_budget for {name} must be positive and finite")
         if step_budget > CASE_BUDGETS.get(name, CASE_BUDGET):
             ap.error(f"expectation step_budget for {name} exceeds its case budget")
+        # A CPU limit alone leaves a program that stops accruing CPU time bounded only by the
+        # case budget, which is what the step budget exists to avoid.
+        if name not in expectation_step_wall_budgets:
+            ap.error(f"expectation step_budget for {name} needs a step_wall_budget")
+    for name, wall_budget in expectation_step_wall_budgets.items():
+        if not math.isfinite(wall_budget) or wall_budget <= 0:
+            ap.error(f"expectation step_wall_budget for {name} must be positive and finite")
+        if wall_budget > CASE_BUDGETS.get(name, CASE_BUDGET):
+            ap.error(f"expectation step_wall_budget for {name} exceeds its case budget")
+        # A wall budget below the CPU budget would end a program running on one core before it
+        # could reach its CPU budget.
+        if wall_budget < expectation_step_budgets.get(name, 0):
+            ap.error(f"expectation step_wall_budget for {name} is below its step_budget")
     STEP_BUDGETS.update(expectation_step_budgets)
+    STEP_WALL_BUDGETS.update(expectation_step_wall_budgets)
 
     available = {name for name, _ in cases}
     unknown_overrides = sorted(CASE_BUDGETS.keys() - available)
