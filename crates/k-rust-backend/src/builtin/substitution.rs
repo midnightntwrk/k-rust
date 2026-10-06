@@ -1839,3 +1839,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "substitution_properties.rs"]
+mod properties;
