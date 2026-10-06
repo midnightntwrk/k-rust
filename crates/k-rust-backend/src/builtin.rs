@@ -750,6 +750,60 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 /// it never writes a value this backend would not compute.
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 20;
 
+/// How the bit length of `|base| ^Int exponent` compares with `bound`, decided without computing
+/// the power where possible.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PowerSize {
+    Fits,
+    TooLarge,
+    /// Not decided without computing the power.
+    Undecided,
+}
+
+/// For `|base| >= 2` and `exponent >= 1`: whether `|base| ^Int exponent` has at most `bound` bits.
+///
+/// A positive integer `x` has `floor(log2 x) + 1` bits, so the power fits exactly when
+/// `exponent * log2 |base| < bound`. For a power of two that product is the integer
+/// `exponent * (bits - 1)`. Otherwise it is estimated in `f64` from the base's leading 64 bits:
+/// once the minimum length `(bits - 1) * exponent + 1` is within the bound, the product is below
+/// `2 * bound`, and the estimate's error (the truncated low bits, below `2^-62` in the
+/// logarithm, and a few rounding steps relative to `2^-52`) is far below `ESTIMATE_MARGIN`.
+/// Only an estimate within that margin of the bound is left `Undecided`, which no product of a
+/// base that is not a power of two and an exponent reaches exactly, since its logarithm is
+/// irrational.
+fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
+    const ESTIMATE_MARGIN: f64 = 1e-6;
+    let magnitude = base.magnitude();
+    let bits = magnitude.bits();
+    let Some(minimum) = (bits - 1)
+        .checked_mul(exponent)
+        .and_then(|minimum| minimum.checked_add(1))
+    else {
+        return PowerSize::TooLarge;
+    };
+    if minimum > bound {
+        return PowerSize::TooLarge;
+    }
+    if magnitude.trailing_zeros() == Some(bits - 1) {
+        // |base| = 2^(bits - 1): the power is 2^((bits - 1) * exponent), of `minimum` bits.
+        return PowerSize::Fits;
+    }
+    let dropped = bits.saturating_sub(64);
+    let leading = (magnitude >> dropped)
+        .to_u64()
+        .expect("at most 64 leading bits");
+    // An estimate whose error the margin covers (above); the bound, far below 2^52, is exact.
+    let product = exponent as f64 * ((leading as f64).log2() + dropped as f64);
+    let bound = bound as f64;
+    if product < bound - ESTIMATE_MARGIN {
+        PowerSize::Fits
+    } else if product >= bound + ESTIMATE_MARGIN {
+        PowerSize::TooLarge
+    } else {
+        PowerSize::Undecided
+    }
+}
+
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
@@ -772,19 +826,6 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             BigInt::one()
         })));
     }
-    let Some(mut exponent) = exponent.to_u64() else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
-                ),
-            },
-        ));
-    };
-    // |base|^exponent has between (bits - 1) * exponent + 1 and bits * exponent bits, so the
-    // first bound refuses only results that are too large, and a result the second admits needs
-    // at most twice the bound to compute before its exact length is checked.
-    let bits = base.bits();
     let detail = format!("{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits");
     let too_large = || {
         Ok(BuiltinResult::Unsupported(
@@ -793,11 +834,10 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ))
     };
-    if (bits - 1)
-        .checked_mul(exponent)
-        .and_then(|minimum| minimum.checked_add(1))
-        .is_none_or(|minimum| minimum > MAX_INT_RESULT_BITS)
-    {
+    let Some(mut exponent) = exponent.to_u64() else {
+        return too_large();
+    };
+    if power_size(&base, exponent, MAX_INT_RESULT_BITS) == PowerSize::TooLarge {
         return too_large();
     }
     let mut result = BigInt::one();
@@ -811,6 +851,7 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             base = &base * &base;
         }
     }
+    // Only an `Undecided` size gets here above the bound.
     if result.bits() > MAX_INT_RESULT_BITS {
         return too_large();
     }
@@ -1545,6 +1586,50 @@ mod tests {
             } else {
                 assert!(too_large(shifted), "1 <<Int {amount}");
                 assert!(too_large(powered), "2 ^Int {amount}");
+            }
+        }
+    }
+
+    /// The size of a power is decided before it is computed, so a power above the bound is
+    /// never computed only to be refused (`3 ^Int 700000` has at least 700,001 bits, below the
+    /// bound, and in fact 1,109,474, above it); and the decision agrees with the exact length.
+    #[test]
+    fn power_size_is_decided_before_computing() {
+        let bound = MAX_INT_RESULT_BITS;
+        for (base, exponent, expected) in [
+            (3, 700_000, PowerSize::TooLarge),
+            (-3, 700_000, PowerSize::TooLarge),
+            (3, 600_000, PowerSize::Fits),
+            (2, bound, PowerSize::TooLarge),
+            (2, bound - 1, PowerSize::Fits),
+            (-2, bound - 1, PowerSize::Fits),
+            (4, bound / 2, PowerSize::TooLarge),
+            (4, bound / 2 - 1, PowerSize::Fits),
+        ] {
+            assert_eq!(
+                power_size(&BigInt::from(base), exponent, bound),
+                expected,
+                "{base} ^Int {exponent}"
+            );
+        }
+        // log2 of 3 * 2^199 + 12345 is about 200.585: 5227 * 200.585 < 2^20 < 5228 * 200.585,
+        // and both exponents pass the minimum-length check (200 * 5228 + 1 < 2^20).
+        let large_base = (BigInt::from(3) << 199u32) + 12_345u32;
+        assert_eq!(power_size(&large_base, 5_228, bound), PowerSize::TooLarge);
+        assert_eq!(power_size(&large_base, 5_227, bound), PowerSize::Fits);
+        // Against the exact length, for small bounds: a decided answer is never wrong.
+        for bound in [8u64, 63, 64, 65, 200, 1000] {
+            for base in 2u32..300 {
+                for exponent in 1u32..80 {
+                    let bits = BigInt::from(base).pow(exponent).bits();
+                    match power_size(&BigInt::from(base), u64::from(exponent), bound) {
+                        PowerSize::Fits => assert!(bits <= bound, "{base}^{exponent} {bound}"),
+                        PowerSize::TooLarge => assert!(bits > bound, "{base}^{exponent} {bound}"),
+                        PowerSize::Undecided => {
+                            panic!("{base}^{exponent} against {bound} left undecided")
+                        }
+                    }
+                }
             }
         }
     }
