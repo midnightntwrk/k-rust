@@ -5096,16 +5096,18 @@ endmodule
     }
 
     /// A response that carries deep KORE as JSON values is written and dropped on a 1 MiB
-    /// thread, which the values' own recursive serialization and destruction overflow in a
-    /// debug build: an implication whose antecedent constrains `next` by 3,001 negations of
-    /// `\top`, which is `\bottom`, is vacuously valid and echoes the antecedent as written.
+    /// thread: an implication whose antecedent constrains `next` by 30,001 negations of `\top`,
+    /// which is `\bottom`, is vacuously valid and echoes the antecedent as written. The values'
+    /// own recursive serialization and destruction overflow that thread optimized or not: in
+    /// the `dev` profile (opt-level 1) serialization alone overflows it from about 8,500 levels
+    /// and destruction alone from under 6,000, and unoptimized each from under 2,000.
     #[test]
     fn deep_responses_are_written_without_recursion() {
         std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
                 let mut service = service();
-                let levels = 3_001;
+                let levels = 30_001;
                 let sort = r#"{"tag":"SortApp","name":"SortState","args":[]}"#;
                 let next = r#"{"tag":"App","name":"next","sorts":[],"args":[]}"#;
                 let negations = format!(
