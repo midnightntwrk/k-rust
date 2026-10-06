@@ -1,9 +1,8 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env, fs,
-    io::Write,
     path::Path,
-    process::{Command, Output, Stdio},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -5168,7 +5167,9 @@ fn stdout_stream_buffer_report_requires_a_structural_stdout_cell() {
     assert!(stdout_buffer_report(&impostor).leaves[0].buffers.is_empty());
 }
 
-fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
+#[cfg(feature = "cli")]
+fn output_with_stdin(command: &mut Command, input: &[u8]) -> std::process::Output {
+    use std::{io::Write, process::Stdio};
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -5179,6 +5180,8 @@ fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
     child.wait_with_output().unwrap()
 }
 
+// It runs the `krust` binary, which cargo builds only with the `cli` feature.
+#[cfg(feature = "cli")]
 #[test]
 fn c9_captured_and_live_console_paths_agree_on_arbitrary_bytes() {
     let nonce = SystemTime::now()
