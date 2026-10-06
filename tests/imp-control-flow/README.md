@@ -102,7 +102,9 @@ It replays the recorded Java K invocations in `reference/oracle/`, whose `manife
 (the `Krs.lock` K version, the K tools, and the digest of every fixture and corpus file)
 and the digest of every stored file.
 The stored `parsed.json` and `compiled.json` keep every module and sentence but omit the metadata attributes
-(source locations, install paths, and production identifiers) that the normalized definition hashes remove.
+(source locations, install paths, and production identifiers) that the normalized definition hashes remove,
+and list each module's `localSentences` and `imports` in sorted order,
+because K writes both in an order that varies between runs and checkouts and every check reads them as sets.
 A changed fixture, corpus file, K version, or argument vector fails closed and names `--refresh-reference`;
 the verifier never falls back to running Java K.
 

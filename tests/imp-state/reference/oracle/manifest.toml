@@ -236,8 +236,8 @@ stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 "{{root}}/tests/imp-state/fixtures/calc.k" = "bf0a9bd50ba8f36cc813804920032a21b073624aabab047b3d9e0f9fc38430f8"
 
 [invocation.outputs]
-"{{work}}/calc-kompiled/compiled.json" = "c013a13bb6c6b522edb0ebefd8e7c9a90137a5d60818ebc53072dd52e1c72751"
-"{{work}}/calc-kompiled/parsed.json" = "8659013945e4c8408cf9742174a4fcf4ccc22a45d3a644e71450d094bb7db8bd"
+"{{work}}/calc-kompiled/compiled.json" = "4326f8c172e60cabee89687ec6a6eb10349ee137459c8e6312f137aedddf259c"
+"{{work}}/calc-kompiled/parsed.json" = "225c766470e217fb3876c442f222e035193df7a4793f9f24b19f64ff0a3d4904"
 
 [[invocation]]
 label = "kompile/induced-diagnostic"

@@ -19,7 +19,7 @@ from support.lock import k_version
 from support.pins import Ledger
 from support.process import compact, run
 from support.reference import (
-    Key, Output, Snapshot, add_refresh_argument, json_without_members, repository_inputs,
+    Key, Output, Snapshot, add_refresh_argument, json_sorted_lists, json_without_members, repository_inputs,
 )
 from support.report import Results
 from support.tools import checkout_scratch, find_k_tool, k_version_matches, z3_environment
@@ -47,6 +47,21 @@ but none of the source locations or install paths.
 """
 
 reduce_definition = json_without_members(DEFINITION_METADATA)
+
+sort_module_lists = json_sorted_lists(("localSentences", "imports"))
+
+
+def reduce_stored_definition(text: str) -> str:
+    """The stored `parsed.json` or `compiled.json` of a kompiled definition.
+
+    It omits the metadata attributes krs-gate removes, and sorts each module's
+    `localSentences` and `imports`, which K writes in an order that varies
+    between runs and checkouts; krs-gate's projection and normalized
+    definition read both as sets, and the structure checks read counts,
+    labels, and sets.
+    """
+
+    return sort_module_lists(reduce_definition(text))
 
 
 @dataclass(frozen=True)
@@ -318,8 +333,8 @@ def compile_reference(spec: Spec, k: Snapshot, output: Path) -> subprocess.Compl
         ],
         timeout=300,
         outputs=(
-            Output(output / "parsed.json", reduce_definition),
-            Output(output / "compiled.json", reduce_definition),
+            Output(output / "parsed.json", reduce_stored_definition),
+            Output(output / "compiled.json", reduce_stored_definition),
         ),
     )
 

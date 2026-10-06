@@ -36,9 +36,9 @@ from support.parallel import settle_all, worker_count  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.imp_oracle import reduce_definition  # noqa: E402
+from support.imp_oracle import reduce_stored_definition  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Promotion, STAGING_OPTION, Snapshot, add_refresh_argument, json_sorted_lists,
+    Key, Output, Promotion, STAGING_OPTION, Snapshot, add_refresh_argument,
     reduce_kprove_temp, reduce_store_paths, renumbered_kore_generated_variables, repository_inputs,
     sorted_kore_claims, sorted_kore_imports,
 )
@@ -70,20 +70,6 @@ UPSTREAM_DEFINITION = UPSTREAM_IMP / "src/kimp/kdist/imp-semantics"
 REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
 EMITTED_DEFINITION_INPUT = "emitted/definition.k"
 """The key name of the KRS-emitted `definition.k` the actual route compiles."""
-
-
-def reduce_source_definition(text: str) -> str:
-    """The stored `parsed.json` or `compiled.json` of an IMP.4 definition.
-
-    It omits the metadata attributes krs-gate removes, and sorts each module's
-    `localSentences` and `imports`, which K writes in a run-dependent order and
-    which the projection reads as sets.
-    """
-
-    return sort_module_lists(reduce_definition(text))
-
-
-sort_module_lists = json_sorted_lists(("localSentences", "imports"))
 
 
 def reduce_source_kore(text: str) -> str:
@@ -541,8 +527,8 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             ],
             600,
             (
-                Output(actual / "parsed.json", reduce_source_definition),
-                Output(actual / "compiled.json", reduce_source_definition),
+                Output(actual / "parsed.json", reduce_stored_definition),
+                Output(actual / "compiled.json", reduce_stored_definition),
                 Output(actual / "definition.kore", reduce_source_kore),
             ),
         ),
@@ -574,8 +560,8 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             ],
             600,
             (
-                Output(reference / "parsed.json", reduce_source_definition),
-                Output(reference / "compiled.json", reduce_source_definition),
+                Output(reference / "parsed.json", reduce_stored_definition),
+                Output(reference / "compiled.json", reduce_stored_definition),
             ),
         ),
     ]

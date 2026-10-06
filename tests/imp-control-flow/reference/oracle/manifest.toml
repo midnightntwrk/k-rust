@@ -375,8 +375,8 @@ stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 "{{root}}/tests/imp-control-flow/fixtures/imp.k" = "3264a33e007ed727f040715d4b41312c45feb7aa4fe7c7de599e26f6ba9f39a6"
 
 [invocation.outputs]
-"{{work}}/imp-kompiled/compiled.json" = "49493d9d5b24b5a4a204e1240049432df7a36aefd9aeb100cd745c46690eb7bc"
-"{{work}}/imp-kompiled/parsed.json" = "edc06e98ad546c74e3dbf45fd34eec277d67802b08e3617a493af9cc78b748b7"
+"{{work}}/imp-kompiled/compiled.json" = "6d177e7efd901118ec8aa41389ccc89d882040c60e3cf975c7abbd0af90138b4"
+"{{work}}/imp-kompiled/parsed.json" = "60682ea0eeeb926c02c957f2a7a197ba0e8d7a5a0870af86991706afeb761174"
 
 [[invocation]]
 label = "kompile/induced-diagnostic"
