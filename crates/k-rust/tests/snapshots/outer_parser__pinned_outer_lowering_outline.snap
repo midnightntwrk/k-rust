@@ -1,0 +1,88 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+description: "K source:\n\nrequires \"domains.md\"\n\nmodule OUTER-CORPUS\n  imports public INT\n\n  syntax Program ::= Set | List\n  syntax Pair ::= pair(left: Int, right: Int) [symbol(pair)]\n  syntax Exp ::= Int\n               > left: Exp \"+\" Exp [symbol(_+_)]\n               | \"(\" Exp \")\" [bracket]\n  syntax Exps ::= List{Exp, \",\"} [symbol(_,_), terminator-symbol(.Exps)]\n  syntax Ints ::= NeList{Int, \",\"}\n  syntax Exp ::= Exp \"or\" Exp [klabel(_or_)]\n  syntax priority _or_ > _+_\n\n  rule [identity]: X + 0 => X [simplification]\nendmodule\n"
+---
+definition main OUTER-CORPUS
+module OUTER-CORPUS
+    org.kframework.attributes.Location = [3,1,17,10]
+    org.kframework.attributes.Source = "record-and-list.k"
+    org.kframework.attributes.SourceId = 0
+  imports public INT
+  syntax Program ::= Set (no label)
+      org.kframework.attributes.Location = [6,22,6,25]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax Program ::= List (no label)
+      org.kframework.attributes.Location = [6,28,6,32]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax Pair ::= "pair" "(" left: Int "," right: Int ")" (label "pair")
+      org.kframework.attributes.Location = [7,19,7,61]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      symbol = "pair"
+  syntax priority [] > ["_+_", "(_)_OUTER-CORPUS_Exp_Exp"]
+      org.kframework.attributes.Location = [8,3,10,39]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax Exp ::= Int (no label)
+      org.kframework.attributes.Location = [8,18,8,21]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax associativity left ["_+_", "(_)_OUTER-CORPUS_Exp_Exp"]
+      org.kframework.attributes.Location = [9,18,10,39]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax Exp ::= Exp "+" Exp (label "_+_")
+      org.kframework.attributes.Location = [9,24,9,49]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      symbol = "_+_"
+  syntax Exp ::= "(" Exp ")" (no label)
+      bracket = ""
+      bracketLabel = {"name":"(_)_OUTER-CORPUS_Exp_Exp","node":"KLabel","params":[]}
+      org.kframework.attributes.Location = [10,18,10,39]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax Exps ::= Exp "," Exps (label "_,_")
+      org.kframework.attributes.Location = [11,19,11,73]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      symbol = "_,_"
+      terminator-symbol = ".Exps"
+      userList = "*"
+  syntax Exps ::= ".Exps" (label ".Exps")
+      org.kframework.attributes.Location = [11,19,11,73]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      symbol = ".Exps"
+      userList = "*"
+  syntax Ints ::= Int "," Ints (label "_,__OUTER-CORPUS_Ints_Int_Ints")
+      org.kframework.attributes.Location = [12,19,12,35]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      userList = "+"
+  syntax Ints ::= ".Ints" (label ".List{\"_,__OUTER-CORPUS_Ints_Int_Ints\"}_Ints")
+      org.kframework.attributes.Location = [12,19,12,35]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      symbol = ".List{\"_,__OUTER-CORPUS\"}"
+      userList = "+"
+  syntax Exp ::= Exp "or" Exp (label "_or__OUTER-CORPUS_Exp_Exp_Exp")
+      klabel = "_or_"
+      org.kframework.attributes.Location = [13,18,13,45]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  syntax priority ["_or__OUTER-CORPUS_Exp_Exp_Exp"] > ["_+_"]
+      org.kframework.attributes.Location = [14,3,14,29]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+  bubble rule "X + 0 => X"
+      contentStartColumn = 20
+      contentStartLine = 16
+      contentStartOffset = 469
+      label = "OUTER-CORPUS.identity"
+      org.kframework.attributes.Location = [16,3,16,47]
+      org.kframework.attributes.Source = "record-and-list.k"
+      org.kframework.attributes.SourceId = 0
+      simplification = ""

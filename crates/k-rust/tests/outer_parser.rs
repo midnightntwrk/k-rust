@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use indoc::indoc;
 use k_rust::definition::{
     SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, json as definition_json,
@@ -1359,18 +1361,383 @@ fn pinned_outer_corpus_families_parse_and_lower() {
         omit_expression => true,
         prepend_module_to_snapshot => true,
     }, {
-        insta::assert_debug_snapshot!("pinned_outer_corpus", parsed);
+        insta::assert_snapshot!("pinned_outer_corpus_outline", outer_outline(&parsed));
+        insta::assert_snapshot!("pinned_outer_lowering_outline", lowered_outline(&lowered));
     });
-    insta::with_settings!({
-        description => format!("K source:\n\n{source}"),
-        omit_expression => true,
-        prepend_module_to_snapshot => true,
-    }, {
-        insta::assert_debug_snapshot!(
-            "pinned_outer_lowering",
-            lowered
-        );
-    });
+}
+
+/// A line-per-node outline of an outer AST that names each field it prints.
+///
+/// The outline is written field by field rather than derived from `Debug`, so a field added to
+/// an AST struct leaves it unchanged until the field is printed here. Every enum is matched
+/// without a wildcard, so a new variant must be given a spelling before the test compiles.
+fn outer_outline(parsed: &k_rust::outer::SourceFile) -> String {
+    use k_rust::outer::{BubbleKind, PriorityBlock, ProductionItem, SyntaxBody};
+
+    let mut out = String::new();
+    writeln!(out, "source {:?} id {}", parsed.source, parsed.source_id.0).unwrap();
+    for require in &parsed.requires {
+        writeln!(
+            out,
+            "requires {:?} {}",
+            require.path,
+            outer_span(&require.span)
+        )
+        .unwrap();
+    }
+    for module in &parsed.modules {
+        writeln!(
+            out,
+            "module {}{} {}",
+            module.name,
+            outer_attributes(&module.attributes),
+            outer_span(&module.span)
+        )
+        .unwrap();
+        for import in &module.imports {
+            let visibility = if import.public { "public" } else { "private" };
+            writeln!(
+                out,
+                "  imports {visibility} {} {}",
+                import.module,
+                outer_span(&import.span)
+            )
+            .unwrap();
+        }
+        for sentence in &module.sentences {
+            match sentence {
+                Sentence::Syntax(syntax) => {
+                    let name = syntax
+                        .name
+                        .as_ref()
+                        .map(|name| format!(" name {name:?}"))
+                        .unwrap_or_default();
+                    write!(
+                        out,
+                        "  syntax{} {}{name}",
+                        outer_sort_parameters(&syntax.parameters),
+                        syntax.sort
+                    )
+                    .unwrap();
+                    match &syntax.body {
+                        SyntaxBody::Sort(attributes) => {
+                            writeln!(
+                                out,
+                                "{} {}",
+                                outer_attributes(attributes),
+                                outer_span(&syntax.span)
+                            )
+                            .unwrap();
+                        }
+                        SyntaxBody::Synonym {
+                            old_sort,
+                            attributes,
+                        } => {
+                            writeln!(
+                                out,
+                                " = {old_sort}{} {}",
+                                outer_attributes(attributes),
+                                outer_span(&syntax.span)
+                            )
+                            .unwrap();
+                        }
+                        SyntaxBody::Productions(blocks) => {
+                            writeln!(out, " ::= {}", outer_span(&syntax.span)).unwrap();
+                            for PriorityBlock {
+                                associativity,
+                                productions,
+                                span,
+                            } in blocks
+                            {
+                                writeln!(
+                                    out,
+                                    "    block {} {}",
+                                    outer_associativity(*associativity),
+                                    outer_span(span)
+                                )
+                                .unwrap();
+                                for production in productions {
+                                    writeln!(
+                                        out,
+                                        "      production{} {}",
+                                        outer_attributes(&production.attributes),
+                                        outer_span(&production.span)
+                                    )
+                                    .unwrap();
+                                    for item in &production.items {
+                                        match item {
+                                            ProductionItem::Terminal(text) => {
+                                                writeln!(out, "        terminal {text:?}")
+                                            }
+                                            ProductionItem::Regex(regex) => {
+                                                writeln!(out, "        regex {regex:?}")
+                                            }
+                                            ProductionItem::NonTerminal { name: None, sort } => {
+                                                writeln!(out, "        nonterminal {sort}")
+                                            }
+                                            ProductionItem::NonTerminal {
+                                                name: Some(name),
+                                                sort,
+                                            } => {
+                                                writeln!(out, "        nonterminal {name}: {sort}")
+                                            }
+                                            ProductionItem::UserList {
+                                                sort,
+                                                separator,
+                                                non_empty,
+                                            } => {
+                                                let list =
+                                                    if *non_empty { "NeList" } else { "List" };
+                                                writeln!(
+                                                    out,
+                                                    "        {list}{{{sort}, {separator:?}}}"
+                                                )
+                                            }
+                                        }
+                                        .unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Sentence::Priority(priority) => {
+                    let groups = priority
+                        .groups
+                        .iter()
+                        .map(|group| format!("{group:?}"))
+                        .collect::<Vec<_>>()
+                        .join(" > ");
+                    writeln!(out, "  priority {groups} {}", outer_span(&priority.span)).unwrap();
+                }
+                Sentence::Associativity(associativity) => {
+                    writeln!(
+                        out,
+                        "  associativity {} {:?} {}",
+                        outer_associativity(associativity.associativity),
+                        associativity.tags,
+                        outer_span(&associativity.span)
+                    )
+                    .unwrap();
+                }
+                Sentence::Lexical(lexical) => {
+                    writeln!(
+                        out,
+                        "  lexical {} {:?}{} {}",
+                        lexical.name,
+                        lexical.regex,
+                        outer_attributes(&lexical.attributes),
+                        outer_span(&lexical.span)
+                    )
+                    .unwrap();
+                }
+                Sentence::Bubble(bubble) => {
+                    let kind = match bubble.kind {
+                        BubbleKind::Rule => "rule",
+                        BubbleKind::Claim => "claim",
+                        BubbleKind::Context => "context",
+                        BubbleKind::ContextAlias => "context alias",
+                        BubbleKind::Configuration => "configuration",
+                    };
+                    let label = bubble
+                        .label
+                        .as_ref()
+                        .map(|label| format!(" [{label}]"))
+                        .unwrap_or_default();
+                    writeln!(
+                        out,
+                        "  {kind}{label} {:?}{} {}",
+                        bubble.content,
+                        outer_attributes(&bubble.attributes),
+                        outer_span(&bubble.span)
+                    )
+                    .unwrap();
+                    writeln!(out, "    content {}", outer_span(&bubble.content_span)).unwrap();
+                }
+            }
+        }
+    }
+    out
+}
+
+fn outer_associativity(associativity: k_rust::outer::Associativity) -> &'static str {
+    use k_rust::outer::Associativity;
+    match associativity {
+        Associativity::Left => "left",
+        Associativity::Right => "right",
+        Associativity::NonAssoc => "non-assoc",
+        Associativity::Unspecified => "unspecified",
+    }
+}
+
+fn outer_span(span: &k_rust::outer::Span) -> String {
+    let k_rust::outer::Span { start, end } = span;
+    format!(
+        "@{}:{}..{}:{} (bytes {}..{})",
+        start.line, start.column, end.line, end.column, start.offset, end.offset
+    )
+}
+
+fn outer_sort_parameters(parameters: &[k_rust::kast::Sort]) -> String {
+    if parameters.is_empty() {
+        return String::new();
+    }
+    let parameters = parameters
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" {{{parameters}}}")
+}
+
+fn outer_attributes(attributes: &[k_rust::outer::Attribute]) -> String {
+    if attributes.is_empty() {
+        return String::new();
+    }
+    let attributes = attributes
+        .iter()
+        .map(|attribute| match &attribute.value {
+            None => attribute.key.clone(),
+            Some(value) => format!("{}({value:?})", attribute.key),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" [{attributes}]")
+}
+
+/// A line-per-sentence outline of a lowered definition that names each field it prints.
+///
+/// Like [`outer_outline`], it is written field by field so that a field added to a definition
+/// struct leaves it unchanged until the field is printed here, and every enum is matched without
+/// a wildcard. Attribute maps are printed whole, one entry per line with its JSON value, because
+/// their keys are data rather than struct fields: an attribute that lowering adds, drops or
+/// changes is part of the lowered meaning.
+fn lowered_outline(definition: &k_rust::definition::Definition) -> String {
+    use k_rust::definition::{Associativity, ProductionItem, Sentence as DefinitionSentence};
+
+    let mut out = String::new();
+    writeln!(out, "definition main {}", definition.main_module).unwrap();
+    lowered_attributes(&mut out, "", &definition.attributes);
+    for module in &definition.modules {
+        writeln!(out, "module {}", module.name).unwrap();
+        lowered_attributes(&mut out, "", &module.attributes);
+        for import in &module.imports {
+            let visibility = if import.public { "public" } else { "private" };
+            writeln!(out, "  imports {visibility} {}", import.name).unwrap();
+        }
+        for sentence in &module.local_sentences {
+            let sentence: &DefinitionSentence = sentence;
+            match sentence {
+                DefinitionSentence::SyntaxSort {
+                    parameters, sort, ..
+                } => {
+                    writeln!(out, "  syntax{} {sort}", outer_sort_parameters(parameters))
+                }
+                DefinitionSentence::SortSynonym {
+                    new_sort, old_sort, ..
+                } => writeln!(out, "  syntax {new_sort} = {old_sort}"),
+                DefinitionSentence::SyntaxLexical { name, regex, .. } => {
+                    writeln!(out, "  lexical {name} {regex:?}")
+                }
+                DefinitionSentence::Production {
+                    label,
+                    parameters,
+                    sort,
+                    items,
+                    ..
+                } => {
+                    let items = items
+                        .iter()
+                        .map(|item| match item {
+                            ProductionItem::Terminal(text) => format!("{text:?}"),
+                            ProductionItem::NonTerminal { sort, name: None } => sort.to_string(),
+                            ProductionItem::NonTerminal {
+                                sort,
+                                name: Some(name),
+                            } => format!("{name}: {sort}"),
+                            ProductionItem::RegexTerminal {
+                                precede_regex,
+                                regex,
+                                follow_regex,
+                            } => format!(
+                                "r{regex:?} (precede {precede_regex:?}, follow {follow_regex:?})"
+                            ),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let label = match label {
+                        None => "no label".to_owned(),
+                        Some(label) => format!(
+                            "label {:?}{}",
+                            label.name,
+                            outer_sort_parameters(&label.parameters)
+                        ),
+                    };
+                    writeln!(
+                        out,
+                        "  syntax{} {sort} ::= {items} ({label})",
+                        outer_sort_parameters(parameters)
+                    )
+                }
+                DefinitionSentence::SyntaxAssociativity {
+                    associativity,
+                    tags,
+                    ..
+                } => {
+                    let associativity = match associativity {
+                        Associativity::Left => "left",
+                        Associativity::Right => "right",
+                        Associativity::NonAssoc => "non-assoc",
+                        Associativity::Unspecified => "unspecified",
+                    };
+                    writeln!(out, "  syntax associativity {associativity} {tags:?}")
+                }
+                DefinitionSentence::SyntaxPriority { priorities, .. } => {
+                    let groups = priorities
+                        .iter()
+                        .map(|group| format!("{group:?}"))
+                        .collect::<Vec<_>>()
+                        .join(" > ");
+                    writeln!(out, "  syntax priority {groups}")
+                }
+                DefinitionSentence::ContextAlias { body, requires, .. } => {
+                    writeln!(out, "  context alias {body} requires {requires}")
+                }
+                DefinitionSentence::Context { body, requires, .. } => {
+                    writeln!(out, "  context {body} requires {requires}")
+                }
+                DefinitionSentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => writeln!(out, "  rule {body} requires {requires} ensures {ensures}"),
+                DefinitionSentence::Claim {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => writeln!(out, "  claim {body} requires {requires} ensures {ensures}"),
+                DefinitionSentence::Configuration { body, ensures, .. } => {
+                    writeln!(out, "  configuration {body} ensures {ensures}")
+                }
+                DefinitionSentence::Bubble {
+                    sentence_type,
+                    contents,
+                    ..
+                } => writeln!(out, "  bubble {sentence_type} {contents:?}"),
+            }
+            .unwrap();
+            lowered_attributes(&mut out, "  ", sentence.attributes());
+        }
+    }
+    out
+}
+
+fn lowered_attributes(out: &mut String, indent: &str, attributes: &k_rust::definition::Attributes) {
+    for (key, value) in attributes.wire_entries() {
+        writeln!(out, "{indent}    {key} = {value}").unwrap();
+    }
 }
 
 #[test]

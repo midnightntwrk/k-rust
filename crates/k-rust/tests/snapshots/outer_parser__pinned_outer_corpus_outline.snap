@@ -1,0 +1,53 @@
+---
+source: crates/k-rust/tests/outer_parser.rs
+description: "K source:\n\nrequires \"domains.md\"\n\nmodule OUTER-CORPUS\n  imports public INT\n\n  syntax Program ::= Set | List\n  syntax Pair ::= pair(left: Int, right: Int) [symbol(pair)]\n  syntax Exp ::= Int\n               > left: Exp \"+\" Exp [symbol(_+_)]\n               | \"(\" Exp \")\" [bracket]\n  syntax Exps ::= List{Exp, \",\"} [symbol(_,_), terminator-symbol(.Exps)]\n  syntax Ints ::= NeList{Int, \",\"}\n  syntax Exp ::= Exp \"or\" Exp [klabel(_or_)]\n  syntax priority _or_ > _+_\n\n  rule [identity]: X + 0 => X [simplification]\nendmodule\n"
+---
+source "record-and-list.k" id 0
+requires "domains.md" @1:1..1:22 (bytes 0..21)
+module OUTER-CORPUS @3:1..17:10 (bytes 23..506)
+  imports public INT @4:3..4:21 (bytes 45..63)
+  syntax Program ::= @6:3..6:32 (bytes 67..96)
+    block unspecified @6:22..6:32 (bytes 86..96)
+      production @6:22..6:25 (bytes 86..89)
+        nonterminal Set
+      production @6:28..6:32 (bytes 92..96)
+        nonterminal List
+  syntax Pair ::= @7:3..7:61 (bytes 99..157)
+    block unspecified @7:19..7:61 (bytes 115..157)
+      production [symbol("pair")] @7:19..7:61 (bytes 115..157)
+        terminal "pair"
+        terminal "("
+        nonterminal left: Int
+        terminal ","
+        nonterminal right: Int
+        terminal ")"
+  syntax Exp ::= @8:3..10:39 (bytes 160..266)
+    block unspecified @8:18..8:21 (bytes 175..178)
+      production @8:18..8:21 (bytes 175..178)
+        nonterminal Int
+    block left @9:18..10:39 (bytes 196..266)
+      production [symbol("_+_")] @9:24..9:49 (bytes 202..227)
+        nonterminal Exp
+        terminal "+"
+        nonterminal Exp
+      production [bracket] @10:18..10:39 (bytes 245..266)
+        terminal "("
+        nonterminal Exp
+        terminal ")"
+  syntax Exps ::= @11:3..11:73 (bytes 269..339)
+    block unspecified @11:19..11:73 (bytes 285..339)
+      production [symbol("_,_"), terminator-symbol(".Exps")] @11:19..11:73 (bytes 285..339)
+        List{Exp, ","}
+  syntax Ints ::= @12:3..12:35 (bytes 342..374)
+    block unspecified @12:19..12:35 (bytes 358..374)
+      production @12:19..12:35 (bytes 358..374)
+        NeList{Int, ","}
+  syntax Exp ::= @13:3..13:45 (bytes 377..419)
+    block unspecified @13:18..13:45 (bytes 392..419)
+      production [klabel("_or_")] @13:18..13:45 (bytes 392..419)
+        nonterminal Exp
+        terminal "or"
+        nonterminal Exp
+  priority ["_or_"] > ["_+_"] @14:3..14:29 (bytes 422..448)
+  rule [identity] "X + 0 => X" [simplification] @16:3..16:47 (bytes 452..496)
+    content @16:20..16:31 (bytes 469..480)
