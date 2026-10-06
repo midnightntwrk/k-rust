@@ -9,8 +9,8 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, describe_int, expect_arity,
-    expect_sort, int_term, read_int, values_differ,
+    BuiltinResult, HookResult, MAX_LIST_RESULT_LEN, UnsupportedHookReason, bool_term, describe_int,
+    expect_arity, expect_sort, int_term, read_int, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -219,10 +219,18 @@ fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let Some(concrete_length) = length.to_usize() else {
+    // The arguments, a length and one element, are small: the bound is the floor.
+    let Some(concrete_length) = length
+        .to_u64()
+        .filter(|length| *length <= MAX_LIST_RESULT_LEN)
+        .and_then(|length| usize::try_from(length).ok())
+    else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {}", describe_int(&length)),
+                detail: format!(
+                    "a List result of length {} needs more than {MAX_LIST_RESULT_LEN} elements",
+                    describe_int(&length)
+                ),
             },
         ));
     };
@@ -637,13 +645,43 @@ mod tests {
         let length = BigInt::from(1_u8) << usize::BITS;
 
         assert_eq!(
-            make(&[int_term(length.clone()), item("x")]),
+            make(&[int_term(length), item("x")]),
             Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge {
-                    detail: format!("length {}", describe_int(&length)),
+                    detail: format!(
+                        "a List result of length a 65-bit integer needs more than \
+                         {MAX_LIST_RESULT_LEN} elements"
+                    ),
                 }
             ))
         );
+    }
+
+    /// `makeList` is refused above [`MAX_LIST_RESULT_LEN`] before anything is allocated: a
+    /// length beyond the machine's memory aborted the process.
+    #[test]
+    fn make_length_is_bounded_before_allocating() {
+        for length in [
+            BigInt::from(MAX_LIST_RESULT_LEN + 1),
+            BigInt::from(1_u64 << 40),
+        ] {
+            assert!(
+                matches!(
+                    make(&[int_term(length.clone()), item("x")]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::ResultTooLarge { .. }
+                    ))
+                ),
+                "makeList({length}, x)"
+            );
+        }
+        assert!(matches!(
+            make(&[integer(3), item("x")]),
+            Ok(BuiltinResult::Value(list)) if matches!(
+                list.kind(),
+                TermKind::List { heads, rest: None, .. } if heads.len() == 3
+            )
+        ));
     }
 
     #[test]

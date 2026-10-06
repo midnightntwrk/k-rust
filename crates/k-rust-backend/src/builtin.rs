@@ -748,6 +748,23 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 /// and 1.7 s at 2^24 bits).
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
+/// The floor of the size bound on a `Bytes` result whose length is set by the value of an
+/// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see [`result_size_limit`]):
+/// 2^27 bytes, 128 MiB.
+///
+/// A `Bytes` value costs time linear in its length to read and write, so the limit is memory, not
+/// conversion time: a hook application holds its argument, a copy and its result, so a value of
+/// this size stays within a few hundred MiB, while a length beyond the memory of the machine
+/// would abort the process when the allocation fails. The floor is far above what a semantics
+/// materialises in one step (EVM memory is gas-bounded to a few MiB), and the relative term lets
+/// a value the run built grow beyond it, step by step.
+pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 27;
+
+/// The floor of the size bound on the length of a `makeList` result, in elements (see
+/// [`result_size_limit`]): 2^24 elements, one 8-byte term reference each on a 64-bit host, the
+/// same 128 MiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason.
+pub const MAX_LIST_RESULT_LEN: u64 = 1 << 24;
+
 /// The largest result a hook computes when the result's size is set by the value of an argument
 /// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
 /// arguments and the `floor` of the result's unit: `max(floor, 2 * arguments)`.
