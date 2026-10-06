@@ -39,7 +39,8 @@ from support.process import compact, run  # noqa: E402
 from support.imp_oracle import reduce_definition  # noqa: E402
 from support.reference import (  # noqa: E402
     Key, Output, Promotion, STAGING_OPTION, Snapshot, add_refresh_argument, json_sorted_lists,
-    reduce_kprove_temp, reduce_store_paths, repository_inputs, sorted_kore_claims,
+    reduce_kprove_temp, reduce_store_paths, renumbered_kore_generated_variables, repository_inputs,
+    sorted_kore_claims, sorted_kore_imports,
 )
 from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
 
@@ -75,14 +76,26 @@ def reduce_source_definition(text: str) -> str:
     """The stored `parsed.json` or `compiled.json` of an IMP.4 definition.
 
     It omits the metadata attributes krs-gate removes, and sorts each module's
-    `localSentences`, which K writes in a run-dependent order for the emitted
-    modules and which the projection reads as a multiset.
+    `localSentences` and `imports`, which K writes in a run-dependent order and
+    which the projection reads as sets.
     """
 
-    return sort_sentences(reduce_definition(text))
+    return sort_module_lists(reduce_definition(text))
 
 
-sort_sentences = json_sorted_lists(("localSentences",))
+sort_module_lists = json_sorted_lists(("localSentences", "imports"))
+
+
+def reduce_source_kore(text: str) -> str:
+    """The stored actual `definition.kore` of IMP.4, which IMP.5 compares.
+
+    It replaces K's install path, sorts each run of `import` lines, and
+    renumbers the generated `_Gen` variables of each sentence; K writes the
+    last two in a run-dependent order, and the comparator reads sentences as an
+    alpha-normalized multiset.
+    """
+
+    return renumbered_kore_generated_variables(sorted_kore_imports(reduce_store_paths(text)))
 
 BASE_TOOLS = ("cargo", "rustc", "rustfmt", "clippy-driver", "git")
 """Tools every run needs: the Rust checks and the checkout verification."""
@@ -530,7 +543,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             (
                 Output(actual / "parsed.json", reduce_source_definition),
                 Output(actual / "compiled.json", reduce_source_definition),
-                Output(actual / "definition.kore", reduce_store_paths),
+                Output(actual / "definition.kore", reduce_source_kore),
             ),
         ),
         (

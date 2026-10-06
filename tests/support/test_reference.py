@@ -14,8 +14,8 @@ from support import ROOT, GateError, reference
 from support.lock import k_version
 from support.reference import (
     Key, Output, Placeholders, Promotion, Snapshot, dump_manifest, indented_json, json_sorted_lists,
-    json_without_members, reduce_kprove_temp, reduce_store_paths, snapshot_directory, sorted_kore_claims,
-    substitute,
+    json_without_members, reduce_kprove_temp, reduce_store_paths, renumbered_kore_generated_variables,
+    snapshot_directory, sorted_kore_claims, sorted_kore_imports, substitute,
 )
 
 
@@ -302,6 +302,27 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(sorted_kore_claims(head + first + second + tail), head + second + first + tail)
         self.assertEqual(sorted_kore_claims(head + second + first + tail), head + second + first + tail)
         self.assertEqual(sorted_kore_claims("module M\nendmodule\n"), "module M\nendmodule\n")
+
+    def test_sorted_kore_imports_sort_each_run_of_imports(self) -> None:
+        text = "module A\n  import Z []\n  import B []\n\n  axiom{} x []\n  import Y []\nendmodule []\n"
+        self.assertEqual(
+            sorted_kore_imports(text),
+            "module A\n  import B []\n  import Z []\n\n  axiom{} x []\n  import Y []\nendmodule []\n",
+        )
+
+    def test_renumbered_kore_generated_variables_rename_per_sentence_by_first_occurrence(self) -> None:
+        first = (
+            "module M\n// rule r\n  axiom{R} f(Var'Unds'Gen3:S{}, Var'Unds'Gen1:S{}, Var'Unds'Gen3:S{})\n"
+            "    [label{}(Var'Unds'Gen10'Unds':S{}, Var'Ques'Unds'Gen2:S{})]\n"
+            "  axiom{R} g(Var'Unds'Gen1:S{})\nendmodule []\n"
+        )
+        renamed = (
+            "module M\n// rule r\n  axiom{R} f(Var'Unds'Gen0:S{}, Var'Unds'Gen1:S{}, Var'Unds'Gen0:S{})\n"
+            "    [label{}(Var'Unds'Gen10'Unds':S{}, Var'Ques'Unds'Gen2:S{})]\n"
+            "  axiom{R} g(Var'Unds'Gen0:S{})\nendmodule []\n"
+        )
+        self.assertEqual(renumbered_kore_generated_variables(first), renamed)
+        self.assertEqual(renumbered_kore_generated_variables(renamed), renamed)
 
     def test_indented_json_keeps_the_value_and_member_order(self) -> None:
         text = '{"node":"KApply","label":{"name":"x"},"args":[1,2]}'

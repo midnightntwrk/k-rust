@@ -131,8 +131,11 @@ and by the digest of every file the invocation's argument vector names, such as 
 A change to what KRS emits or builds therefore fails closed at the first stale invocation and names `--refresh-reference`; replay never falls back to a live tool and never skips a layer.
 
 The stored evidence is reduced only where no comparator reads the difference, and a live run hands the comparators the same reduced text:
-the definitions omit the metadata attributes krs-gate removes and list each module's `localSentences` in sorted order,
-and `spec.kore` lists its claims in sorted order, because K writes both in a run-dependent order for the emitted modules;
+the definitions omit the metadata attributes krs-gate removes and list each module's `localSentences` and `imports` in sorted order,
+the actual `definition.kore` sorts each run of `import` lines and renumbers each sentence's generated `_Gen` variables in order of first occurrence,
+and `spec.kore` lists its claims in sorted order, because K writes all of these in a run-dependent order
+(the imports of a module even differ between checkouts of the same revision);
+krs-gate's projection reads a module's imports and sentences as sets, and its KORE comparator reads sentences as an alpha-normalized multiset, so none of these orders is evidence;
 the install path of K's prelude, the name of `kprove`'s directory under `--temp-dir`, and the run-dependent number of each `kore-exec` log line are replaced by fixed text.
 
 `--refresh-reference` runs every recorded invocation live instead.

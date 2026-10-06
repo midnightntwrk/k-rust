@@ -274,6 +274,65 @@ reduce_store_paths = substitute(r"/nix/store/[0-9a-z]{32}-[^/\s\")]*", "NIX-STOR
 """K records the install path of its prelude (`domains.md`) in source attributes, which no comparator reads."""
 
 
+_KORE_SENTENCE = re.compile(r"\s*(?:axiom|claim|symbol|hooked-symbol|sort|hooked-sort|alias|import|module|endmodule)\b")
+_KORE_IMPORT = re.compile(r"\s*import\s")
+_KORE_GENERATED = re.compile(r"(?<![A-Za-z0-9'-])Var'Unds'Gen([0-9]+)(?![A-Za-z0-9'-])")
+
+
+def _kore_sentences(text: str) -> list[list[str]]:
+    """The lines of a KORE text split before each line that starts a sentence or module."""
+
+    chunks: list[list[str]] = [[]]
+    for line in text.splitlines(keepends=True):
+        if _KORE_SENTENCE.match(line) and chunks[-1]:
+            chunks.append([])
+        chunks[-1].append(line)
+    return chunks
+
+
+def sorted_kore_imports(text: str) -> str:
+    """A reducer that sorts each run of consecutive `import` lines of a KORE text.
+
+    K writes a module's imports in an order that can vary between runs; the
+    KORE comparator reads a module's sentences as a multiset.
+    """
+
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    run_lines: list[str] = []
+    for line in lines:
+        if _KORE_IMPORT.match(line):
+            run_lines.append(line)
+            continue
+        result.extend(sorted(run_lines))
+        run_lines = []
+        result.append(line)
+    result.extend(sorted(run_lines))
+    return "".join(result)
+
+
+def renumbered_kore_generated_variables(text: str) -> str:
+    """A reducer that renumbers K's generated `_GenN` variables within each KORE sentence.
+
+    The Haskell backend numbers the variables it generates (such as those of an
+    `owise` rule's negated side condition) in an order that can vary between
+    runs. A variable is local to its sentence, so each sentence's `_Gen`
+    variables are renamed bijectively to `_Gen0`, `_Gen1`, ... in order of first
+    occurrence: an alpha-renaming, which the KORE comparator's per-sentence
+    alpha normalization already ignores.
+    """
+
+    def renumber(chunk: str) -> str:
+        names: dict[str, str] = {}
+
+        def rename(match: re.Match[str]) -> str:
+            return names.setdefault(match.group(1), f"Var'Unds'Gen{len(names)}")
+
+        return _KORE_GENERATED.sub(rename, chunk)
+
+    return "".join(renumber("".join(chunk)) for chunk in _kore_sentences(text))
+
+
 def repository_inputs(paths: Sequence[Path]) -> dict[str, Path]:
     """Name each input file by its repository-relative path."""
 
