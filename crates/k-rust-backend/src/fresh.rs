@@ -1482,13 +1482,17 @@ mod tests {
         }
     }
 
-    /// `go([K1, .., K4])` with one constraint `wrap(Ki, Vi)` per element, where `Vi` occurs
+    /// `go([K1, .., K6])` with one constraint `wrap(Ki, Vi)` per element, where `Vi` occurs
     /// nowhere else. The constraints differ only in the names of their variables, so they tie
     /// until the list has numbered the `Ki`; the order the `Vi` are then numbered in must come
     /// from the `Ki` alone, through the label of every kind of constraint, so a renaming that
     /// also lists the constraints, and the operands of their conjunctions and disjunctions, in
-    /// another order keeps the key, and a state where two constraints share their `Vi` (which
-    /// no renaming reaches) does not.
+    /// another order keeps the key. Six constraints, because a label that ignores the `Ki`
+    /// leaves the `Vi` tied, and the search over their 6! = 720 orders exceeds
+    /// [`LEAF_BUDGET`], so the key then falls back to stored order, which compares names;
+    /// with four (24 orders) the search would hide such a label. A state with as many
+    /// variables where one `Ki` is constrained twice and another not at all (which no
+    /// renaming reaches) gets another key.
     #[test]
     fn a_state_key_orders_tied_constraints_of_every_kind_by_their_numbered_variables() {
         let request = RequestNames::default();
@@ -1505,7 +1509,7 @@ mod tests {
             map_sort: "SortMap".into(),
         });
         type Wrap<'a> = &'a dyn Fn(&str, &str) -> Predicate;
-        let wrappers: [(&str, Wrap<'_>); 9] = [
+        let wrappers: [(&str, Wrap<'_>); 10] = [
             ("in", &|key, value| {
                 Predicate::In(element(key), element(value))
             }),
@@ -1537,11 +1541,19 @@ mod tests {
                     ])),
                 )
             }),
-            ("absent", &|key, value| {
+            ("absent key", &|key, value| {
                 Absence::predicate(
                     KeyedCollection::Map(map.clone()),
                     element(key),
                     Term::variable(Variable::new(value, Sort::simple("SortMap"))),
+                )
+            }),
+            // `Vi` absent from `{Ki |-> Ki}`: only the rest tells the constraints apart.
+            ("absent from", &|key, value| {
+                Absence::predicate(
+                    KeyedCollection::Map(map.clone()),
+                    element(value),
+                    Term::map(map.clone(), vec![(element(key), element(key))], None),
                 )
             }),
         ];
@@ -1555,8 +1567,9 @@ mod tests {
             list_sort: "SortList".into(),
         });
         for (kind, wrap) in wrappers {
-            let key = |keys: [&str; 4], values: [&str; 4], reversed: bool| {
-                let mut constraints = keys
+            // The list holds `keys`; the constraints pair `constrained` with `values`.
+            let key = |keys: [&str; 6], constrained: [&str; 6], values: [&str; 6], reversed| {
+                let mut constraints = constrained
                     .iter()
                     .zip(values)
                     .map(|(key, value)| wrap(key, value))
@@ -1571,20 +1584,26 @@ mod tests {
                     constraints,
                 })
             };
-            let keys = ["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9"];
-            let values = ["Ex#V!1", "Ex#V!4", "Ex#V!7", "Ex#V!10"];
+            let keys = ["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9", "Ex#K!15", "Ex#K!18"];
+            let values = [
+                "Ex#V!1", "Ex#V!4", "Ex#V!7", "Ex#V!10", "Ex#V!16", "Ex#V!19",
+            ];
+            let renamed_keys = [
+                "Ex#K!12", "Ex#K!2", "Ex#K!5", "Ex#K!8", "Ex#K!20", "Ex#K!22",
+            ];
+            let renamed_values = [
+                "Ex#V!11", "Ex#V!14", "Ex#V!13", "Ex#V!3", "Ex#V!23", "Ex#V!21",
+            ];
             assert_eq!(
-                key(keys, values, false),
-                key(
-                    ["Ex#K!12", "Ex#K!2", "Ex#K!5", "Ex#K!8"],
-                    ["Ex#V!11", "Ex#V!14", "Ex#V!13", "Ex#V!3"],
-                    true
-                ),
+                key(keys, keys, values, false),
+                key(renamed_keys, renamed_keys, renamed_values, true),
                 "{kind}"
             );
+            let mut twice = keys;
+            twice[1] = keys[0];
             assert_ne!(
-                key(keys, values, false),
-                key(keys, ["Ex#V!1", "Ex#V!1", "Ex#V!7", "Ex#V!10"], false),
+                key(keys, keys, values, false),
+                key(keys, twice, values, false),
                 "{kind}"
             );
         }
