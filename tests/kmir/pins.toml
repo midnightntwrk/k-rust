@@ -3,7 +3,7 @@ corpus_sha256 = "ff6cfc125a9edab70a72785c6aa0cf0467c512b09249fdbab2f08df87ccacd5
 expansion_sha256 = "1d42f6f8c7818c47472764dcc637f7aa9ac5f7e84fe41e8796acb658d90fa83a"
 behavior_sha256 = "40b8d81177ef695f16517bdad305fbcdf75f00946dc6966b1f78ab4cf5bcd3ca"
 definition_kore_sha256 = "7a062e07772cedac3e420373ae50998528881b9fe796082c1369068aa5fd88fe"
-native_definition_kore_sha256 = "f83fe466454f9a45776016199da0590cd6b61a689d53d4ee0f28ebc8279c02da"
+native_definition_kore_sha256 = "26edcee4572a92ca0fa6d3797d19046a9e8ad0d0ba9dd8b49a923d3ec833b0d2"
 
 [kmir]
 version = "7.1.337"
