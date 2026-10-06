@@ -109,7 +109,7 @@ use crate::{
     rule::Predicate,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_predicates_with_solver, simplify_with_solver,
+        refuse_results_above_the_size_bound, simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     stop::{self, Stop, StopCause, Stoppable},
@@ -2471,16 +2471,27 @@ fn match_pattern_with_variables(
     match predicates_truth(&constraints) {
         Truth::False => return Ok(Ok(None)),
         Truth::True => {}
-        Truth::Unknown if retain_unknown => {}
-        // A stop leaves the match without an answer; it is returned, never read as a match.
         Truth::Unknown => {
-            match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
-                Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
-                Ok(Satisfiability::Sat) => {}
-                Ok(Satisfiability::Unknown(reason)) => {
-                    return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+            // A stop leaves the match without an answer; it is returned, never read as a match.
+            if !retain_unknown {
+                match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
+                    Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
+                    Ok(Satisfiability::Sat) => {}
+                    Ok(Satisfiability::Unknown(reason)) => {
+                        return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+                    }
+                    Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
                 }
-                Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
+            }
+            // The match would be reported under a condition neither the simplifier nor the
+            // solver decided. Over an application whose result is above a size bound that
+            // report rests on the solver reading the hook as an arbitrary function, as a rule
+            // condition would (`simplify::refuse_results_above_the_size_bound`): the match is
+            // the unsupported-hook error instead. A refutation above is sound and still gives no
+            // match; the substitution may bind such an application, which decides nothing.
+            if let Err(error) = refuse_results_above_the_size_bound(definition, None, &constraints)?
+            {
+                return Ok(Err(PatternMatchError::Simplification(error)));
             }
         }
     }

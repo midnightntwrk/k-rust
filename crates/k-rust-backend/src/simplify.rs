@@ -1915,9 +1915,10 @@ fn size_bound_refusal(
 /// determined but not computed, though, so a rule condition over it that the solver cannot
 /// decide would let rules fire whose conditions are false (a branch the semantics does not
 /// have), and a final configuration holding it would read as the semantics' answer. A rule
-/// attempt checks the conditions it would carry (`rewrite::apply`), and a step that finds the
-/// state stuck checks the state (`rewrite::stuck`); each halts the state with the error. A
-/// condition the solver decided is not carried and so never reaches this check.
+/// attempt checks the conditions it would carry (`rewrite::apply`), a search-pattern match the
+/// condition it would report (`search`), and a step that finds the state stuck checks the state
+/// (`rewrite::stuck`); each halts the state with the error. A condition the solver decided is not
+/// carried and so never reaches this check.
 ///
 /// The `\ceil` of such an application is not a use of its value: it holds
 /// (`size_bound_refusal`), and term simplification leaves it as the obligation of a discarded
@@ -3664,7 +3665,7 @@ fn simplify_root(
                 // resource limit, not a gap to fix). Arguments are simplified bottom-up whether
                 // or not their values are used, so an error here would fail a run on a subterm
                 // the semantics never consults (`false andBool B` is `false` for every `B`). A
-                // run neither branches nor ends on the second kind; see
+                // run never decides a condition over the second kind, nor ends stuck on it; see
                 // `refuse_results_above_the_size_bound`.
                 Some(
                     reason @ (UnsupportedHookReason::Unspecified { .. }

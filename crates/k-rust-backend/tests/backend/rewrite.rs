@@ -15,7 +15,10 @@ use k_rust_backend::{
     fresh::FreshCounter,
     rewrite::*,
     rule::{Predicate, Theory},
-    search::ResultModality,
+    search::{
+        PatternMatch, PatternMatchError, ResultModality, match_disjunction,
+        match_disjunction_with_solver,
+    },
     simplify::{
         BudgetSubject, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
         SimplificationOptions,
@@ -6988,6 +6991,96 @@ fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
         ),
         "{execution:#?}"
     );
+}
+
+/// A search-pattern match is reported under the condition the simplifier and the solver left
+/// undecided. Over an application whose result is above the size bound that report would rest on
+/// the solver reading the hook as an arbitrary function (`<<Int` has no interpreted SMT
+/// encoding: `1 <<Int 2^24 <=Int 0` would match), so the match is the unsupported-hook error
+/// instead, with a solver and without one. A binding to the application decides nothing and is
+/// reported, and within the bound the value is computed and the condition decided.
+#[test]
+fn a_search_match_is_not_reported_under_a_condition_on_a_result_above_the_size_bound() {
+    let definition = size_bound_branching_definition();
+    let undeciding = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Contingent),
+    };
+    let target = |condition: Option<&str>| Pattern {
+        term: internal_term(&definition, "f{}(X:SortInt{})"),
+        constraints: condition
+            .into_iter()
+            .map(|condition| {
+                Predicate::Equals(
+                    internal_term(&definition, condition),
+                    internal_term(&definition, r#"\dv{SortBool{}}("true")"#),
+                )
+            })
+            .collect(),
+    };
+    let subject = |amount: &str| Pattern {
+        term: internal_term(
+            &definition,
+            &format!(r#"f{{}}(shl{{}}(\dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("{amount}")))"#),
+        ),
+        constraints: Vec::new(),
+    };
+    let refused = |result: &Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>| {
+        matches!(
+            result,
+            Ok(Err(PatternMatchError::Simplification(
+                SimplificationError::UnsupportedHook {
+                    hook,
+                    reason: UnsupportedHookReason::ResultTooLarge { .. },
+                    ..
+                }
+            ))) if hook == "INT.shl"
+        )
+    };
+    let matched = |result: &Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>| match result {
+        Ok(Ok(matches)) => Some(matches.len()),
+        _ => None,
+    };
+    let nonpositive = r#"leInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let positive = r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#;
+    for condition in [nonpositive, positive] {
+        let with_solver = match_disjunction_with_solver(
+            &definition,
+            &target(Some(condition)),
+            &[subject("16777216")],
+            SimplificationOptions::default(),
+            &undeciding,
+        );
+        assert!(refused(&with_solver), "{condition}: {with_solver:#?}");
+        let without_solver = match_disjunction(
+            &definition,
+            &target(Some(condition)),
+            &[subject("16777216")],
+        );
+        assert!(refused(&without_solver), "{condition}: {without_solver:#?}");
+    }
+    let bound = match_disjunction_with_solver(
+        &definition,
+        &target(None),
+        &[subject("16777216")],
+        SimplificationOptions::default(),
+        &undeciding,
+    );
+    assert_eq!(matched(&bound), Some(1), "{bound:#?}");
+    for (condition, expected) in [(nonpositive, 0), (positive, 1)] {
+        let decided = match_disjunction_with_solver(
+            &definition,
+            &target(Some(condition)),
+            &[subject("3")],
+            SimplificationOptions::default(),
+            &undeciding,
+        );
+        assert_eq!(
+            matched(&decided),
+            Some(expected),
+            "{condition}: {decided:#?}"
+        );
+    }
 }
 
 /// `spin(a) = spin(b)` and `spin(b) = spin(a)` are ground function equations that never reach a

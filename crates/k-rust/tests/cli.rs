@@ -4107,6 +4107,73 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A search pattern's condition over a `<<Int` result above the size bound is not decided by
+/// the solver reading the hook as an arbitrary function: the search reports the state as
+/// incomplete with the unsupported-hook error instead of a solution (no reachable state has
+/// `X <=Int 0`). A pattern that only binds the value reports it. `i` hides the shift amount from
+/// the constant folder.
+#[test]
+fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
+    const SOURCE: &str = r#"
+module SEARCH-BOUND
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "go"
+  syntax KItem ::= f(Int) | "done"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  rule <k> go => f(1 <<Int i(16777217)) </k>
+  rule <k> f(_) => done </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let input = root.join("go.search");
+    fs::write(&input, "go").unwrap();
+    let search = |pattern: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "SEARCH-BOUND",
+                "--syntax-module",
+                "SEARCH-BOUND",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--search-all",
+                "--pattern",
+                pattern,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for condition in ["X <=Int 0", "X >Int 0"] {
+        let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
+        assert!(!success, "{condition}: {stdout}{stderr}");
+        assert!(!stdout.contains("VarX"), "{condition}: {stdout}");
+        assert!(
+            stderr.contains(r#"UnsupportedHook { hook: "INT.shl", reason: ResultTooLarge"#),
+            "{condition}: {stderr}"
+        );
+    }
+    let (success, stdout, stderr) = search("<k> f(X) </k>");
+    assert!(success, "{stdout}{stderr}");
+    assert!(
+        stdout.contains("VarX:SortInt{}") && stdout.contains(r#"\dv{SortInt{}}("16777217")"#),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

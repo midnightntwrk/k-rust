@@ -116,8 +116,9 @@ pub enum UnsupportedHookReason {
     /// [`MAX_INT_RESULT_BITS`]), that the backend does not compute. Term simplification leaves
     /// it unevaluated, a term that denotes that value, without an unsupported-hook error on
     /// constructor-like arguments, so that a subterm whose value is never used fails nothing. A
-    /// run neither branches nor ends on one: the step that would halts with the unsupported-hook
-    /// error (`simplify::refuse_results_above_the_size_bound`).
+    /// run never decides a condition over one and never ends stuck or final on one: the step or
+    /// search match that would is the unsupported-hook error
+    /// (`simplify::refuse_results_above_the_size_bound`).
     ///
     /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
     /// so the simplifier takes the application's `\ceil` to hold.
