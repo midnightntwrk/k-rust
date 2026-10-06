@@ -58,13 +58,16 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 /// `String2Bytes` is the inverse of `Bytes2String`. `domains.md` names no encoding for the pair
-/// (it names one only for `encodeBytes`/`decodeBytes`); this backend reads it as mapping each
-/// byte to the code point of the same number, its chosen reading: the module supports code
-/// points only within the first 256, and both conversions are `total`, which every byte
-/// sequence satisfies under this reading but not under UTF-8 decoding. Under it no byte maps to
-/// a code point above 255, and the hook is `total`, so on a string holding one its value is not
-/// given by the definition and the application is left unevaluated. A stored byte that starts
-/// no UTF-8 sequence is the code point of its own value.
+/// (it names one only for `encodeBytes`/`decodeBytes`, which take one); this backend reads it as
+/// mapping each byte to the code point of the same number, its chosen reading. Totality does
+/// not decide between readings: under this one `String2Bytes` has no value above 255, under
+/// UTF-8 decoding `Bytes2String` has none on an invalid sequence. What decides is the module's
+/// statement that only the first 256 code points are supported: on exactly those strings this
+/// reading makes both `total` conversions total and mutually inverse, while UTF-8 decoding
+/// leaves `Bytes2String` without a value on invalid sequences whatever strings are supported.
+/// The hook is `total`, so on a string holding a code point above 255 its value is not given by
+/// the definition and the application is left unevaluated. A stored byte that starts no UTF-8
+/// sequence is the code point of its own value.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
