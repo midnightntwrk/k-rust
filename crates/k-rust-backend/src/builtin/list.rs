@@ -9,8 +9,8 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
-    int_term, read_int, values_differ,
+    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, describe_int, expect_arity,
+    expect_sort, int_term, read_int, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -222,7 +222,7 @@ fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(concrete_length) = length.to_usize() else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {length}"),
+                detail: format!("length {}", describe_int(&length)),
             },
         ));
     };
@@ -640,7 +640,7 @@ mod tests {
             make(&[int_term(length.clone()), item("x")]),
             Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge {
-                    detail: format!("length {length}"),
+                    detail: format!("length {}", describe_int(&length)),
                 }
             ))
         );

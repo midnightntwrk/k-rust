@@ -5,7 +5,10 @@ use num_traits::{ToPrimitive, Zero};
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity, int_term, read_int};
+use super::{
+    BuiltinResult, HookResult, UnsupportedHookReason, describe_int, expect_arity, int_term,
+    read_int,
+};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -226,7 +229,7 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let Some(length) = length.to_usize() else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {length}"),
+                detail: format!("length {}", describe_int(&length)),
             },
         ));
     };
@@ -375,7 +378,7 @@ fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookRea
         .to_usize()
         .map(Some)
         .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
-            detail: format!("length {value}"),
+            detail: format!("length {}", describe_int(&value)),
         })
 }
 
@@ -646,7 +649,7 @@ mod tests {
         let large_length = BigInt::from(1_u8) << usize::BITS;
         let length = int_term(large_length.clone());
         let expected = BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
-            detail: format!("length {large_length}"),
+            detail: format!("length a {}-bit integer", large_length.bits()),
         });
 
         assert_eq!(

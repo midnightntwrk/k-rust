@@ -827,34 +827,42 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             BigInt::one()
         })));
     }
-    let detail = format!("{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits");
-    let too_large = || {
+    // Described only when refused, by the operands' sizes (`describe_int`).
+    let too_large = |base: String| {
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: detail.clone(),
+                detail: format!(
+                    "{base} ^Int {} needs more than {MAX_INT_RESULT_BITS} bits",
+                    describe_int(&exponent)
+                ),
             },
         ))
     };
-    let Some(mut exponent) = exponent.to_u64() else {
-        return too_large();
+    let Some(mut exponent_bits) = exponent.to_u64() else {
+        return too_large(describe_int(&base));
     };
-    if power_size(&base, exponent, MAX_INT_RESULT_BITS) == PowerSize::TooLarge {
-        return too_large();
+    let size = power_size(&base, exponent_bits, MAX_INT_RESULT_BITS);
+    if size == PowerSize::TooLarge {
+        return too_large(describe_int(&base));
     }
+    // The base is squared in place below; an undecided size is checked after computing.
+    let undecided_base = (size == PowerSize::Undecided).then(|| describe_int(&base));
     let mut result = BigInt::one();
-    while exponent != 0 {
+    while exponent_bits != 0 {
         crate::stop::check()?;
-        if exponent & 1 == 1 {
+        if exponent_bits & 1 == 1 {
             result *= &base;
         }
-        exponent >>= 1;
-        if exponent != 0 {
+        exponent_bits >>= 1;
+        if exponent_bits != 0 {
             base = &base * &base;
         }
     }
     // Only an `Undecided` size gets here above the bound.
-    if result.bits() > MAX_INT_RESULT_BITS {
-        return too_large();
+    if let Some(base) = undecided_base
+        && result.bits() > MAX_INT_RESULT_BITS
+    {
+        return too_large(base);
     }
     Ok(BuiltinResult::Value(int_term(result)))
 }
@@ -941,7 +949,9 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "{value} <<Int {amount} needs more than {MAX_INT_RESULT_BITS} bits"
+                    "{} <<Int {} needs more than {MAX_INT_RESULT_BITS} bits",
+                    describe_int(&value),
+                    describe_int(&amount)
                 ),
             },
         ))
@@ -1180,6 +1190,20 @@ pub(super) fn bool_term(value: bool) -> Term {
 
 pub(super) fn int_term(value: BigInt) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
+}
+
+/// An integer operand as a refusal or diagnostic message shows it: in decimal when it has at most
+/// 64 bits, otherwise by its size, so that a message about a value too large to compute does not
+/// cost the decimal rendering of its operands, which grows faster than linearly in their length.
+pub(crate) fn describe_int(value: &BigInt) -> String {
+    let bits = value.bits();
+    if bits <= 64 {
+        value.to_string()
+    } else if value.sign() == Sign::Minus {
+        format!("a negative {bits}-bit integer")
+    } else {
+        format!("a {bits}-bit integer")
+    }
 }
 
 pub(super) fn expect_arity(hook: &str, arguments: &[Term], expected: usize) -> HookResult<()> {
@@ -1591,6 +1615,35 @@ mod tests {
                 assert!(too_large(powered), "2 ^Int {amount}");
             }
         }
+    }
+
+    /// A refusal names an operand above 64 bits by its size, not its digits: the message of a
+    /// result too large to compute must not cost the decimal rendering of its operands, which
+    /// grows faster than linearly in their length (and was paid on every evaluation of `^Int`).
+    #[test]
+    fn a_refusal_describes_large_operands_by_their_size() {
+        let base = num_traits::pow(BigInt::from(3), 200_000);
+        let bits = base.bits();
+        let amount = BigInt::from(1_u64 << 40);
+        for (hook, operator) in [("INT.pow", "^Int"), ("INT.shl", "<<Int")] {
+            let refused = evaluate_hook(hook, &[int_term(base.clone()), int_term(amount.clone())]);
+            let Ok(Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                detail,
+            }))) = refused
+            else {
+                panic!("{hook}: {refused:?}");
+            };
+            assert!(
+                detail.starts_with(&format!("a {bits}-bit integer {operator} 1099511627776 ")),
+                "{hook}: {detail}"
+            );
+            assert!(detail.len() < 120, "{hook}: {detail}");
+        }
+        assert_eq!(describe_int(&BigInt::from(-5)), "-5");
+        assert_eq!(
+            describe_int(&-(BigInt::one() << 64u32)),
+            "a negative 65-bit integer"
+        );
     }
 
     /// The size of a power is decided before it is computed, so a power above the bound is
