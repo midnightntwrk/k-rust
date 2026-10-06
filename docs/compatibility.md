@@ -262,6 +262,8 @@ Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ord
 The generated module and these labels are reserved.
 A nullary cell initializer is declared `total` only when every generated rule has evidently defined configuration content and a trivial `ensures`; initializer dependencies are judged by a least fixed point, so cycles remain unproven.
 At least one unconditional equation must cover its only argument tuple.
+Configuration content may concatenate hooked map or set elements: domains.md makes a map concatenation undefined exactly when its operands share a key, and a set concatenation when they share an element, so a concatenation tree whose leaves are element applications with pairwise distinct literal keys of one sort (integers compared by value, Booleans, strings without escapes) and defined values counts as evidently defined (`issue-946`'s `1 |-> ... 5 |-> ... 8 |-> ...`).
+A repeated or differently spelled key (`1`, `+1`), keys of different sorts, or a computed key leave the concatenation undecided, and the initializer without the claim.
 Generated cell constructors and optional-cell units use the same equation totality judgement as written labels; hooked collection units count as defined only when their own production is configuration-generated and they head no non-simplification rule, including ordinary, anywhere and macro equations.
 Before cell closing, the evidence also checks every child unit that closing could insert, conservatively withholding parent totality even when a child with a partial absence unit is already present.
 Local-function resolution precedes this judgement and records which generated lambdas cover every argument tuple.

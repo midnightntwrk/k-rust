@@ -11104,6 +11104,70 @@ fn kcompile_for_proving(
 /// `kcompile` of `source` with the compile options `options` (modules, include directories) into
 /// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
 /// once with this and passes `output` to `krun --definition`.
+/// domains.md makes a map concatenation undefined exactly when its operands share a key (and a
+/// set concatenation when they share an element). A configuration map or set of pairwise
+/// distinct literal keys is therefore defined, and so is the initializer that builds it
+/// (`issue-946`); a repeated key, a key that differs only in spelling (`1`, `+1`), keys of
+/// different sorts, or a key computed by a function leaves the initializer without the claim.
+#[test]
+fn kcompile_claims_initializers_of_disjoint_literal_collections_total() {
+    for (content, total) in [
+        (
+            "<env> 1 |-> ListItem(2) ListItem(3) 5 |-> ListItem(6) 8 |-> .List </env>",
+            true,
+        ),
+        ("<env> 1 |-> 2 1 |-> 3 </env>", false),
+        ("<env> 1 |-> 2 +1 |-> 3 </env>", false),
+        (r#"<env> 1 |-> 2 "1" |-> 3 </env>"#, false),
+        ("<env> f(1) |-> 2 5 |-> 3 </env>", false),
+        (
+            r#"<env> SetItem(true) SetItem(false) SetItem("a") </env>"#,
+            false,
+        ),
+        (r#"<env> SetItem("a") SetItem("b") </env>"#, true),
+        ("<env> SetItem(2) SetItem(2) </env>", false),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            format!(
+                "module MAIN\n  imports INT\n  imports STRING\n  imports MAP\n  imports SET\n  imports LIST\n  syntax Int ::= f(Int) [function, symbol(f)]\n  syntax KItem ::= \"start\"\n  configuration <k> start </k> {content}\nendmodule\n"
+            ),
+        )
+        .unwrap();
+        let compiled = root.join("compiled");
+        kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
+        let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+        for initializer in ["LblinitEnvCell", "LblinitGeneratedTopCell"] {
+            let declaration = kore
+                .split("\n  symbol ")
+                .find(|declaration| declaration.starts_with(&format!("{initializer}{{}}()")))
+                .unwrap_or_else(|| panic!("{content}: no {initializer} declaration"));
+            // The declaration ends with its attribute list, which may span several lines.
+            let open = declaration.find('[').expect("attribute list");
+            let mut depth = 0;
+            let end = declaration[open..]
+                .char_indices()
+                .find_map(|(index, character)| {
+                    match character {
+                        '[' => depth += 1,
+                        ']' => depth -= 1,
+                        _ => {}
+                    }
+                    (depth == 0).then_some(open + index + 1)
+                })
+                .expect("closed attribute list");
+            let declaration = &declaration[..end];
+            assert_eq!(
+                declaration.contains("total{}()"),
+                total,
+                "{content}: {initializer} {declaration}"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
     let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")
