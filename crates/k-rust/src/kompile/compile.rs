@@ -795,6 +795,42 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
+    let (definition, resolved, diagnostics) = checked_input(loaded, options, timings)?;
+
+    // Checkpoint: every later transformation receives a resolved, structurally checked definition.
+    let mut state = super::pipeline::PipelineState::default();
+    let (execution_definition, execution_resolved) =
+        super::pipeline::run_stages_seeded_with_resolved(
+            super::pipeline::TRANSFORM_STAGES,
+            definition,
+            &mut state,
+            options,
+            timings,
+            resolved,
+        )?;
+    // Checkpoint: search-pattern compilation and the sentence counter observe this execution
+    // definition; injection, unit removal, and construction minimization apply only to emission.
+    let (definition, resolved) = super::pipeline::run_stages_seeded_with_resolved(
+        super::pipeline::EMISSION_STAGES,
+        execution_definition.clone(),
+        &mut state,
+        options,
+        timings,
+        execution_resolved,
+    )?;
+    Ok((execution_definition, definition, diagnostics, resolved))
+}
+
+/// The prologue of [`transform_loaded_definition`]: the loaded definition with every sentence
+/// stamped with its input address, its resolution, and the diagnostics of loading and of the
+/// structural checks, which must hold no error.
+///
+/// This is the input of the first transformation stage.
+pub(super) fn checked_input(
+    loaded: &LoadedDefinition,
+    options: &CompileOptions,
+    timings: &mut PhaseTimings,
+) -> Result<(Definition, ResolvedDefinition, Vec<Diagnostic>), CompileError> {
     // Every constructor of `LoadedDefinition` establishes these facts; compilation is defined
     // only on values that satisfy them.
     debug_assert!(
@@ -854,28 +890,7 @@ fn transform_loaded_definition(
         ));
     }
 
-    // Checkpoint: every later transformation receives a resolved, structurally checked definition.
-    let mut state = super::pipeline::PipelineState::default();
-    let (execution_definition, execution_resolved) =
-        super::pipeline::run_stages_seeded_with_resolved(
-            super::pipeline::TRANSFORM_STAGES,
-            definition.clone(),
-            &mut state,
-            options,
-            timings,
-            resolved,
-        )?;
-    // Checkpoint: search-pattern compilation and the sentence counter observe this execution
-    // definition; injection, unit removal, and construction minimization apply only to emission.
-    let (definition, resolved) = super::pipeline::run_stages_seeded_with_resolved(
-        super::pipeline::EMISSION_STAGES,
-        execution_definition.clone(),
-        &mut state,
-        options,
-        timings,
-        execution_resolved,
-    )?;
-    Ok((execution_definition, definition, diagnostics, resolved))
+    Ok((definition, resolved, diagnostics))
 }
 
 fn with_newline(mut text: String) -> String {

@@ -720,3 +720,193 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         input_addresses: Vec::new(),
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::{
+        definition::{ProductionItem, Sentence},
+        diagnostic::DiagnosticCode,
+        kompile::stage_harness::{render, run_to_stage, sentence_changes},
+    };
+
+    /// A context `C[HOLE] requires R` says: when `C[HOLE]` is the next computation and `R`
+    /// holds, evaluate `HOLE` first. Lowering states this as two rules around a freezer, a
+    /// constructor that holds the rest of `C`: heating `C[HOLE] => HOLE ~> freezer(rest)` under
+    /// `R`, and cooling `HOLE ~> freezer(rest) => C[HOLE]`, which plugs the value back in place.
+    /// Cooling has no condition of its own (the heat/cool stage adds the result tests), and the
+    /// freezer keeps exactly the variables of `C` other than `HOLE`, so cooling rebuilds `C`.
+    ///
+    /// The contexts the pipeline hands this stage include those strictness generated, so every
+    /// one of them, and the user's context, must come out as such a pair.
+    #[test]
+    fn every_context_lowers_to_a_heating_and_a_cooling_rule_around_a_freezer() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | plus(Exp, Exp) [strict, symbol(plus)]
+               | seq(Exp, Exp) [seqstrict, symbol(seq)]
+               | wrap(Exp) [symbol(wrap)]
+  context wrap(HOLE:Exp)
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve contexts",
+        );
+        let (added, removed) = sentence_changes(&run.input, run.output());
+        let contexts = removed
+            .iter()
+            .map(|(_, sentence)| {
+                let Sentence::Context { body, requires, .. } = sentence else {
+                    panic!(
+                        "the stage removed a sentence that is not a context: {}",
+                        render(sentence)
+                    )
+                };
+                (body.to_string(), requires.to_string())
+            })
+            .collect::<Vec<_>>();
+        // Two contexts of `plus`, two of `seq`, and `wrap`.
+        assert_eq!(contexts.len(), 5, "{contexts:?}");
+        assert_eq!(
+            run.input
+                .modules
+                .iter()
+                .flat_map(|module| &module.local_sentences)
+                .filter(|sentence| matches!(&***sentence, Sentence::Context { .. }))
+                .count(),
+            5,
+            "the stage lowers every context it receives"
+        );
+
+        let rules = |attribute: &str| {
+            added
+                .iter()
+                .filter_map(|(_, sentence)| {
+                    let Sentence::Rule {
+                        body,
+                        requires,
+                        ensures,
+                        attributes,
+                    } = sentence
+                    else {
+                        return None;
+                    };
+                    attributes
+                        .get(attribute)
+                        .is_some()
+                        .then(|| (body.to_string(), requires.to_string(), ensures.to_string()))
+                })
+                .collect::<Vec<_>>()
+        };
+        let (heating, cooling) = (rules("heat"), rules("cool"));
+        let freezers = added
+            .iter()
+            .filter_map(|(_, sentence)| {
+                let Sentence::Production {
+                    label: Some(label),
+                    items,
+                    ..
+                } = sentence
+                else {
+                    return None;
+                };
+                label.name.starts_with("#freezer").then(|| {
+                    (
+                        label.name.clone(),
+                        items
+                            .iter()
+                            .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                            .count(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(heating.len(), contexts.len(), "{heating:#?}");
+        assert_eq!(cooling.len(), contexts.len(), "{cooling:#?}");
+        assert_eq!(freezers.len(), contexts.len(), "{freezers:?}");
+        assert_eq!(
+            added.len(),
+            3 * contexts.len(),
+            "the stage adds only the rules and freezers: {:#?}",
+            added
+                .iter()
+                .map(|(_, sentence)| render(sentence))
+                .collect::<Vec<_>>()
+        );
+
+        let truth = r#"#token("true","Bool")"#;
+        for (context, condition) in &contexts {
+            let (_, frozen, _) = heating
+                .iter()
+                .find_map(|(body, requires, ensures)| {
+                    let frozen = body.strip_prefix(&format!("{context}=>HOLE~>"))?;
+                    (requires == condition && ensures == truth).then_some((
+                        body,
+                        frozen,
+                        (requires, ensures),
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    panic!("no heating rule of {context} under {condition}: {heating:#?}")
+                });
+            assert!(
+                cooling.contains(&(
+                    format!("HOLE~>{frozen}=>{context}"),
+                    truth.to_owned(),
+                    truth.to_owned()
+                )),
+                "no cooling rule plugging {frozen} back into {context}: {cooling:#?}"
+            );
+            // The freezer holds the variables of the context other than HOLE: here every
+            // context variable is `K<n>`, one per other argument.
+            let held = context.matches("(K").count();
+            let label = frozen.trim_start_matches('`').split('`').next().unwrap();
+            assert!(
+                freezers.contains(&(label.to_owned(), held)),
+                "{label} should take {held} arguments: {freezers:?}"
+            );
+        }
+    }
+
+    /// Cooling matches the term the context rewrites HOLE to and plugs HOLE back in; a term
+    /// without HOLE leaves nothing to plug, so the context is rejected where it is written.
+    #[test]
+    fn a_context_rewriting_hole_away_is_rejected_at_the_context() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult ::= Op
+  syntax Op ::= "a" [symbol(a)] | "b" [symbol(b)] | wrap(Op) [symbol(wrap)]
+  context wrap(HOLE => a)
+endmodule
+"#,
+            "resolve contexts",
+        );
+        let error = run.error();
+        assert_eq!(error.stage, "resolve contexts");
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{error:?}")
+        };
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidContext);
+        assert!(
+            diagnostic
+                .message
+                .starts_with("The HOLE of a context must be rewritten to a term containing HOLE"),
+            "{}",
+            diagnostic.message
+        );
+        let location = diagnostic.location.expect("the diagnostic is located");
+        assert_eq!((location.start_line, location.start_column), (8, 3));
+    }
+}

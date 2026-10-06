@@ -211,3 +211,137 @@ fn matches_hole(body: &Term) -> bool {
         _ => false,
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::{
+        definition::Sentence,
+        diagnostic::DiagnosticCode,
+        kompile::stage_harness::{run_to_stage, sentence_changes},
+    };
+
+    /// Heating takes the subterm matched as HOLE out for evaluation while it is not yet a
+    /// result; cooling puts it back once it is one. So the stage conjoins `notBool
+    /// isKResult(HOLE)` to the condition of every heating rule and `isKResult(HOLE)` to that of
+    /// every cooling rule, keeping the condition the rule already has. The rules it receives
+    /// are the ones context lowering produced from strictness, which is where most heating and
+    /// cooling rules of a definition come from.
+    #[test]
+    fn heating_waits_for_a_non_result_and_cooling_for_a_result() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val | seq(Exp, Exp) [seqstrict, symbol(seq)]
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve heat/cool attributes",
+        );
+        let (added, removed) = sentence_changes(&run.input, run.output());
+        let conditions = |sentences: &[(&str, &Sentence)]| {
+            let mut conditions = sentences
+                .iter()
+                .map(|(_, sentence)| {
+                    let Sentence::Rule {
+                        body,
+                        requires,
+                        attributes,
+                        ..
+                    } = sentence
+                    else {
+                        panic!("the stage changed a sentence that is not a rule: {sentence:?}")
+                    };
+                    let kind = if attributes.get("heat").is_some() {
+                        "heat"
+                    } else {
+                        assert!(attributes.get("cool").is_some(), "{body}");
+                        "cool"
+                    };
+                    (kind, body.to_string(), requires.to_string())
+                })
+                .collect::<Vec<_>>();
+            conditions.sort();
+            conditions
+        };
+        let (before, after) = (conditions(&removed), conditions(&added));
+        // The two heating and two cooling rules of `seq`, each rewritten once, bodies kept.
+        assert_eq!(before.len(), 4, "{before:#?}");
+        assert_eq!(after.len(), 4, "{after:#?}");
+        for ((kind, body, old), (new_kind, new_body, new)) in before.iter().zip(&after) {
+            assert_eq!((kind, body), (new_kind, new_body));
+            let test = match *kind {
+                "heat" => "`notBool_`(isKResult(HOLE))",
+                _ => "isKResult(HOLE)",
+            };
+            assert_eq!(new, &format!("`_andBool_`({old},{test})"), "{body}");
+        }
+    }
+
+    /// A heating or cooling rule applies only when the subterm it matches as HOLE is not yet,
+    /// or is, a result. A rule that matches no HOLE on its left-hand side, including one that
+    /// names HOLE only in its condition, would test a variable nothing binds: each is rejected
+    /// at the rule, and all of them in one run.
+    #[test]
+    fn heat_and_cool_rules_without_a_matched_hole_are_rejected_at_the_rule() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax Bool
+  syntax KResult ::= Op
+  syntax Op ::= "a" [symbol(a)] | "b" [symbol(b)]
+  syntax Bool ::= p(Op) [function, symbol(p)]
+  rule a => b [heat]
+  rule b => a [cool]
+  rule a => b requires p(HOLE:Op) [heat]
+endmodule
+"#,
+            "resolve heat/cool attributes",
+        );
+        let error = run.error();
+        assert_eq!(error.stage, "resolve heat/cool attributes");
+        let mut rejected = error
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                assert_eq!(diagnostic.code, DiagnosticCode::InvalidHeatCool);
+                let location = diagnostic.location.expect("the diagnostic is located");
+                (
+                    location.start_line,
+                    location.start_column,
+                    diagnostic.message.split(':').next().unwrap().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rejected.sort();
+        assert_eq!(
+            rejected,
+            [
+                (
+                    10,
+                    3,
+                    "A heat rule must match HOLE on its left-hand side".to_owned()
+                ),
+                (
+                    11,
+                    3,
+                    "A cool rule must match HOLE on its left-hand side".to_owned()
+                ),
+                (
+                    12,
+                    3,
+                    "A heat rule must match HOLE on its left-hand side".to_owned()
+                ),
+            ]
+        );
+    }
+}

@@ -1196,3 +1196,43 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         input_addresses: Vec::new(),
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::kompile::stage_harness::{labelled, render, rendered_changes, run_to_stage};
+
+    /// A local function is lifted to a generated function whose equation is applied without
+    /// the configuration, so it cannot draw a fresh value itself. A `!X` of the enclosing
+    /// rewrite rule used in the function body is a closure variable: the rule passes it as an
+    /// argument, where the rewrite step that applies the rule allocates it, and the equation
+    /// receives it as an ordinary variable.
+    #[test]
+    fn a_fresh_variable_in_a_local_function_is_passed_in_by_the_enclosing_rule() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+              | plus(Int, Int) [function, symbol(plus)]
+  syntax KItem ::= "go" [symbol(go)]
+  configuration <k> go </k>
+  rule <k> go => #fun(Y => plus(Y, !X:Int))(1) ...</k> [label(go)]
+endmodule
+"#,
+            "resolve local functions",
+        );
+        let rule = r#"rule `<k>`(#noDots(.KList),go(.KList)=>`#lambda__`(#token("1","Int"),!X),#dots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#;
+        assert_eq!(render(labelled(run.output(), "MAIN", "go")[0]), rule);
+        let (mut added, removed) = rendered_changes(&run);
+        added.sort();
+        let mut expected = [
+            rule,
+            r#"rule `#lambda__`(#SemanticCastToInt(Y),#_X)=>plus(#SemanticCastToInt(Y),#SemanticCastToInt(#_X)) requires #token("true","Bool") ensures #token("true","Bool")"#,
+            "syntax Int ::= #lambda__(Int, Int)",
+        ];
+        expected.sort_unstable();
+        assert_eq!(added, expected);
+        assert_eq!(removed.len(), 1, "only the rule is rewritten: {removed:#?}");
+    }
+}

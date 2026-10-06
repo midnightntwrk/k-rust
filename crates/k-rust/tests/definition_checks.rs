@@ -4389,3 +4389,288 @@ fn top_sorts_are_judged_by_the_subsorts_of_the_compiled_definition() {
         assert_eq!(errors[0].location.as_ref().unwrap().start_line, 2);
     }
 }
+
+/// Compile `source` (main and syntax module `MAIN`, no prelude) in process, as `kcompile
+/// --no-prelude` does, and return the compilation error.
+fn compile_error(source: &str) -> k_rust::kompile::CompileError {
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+    let (loaded, _) = k_rust::outer::load_for_compilation(
+        k_rust::outer::ResolvedSource::new("definition.k", source),
+        "MAIN",
+        Some("MAIN"),
+        &mut resolver,
+        &k_rust::outer::LoadOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("{source}\nthe source should load: {error:?}"));
+    k_rust::kompile::compile_loaded_definition(&loaded, k_rust::kompile::CompileOptions::default())
+        .expect_err(source)
+}
+
+/// The one error diagnostic of a compilation that the definition checks reject.
+#[track_caller]
+fn definition_check_error(source: &str) -> Diagnostic {
+    let error = compile_error(source);
+    assert_eq!(error.stage, "definition checks", "{source}\n{error:?}");
+    let errors = error
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .collect::<Vec<_>>();
+    let [diagnostic] = <[Diagnostic; 1]>::try_from(errors)
+        .unwrap_or_else(|errors| panic!("{source}\none error expected: {errors:#?}"));
+    diagnostic
+}
+
+/// The prelude-free syntax the fresh-variable cases below share: `Int` tokens and the functions
+/// their rules apply. A fresh value's sort needs no generator for these rejections.
+const FRESH_CHECK_SYNTAX: &str = r#"
+  syntax K
+  syntax Bool
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Int ::= plus(Int, Int) [function, symbol(plus)]
+  syntax Bool ::= neq(Int, Int) [function, symbol(neq)] | gt(Int, Int) [function, symbol(gt)]"#;
+
+/// Assert that `sentences`, written after [`FRESH_CHECK_SYNTAX`] in `MAIN`, are rejected with an
+/// `InvalidFreshConstant` error for `!X` at the last sentence, column 3, whose message starts
+/// with `message`.
+#[track_caller]
+fn assert_fresh_rejected(sentences: &str, message: &str) {
+    let source = format!("module MAIN{FRESH_CHECK_SYNTAX}\n{sentences}\nendmodule\n");
+    let error = compile_error(&source);
+    assert_eq!(error.stage, "definition checks", "{source}\n{error:?}");
+    // A claim in a definition is also rejected as such; the fresh variable is its own error.
+    let fresh = error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidFreshConstant)
+        .collect::<Vec<_>>();
+    let [diagnostic] = fresh.as_slice() else {
+        panic!(
+            "{source}\none fresh-variable error expected: {:#?}",
+            error.diagnostics
+        )
+    };
+    assert_eq!(diagnostic.severity, Severity::Error, "{source}");
+    assert!(
+        diagnostic.message.starts_with(message),
+        "{source}\n{}",
+        diagnostic.message
+    );
+    let line = 1 + FRESH_CHECK_SYNTAX.lines().count() + sentences.lines().count() - 1;
+    let location = diagnostic.location.expect("the diagnostic is located");
+    assert_eq!(
+        (location.start_line, location.start_column),
+        (line as u32, 3),
+        "{source}"
+    );
+}
+
+/// A fresh value is drawn from the configuration's counter cell by the rewrite step that
+/// introduces it. Equations (function, simplification, anywhere, macro and alias rules) and
+/// claims are applied without that cell, so a `!X` in them would be a variable nothing binds,
+/// and each is rejected at its sentence, naming the kind of sentence.
+#[test]
+fn fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence() {
+    for (sentences, kind) in [
+        (
+            "  syntax Int ::= g() [function]\n  rule g() => !X:Int",
+            "a function rule",
+        ),
+        (
+            "  syntax Int ::= g(Int) [function]\n  rule g(I) => I requires neq(I, !X:Int)",
+            "a function rule",
+        ),
+        (
+            "  syntax Int ::= g(Int) [function]\n  rule g(I) => plus(I, !X:Int) [simplification]",
+            "a simplification rule",
+        ),
+        (
+            "  syntax Foo ::= foo(Int)\n  rule foo(I) => foo(plus(I, !X:Int)) [anywhere]",
+            "an anywhere rule",
+        ),
+        (
+            "  syntax Int ::= \"m\" [macro]\n  rule m => !X:Int",
+            "a macro or alias rule",
+        ),
+        (
+            "  syntax Int ::= \"m\" [alias]\n  rule m => !X:Int",
+            "a macro or alias rule",
+        ),
+        (
+            "  syntax KItem ::= \"go\"\n  rule go => 1\n  claim go => !X:Int",
+            "a claim",
+        ),
+    ] {
+        assert_fresh_rejected(
+            sentences,
+            &format!("Fresh variable !X is not supported in {kind}:"),
+        );
+    }
+}
+
+/// The value of `!X` is allocated by the step that applies the rule, so it exists only in the
+/// configuration after the step: the right-hand side of a rewrite and `ensures`. A context is
+/// lowered to a heating step that builds its term and a cooling step that matches it again, so
+/// `!X` has no place in it, the right-hand side of its rewrite included.
+#[test]
+fn fresh_variables_occur_only_where_a_rewrite_rule_builds_its_result() {
+    for (sentences, place) in [
+        (
+            "  syntax KItem ::= foo(Int)\n  rule foo(!X:Int) => 1",
+            "where a rule matches",
+        ),
+        (
+            "  syntax KItem ::= foo(Int) | \"bar\"\n  configuration <k> bar </k>\n  rule <k> foo(!X:Int) => bar ...</k>",
+            "where a rule matches",
+        ),
+        // Outside every rewrite the term is both matched and rebuilt.
+        (
+            "  syntax KItem ::= baz(Int, Int)\n  rule baz(!X:Int, I => plus(I, 1))",
+            "where a rule matches",
+        ),
+        (
+            "  syntax KItem ::= foo(Int) | \"bar\"\n  rule foo(I) => bar requires gt(!X:Int, I)",
+            "in the requires clause of a rule",
+        ),
+    ] {
+        assert_fresh_rejected(
+            sentences,
+            &format!("Fresh variable !X cannot occur {place}"),
+        );
+    }
+    for context in ["pair(HOLE, !X:Int)", "pair(HOLE => tag(HOLE, !X:Int), _)"] {
+        assert_fresh_rejected(
+            &format!(
+                "  syntax Exp ::= Int | pair(Exp, Exp) | tag(Exp, Int)\n  syntax KResult ::= Int\n  context {context}"
+            ),
+            "Fresh variable !X cannot occur in a context",
+        );
+    }
+}
+
+/// An anywhere rule applies to its left-hand side wherever that term occurs, with no
+/// configuration around it: no parent cell to hold several sibling cells. The rule is rejected
+/// at the rule by the definition checks, before any later stage looks for a production of the
+/// cell sequence; the parent cell written around the same cells is a term, and compiles.
+#[test]
+fn anywhere_rules_needing_the_configuration_are_rejected_at_the_rule() {
+    let diagnostic = definition_check_error(
+        r#"module MAIN
+  syntax K
+  syntax Foo ::= "a" | "b"
+  configuration <k> .K </k> <mem> a </mem>
+  rule <k> .K </k> <mem> a => b </mem> [anywhere]
+endmodule
+"#,
+    );
+    assert_eq!(diagnostic.code, DiagnosticCode::InvalidAttribute);
+    assert!(
+        diagnostic
+            .message
+            .starts_with("An anywhere rule must rewrite a single term"),
+        "{}",
+        diagnostic.message
+    );
+    let location = diagnostic.location.expect("the diagnostic is located");
+    assert_eq!((location.start_line, location.start_column), (5, 3));
+
+    let source = r#"module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Foo ::= "a" | "b"
+  configuration <t> <k> .K </k> <mem> a </mem> </t>
+  rule <t> <k> .K </k> <mem> a => b </mem> </t> [anywhere]
+endmodule
+"#;
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+    let (loaded, _) = k_rust::outer::load_for_compilation(
+        k_rust::outer::ResolvedSource::new("definition.k", source),
+        "MAIN",
+        Some("MAIN"),
+        &mut resolver,
+        &k_rust::outer::LoadOptions::default(),
+    )
+    .unwrap();
+    k_rust::kompile::compile_loaded_definition(&loaded, k_rust::kompile::CompileOptions::default())
+        .expect("the parent cell makes the left-hand side one term");
+}
+
+/// An `overload(_)` attribute names the family of productions that overload one another; a
+/// production whose family has no other member overloads nothing, which is worth a warning at
+/// the production. The warning is a diagnostic like any other: under `--warnings-to-errors` it
+/// fails the compilation at the post-compilation checks, and with warnings off it is not
+/// reported at all. A family of two overloading productions is not reported. (The productions
+/// are `unused` so that no other warning is promoted first.)
+#[test]
+fn singleton_overloads_are_warned_at_the_production_under_the_diagnostic_policy() {
+    use k_rust::diagnostic::{DiagnosticPolicy, WarningLevel};
+    let source = r#"module MAIN
+  syntax K
+  syntax Bool
+  syntax Id ::= r"[a-z]+" [token]
+  syntax LVal ::= "l" [symbol(l), unused]
+                | LVal "." Id [symbol(lfield), overload(_.), unused]
+  syntax Exp  ::= LVal
+                | Exp "." Id [symbol(efield), overload(_._), unused]
+  syntax Foo  ::= "foo" [symbol(foo), unused]
+  syntax Foos ::= Foo
+  syntax Bool ::= test(Foo) [function, symbol(testFoo), overload(test), unused]
+                | test(Foos) [function, symbol(testFoos), overload(test), unused]
+endmodule
+"#;
+    let compile = |diagnostics: DiagnosticPolicy| {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let (loaded, _) = k_rust::outer::load_for_compilation(
+            k_rust::outer::ResolvedSource::new("definition.k", source),
+            "MAIN",
+            Some("MAIN"),
+            &mut resolver,
+            &k_rust::outer::LoadOptions::default(),
+        )
+        .unwrap();
+        k_rust::kompile::compile_loaded_definition(
+            &loaded,
+            k_rust::kompile::CompileOptions {
+                diagnostics,
+                ..k_rust::kompile::CompileOptions::default()
+            },
+        )
+    };
+    let singletons = |diagnostics: &[Diagnostic], severity: Severity| {
+        let mut lines = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::SingletonOverload)
+            .map(|diagnostic| {
+                assert_eq!(diagnostic.severity, severity, "{diagnostic:?}");
+                assert_eq!(
+                    diagnostic.message,
+                    "Production has an `overload(_)` attribute but is not an overload of any other production."
+                );
+                diagnostic.location.expect("located").start_line
+            })
+            .collect::<Vec<_>>();
+        lines.sort_unstable();
+        lines
+    };
+
+    let normal = compile(DiagnosticPolicy::default()).expect("a warning does not fail");
+    assert_eq!(singletons(&normal.diagnostics, Severity::Warning), [6, 8]);
+
+    let promoted = compile(DiagnosticPolicy {
+        level: WarningLevel::All,
+        warnings_to_errors: true,
+    })
+    .expect_err("promoted warnings fail the compilation");
+    assert_eq!(promoted.stage, "post-compilation checks", "{promoted:#?}");
+    assert_eq!(singletons(&promoted.diagnostics, Severity::Error), [6, 8]);
+
+    let suppressed = compile(DiagnosticPolicy {
+        level: WarningLevel::None,
+        warnings_to_errors: true,
+    })
+    .expect("suppressed warnings are not promoted");
+    assert_eq!(
+        singletons(&suppressed.diagnostics, Severity::Warning),
+        [0; 0]
+    );
+}

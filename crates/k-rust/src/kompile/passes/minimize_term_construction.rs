@@ -340,3 +340,107 @@ fn is_blocked_collection_hook(hook: Option<&str>) -> bool {
         Some("SET.element" | "LIST.element" | "LIST.concat" | "MAP.concat" | "SET.concat")
     )
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use std::collections::BTreeMap;
+
+    use crate::{
+        definition::Sentence,
+        kast::Term,
+        kompile::stage_harness::{labelled, run_to_stage},
+    };
+
+    /// Undo minimization: replace every alias variable on the right-hand side by the
+    /// left-hand subterm it names, and drop the `#as` bindings.
+    fn expand(term: &Term, aliases: &BTreeMap<String, Term>) -> Term {
+        match term {
+            Term::As { pattern, .. } => expand(pattern, aliases),
+            Term::Variable { name, .. } if aliases.contains_key(name) => {
+                expand(&aliases[name], aliases)
+            }
+            Term::Annotated { term, .. } => expand(term, aliases),
+            Term::Apply { label, arguments } => Term::Apply {
+                label: label.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| expand(argument, aliases))
+                    .collect(),
+            },
+            Term::Rewrite { left, right } => Term::Rewrite {
+                left: Box::new(expand(left, aliases)),
+                right: Box::new(expand(right, aliases)),
+            },
+            Term::Sequence(items) => {
+                Term::Sequence(items.iter().map(|item| expand(item, aliases)).collect())
+            }
+            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
+                leaf.clone()
+            }
+        }
+    }
+
+    fn collect_aliases(term: &Term, aliases: &mut BTreeMap<String, Term>) {
+        match term {
+            Term::As { pattern, alias } => {
+                if let Term::Variable { name, .. } = alias.unannotated() {
+                    aliases.insert(name.clone(), (**pattern).clone());
+                }
+                collect_aliases(pattern, aliases);
+            }
+            Term::Annotated { term, .. } => collect_aliases(term, aliases),
+            Term::Apply { arguments, .. } => arguments
+                .iter()
+                .for_each(|argument| collect_aliases(argument, aliases)),
+            Term::Rewrite { left, right } => {
+                collect_aliases(left, aliases);
+                collect_aliases(right, aliases);
+            }
+            Term::Sequence(items) => items.iter().for_each(|item| collect_aliases(item, aliases)),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+        }
+    }
+
+    /// A right-hand side that rebuilds a subterm the left-hand side matched can reuse the
+    /// matched term instead of constructing it again: the stage binds the subterm with `#as`
+    /// on the left and names it on the right. The rule means the same thing, so substituting
+    /// each alias back gives the rule the stage received, and here the repeated
+    /// `pair(V, E)` is shared rather than rebuilt.
+    #[test]
+    fn a_rebuilt_left_hand_subterm_is_shared_and_the_rule_keeps_its_meaning() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Val ::= "v" [symbol(v)]
+  syntax Exp ::= Val | pair(Exp, Exp) [symbol(pair)] | wrap(Exp) [symbol(wrap)]
+  configuration <k> v </k>
+  rule <k> pair(V:Val, E) => pair(E, wrap(pair(V:Val, E))) </k> [label(swap)]
+endmodule
+"#,
+            "minimize term construction",
+        );
+        let body = |definition| match labelled(definition, "MAIN", "swap")[..] {
+            [Sentence::Rule { body, .. }] => body.clone(),
+            ref other => panic!("{other:?}"),
+        };
+        let (before, after) = (body(&run.input), body(run.output()));
+        let mut aliases = BTreeMap::new();
+        collect_aliases(&after, &mut aliases);
+        assert_eq!(aliases.len(), 1, "{after}");
+        let (alias, shared) = aliases.iter().next().unwrap();
+        assert_eq!(shared.to_string(), "pair(inj{Val,Exp}(V),E)");
+        let Term::Rewrite { right, .. } = after.unannotated() else {
+            panic!("{after}")
+        };
+        assert!(
+            right.to_string().contains(&format!("wrap({alias})")),
+            "{after}"
+        );
+        assert_eq!(
+            expand(&after, &aliases).to_string(),
+            expand(&before, &BTreeMap::new()).to_string()
+        );
+    }
+}
