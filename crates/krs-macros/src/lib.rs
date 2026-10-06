@@ -82,7 +82,13 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Constructor, attributes, item)
 }
 
-/// Declares one total K function production.
+/// Declares one K function production.
+///
+/// The attribute requires exactly one of `total` or `partial`, a `sort`, and a
+/// `syntax` template, and accepts an optional `hook` from the typed function
+/// hook catalog. `total` adds K's `total` attribute to the emitted `function`
+/// production; `partial` omits it, so an application that no equation covers
+/// has no denotation.
 #[proc_macro_attribute]
 pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Function, attributes, item)
