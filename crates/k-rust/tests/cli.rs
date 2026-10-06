@@ -4110,8 +4110,10 @@ endmodule
 /// A search pattern's condition over a `<<Int` result above the size bound is not decided by
 /// the solver reading the hook as an arbitrary function: the search reports the state as
 /// incomplete with the unsupported-hook error instead of a solution (no reachable state has
-/// `X <=Int 0`). A pattern that only binds the value reports it. `i` hides the shift amount from
-/// the constant folder.
+/// `X <=Int 0`). A pattern that only binds the value reports it. A condition the solver decides
+/// over a `^Int` result above the bound (`^Int` has an interpreted SMT encoding) is decided: the
+/// state is a solution of `X >Int 0` and not of `X <=Int 0`. `i` hides the shift amount and the
+/// exponent from the constant folder.
 #[test]
 fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
     const SOURCE: &str = r#"
@@ -4119,11 +4121,12 @@ module SEARCH-BOUND
   imports INT
   imports BOOL
   configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "go"
+  syntax Pgm ::= "go" | "power"
   syntax KItem ::= f(Int) | "done"
   syntax Int ::= i(Int) [function, total]
   rule i(X) => X
   rule <k> go => f(1 <<Int i(16777217)) </k>
+  rule <k> power => f(2 ^Int i(16777217)) </k>
   rule <k> f(_) => done </k>
 endmodule
 "#;
@@ -4131,7 +4134,9 @@ endmodule
     fs::write(&definition, SOURCE).unwrap();
     let input = root.join("go.search");
     fs::write(&input, "go").unwrap();
-    let search = |pattern: &str| {
+    let power = root.join("power.search");
+    fs::write(&power, "power").unwrap();
+    let search_from = |input: &Path, pattern: &str| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args([
                 "krun",
@@ -4156,6 +4161,14 @@ endmodule
             String::from_utf8(output.stderr).unwrap(),
         )
     };
+    let search = |pattern: &str| search_from(&input, pattern);
+    for (condition, solution) in [("X >Int 0", true), ("X <=Int 0", false)] {
+        let (success, stdout, stderr) =
+            search_from(&power, &format!("<k> f(X) </k> requires {condition}"));
+        assert!(success, "{condition}: {stdout}{stderr}");
+        assert!(!stderr.contains("UnsupportedHook"), "{condition}: {stderr}");
+        assert_eq!(stdout.contains("VarX"), solution, "{condition}: {stdout}");
+    }
     for condition in ["X <=Int 0", "X >Int 0"] {
         let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
         assert!(!success, "{condition}: {stdout}{stderr}");

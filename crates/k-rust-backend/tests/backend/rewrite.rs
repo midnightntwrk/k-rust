@@ -6997,8 +6997,9 @@ fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
 /// undecided. Over an application whose result is above the size bound that report would rest on
 /// the solver reading the hook as an arbitrary function (`<<Int` has no interpreted SMT
 /// encoding: `1 <<Int 2^24 <=Int 0` would match), so the match is the unsupported-hook error
-/// instead, with a solver and without one. A binding to the application decides nothing and is
-/// reported, and within the bound the value is computed and the condition decided.
+/// instead, with a solver and without one. A condition the solver proves or refutes is decided
+/// (the match is reported without it, or there is none), a binding to the application decides
+/// nothing and is reported, and within the bound the value is computed and the condition decided.
 #[test]
 fn a_search_match_is_not_reported_under_a_condition_on_a_result_above_the_size_bound() {
     let definition = size_bound_branching_definition();
@@ -7058,6 +7059,32 @@ fn a_search_match_is_not_reported_under_a_condition_on_a_result_above_the_size_b
             &[subject("16777216")],
         );
         assert!(refused(&without_solver), "{condition}: {without_solver:#?}");
+    }
+    // A condition the solver proves on every instance holds no decision about the value: the
+    // match is reported, without it; one the solver refutes leaves no match.
+    let proving = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Valid),
+    };
+    let refuting = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Refuted),
+    };
+    for (solver, expected) in [(&proving, 1), (&refuting, 0)] {
+        let decided = match_disjunction_with_solver(
+            &definition,
+            &target(Some(positive)),
+            &[subject("16777216")],
+            SimplificationOptions::default(),
+            solver,
+        );
+        assert_eq!(matched(&decided), Some(expected), "{decided:#?}");
+        if let Ok(Ok(matches)) = &decided {
+            assert!(
+                matches.iter().all(|found| found.constraints.is_empty()),
+                "{decided:#?}"
+            );
+        }
     }
     let bound = match_disjunction_with_solver(
         &definition,
