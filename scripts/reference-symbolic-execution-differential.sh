@@ -88,6 +88,15 @@ reference_announce_krust_gate_build
     --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 )
 krust=$krust_gate_binary
+reference_comparator=$(reference_build_comparator "$workspace")
+
+# One comparison, by the comparator test binary built once above.
+compare_artifacts() {
+  (
+    cd "$workspace/crates/k-rust"
+    "$reference_comparator" --quiet --ignored --exact "$@"
+  )
+}
 
 for name in "${selected[@]}"; do
   suite=$(jq -c --arg name "$name" '.symbolic[] | select(.name == $name)' <<<"$manifest_json")
@@ -284,10 +293,10 @@ for name in "${selected[@]}"; do
           K_DIFFERENTIAL_STOP_LEAVES="$stop_leaves"
         )
       fi
-      env "${comparison_environment[@]}" \
-        cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-          -p k-rust --test reference_differential -- --ignored --exact \
-          executed_kore_matches_the_reference_backend
+      (
+        export "${comparison_environment[@]}"
+        compare_artifacts executed_kore_matches_the_reference_backend
+      )
     done
   done
 done

@@ -72,6 +72,11 @@ if (($#)); then
 fi
 
 reference_announce_krust_gate_build
+(
+  ulimit -v "$rust_memory_kib"
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
+    -p k-rust --bin krust
+)
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown runnable local proof case: $name" >&2
@@ -153,8 +158,7 @@ for name in "${selected[@]}"; do
     echo "[$name] checking the k-rust proven verdicts"
     if ! (
       ulimit -v "$rust_memory_kib"
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         kprove "$specification" \
         --main-module "$spec_module" \
         --definition-module "$definition_module" \
@@ -196,7 +200,7 @@ for name in "${selected[@]}"; do
   echo "[$name:$failure_claim] checking the k-rust $failure_verdict verdict"
   if (
     ulimit -v "$rust_memory_kib"
-    cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml"       -p k-rust --bin krust --       kprove "$specification"       --main-module "$spec_module"       --definition-module "$definition_module"       --claim "$failure_claim"       --depth "$proof_depth"       -I "$semantics_dir"       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
+    "$krust_gate_binary" kprove "$specification"       --main-module "$spec_module"       --definition-module "$definition_module"       --claim "$failure_claim"       --depth "$proof_depth"       -I "$semantics_dir"       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
   ) >"$work/$name-$failure_claim.rust.log" 2>&1; then
     echo "error: k-rust unexpectedly proved $name:$failure_claim" >&2
     exit 1

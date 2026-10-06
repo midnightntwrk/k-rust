@@ -102,9 +102,7 @@ compare_execution() {
     K_RUST_EXECUTION="$actual" \
     K_DIFFERENTIAL_DEFINITION="$definition" \
     K_DIFFERENTIAL_MODULE="$module" \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      executed_kore_matches_the_reference_backend
+    compare_artifacts executed_kore_matches_the_reference_backend
 }
 
 # N26: the port ran plain krust krun (--strategy any, one successor per step); its result must
@@ -120,9 +118,15 @@ compare_execution_any() {
     K_DIFFERENTIAL_DEFINITION="$definition" \
     K_DIFFERENTIAL_MODULE="$module" \
     K_DIFFERENTIAL_STRATEGY=any \
-    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-      -p k-rust --test reference_differential -- --ignored --exact \
-      executed_kore_matches_the_reference_backend --nocapture
+    compare_artifacts executed_kore_matches_the_reference_backend --nocapture
+}
+
+# One comparison, by the comparator test binary built once below.
+compare_artifacts() {
+  (
+    cd "$workspace/crates/k-rust"
+    "$reference_comparator" --quiet --ignored --exact "$@"
+  )
 }
 
 mapfile -t available < <(
@@ -135,6 +139,13 @@ if (($#)); then
 fi
 
 reference_announce_krust_gate_build
+(
+  ulimit -v "$rust_memory_kib"
+  export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
+    -p k-rust --bin krust
+)
+reference_comparator=$(reference_build_comparator "$workspace")
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown runnable local execution case: $name" >&2
@@ -209,9 +220,7 @@ for name in "${selected[@]}"; do
     set +e
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \
@@ -307,9 +316,7 @@ for name in "${selected[@]}"; do
     echo "[$name:$search_name] searching with krust krun"
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \
@@ -356,9 +363,7 @@ for name in "${selected[@]}"; do
     echo "[$name:$any_name] executing with krust krun (any strategy)"
     (
       ulimit -v "$rust_memory_kib"
-      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
-        -p k-rust --bin krust -- \
+      "$krust_gate_binary" \
         krun "$source" \
         --main-module "$main_module" \
         --sort "$program_sort" \

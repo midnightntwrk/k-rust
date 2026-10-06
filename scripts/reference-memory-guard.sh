@@ -38,6 +38,28 @@ reference_announce_krust_gate_build() {
   echo "[gate] krust is built $krust_gate_build_description into $krust_gate_target_dir"
 }
 
+# reference_build_comparator WORKSPACE [CARGO ARGUMENT...]
+#   Builds the reference_differential comparator test binary once and prints its path, so a gate
+#   runs it directly instead of paying a cargo freshness check per comparison. Without further
+#   arguments it is the binary `cargo test -p k-rust --test reference_differential` runs; run it
+#   from crates/k-rust, the directory cargo runs it in.
+reference_build_comparator() {
+  local workspace=$1
+  local executable
+  shift
+  executable=$(
+    cargo test --quiet --no-run --message-format=json-render-diagnostics "$@" \
+      --manifest-path "$workspace/Cargo.toml" -p k-rust --test reference_differential |
+      jq -r 'select(.reason == "compiler-artifact" and .target.name == "reference_differential"
+        and .profile.test) | .executable // empty' | tail -n 1
+  ) || return
+  if [[ ! -x "$executable" ]]; then
+    echo "error: cargo reported no reference_differential test executable" >&2
+    return 2
+  fi
+  printf '%s\n' "$executable"
+}
+
 reference_require_positive_kib() {
   local name=$1
   local value=$2
