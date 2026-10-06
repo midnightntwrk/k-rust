@@ -11,6 +11,7 @@ kompile.sentence_equivalence_checks = 176562
 kompile.production_catalogs_built = 618
 kompile.partial_orders_built = 1209
 kompile.injections_inserted = 53
+kompile.macro_expansion_visits = 4712
 kompile.owise_competitor_scans = 66
 provenance.link_dedup_probes = 22703
 kompile.sentence_copies = 18417

@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 13;
+pub const COUNTER_SCHEMA_VERSION: u64 = 14;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -363,6 +363,8 @@ pub enum Counter {
     KompileInjectionsInserted,
     /// Macro rules that matched and were applied.
     KompileMacroApplications,
+    /// Terms macro expansion visited, expanding their children and trying their rules.
+    KompileMacroExpansionVisits,
     /// Candidate rules scanned while building owise guards.
     KompileOwiseCompetitorScans,
     /// Membership probes used to deduplicate provenance links.
@@ -491,7 +493,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 71;
+    pub const COUNT: usize = 72;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -505,6 +507,7 @@ impl Counter {
         Counter::KompilePartialOrdersBuilt,
         Counter::KompileInjectionsInserted,
         Counter::KompileMacroApplications,
+        Counter::KompileMacroExpansionVisits,
         Counter::KompileOwiseCompetitorScans,
         Counter::ProvenanceLinkDedupProbes,
         Counter::ProvenanceReceiptRenders,
@@ -581,6 +584,7 @@ impl Counter {
             Counter::KompilePartialOrdersBuilt => "kompile.partial_orders_built",
             Counter::KompileInjectionsInserted => "kompile.injections_inserted",
             Counter::KompileMacroApplications => "kompile.macro_applications",
+            Counter::KompileMacroExpansionVisits => "kompile.macro_expansion_visits",
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
             Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
