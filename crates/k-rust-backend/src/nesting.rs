@@ -66,7 +66,10 @@ use crate::stop::STACK_RED_ZONE;
 ///
 /// `tests::every_shape_runs_on_the_stack_it_is_given` and
 /// `tests::every_deep_definition_loads_on_the_stack_it_is_given` run every measured shape on a
-/// stack of exactly the size this bound gives, so a pass whose frames outgrow it overflows there.
+/// stack of exactly the size this bound gives, and so does
+/// `backend::tests::deep_function_chains_simplify_on_the_stack_the_backend_provides` in `k-rust`
+/// for the function chains, through the facade, so a pass whose frames outgrow the bound
+/// overflows there or stops for want of stack.
 const STACK_PER_LEVEL: usize = if !OPTIMIZED {
     24 * 1024
 } else if cfg!(any(debug_assertions, k_rust_opt_level = "1")) {

@@ -3799,6 +3799,94 @@ endmodule
         });
     }
 
+    /// Ground functions whose simplification descends once per level of the term: `f` and `h`
+    /// have no equations, `g` moves under each `w` it meets, and `len` counts a `cons` list,
+    /// adding with the `INT.add` hook on the way back up.
+    const FUNCTION_CHAINS: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            sort SortL{} []
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol a{}() : SortS{} [constructor{}(), functional{}()]
+            symbol w{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            symbol nil{}() : SortL{} [constructor{}(), functional{}()]
+            symbol cons{}(SortS{}, SortL{}) : SortL{} [constructor{}(), functional{}()]
+            symbol f{}(SortS{}) : SortS{} [function{}(), total{}()]
+            symbol h{}(SortS{}, SortS{}) : SortS{} [function{}(), total{}()]
+            symbol g{}(SortS{}) : SortS{} [function{}(), total{}()]
+            symbol len{}(SortL{}) : SortInt{} [function{}(), total{}()]
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, w{}(X:SortS{})), \top{R}())),
+                \equals{SortS{}, R}(g{}(X0:SortS{}), \and{SortS{}}(w{}(g{}(X:SortS{})), \top{SortS{}}()))
+            ) [label{}("g-w")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, nil{}()), \top{R}())),
+                \equals{SortInt{}, R}(len{}(X0:SortL{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+            ) [label{}("len-nil")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, cons{}(H:SortS{}, T:SortL{})), \top{R}())),
+                \equals{SortInt{}, R}(
+                    len{}(X0:SortL{}),
+                    \and{SortInt{}}(intAdd{}(\dv{SortInt{}}("1"), len{}(T:SortL{})), \top{SortInt{}}())
+                )
+            ) [label{}("len-cons")]
+        endmodule []"#;
+
+    /// The KORE JSON term of `levels` nested applications of `symbol` around `leaf`, each with
+    /// the arguments `before` ahead of the nested one and `after` behind it.
+    fn nested(levels: usize, symbol: &str, before: &str, after: &str, leaf: &str) -> String {
+        let open = format!(r#"{{"tag":"App","name":"{symbol}","sorts":[],"args":[{before}"#);
+        let close = format!("{after}]}}");
+        format!("{}{leaf}{}", open.repeat(levels), close.repeat(levels))
+    }
+
+    /// The simplifier descends once per level of these terms, so its frames are among the passes
+    /// over internal terms that the stack the backend provides per level must hold. At 5,000
+    /// levels each request needs more than Node's main thread in every build (the simplifier
+    /// takes about 3 KiB per level in a release build), so the facade runs it on a segment of
+    /// exactly the size `nesting::stack_for_depth` gives for its height: a simplifier whose
+    /// frames per level outgrew the bound stops with `StackExhausted` there, which the exact
+    /// results rule out, or overflows the segment and aborts the test binary. At opt-level 1 each
+    /// request touches about 20 MB of stack and the test takes about a second.
+    #[test]
+    fn deep_function_chains_simplify_on_the_stack_the_backend_provides() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend =
+                Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::default()).unwrap();
+            let envelope = |term: &str| format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
+            let levels = 5_000;
+            let a = nested(1, "a", "", "", "");
+            let nil = nested(1, "nil", "", "", "");
+            let chain = nested(levels, "f", "", "", &a);
+            let binary = nested(levels, "h", "", &format!(",{a}"), &a);
+            let g_over_w = nested(1, "g", "", "", &nested(levels, "w", "", "", &a));
+            let w_over_g = nested(levels, "w", "", "", &nested(1, "g", "", "", &a));
+            let list = nested(levels, "cons", &format!("{a},"), "", &nil);
+            let len = nested(1, "len", "", "", &list);
+            let count = format!(
+                r#"{{"tag":"DV","sort":{{"tag":"SortApp","name":"SortInt","args":[]}},"value":"{levels}"}}"#
+            );
+            for (name, request, expected) in [
+                ("f", &chain, &chain),
+                ("h", &binary, &binary),
+                ("g over w", &g_over_w, &w_over_g),
+                ("len", &len, &count),
+            ] {
+                let request = deserialize_request::<PatternRequest>(&format!(
+                    r#"{{"state":{}}}"#,
+                    envelope(request)
+                ))
+                .unwrap();
+                let simplified = backend
+                    .simplify_json(request)
+                    .unwrap_or_else(|error| panic!("{name}: {error}"));
+                assert!(same_kore(&simplified, &envelope(expected)), "{name}");
+            }
+        });
+    }
+
     #[cfg(not(feature = "z3-inference"))]
     #[test]
     fn portable_model_generation_reports_the_capability_boundary() {
