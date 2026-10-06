@@ -1875,12 +1875,6 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
     }
 }
 
-/// Conjoin the constraints `C` a term simplification `t = C /\ t'` carried to the predicate
-/// `p[t']` built from its rewritten term. The result equals `p[t]` only when `p` is strict in
-/// that operand (`p[\bottom]` is `\bottom`), so that `p[C /\ t']` is `C /\ p[t']`: the `Term`,
-/// `\ceil`, and `\in` arms of `simplify_predicate_with_budget` are strict and call this
-/// unconditionally; the `\equals` arm calls it only for a side whose other side is provably
-/// defined (`term_is_provably_defined`), and the `\floor` arm never does.
 /// Whether `term` is a hooked application, on constructor-like arguments, whose result the
 /// hook's evaluator declines as above a result size bound. An evaluator reports
 /// `ResultTooLarge` only where the hook has a value, so such an application is defined: its
@@ -1908,6 +1902,12 @@ fn result_above_the_size_bound(
     ))
 }
 
+/// Conjoin the constraints `C` a term simplification `t = C /\ t'` carried to the predicate
+/// `p[t']` built from its rewritten term. The result equals `p[t]` only when `p` is strict in
+/// that operand (`p[\bottom]` is `\bottom`), so that `p[C /\ t']` is `C /\ p[t']`: the `Term`,
+/// `\ceil`, and `\in` arms of `simplify_predicate_with_budget` are strict and call this
+/// unconditionally; the `\equals` arm calls it only for a side whose other side is provably
+/// defined (`term_is_provably_defined`), and the `\floor` arm never does.
 fn with_simplification_constraints(
     mut constraints: Vec<Predicate>,
     predicate: Predicate,
