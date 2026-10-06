@@ -35,11 +35,23 @@ portable_suite_paths=(
   '^\.config/nextest\.toml$'
 )
 
-checks=(portable-suite)
+# The acquisition check reads the dependency and feature graphs from the manifests, and runs one
+# named `inner_rules` test and the CLI on `examples/z3-inference.k` against the system library.
+z3_acquisition_paths=(
+  '^crates/[^/]+/Cargo\.toml$'
+  '^Cargo\.(toml|lock)$'
+  '^scripts/z3-acquisition-check\.sh$'
+  '^crates/k-rust/tests/z3_acquisition\.rs$'
+  '^crates/k-rust/tests/inner_rules\.rs$'
+  '^examples/z3-inference\.k$'
+)
+
+checks=(portable-suite z3-acquisition)
 
 trigger_paths() {
   case $1 in
     portable-suite) printf '%s\n' "${portable_suite_paths[@]}" ;;
+    z3-acquisition) printf '%s\n' "${z3_acquisition_paths[@]}" ;;
   esac
 }
 

@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       portable-suite: ${{ steps.select.outputs.portable-suite }}
+      z3-acquisition: ${{ steps.select.outputs.z3-acquisition }}
 
     steps:
       - name: Check out repository
@@ -56,6 +57,7 @@ jobs:
     uses: ./.github/workflows/nightly.yml
     with:
       portable-suite: ${{ needs.changes.outputs.portable-suite == 'true' }}
+      z3-acquisition: ${{ needs.changes.outputs.z3-acquisition == 'true' }}
 
   msrv:
     name: Rust 1.88 MSRV
@@ -138,14 +140,6 @@ jobs:
         env:
           KRUST_BIN: ${{ github.workspace }}/target/debug/krust
         run: scripts/backend-smoke.sh
-
-      - name: Install system Z3 development files
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libz3-dev
-
-      - name: Check system-linked Z3 acquisition
-        run: scripts/z3-acquisition-check.sh
 
       - name: Install Node-API development dependencies
         run: npm ci

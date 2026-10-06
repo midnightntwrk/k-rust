@@ -13,6 +13,10 @@ on:
         description: Run the full portable test suite
         type: boolean
         required: true
+      z3-acquisition:
+        description: Run the system-linked Z3 acquisition check
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -47,3 +51,32 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
           -p k-rust -p k-rust-wasm -p k-rust-backend
+
+  z3-acquisition:
+    name: System-linked Z3 acquisition
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.z3-acquisition
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The check builds in a fresh target directory of its own, so only the registry is cached.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+
+      - name: Install system Z3 development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev
+
+      # The feature graphs select no Z3 download, and a build linked to the system library runs
+      # Z3 inference. The runner image's Z3 package can change without a commit, which the
+      # nightly run notices.
+      - name: Check system-linked Z3 acquisition
+        run: scripts/z3-acquisition-check.sh
