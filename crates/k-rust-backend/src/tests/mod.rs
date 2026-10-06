@@ -20,3 +20,4 @@ mod search_boundary;
 #[cfg(feature = "z3")]
 mod smt_boundary;
 mod sort_injections;
+mod term_comparison;

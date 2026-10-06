@@ -1,6 +1,8 @@
 //! Immutable backend terms with cached synthetic attributes (`variables`, `evaluated`,
 //! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
-//! an algorithm; `Counter::TermConstructed` per construction; no worklist.
+//! an algorithm; `Counter::TermConstructed` per construction; equality and order of two terms
+//! keep their pending pairs on a work list below a bounded recursion, so they take a bounded native
+//! stack at any height.
 //!
 //! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`.
 //! The Lean attribute bridge checks `ceil_free`, macro presence and k-cell count separately;
@@ -13,13 +15,16 @@
 //! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes",
 //!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::set",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
-//!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
+//!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
+//!     "equal_nodes", "order_nodes"]
 //! invariant = """\
 //! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
 //! shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else \
 //! reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
 //! calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) \
-//! is structural equality of the kind, and Ord for Term is the derived order on the kind. \
+//! is structural equality of the kind, and Ord for Term is the derived order on the kind; below \
+//! RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, \
+//! order_nodes) that makes the derived comparisons of each pair of nodes in field order. \
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
 //! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
@@ -64,6 +69,7 @@
 //! ```
 
 use std::{
+    cell::Cell,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -2222,14 +2228,252 @@ fn calculate_hash(kind: &TermKind) -> u64 {
     hasher.finish()
 }
 
+/// Levels of two terms that equality and order compare by recursion, through the derived
+/// comparison of `TermKind`, before they keep the comparisons still owed on a work list: enough
+/// for the terms most comparisons decide within, which then run the derived code alone, and few
+/// enough that the recursion is a small part of the stack red zone. Ordering two chains of binary
+/// applications took at most 18 KiB of stack unoptimized at any depth with eight levels (29 KiB
+/// with sixteen) and under 4 KiB in optimized builds; sorting generated terms took 18 % more
+/// instructions than the derived recursion alone, the same with eight or sixteen levels, against
+/// 98 % with the work list at every level.
+const RECURSIVE_COMPARISON_LEVELS: u8 = 8;
+
+thread_local! {
+    /// The levels of `Term` comparisons in progress on this thread by recursion.
+    static COMPARISON_LEVEL: Cell<u8> = const { Cell::new(0) };
+}
+
+/// Run `compare` one level deeper in the recursion of `Term` comparisons, or `on_work_list` when
+/// the recursion is `RECURSIVE_COMPARISON_LEVELS` deep already.
+#[inline]
+fn compare_one_level_deeper<R>(compare: impl FnOnce() -> R, on_work_list: impl FnOnce() -> R) -> R {
+    /// Restores the level when the comparison returns or unwinds.
+    struct Level(u8);
+    impl Drop for Level {
+        fn drop(&mut self) {
+            COMPARISON_LEVEL.set(self.0);
+        }
+    }
+    let level = COMPARISON_LEVEL.get();
+    if level >= RECURSIVE_COMPARISON_LEVELS {
+        return on_work_list();
+    }
+    COMPARISON_LEVEL.set(level + 1);
+    let _restore = Level(level);
+    compare()
+}
+
+/// Structural equality of the kinds, `TermKind`'s derived equality.
+///
+/// Two handles of one allocation are equal, and two terms whose stored hashes differ are not
+/// (the hash is a function of the kind). Otherwise the kinds are compared by their derived
+/// equality, which compares children with this one, for the first `RECURSIVE_COMPARISON_LEVELS`
+/// levels; below them by [`equal_terms_on_work_list`], so the comparison takes a bounded native
+/// stack whatever the height of the terms. It is called between two stack checks of the
+/// simplifier (matching, `KEQUAL`, apartness, deduplication) on terms of any height, and a
+/// recursion over two equal, unshared deep terms overran the red zone there.
 impl PartialEq for Term {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
-            || (self.0.attributes.hash == other.0.attributes.hash && self.0.kind == other.0.kind)
+            || (self.0.attributes.hash == other.0.attributes.hash
+                && compare_one_level_deeper(
+                    || self.0.kind == other.0.kind,
+                    || equal_terms_on_work_list(self, other),
+                ))
     }
 }
 
 impl Eq for Term {}
+
+/// `TermKind`'s derived equality of two terms, with the pairs of children still owed on a work
+/// list rather than the native stack. The first pair of children of a node is compared at once
+/// rather than queued, so a chain of unary nodes queues nothing.
+pub(crate) fn equal_terms_on_work_list(left: &Term, right: &Term) -> bool {
+    let mut pending = Vec::new();
+    let mut next = Some((left, right));
+    loop {
+        if let Some((left, right)) = next.take()
+            && !Arc::ptr_eq(&left.0, &right.0)
+        {
+            if left.0.attributes.hash != right.0.attributes.hash {
+                return false;
+            }
+            let children = equal_nodes(&left.0.kind, &right.0.kind, &mut |pairs| {
+                let first = pairs.next();
+                pending.extend(pairs);
+                first
+            });
+            match children {
+                None => return false,
+                Some(None) => {}
+                Some(Some(pair)) => {
+                    next = Some(pair);
+                    continue;
+                }
+            }
+        }
+        match pending.pop() {
+            None => return true,
+            Some(pair) => next = Some(pair),
+        }
+    }
+}
+
+/// What [`equal_nodes`] hands the pairs of children of two nodes to.
+type ChildPairs<'c, 'a, R> = dyn FnMut(&mut dyn Iterator<Item = (&'a Term, &'a Term)>) -> R + 'c;
+
+/// The fields of two kinds other than their children, compared as `TermKind`'s derived equality
+/// compares them: `None` when they differ, otherwise what `children` makes of the pairs of
+/// children, in field order.
+fn equal_nodes<'a, R>(
+    left: &'a TermKind,
+    right: &'a TermKind,
+    children: &mut ChildPairs<'_, 'a, R>,
+) -> Option<R> {
+    fn sequence<'a>(
+        left: &'a [Term],
+        right: &'a [Term],
+    ) -> Option<impl Iterator<Item = (&'a Term, &'a Term)>> {
+        (left.len() == right.len()).then(|| left.iter().zip(right))
+    }
+    fn optional<'a>(
+        left: Option<&'a Term>,
+        right: Option<&'a Term>,
+    ) -> Option<Option<(&'a Term, &'a Term)>> {
+        match (left, right) {
+            (None, None) => Some(None),
+            (Some(left), Some(right)) => Some(Some((left, right))),
+            (None, Some(_)) | (Some(_), None) => None,
+        }
+    }
+    let mut queue = |pairs: &mut dyn Iterator<Item = (&'a Term, &'a Term)>| Some(children(pairs));
+    match (left, right) {
+        (TermKind::And(left_first, left_second), TermKind::And(right_first, right_second)) => {
+            queue(&mut [(left_first, right_first), (left_second, right_second)].into_iter())
+        }
+        (
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            },
+            TermKind::Application {
+                symbol: other_symbol,
+                sort_arguments: other_sort_arguments,
+                arguments: other_arguments,
+            },
+        ) => match sequence(arguments, other_arguments) {
+            Some(mut pairs) if symbol == other_symbol && sort_arguments == other_sort_arguments => {
+                queue(&mut pairs)
+            }
+            Some(_) | None => None,
+        },
+        (
+            TermKind::DomainValue { sort, value },
+            TermKind::DomainValue {
+                sort: other_sort,
+                value: other_value,
+            },
+        ) => {
+            (sort == other_sort && value == other_value).then(|| children(&mut std::iter::empty()))
+        }
+        (TermKind::Variable(variable), TermKind::Variable(other)) => {
+            (variable == other).then(|| children(&mut std::iter::empty()))
+        }
+        (
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            },
+            TermKind::Injection {
+                source: other_source,
+                target: other_target,
+                term: other_term,
+            },
+        ) => (source == other_source && target == other_target)
+            .then(|| children(&mut std::iter::once((term, other_term)))),
+        (
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            },
+            TermKind::Map {
+                definition: other_definition,
+                entries: other_entries,
+                rest: other_rest,
+            },
+        ) => match optional(rest.as_ref(), other_rest.as_ref()) {
+            Some(rest)
+                if definition == other_definition && entries.len() == other_entries.len() =>
+            {
+                queue(
+                    &mut entries
+                        .iter()
+                        .zip(other_entries)
+                        .flat_map(|((key, value), (other_key, other_value))| {
+                            [(key, other_key), (value, other_value)]
+                        })
+                        .chain(rest),
+                )
+            }
+            Some(_) | None => None,
+        },
+        (
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            },
+            TermKind::List {
+                definition: other_definition,
+                heads: other_heads,
+                rest: other_rest,
+            },
+        ) => {
+            let rest = match (rest, other_rest) {
+                (None, None) => Some(None),
+                (Some((middle, tails)), Some((other_middle, other_tails))) => {
+                    sequence(tails, other_tails)
+                        .map(|tails| Some(std::iter::once((middle, other_middle)).chain(tails)))
+                }
+                (None, Some(_)) | (Some(_), None) => None,
+            };
+            match (sequence(heads, other_heads), rest) {
+                (Some(heads), Some(rest)) if definition == other_definition => {
+                    queue(&mut heads.chain(rest.into_iter().flatten()))
+                }
+                _ => None,
+            }
+        }
+        (
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            },
+            TermKind::Set {
+                definition: other_definition,
+                elements: other_elements,
+                rest: other_rest,
+            },
+        ) => match (
+            sequence(elements, other_elements),
+            optional(rest.as_ref(), other_rest.as_ref()),
+        ) {
+            (Some(elements), Some(rest)) if definition == other_definition => {
+                queue(&mut elements.chain(rest))
+            }
+            _ => None,
+        },
+        // Different variants; a pair of one variant has its arm above.
+        (left, right) => {
+            debug_assert_ne!(variant_rank(left), variant_rank(right));
+            None
+        }
+    }
+}
 
 impl PartialOrd for Term {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -2237,14 +2481,250 @@ impl PartialOrd for Term {
     }
 }
 
+/// `TermKind`'s derived order: the variants in declaration order, then the fields in declaration
+/// order, a sequence lexicographically, `None` before `Some`.
+///
+/// A shared term equals itself; without this, comparing two handles of one large term (a
+/// substitution binding copied into several solutions) walks it in full. Otherwise the kinds are
+/// compared by their derived order, which compares children with this one, for the first
+/// `RECURSIVE_COMPARISON_LEVELS` levels; below them by [`order_terms_on_work_list`], so the
+/// comparison takes a bounded native stack whatever the height of the terms: it runs between two
+/// stack checks of the simplifier (sorting the entries of a map it rebuilds), and a recursion over
+/// two deep terms with a long common part overran the red zone there.
 impl Ord for Term {
     fn cmp(&self, other: &Self) -> Ordering {
-        // A shared term equals itself; without this, comparing two handles of one large term
-        // (a substitution binding copied into several solutions) walks it in full.
         if Arc::ptr_eq(&self.0, &other.0) {
             return Ordering::Equal;
         }
-        self.0.kind.cmp(&other.0.kind)
+        compare_one_level_deeper(
+            || self.0.kind.cmp(&other.0.kind),
+            || order_terms_on_work_list(self, other),
+        )
+    }
+}
+
+/// `TermKind`'s derived order of two terms, with the comparisons still owed on a work list rather
+/// than the native stack: those `order_nodes` gives for a pair of nodes, in order. The first pair
+/// of children of a node is compared at once rather than queued, so a chain of unary nodes queues
+/// nothing.
+pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
+    let mut pending = Vec::new();
+    let mut next = Some((left, right));
+    loop {
+        if let Some((left, right)) = next.take()
+            && !Arc::ptr_eq(&left.0, &right.0)
+        {
+            let node = order_nodes(&left.0.kind, &right.0.kind, &mut |comparisons| {
+                let mut comparisons = comparisons.filter(|comparison| {
+                    !matches!(comparison, PendingOrder::Decided(Ordering::Equal))
+                });
+                match comparisons.next() {
+                    None => PendingOrder::Decided(Ordering::Equal),
+                    Some(PendingOrder::Decided(decided)) => PendingOrder::Decided(decided),
+                    Some(PendingOrder::Terms(left, right)) => {
+                        pending.extend(comparisons.rev());
+                        PendingOrder::Terms(left, right)
+                    }
+                }
+            });
+            match node {
+                PendingOrder::Decided(Ordering::Equal) => {}
+                PendingOrder::Decided(decided) => return decided,
+                PendingOrder::Terms(left, right) => {
+                    next = Some((left, right));
+                    continue;
+                }
+            }
+        }
+        match pending.pop() {
+            None => return Ordering::Equal,
+            Some(PendingOrder::Terms(left, right)) => next = Some((left, right)),
+            Some(PendingOrder::Decided(Ordering::Equal)) => {}
+            Some(PendingOrder::Decided(decided)) => return decided,
+        }
+    }
+}
+
+/// A comparison the derived order of two nodes makes: of two children, or one already made.
+enum PendingOrder<'a> {
+    Terms(&'a Term, &'a Term),
+    Decided(Ordering),
+}
+
+/// The position of a kind's variant in `TermKind`'s declaration, which the derived order
+/// compares first.
+fn variant_rank(kind: &TermKind) -> u8 {
+    match kind {
+        TermKind::And(..) => 0,
+        TermKind::Application { .. } => 1,
+        TermKind::DomainValue { .. } => 2,
+        TermKind::Variable(_) => 3,
+        TermKind::Injection { .. } => 4,
+        TermKind::Map { .. } => 5,
+        TermKind::List { .. } => 6,
+        TermKind::Set { .. } => 7,
+    }
+}
+
+/// What `comparisons` makes of the comparisons `TermKind`'s derived order makes for two kinds,
+/// in order: those of fields other than children already made, those of children to be made.
+fn order_nodes<'a, R>(
+    left: &'a TermKind,
+    right: &'a TermKind,
+    comparisons: &mut dyn FnMut(&mut dyn DoubleEndedIterator<Item = PendingOrder<'a>>) -> R,
+) -> R {
+    /// A slice compared lexicographically: the pairs, then the lengths.
+    fn sequence<'a>(
+        left: &'a [Term],
+        right: &'a [Term],
+    ) -> impl DoubleEndedIterator<Item = PendingOrder<'a>> {
+        left.iter()
+            .zip(right)
+            .map(|(left, right)| PendingOrder::Terms(left, right))
+            .chain(std::iter::once(PendingOrder::Decided(
+                left.len().cmp(&right.len()),
+            )))
+    }
+    /// An `Option` compared as the derived order compares it: `None` first.
+    fn optional<'a>(left: Option<&'a Term>, right: Option<&'a Term>) -> Option<PendingOrder<'a>> {
+        match (left, right) {
+            (None, None) => None,
+            (None, Some(_)) => Some(PendingOrder::Decided(Ordering::Less)),
+            (Some(_), None) => Some(PendingOrder::Decided(Ordering::Greater)),
+            (Some(left), Some(right)) => Some(PendingOrder::Terms(left, right)),
+        }
+    }
+    let decided = |ordering| std::iter::once(PendingOrder::Decided(ordering));
+    let mut queue =
+        |items: &mut dyn DoubleEndedIterator<Item = PendingOrder<'a>>| comparisons(items);
+    match (left, right) {
+        (TermKind::And(left_first, left_second), TermKind::And(right_first, right_second)) => {
+            queue(
+                &mut [
+                    PendingOrder::Terms(left_first, right_first),
+                    PendingOrder::Terms(left_second, right_second),
+                ]
+                .into_iter(),
+            )
+        }
+        (
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            },
+            TermKind::Application {
+                symbol: other_symbol,
+                sort_arguments: other_sort_arguments,
+                arguments: other_arguments,
+            },
+        ) => queue(
+            &mut decided(symbol.cmp(other_symbol))
+                .chain(decided(sort_arguments.cmp(other_sort_arguments)))
+                .chain(sequence(arguments, other_arguments)),
+        ),
+        (
+            TermKind::DomainValue { sort, value },
+            TermKind::DomainValue {
+                sort: other_sort,
+                value: other_value,
+            },
+        ) => queue(&mut decided(
+            sort.cmp(other_sort).then_with(|| value.cmp(other_value)),
+        )),
+        (TermKind::Variable(variable), TermKind::Variable(other)) => {
+            queue(&mut decided(variable.cmp(other)))
+        }
+        (
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            },
+            TermKind::Injection {
+                source: other_source,
+                target: other_target,
+                term: other_term,
+            },
+        ) => queue(
+            &mut decided(source.cmp(other_source))
+                .chain(decided(target.cmp(other_target)))
+                .chain(std::iter::once(PendingOrder::Terms(term, other_term))),
+        ),
+        (
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            },
+            TermKind::Map {
+                definition: other_definition,
+                entries: other_entries,
+                rest: other_rest,
+            },
+        ) => queue(
+            &mut decided(definition.cmp(other_definition))
+                .chain(entries.iter().zip(other_entries).flat_map(
+                    |((key, value), (other_key, other_value))| {
+                        [
+                            PendingOrder::Terms(key, other_key),
+                            PendingOrder::Terms(value, other_value),
+                        ]
+                    },
+                ))
+                .chain(decided(entries.len().cmp(&other_entries.len())))
+                .chain(optional(rest.as_ref(), other_rest.as_ref())),
+        ),
+        (
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            },
+            TermKind::List {
+                definition: other_definition,
+                heads: other_heads,
+                rest: other_rest,
+            },
+        ) => {
+            let (middle, tails) = match (rest, other_rest) {
+                (None, None) => (None, None),
+                (None, Some(_)) => (Some(PendingOrder::Decided(Ordering::Less)), None),
+                (Some(_), None) => (Some(PendingOrder::Decided(Ordering::Greater)), None),
+                (Some((middle, tails)), Some((other_middle, other_tails))) => (
+                    Some(PendingOrder::Terms(middle, other_middle)),
+                    Some(sequence(tails, other_tails)),
+                ),
+            };
+            queue(
+                &mut decided(definition.cmp(other_definition))
+                    .chain(sequence(heads, other_heads))
+                    .chain(middle)
+                    .chain(tails.into_iter().flatten()),
+            )
+        }
+        (
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            },
+            TermKind::Set {
+                definition: other_definition,
+                elements: other_elements,
+                rest: other_rest,
+            },
+        ) => queue(
+            &mut decided(definition.cmp(other_definition))
+                .chain(sequence(elements, other_elements))
+                .chain(optional(rest.as_ref(), other_rest.as_ref())),
+        ),
+        // Different variants; a pair of one variant has its arm above.
+        (left, right) => {
+            let ranks = variant_rank(left).cmp(&variant_rank(right));
+            debug_assert_ne!(ranks, Ordering::Equal);
+            queue(&mut decided(ranks))
+        }
     }
 }
 
@@ -2254,12 +2734,125 @@ impl Hash for Term {
     }
 }
 
+impl Term {
+    /// A term equal to this one that shares no node with it, built bottom-up by `Term::new`.
+    #[cfg(test)]
+    pub(crate) fn unshared_copy(&self) -> Self {
+        let copy = |term: &Self| term.unshared_copy();
+        Self::new(match self.kind() {
+            TermKind::And(left, right) => TermKind::And(copy(left), copy(right)),
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => TermKind::Application {
+                symbol: symbol.clone(),
+                sort_arguments: sort_arguments.clone(),
+                arguments: arguments.iter().map(copy).collect(),
+            },
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => self.kind().clone(),
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            } => TermKind::Injection {
+                source: source.clone(),
+                target: target.clone(),
+                term: copy(term),
+            },
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            } => TermKind::Map {
+                definition: definition.clone(),
+                entries: entries
+                    .iter()
+                    .map(|(key, value)| (copy(key), copy(value)))
+                    .collect(),
+                rest: rest.as_ref().map(copy),
+            },
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            } => TermKind::List {
+                definition: definition.clone(),
+                heads: heads.iter().map(copy).collect(),
+                rest: rest
+                    .as_ref()
+                    .map(|(middle, tails)| (copy(middle), tails.iter().map(copy).collect())),
+            },
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            } => TermKind::Set {
+                definition: definition.clone(),
+                elements: elements.iter().map(copy).collect(),
+                rest: rest.as_ref().map(copy),
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")
+    }
+
+    /// Runs `compare` on a 256 KiB thread over three chains of 20,000 free-constructor
+    /// applications, `wrap^N(a)`, an unshared copy of it, and `wrap^N(b)`: the copy shares no
+    /// node with the first, so the pointer test decides nothing below the roots, and the third
+    /// differs from it only in the innermost constant. The chains are built and dropped on a
+    /// larger thread, since dropping a term recurses.
+    fn on_deep_chains<R: Send>(compare: impl Fn(&Term, &Term, &Term) -> R + Send + Sync) -> R {
+        const LEVELS: usize = 20_000;
+        std::thread::scope(|outer| {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn_scoped(outer, || {
+                    let wrap = Arc::new(Symbol::constructor("wrap", vec![sort()], sort()));
+                    let chain = |leaf: &str| {
+                        let leaf = Arc::new(Symbol::constructor(leaf, Vec::new(), sort()));
+                        (0..LEVELS).fold(
+                            Term::application(leaf, Vec::new(), Vec::new()),
+                            |term, _| Term::application(wrap.clone(), Vec::new(), vec![term]),
+                        )
+                    };
+                    let (a, a_copy, b) = (chain("a"), chain("a"), chain("b"));
+                    std::thread::scope(|inner| {
+                        std::thread::Builder::new()
+                            .stack_size(256 * 1024)
+                            .spawn_scoped(inner, || compare(&a, &a_copy, &b))
+                            .unwrap()
+                            .join()
+                            .unwrap()
+                    })
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        })
+    }
+
+    /// Equality and order of deep terms take the same native stack whatever their height (a
+    /// recursion per level overflowed the small thread in every build).
+    #[test]
+    fn deep_terms_are_compared_on_a_small_stack() {
+        let compared = on_deep_chains(|a, a_copy, b| {
+            ((a == a_copy, a.cmp(a_copy)), (a == b, a.cmp(b), b.cmp(a)))
+        });
+        assert_eq!(
+            compared,
+            (
+                (true, Ordering::Equal),
+                (false, Ordering::Less, Ordering::Greater)
+            )
+        );
     }
 
     fn constructor() -> Arc<Symbol> {
