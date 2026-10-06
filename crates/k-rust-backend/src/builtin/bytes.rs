@@ -112,6 +112,9 @@ fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(index) = index else {
         return Ok(BuiltinResult::Bottom);
     };
     let Some(value) = read_wrapping_byte(&arguments[2]) else {
@@ -130,9 +133,9 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(value) = bytes.get(index) else {
+    let Some(value) = index.and_then(|index| bytes.get(index)) else {
         return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(*value))))
@@ -143,13 +146,13 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(start) = read_index(&arguments[1]) else {
-        return Ok(BuiltinResult::Bottom);
+    let Some((start, end)) = read_index(&arguments[1]).zip(read_index(&arguments[2])) else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(end) = read_index(&arguments[2]) else {
-        return Ok(BuiltinResult::Bottom);
-    };
-    let Some(slice) = bytes.get(start..end) else {
+    let Some(slice) = start
+        .zip(end)
+        .and_then(|(start, end)| bytes.get(start..end))
+    else {
         return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(bytes_term(slice)))
@@ -161,6 +164,9 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(index) = index else {
         return Ok(BuiltinResult::Bottom);
     };
     let Some(replacement) = read_bytes(&arguments[2]) else {
@@ -309,8 +315,11 @@ fn read_string(term: &Term) -> Option<&str> {
         .flatten()
 }
 
-fn read_index(term: &Term) -> Option<usize> {
-    read_int(term).and_then(|value| value.to_usize())
+/// A concrete `Int` argument as a position: `Some(None)` when it is negative or beyond every
+/// position a `Bytes` value has, `None` when the argument is not a concrete `Int`, whose value
+/// the hook cannot decide on.
+fn read_index(term: &Term) -> Option<Option<usize>> {
+    read_int(term).map(|value| value.to_usize())
 }
 
 fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookReason> {
@@ -443,7 +452,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::term::Symbol;
+    use crate::term::{Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
         Term::application(
@@ -492,6 +501,48 @@ mod tests {
             Ok(BuiltinResult::Value(bytes_term(&[0x7f, 0xff])))
         );
         assert_eq!(get(&[bytes, integer(3)]), Ok(BuiltinResult::Bottom));
+    }
+
+    /// An index the hook cannot read may be valid on some instances and invalid on others, so
+    /// the application is not decided; a concrete index outside the value is `\bottom`.
+    #[test]
+    fn symbolic_indices_leave_the_application_undecided() {
+        let bytes = bytes_term(b"abc");
+        let index = Term::variable(Variable::new("I", Sort::builtin(BuiltinSort::Int)));
+        let cases = [
+            ("BYTES.get", vec![bytes.clone(), index.clone()]),
+            (
+                "BYTES.update",
+                vec![bytes.clone(), index.clone(), integer(0)],
+            ),
+            (
+                "BYTES.substr",
+                vec![bytes.clone(), index.clone(), integer(2)],
+            ),
+            (
+                "BYTES.substr",
+                vec![bytes.clone(), integer(0), index.clone()],
+            ),
+            (
+                "BYTES.replaceAt",
+                vec![bytes.clone(), index, bytes_term(b"x")],
+            ),
+        ];
+        for (hook, arguments) in cases {
+            assert_eq!(
+                evaluate(hook, &arguments),
+                Ok(BuiltinResult::NotApplicable),
+                "{hook}"
+            );
+        }
+        assert_eq!(
+            evaluate("BYTES.get", &[bytes.clone(), integer(-1)]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate("BYTES.substr", &[bytes, integer(2), integer(1)]),
+            Ok(BuiltinResult::Bottom)
+        );
     }
 
     #[test]
