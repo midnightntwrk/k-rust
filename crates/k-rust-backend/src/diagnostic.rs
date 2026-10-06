@@ -7,6 +7,7 @@ use std::{
     rc::Rc,
 };
 
+use k_rust_kore::measure::{self, Counter};
 use rustc_hash::FxHashSet;
 
 use crate::{
@@ -534,84 +535,171 @@ impl Buffered {
 /// `occurrences` gives what the caller receives (the simplified term with the conditions it
 /// carries, or the simplified predicates), or `None` for a failure or a stop, which keeps every
 /// report, as no result replaced the work they describe. It is called only when some report
-/// explains a subject. Every other emission, and the order and positions of all of them, are as
-/// if `action` had emitted into the current collector directly. A report that survives keeps its
-/// subject, so an enclosing entry that drops the subject in turn retracts it there.
+/// explains a subject, and the result is then searched for those subjects only
+/// ([`Occurrences::holding`]). Every other emission, and the order and positions of all of them,
+/// are as if `action` had emitted into the current collector directly. A report that survives
+/// keeps its subject, so an enclosing entry that drops the subject in turn retracts it there.
 ///
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
 /// role = "part"
-/// sites = ["retract_dropped", "Occurrences::of"]
+/// sites = ["retract_dropped", "Occurrences::holding"]
 /// ```
 pub(crate) fn retract_dropped<T>(
     action: impl FnOnce() -> T,
-    occurrences: impl FnOnce(&T) -> Option<Occurrences>,
+    occurrences: impl FnOnce(&T) -> Option<Occurrences<'_>>,
 ) -> T {
     let (result, mut held) = buffer(action);
     if held.0.iter().any(|emission| emission.subject.is_some())
         && let Some(occurrences) = occurrences(&result)
     {
+        let subjects = held
+            .0
+            .iter()
+            .filter_map(|emission| emission.subject.as_ref())
+            .collect::<Vec<_>>();
+        let found = occurrences.holding(&subjects);
         held.0.retain(|emission| {
             emission
                 .subject
                 .as_ref()
-                .is_none_or(|subject| occurrences.holds(subject))
+                .is_none_or(|subject| found.contains(subject))
         });
     }
     held.commit();
     result
 }
 
-/// Every subterm and sub-predicate of a simplifier entry's result, for [`retract_dropped`].
-#[derive(Default)]
-pub(crate) struct Occurrences {
+/// What a simplifier entry returns, its terms and predicates, to be searched for the subjects of
+/// its reports ([`retract_dropped`]).
+pub(crate) struct Occurrences<'a> {
+    terms: Vec<&'a Term>,
+    predicates: Vec<&'a Predicate>,
+}
+
+/// The subjects a search found ([`Occurrences::holding`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Found {
     terms: FxHashSet<Term>,
     predicates: FxHashSet<Predicate>,
 }
 
-impl Occurrences {
-    /// The subterms of `terms` and the sub-predicates of `predicates`, with every term the
-    /// predicates carry.
-    pub(crate) fn of<'a>(
+impl Found {
+    fn contains(&self, subject: &Subject) -> bool {
+        match subject {
+            Subject::Term(term) => self.terms.contains(term),
+            Subject::Predicate(predicate) => self.predicates.contains(predicate),
+        }
+    }
+}
+
+impl<'a> Occurrences<'a> {
+    /// The terms `terms` and the predicates `predicates`, with every term the predicates carry.
+    pub(crate) fn of(
         terms: impl IntoIterator<Item = &'a Term>,
         predicates: impl IntoIterator<Item = &'a Predicate>,
     ) -> Self {
-        let mut occurrences = Self::default();
-        let mut pending_terms = terms.into_iter().collect::<Vec<_>>();
-        let mut pending_predicates = predicates.into_iter().collect::<Vec<_>>();
-        // Invariant: each popped predicate's sub-predicates and direct terms are pushed once, the
-        // first time it is inserted; a predicate seen before has had its parts pushed already.
-        while let Some(predicate) = pending_predicates.pop() {
-            if !occurrences.predicates.insert(predicate.clone()) {
-                continue;
-            }
-            match predicate {
-                Predicate::True | Predicate::False => {}
-                Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
-                    pending_terms.push(term);
+        Self {
+            terms: terms.into_iter().collect(),
+            predicates: predicates.into_iter().collect(),
+        }
+    }
+
+    /// Which of `subjects` occur here, as a subterm of a term or of a predicate's term, or as a
+    /// sub-predicate.
+    ///
+    /// The search skips every subtree whose root carries the `evaluated` attribute, unless some
+    /// subject carries it too. That loses no occurrence:
+    /// - the attribute is hereditary: a node has it only if its children do (`ChildShape::add`
+    ///   for every kind; the mark `Term::with_evaluated_cache` puts on an application requires
+    ///   arguments that carry it), so an occurrence inside such a subtree carries it;
+    /// - no term equal to a subject that lacks the attribute carries it. Without the mark, the
+    ///   attribute is a function of the kind, and equal terms have equal kinds. The mark is
+    ///   certified only on a ground term at which every equation of the definition failed to
+    ///   match, a fact of the term alone; a subject is a term at which an equation attempt was
+    ///   indeterminate (`IndeterminateAttempts`), which a failed match is not, and matching a
+    ///   ground term is deterministic, so its equal twin is never certified.
+    ///
+    /// Debug builds compare the answer with the search that skips nothing.
+    ///
+    /// Cost: one walk of the predicates, and of the terms' nodes that lack the `evaluated`
+    /// attribute (the part the simplifier itself walks), each shared node once, stopping as soon
+    /// as every subject is found.
+    pub(crate) fn holding(&self, subjects: &[&Subject]) -> Found {
+        let (found, visited) = self.search(subjects, true);
+        measure::add(Counter::SimplifyRetractionNodes, visited);
+        debug_assert_eq!(
+            found,
+            self.search(subjects, false).0,
+            "skipping evaluated subtrees loses no occurrence of a subject"
+        );
+        found
+    }
+
+    /// The subjects found, and the number of term nodes visited.
+    fn search(&self, subjects: &[&Subject], skip_evaluated: bool) -> (Found, u64) {
+        let mut missing_terms = FxHashSet::default();
+        let mut missing_predicates = FxHashSet::default();
+        for subject in subjects {
+            match subject {
+                Subject::Term(term) => {
+                    missing_terms.insert(term);
                 }
-                Predicate::Equals(left, right) | Predicate::In(left, right) => {
-                    pending_terms.extend([left, right]);
-                }
-                Predicate::Absent(absence) => {
-                    pending_terms.extend([absence.key(), absence.rest(), absence.joined()]);
-                }
-                Predicate::Not(inner)
-                | Predicate::Exists(_, inner)
-                | Predicate::Forall(_, inner) => {
-                    pending_predicates.push(inner);
-                }
-                Predicate::And(inner) | Predicate::Or(inner) => pending_predicates.extend(inner),
-                Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-                    pending_predicates.extend([&**left, &**right]);
+                Subject::Predicate(predicate) => {
+                    missing_predicates.insert(predicate);
                 }
             }
         }
-        // Invariant: as above, a term's children are pushed only when it is first inserted, so a
-        // subterm shared by several parents is walked once.
-        while let Some(term) = pending_terms.pop() {
-            if !occurrences.terms.insert(term.clone()) {
+        let skip_evaluated = skip_evaluated
+            && missing_terms
+                .iter()
+                .all(|term| !term.attributes().evaluated);
+        let mut found = Found::default();
+        let mut pending_terms = self.terms.clone();
+        if !missing_predicates.is_empty() || !missing_terms.is_empty() {
+            let mut pending_predicates = self.predicates.clone();
+            while let Some(predicate) = pending_predicates.pop() {
+                if missing_predicates.remove(predicate) {
+                    found.predicates.insert(predicate.clone());
+                }
+                match predicate {
+                    Predicate::True | Predicate::False => {}
+                    Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+                        pending_terms.push(term);
+                    }
+                    Predicate::Equals(left, right) | Predicate::In(left, right) => {
+                        pending_terms.extend([left, right]);
+                    }
+                    Predicate::Absent(absence) => {
+                        pending_terms.extend([absence.key(), absence.rest(), absence.joined()]);
+                    }
+                    Predicate::Not(inner)
+                    | Predicate::Exists(_, inner)
+                    | Predicate::Forall(_, inner) => {
+                        pending_predicates.push(inner);
+                    }
+                    Predicate::And(inner) | Predicate::Or(inner) => {
+                        pending_predicates.extend(inner);
+                    }
+                    Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                        pending_predicates.extend([&**left, &**right]);
+                    }
+                }
+            }
+        }
+        // Invariant: a node's children are pushed only the first time a node equal to it is
+        // visited, so a subterm shared by several parents is walked once.
+        let mut visited = FxHashSet::<&Term>::default();
+        let mut count = 0;
+        while !missing_terms.is_empty()
+            && let Some(term) = pending_terms.pop()
+        {
+            if (skip_evaluated && term.attributes().evaluated) || !visited.insert(term) {
                 continue;
+            }
+            count += 1;
+            if missing_terms.remove(term) {
+                found.terms.insert(term.clone());
             }
             match term.kind() {
                 TermKind::And(left, right) => pending_terms.extend([left, right]),
@@ -635,14 +723,7 @@ impl Occurrences {
                 TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
             }
         }
-        occurrences
-    }
-
-    fn holds(&self, subject: &Subject) -> bool {
-        match subject {
-            Subject::Term(term) => self.terms.contains(term),
-            Subject::Predicate(predicate) => self.predicates.contains(predicate),
-        }
+        (found, count)
     }
 }
 
@@ -972,9 +1053,16 @@ mod tests {
         let ((), recorded) = collect(|| {
             retract_dropped(
                 || {
-                    retract_dropped(|| kept(5, &x), |()| Some(Occurrences::of([&x], [])));
+                    retract_dropped(
+                        || {
+                            kept(5, &x);
+                            x.clone()
+                        },
+                        |result| Some(Occurrences::of([result], [])),
+                    );
+                    y.clone()
                 },
-                |()| Some(Occurrences::of([&y], [])),
+                |result| Some(Occurrences::of([result], [])),
             );
         });
         assert!(recorded.is_empty(), "{recorded:?}");

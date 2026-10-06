@@ -3,7 +3,7 @@
 //! name = "innermost equational simplification to a budgeted fixed point"
 //! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
-//! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
+//! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
-//! bound = "only when the call raised a report of an equation passed over on a kept subterm: one walk of the result's term and conditions, each shared node once"
+//! bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
 //! ```
 //!
 //! ```toml algorithm
@@ -35,7 +35,7 @@
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
-//! bound = "only when the call raised a report of an equation passed over on a kept subject: one walk of the resulting predicates and their terms, each shared node once"
+//! bound = "only when the call raised a report of an equation passed over on a kept subject: one search of the resulting predicates and of their term nodes that lack the evaluated attribute, each shared node once, stopping when every subject is found"
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
@@ -44,7 +44,7 @@
 //! <= `max_iterations` per lineage (`RootStep`);
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
 //! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyBuiltinEvaluations`,
-//! `Counter::SimplifyNodesSkippedEvaluated`.
+//! `Counter::SimplifyNodesSkippedEvaluated`, `Counter::SimplifyRetractionNodes`.
 //! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, one predicate
 //! simplification per conjunct per round, budget-bounded re-entry through the ceil and
 //! predicate theories.

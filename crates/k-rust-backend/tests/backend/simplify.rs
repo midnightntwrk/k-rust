@@ -5370,6 +5370,60 @@ fn a_call_dropped_later_in_the_same_simplification_is_not_reported() {
     }
 }
 
+/// Retraction searches a result only for the subjects of its reports, and only where a subject
+/// can occur: a subject is a term the simplifier attempted an equation at, so it lacks the
+/// `evaluated` attribute, as does every term equal to it, and an evaluated subtree, whose
+/// subterms are all evaluated, cannot hold it. `c(t(pos), chain)` keeps `t(pos)` with its report
+/// beside an evaluated chain of constructors and values (`c(1, c(2, ... nil))`); the search visits the same few nodes
+/// whatever the chain's length, so a reported call riding in a large state costs nothing per
+/// node of the state.
+#[test]
+fn retraction_does_not_walk_the_evaluated_part_of_the_result() {
+    let solver = FixedValiditySolver(Validity::Unknown("timeout".into()));
+    let (label, f_equation) = KEPT_CALL_EQUATIONS[0];
+    let t_equation = f_equation
+        .replace("f{}(", "t{}(")
+        .replace(&format!(r#"label{{}}("{label}")"#), r#"label{}("tu")"#);
+    let definition = dropped_call_definition(&format!(
+        "{t_equation}
+        sort SortC{{}} []
+        symbol nil{{}}() : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol c{{}}(SortS{{}}, SortC{{}}) : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+    ));
+    let visited = |length: usize| {
+        let chain = (1..=length)
+            .rev()
+            .fold("nil{}()".to_owned(), |rest, value| {
+                format!(r#"c{{}}(\dv{{SortS{{}}}}("{value}"), {rest})"#)
+            });
+        let input = term(
+            &definition,
+            &format!(r#"c{{}}(t{{}}(\dv{{SortS{{}}}}("pos")), {chain})"#),
+        );
+        let before = snapshot();
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &solver,
+            )
+        });
+        let delta = snapshot().delta(&before);
+        assert_eq!(result.unwrap().term, input, "{length}");
+        let reported = undecided_rule_ids(&diagnostics);
+        assert!(
+            !reported.is_empty() && reported.iter().all(|rule_id| *rule_id == "tu"),
+            "{length}: {diagnostics:?}"
+        );
+        delta.get(Counter::SimplifyRetractionNodes)
+    };
+    let (short, long) = (visited(4), visited(256));
+    assert!(short > 0, "the kept report is searched for");
+    assert_eq!(short, long, "{short} nodes for 4 values, {long} for 256");
+}
+
 /// A term an equation drops is still in the result when its definedness is: `drop(f(pos))`, with
 /// `f` not total, is `zero` only where `f(pos)` is defined, so the result carries `⌈f(pos)⌉` and
 /// the report of the equation that left `f(pos)` unevaluated stays.

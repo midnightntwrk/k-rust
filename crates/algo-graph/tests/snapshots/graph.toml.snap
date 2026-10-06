@@ -940,6 +940,20 @@ symbol = "Counter::SimplifyNodesSkippedEvaluated"
 
 [[node]]
 kind = "observation"
+id = "SimplifyRetractionNodes"
+provenance = "table"
+area = "simplify"
+name = "SimplifyRetractionNodes"
+table = "Counter::ALL"
+registry_name = "simplify.retraction_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyRetractionNodes"
+
+[[node]]
+kind = "observation"
 id = "SimplifyRounds"
 provenance = "table"
 area = "simplify"
@@ -2426,7 +2440,7 @@ bound = "n predicate simplifications plus up to n rebuilds of PathConditionRepla
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
-bound = "only when the call raised a report of an equation passed over on a kept subject: one walk of the resulting predicates and their terms, each shared node once"
+bound = "only when the call raised a report of an equation passed over on a kept subject: one search of the resulting predicates and of their term nodes that lack the evaluated attribute, each shared node once, stopping when every subject is found"
 
 [[node]]
 kind = "algorithm"
@@ -2452,7 +2466,7 @@ symbol = "retract_dropped"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/diagnostic.rs"
-symbol = "Occurrences::of"
+symbol = "Occurrences::holding"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2519,7 +2533,7 @@ bound = "one nested predicate simplification per evaluated rule condition, with 
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
-bound = "only when the call raised a report of an equation passed over on a kept subterm: one walk of the result's term and conditions, each shared node once"
+bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
 
 [[node]]
 kind = "algorithm"
@@ -8340,6 +8354,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.simplify.term"
 to = "SimplifyNodesSkippedEvaluated"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyRetractionNodes"
 provenance = "declared"
 
 [[edge]]
