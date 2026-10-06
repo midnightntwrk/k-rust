@@ -838,12 +838,12 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let shifts_left = if right {
-        amount.sign() == Sign::Minus
-    } else {
-        amount.sign() != Sign::Minus
-    };
-    if let Some(magnitude) = amount.abs().to_usize() {
+    // Shifting by a negative quantity is undefined (`#False` in `domains.md`) for both shifts.
+    if amount.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let shifts_left = !right;
+    if let Some(magnitude) = amount.to_usize() {
         let result = if shifts_left {
             value << magnitude
         } else {
@@ -1382,6 +1382,35 @@ mod tests {
             ),
             Ok(Ok(BuiltinResult::Bottom))
         );
+    }
+
+    /// `domains.md`: shifting by a negative quantity is `#False`, in either direction and
+    /// whatever the shifted value; it is not a shift the other way.
+    #[test]
+    fn int_shift_by_a_negative_amount_is_undefined() {
+        for hook in ["INT.shl", "INT.shr"] {
+            for (value, amount) in [(8, -1), (0, -1), (-8, -2)] {
+                assert_eq!(
+                    evaluate_hook(
+                        hook,
+                        &[
+                            int_term(BigInt::from(value)),
+                            int_term(BigInt::from(amount))
+                        ],
+                    ),
+                    Ok(Ok(BuiltinResult::Bottom)),
+                    "{value} {hook} {amount}"
+                );
+            }
+            assert_eq!(
+                evaluate_hook(
+                    hook,
+                    &[int_term(BigInt::one()), int_term(-(BigInt::one() << 70u32))]
+                ),
+                Ok(Ok(BuiltinResult::Bottom)),
+                "{hook} by -2^70"
+            );
+        }
     }
 
     #[test]
