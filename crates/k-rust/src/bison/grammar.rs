@@ -398,13 +398,10 @@ fn transform_priority_and_associativity(
     }
     let mut root_labels = BTreeMap::<Sort, BTreeSet<String>>::new();
     let mut queue = pending.iter().cloned().collect::<VecDeque<_>>();
-    let mut expanded = BTreeSet::new();
-    // Invariant: `expanded` contains the processed restricted-sort states and every queued state
-    // was discovered from a production of an already reachable state.
+    // Invariant: a state is queued exactly when it enters `pending` (the queue starts as its
+    // elements, and the only push follows a successful insertion), so each state is expanded
+    // once and `pending` holds every expanded or queued state.
     while let Some((sort, excluded)) = queue.pop_front() {
-        if !expanded.insert((sort.clone(), excluded.clone())) {
-            continue;
-        }
         let ordinal = ordinals[&excluded];
         let restricted = restricted_sort(&sort, ordinal);
         for production in base.iter().filter(|production| production.result == sort) {
@@ -444,7 +441,7 @@ fn transform_priority_and_associativity(
     }
     productions.sort_by_key(structural_key);
     productions.dedup_by_key(|production| structural_key(production));
-    let restricted = expanded
+    let restricted = pending
         .iter()
         .map(|(sort, excluded)| restricted_sort(sort, ordinals[excluded]))
         .collect();
