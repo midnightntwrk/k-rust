@@ -3,7 +3,8 @@
 //! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30).
 //! Beyond metadata and per-sentence alpha normalization, it excludes a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
 //! A projector-looking prefix is never sufficient.
-//! It also removes two declared k-rust differences from the reference, N33 and N37 ([`declared_differences`]).
+//! It also applies two declared k-rust differences, `scripts/reference-normalisations.toml` N33 and N37.
+//! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
