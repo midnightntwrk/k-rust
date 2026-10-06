@@ -15,11 +15,11 @@ ktest-group.mak SUBDIRS recursively) the driver:
      the two simplified patterns structurally (C8); a step that matches only this way says so,
   6. on a remaining mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
 Every case runs under a budget (--budget, or `budget` in expectations.toml); a program execution may
-additionally be capped by the case's `step_budget`, so one divergent program is reported as its own
-krust-error instead of consuming the budget of every program behind it.
+additionally be capped by the case's `step_budget` of CPU seconds, so one divergent program is reported
+as its own krust-error instead of consuming the budget of every program behind it.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
-import argparse, hashlib, json, math, os, re, shlex, shutil, subprocess, sys, tempfile, threading, time
+import argparse, hashlib, json, math, os, re, shlex, shutil, signal, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tomllib
@@ -46,9 +46,12 @@ BISON_PARSER_ONLY = False
 IGNORE_UNIQUE_ID = False
 CASE_BUDGET = 300.0
 CASE_BUDGETS = {}
-# Per-program ceiling inside the case budget (expectations `step_budget`); absent means the case
-# budget alone bounds a program, so one divergent program hides every program behind it.
+# Per-program ceiling inside the case budget (expectations `step_budget`), in CPU seconds of the
+# krust process; absent means the case budget alone bounds a program, so one divergent program
+# hides every program behind it.
 STEP_BUDGETS = {}
+# Seconds between the step budget's SIGXCPU and the kernel's SIGKILL, for a program that ignores it.
+STEP_BUDGET_GRACE = 5
 DIFF_LINES = 20
 WORK_TREE_MARKER = ".krust-conformance-source.json"
 REFERENCE_ERROR = object()
@@ -557,16 +560,20 @@ class Case:
     def out_of_budget(self):
         return self.remaining() <= 1
 
-    def step_timeout(self):
-        """Timeout for one program execution: the remaining case budget, capped by the step budget.
+    def step_limited(self, args):
+        """One program execution under the step budget.
 
-        Returns (seconds, capped); `capped` says the step budget, not the case budget, is the bound,
-        so a kill can be reported as the program's own cost rather than as budget exhaustion.
+        The budget guards the programs behind a divergent one, so it bounds the program's own
+        work: the CPU time of the krust process (RLIMIT_CPU, whose SIGXCPU ends it), which other
+        jobs on the machine do not inflate the way they stretch wall time. The remaining case
+        budget still bounds the execution's wall time.
         """
-        remaining = self.remaining()
-        if self.step_budget is not None and self.step_budget < remaining:
-            return self.step_budget, True
-        return remaining, False
+        if self.step_budget is None:
+            return args
+        budget = max(1, math.ceil(self.step_budget))
+        return ["bash", "-c",
+                'ulimit -c 0 && ulimit -S -t "$2" && ulimit -H -t "$1" && shift 2 && exec "$@"',
+                "krust-step-budget", str(budget + STEP_BUDGET_GRACE), str(budget), *args]
 
     def note(self, s):
         self.notes.append(s)
@@ -1261,24 +1268,31 @@ def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
 
 def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
     args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
-    timeout, capped = case.step_timeout()
-    if capped: step["step_budget"] = case.step_budget
-    rc, out, err, secs, to = sh(args, case.dir, timeout, stdin_path=stdin_path)
-    return args, rc, out, err, secs, to
+    rc, out, err, secs, to = sh(case.step_limited(args), case.dir, case.remaining(), stdin_path=stdin_path)
+    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to)
 
 
 def run_krust_program_bytes(case, prog, stdin_path, extra, sort, syntax_module, step):
     args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
-    timeout, capped = case.step_timeout()
-    if capped: step["step_budget"] = case.step_budget
-    rc, out, err, secs, to = sh_bytes(args, case.dir, timeout, stdin_path=stdin_path)
-    return args, rc, out, err, secs, to
+    rc, out, err, secs, to = sh_bytes(case.step_limited(args), case.dir, case.remaining(), stdin_path=stdin_path)
+    return args, rc, out, err, secs, step_budget_outcome(case, step, rc, to)
+
+
+def step_budget_outcome(case, step, rc, timed_out):
+    """Record the step budget on the step; a SIGXCPU death is the program exceeding it."""
+    if case.step_budget is None:
+        return timed_out
+    step["step_budget"] = case.step_budget
+    if rc == -signal.SIGXCPU:
+        step["step_budget_exceeded"] = True
+        return True
+    return timed_out
 
 
 def krust_timeout_reason(step, tool):
     """The kill reason of a krust program run: its own step budget, or the case budget."""
-    if step.get("step_budget"):
-        return f"krust {tool} exceeded the step budget ({step['step_budget']:g} s)"
+    if step.get("step_budget_exceeded"):
+        return f"krust {tool} exceeded the step budget ({step['step_budget']:g} CPU-s)"
     return f"krust {tool} timed out"
 
 

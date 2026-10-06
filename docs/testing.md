@@ -95,6 +95,10 @@ Do not commit full measurement histories or temporary run output.
 Expensive reference runs remain manual and selected according to the affected contract.
 Changes to CI coverage, frequency, or resource budgets require a separate cost decision.
 
+A `step_budget` in `scripts/conformance/expectations.toml` bounds the CPU seconds of one krust program execution (`RLIMIT_CPU`), not its wall time.
+The budget exists so that one divergent program cannot consume the case budget of the programs behind it, and the program's own CPU time measures that divergence without depending on the other jobs on the machine.
+The case budget still bounds the wall time of the whole case.
+
 ### Reference-output cache
 
 The reference gates (`scripts/reference-*.sh`, through `scripts/reference-cache.sh`) and the conformance driver replay a pinned reference tool's result when none of its inputs changed (`scripts/reference_cache.py` defines the key and the entry).
