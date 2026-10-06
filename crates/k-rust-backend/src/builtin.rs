@@ -10,6 +10,8 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod bytes;
 mod float;
+#[cfg(test)]
+mod hook_models;
 mod krypto;
 mod list;
 mod map;

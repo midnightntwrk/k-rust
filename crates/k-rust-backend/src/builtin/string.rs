@@ -237,7 +237,11 @@ fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.chr", arguments, 1)?;
-    let Some(value) = read_int(&arguments[0]).and_then(|value| value.to_u32()) else {
+    // A symbolic code point may be valid on some instances and invalid on others.
+    let Some(value) = read_int(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(value) = value.to_u32() else {
         return Ok(BuiltinResult::Bottom);
     };
     if (0xd800..=0xdfff).contains(&value) {
@@ -562,6 +566,19 @@ mod tests {
         assert_eq!(
             evaluate("STRING.chr", vec![int_term(0x1f980.into())]),
             BuiltinResult::Value(string_term("🦀"))
+        );
+    }
+
+    /// A symbolic code point may be valid on some instances, so `chrChar` of it is not decided.
+    #[test]
+    fn chr_of_a_symbolic_code_point_is_undecided() {
+        let code_point = Term::variable(crate::term::Variable::new(
+            "C",
+            Sort::builtin(BuiltinSort::Int),
+        ));
+        assert_eq!(
+            evaluate("STRING.chr", vec![code_point]),
+            BuiltinResult::NotApplicable
         );
     }
 

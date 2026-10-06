@@ -112,12 +112,15 @@ fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
-        return Ok(BuiltinResult::Bottom);
-    };
-    let Some(value) = read_wrapping_byte(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(slot) = bytes.get_mut(index) else {
+    let Some(index) = index else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(value) = read_byte(&arguments[2]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some((slot, value)) = bytes.get_mut(index).zip(value) else {
         return Ok(BuiltinResult::Bottom);
     };
     *slot = value;
@@ -130,9 +133,9 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(value) = bytes.get(index) else {
+    let Some(value) = index.and_then(|index| bytes.get(index)) else {
         return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(*value))))
@@ -143,13 +146,13 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(start) = read_index(&arguments[1]) else {
-        return Ok(BuiltinResult::Bottom);
+    let Some((start, end)) = read_index(&arguments[1]).zip(read_index(&arguments[2])) else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(end) = read_index(&arguments[2]) else {
-        return Ok(BuiltinResult::Bottom);
-    };
-    let Some(slice) = bytes.get(start..end) else {
+    let Some(slice) = start
+        .zip(end)
+        .and_then(|(start, end)| bytes.get(start..end))
+    else {
         return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(bytes_term(slice)))
@@ -161,6 +164,9 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_index(&arguments[1]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(index) = index else {
         return Ok(BuiltinResult::Bottom);
     };
     let Some(replacement) = read_bytes(&arguments[2]) else {
@@ -189,13 +195,18 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let length = match read_nonnegative_len(&arguments[1]) {
-        Ok(Some(length)) => length,
-        Ok(None) => return Ok(BuiltinResult::NotApplicable),
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
-    };
-    let Some(value) = read_wrapping_byte(&arguments[2]) else {
+    let Some((length, value)) = read_int(&arguments[1]).zip(read_byte(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(length) = length.to_usize() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!("length {length}"),
+            },
+        ));
     };
     let additional = length.saturating_sub(bytes.len());
     if left && additional != 0 {
@@ -309,8 +320,11 @@ fn read_string(term: &Term) -> Option<&str> {
         .flatten()
 }
 
-fn read_index(term: &Term) -> Option<usize> {
-    read_int(term).and_then(|value| value.to_usize())
+/// A concrete `Int` argument as a position: `Some(None)` when it is negative or beyond every
+/// position a `Bytes` value has, `None` when the argument is not a concrete `Int`, whose value
+/// the hook cannot decide on.
+fn read_index(term: &Term) -> Option<Option<usize>> {
+    read_int(term).map(|value| value.to_usize())
 }
 
 fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookReason> {
@@ -329,9 +343,10 @@ fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookRea
     }
 }
 
-fn read_wrapping_byte(term: &Term) -> Option<u8> {
-    let value = read_int(term)?;
-    (value & BigInt::from(0xff_u16)).to_u8()
+/// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
+/// when the argument is not a concrete `Int`.
+fn read_byte(term: &Term) -> Option<Option<u8>> {
+    read_int(term).map(|value| value.to_u8())
 }
 
 fn read_endianness(term: &Term) -> Option<Endianness> {
@@ -443,7 +458,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::term::Symbol;
+    use crate::term::{Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
         Term::application(
@@ -484,14 +499,89 @@ mod tests {
             Ok(BuiltinResult::Value(integer(255)))
         );
         assert_eq!(
-            update(&[bytes.clone(), integer(1), integer(256)]),
-            Ok(BuiltinResult::Value(bytes_term(&[0x00, 0x00, 0xff])))
+            update(&[bytes.clone(), integer(1), integer(0x80)]),
+            Ok(BuiltinResult::Value(bytes_term(&[0x00, 0x80, 0xff])))
         );
         assert_eq!(
             substring(&[bytes.clone(), integer(1), integer(3)]),
             Ok(BuiltinResult::Value(bytes_term(&[0x7f, 0xff])))
         );
         assert_eq!(get(&[bytes, integer(3)]), Ok(BuiltinResult::Bottom));
+    }
+
+    /// An index the hook cannot read may be valid on some instances and invalid on others, so
+    /// the application is not decided; a concrete index outside the value is `\bottom`.
+    #[test]
+    fn symbolic_indices_leave_the_application_undecided() {
+        let bytes = bytes_term(b"abc");
+        let index = Term::variable(Variable::new("I", Sort::builtin(BuiltinSort::Int)));
+        let cases = [
+            ("BYTES.get", vec![bytes.clone(), index.clone()]),
+            (
+                "BYTES.update",
+                vec![bytes.clone(), index.clone(), integer(0)],
+            ),
+            (
+                "BYTES.substr",
+                vec![bytes.clone(), index.clone(), integer(2)],
+            ),
+            (
+                "BYTES.substr",
+                vec![bytes.clone(), integer(0), index.clone()],
+            ),
+            (
+                "BYTES.replaceAt",
+                vec![bytes.clone(), index, bytes_term(b"x")],
+            ),
+        ];
+        for (hook, arguments) in cases {
+            assert_eq!(
+                evaluate(hook, &arguments),
+                Ok(BuiltinResult::NotApplicable),
+                "{hook}"
+            );
+        }
+        assert_eq!(
+            evaluate("BYTES.get", &[bytes.clone(), integer(-1)]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate("BYTES.substr", &[bytes, integer(2), integer(1)]),
+            Ok(BuiltinResult::Bottom)
+        );
+    }
+
+    /// `#False` if `value` is not in `[0..255]` (update and padding) or if the padding length
+    /// is negative.
+    #[test]
+    fn byte_values_outside_a_byte_and_negative_padding_lengths_are_bottom() {
+        let bytes = bytes_term(b"ab");
+        for value in [-1, 256] {
+            assert_eq!(
+                update(&[bytes.clone(), integer(0), integer(value)]),
+                Ok(BuiltinResult::Bottom)
+            );
+            for left in [false, true] {
+                assert_eq!(
+                    pad(&[bytes.clone(), integer(4), integer(value)], left),
+                    Ok(BuiltinResult::Bottom)
+                );
+            }
+        }
+        for left in [false, true] {
+            assert_eq!(
+                pad(&[bytes.clone(), integer(-1), integer(0)], left),
+                Ok(BuiltinResult::Bottom)
+            );
+            assert_eq!(
+                pad(&[bytes.clone(), integer(1), integer(0)], left),
+                Ok(BuiltinResult::Value(bytes.clone()))
+            );
+        }
+        assert_eq!(
+            pad(&[bytes.clone(), integer(3), integer(255)], true),
+            Ok(BuiltinResult::Value(bytes_term(b"\xffab")))
+        );
     }
 
     #[test]
