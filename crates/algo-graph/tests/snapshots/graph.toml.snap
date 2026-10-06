@@ -1210,7 +1210,10 @@ no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPa
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinedness"
-lean = ["KRust.TermAttributes.ceilFree_sound"]
+lean = [
+    "KRust.TermAttributes.ceilFree_sound",
+    "KRust.TermAttributes.walk_eq_ceilTerm",
+]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -1240,7 +1243,7 @@ symbol = "deduplicate"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
-symbol = "ceil_term_recursive"
+symbol = "ceil_term_walk"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1289,7 +1292,7 @@ symbol = "BackendDefinition::discharge_rewrite_definedness"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application"
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"

@@ -85,3 +85,4 @@ KRust.TermAttributes.set_pairwise_distinct
 KRust.TermAttributes.strict_trans
 KRust.TermAttributes.structDistinct_complete
 KRust.TermAttributes.take_step
+KRust.TermAttributes.walk_eq_ceilTerm

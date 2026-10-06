@@ -1,5 +1,5 @@
-//! Compare the `ceil_free` shortcut of `definedness::ceil_term_recursive` against the walk that
-//! never reads the attribute (`ceil_term_without_attribute`), over terms of every `TermKind`
+//! Compare the `ceil_free` shortcut of the definedness walk (`definedness::ceil_term`) against the
+//! walk that never reads the attribute (`ceil_term_without_attribute`), over terms of every `TermKind`
 //! built by the public constructors (`lean_bridge::generators::term_with_ground_keys`).
 //!
 //! The property is `ceilFree_sound` of `lean/KRust/TermAttributes.lean` applied to the Rust: a

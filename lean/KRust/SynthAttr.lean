@@ -16,8 +16,8 @@ namespace KRust.SynthAttr
 open KRust.TermAttributes
 
 /-- The immediate children in the order every walk here visits them: `visit_symbols`
-(term.rs:760-805), `find_k_cells` (rule.rs:789-840), the recursive part of `ceil_term_recursive`
-(definedness.rs:99-189). Map entries contribute key then value, then the rest; lists heads, then
+(term.rs:760-805), `find_k_cells` (rule.rs:789-840), the children `ceil_term_node` hands to the
+definedness walk (definedness.rs). Map entries contribute key then value, then the rest; lists heads, then
 middle, then tails. -/
 def children : Term → List Term
   | .and l r        => [l, r]

@@ -1591,9 +1591,10 @@ fn marked_attributes(source: &Term, kind: &TermKind) -> TermAttributes {
 /// The `ceil_free` attribute of a node with this kind, from its children's stored attributes, in
 /// time linear in the number of children.
 ///
-/// Meaning: when it is true, `definedness::ceil_term_recursive` returns no predicate for the term,
-/// whatever the definition. Each arm follows from the arm of `ceil_term_recursive` for the same
-/// kind, which emits a predicate of its own only in these cases:
+/// Meaning: when it is true, the definedness walk (`definedness::ceil_term_walk`) returns no
+/// predicate for the term, whatever the definition. Each arm follows from what the walk emits
+/// at a node of the same kind (`definedness::ceil_term_node`), a predicate of its own only in
+/// these cases:
 /// - an application of a `Partial` function emits its ceil (or a ceil equation's predicates);
 ///   any other application only collects its arguments' predicates;
 /// - `And`, an injection and a list only collect their children's predicates;
@@ -1618,8 +1619,8 @@ fn marked_attributes(source: &Term, kind: &TermKind) -> TermAttributes {
 /// `ord_for_term_is_transitive`, `ord_for_term_equal_is_eq`).
 ///
 /// This is the function `ceilFree` of `lean/KRust/TermAttributes.lean`, which proves the meaning
-/// above (`ceilFree_sound`); `tests::lean_bridge` compares it with the Lean definition, and the
-/// `debug_assert!` in `definedness::ceil_term_recursive` recomputes the walk wherever it is true.
+/// above (`ceilFree_sound`); `tests::lean_bridge` compares it with the Lean definition, and in
+/// debug builds `definedness::check_ceil_free` walks every node of a term the walk skips for it.
 fn ceil_free(kind: &TermKind) -> bool {
     let free = |term: &Term| term.attributes().ceil_free;
     match kind {

@@ -3887,6 +3887,73 @@ endmodule
         });
     }
 
+    /// `lenb` counts a `cons` list like `len`, but its result nests two additions above the
+    /// count of the tail, so its simplification takes more stack per level of the list than the
+    /// backend provides per level (about 5.6 KiB in a release build, 8.1 KiB at opt-level 1 and
+    /// 35 KiB unoptimized, against 4, 6 and 24 KiB): on the segment the facade maps for 10,000
+    /// levels it reaches its red zone with thousands of levels of the list still below it. Each
+    /// level binds the rest of the list, whose definedness is then derived, and the request must
+    /// end with the count or with `StackExhausted`, not abort. Before the definedness walk kept
+    /// its work on the heap, debug builds aborted here with a segmentation fault inside it (the
+    /// release build skips the walk on the `ceil_free` list; `definedness::tests` cover it).
+    #[test]
+    fn a_simplification_that_outgrows_the_stack_bound_stops_at_its_red_zone() {
+        on_thread(NODE_MAIN_STACK, || {
+            let definition = FUNCTION_CHAINS.replace(
+                "endmodule []",
+                r#"
+                symbol lenb{}(SortL{}) : SortInt{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, nil{}()), \top{R}())),
+                    \equals{SortInt{}, R}(lenb{}(X0:SortL{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+                ) [label{}("lenb-nil")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, cons{}(H:SortS{}, T:SortL{})), \top{R}())),
+                    \equals{SortInt{}, R}(
+                        lenb{}(X0:SortL{}),
+                        \and{SortInt{}}(
+                            intAdd{}(\dv{SortInt{}}("1"), intAdd{}(\dv{SortInt{}}("0"), lenb{}(T:SortL{}))),
+                            \top{SortInt{}}()
+                        )
+                    )
+                ) [label{}("lenb-cons")]
+                endmodule []"#,
+            );
+            let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            let levels = BEYOND_THE_THREAD;
+            let a = nested(1, "a", "", "", "");
+            let nil = nested(1, "nil", "", "", "");
+            let count = nested(
+                1,
+                "lenb",
+                "",
+                "",
+                &nested(levels, "cons", &format!("{a},"), "", &nil),
+            );
+            let request = deserialize_request::<PatternRequest>(&format!(
+                r#"{{"state":{{"format":"KORE","version":1,"term":{count}}}}}"#
+            ))
+            .unwrap();
+            match backend.simplify_json(request) {
+                Ok(simplified) => assert!(
+                    same_kore(
+                        &simplified,
+                        &format!(
+                            r#"{{"format":"KORE","version":1,"term":{{"tag":"DV","sort":{{"tag":"SortApp","name":"SortInt","args":[]}},"value":"{levels}"}}}}"#
+                        )
+                    ),
+                    "{simplified}"
+                ),
+                Err(error) => assert!(
+                    error
+                        .to_string()
+                        .contains(&StopCause::StackExhausted.to_string()),
+                    "{error}"
+                ),
+            }
+        });
+    }
+
     #[cfg(not(feature = "z3-inference"))]
     #[test]
     fn portable_model_generation_reports_the_capability_boundary() {

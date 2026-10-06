@@ -274,7 +274,7 @@ Each `algorithm-representation` card states what every value of one type satisfi
 
 Each card with a `lean` key names theorems of `lean/theorems.txt` whose models mirror its sites. When `algo-graph drift` reports one of those sites, re-check the models against the Rust (`lean/README.md`, "Conventions").
 
-- backend.definedness.discharge: KRust.TermAttributes.ceilFree_sound
+- backend.definedness.discharge: KRust.TermAttributes.ceilFree_sound, KRust.TermAttributes.walk_eq_ceilTerm
 - backend.rule.select: KRust.TermAttributes.rule_index_same
 - backend.term.macro_or_alias: KRust.TermAttributes.hasMacro_iff, KRust.TermAttributes.macro_shortcut_eq
 - parser.inference.z3: KRust.SubsortEncoding.new_equiv, KRust.MaximalModels.maximal_models_spec, KRust.MaximalModels.runs_agree_up_to_pref, KRust.MaximalModels.runs_agree_candidates
