@@ -22,7 +22,13 @@ removes what no comparator reads, or what varies between runs of the same
 invocation, before it is stored. A live run hands the comparators the reduced
 text too, so live and replayed runs check the same evidence.
 `json_without_members` removes named object members, such as source-location
-attributes, from a JSON file; `substitute` rewrites a regular expression.
+attributes, from a JSON file; `indented_json` spells a JSON document one member
+per line so a stored proof result or claim reads and diffs as text;
+`substitute` rewrites a regular expression.
+A declared output whose path the tool chooses (such as the `spec.kore` that
+`kprove --dry-run` writes under a fresh directory in its `--temp-dir`) names a
+`locate` function; a live run reads the file it finds, and both modes leave
+the evidence at the declared path.
 
 Every other file in the directory is a stored stream or output named after its
 invocation label; only the evidence the comparators consume is stored, never a
@@ -48,6 +54,11 @@ A gate opens its snapshots in one of two modes:
 `--refresh-reference` is distinct from `--record`: `--record` rewrites output
 pins in a gate ledger, and `--refresh-reference` rewrites reference snapshots.
 A gate accepts both together.
+
+A gate that runs a snapshot-backed helper as a child process passes it
+`--reference-staging DIR` with `--refresh-reference`: the helper writes its
+refreshed snapshot to that staging directory, and the gate's `Promotion`
+replaces the committed snapshot only after every one of its own steps passed.
 """
 
 from __future__ import annotations
@@ -75,6 +86,7 @@ SCHEMA = 1
 MANIFEST = "manifest.toml"
 REFRESH_OPTION = "--refresh-reference"
 REFRESH_ADVICE = f"run the gate with {REFRESH_OPTION} (Java K on PATH) to re-record it"
+STAGING_OPTION = "--reference-staging"
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*$")
 _STREAMS = ("stdout", "stderr")
 
@@ -89,6 +101,20 @@ def add_refresh_argument(parser: argparse.ArgumentParser) -> None:
         help=(
             "run the pinned Java K tools live and rewrite the reference snapshots "
             "they measured, only if every step passes"
+        ),
+    )
+
+
+def add_staging_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the `--reference-staging` option of a helper a gate runs as a child process."""
+
+    parser.add_argument(
+        STAGING_OPTION,
+        dest="reference_staging",
+        type=Path,
+        help=(
+            f"with {REFRESH_OPTION}, write the refreshed snapshot to this directory "
+            "for the calling gate to promote, instead of rewriting the committed one"
         ),
     )
 
@@ -133,10 +159,14 @@ class Output:
 
     `reduce` maps the file's text to the stored evidence; it must keep
     everything a comparator reads and be deterministic.
+    `locate`, when the tool chooses where it writes the file, finds that one
+    file after a live run; its reduced text is then written to `path`, where
+    replay also restores it, so a comparator always reads `path`.
     """
 
     path: Path
     reduce: Callable[[str], str] | None = None
+    locate: Callable[[], Path] | None = None
 
 
 def json_without_members(names: Sequence[str]) -> Callable[[str], str]:
@@ -161,11 +191,87 @@ def json_without_members(names: Sequence[str]) -> Callable[[str], str]:
     return reduce
 
 
+def json_sorted_lists(names: Sequence[str]) -> Callable[[str], str]:
+    """A reducer that sorts every JSON list that is the value of a member named in `names`.
+
+    Elements are ordered by their canonical spelling, and the result is
+    canonical JSON as `json_without_members` writes it. Use it only for a list
+    the comparators read as a multiset, such as the sentences of a module.
+    """
+
+    sorted_names = frozenset(names)
+
+    def canonical(value: Any) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+    def order(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: sorted((order(item) for item in child), key=canonical)
+                if key in sorted_names and isinstance(child, list) else order(child)
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [order(item) for item in value]
+        return value
+
+    def reduce(text: str) -> str:
+        return canonical(order(json.loads(text))) + "\n"
+
+    return reduce
+
+
+def sorted_kore_claims(text: str) -> str:
+    """A reducer that sorts the claim blocks of a KORE spec module by their text.
+
+    `kprove` writes each claim as a `// claim` comment line followed by its
+    axiom, in an order that varies between runs; the comparators read the
+    claims by label. Every line is kept.
+    """
+
+    lines = text.splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.startswith("// claim ")]
+    if not starts:
+        return text
+    end = next(
+        (index for index in range(starts[-1], len(lines)) if lines[index].startswith("endmodule")),
+        len(lines),
+    )
+    blocks = ["".join(lines[start:stop]) for start, stop in zip(starts, [*starts[1:], end])]
+    return "".join(lines[:starts[0]]) + "".join(sorted(blocks)) + "".join(lines[end:])
+
+
+def indented_json(text: str) -> str:
+    """A reducer that spells one JSON document with one member or element per line.
+
+    Member order and every value are kept, so the stored text is the same
+    JSON value as the tool's output, readable and diffable as text.
+    Text that is not one JSON document, such as the empty output of a failed
+    run, is kept unchanged.
+    """
+
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    return json.dumps(value, indent=1, ensure_ascii=False) + "\n"
+
+
 def substitute(pattern: str, replacement: str) -> Callable[[str], str]:
     """A reducer that replaces every match of the regular expression `pattern`."""
 
     compiled = re.compile(pattern)
     return lambda text: compiled.sub(replacement, text)
+
+
+reduce_kore_exec_log = substitute(r"(?m)^kore-exec: \[\d+\]", "kore-exec: [-]")
+"""kore-exec prefixes each log line with a run-dependent number; no comparator reads it."""
+
+reduce_kprove_temp = substitute(r"\.kprove-[0-9a-f-]+", ".kprove-TEMP")
+"""kprove names its directory under `--temp-dir` by time and a random UUID; no comparator reads it."""
+
+reduce_store_paths = substitute(r"/nix/store/[0-9a-z]{32}-[^/\s\")]*", "NIX-STORE")
+"""K records the install path of its prelude (`domains.md`) in source attributes, which no comparator reads."""
 
 
 def repository_inputs(paths: Sequence[Path]) -> dict[str, Path]:
@@ -399,10 +505,13 @@ class Snapshot:
         process = run(command, timeout=timeout, check=False)
         stored_outputs = {}
         for output in outputs:
-            if output.path.is_file():
-                text = output.path.read_text(encoding="utf-8")
+            source = output.locate() if output.locate is not None else output.path
+            if source.is_file():
+                text = source.read_text(encoding="utf-8")
                 if output.reduce is not None:
                     text = output.reduce(text)
+                if output.reduce is not None or source != output.path:
+                    output.path.parent.mkdir(parents=True, exist_ok=True)
                     output.path.write_text(text, encoding="utf-8")
                 stored_outputs[self.placeholders.store(os.fspath(output.path))] = self.placeholders.store(text)
         observed = {"stdout": process.stdout or "", "stderr": process.stderr or ""}
@@ -495,26 +604,74 @@ class Snapshot:
 
         if not self.refresh:
             raise GateError("only a refresh can write a reference snapshot")
-        files = self.render()
-        current = {}
-        if self.directory.is_dir():
-            current = {
-                path.relative_to(self.directory).as_posix(): path.read_bytes()
-                for path in self.directory.rglob("*") if path.is_file()
-            }
-        if current == {name: text.encode("utf-8") for name, text in files.items()}:
-            return False
-        staging = self.directory.with_name(f".{self.directory.name}.refresh")
-        if staging.exists():
-            shutil.rmtree(staging)
-        for name, text in files.items():
-            path = staging / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-        if self.directory.exists():
-            shutil.rmtree(self.directory)
-        staging.rename(self.directory)
-        return True
+        files = {name: text.encode("utf-8") for name, text in self.render().items()}
+        return replace_directory(self.directory, files)
+
+
+def directory_files(directory: Path) -> dict[str, bytes]:
+    """Every regular file below `directory` as relative path -> bytes."""
+
+    if not directory.is_dir():
+        return {}
+    return {
+        path.relative_to(directory).as_posix(): path.read_bytes()
+        for path in directory.rglob("*") if path.is_file()
+    }
+
+
+def replace_directory(directory: Path, files: Mapping[str, bytes]) -> bool:
+    """Make `directory` hold exactly `files`; return whether anything changed.
+
+    The new contents are written beside it first and then renamed into place.
+    """
+
+    if directory_files(directory) == dict(files):
+        return False
+    staging = directory.with_name(f".{directory.name}.refresh")
+    if staging.exists():
+        shutil.rmtree(staging)
+    for name, data in files.items():
+        path = staging / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    if directory.exists():
+        shutil.rmtree(directory)
+    staging.rename(directory)
+    return True
+
+
+def snapshot_directory(committed: Path, refresh: bool, staging: Path | None) -> Path:
+    """Where a helper opens its snapshot: the staging directory only for a staged refresh."""
+
+    if staging is None:
+        return committed
+    if not refresh:
+        raise GateError(f"{STAGING_OPTION} requires {REFRESH_OPTION}")
+    return staging
+
+
+@dataclass(frozen=True)
+class Promotion:
+    """A snapshot a child process refreshed into `staged`, promoted by the calling gate.
+
+    `finish` has the same contract as `Snapshot.finish`: the gate calls it only
+    after every step passed, and only then is the committed snapshot rewritten.
+    """
+
+    staged: Path
+    committed: Path
+
+    def finish(self) -> str:
+        files = directory_files(self.staged)
+        if MANIFEST not in files:
+            raise GateError(f"the refreshed snapshot {self.staged} has no {MANIFEST}")
+        changed = replace_directory(self.committed, files)
+        try:
+            name = self.committed.relative_to(ROOT).as_posix()
+        except ValueError:
+            name = os.fspath(self.committed)
+        state = "rewrote" if changed else "already matched"
+        return f"promoted a child refresh; {state} {name}"
 
 
 def describe_difference(recorded: Any, current: Any) -> str:

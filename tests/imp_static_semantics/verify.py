@@ -17,7 +17,8 @@ from support.lock import k_commit  # noqa: E402
 from support.hashing import json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import (  # noqa: E402
-    Key, Output, Snapshot, add_refresh_argument, json_without_members, live_tools, repository_inputs, substitute,
+    Key, Output, Snapshot, add_refresh_argument, json_without_members, live_tools, reduce_kore_exec_log,
+    repository_inputs,
 )
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
@@ -36,8 +37,6 @@ REFERENCE = HERE / "reference" / "oracle"
 TOOLS = ("kompile", "kprove", "krun")
 reduce_spec = json_without_members(("org.kframework.attributes.Source", "org.kframework.attributes.Location"))
 """The stored `--emit-json-spec` output omits source locations, which the claim normalization removes."""
-reduce_kore_exec_log = substitute(r"(?m)^kore-exec: \[\d+\]", "kore-exec: [-]")
-"""kore-exec prefixes each log line with a run-dependent number; the proof classification reads only the message."""
 INPUT_PIN_KEYS = frozenset({"schema", "oracle", "upstream_imp", "reconstruction", "corpus_sha256"})
 OUTPUT_PIN_KEYS = frozenset({"static_execution", "proof_outcomes", "qualified_proof_outcomes"})
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})

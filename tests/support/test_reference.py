@@ -12,7 +12,9 @@ import unittest
 from support import ROOT, GateError
 from support.lock import k_version
 from support.reference import (
-    Key, Output, Placeholders, Snapshot, dump_manifest, json_without_members, substitute,
+    Key, Output, Placeholders, Promotion, Snapshot, dump_manifest, indented_json, json_sorted_lists,
+    json_without_members, reduce_kprove_temp, reduce_store_paths, snapshot_directory, sorted_kore_claims,
+    substitute,
 )
 
 
@@ -197,7 +199,6 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "used twice"):
             self.exercise(live, workspace)
 
-
     def test_reduced_outputs_are_identical_live_and_replayed(self) -> None:
         def reduce(text: str) -> str:
             return text.splitlines()[0] + "\n"
@@ -216,7 +217,81 @@ class SnapshotTests(unittest.TestCase):
         )
 
 
+    def test_located_outputs_are_left_at_their_declared_path(self) -> None:
+        def run(snapshot: Snapshot, workspace: Path) -> tuple[Path, str]:
+            # The tool writes below a directory of its own choosing, as kprove
+            # does under --temp-dir; comparators read only the declared path.
+            chosen = workspace / "temp" / ".kprove-1" / "spec.kore"
+            declared = workspace / "spec" / "spec.kore"
+            snapshot.run(
+                "kompile/dry-run", "kompile", [workspace / "input.k", chosen], timeout=30,
+                outputs=(Output(declared, locate=lambda: chosen),),
+            )
+            return chosen, declared.read_text(encoding="utf-8")
+
+        workspace = self.workspace("live")
+        live = Snapshot(self.directory, self.key(), workspace=workspace, refresh=True, executables=self.executables)
+        chosen, live_text = run(live, workspace)
+        self.assertTrue(chosen.is_file())
+        live.finish()
+        self.assertEqual(
+            (self.directory / "kompile/dry-run.out.spec.kore").read_text(encoding="utf-8"),
+            "compiled {{work}}/input.k\ninput bytes\n",
+        )
+        replay_workspace = self.workspace("replay")
+        replay = Snapshot(self.directory, self.key(), workspace=replay_workspace, refresh=False)
+        chosen, replay_text = run(replay, replay_workspace)
+        self.assertFalse(chosen.exists(), "replay writes only the declared path")
+        self.assertEqual(replay_text, live_text.replace(str(workspace), str(replay_workspace)))
+        replay.finish()
+
+    def test_child_refresh_is_staged_until_the_gate_promotes_it(self) -> None:
+        staging = self.base / "staging" / "oracle"
+        self.assertEqual(snapshot_directory(self.directory, False, None), self.directory)
+        with self.assertRaisesRegex(GateError, "--reference-staging requires --refresh-reference"):
+            snapshot_directory(self.directory, False, staging)
+        workspace = self.workspace("live")
+        child = Snapshot(
+            snapshot_directory(self.directory, True, staging), self.key(), workspace=workspace,
+            refresh=True, executables=self.executables,
+        )
+        self.exercise(child, workspace)
+        child.finish()
+        self.assertFalse(self.directory.exists(), "a staged refresh leaves the committed snapshot alone")
+        promotion = Promotion(staging, self.directory)
+        self.assertIn("rewrote", promotion.finish())
+        self.assertIn("already matched", promotion.finish())
+        replay = Snapshot(self.directory, self.key(), workspace=self.workspace("replay"), refresh=False)
+        self.exercise(replay, self.base / "replay")
+        replay.finish()
+        with self.assertRaisesRegex(GateError, "has no manifest.toml"):
+            Promotion(self.base / "never-written", self.directory).finish()
+
+
 class FormatTests(unittest.TestCase):
+    def test_json_sorted_lists_order_only_the_named_lists(self) -> None:
+        reduce = json_sorted_lists(["localSentences"])
+        text = '{"modules":[{"localSentences":[{"b":2},{"a":1}],"imports":["Z","A"]}]}'
+        self.assertEqual(reduce(text), '{"modules":[{"imports":["Z","A"],"localSentences":[{"a":1},{"b":2}]}]}\n')
+
+    def test_sorted_kore_claims_keep_every_line_in_one_order(self) -> None:
+        head = "[]\nmodule M-SPEC\n// claims\n"
+        first = "// claim b\n  claim{} \\implies(b)\n  [label{}(\"b\")]\n"
+        second = "// claim a\n  claim{} \\implies(a)\n  [label{}(\"a\")]\n"
+        tail = "endmodule []\n"
+        self.assertEqual(sorted_kore_claims(head + first + second + tail), head + second + first + tail)
+        self.assertEqual(sorted_kore_claims(head + second + first + tail), head + second + first + tail)
+        self.assertEqual(sorted_kore_claims("module M\nendmodule\n"), "module M\nendmodule\n")
+
+    def test_indented_json_keeps_the_value_and_member_order(self) -> None:
+        text = '{"node":"KApply","label":{"name":"x"},"args":[1,2]}'
+        self.assertEqual(
+            indented_json(text),
+            '{\n "node": "KApply",\n "label": {\n  "name": "x"\n },\n "args": [\n  1,\n  2\n ]\n}\n',
+        )
+        self.assertEqual(indented_json(""), "")
+        self.assertEqual(indented_json("not json\n"), "not json\n")
+
     def test_json_member_reduction_is_canonical(self) -> None:
         reduce = json_without_members(["location"])
         text = '{"term": {"location": [1, 2], "b": "", "items": [{"location": [], "a": 1}]}, "format": "X"}'
@@ -224,6 +299,17 @@ class FormatTests(unittest.TestCase):
 
     def test_substitute_rewrites_every_match(self) -> None:
         self.assertEqual(substitute(r"\[\d+\]", "[-]")("a [12] b [3]"), "a [-] b [-]")
+
+    def test_run_dependent_paths_are_reduced(self) -> None:
+        self.assertEqual(
+            reduce_kprove_temp("--prove /w/.kprove-2026-10-06-20-12-08-516-838284b1-9c0b/spec.kore"),
+            "--prove /w/.kprove-TEMP/spec.kore",
+        )
+        prelude = "/nix/store/" + "a" * 32 + "-k-7.1.337-4a46d123/include/kframework/builtin/domains.md"
+        self.assertEqual(
+            reduce_store_paths(f'Source{{}}("{prelude}")'),
+            'Source{}("NIX-STORE/include/kframework/builtin/domains.md")',
+        )
 
     def test_placeholders_round_trip_and_reject_collisions(self) -> None:
         placeholders = Placeholders(Path("/nonexistent/work"))
