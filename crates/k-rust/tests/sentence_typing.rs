@@ -884,3 +884,51 @@ endmodule
     );
     assert!(assert_view_agrees_with_compilation(&loaded) > 0);
 }
+
+// A cast on a rewrite, `plus((E => z):Nat, z)`, types the rewrite: the parser also casts its left
+// side, so `E` is a `Nat`. Projecting the rewrite to either side drops the outer cast with it,
+// so each side, a `Nat`, is placed at the `Exp` argument of `plus` itself (as
+// `inj{Nat, Exp}`), while `E` is required at the bound of its own cast. The view reports the
+// placements compilation emits.
+#[test]
+fn a_cast_rewrite_places_its_sides_where_the_rewrite_stands() {
+    let source = format!(
+        "{TYPED}\nmodule CAST\n  imports TYPED\n  rule [cast]: plus((E => z):Nat, z)\nendmodule\n"
+    );
+    let loaded = load_source(
+        "cast.k",
+        &source,
+        "CAST",
+        vec![
+            builtin::embedded("kast.md").unwrap(),
+            ResolvedSource::new("portable-prelude.k", PRELUDE.to_owned()),
+        ],
+    );
+    let typing = sentence_typing(
+        loaded.resolved(),
+        "CAST",
+        labelled(loaded.definition(), "CAST.cast"),
+    )
+    .unwrap();
+    assert!(typing.branches.is_empty(), "{:#?}", typing.branches);
+    assert_eq!(typing.variables.get("E"), Some(&Sort::new("Nat")));
+    // The cast, the rewrite, the left side (`E` under its own cast) and the right side `z`.
+    for path in [[0, 0].as_slice(), &[0, 0, 0], &[0, 0, 0, 0], &[0, 0, 0, 1]] {
+        assert_eq!(
+            at(&typing, path),
+            &sorted(Some("Nat"), Some("Exp")),
+            "{path:?}"
+        );
+    }
+    assert_eq!(
+        at(&typing, &[0, 0, 0, 0, 0]),
+        &sorted(Some("Nat"), Some("Nat"))
+    );
+    assert!(assert_view_injections_are_emitted(&loaded, "CAST") > 0);
+    let kore = compiled_kore(&loaded).unwrap();
+    assert!(
+        axiom_of(&kore, "CAST.cast").contains("inj{SortNat{}, SortExp{}}(VarE:SortNat{})"),
+        "{}",
+        axiom_of(&kore, "CAST.cast")
+    );
+}
