@@ -9296,6 +9296,10 @@ fn warning_flags_are_exposed_by_every_diagnostic_subcommand() {
 
 #[test]
 fn singleton_overload_warnings_follow_the_disambiguation_grammar_and_policy() {
+    // The check and the diagnostic policy are tested in process by `definition_checks.rs`
+    // (`singleton_overloads_are_warned_at_the_production_under_the_diagnostic_policy`), with
+    // warnings off as well; here the warning flags reach the policy, and the warnings and
+    // promoted errors are rendered with the matching exit status.
     let (root, _) = fixture();
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/checks/singletonOverload.k");
@@ -9335,14 +9339,6 @@ fn singleton_overload_warnings_follow_the_disambiguation_grammar_and_policy() {
         2,
         "{promoted_stderr}"
     );
-
-    let suppressed = run(
-        "suppressed",
-        &["--warnings", "none", "--warnings-to-errors"],
-    );
-    let suppressed_stderr = String::from_utf8_lossy(&suppressed.stderr);
-    assert!(suppressed.status.success(), "{suppressed_stderr}");
-    assert!(!suppressed_stderr.contains("SingletonOverload"));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -12479,52 +12475,21 @@ endmodule
 #[test]
 fn fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence() {
     // A fresh value is drawn from the configuration's counter cell by the rewrite step that
-    // introduces it. Equations (function, simplification, anywhere, macro and alias rules) and
-    // claims are applied without that cell, so a `!X` in them would be a variable nothing binds.
-    for (sentences, kind) in [
-        // The generated-input reproducer: a function equation whose result is a fresh value.
-        (
-            "  syntax Int ::= g() [function]\n  rule g() => !X:Int",
-            "a function rule",
+    // introduces it, so a `!X` in an equation or a claim would be a variable nothing binds.
+    // Every kind of sentence is checked in process by `definition_checks.rs` (same test name);
+    // here the rejection is rendered at the sentence with a failing exit status.
+    // The generated-input reproducer: a function equation whose result is a fresh value.
+    let source = "module MAIN\n  imports INT\n  syntax Int ::= g() [function]\n  rule g() => !X:Int\nendmodule\n";
+    let output = kcompile_source(source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:4:3: Error[InvalidFreshConstant]: Fresh variable !X is not supported in a function rule:"
         ),
-        (
-            "  syntax Int ::= g(Int) [function]\n  rule g(I) => I requires I =/=Int !X:Int",
-            "a function rule",
-        ),
-        (
-            "  syntax Int ::= g(Int) [function]\n  rule g(I) => I +Int !X:Int [simplification]",
-            "a simplification rule",
-        ),
-        (
-            "  syntax Foo ::= foo(Int)\n  rule foo(I) => foo(I +Int !X:Int) [anywhere]",
-            "an anywhere rule",
-        ),
-        (
-            "  syntax Int ::= \"m\" [macro]\n  rule m => !X:Int",
-            "a macro or alias rule",
-        ),
-        (
-            "  syntax Int ::= \"m\" [alias]\n  rule m => !X:Int",
-            "a macro or alias rule",
-        ),
-        (
-            "  syntax KItem ::= \"go\"\n  rule go => 1\n  claim go => !X:Int",
-            "a claim",
-        ),
-    ] {
-        let source = format!("module MAIN\n  imports INT\n{sentences}\nendmodule\n");
-        let output = kcompile_source(&source);
-        assert!(!output.status.success(), "{source}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let line = 2 + sentences.lines().count();
-        assert!(
-            stderr.contains(&format!(
-                "definition.k:{line}:3: Error[InvalidFreshConstant]: Fresh variable !X is not supported in {kind}:"
-            )),
-            "{source}\n{stderr}"
-        );
-        assert!(!stderr.contains("panicked"), "{stderr}");
-    }
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
 
     // A rewrite step draws the value, also for a local function inside it, whose equation
     // receives the fresh value from the enclosing rule as an argument.
@@ -12555,56 +12520,20 @@ endmodule
 #[test]
 fn fresh_variables_occur_only_where_a_rewrite_rule_builds_its_result() {
     // The value of `!X` is allocated by the step that applies the rule, so it exists only in the
-    // configuration after the step: the right-hand side of a rewrite and `ensures`.
-    for (sentences, place) in [
-        // The generated-input reproducer: a fresh variable as the pattern of a left-hand side.
-        (
-            "  syntax KItem ::= foo(Int)\n  rule foo(!X:Int) => 1",
-            "where a rule matches",
+    // configuration after the step: the right-hand side of a rewrite and `ensures`. Every place
+    // it cannot occur, contexts included, is checked in process by `definition_checks.rs` (same
+    // test name); here the rejection is rendered at the rule with a failing exit status.
+    // The generated-input reproducer: a fresh variable as the pattern of a left-hand side.
+    let source = "module MAIN\n  imports INT\n  syntax KItem ::= foo(Int)\n  rule foo(!X:Int) => 1\nendmodule\n";
+    let output = kcompile_source(source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:4:3: Error[InvalidFreshConstant]: Fresh variable !X cannot occur where a rule matches"
         ),
-        (
-            "  syntax KItem ::= foo(Int) | \"bar\"\n  rule <k> foo(!X:Int) => bar ...</k>",
-            "where a rule matches",
-        ),
-        // Outside every rewrite the term is both matched and rebuilt.
-        (
-            "  syntax KItem ::= baz(Int, Int)\n  rule baz(!X:Int, I => I +Int 1)",
-            "where a rule matches",
-        ),
-        (
-            "  syntax KItem ::= foo(Int) | \"bar\"\n  rule foo(I) => bar requires !X:Int >Int I",
-            "in the requires clause of a rule",
-        ),
-    ] {
-        let source = format!("module MAIN\n  imports INT\n{sentences}\nendmodule\n");
-        let output = kcompile_source(&source);
-        assert!(!output.status.success(), "{source}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let line = 2 + sentences.lines().count();
-        assert!(
-            stderr.contains(&format!(
-                "definition.k:{line}:3: Error[InvalidFreshConstant]: Fresh variable !X cannot occur {place}"
-            )),
-            "{source}\n{stderr}"
-        );
-    }
-
-    // A context is lowered to a heating step that builds its term and a cooling step that
-    // matches it again, so `!X` has no place in it, the right-hand side of its rewrite included.
-    for context in ["pair(HOLE, !X:Int)", "pair(HOLE => tag(HOLE, !X:Int), _)"] {
-        let source = format!(
-            "module MAIN\n  imports INT\n  syntax Exp ::= Int | pair(Exp, Exp) | tag(Exp, Int)\n  syntax KResult ::= Int\n  context {context}\nendmodule\n"
-        );
-        let output = kcompile_source(&source);
-        assert!(!output.status.success(), "{source}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains(
-                "definition.k:5:3: Error[InvalidFreshConstant]: Fresh variable !X cannot occur in a context"
-            ),
-            "{source}\n{stderr}"
-        );
-    }
+        "{source}\n{stderr}"
+    );
 
     // The right-hand side and `ensures` see the allocated values.
     let stdout = krun_success(
@@ -12658,43 +12587,24 @@ endmodule
 #[test]
 fn heat_and_cool_sentences_without_a_matched_hole_are_rejected() {
     // Heating and cooling apply only when the subterm the sentence matches as HOLE is not yet,
-    // or is, a result. A rule that matches no HOLE would test a variable nothing binds, and a
-    // context whose HOLE is rewritten to a term without HOLE gives cooling nothing to plug back.
-    for (sentence, code, message) in [
-        // The generated-input reproducer.
-        (
-            "rule a => b [heat]",
-            "InvalidHeatCool",
-            "A heat rule must match HOLE on its left-hand side",
+    // or is, a result. A rule that matches no HOLE would test a variable nothing binds. The
+    // stages that reject such rules, and a context whose HOLE is rewritten to a term without
+    // HOLE, are tested on their pipeline input by
+    // `resolve_heat_cool::stage_tests::heat_and_cool_rules_without_a_matched_hole_are_rejected_at_the_rule`
+    // and `resolve_contexts::stage_tests::a_context_rewriting_hole_away_is_rejected_at_the_context`;
+    // here the rejection is rendered at the rule with a failing exit status.
+    // The generated-input reproducer.
+    let source = "module MAIN\n  imports K-EQUAL\n  syntax KResult ::= Op\n  syntax Op ::= \"a\" | \"b\" | wrap(Op)\n  rule a => b [heat]\nendmodule\n";
+    let output = kcompile_source(source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:5:3: Error[InvalidHeatCool]: A heat rule must match HOLE on its left-hand side"
         ),
-        (
-            "rule b => a [cool]",
-            "InvalidHeatCool",
-            "A cool rule must match HOLE on its left-hand side",
-        ),
-        (
-            "rule a => b requires HOLE:Op ==K b [heat]",
-            "InvalidHeatCool",
-            "A heat rule must match HOLE on its left-hand side",
-        ),
-        (
-            "context wrap(HOLE => a)",
-            "InvalidContext",
-            "The HOLE of a context must be rewritten to a term containing HOLE",
-        ),
-    ] {
-        let source = format!(
-            "module MAIN\n  imports K-EQUAL\n  syntax KResult ::= Op\n  syntax Op ::= \"a\" | \"b\" | wrap(Op)\n  {sentence}\nendmodule\n"
-        );
-        let output = kcompile_source(&source);
-        assert!(!output.status.success(), "{source}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains(&format!("definition.k:5:3: Error[{code}]: {message}")),
-            "{source}\n{stderr}"
-        );
-        assert!(!stderr.contains("panicked"), "{stderr}");
-    }
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
 }
 
 #[test]

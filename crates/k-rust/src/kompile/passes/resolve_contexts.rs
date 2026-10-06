@@ -720,3 +720,43 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         input_addresses: Vec::new(),
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::{diagnostic::DiagnosticCode, kompile::stage_harness::run_to_stage};
+
+    /// Cooling matches the term the context rewrites HOLE to and plugs HOLE back in; a term
+    /// without HOLE leaves nothing to plug, so the context is rejected where it is written.
+    #[test]
+    fn a_context_rewriting_hole_away_is_rejected_at_the_context() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult ::= Op
+  syntax Op ::= "a" [symbol(a)] | "b" [symbol(b)] | wrap(Op) [symbol(wrap)]
+  context wrap(HOLE => a)
+endmodule
+"#,
+            "resolve contexts",
+        );
+        let error = run.error();
+        assert_eq!(error.stage, "resolve contexts");
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{error:?}")
+        };
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidContext);
+        assert!(
+            diagnostic
+                .message
+                .starts_with("The HOLE of a context must be rewritten to a term containing HOLE"),
+            "{}",
+            diagnostic.message
+        );
+        let location = diagnostic.location.expect("the diagnostic is located");
+        assert_eq!((location.start_line, location.start_column), (8, 3));
+    }
+}

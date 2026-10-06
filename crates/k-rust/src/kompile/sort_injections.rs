@@ -2759,3 +2759,45 @@ mod tests {
         );
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::kompile::stage_harness::run_to_stage;
+
+    /// `isS(X)` holds exactly when `X` is a term of sort `S`: a sort predicate is decided by its
+    /// argument's sort. A rule that makes it read the configuration (here through a function
+    /// that matches a cell) would make sort membership change as the program runs, which no
+    /// sort predicate can state, so the definition is rejected naming the predicate.
+    #[test]
+    fn a_sort_predicate_that_reads_the_configuration_is_rejected() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax Bool ::= "true" [token] | both(Bool, Bool) [function, symbol(both)]
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Exp
+  rule isExp(I) => both(isInt(I), configFunction())
+  configuration <k> .K </k> <state> .K </state>
+  syntax Bool ::= configFunction() [function, symbol(configFunction)]
+  rule [[ configFunction() => true ]]
+       <state> .K </state>
+endmodule
+"#,
+            "add sort injections",
+        );
+        let error = run.error();
+        assert_eq!(error.stage, "add sort injections");
+        assert!(
+            error.message.starts_with("definition.k:9: ")
+                && error.message.ends_with(
+                    "Invalid sort predicate isExp that depends directly or indirectly on the current configuration. Is it possible to replace the sort predicate with a regular function?"
+                ),
+            "{}",
+            error.message
+        );
+    }
+}

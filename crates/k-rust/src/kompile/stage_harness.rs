@@ -42,6 +42,14 @@ impl StageRun {
             .as_ref()
             .unwrap_or_else(|error| panic!("the stage failed: {error:?}"))
     }
+
+    /// The stage's error; panics when the stage succeeded.
+    #[track_caller]
+    pub fn error(&self) -> &CompileError {
+        self.output
+            .as_ref()
+            .expect_err("the stage should have failed")
+    }
 }
 
 /// Load `source` (main and syntax module `MAIN`, no prelude, no `requires`), compile it with the
@@ -159,6 +167,102 @@ pub(crate) fn labelled<'a>(
         .map(|sentence| &**sentence)
         .filter(|sentence| sentence.attributes().get_str("label") == Some(label))
         .collect()
+}
+
+/// Sentences of a definition, each with the name of its module.
+pub(crate) type ModuleSentences<'a> = Vec<(&'a str, &'a Sentence)>;
+
+/// Every sentence of `after` that is not a sentence of `before`, by module, with the sentences of
+/// `before` that `after` no longer has: the change a stage made, up to sentence order.
+pub(crate) fn sentence_changes<'a>(
+    before: &'a Definition,
+    after: &'a Definition,
+) -> (ModuleSentences<'a>, ModuleSentences<'a>) {
+    let sentences = |definition: &'a Definition| {
+        definition
+            .modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .local_sentences
+                    .iter()
+                    .map(move |sentence| (module.name.as_str(), &**sentence))
+            })
+            .collect::<Vec<_>>()
+    };
+    let (before, after) = (sentences(before), sentences(after));
+    let added = after
+        .iter()
+        .filter(|sentence| !before.contains(sentence))
+        .copied()
+        .collect();
+    let removed = before
+        .iter()
+        .filter(|sentence| !after.contains(sentence))
+        .copied()
+        .collect();
+    (added, removed)
+}
+
+/// A one-line rendering of `sentence` for assertions and failure messages: rules, claims and
+/// contexts as their terms, productions as label, sort and arguments.
+pub(crate) fn render(sentence: &Sentence) -> String {
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } => format!("rule {body} requires {requires} ensures {ensures}"),
+        Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => format!("claim {body} requires {requires} ensures {ensures}"),
+        Sentence::Context { body, requires, .. } => format!("context {body} requires {requires}"),
+        Sentence::ContextAlias { body, requires, .. } => {
+            format!("context alias {body} requires {requires}")
+        }
+        Sentence::Production {
+            label, sort, items, ..
+        } => format!(
+            "syntax {sort} ::= {}({})",
+            label.as_ref().map_or("", |label| label.name.as_str()),
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    crate::definition::ProductionItem::NonTerminal { sort, .. } => {
+                        Some(sort.to_string())
+                    }
+                    crate::definition::ProductionItem::Terminal(_)
+                    | crate::definition::ProductionItem::RegexTerminal { .. } => None,
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        other @ (Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. }) => format!("{other:?}"),
+    }
+}
+
+/// [`sentence_changes`] of a successful stage, each sentence [`render`]ed: what the stage added
+/// and what it removed.
+#[track_caller]
+pub(crate) fn rendered_changes(run: &StageRun) -> (Vec<String>, Vec<String>) {
+    let (added, removed) = sentence_changes(&run.input, run.output());
+    let render_all = |sentences: ModuleSentences<'_>| {
+        sentences
+            .into_iter()
+            .map(|(_, sentence)| render(sentence))
+            .collect::<Vec<_>>()
+    };
+    (render_all(added), render_all(removed))
 }
 
 #[cfg(test)]
