@@ -297,6 +297,14 @@ macro_rules! krs_command {
     };
 }
 
+/// Environment variable naming a directory that receives reference compilations instead of `kompile`.
+///
+/// When it is set, [`KompileReference::run`] writes `<main>.k` (the source) and `<main>.json` (the
+/// main module, syntax module, and search flag) into the directory and does not start `kompile`.
+/// The complete IMP gate sets it and compiles each exported source through its recorded reference
+/// snapshot, so the gate replays the recorded Java K result by default.
+pub const REFERENCE_EXPORT_DIR: &str = "KRS_REFERENCE_EXPORT_DIR";
+
 /// Configure compilation of an emitted K definition with the pinned frontend.
 #[must_use]
 pub fn kompile_reference<'a>(source: &'a str, main: &str, syntax: &str) -> KompileReference<'a> {
@@ -326,13 +334,22 @@ impl KompileReference<'_> {
 
     /// Compile the source and retain its output until the returned guard is dropped.
     ///
+    /// When [`REFERENCE_EXPORT_DIR`] is set, export the compilation request there instead and
+    /// return an empty directory.
+    ///
     /// # Panics
     ///
-    /// Panics if the pinned compiler is unavailable, rejects the source, or does not produce `definition.kore`.
+    /// Panics if the pinned compiler is unavailable, rejects the source, or does not produce
+    /// `definition.kore`; or, when exporting, if the request cannot be written or a request for
+    /// the same main module already exists.
     #[must_use]
     pub fn run(self) -> TempDir {
-        let executable = checked_kompile();
         let temporary = temp_dir();
+        if let Some(directory) = std::env::var_os(REFERENCE_EXPORT_DIR) {
+            self.export(Path::new(&directory));
+            return temporary;
+        }
+        let executable = checked_kompile();
         let source_path = temporary.path().join("definition.k");
         let definition_path = temporary.path().join("compiled");
         std::fs::write(&source_path, self.source).expect("reference source is written");
@@ -360,6 +377,30 @@ impl KompileReference<'_> {
         );
         assert!(definition_path.join("definition.kore").is_file());
         temporary
+    }
+
+    fn export(&self, directory: &Path) {
+        fs::create_dir_all(directory).expect("reference export directory is created");
+        let request = serde_json::json!({
+            "main": self.main,
+            "syntax": self.syntax,
+            "enable_search": self.enable_search,
+        });
+        for (extension, contents) in [
+            ("k", self.source.to_owned()),
+            ("json", format!("{request}\n")),
+        ] {
+            let path = directory.join(format!("{}.{extension}", self.main));
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap_or_else(|error| {
+                    panic!("reference export {} is new: {error}", path.display())
+                });
+            std::io::Write::write_all(&mut file, contents.as_bytes())
+                .expect("reference export is written");
+        }
     }
 }
 
