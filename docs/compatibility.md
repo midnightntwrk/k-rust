@@ -316,6 +316,10 @@ Non-termination is a property of one chain of rewrites of one subterm, so the co
 Inheriting the reduced budget keeps an expanding equation from resetting its own cap.
 Where the budget is exhausted, the retained configuration is still equal to the one being simplified, but it can be less simplified, and a step that needs the missing value may not be taken; the outcome on each surface, and the `SimplificationBudgetExhausted` diagnostic that marks this incompleteness, are specified in backend-port.md.
 
+`^Int` and `<<Int` compute a result of at most 2^20 bits (`MAX_INT_RESULT_BITS` in the backend's `builtin.rs`); a larger result is defined but not computed, and gives the unsupported-hook outcome of [Backend scope](#backend-scope) with the reason `ResultTooLarge` (an error when every argument is constructor-like, the application left unevaluated otherwise).
+The bound is on the result because an `Int` is held as its decimal domain value and converted on every hook application, which costs tens of milliseconds at 2^20 bits, seconds at 2^24 bits and does not end in practice at 2^32 bits; these two hooks are the only ones whose result can outgrow their arguments by more than a constant factor in one application.
+Results that stay small are computed whatever the argument: `0 <<Int N`, `1 ^Int N`, `0 ^Int N` and `-1 ^Int N` for any natural `N`, and `>>Int` by any amount.
+
 Term readers and writers impose no nesting-depth cap: depth is not part of what a term means, so a fixed cap would reject well-formed input.
 KORE readers, writers, and host and RPC request ingress are bounded by process memory; on a native host the backend runs its recursive passes over a pattern or definition on a stack it sizes for the input's depth, refusing with an ordinary error only input deeper than the largest stack it provides, and the stages still bounded by the host thread's stack are listed in [backend-port.md](backend-port.md#json-depth-policy).
 

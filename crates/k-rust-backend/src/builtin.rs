@@ -707,9 +707,16 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-/// The largest integer result, in bits, that `^Int` and `<<Int` compute (512 MiB); a larger
-/// one is reported as too large instead of exhausting memory.
-const MAX_INT_RESULT_BITS: u64 = 1 << 32;
+/// The largest integer result, in bits, that `^Int` and `<<Int` compute: 2^20 bits, 315,653
+/// decimal digits. A larger one is reported as too large (`ResultTooLarge`) instead of computed.
+///
+/// An `Int` is held as its decimal domain value and read back on every hook application, and
+/// converting between decimal and binary grows faster than linearly in the length: at 2^20 bits
+/// one conversion takes tens of milliseconds, at 2^24 bits seconds, at 2^32 bits it does not end
+/// in practice. These two hooks are the only ones whose result can exceed the size of their
+/// arguments by more than a constant factor in one application. The constant folder uses the
+/// same bound, so it never writes a value this backend would refuse to compute.
+pub const MAX_INT_RESULT_BITS: u64 = 1 << 20;
 
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
@@ -742,18 +749,24 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     };
-    if base
-        .bits()
-        .checked_mul(exponent)
-        .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
-    {
-        return Ok(BuiltinResult::Unsupported(
+    // |base|^exponent has between (bits - 1) * exponent + 1 and bits * exponent bits, so the
+    // first bound refuses only results that are too large, and a result the second admits needs
+    // at most twice the bound to compute before its exact length is checked.
+    let bits = base.bits();
+    let detail = format!("{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits");
+    let too_large = || {
+        Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
-                ),
+                detail: detail.clone(),
             },
-        ));
+        ))
+    };
+    if (bits - 1)
+        .checked_mul(exponent)
+        .and_then(|minimum| minimum.checked_add(1))
+        .is_none_or(|minimum| minimum > MAX_INT_RESULT_BITS)
+    {
+        return too_large();
     }
     let mut result = BigInt::one();
     while exponent != 0 {
@@ -765,6 +778,9 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
         if exponent != 0 {
             base = &base * &base;
         }
+    }
+    if result.bits() > MAX_INT_RESULT_BITS {
+        return too_large();
     }
     Ok(BuiltinResult::Value(int_term(result)))
 }
@@ -1433,6 +1449,41 @@ mod tests {
                 BigInt::from(3) << 100u32
             ))))
         );
+    }
+
+    /// A result of exactly 2^20 bits is computed and one more bit is reported as too large, for
+    /// `^Int` and `<<Int` alike.
+    #[test]
+    fn int_results_are_computed_up_to_the_result_bound() {
+        let bound = BigInt::from(1u32 << 20);
+        let too_large = |result: Stoppable<Result<BuiltinResult, BuiltinError>>| {
+            matches!(
+                result,
+                Ok(Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                )))
+            )
+        };
+        for amount in [&bound - 1u8, bound.clone()] {
+            let shifted = evaluate_hook(
+                "INT.shl",
+                &[int_term(BigInt::one()), int_term(amount.clone())],
+            );
+            let powered = evaluate_hook(
+                "INT.pow",
+                &[int_term(BigInt::from(2)), int_term(amount.clone())],
+            );
+            if amount < bound {
+                let expected = Ok(Ok(BuiltinResult::Value(int_term(
+                    BigInt::one() << amount.to_usize().unwrap(),
+                ))));
+                assert_eq!(shifted, expected, "1 <<Int {amount}");
+                assert_eq!(powered, expected, "2 ^Int {amount}");
+            } else {
+                assert!(too_large(shifted), "1 <<Int {amount}");
+                assert!(too_large(powered), "2 ^Int {amount}");
+            }
+        }
     }
 
     /// `domains.md`: shifting by a negative quantity is `#False`, in either direction and
