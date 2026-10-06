@@ -48,22 +48,32 @@ use crate::stop::STACK_RED_ZONE;
 /// an `\and` or `\or` level. Whole facade operations (execution, simplification, and
 /// implication over application chains, and simplification of a negation chain), measured by
 /// the pages they touched on a fresh segment, took at most 18.9 KiB per level unoptimized
-/// and 2.7 KiB in a release build, both simplifying the negation chain. The optimized bound
-/// keeps a wider margin because inlining, including link-time inlining in the `dist` profile,
-/// moves frame sizes more than the unoptimized build does. The fixed cost below the first level,
-/// at most 62 KiB unoptimized, is within `STACK_RED_ZONE`, which also holds the non-recursive
-/// work done at the deepest level. `tests::every_shape_runs_on_the_stack_it_is_given` and
+/// and 2.7 KiB in a release build, both simplifying the negation chain. Simplifying ground
+/// function chains (applications without equations, an equation that moves under a
+/// constructor, and a list length added up with `INT.add`), the passes that take the most in
+/// optimized builds, took at most 17.3 KiB per level unoptimized, 4,096 bytes at opt-level 1
+/// with debug assertions (the `dev` profile), and 3,136 bytes in a release build, found as the
+/// smallest bound under which 10,000-level chains still simplified. The fixed cost below the
+/// first level, at most 62 KiB unoptimized, is within `STACK_RED_ZONE`, which also holds the
+/// non-recursive work done at the deepest level.
+///
+/// The frames a level takes are decided by the code the crate is compiled to: the optimization
+/// level, and debug assertions, which add checks and the data they read to the frames; so the
+/// bound follows both (`build.rs`). It is 24 KiB unoptimized, 6 KiB at opt-level 1 or with
+/// debug assertions, and 4 KiB in an optimized build without them: at least 1.25 times the most
+/// any measured pass took per level in each. A build that does not report its optimization
+/// level gets the unoptimized bound, the largest one.
+///
+/// `tests::every_shape_runs_on_the_stack_it_is_given` and
 /// `tests::every_deep_definition_loads_on_the_stack_it_is_given` run every measured shape on a
 /// stack of exactly the size this bound gives, so a pass whose frames outgrow it overflows there.
-///
-/// The frames a level takes are decided by the optimization level the crate is compiled at, not
-/// by debug assertions, which only add checks; so the bound follows that level (`build.rs`).
-/// At opt-level 1, the `dev` profile with debug assertions on, the tests below and the facade's
-/// deep-request tests all still ran with the bound lowered to 2,176 bytes per level (the shapes
-/// overflowed at 2,048), so the optimized bound keeps there at least the margin it keeps over
-/// the release build's 2.7 KiB. A build that does not report its optimization level gets the
-/// unoptimized bound, the larger one.
-const STACK_PER_LEVEL: usize = if OPTIMIZED { 4 * 1024 } else { 24 * 1024 };
+const STACK_PER_LEVEL: usize = if !OPTIMIZED {
+    24 * 1024
+} else if cfg!(any(debug_assertions, k_rust_opt_level = "1")) {
+    6 * 1024
+} else {
+    4 * 1024
+};
 
 /// Whether the crate is compiled at an optimizing level, as `build.rs` reports it.
 const OPTIMIZED: bool = cfg!(any(
@@ -79,18 +89,19 @@ const OPTIMIZED: bool = cfg!(any(
 /// A segment is reserved address space whose pages are committed only when touched, so the
 /// limit bounds the reservation, not the memory used. 4 GiB is 64 times the 64 MiB worker threads
 /// of the CLI and RPC server and 512 times Node's main thread, so no input that ran on such a
-/// thread is refused; it admits about a million levels in an optimized build and about 170,000
-/// in an unoptimized one. It stays well under the address space of a 64-bit process and under the
-/// physical memory and swap that Linux's default overcommit heuristic compares a single
-/// reservation against. A 32-bit process has a few GiB of address space in all, so its limit is
-/// 256 MiB, four times the largest thread above.
+/// thread is refused; it admits about a million levels in a release build, 700,000 in the `dev`
+/// profile, and about 170,000 in an unoptimized build. It stays well under the address space of
+/// a 64-bit process and under the physical memory and swap that Linux's default overcommit
+/// heuristic compares a single reservation against. A 32-bit process has a few GiB of address
+/// space in all, so its limit is 256 MiB, four times the largest thread above.
 #[cfg(target_pointer_width = "64")]
 pub const STACK_LIMIT: usize = 4 << 30;
 #[cfg(not(target_pointer_width = "64"))]
 pub const STACK_LIMIT: usize = 256 << 20;
 
 /// The deepest patterns and sorts, as counted by `height`, that [`with_stack`] provides the
-/// stack for: about a million levels in an optimized build and 170,000 in an unoptimized one.
+/// stack for: about a million levels in a release build, 700,000 in the `dev` profile, and
+/// 170,000 in an unoptimized build.
 pub fn max_depth() -> usize {
     (STACK_LIMIT - STACK_RED_ZONE) / STACK_PER_LEVEL
 }
@@ -1240,9 +1251,9 @@ mod tests {
     }
 
     /// A pattern deeper than the largest segment provides for is refused before any pass over
-    /// it runs, whatever it would otherwise be rejected for. One pattern a million levels deep
-    /// (about 175,000 unoptimized) is held at a time; at opt-level 1 the test peaks at about
-    /// 800 MB of resident memory.
+    /// it runs, whatever it would otherwise be rejected for. One pattern that deep (about 700,000
+    /// levels at opt-level 1, a million in a release build, 175,000 unoptimized) is held at a
+    /// time; at opt-level 1 the test peaks at about 550 MB of resident memory.
     #[test]
     fn patterns_deeper_than_any_segment_are_refused_before_any_pass() {
         on_stack(SMALL_STACK, || {
@@ -1327,8 +1338,8 @@ mod tests {
     /// A definition with a sentence deeper than any segment provides for is refused with
     /// `InsufficientStack`, at the depth of its deepest sentence, whatever else is wrong with it
     /// and wherever that is, although the declarations are read and earlier sentences verified
-    /// before the deep sentence is measured. One definition of about a million levels (175,000
-    /// unoptimized) is held at a time.
+    /// before the deep sentence is measured. One definition that deep (about 700,000 levels at
+    /// opt-level 1, a million in a release build, 175,000 unoptimized) is held at a time.
     #[test]
     fn definitions_deeper_than_any_segment_are_refused_whatever_else_they_hold() {
         on_stack(SMALL_STACK, || {

@@ -5871,8 +5871,8 @@ fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
 ///   slope of 2.47 KiB per level.
 ///
 /// The ceiling follows the optimization level the crate is compiled at
-/// (`build.rs`), not `debug_assertions`: the frames are what optimization
-/// makes of them, whatever checks are compiled in.
+/// (`build.rs`), which changes the frames several times over, whereas the
+/// profiles that set each level fix whether debug assertions are on.
 const STACK_BYTES_PER_RECURSION_LEVEL: usize = if cfg!(k_rust_opt_level = "0") {
     28 * 1024
 } else if cfg!(k_rust_opt_level = "1") {

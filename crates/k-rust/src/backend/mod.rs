@@ -3597,9 +3597,10 @@ endmodule
     }
 
     /// A request deeper than the largest stack the backend provides is refused with
-    /// `InsufficientStack` on every route before any pass over it runs. One term about a million
-    /// levels deep (175,000 unoptimized) is held at a time; at opt-level 1 the test peaks at about
-    /// 1.3 GB of resident memory and takes about 12 s.
+    /// `InsufficientStack` on every route before any pass over it runs. One term that deep (about
+    /// 700,000 levels at opt-level 1, a million in a release build, 175,000 unoptimized) is held
+    /// at a time; at opt-level 1 the test peaks at about 930 MB of resident memory and takes about
+    /// 8 s.
     #[test]
     fn requests_deeper_than_the_backend_provides_for_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3621,8 +3622,8 @@ endmodule
     /// A module whose axiom is a `\not` chain beyond what Node's main thread holds is added
     /// when the chain is a well-formed predicate and is the ordinary error of its fault when it
     /// is over a symbol the definition does not declare; a chain deeper than the backend
-    /// provides for is refused with `InsufficientStack`. One module of up to about 15 MB of text
-    /// is held at a time; at opt-level 1 the test peaks at about 630 MB of resident memory and
+    /// provides for is refused with `InsufficientStack`. One module of up to about 10 MB of text
+    /// is held at a time; at opt-level 1 the test peaks at about 450 MB of resident memory and
     /// takes a few seconds.
     #[test]
     fn deep_modules_are_loaded_or_ordinary_errors() {

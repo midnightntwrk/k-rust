@@ -5039,13 +5039,15 @@ endmodule
     /// A deep state that decodes but is not a pattern of the definition (a `\not` chain over a
     /// symbol the definition does not declare) is answered on the 64 MiB worker thread by the
     /// pattern methods and by `add-module` as an axiom, and the connection keeps serving. At the
-    /// depth for which the backend provides four times the worker's stack, about twice what the
-    /// passes take there, so beyond what the worker holds for them (65,536 levels optimized,
-    /// 10,922 unoptimized), each method answers as it does one level deep, its passes run on the
-    /// stack the backend provides; at the depth beyond the largest stack the backend provides
-    /// (about a million levels optimized, 175,000 unoptimized), each is refused for want of stack
-    /// before any pass runs. One frame is held at a time; at opt-level 1 the test peaks at about
-    /// 1.7 GB of resident memory and finishes in about 12 s.
+    /// depth for which the backend provides six times the worker's stack, so beyond what the
+    /// worker holds for the passes over these frames, which take at most about 2.2 KiB of the 6 KiB
+    /// per level provided at opt-level 1, 2.7 of 4 KiB in a release build, and 19 of 24 KiB
+    /// unoptimized (65,536 levels at opt-level 1, 98,304 in a release build, 16,384 unoptimized),
+    /// each method answers as it does one level deep, its passes run on the stack the backend
+    /// provides; at the depth beyond the largest stack the backend provides (about 700,000 levels
+    /// at opt-level 1, a million in a release build, 175,000 unoptimized), each is refused for want
+    /// of stack before any pass runs. One frame is held at a time; at opt-level 1 the test peaks at
+    /// about 1.2 GB of resident memory and finishes in about 8 s.
     #[test]
     fn deep_invalid_frames_are_answered_and_the_connection_keeps_serving() {
         let (address, done) = spawn_server(service(), 1);
@@ -5072,7 +5074,7 @@ endmodule
             })
             .collect::<Vec<_>>();
         let per_level = nesting::stack_for_depth(1) - nesting::stack_for_depth(0);
-        let beyond_the_worker = 4 * CONNECTION_STACK_SIZE / per_level;
+        let beyond_the_worker = 6 * CONNECTION_STACK_SIZE / per_level;
         let mut id = 0;
         for (levels, refused) in [(beyond_the_worker, false), (nesting::max_depth() + 1, true)] {
             for (frame, (code, result)) in deep_invalid_frames(levels).into_iter().zip(&shallow) {
