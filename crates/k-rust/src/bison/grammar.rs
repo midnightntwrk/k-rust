@@ -2135,6 +2135,150 @@ mod tests {
         assert_eq!(int_parents, 1 + restricted_exp.len());
     }
 
+    /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and
+    /// one terminator production of the same `+` or `*` kind, with the list on one side, is
+    /// rejected; a formal parametric list is kept unlowered.
+    #[test]
+    fn user_lists_are_validated_and_formal_lists_are_kept() {
+        let recursive = |items: Vec<ProductionItem>, label: Option<&str>, kind: &str| {
+            production("Es", items, label, &[("userList", kind)])
+        };
+        let right = || {
+            vec![
+                nonterminal("E"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("Es"),
+            ]
+        };
+        let left = || {
+            vec![
+                nonterminal("Es"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("E"),
+            ]
+        };
+        let terminator = |label: Option<&str>, kind: &str| {
+            production(
+                "Es",
+                vec![ProductionItem::Terminal(".Es".into())],
+                label,
+                &[("userList", kind)],
+            )
+        };
+        for (members, message) in [
+            (
+                vec![
+                    recursive(right(), Some("cons"), "*"),
+                    recursive(right(), Some("cons2"), "*"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "expected one recursive and one terminator production",
+            ),
+            (
+                vec![recursive(right(), Some("cons"), "*")],
+                "expected one recursive and one terminator production",
+            ),
+            (
+                vec![recursive(right(), None, "*"), terminator(Some("nil"), "*")],
+                "recursive production has no constructor label",
+            ),
+            (
+                vec![recursive(right(), Some("cons"), "*"), terminator(None, "*")],
+                "terminator production has no constructor label",
+            ),
+            (
+                vec![
+                    recursive(right(), Some("cons"), "+"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "recursive and terminator productions must have the same `+` or `*` userList attribute",
+            ),
+            (
+                vec![
+                    recursive(right(), Some("cons"), "?"),
+                    terminator(Some("nil"), "?"),
+                ],
+                "recursive and terminator productions must have the same `+` or `*` userList attribute",
+            ),
+            (
+                vec![
+                    recursive(
+                        vec![
+                            nonterminal("E"),
+                            ProductionItem::Terminal(",".into()),
+                            nonterminal("E"),
+                        ],
+                        Some("cons"),
+                        "*",
+                    ),
+                    terminator(Some("nil"), "*"),
+                ],
+                "recursive production must contain the list sort on exactly one side",
+            ),
+            (
+                vec![
+                    recursive(left(), Some("cons"), "*"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "left-associative `List` is not supported by K's Bison transform",
+            ),
+        ] {
+            let error = prepare(&members).map(|_| ()).unwrap_err().to_string();
+            assert_eq!(error, format!("invalid user list Es: {message}"));
+        }
+        for members in [
+            vec![
+                recursive(right(), Some("cons"), "*"),
+                terminator(Some("nil"), "*"),
+            ],
+            vec![
+                recursive(left(), Some("cons"), "+"),
+                terminator(Some("nil"), "+"),
+            ],
+        ] {
+            assert!(prepare(&members).is_ok(), "{members:?}");
+        }
+
+        let parameter = Sort::new("T");
+        let formal = |items: Vec<ProductionItem>, label: &str| Sentence::Production {
+            label: Some(Label::with_parameters(label, vec![parameter.clone()])),
+            parameters: vec![parameter.clone()],
+            sort: Sort::with_parameters("Ps", vec![parameter.clone()]),
+            items,
+            attributes: attributes(&[("userList", "*")]),
+        };
+        let parametric_list = Sort::with_parameters("Ps", vec![parameter.clone()]);
+        let members = vec![
+            formal(
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(",".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parametric_list.clone(),
+                        name: None,
+                    },
+                ],
+                "pcons",
+            ),
+            formal(vec![ProductionItem::Terminal(".Ps".into())], "pnil"),
+        ];
+        let prepared = prepare(&members).unwrap();
+        assert_eq!(
+            prepared
+                .productions
+                .iter()
+                .map(|production| (production.result.clone(), production.source.clone()))
+                .collect::<Vec<_>>(),
+            members
+                .iter()
+                .map(|member| (parametric_list.clone(), member.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn user_list_bridge_returns_cons_without_an_unused_injection() {
         let sentences = vec![
