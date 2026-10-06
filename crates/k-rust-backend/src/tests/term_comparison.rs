@@ -15,9 +15,12 @@ use proptest::{
 };
 
 use super::lean_bridge::generators::{term, term_with_ground_keys};
-use crate::term::{Term, equal_terms_on_work_list, order_terms_on_work_list};
+use crate::term::{InjectionComparison, Term, equal_terms_on_work_list, order_terms_on_work_list};
 
 const CASES: usize = 4096;
+
+/// An injection callback of `Term::apart_with`.
+type Injections = dyn Fn(&Term, &Term) -> InjectionComparison;
 
 fn agree(left: &Term, right: &Term) {
     let order = left.kind().cmp(right.kind());
@@ -65,4 +68,43 @@ fn term_comparison_is_the_derived_comparison_of_the_kinds() {
     }
     eprintln!("orders [less, equal, greater]: {orders:?}; unshared copies: {equal_unshared}");
     assert!(orders.iter().all(|&count| count > 100), "{orders:?}");
+}
+
+/// `Term::apart_with`, which recurses for a few levels before it continues on the work list,
+/// decides every generated pair as the work-list search alone does, with an injection callback
+/// that decides nothing and one that compares the operands.
+#[test]
+fn apartness_is_the_work_list_search() {
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+    let operands = |left: &Term, right: &Term| match (left.kind(), right.kind()) {
+        (
+            crate::term::TermKind::Injection { term: left, .. },
+            crate::term::TermKind::Injection { term: right, .. },
+        ) => InjectionComparison::Compare(left.clone(), right.clone()),
+        _ => InjectionComparison::Undecided,
+    };
+    let mut apart = 0usize;
+    for strategy in [term().boxed(), term_with_ground_keys().boxed()] {
+        for _ in 0..CASES {
+            let left = strategy.new_tree(&mut runner).expect("a case").current();
+            let right = strategy.new_tree(&mut runner).expect("a case").current();
+            for injections in [&undecided as &Injections, &operands] {
+                for (first, second) in [(&left, &right), (&right, &left)] {
+                    let decided = first.apart_with(second, injections).is_some();
+                    assert_eq!(
+                        decided,
+                        first.apart_on_work_list(second, injections).is_some(),
+                        "apartness of {first:?} and {second:?}"
+                    );
+                    apart += usize::from(decided);
+                }
+            }
+        }
+    }
+    eprintln!("apart pairs: {apart}");
+    assert!(apart > 100, "{apart}");
 }

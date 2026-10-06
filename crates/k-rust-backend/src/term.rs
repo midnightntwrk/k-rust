@@ -1456,17 +1456,32 @@ impl Term {
     /// Symbolic equation heads have no certificate, because [`Self::with_evaluated_cache`] requires groundness.
     /// The injection callback receives two injections and may separate their denotations or supply operands whose equality is equivalent to theirs.
     ///
-    /// The search is depth-first over argument pairs, the first apart pair deciding, with the
-    /// pairs above the one being tried kept on a work list rather than the native stack: it runs
-    /// between two stack checks of the simplifier (the definedness of a map's keys, `KEQUAL`) on
-    /// terms of any height, and a recursion over two deep keys with a long common spine overran
-    /// the red zone there.
+    /// The search is depth-first over argument pairs, the first apart pair deciding. It recurses
+    /// for the first `RECURSIVE_COMPARISON_LEVELS` levels of the two terms and keeps the pairs
+    /// above the one being tried on a work list below them ([`Self::apart_on_work_list`]), so the
+    /// native stack it takes is bounded whatever the height of the terms: it runs between two
+    /// stack checks of the simplifier (the definedness of a map's keys, `KEQUAL`) on terms of any
+    /// height, and a recursion over two deep keys with a long common spine overran the red zone
+    /// there. The recursion is for cost: the definedness walk compares every pair of keys of a
+    /// map, most of them shallow, and the work list's per-call allocation, reference counting and
+    /// frame bookkeeping made such a comparison several times slower than the recursion.
     #[must_use]
     pub(crate) fn apart_with(
         &self,
         other: &Self,
         injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
     ) -> Option<head::Apart> {
+        apart_by_recursion(self, other, injections, RECURSIVE_COMPARISON_LEVELS)
+    }
+
+    /// [`Self::apart_with`] with every pair above the one being tried kept on a work list.
+    pub(crate) fn apart_on_work_list(
+        &self,
+        other: &Self,
+        injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
+    ) -> Option<head::Apart> {
+        #[cfg(test)]
+        tests::APART_WORK_LISTS.set(tests::APART_WORK_LISTS.get() + 1);
         let mut frames = Vec::new();
         let mut next = Some((self.clone(), other.clone()));
         loop {
@@ -1882,6 +1897,74 @@ fn apart_step(
             }
         }
         head::RootComparison::Collections(_) => ApartStep::Undecided,
+    }
+}
+
+/// [`Term::apart_with`] by recursion for `levels` more levels, then on the work list
+/// ([`Term::apart_on_work_list`]). Each level decides its pair at the roots as [`apart_step`]
+/// does for the work list, tries the argument pairs of an application pair in order, and lifts
+/// the first witness it finds through its own pair, so the answer and the witness are the work
+/// list's. It classifies each root once and borrows the operands of an injection pair, which the
+/// work list, keeping owned pairs, cannot.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn apart_by_recursion(
+    left: &Term,
+    right: &Term,
+    injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+    levels: u8,
+) -> Option<head::Apart> {
+    let Some(below) = levels.checked_sub(1) else {
+        return left.apart_on_work_list(right, injections);
+    };
+    if left == right {
+        return None;
+    }
+    let left_root = apart_root(left)?;
+    let right_root = apart_root(right)?;
+    match head::compare_roots(left_root, right_root) {
+        head::RootComparison::Distinct(witness) => {
+            distinct_roots_decide(left_root.root(), right_root.root())
+                .then(|| head::Apart::of_roots(witness))
+        }
+        head::RootComparison::SameApplication(same) => same
+            .pairs()
+            .find_map(|(left, right)| apart_by_recursion(left, right, injections, below))
+            .map(|argument| head::Apart::through_argument(same, argument)),
+        // Applications of one symbol with different arities are ill-formed.
+        head::RootComparison::ArityMismatch => None,
+        head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root),
+        head::RootComparison::Injections => {
+            let (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_operand,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_operand,
+                },
+            ) = (left.kind(), right.kind())
+            else {
+                unreachable!("two injection roots are injections");
+            };
+            if left_source == right_source && left_target == right_target {
+                // One injection is injective, so disjoint operands have disjoint images.
+                return apart_by_recursion(left_operand, right_operand, injections, below);
+            }
+            let comparison = injections(left, right);
+            match &comparison {
+                InjectionComparison::Distinct => head::Apart::of_injection_sorts(&comparison),
+                // The injections are equal exactly when these terms are, so a witness for
+                // the terms is one for the injections.
+                InjectionComparison::Compare(left, right) => {
+                    apart_by_recursion(left, right, injections, below)
+                }
+                InjectionComparison::Undecided => None,
+            }
+        }
+        head::RootComparison::Collections(_) => None,
     }
 }
 
@@ -2346,7 +2429,8 @@ fn calculate_hash(kind: &TermKind) -> u64 {
 /// applications took at most 18 KiB of stack unoptimized at any depth with eight levels (29 KiB
 /// with sixteen) and under 4 KiB in optimized builds; sorting generated terms took 18 % more
 /// instructions than the derived recursion alone, the same with eight or sixteen levels, against
-/// 98 % with the work list at every level.
+/// 98 % with the work list at every level. The apartness search (`Term::apart_with`) recurses
+/// for as many levels before its own work list, for the same reasons.
 const RECURSIVE_COMPARISON_LEVELS: u8 = 8;
 
 thread_local! {
@@ -2964,6 +3048,52 @@ mod tests {
                 (false, Ordering::Less, Ordering::Greater)
             )
         );
+    }
+
+    thread_local! {
+        /// The searches [`Term::apart_on_work_list`] made on this thread.
+        pub(super) static APART_WORK_LISTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// `wrap^levels(leaf)`, a chain of one-argument constructor applications.
+    fn chain(levels: usize, leaf: &str) -> Term {
+        let wrap = Arc::new(Symbol::constructor("wrap", vec![sort()], sort()));
+        let leaf = Arc::new(Symbol::constructor(leaf, Vec::new(), sort()));
+        (0..levels).fold(
+            Term::application(leaf, Vec::new(), Vec::new()),
+            |term, _| Term::application(wrap.clone(), Vec::new(), vec![term]),
+        )
+    }
+
+    /// The search recurses for `RECURSIVE_COMPARISON_LEVELS` levels and continues on the work
+    /// list below them, with the work list's answer at every height: two chains that differ only
+    /// at their leaf are apart, a chain and an unshared copy of it are not, and the work list is
+    /// entered only for a pair the recursion has not decided within its levels.
+    #[test]
+    fn apartness_recurses_for_shallow_terms_and_continues_on_the_work_list() {
+        let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+        for levels in 0..3 * usize::from(RECURSIVE_COMPARISON_LEVELS) {
+            let (a, a_copy, b) = (chain(levels, "a"), chain(levels, "a"), chain(levels, "b"));
+            for (left, right, apart) in [(&a, &b, true), (&a, &a_copy, false)] {
+                let before = APART_WORK_LISTS.get();
+                assert_eq!(
+                    left.apart_with(right, &undecided).is_some(),
+                    apart,
+                    "{levels} levels"
+                );
+                let entered = APART_WORK_LISTS.get() > before;
+                assert_eq!(
+                    entered,
+                    apart && levels >= usize::from(RECURSIVE_COMPARISON_LEVELS),
+                    "work list entered at {levels} levels"
+                );
+                assert_eq!(
+                    left.apart_on_work_list(right, &undecided).is_some(),
+                    apart,
+                    "{levels} levels on the work list"
+                );
+            }
+        }
     }
 
     /// Apartness of deep terms takes the same native stack whatever their height (a recursion per
