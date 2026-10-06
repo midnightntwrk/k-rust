@@ -313,13 +313,13 @@ endmodule
     }
 }
 
-#[test]
-fn deferred_lambdas_require_defined_content_and_covering_patterns() {
-    for (content, pattern) in [("bad(0)", "X:Int"), ("0", "0")] {
-        let loaded = load(
-            "MN5",
-            &format!(
-                r#"
+/// A lambda over the cell initializer `initNCell`, whose cell holds `content`, with the pattern
+/// `pattern`, is declared without `total{}()`.
+fn assert_deferred_lambda_is_not_total(content: &str, pattern: &str) {
+    let loaded = load(
+        "MN5",
+        &format!(
+            r#"
 module MN5
   imports INT
   syntax Int ::= bad(Int) [function, symbol(bad)]
@@ -329,14 +329,27 @@ module MN5
   rule use(A) => wrap(#fun({pattern} => initNCell)(A))
 endmodule
 "#
-            ),
-        );
-        let sentences = lambda_declarations(&loaded);
-        let declaration = sentences
-            .iter()
-            .find(|sentence| sentence.trim_start().starts_with("symbol "))
-            .unwrap();
-        assert!(!declaration.contains("total{}()"), "{declaration}");
+        ),
+    );
+    let sentences = lambda_declarations(&loaded);
+    let declaration = sentences
+        .iter()
+        .find(|sentence| sentence.trim_start().starts_with("symbol "))
+        .unwrap();
+    assert!(!declaration.contains("total{}()"), "{declaration}");
+}
+
+/// One test per case of [`assert_deferred_lambda_is_not_total`]: content that may be undefined,
+/// and a pattern that does not cover the argument sort.
+mod deferred_lambdas_require_defined_content_and_covering_patterns {
+    #[test]
+    fn undefined_content() {
+        super::assert_deferred_lambda_is_not_total("bad(0)", "X:Int");
+    }
+
+    #[test]
+    fn uncovering_pattern() {
+        super::assert_deferred_lambda_is_not_total("0", "0");
     }
 }
 

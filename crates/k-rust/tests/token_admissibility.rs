@@ -315,23 +315,36 @@ fn hooked_loaded(right: &str, backend: CompilationBackend) -> LoadedDefinition {
 /// `MAP.Map` has a hook and no token declaration, so its values include no domain values: a
 /// literal of that sort is rejected where the definition is checked rather than emitted under a
 /// declaration without `hasDomainValues`.
-#[test]
-fn hooked_sort_literal_without_token_declaration_is_rejected() {
-    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
-        compile(&hooked_loaded("keep(.Map)", backend), backend).unwrap();
+fn assert_hooked_sort_literal_without_token_declaration_is_rejected(backend: CompilationBackend) {
+    compile(&hooked_loaded("keep(.Map)", backend), backend).unwrap();
 
-        let error = compile(
-            &hooked_loaded(r#"keep(#token("x", "Map"))"#, backend),
-            backend,
-        )
-        .unwrap_err();
-        assert_eq!(error.stage, "definition checks");
-        assert!(
-            error.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == DiagnosticCode::InvalidDomainValue
-                    && diagnostic.message.contains("Token \"x\" of sort Map")
-            }),
-            "{error:?}"
-        );
+    let error = compile(
+        &hooked_loaded(r#"keep(#token("x", "Map"))"#, backend),
+        backend,
+    )
+    .unwrap_err();
+    assert_eq!(error.stage, "definition checks");
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::InvalidDomainValue
+                && diagnostic.message.contains("Token \"x\" of sort Map")
+        }),
+        "{error:?}"
+    );
+}
+
+mod hooked_sort_literal_without_token_declaration_is_rejected {
+    use super::{
+        CompilationBackend, assert_hooked_sort_literal_without_token_declaration_is_rejected,
+    };
+
+    #[test]
+    fn rust() {
+        assert_hooked_sort_literal_without_token_declaration_is_rejected(CompilationBackend::Rust);
+    }
+
+    #[test]
+    fn llvm() {
+        assert_hooked_sort_literal_without_token_declaration_is_rejected(CompilationBackend::Llvm);
     }
 }
