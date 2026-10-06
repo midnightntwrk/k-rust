@@ -3050,7 +3050,8 @@ def probe(diagnostic, comparison_rc, program_verdict):
                 output.write("[]\n")
             return 0, "", "", 0.1, False
         if cmd[0] == run.KORE_PARSER:
-            if cmd[1].endswith("krust-kompiled/definition.kore"):
+            # An LLVM-target krust definition is verified through its N38 copy.
+            if cmd[1].endswith("krust-kompiled/definition.verify.kore"):
                 return 1, "", "Error:\n  module 'TEST':\n  axiom declaration:\n  (definition.kore 1:1):\n    " + diagnostic + "\n        f(X)\n", 0.1, False
             return 0, "", "", 0.1, False
         raise AssertionError(cmd)
@@ -3108,6 +3109,124 @@ print(json.dumps({
     }
     assert_eq!(
         probes["other"]["steps"][2][2], "Expected function symbol, but found constructor symbol:",
+        "{probes}"
+    );
+}
+
+#[test]
+fn conformance_driver_verifies_the_n38_copy_of_an_llvm_target_definition() {
+    // The LLVM target emits a partial value production without `function`, which the verifier
+    // requires of an equation head. The driver verifies a copy with `function{}()` added to the
+    // marked declarations (N38) and leaves the compared definition unchanged; a Rust-target
+    // definition (a Haskell-backend recipe) is verified as written.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+DEFINITION = "[]\nmodule TEST\n  sort S{} []\n  symbol Lblwrap{}(S{}) : S{} [anywhere{}(), value-production{}()]\nendmodule []\n"
+
+def probe(backend):
+    root = tempfile.mkdtemp()
+    case = run.Case("verify")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    with open(os.path.join(root, "test.k"), "w") as source:
+        source.write("module TEST endmodule\n")
+    verified = []
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        if cmd[:2] == ["bash", "-c"]:
+            definition = os.path.join(root, "test-kompiled")
+            os.makedirs(definition)
+            for name, text in [("mainModule.txt", "TEST\n"), ("mainSyntaxModule.txt", "TEST\n"),
+                               ("configVars.sh", ""), ("definition.kore", "[]\n")]:
+                with open(os.path.join(definition, name), "w") as output:
+                    output.write(text)
+            return 0, "", "", 0.1, False
+        if cmd[0] == "/krust":
+            definition = os.path.join(root, "krust-kompiled")
+            os.makedirs(definition, exist_ok=True)
+            with open(os.path.join(definition, "definition.kore"), "w") as output:
+                output.write(DEFINITION)
+            os.makedirs(os.path.join(root, "krust-kompiled-runtime"), exist_ok=True)
+            return 0, "", "", 0.1, False
+        if cmd[0] == run.KORE_PARSER:
+            if "krust-kompiled" not in cmd[1]:
+                return 0, "", "", 0.1, False
+            verified.append(os.path.relpath(cmd[1], root))
+            with open(cmd[1]) as handle:
+                text = handle.read()
+            if "value-production{}()]" in text:
+                return 1, "", "Error:\n  module 'TEST':\n  axiom declaration:\n  (definition.kore 1:1):\n    Expected function symbol, but found constructor symbol:\n        Lblwrap{}\n", 0.1, False
+            return 0, "", "", 0.1, False
+        raise AssertionError(cmd)
+    run.sh = fake_sh
+    run.run_test_binary = lambda name, env, cwd: (0, "", "")
+    run.KRUST = "/krust"
+    run.KORE_PARSER = "/kbin/kore-parser"
+    recipe = run.split_recipe(f"/kbin/kompile --backend {backend} test.k --output-definition ./test-kompiled")
+    run.do_kompile(case, recipe, False)
+    run.finish(case)
+    with open(os.path.join(root, "krust-kompiled", "definition.kore")) as handle:
+        compared = handle.read()
+    copy = os.path.join(root, "krust-kompiled", "definition.verify.kore")
+    return {
+        "steps": [[s["step"], s["verdict"], s.get("verify_error")] for s in case.steps],
+        "verified": verified,
+        "compared_unchanged": compared == DEFINITION,
+        "copy": open(copy).read() if os.path.exists(copy) else None,
+    }
+
+print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env_remove("GHCRTS")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        probes["llvm"]["verified"],
+        serde_json::json!(["krust-kompiled/definition.verify.kore"]),
+        "{probes}"
+    );
+    assert_eq!(
+        probes["llvm"]["steps"],
+        serde_json::json!([["kompile", "match", null]]),
+        "{probes}"
+    );
+    assert_eq!(probes["llvm"]["compared_unchanged"], true, "{probes}");
+    assert!(
+        probes["llvm"]["copy"]
+            .as_str()
+            .is_some_and(|copy| copy.contains("value-production{}(), function{}()]")),
+        "{probes}"
+    );
+    assert_eq!(
+        probes["haskell"]["verified"],
+        serde_json::json!(["krust-kompiled/definition.kore"]),
+        "{probes}"
+    );
+    assert_eq!(probes["haskell"]["copy"], serde_json::Value::Null, "{probes}");
+    assert_eq!(
+        probes["haskell"]["steps"],
+        serde_json::json!([
+            ["kompile", "match", null],
+            [
+                "kore-verify",
+                "mismatch",
+                "Expected function symbol, but found constructor symbol:"
+            ],
+        ]),
         "{probes}"
     );
 }

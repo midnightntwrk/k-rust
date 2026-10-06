@@ -435,10 +435,10 @@ justification = "The hooked Map carries KItem values, while a configuration decl
 
 [[normalisation]]
 id = "N38"
-gate = "reference-tool verification of kore/llvm compile output"
+gate = "reference-tool verification of kore/llvm compile output and of conformance --backend llvm recipes"
 anchor = "scripts/reference-llvm-verification.py:normalize_llvm_value_productions"
 anchor_symbol = "normalize_llvm_value_productions"
-rule = "In a separate verification copy of the k-rust definition.kore for the kore/llvm pairing only, add `function{}()` to exactly the symbol declarations carrying bare `value-production{}()`, and print the number changed. Refuse with exit 1 if a marked declaration already carries `function` or `functional`. The LLVM backend and the compile comparison consume the original definition. The Rust/Haskell pairing verifies its original definition without this normalization."
+rule = "In a separate verification copy of the k-rust LLVM-target definition.kore (the kore/llvm compile pairing, and the conformance driver's kore-verify step of a --backend llvm recipe) only, add `function{}()` to exactly the symbol declarations carrying bare `value-production{}()`, and print the number changed. Refuse with exit 1 if a marked declaration already carries `function` or `functional`. The LLVM backend and the compile comparison consume the original definition. The Rust/Haskell pairing verifies its original definition without this normalization."
 justification = "The equation-head verifier requires function or functional, but a partial value production has no evidence for functional. The external LLVM backend reads function to exclude irreducible applications from values and does not read value-production to restore them, so adding function to the executed LLVM definition would change its meaning. The verification copy supplies only the verifier's required head classification and retains the marker that the Rust target uses to restore the value reading; the original output preserves LLVM value applications. See docs/compatibility.md#anywhere-rules."
 
 [[normalisation]]
