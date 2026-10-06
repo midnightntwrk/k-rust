@@ -5038,13 +5038,16 @@ endmodule
 
     /// A deep state that decodes but is not a pattern of the definition (a `\not` chain over a
     /// symbol the definition does not declare) is answered on the 64 MiB worker thread by the
-    /// pattern methods and by `add-module` as an axiom, and the connection keeps serving. At
-    /// 8,000 levels, beyond what the worker holds for the passes in a debug build, each method
-    /// answers as it does one level deep, its passes run on the stack the backend provides; at
-    /// the depth beyond the largest stack the backend provides (about 175,000 levels in a debug
-    /// build), each is refused for want of stack before any pass runs. One
-    /// frame is held at a time; in a debug build the test peaks at about 400 MB of resident
-    /// memory and finishes in about 12 s.
+    /// pattern methods and by `add-module` as an axiom, and the connection keeps serving. At the
+    /// depth for which the backend provides six times the worker's stack, so beyond what the
+    /// worker holds for the passes over these frames, which take at most about 2.2 KiB of the 6 KiB
+    /// per level provided at opt-level 1, 2.7 of 4 KiB in a release build, and 19 of 24 KiB
+    /// unoptimized (65,536 levels at opt-level 1, 98,304 in a release build, 16,384 unoptimized),
+    /// each method answers as it does one level deep, its passes run on the stack the backend
+    /// provides; at the depth beyond the largest stack the backend provides (about 700,000 levels
+    /// at opt-level 1, a million in a release build, 175,000 unoptimized), each is refused for want
+    /// of stack before any pass runs. One frame is held at a time; at opt-level 1 the test peaks at
+    /// about 1.2 GB of resident memory and finishes in about 8 s.
     #[test]
     fn deep_invalid_frames_are_answered_and_the_connection_keeps_serving() {
         let (address, done) = spawn_server(service(), 1);
@@ -5070,8 +5073,10 @@ endmodule
                 )
             })
             .collect::<Vec<_>>();
+        let per_level = nesting::stack_for_depth(1) - nesting::stack_for_depth(0);
+        let beyond_the_worker = 6 * CONNECTION_STACK_SIZE / per_level;
         let mut id = 0;
-        for (levels, refused) in [(8_000, false), (nesting::max_depth() + 1, true)] {
+        for (levels, refused) in [(beyond_the_worker, false), (nesting::max_depth() + 1, true)] {
             for (frame, (code, result)) in deep_invalid_frames(levels).into_iter().zip(&shallow) {
                 id += 1;
                 let line = exchange(id, &frame);
@@ -5096,16 +5101,18 @@ endmodule
     }
 
     /// A response that carries deep KORE as JSON values is written and dropped on a 1 MiB
-    /// thread, which the values' own recursive serialization and destruction overflow in a
-    /// debug build: an implication whose antecedent constrains `next` by 3,001 negations of
-    /// `\top`, which is `\bottom`, is vacuously valid and echoes the antecedent as written.
+    /// thread: an implication whose antecedent constrains `next` by 30,001 negations of `\top`,
+    /// which is `\bottom`, is vacuously valid and echoes the antecedent as written. The values'
+    /// own recursive serialization and destruction overflow that thread optimized or not: in
+    /// the `dev` profile (opt-level 1) serialization alone overflows it from about 8,500 levels
+    /// and destruction alone from under 6,000, and unoptimized each from under 2,000.
     #[test]
     fn deep_responses_are_written_without_recursion() {
         std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
                 let mut service = service();
-                let levels = 3_001;
+                let levels = 30_001;
                 let sort = r#"{"tag":"SortApp","name":"SortState","args":[]}"#;
                 let next = r#"{"tag":"App","name":"next","sorts":[],"args":[]}"#;
                 let negations = format!(

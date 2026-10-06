@@ -14,7 +14,11 @@ use std::{
 
 use serde_json::Value;
 
-const MODULES: usize = 10;
+/// Modules of the chain. The bound allows 10% of the compile plus a fixed 0.25 s, so the
+/// compile must be long next to 0.25 s for the bound to stay near 10%: 30 modules take about
+/// 5 s at opt-level 1 (the `dev` profile), where an unattributed stretch of about 13% of the
+/// compile fails the bound. Ten modules take about 1 s there and let about 30% through.
+const MODULES: usize = 30;
 const SORTS_PER_MODULE: usize = 8;
 const RULES_PER_MODULE: usize = 12;
 

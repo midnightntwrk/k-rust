@@ -687,6 +687,9 @@ See [finding structural optimizations](docs/optimization-method.md) for the meas
 The workspace requires Rust 1.88 or newer.
 CI checks all targets with the locked dependency graph on exactly Rust 1.88 so source and dependency changes cannot silently exceed the declared minimum supported Rust version.
 
+The `dev` profile, which `cargo build` and `cargo test` use, compiles the workspace at opt-level 1 with line tables only and its dependencies at opt-level 3; debug assertions and overflow checks stay on, so every test still runs the debug-only invariant checks.
+For a debugger session that shows local variables, use the `debugging` profile, which compiles the workspace unoptimized with full debug information (dependencies stay optimized): `cargo build --profile debugging` writes `target/debugging`, and `cargo test --profile debugging` runs the tests that way.
+
 CI runs the release-independent gates on every push and pull request:
 
 ```console

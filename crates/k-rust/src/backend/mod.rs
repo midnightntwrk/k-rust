@@ -3597,9 +3597,10 @@ endmodule
     }
 
     /// A request deeper than the largest stack the backend provides is refused with
-    /// `InsufficientStack` on every route before any pass over it runs. One term about 175,000
-    /// levels deep (a million in a release build) is held at a time; in a debug build the test
-    /// peaks under 300 MB of resident memory and takes a few seconds.
+    /// `InsufficientStack` on every route before any pass over it runs. One term that deep (about
+    /// 700,000 levels at opt-level 1, a million in a release build, 175,000 unoptimized) is held
+    /// at a time; at opt-level 1 the test peaks at about 930 MB of resident memory and takes about
+    /// 8 s.
     #[test]
     fn requests_deeper_than_the_backend_provides_for_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3621,9 +3622,9 @@ endmodule
     /// A module whose axiom is a `\not` chain beyond what Node's main thread holds is added
     /// when the chain is a well-formed predicate and is the ordinary error of its fault when it
     /// is over a symbol the definition does not declare; a chain deeper than the backend
-    /// provides for is refused with `InsufficientStack`. One module of a few MB of text is held
-    /// at a time; in a debug build the test peaks under 300 MB of resident memory and takes a
-    /// few seconds.
+    /// provides for is refused with `InsufficientStack`. One module of up to about 10 MB of text
+    /// is held at a time; at opt-level 1 the test peaks at about 450 MB of resident memory and
+    /// takes a few seconds.
     #[test]
     fn deep_modules_are_loaded_or_ordinary_errors() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3772,9 +3773,9 @@ endmodule
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary
     /// conjunctions, so a wide request is deep inside the backend: 50,000 conjuncts execute on
     /// Node's main thread, and 200,000 execute as well where the backend provides the stack
-    /// for them (a release build) and are otherwise refused, never overflowing the thread. In a
-    /// debug build the requests take about 10 MB of text each, the test touches about 15 MB of
-    /// stack, and takes a few seconds.
+    /// for them (an optimized build) and are otherwise refused, never overflowing the thread.
+    /// The requests take about 10 MB of text each; at opt-level 1 the test peaks at about 300 MB
+    /// of resident memory and takes under a second.
     #[test]
     fn wide_conjunctions_execute_or_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3794,6 +3795,94 @@ endmodule
                     let error = outcome.unwrap_err();
                     assert!(error.to_string().contains("InsufficientStack"), "{error}");
                 }
+            }
+        });
+    }
+
+    /// Ground functions whose simplification descends once per level of the term: `f` and `h`
+    /// have no equations, `g` moves under each `w` it meets, and `len` counts a `cons` list,
+    /// adding with the `INT.add` hook on the way back up.
+    const FUNCTION_CHAINS: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            sort SortL{} []
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol a{}() : SortS{} [constructor{}(), functional{}()]
+            symbol w{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
+            symbol nil{}() : SortL{} [constructor{}(), functional{}()]
+            symbol cons{}(SortS{}, SortL{}) : SortL{} [constructor{}(), functional{}()]
+            symbol f{}(SortS{}) : SortS{} [function{}(), total{}()]
+            symbol h{}(SortS{}, SortS{}) : SortS{} [function{}(), total{}()]
+            symbol g{}(SortS{}) : SortS{} [function{}(), total{}()]
+            symbol len{}(SortL{}) : SortInt{} [function{}(), total{}()]
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, w{}(X:SortS{})), \top{R}())),
+                \equals{SortS{}, R}(g{}(X0:SortS{}), \and{SortS{}}(w{}(g{}(X:SortS{})), \top{SortS{}}()))
+            ) [label{}("g-w")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, nil{}()), \top{R}())),
+                \equals{SortInt{}, R}(len{}(X0:SortL{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+            ) [label{}("len-nil")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortL{}, R}(X0:SortL{}, cons{}(H:SortS{}, T:SortL{})), \top{R}())),
+                \equals{SortInt{}, R}(
+                    len{}(X0:SortL{}),
+                    \and{SortInt{}}(intAdd{}(\dv{SortInt{}}("1"), len{}(T:SortL{})), \top{SortInt{}}())
+                )
+            ) [label{}("len-cons")]
+        endmodule []"#;
+
+    /// The KORE JSON term of `levels` nested applications of `symbol` around `leaf`, each with
+    /// the arguments `before` ahead of the nested one and `after` behind it.
+    fn nested(levels: usize, symbol: &str, before: &str, after: &str, leaf: &str) -> String {
+        let open = format!(r#"{{"tag":"App","name":"{symbol}","sorts":[],"args":[{before}"#);
+        let close = format!("{after}]}}");
+        format!("{}{leaf}{}", open.repeat(levels), close.repeat(levels))
+    }
+
+    /// The simplifier descends once per level of these terms, so its frames are among the passes
+    /// over internal terms that the stack the backend provides per level must hold. At 5,000
+    /// levels each request needs more than Node's main thread in every build (the simplifier
+    /// takes about 3 KiB per level in a release build), so the facade runs it on a segment of
+    /// exactly the size `nesting::stack_for_depth` gives for its height: a simplifier whose
+    /// frames per level outgrew the bound stops with `StackExhausted` there, which the exact
+    /// results rule out, or overflows the segment and aborts the test binary. At opt-level 1 each
+    /// request touches about 20 MB of stack and the test takes about a second.
+    #[test]
+    fn deep_function_chains_simplify_on_the_stack_the_backend_provides() {
+        on_thread(NODE_MAIN_STACK, || {
+            let mut backend =
+                Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::default()).unwrap();
+            let envelope = |term: &str| format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
+            let levels = 5_000;
+            let a = nested(1, "a", "", "", "");
+            let nil = nested(1, "nil", "", "", "");
+            let chain = nested(levels, "f", "", "", &a);
+            let binary = nested(levels, "h", "", &format!(",{a}"), &a);
+            let g_over_w = nested(1, "g", "", "", &nested(levels, "w", "", "", &a));
+            let w_over_g = nested(levels, "w", "", "", &nested(1, "g", "", "", &a));
+            let list = nested(levels, "cons", &format!("{a},"), "", &nil);
+            let len = nested(1, "len", "", "", &list);
+            let count = format!(
+                r#"{{"tag":"DV","sort":{{"tag":"SortApp","name":"SortInt","args":[]}},"value":"{levels}"}}"#
+            );
+            for (name, request, expected) in [
+                ("f", &chain, &chain),
+                ("h", &binary, &binary),
+                ("g over w", &g_over_w, &w_over_g),
+                ("len", &len, &count),
+            ] {
+                let request = deserialize_request::<PatternRequest>(&format!(
+                    r#"{{"state":{}}}"#,
+                    envelope(request)
+                ))
+                .unwrap();
+                let simplified = backend
+                    .simplify_json(request)
+                    .unwrap_or_else(|error| panic!("{name}: {error}"));
+                assert!(same_kore(&simplified, &envelope(expected)), "{name}");
             }
         });
     }
