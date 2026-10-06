@@ -4248,8 +4248,6 @@ fn executed_kore_matches_the_reference_backend() {
     let reference_path =
         env::var("K_REFERENCE_EXECUTION").expect("K_REFERENCE_EXECUTION is required");
     let actual_path = env::var("K_RUST_EXECUTION").expect("K_RUST_EXECUTION is required");
-    let reference_source = fs::read_to_string(&reference_path).unwrap();
-    let actual_source = fs::read_to_string(&actual_path).unwrap();
     // N4: with the initial pattern at hand every result variable that is not free in it carries an
     // engine-chosen name (rule variables the reference leaves free, AC remainders, the port's
     // externalized fresh names); without it only the generated name shapes are canonicalized.
@@ -4270,8 +4268,8 @@ fn executed_kore_matches_the_reference_backend() {
         (None, None) => GeneratedNames::shapes(),
     };
     let reference =
-        normalize_execution_pattern_with(parse_pattern(&reference_source).unwrap(), &names);
-    let actual = normalize_execution_pattern_with(parse_pattern(&actual_source).unwrap(), &names);
+        normalize_execution_pattern_with(read_execution_result(&reference_path), &names);
+    let actual = normalize_execution_pattern_with(read_execution_result(&actual_path), &names);
 
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
@@ -4315,6 +4313,88 @@ fn executed_kore_matches_the_reference_backend() {
         (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
     result.unwrap_or_else(|error| panic!("{error}"));
+}
+
+/// An execution result file: KORE text, or the KORE JSON envelope (`format`, `version`, `term`)
+/// when the path ends in `.json`, the form of the `state` of an RPC response, so a result an RPC
+/// server returned is compared without a conversion step.
+fn read_execution_result(path: &str) -> Pattern {
+    let source = fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}"));
+    if path.ends_with(".json") {
+        k_rust::kore::json::from_str(&source)
+            .unwrap_or_else(|error| panic!("{path} is not a KORE JSON pattern: {error}"))
+    } else {
+        parse_pattern(&source)
+            .unwrap_or_else(|error| panic!("{path} is not a KORE pattern: {error}"))
+    }
+}
+
+/// The execution comparator entry point reads a reference result in KORE JSON when its path ends
+/// in `.json`: the same pattern in JSON and in text compares equal to a port result, and a JSON
+/// reference that differs still fails. Runs this test binary's ignored comparator.
+#[test]
+fn execution_comparator_reads_a_kore_json_reference_result() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-execution-json-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let write = |name: &str, text: &str| {
+        let path = directory.join(name);
+        fs::write(&path, text).unwrap();
+        path
+    };
+    let pattern = r#"\or{S{}}(t{}(\dv{SortInt{}}("1")), t{}(\dv{SortInt{}}("2")))"#;
+    let json =
+        |pattern: &str| k_rust::kore::json::to_string(&parse_pattern(pattern).unwrap()).unwrap();
+    let port = write("port.kore", pattern);
+    let reference = write("reference.json", &json(pattern));
+    let differing = write(
+        "differing.json",
+        &json(r#"\or{S{}}(t{}(\dv{SortInt{}}("1")), t{}(\dv{SortInt{}}("3")))"#),
+    );
+    let bottom = write("bottom.json", &json(r"\bottom{S{}}()"));
+    let port_bottom = write("port-bottom.kore", r"\bottom{S{}}()");
+    let compare = |reference: &Path, actual: &Path| {
+        Command::new(env::current_exe().unwrap())
+            .args([
+                "--quiet",
+                "--ignored",
+                "--exact",
+                "executed_kore_matches_the_reference_backend",
+            ])
+            .env("K_REFERENCE_EXECUTION", reference)
+            .env("K_RUST_EXECUTION", actual)
+            .env_remove("K_DIFFERENTIAL_DEFINITION")
+            .env_remove("K_DIFFERENTIAL_INITIAL_PATTERN")
+            .env_remove("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
+            .env_remove("K_DIFFERENTIAL_STRATEGY")
+            .env_remove("K_DIFFERENTIAL_ORACLE_EXCLUSION")
+            .output()
+            .unwrap()
+    };
+    for (reference, actual, equal) in [
+        (&reference, &port, true),
+        (&differing, &port, false),
+        (&bottom, &port_bottom, true),
+        (&bottom, &port, false),
+    ] {
+        let output = compare(reference, actual);
+        assert_eq!(
+            output.status.success(),
+            equal,
+            "{} against {}: {}{}",
+            reference.display(),
+            actual.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fs::remove_dir_all(directory).unwrap();
 }
 
 /// N10: the execution gate refuses an oracle exception whose committed k-rust expectation the
