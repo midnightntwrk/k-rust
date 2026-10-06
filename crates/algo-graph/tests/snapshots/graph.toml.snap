@@ -6521,7 +6521,7 @@ id = "parser.earley.recognize"
 provenance = "declared"
 area = "parser"
 name = "agenda-driven Earley recognition"
-variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; u = (chart, production, next token) and (chart, production) pairs whose usefulness the completion lookahead decides, each once, by a search over the waiting items of the charts it reaches"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserEarleyRecognize"
@@ -6561,9 +6561,24 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::parse_with_context_and_diagnostic_provenance"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::advanced_item_useful"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::completion_useful"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::node_reaches_root"
+
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d)"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
@@ -6574,8 +6589,8 @@ mode = "one failed parse attempt whose recognition removed a derivation for a pr
 bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
 
 [[node.cost]]
-mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
-bound = "at most two parse attempts"
+mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
+bound = "at most two parse attempts; the retry makes every prediction and skips completions as the filtered attempt does before the last chart it reached"
 
 [[node]]
 kind = "algorithm"
@@ -7210,7 +7225,7 @@ id = "parser.prediction.first_sets"
 provenance = "declared"
 area = "parser"
 name = "scanner-identity FIRST-set analysis by monotone propagation"
-variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
+variable = "S = sorts; L = lexemes; R = worklist re-enqueues; I = total production items"
 table = "Algorithm::ALL"
 registry_name = "ParserPredictionFirstSets"
 
@@ -7226,7 +7241,7 @@ symbol = "PredictionAnalysis::new"
 
 [[node.cost]]
 mode = "one grammar"
-bound = "O(S x L x R)"
+bound = "O(S x L x R) plus O(I x L) for the FIRST sets and nullability of each production's item suffixes"
 
 [[node]]
 kind = "algorithm"

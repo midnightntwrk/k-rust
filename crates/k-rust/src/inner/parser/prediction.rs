@@ -14,12 +14,12 @@
 //! id = "parser.prediction.first_sets"
 //! name = "scanner-identity FIRST-set analysis by monotone propagation"
 //! sites = ["PredictionAnalysis::new"]
-//! variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
+//! variable = "S = sorts; L = lexemes; R = worklist re-enqueues; I = total production items"
 //! counters = ["ParserPredictionAnalysisBuilds"]
 //!
 //! [[cost]]
 //! mode = "one grammar"
-//! bound = "O(S x L x R)"
+//! bound = "O(S x L x R) plus O(I x L) for the FIRST sets and nullability of each production's item suffixes"
 //! ```
 //!
 //! Epsilon-nullability and scanner-identity FIRST sets for immutable grammar snapshots.
@@ -28,6 +28,8 @@
 //! is O(sorts * lexemes * re-enqueues) and runs once per grammar, counted by
 //! `Counter::ParserPredictionAnalysisBuilds`. Filtered prediction visits only nonlexical-first
 //! productions and the lexical bucket for the scanner winner while retaining declaration order.
+//! The FIRST sets and nullability of each production's item suffixes decide whether an item a
+//! completion advances can continue with the next token (`Grammar::advanced_item_useful`).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -138,6 +140,18 @@ pub(super) struct PredictionAnalysis {
     epsilon: Vec<bool>,
     first: Vec<LexemeSet>,
     buckets: Vec<PredictionBucket>,
+    /// For each active production and each dot position, what the items from the dot to the end
+    /// can begin with; `None` for a production the predictor never adds.
+    rests: Vec<Option<ProductionRests>>,
+}
+
+/// The FIRST sets and nullability of the suffixes of one production's items.
+#[derive(Clone, Debug)]
+struct ProductionRests {
+    /// `first[dot]`: the lexemes the items from `dot` on can begin with.
+    first: Vec<LexemeSet>,
+    /// `nullable[dot]`: whether the items from `dot` on can all match the empty string.
+    nullable: Vec<bool>,
 }
 
 impl PredictionAnalysis {
@@ -270,12 +284,68 @@ impl PredictionAnalysis {
                 }
             }
         }
+        // The suffix tables, from each production's end backward: a nonterminal adds its FIRST
+        // set and passes the rest's on when it is nullable; a lexical item, mandatory even when
+        // its match is empty, ends the suffix's FIRST set there.
+        let mut rests = vec![None; grammar.productions.len()];
+        for (index, (_, items)) in grammar.by_result.iter().flatten().zip(&productions) {
+            let mut first_sets = vec![LexemeSet::default(); items.len() + 1];
+            let mut nullable = vec![true; items.len() + 1];
+            for (dot, item) in items.iter().enumerate().rev() {
+                match item {
+                    Symbol::NonTerminal(child) => {
+                        let mut set = first[*child].clone();
+                        if epsilon[*child] {
+                            set.union_with(&first_sets[dot + 1]);
+                            nullable[dot] = nullable[dot + 1];
+                        } else {
+                            nullable[dot] = false;
+                        }
+                        first_sets[dot] = set;
+                    }
+                    Symbol::Lexical(lexeme) => {
+                        if let Some(lexeme) = lexeme {
+                            first_sets[dot].insert(*lexeme);
+                        }
+                        nullable[dot] = false;
+                    }
+                }
+            }
+            rests[*index] = Some(ProductionRests {
+                first: first_sets,
+                nullable,
+            });
+        }
         Self {
             first_items,
             epsilon,
             first,
             buckets,
+            rests,
         }
+    }
+
+    /// Whether the items of `production` from `dot` on can begin with the lexeme `winner`, the
+    /// token the scanner reads next; `true` for a production the analysis does not cover.
+    pub(super) fn rest_can_start_with(
+        &self,
+        production: usize,
+        dot: usize,
+        winner: Option<usize>,
+    ) -> bool {
+        match self.rests.get(production).and_then(Option::as_ref) {
+            Some(rests) => winner.is_some_and(|winner| rests.first[dot].contains(winner)),
+            None => true,
+        }
+    }
+
+    /// Whether the items of `production` from `dot` on can all match the empty string; `true`
+    /// for a production the analysis does not cover.
+    pub(super) fn rest_is_nullable(&self, production: usize, dot: usize) -> bool {
+        self.rests
+            .get(production)
+            .and_then(Option::as_ref)
+            .is_none_or(|rests| rests.nullable[dot])
     }
 
     pub(super) fn candidates(
@@ -346,7 +416,7 @@ mod tests {
     use super::super::{
         CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, PARSE_ATTEMPTS,
         PREDICTION_ANALYSIS_BUILDS, ParseContext, ParseError, ParseProvenance, PredictionMode,
-        ScanWinner, SourceId, Term, TermMetadata,
+        Pruning, ScanWinner, SourceId, Term, TermMetadata,
     };
     use super::*;
     use crate::definition::{
@@ -405,7 +475,7 @@ mod tests {
                 diagnostic_provenance: true,
             },
             PredictionMode::Unfiltered,
-            &mut false,
+            &mut Pruning::default(),
         )
     }
 
@@ -600,6 +670,54 @@ mod tests {
             prop_assert_eq!(actual, expected);
             prop_assert_eq!(excluded, terminal_skipped);
             prop_assert_eq!(indexed_nonterminal_skipped, nonterminal_skipped);
+        }
+
+        /// Skipping completions that cannot contribute to a parse keeps every parse and every
+        /// error: on random recursive grammars with associativity declarations, a parse
+        /// (filtered, and retried when it fails having skipped anything) gives what one
+        /// unfiltered recognition gives, the forest, its metadata, and the error alike.
+        #[test]
+        fn completion_pruning_matches_unfiltered_recognition(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..6, 0..4), 0u8..4),
+                1..9,
+            ),
+            input in "[ab ]{0,9}",
+        ) {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items, associativity)) in productions.iter().enumerate() {
+                let label = format!("p{index}");
+                let items = items
+                    .iter()
+                    .map(|item| match item {
+                        0..=2 => nt(&format!("S{item}")),
+                        3 => terminal("a"),
+                        4 => terminal("b"),
+                        _ => nt("S0"),
+                    })
+                    .collect();
+                sentences.push(production(&format!("S{result}"), items, &label));
+                let associativity = match associativity {
+                    0 => continue,
+                    1 => crate::definition::Associativity::Left,
+                    2 => crate::definition::Associativity::Right,
+                    _ => crate::definition::Associativity::NonAssoc,
+                };
+                sentences.push(Sentence::SyntaxAssociativity {
+                    associativity,
+                    tags: vec![label],
+                    attributes: Attributes::default(),
+                });
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            let filtered = filtered(&grammar, &input);
+            let unfiltered = unfiltered(&grammar, &input);
+            if let (Ok(filtered), Ok(unfiltered)) = (&filtered, &unfiltered) {
+                prop_assert_eq!(metadata(filtered), metadata(unfiltered));
+            }
+            prop_assert_eq!(filtered, unfiltered);
         }
 
         #[test]

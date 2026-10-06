@@ -1,14 +1,14 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance"]
-//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
+//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root"]
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; u = (chart, production, next token) and (chart, production) pairs whose usefulness the completion lookahead decides, each once, by a search over the waiting items of the charts it reaches"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d)"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -19,8 +19,8 @@
 //! bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
 //!
 //! [[cost]]
-//! mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts"
+//! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
+//! bound = "at most two parse attempts; the retry makes every prediction and skips completions as the filtered attempt does before the last chart it reached"
 //! ```
 //!
 //! ```toml algorithm
@@ -115,7 +115,7 @@ use self::grammar::{render_added_production, render_production};
 
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -192,10 +192,51 @@ struct ParseContext {
     diagnostic_provenance: bool,
 }
 
+/// Which work a recognition may skip because it cannot contribute to a parse.
+///
+/// The scanner is deterministic: the only token any item can scan at a position is the
+/// scanner's winner there. A prediction whose production cannot begin with that token, and a
+/// completion whose callers can continue neither with it nor through a nullable rest to a
+/// caller that can, are part of no parse of the input. Skipping them leaves every parse, and
+/// so the forest of a successful attempt, as it is; it does change what a failed attempt's
+/// diagnostic reads (the items of its last chart), so a failed attempt that skipped anything is
+/// retried with `Retry` (`Grammar::parse_with_context_and_diagnostic_provenance`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PredictionMode {
+    /// Skip predictions and completions that cannot contribute to a parse.
     Filtered,
+    /// Make every prediction and completion.
     Unfiltered,
+    /// Make every prediction, and skip completions that cannot contribute to a parse only
+    /// where the next token starts before `horizon`: the last chart a failed `Filtered` attempt
+    /// reached, which is the chart its no-parse diagnostic reads. Every scan of an unfiltered
+    /// recognition is made by an item that can contribute, so that chart is the same in every
+    /// mode. An item a completion adds is relocated to the position of the next token, so
+    /// nothing skipped where the next token starts before the horizon can reach its chart, and
+    /// its items are those of `Unfiltered`.
+    Retry { horizon: usize },
+}
+
+impl PredictionMode {
+    /// Whether completions that cannot contribute to a parse are skipped where the next token
+    /// starts at `position`.
+    fn prunes_completions_at(self, position: usize) -> bool {
+        match self {
+            Self::Filtered => true,
+            Self::Unfiltered => false,
+            Self::Retry { horizon } => position < horizon,
+        }
+    }
+}
+
+/// What a parse attempt skipped, for the decision to retry it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Pruning {
+    /// Whether the attempt skipped a prediction or a completion an unfiltered attempt makes.
+    pub(super) pruned: bool,
+    /// The last non-empty chart of the attempt's recognition of the whole input under the
+    /// priority and associativity relations, when it found no parse.
+    pub(super) furthest: Option<usize>,
 }
 
 /// Whether recognition drops the derivations that the priority and associativity relations rule
@@ -1047,20 +1088,27 @@ impl Grammar {
             provenance,
             diagnostic_provenance,
         };
-        let mut pruned = false;
-        let result =
-            self.parse_attempt(start, input, context, PredictionMode::Filtered, &mut pruned);
+        let mut pruning = Pruning::default();
+        let result = self.parse_attempt(
+            start,
+            input,
+            context,
+            PredictionMode::Filtered,
+            &mut pruning,
+        );
         // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
         // pipeline so every error, including inference and ambiguity errors, stays unchanged.
-        // Invariant: an unfiltered retry occurs exactly when the filtered recognizer pruned at
-        // least one prediction, and it reruns the complete pipeline with the same context.
-        if result.is_err() && pruned {
+        // Invariant: a retry occurs exactly when the filtered recognizer pruned at least one
+        // prediction or completion, and it reruns the complete pipeline with the same context,
+        // skipping completions only before the last chart the filtered recognition reached.
+        if result.is_err() && pruning.pruned {
+            let horizon = pruning.furthest.unwrap_or(0);
             self.parse_attempt(
                 start,
                 input,
                 context,
-                PredictionMode::Unfiltered,
-                &mut pruned,
+                PredictionMode::Retry { horizon },
+                &mut Pruning::default(),
             )
         } else {
             result
@@ -1073,7 +1121,7 @@ impl Grammar {
         input: &str,
         context: ParseContext,
         prediction_mode: PredictionMode,
-        pruned: &mut bool,
+        pruning: &mut Pruning,
     ) -> Result<Term, ParseError> {
         let ParseContext {
             is_anywhere,
@@ -1108,11 +1156,12 @@ impl Grammar {
             provenance,
             prediction_mode,
             PriorityFilter::Enforced,
-            pruned,
+            &mut pruning.pruned,
             &mut scanner_cache,
             &priority_memos,
         )?;
         if parses.is_empty() {
+            pruning.furthest = charts.iter().rposition(|chart| !chart.states.is_empty());
             return Err(match first_violation {
                 None => self.no_parse(
                     input,
@@ -1130,7 +1179,7 @@ impl Grammar {
                         input,
                         context,
                         prediction_mode,
-                        pruned,
+                        &mut pruning.pruned,
                         &mut scanner_cache,
                     )
                 }
@@ -1239,6 +1288,17 @@ impl Grammar {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
+        let completion_analysis = (prediction_mode != PredictionMode::Unfiltered).then(|| {
+            self.prediction_analysis
+                .get_or_init(|| PredictionAnalysis::new(self))
+        });
+        // Whether a completion over `[origin, position]` of a production is useful when the
+        // scanner's next token is `winner`, by `(origin, production, winner)`.
+        let mut useful_completions = HashMap::new();
+        // Whether a node of a production starting in a chart can be part of a parse of the whole
+        // input, whatever follows, by `(origin, production)`.
+        let mut reaching_nodes = HashMap::new();
+        let root = (start_position, start_id);
         let cycles = self
             .same_span_cycles
             .get_or_init(|| SameSpanCycles::new(self));
@@ -1263,6 +1323,10 @@ impl Grammar {
         for position in start_position..=input.len() {
             // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
             let mut canonical_position = None;
+            // The lexeme of the token the scanner reads next, once a completion here asks for
+            // it: `Some(None)` where no token follows, and `None` until asked or at the end of
+            // the input, where nothing is skipped.
+            let mut lookahead: Option<Option<Option<usize>>> = None;
             // Invariant: every queued state has new derivation information not yet dispatched;
             // processing either advances it or monotonically grows a chart state.
             while let Some(state) = charts[position].agenda.pop_front() {
@@ -1497,9 +1561,33 @@ impl Grammar {
                         if first_violation.is_none() && !invalid.is_empty() {
                             first_violation = Some(canonical_packed_error(invalid));
                         }
+                        // A nonempty completion before the horizon advances only the callers
+                        // whose advanced item can contribute to a parse (`PredictionMode`).
+                        let winner = match completion_analysis {
+                            Some(_)
+                                if state.origin < position
+                                    && prediction_mode.prunes_completions_at(canonical) =>
+                            {
+                                *lookahead.get_or_insert_with(|| {
+                                    (canonical < input.len()).then(|| {
+                                        match self.scanner.winner(
+                                            &self.layout,
+                                            input,
+                                            canonical,
+                                            &mut scanner_cache[canonical],
+                                        ) {
+                                            Some(ScanWinner::Token { lexeme, .. }) => Some(lexeme),
+                                            Some(ScanWinner::Layout { .. }) | None => None,
+                                        }
+                                    })
+                                })
+                            }
+                            _ => None,
+                        };
                         let mut advance = |chart: &mut Chart,
                                            caller: State,
-                                           caller_derivations: &Derivations|
+                                           caller_derivations: &Derivations,
+                                           earlier: Option<&[Chart]>|
                          -> Result<(), ParseError> {
                             #[cfg(test)]
                             update_chart_work_counters(|counters| {
@@ -1512,6 +1600,28 @@ impl Grammar {
                                 filter,
                                 &mut first_violation,
                             );
+                            let advanced = State {
+                                dot: caller.dot + 1,
+                                ..caller
+                            };
+                            if let (Some(analysis), Some(winner), Some(earlier)) =
+                                (completion_analysis, winner, earlier)
+                                && !completed.is_empty()
+                                && !self.advanced_item_useful(
+                                    earlier,
+                                    advanced,
+                                    winner,
+                                    analysis,
+                                    cycles,
+                                    filter,
+                                    root,
+                                    &mut useful_completions,
+                                    &mut reaching_nodes,
+                                )
+                            {
+                                *pruned = true;
+                                return Ok(());
+                            }
                             if !completed.is_empty() {
                                 self.add_chart_extensions(
                                     chart,
@@ -1537,7 +1647,12 @@ impl Grammar {
                                 .flatten()
                             {
                                 if let Some(caller_derivations) = origin.states.get(caller) {
-                                    advance(&mut later[0], *caller, caller_derivations)?;
+                                    advance(
+                                        &mut later[0],
+                                        *caller,
+                                        caller_derivations,
+                                        Some(&*earlier),
+                                    )?;
                                 }
                             }
                         } else {
@@ -1556,7 +1671,7 @@ impl Grammar {
                                 })
                                 .collect::<Vec<_>>();
                             for (caller, caller_derivations) in callers {
-                                advance(&mut charts[position], caller, &caller_derivations)?;
+                                advance(&mut charts[position], caller, &caller_derivations, None)?;
                             }
                         }
                     }
@@ -1614,6 +1729,248 @@ impl Grammar {
     /// would occupy. Rejecting those boundaries before the caller packs its derivations keeps a
     /// long associative chain from expanding into a Catalan-sized forest. Every other boundary
     /// check waits for the priority pass over the completed caller.
+    /// Whether `advanced`, an item a nonempty completion ending at the current position
+    /// advances, can contribute to a parse when the scanner's next token is the lexeme `winner`
+    /// (`None` where no token follows): its remaining items can begin with that token, or they
+    /// can all match the empty string and the completion of its production is useful
+    /// ([`Self::completion_useful`]). `earlier` holds the charts before the current position,
+    /// which are final.
+    #[allow(clippy::too_many_arguments)]
+    fn advanced_item_useful(
+        &self,
+        earlier: &[Chart],
+        advanced: State,
+        winner: Option<usize>,
+        analysis: &PredictionAnalysis,
+        cycles: &SameSpanCycles,
+        filter: PriorityFilter,
+        root: (usize, usize),
+        memo: &mut HashMap<(usize, usize, Option<usize>), bool>,
+        reaching: &mut HashMap<(usize, usize), bool>,
+    ) -> bool {
+        if analysis.rest_can_start_with(advanced.production, advanced.dot, winner) {
+            return self.node_reaches_root(
+                earlier,
+                advanced.origin,
+                advanced.production,
+                cycles,
+                filter,
+                root,
+                reaching,
+            );
+        }
+        analysis.rest_is_nullable(advanced.production, advanced.dot)
+            && self.completion_useful(
+                earlier,
+                advanced.origin,
+                advanced.production,
+                winner,
+                analysis,
+                cycles,
+                filter,
+                root,
+                memo,
+                reaching,
+            )
+    }
+
+    /// Whether a node of `production` starting in chart `origin` can be part of a parse of the
+    /// whole input, whatever input follows it: it is a node of the start sort at the start, or
+    /// some item waiting for its sort in chart `origin` admits it at its dot
+    /// ([`Self::boundary_admits`]) and that item's own node can. This is what the associativity
+    /// relations decide of a chain: under `E ::= E "+" E [left]`, a sum starting after the first
+    /// operand can only become the right operand of a sum, which the relation forbids, so its
+    /// items are part of no parse. A production on a same-span or productive unary cycle can,
+    /// as in [`Self::completion_useful`].
+    ///
+    /// The answer depends only on `(origin, production)` and the final chart `origin`; it is
+    /// memoized in `memo` and searched with an explicit stack, as there.
+    #[allow(clippy::too_many_arguments)]
+    fn node_reaches_root(
+        &self,
+        earlier: &[Chart],
+        origin: usize,
+        production: usize,
+        cycles: &SameSpanCycles,
+        filter: PriorityFilter,
+        root: (usize, usize),
+        memo: &mut HashMap<(usize, usize), bool>,
+    ) -> bool {
+        if let Some(reaches) = memo.get(&(origin, production)) {
+            return *reaches;
+        }
+        let reaches_by_itself = |origin: usize, production: usize| {
+            (origin, self.productions[production].result_id) == root
+                || cycles.contains(production)
+                || self.productive_unary_cycles.contains(&production)
+        };
+        let mut visited = HashSet::from([(origin, production)]);
+        let mut stack = vec![(origin, production, 0usize)];
+        // Invariant: `stack` is a chain of nodes, each admitted by an item waiting for it whose
+        // node is the next; `visited` holds every node pushed, and the third component counts
+        // the waiting items of each already examined.
+        let found = 'search: loop {
+            let Some((origin, production, next_caller)) = stack.last_mut() else {
+                break 'search false;
+            };
+            if *next_caller == 0 && reaches_by_itself(*origin, *production) {
+                break 'search true;
+            }
+            let callers = earlier[*origin]
+                .waiting
+                .get(&self.productions[*production].result_id)
+                .map_or(&[][..], Vec::as_slice);
+            let Some(caller) = callers.get(*next_caller).copied() else {
+                stack.pop();
+                continue;
+            };
+            *next_caller += 1;
+            if !self.boundary_admits(caller, *production, filter) {
+                continue;
+            }
+            match memo.get(&(caller.origin, caller.production)) {
+                Some(true) => break 'search true,
+                Some(false) => {}
+                None => {
+                    if visited.insert((caller.origin, caller.production)) {
+                        stack.push((caller.origin, caller.production, 0));
+                    }
+                }
+            }
+        };
+        if found {
+            for (origin, production, _) in stack {
+                memo.insert((origin, production), true);
+            }
+        } else {
+            for node in visited {
+                memo.insert(node, false);
+            }
+        }
+        found
+    }
+
+    /// Whether a completion of `production` over `[origin, here]` can contribute to a parse
+    /// when the scanner's next token is the lexeme `winner`: some item waiting for its sort in
+    /// chart `origin` admits a node of it (the associativity boundary of
+    /// [`Self::filter_associative_boundary`], decided from the production's parse label; a
+    /// production without its own label is admitted) and its advanced item is useful
+    /// ([`Self::advanced_item_useful`]). A production that can take part in a same-span or
+    /// productive unary cycle is useful, so that a recognition raises the cycle errors an
+    /// unfiltered one raises. An item that can continue with `winner` counts only when its
+    /// node can be part of a parse of the whole input ([`Self::node_reaches_root`]).
+    ///
+    /// The answer depends only on `(origin, production, winner)` and the final chart `origin`,
+    /// so it is memoized in `memo`. The search over the chain of callers uses an explicit
+    /// stack; when it finds no useful item, no item it visited reaches one, and all of them are
+    /// recorded as useless.
+    #[allow(clippy::too_many_arguments)]
+    fn completion_useful(
+        &self,
+        earlier: &[Chart],
+        origin: usize,
+        production: usize,
+        winner: Option<usize>,
+        analysis: &PredictionAnalysis,
+        cycles: &SameSpanCycles,
+        filter: PriorityFilter,
+        root: (usize, usize),
+        memo: &mut HashMap<(usize, usize, Option<usize>), bool>,
+        reaching: &mut HashMap<(usize, usize), bool>,
+    ) -> bool {
+        if let Some(useful) = memo.get(&(origin, production, winner)) {
+            return *useful;
+        }
+        let mut visited = HashSet::from([(origin, production)]);
+        let mut stack = vec![(origin, production, 0usize)];
+        // Invariant: `stack` is a chain of completions, each of which some caller of the one
+        // before it would complete through a nullable rest; `visited` holds every completion
+        // pushed, and the third component counts the callers of each already examined.
+        let found = 'search: loop {
+            let Some((origin, production, next_caller)) = stack.last_mut() else {
+                break 'search false;
+            };
+            if *next_caller == 0
+                && (cycles.contains(*production)
+                    || self.productive_unary_cycles.contains(production))
+            {
+                break 'search true;
+            }
+            let callers = earlier[*origin]
+                .waiting
+                .get(&self.productions[*production].result_id)
+                .map_or(&[][..], Vec::as_slice);
+            let Some(caller) = callers.get(*next_caller).copied() else {
+                stack.pop();
+                continue;
+            };
+            *next_caller += 1;
+            if !self.boundary_admits(caller, *production, filter) {
+                continue;
+            }
+            let dot = caller.dot + 1;
+            if analysis.rest_can_start_with(caller.production, dot, winner)
+                && self.node_reaches_root(
+                    earlier,
+                    caller.origin,
+                    caller.production,
+                    cycles,
+                    filter,
+                    root,
+                    reaching,
+                )
+            {
+                break 'search true;
+            }
+            if !analysis.rest_is_nullable(caller.production, dot) {
+                continue;
+            }
+            match memo.get(&(caller.origin, caller.production, winner)) {
+                Some(true) => break 'search true,
+                Some(false) => {}
+                None => {
+                    if visited.insert((caller.origin, caller.production)) {
+                        stack.push((caller.origin, caller.production, 0));
+                    }
+                }
+            }
+        };
+        if found {
+            for (origin, production, _) in stack {
+                memo.insert((origin, production, winner), true);
+            }
+        } else {
+            for (origin, production) in visited {
+                memo.insert((origin, production, winner), false);
+            }
+        }
+        found
+    }
+
+    /// Whether [`Self::filter_associative_boundary`] keeps a node built by `child` as the
+    /// child of `caller` at its dot, judged from `child`'s own parse label; a production
+    /// without one passes its child's label up, which is not known here, so it is kept.
+    fn boundary_admits(&self, caller: State, child: usize, filter: PriorityFilter) -> bool {
+        if filter == PriorityFilter::Ignored {
+            return true;
+        }
+        let production = &self.productions[caller.production];
+        let Some(parent) = production.parse_label.as_deref() else {
+            return true;
+        };
+        let relation = if caller.dot == 0 {
+            &self.associativities.right
+        } else if caller.dot + 1 == production.items.len() {
+            &self.associativities.left
+        } else {
+            return true;
+        };
+        let Some(child) = self.productions[child].parse_label.as_deref() else {
+            return true;
+        };
+        !relation.contains(&(parent.to_owned(), child.to_owned()))
+    }
+
     fn filter_associative_boundary<'a>(
         &self,
         caller: State,
@@ -2052,7 +2409,7 @@ mod chart_tests {
                     diagnostic_provenance: false,
                 },
                 PredictionMode::Unfiltered,
-                &mut false,
+                &mut Pruning::default(),
             )
         }
 
@@ -2275,7 +2632,7 @@ mod chart_tests {
             }
             // At byte one the regex wins without consuming '?'. It must still be inserted;
             // the resulting root stops short of EOF, so this whole input is correctly rejected.
-            let mut pruned = false;
+            let mut pruning = Pruning::default();
             CHART_PREDICTION_ATTEMPTS.set(0);
             let result = grammar.parse_attempt(
                 &Sort::new("Start"),
@@ -2289,10 +2646,10 @@ mod chart_tests {
                     diagnostic_provenance: false,
                 },
                 PredictionMode::Filtered,
-                &mut pruned,
+                &mut pruning,
             );
             assert!(result.is_err());
-            assert!(pruned);
+            assert!(pruning.pruned);
             assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
         }
     }

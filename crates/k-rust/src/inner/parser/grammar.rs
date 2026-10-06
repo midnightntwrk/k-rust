@@ -1353,7 +1353,9 @@ fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) 
 #[cfg(test)]
 #[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
-    use super::super::{PARSE_ATTEMPTS, ParseContext, ParseProvenance, ParsedTerm, PredictionMode};
+    use super::super::{
+        PARSE_ATTEMPTS, ParseContext, ParseProvenance, ParsedTerm, PredictionMode, Pruning,
+    };
     use super::*;
     use crate::kast::{Term, TermMetadata};
     use crate::provenance::SourceId;
@@ -1555,7 +1557,7 @@ mod tests {
                     diagnostic_provenance: false,
                 },
                 PredictionMode::Unfiltered,
-                &mut false,
+                &mut Pruning::default(),
             )
         }
 

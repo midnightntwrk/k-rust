@@ -100,3 +100,97 @@ fn deep_programs_parse_in_allocation_linear_in_their_depth() {
         "{small} bytes at 2,000 levels, {large} at 4,000"
     );
 }
+
+/// The Earley chart's completions and the bytes of parsing one shape at two lengths.
+fn chart_work_at_two_sizes(
+    source: &str,
+    sort: &str,
+    program: impl Fn(usize) -> String,
+    n: usize,
+) -> [(u64, u64); 2] {
+    let _measuring = measuring();
+    let parser = parser(source);
+    [n, 2 * n].map(|length| {
+        let work = parse_work(&parser, sort, &program(length));
+        (
+            work.get(Counter::ParserChartCompletionCandidates),
+            work.get(Counter::AllocatedBytes),
+        )
+    })
+}
+
+/// A program shape: its name, its definition, its sort and its program of a given length.
+type Shape = (
+    &'static str,
+    &'static str,
+    &'static str,
+    Box<dyn Fn(usize) -> String>,
+);
+
+/// A statement sequence, a list literal and a chain of a binary operator are as deep as they
+/// are long, and their chart work is linear in their length: a sequence of 600 statements
+/// completes about twice the items one of 300 does, whether the sequence is a right-recursive
+/// list (`Stmt Stmts`, `List{Int, ","}`, `Stmt Stmt [right]`) or a left-associative chain
+/// (`Stmt Stmt [left]`, `E "+" E [left]`). The recognizer once completed, after each statement,
+/// every enclosing list back to the first statement (N²/2 completions), and in a
+/// left-associative chain every sum starting after the first operand, which the associativity
+/// forbids from becoming the right operand it would have to be.
+#[test]
+fn long_programs_parse_in_chart_work_linear_in_their_length() {
+    let skips = |count: usize| "skip ;\n".repeat(count);
+    let numbers = |separator: &'static str| {
+        move |count: usize| {
+            (0..count)
+                .map(|number| number.to_string())
+                .collect::<Vec<_>>()
+                .join(separator)
+        }
+    };
+    let shapes: [Shape; 5] = [
+        (
+            "Stmt Stmts",
+            "module MAIN\n  syntax Stmt ::= \"skip\" \";\"\n  syntax Stmts ::= Stmt | Stmt Stmts\nendmodule\n",
+            "Stmts",
+            Box::new(skips),
+        ),
+        (
+            "List{Int, \",\"}",
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax Ints ::= List{Int, \",\"}\nendmodule\n",
+            "Ints",
+            Box::new(numbers(",")),
+        ),
+        (
+            "Stmt Stmt [right]",
+            "module MAIN\n  syntax Stmt ::= \"skip\" \";\"\n  syntax Stmt ::= Stmt Stmt [right]\nendmodule\n",
+            "Stmt",
+            Box::new(skips),
+        ),
+        (
+            "Stmt Stmt [left]",
+            "module MAIN\n  syntax Stmt ::= \"skip\" \";\"\n  syntax Stmt ::= Stmt Stmt [left]\nendmodule\n",
+            "Stmt",
+            Box::new(skips),
+        ),
+        (
+            "E \"+\" E [left]",
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax E ::= Int | E \"+\" E [left]\nendmodule\n",
+            "E",
+            Box::new(numbers("+")),
+        ),
+    ];
+    for (shape, source, sort, program) in shapes {
+        let [(small, small_bytes), (large, large_bytes)] =
+            chart_work_at_two_sizes(source, sort, program, 300);
+        println!(
+            "{shape}: {small} and {large} completions, {small_bytes} and {large_bytes} bytes at 300 and 600"
+        );
+        assert!(
+            large <= small * 9 / 4,
+            "{shape}: {small} completions at 300, {large} at 600"
+        );
+        assert!(
+            large_bytes <= small_bytes * 5 / 2,
+            "{shape}: {small_bytes} bytes at 300, {large_bytes} at 600"
+        );
+    }
+}
