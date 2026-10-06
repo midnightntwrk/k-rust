@@ -574,8 +574,13 @@ fn int_sign_extend_bit_range(
 ) -> Result<BigInt, String> {
     let index_u = unsigned_32(&index, "INT.signExtendBitRange")? as usize;
     let length_u = unsigned_32(&length, "INT.signExtendBitRange")? as usize;
+    // `domains.md` defines the result through `1 <<Int (LEN -Int 1)`, a shift by a negative
+    // quantity, and therefore undefined, when the length is zero.
     if length_u == 0 {
-        return Ok(BigInt::zero());
+        return Err(
+            "Argument to hook INT.signExtendBitRange out of range. Expected a positive length."
+                .into(),
+        );
     }
     let result = int_bit_range(value.clone(), index, length.clone())?;
     if ((value >> (index_u + length_u - 1)) & BigInt::one()).is_one() {
@@ -896,6 +901,27 @@ mod tests {
             ),
             "axab"
         );
+    }
+
+    /// `signExtendBitRangeInt(I, IDX, LEN)` is `(bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int
+    /// 1))) modInt (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1))`, undefined for a zero length.
+    #[test]
+    fn sign_extension_of_an_empty_bit_range_is_undefined() {
+        assert!(int_sign_extend_bit_range(int(5), int(0), int(0)).is_err());
+        assert!(int_sign_extend_bit_range(int(-1), int(3), int(0)).is_err());
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(0), int(1)),
+            Ok(int(-1))
+        );
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(1), int(2)),
+            Ok(int(-2))
+        );
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(0), int(4)),
+            Ok(int(5))
+        );
+        assert_eq!(int_bit_range(int(5), int(0), int(0)), Ok(int(0)));
     }
 
     /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
