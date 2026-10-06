@@ -24,3 +24,6 @@ mod validator;
 
 pub use equivalence::equivalent_compilation;
 pub use validator::{MutantRejection, NativeFailure, NativeValidator, ValidatedDefinition};
+
+/// k-rust revision pinned by upstream/k-rust.toml.
+pub const K_RUST_REVISION: &str = "927b9ce6352357db340c221ff5377b294b8324e9";

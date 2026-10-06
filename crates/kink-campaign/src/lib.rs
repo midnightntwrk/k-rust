@@ -7,7 +7,9 @@
 //! score. [`tally`] counts its exclusions from the generation and run; show it beside the ratio.
 
 mod campaign;
+mod manifest;
 mod oracle;
+pub use manifest::{CampaignManifest, ManifestError, ManifestInput, OperatorId, campaign_manifest};
 mod runner;
 
 pub use campaign::{

@@ -22,9 +22,11 @@
 mod apply;
 mod candidate;
 mod claims;
+mod codec;
 mod digest;
 mod failure;
 mod fingerprint;
+mod semantic_input;
 mod sort;
 
 pub use apply::{Mutant, SentenceOrigin, apply};
@@ -34,11 +36,17 @@ pub use candidate::{
     SelectionPolicy, Site, SiteSelector, derive_sites, select,
 };
 pub use claims::{Claim, ClaimSupport, Withdrawal};
-pub use digest::{Sha256Digest, payload_digest, sha256};
+pub use codec::CodecError;
+pub use digest::{
+    CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, OBSERVATION_DOMAIN,
+    Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN, canonical_json, payload_digest, sha256,
+    structure_sha256,
+};
 pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{
     FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
 };
+pub use semantic_input::{SemanticInput, SemanticInputError};
 
 use k_rust::definition::{Definition, Sentence};
 use k_rust::kast::Term;

@@ -135,6 +135,20 @@ pub struct ValidatedDefinition {
 }
 
 impl ValidatedDefinition {
+    /// Execution-relevant identity of the four compiled KORE fields.
+    pub fn kore_sha256(&self) -> kink_patch::Sha256Digest {
+        let value = serde_json::json!({
+            "definition": self.artifacts.definition_kore,
+            "macros": self.artifacts.macros_kore,
+            "rewrite_order": self.artifacts.execution_rewrite_order,
+            "syntax": self.artifacts.syntax_definition_kore,
+        });
+        kink_patch::payload_digest(
+            kink_patch::COMPILED_KORE_DOMAIN,
+            kink_patch::canonical_json(&value).as_bytes(),
+        )
+    }
+
     /// The loaded source definition that was compiled.
     pub const fn definition(&self) -> &Definition {
         &self.definition

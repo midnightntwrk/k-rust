@@ -58,3 +58,43 @@ pub fn payload_digest(domain: &str, payload: &[u8]) -> Sha256Digest {
     bytes.extend_from_slice(payload);
     sha256(&bytes)
 }
+
+pub const CANONICAL_PATCH_DOMAIN: &str = "kink/canonical-patch/v1";
+pub const COMPILED_KORE_DOMAIN: &str = "kink/compiled-kore/v1";
+pub const TEST_MANIFEST_DOMAIN: &str = "kink/test-manifest/v1";
+pub const OBSERVATION_DOMAIN: &str = "kink/observation/v1";
+pub const CAMPAIGN_MANIFEST_DOMAIN: &str = "kink/campaign-manifest/v1";
+
+/// Compact JSON with sorted object keys (serde_json without preserve_order).
+pub fn canonical_json(value: &serde_json::Value) -> String {
+    serde_json::to_string(value).expect("JSON values encode")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StructureError {
+    ContextAlias,
+    Encode(String),
+}
+impl std::fmt::Display for StructureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for StructureError {}
+
+/// Hashes metadata-free KAST bytes; refuses context aliases omitted by KAST v4.
+pub fn structure_sha256(
+    definition: &k_rust::definition::Definition,
+) -> Result<Sha256Digest, StructureError> {
+    if definition
+        .modules
+        .iter()
+        .flat_map(|m| &m.local_sentences)
+        .any(|s| matches!(**s, k_rust::definition::Sentence::ContextAlias { .. }))
+    {
+        return Err(StructureError::ContextAlias);
+    }
+    let text = k_rust::definition::json::to_string(definition)
+        .map_err(|e| StructureError::Encode(e.to_string()))?;
+    Ok(sha256(text.as_bytes()))
+}
