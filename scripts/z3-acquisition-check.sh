@@ -109,6 +109,9 @@ echo "[graph] checking the default GitHub-release positive control"
 check_default_mode
 
 echo "[runtime] exercising Z3 inference against the system library"
+# libtest exits 0 when its filter selects nothing, so a renamed test would pass this step without
+# running. Select the test by its exact name and require the run to report that one test passing.
+runtime_test=z3_prunes_ill_typed_ambiguity_branches
 CARGO_TARGET_DIR="$work/target" cargo test \
   --manifest-path "$workspace/Cargo.toml" \
   -p k-rust \
@@ -116,7 +119,14 @@ CARGO_TARGET_DIR="$work/target" cargo test \
   --no-default-features \
   --features z3-inference \
   --locked \
-  z3_prunes_ill_typed_ambiguity_branches
+  -- --exact --color never "$runtime_test" | tee "$work/runtime-test.out"
+grep -Fxq "test $runtime_test ... ok" "$work/runtime-test.out" \
+  || fail "the Z3 runtime test $runtime_test did not run and pass"
+summaries=$(grep -E '^test result: ' "$work/runtime-test.out" || true)
+if [[ $(grep -c . <<<"$summaries") -ne 1 ]] \
+  || ! grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out;' <<<"$summaries"; then
+  fail "the Z3 runtime step must run exactly one test, $runtime_test; libtest reported: ${summaries:-no summary}"
+fi
 
 echo "[runtime] exercising the system-linked CLI"
 inference=$(CARGO_TARGET_DIR="$work/target" cargo run \

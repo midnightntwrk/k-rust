@@ -5791,7 +5791,7 @@ fn normalize_execution_equalities(pattern: &mut Pattern) {
             Pattern::Application { symbol, .. } if symbol.name == "LblisKResult"
         )
     };
-    if boolean_sort && false_complement.is_some_and(&is_k_result) {
+    if boolean_sort && false_complement.is_some_and(is_k_result) {
         let term = false_complement.expect("checked above").clone();
         *pattern = Pattern::Not {
             sort: result_sort.clone(),
