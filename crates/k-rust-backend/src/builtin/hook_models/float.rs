@@ -429,8 +429,11 @@ pub(in crate::builtin) fn parse_token(token: &str) -> Option<(Format, u64)> {
     let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     let integer_ok = digits(integer) || integer.is_empty();
     let fraction_ok = digits(fraction) || fraction.is_empty();
-    // `[0-9]+(\.[0-9]*)?` or `\.[0-9]+`.
-    if !integer_ok || !fraction_ok || (integer.is_empty() && fraction.is_empty()) {
+    // `[+-]?[0-9]+(\.[0-9]*)?` or `\.[0-9]+`: a mantissa without an integer part takes no sign.
+    if !integer_ok
+        || !fraction_ok
+        || (integer.is_empty() && (fraction.is_empty() || unsigned.len() != body.len()))
+    {
         return None;
     }
     let significand: BigUint = format!("{integer}{fraction}").parse().ok()?;
@@ -594,7 +597,8 @@ fn token(draw: &mut Draw<'_>, format: Format, bits: u64) -> Term {
                     let shape = draw.below(4);
                     let sign = draw.pick(&["", "-", "+"]);
                     match shape {
-                        0 => format!("{sign}.{digits}"),
+                        // A mantissa without an integer part takes no sign.
+                        0 => format!(".{digits}"),
                         1 => format!("{sign}{digits}."),
                         2 => format!("{sign}{digits}.e{exponent}"),
                         _ => format!("{sign}{digits}E{exponent:+}"),
@@ -602,7 +606,7 @@ fn token(draw: &mut Draw<'_>, format: Format, bits: u64) -> Term {
                 }
                 _ => scientific(format, bits),
             };
-            if draw.chance(1) && !text.starts_with(['-', '+']) {
+            if draw.chance(1) && !text.starts_with(['-', '+', '.']) {
                 format!("+{text}")
             } else {
                 text
@@ -836,6 +840,8 @@ fn the_float_model_reproduces_known_ieee_values() {
         Some(9007199254740992_f64.to_bits())
     );
     assert_eq!(binary64(".5"), Some(0.5_f64.to_bits()));
+    assert_eq!(binary64("-.5"), None);
+    assert_eq!(binary64("+.5"), None);
     assert_eq!(binary64("5."), Some(5_f64.to_bits()));
     assert_eq!(binary64("1.0 "), None);
     assert_eq!(binary64("inf"), None);

@@ -253,6 +253,7 @@ fn evaluate_with_context(
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
+pub use float::is_float_syntax;
 
 pub fn evaluate_hook(
     hook: &str,
@@ -1752,13 +1753,43 @@ mod tests {
                 exponent_bits: 8,
             }))
         );
-        assert_eq!(
-            evaluate_hook("FLOAT.sign", &[float_term("not-a-float")]),
-            Ok(Err(BuiltinError::InvalidFloatToken {
-                hook: "FLOAT.sign".into(),
-                token: "not-a-float".into(),
-            }))
-        );
+        // A Float domain value names an element in FLOAT-SYNTAX only; spellings that general
+        // float parsers also read name none.
+        for token in [
+            "not-a-float",
+            "inf",
+            "inff",
+            "-infinity",
+            "nan",
+            "-NaN",
+            "-.5",
+            " 1.0",
+            "1.0 ",
+            "1e",
+            "0x1p3",
+        ] {
+            assert_eq!(
+                evaluate_hook("FLOAT.sign", &[float_term(token)]),
+                Ok(Err(BuiltinError::InvalidFloatToken {
+                    hook: "FLOAT.sign".into(),
+                    token: token.into(),
+                })),
+                "{token:?}"
+            );
+        }
+        for (token, negative) in [
+            ("+Infinity", false),
+            ("-Infinityf", true),
+            ("-0.5e-3d", true),
+            (".5p24x8", false),
+            ("7.", false),
+        ] {
+            assert_eq!(
+                evaluate_hook("FLOAT.sign", &[float_term(token)]),
+                Ok(Ok(BuiltinResult::Value(bool_term(negative)))),
+                "{token:?}"
+            );
+        }
 
         let symbolic = Term::variable(Variable::new("F", Sort::simple("SortFloat")));
         assert_eq!(

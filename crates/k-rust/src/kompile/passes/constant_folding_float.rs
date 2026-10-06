@@ -36,7 +36,7 @@ pub(super) struct KFloat {
 
 impl KFloat {
     pub(super) fn parse(token: &str) -> Result<Self, Unfolded> {
-        if !is_float_syntax(token) {
+        if !k_rust_backend::builtin::is_float_syntax(token) {
             return Err(format!("invalid Float token {token:?}").into());
         }
         let (text, precision, exponent_bits) = parse_parts(token)?;
@@ -521,45 +521,6 @@ fn limit_exponent(
         })?;
     value.subnormalize_round(normal_minimum, direction, Round::Nearest);
     Ok(())
-}
-
-/// Whether `token` is in the lexical syntax of the `Float` sort (`domains.md`, FLOAT-SYNTAX):
-/// `[+-]?[0-9]+(.[0-9]*)?` or `.[0-9]+` with an optional exponent, `[+-]?Infinity`, or `NaN`,
-/// each with an optional `f`/`d` or `p<digits>x<digits>` suffix. MPFR's own parser accepts more,
-/// such as surrounding spaces, `inf`, `nan` and `@`-exponents.
-fn is_float_syntax(token: &str) -> bool {
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    let body = match token
-        .rsplit_once(['x', 'X'])
-        .and_then(|(rest, exponent_bits)| Some((rest.rsplit_once(['p', 'P'])?, exponent_bits)))
-    {
-        Some(((body, precision), exponent_bits)) if digits(precision) && digits(exponent_bits) => {
-            body
-        }
-        _ => token.strip_suffix(['f', 'F', 'd', 'D']).unwrap_or(token),
-    };
-    if body == "NaN" || body.strip_prefix(['+', '-']).unwrap_or(body) == "Infinity" {
-        return true;
-    }
-    let (mantissa, exponent) = match body.split_once(['e', 'E']) {
-        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
-        None => (body, None),
-    };
-    let exponent_ok = exponent
-        .is_none_or(|exponent| digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)));
-    let mantissa_ok = match mantissa.strip_prefix('.') {
-        Some(fraction) => digits(fraction),
-        None => {
-            let unsigned = mantissa.strip_prefix(['+', '-']).unwrap_or(mantissa);
-            match unsigned.split_once('.') {
-                Some((whole, fraction)) => {
-                    digits(whole) && (fraction.is_empty() || digits(fraction))
-                }
-                None => digits(unsigned),
-            }
-        }
-    };
-    mantissa_ok && exponent_ok
 }
 
 fn parse_parts(token: &str) -> Result<(&str, u32, u32), Unfolded> {
