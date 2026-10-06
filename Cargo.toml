@@ -54,6 +54,26 @@ web-time = "1.1.0"
 wasm-bindgen = "0.2.127"
 z3 = { version = "0.20.2", default-features = false }
 
+# The default build is mostly the test suite, whose compile-heavy tests run the kompile pipeline
+# over the embedded prelude; unoptimized, that work dominates the suite's time. Debug assertions
+# and overflow checks stay on at opt-level 1, so the kompile invariant checkers and the standard
+# library's debug checks still run, and line tables keep file and line in panics and backtraces.
+# Dependencies are rebuilt only when Cargo.lock changes, so they are optimized fully.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# The workspace unoptimized with full debug info, for debugger sessions that inspect local
+# variables; dependencies keep the dev profile's opt-level 3. `cargo build --profile debugging`
+# writes target/debugging.
+[profile.debugging]
+inherits = "dev"
+opt-level = 0
+debug = true
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
