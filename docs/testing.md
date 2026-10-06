@@ -88,6 +88,7 @@ It is a manual check, not a gate: run it before removing tests or restructuring 
 | Compatibility requiring a running reference | The applicable `scripts/reference-*.sh` gate and `scripts/reference-differential.toml` | Output from the pinned reference toolchain |
 | Broad upstream corpus exploration and acceptance tracking | `scripts/conformance/run.py` and `scripts/conformance/expectations.toml` | Upstream recipes, recorded outputs, and confirmed live oracles |
 
+A kompile stage's contract belongs in its pass module, stated on the definition the pipeline hands that stage: `kompile::stage_harness::run_to_stage` (test-only) loads a prelude-free source as `kcompile --no-prelude` does, runs the stages before the named one, and returns that stage's input and output, so the test needs no hand-built input that later drifts from what the earlier stages produce.
 A backend semantic contract belongs with backend tests even when it was discovered through a CLI command.
 Within `crates/k-rust-backend`, a contract stated through `pub` items belongs in `tests/backend/`, one that needs a `pub(crate)` entry point in `src/tests/`, and the invariant of a private helper stays inline next to the helper.
 A separate CLI test is warranted when argument handling, initialization, rendering, or process status contributes to the defect.
