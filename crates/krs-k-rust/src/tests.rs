@@ -7,7 +7,7 @@
 
 use k_rust::{
     builtin,
-    definition::{Attributes, ProductionItem, ResolvedDefinition, Sentence},
+    definition::{Attributes, ProductionItem, Sentence},
     kast::{Label, Sort, Term},
     kompile::CompilationBackend,
     kore::parser::parse_definition,
@@ -76,9 +76,10 @@ fn prepared_with_structured_injection_for_test(
         ],
         ..LoadOptions::default()
     };
-    let mut loaded = load_with_options(entry, MODULE, &mut resolver, &options)
-        .expect("test bootstrap must be preparable");
-    loaded
+    let mut parts = load_with_options(entry, MODULE, &mut resolver, &options)
+        .expect("test bootstrap must be preparable")
+        .into_parts();
+    parts
         .definition
         .modules
         .iter_mut()
@@ -86,9 +87,7 @@ fn prepared_with_structured_injection_for_test(
         .expect("test bootstrap module must exist")
         .local_sentences
         .extend(sentences.into_iter().map(std::sync::Arc::new));
-    loaded.resolved = ResolvedDefinition::resolve(&loaded.definition)
-        .expect("structured test injection must resolve");
-    loaded
+    LoadedDefinition::from_loaded_parts(parts).expect("structured test injection must resolve")
 }
 
 #[test]
@@ -134,12 +133,12 @@ fn permanent_structured_compile_replaces_the_bootstrap_default_configuration() {
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
     assert!(
         loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .all(|module| module.name != "DEFAULT-CONFIGURATION")
     );
-    assert!(loaded.definition.modules.iter().all(|module| {
+    assert!(loaded.definition().modules.iter().all(|module| {
         module
             .imports
             .iter()

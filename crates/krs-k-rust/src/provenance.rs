@@ -308,7 +308,7 @@ pub(super) fn join_sentence_provenance(
                         return Err(ProvenanceError::LossyCompileAddress(address.clone()));
                     }
                     let sentence = loaded
-                        .definition
+                        .definition()
                         .modules
                         .iter()
                         .find(|module| module.name == address.module)

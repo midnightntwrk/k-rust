@@ -789,7 +789,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
     let adapted = adapt_definition(&smoke_definition()).unwrap();
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
     let labels = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
@@ -821,7 +821,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
         );
     }
     let update_all_labels = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
@@ -893,15 +893,8 @@ fn pinned_native_prelude_evaluates_set_union() {
             item(1),
             item(right)
         );
-        let state: serde_json::Value = serde_json::from_str(
-            &k_rust::kore::json::to_string(&parse_pattern(&pattern).unwrap()).unwrap(),
-        )
-        .unwrap();
         let result = backend
-            .execute(ExecuteRequest {
-                state,
-                ..ExecuteRequest::default()
-            })
+            .execute(ExecuteRequest::new(parse_pattern(&pattern).unwrap()))
             .unwrap();
         assert_eq!(result.leaves.len(), 1, "{result:#?}");
         let rendered = result.leaves[0].state.to_string();

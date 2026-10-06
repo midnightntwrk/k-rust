@@ -311,7 +311,7 @@ pub fn compile_definition_with_context_timed(
             .map_err(DefinitionCompileError::Provenance)
     })?;
     let context = ConfigurationContext {
-        frontend_definition: loaded.definition,
+        frontend_definition: loaded.into_definition(),
         configuration_variables: artifacts.configuration_variables,
     };
     Ok((
@@ -375,14 +375,14 @@ pub fn compile_loaded_definition_timed(
             // share the selected main module. Tell the upstream checker to use
             // its explicit colocated-proof policy; claim-free inputs retain the
             // stricter definition-only policy.
-            check_mode: if loaded.definition.modules.iter().any(|module| {
+            check_mode: if loaded.definition().modules.iter().any(|module| {
                 module
                     .local_sentences
                     .iter()
                     .any(|sentence| matches!(**sentence, NativeSentence::Claim { .. }))
             }) {
                 NativeCheckMode::Proof {
-                    definition_module: loaded.definition.main_module.clone(),
+                    definition_module: loaded.definition().main_module.clone(),
                 }
             } else {
                 NativeCheckMode::Definition
