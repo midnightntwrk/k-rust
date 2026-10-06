@@ -378,6 +378,8 @@ The external LLVM backend reads `function` to mean that an irreducible applicati
 Withholding `function` therefore preserves the value production's irreducible applications while its anywhere equations can still reduce other applications.
 Rust's backend sets `declared_function` only for `function` without `value-production`, so an anywhere head (the head of an anywhere rule, or an overload-greater) stays an `EquationHead` and a macro-like head stays `Residual`.
 Both load as `Function(Partial)` and retain definedness obligations.
+For a `value-production` head the obligation is discharged where the marker decides it: an application that no equation reduces on any valuation (the simplifier's certificate on a ground normal form, or instance normality: every equation that could be offered it fails to unify with it or to match it) is a value, so its `\ceil` is that of its arguments.
+So FUN's `\ceil(k -> 7)` is `\top` (the currying equation needs an application `P1 P2` as first argument), while `\ceil(wrap(Y))` stays an obligation when an equation reaches an instance of `wrap(Y)`, and a plain `anywhere` head without the marker claims nothing about its irreducible applications.
 The marker is emitted from the production kind and totality judgement, not read from a K source attribute.
 A source function carries no such marker: an application its equations leave unevaluated remains a computed application.
 Any other symbol without one of those claims is rejected (`Invalid type for symbol`).

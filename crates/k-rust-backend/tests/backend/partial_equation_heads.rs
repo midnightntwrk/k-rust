@@ -150,6 +150,67 @@ fn simplified_predicate(definition: &BackendDefinition, source: &str) -> Predica
     .expect("predicate should simplify")
 }
 
+/// A value production whose anywhere equation `wrap(s(X)) = wrap(X)` reapplies its own head, so
+/// no totality claim is emitted for it; `t` is a second constructor of the argument sort.
+const VALUE_HEAD: &str = r#"[]
+    module MAIN
+        sort SortNat{} []
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol t{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        sort SortW{} []
+        symbol wrap{}(SortNat{}) : SortW{} [anywhere{}(), function{}(), value-production{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(VarX:SortNat{})), \top{R}())
+            ),
+            \equals{SortW{}, R}(
+                wrap{}(X0:SortNat{}),
+                \and{SortW{}}(wrap{}(VarX:SortNat{}), \top{SortW{}}())
+            )
+        ) [anywhere{}()]
+    endmodule []"#;
+
+/// `value-production` states that an application no equation reduces is a value of its sort.
+/// So where no equation can reach any instance of an application, its definedness is that of
+/// its arguments: `wrap(z)` and `wrap(t(Y))` (whose arguments the equation's `s(_)` cannot match)
+/// are defined, and `wrap(s(z))` is defined because it evaluates to `wrap(z)`. `wrap(Y)` keeps
+/// its obligation, since the equation reaches its instance `wrap(s(z))`. Without the marker the
+/// anywhere head claims nothing about an irreducible application, so `wrap(z)` keeps its
+/// obligation too.
+#[test]
+fn an_irreducible_value_production_application_is_defined() {
+    let definition = internalize(VALUE_HEAD).expect("value production should internalize");
+    for (query, expected) in [
+        ("wrap{}(z{}())", Predicate::True),
+        ("wrap{}(t{}(Y:SortNat{}))", Predicate::True),
+        ("wrap{}(s{}(z{}()))", Predicate::True),
+        (
+            "wrap{}(Y:SortNat{})",
+            Predicate::Ceil(internal_term(&definition, "wrap{}(Y:SortNat{})")),
+        ),
+    ] {
+        assert_eq!(
+            simplified_predicate(
+                &definition,
+                &format!(r"\ceil{{SortW{{}}, SortW{{}}}}({query})")
+            ),
+            expected,
+            "{query}"
+        );
+    }
+    let unmarked = internalize(&VALUE_HEAD.replace(
+        "[anywhere{}(), function{}(), value-production{}()]",
+        "[anywhere{}()]",
+    ))
+    .expect("an unmarked anywhere head should internalize");
+    assert_eq!(
+        simplified_predicate(&unmarked, r"\ceil{SortW{}, SortW{}}(wrap{}(z{}()))"),
+        Predicate::Ceil(internal_term(&unmarked, "wrap{}(z{}())")),
+    );
+}
+
 /// Without a totality claim, `ceil(wrap(X))` remains an obligation.
 /// The equation makes both `ceil(wrap(0))` and `wrap(0)` bottom.
 /// Adding `functional` makes the symbolic query top, contradicting its bottom instance at `X = 0`.
