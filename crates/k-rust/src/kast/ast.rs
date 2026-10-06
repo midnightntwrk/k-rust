@@ -594,28 +594,40 @@ impl Term {
     }
 
     /// Visit this term and its descendants in deterministic pre-order.
+    ///
+    /// A term may be of any depth, so the walk keeps the subterms still to visit in an explicit
+    /// work list rather than on the native stack: the first child of each term is visited next,
+    /// and its later siblings wait on the list, last first, so a chain needs no list at all.
     pub fn visit_preorder(&self, visitor: &mut impl FnMut(&Self)) {
-        let term = self.unannotated();
-        visitor(term);
-        match term {
-            Self::Rewrite { left, right } => {
-                left.visit_preorder(visitor);
-                right.visit_preorder(visitor);
-            }
-            Self::As { pattern, alias } => {
-                pattern.visit_preorder(visitor);
-                alias.visit_preorder(visitor);
-            }
-            Self::Sequence(items)
-            | Self::Apply {
-                arguments: items, ..
-            } => {
-                for item in items {
-                    item.visit_preorder(visitor);
+        let mut pending = Vec::new();
+        let mut next = Some(self);
+        // Invariant: every term visited so far was visited in pre-order, and `next` followed by
+        // `pending` from its end are the subterms still to visit in pre-order; each iteration
+        // visits one term and replaces it by its children.
+        while let Some(term) = next.take().or_else(|| pending.pop()) {
+            let term = term.unannotated();
+            visitor(term);
+            match term {
+                Self::Rewrite { left, right } => {
+                    pending.push(&**right);
+                    next = Some(&**left);
                 }
+                Self::As { pattern, alias } => {
+                    pending.push(&**alias);
+                    next = Some(&**pattern);
+                }
+                Self::Sequence(items)
+                | Self::Apply {
+                    arguments: items, ..
+                } => {
+                    if let Some((first, rest)) = items.split_first() {
+                        pending.extend(rest.iter().rev());
+                        next = Some(first);
+                    }
+                }
+                Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => {}
+                Self::Annotated { .. } => unreachable!(),
             }
-            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => {}
-            Self::Annotated { .. } => unreachable!(),
         }
     }
 }
@@ -910,6 +922,81 @@ mod tests {
                 },
             ),
         ]
+    }
+
+    /// The pre-order of `term`, as the recursive definition gives it: the term without its
+    /// annotations, then the pre-order of each child in turn.
+    fn recursive_preorder(term: &Term, order: &mut Vec<String>) {
+        let term = term.unannotated();
+        order.push(term.to_string());
+        match term {
+            Term::Rewrite { left, right } => {
+                recursive_preorder(left, order);
+                recursive_preorder(right, order);
+            }
+            Term::As { pattern, alias } => {
+                recursive_preorder(pattern, order);
+                recursive_preorder(alias, order);
+            }
+            Term::Sequence(items)
+            | Term::Apply {
+                arguments: items, ..
+            } => {
+                for item in items {
+                    recursive_preorder(item, order);
+                }
+            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+            Term::Annotated { .. } => unreachable!(),
+        }
+    }
+
+    /// `visit_preorder` visits every subterm once, in pre-order, through every kind of child and
+    /// through annotations, and visits a term of any depth on a thread of 64 KiB of stack.
+    #[test]
+    fn terms_of_any_depth_are_visited_in_preorder_on_a_small_stack() {
+        let leaf = |name: &str| Term::variable(name);
+        let mixed = Term::apply(
+            "f",
+            vec![
+                Term::Rewrite {
+                    left: Box::new(Term::apply("g", vec![leaf("A"), leaf("B")])),
+                    right: Box::new(Term::Sequence(vec![leaf("C"), leaf("D")])),
+                },
+                Term::As {
+                    pattern: Box::new(leaf("E")),
+                    alias: Box::new(
+                        Term::apply("h", vec![]).with_metadata(TermMetadata::default()),
+                    ),
+                },
+                Term::InjectedLabel(Label::new("k")),
+            ],
+        );
+        let mut expected = Vec::new();
+        recursive_preorder(&mixed, &mut expected);
+        let mut visited = Vec::new();
+        mixed.visit_preorder(&mut |term| visited.push(term.to_string()));
+        assert_eq!(visited, expected);
+        assert_eq!(visited.len(), 12);
+
+        let deep = (0..100_000).fold(leaf("X"), |term, index| match index % 3 {
+            0 => Term::apply("s", vec![term]),
+            1 => Term::Rewrite {
+                left: Box::new(leaf("L")),
+                right: Box::new(term),
+            },
+            _ => Term::Sequence(vec![leaf("Y"), term]),
+        });
+        std::thread::Builder::new()
+            .stack_size(64 << 10)
+            .spawn(move || {
+                let mut count = 0;
+                deep.visit_preorder(&mut |_| count += 1);
+                assert_eq!(count, 1 + 100_000 + 66_666);
+            })
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish");
     }
 
     /// Dropping takes a term apart level by level, so a term of any depth, through any kind of
