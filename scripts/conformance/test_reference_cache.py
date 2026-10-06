@@ -417,6 +417,48 @@ class ClosureTests(CacheFixture):
         self.assertEqual(result.status, "uncacheable")
         self.assertIn("changed while its closure was computed", result.detail)
 
+    def test_a_new_file_that_can_shadow_a_required_file_misses(self):
+        # The source requires `required.k`, found only in the second -I directory. A file of
+        # that name appearing in the first one changes what the source requires without
+        # changing any file of the recorded closure.
+        first, second = self.root / "inc1", self.root / "inc2"
+        first.mkdir()
+        second.mkdir()
+        (second / "required.k").write_text("module A endmodule\n")
+        time.sleep(0.05)
+        arguments = ["-I", str(first), "-I", str(second)]
+        self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "miss")
+        self.reset_work()
+        self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "hit")
+        self.reset_work()
+        (first / "required.k").write_text("module B endmodule\n")
+        self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status,
+                         "miss", "a shadowing file invalidates the entry")
+        # The same holds for a file next to the source, which the -I directories already
+        # shadow here: the candidates do not depend on the order of the search.
+        self.reset_work()
+        self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "hit")
+        self.reset_work()
+        (self.work / "required.k").write_text("module C endmodule\n")
+        self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "miss")
+
+    def test_a_shadowing_file_that_appears_while_the_tool_runs_is_not_stored(self):
+        first, second = self.root / "inc1", self.root / "inc2"
+        first.mkdir()
+        second.mkdir()
+        (second / "required.k").write_text("module A endmodule\n")
+        time.sleep(0.05)
+        tool = self.runner()
+
+        def shadow_while_running():
+            outcome = tool()
+            (first / "required.k").write_text("module B endmodule\n")
+            return outcome
+        result = self.cache().run(self.searching_kompile(["-I", str(first), "-I", str(second)]),
+                                  shadow_while_running)
+        self.assertEqual(result.status, "uncacheable")
+        self.assertIn("can shadow a required file appeared while the tool ran", result.detail)
+
     def test_a_closure_inside_the_scratch_directory_is_a_placeholder(self):
         other = self.root / "work-b"
         for work in (self.work, other):

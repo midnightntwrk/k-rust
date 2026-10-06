@@ -16,7 +16,9 @@ working directory with per-run scratch prefixes replaced by placeholders, the se
 environment, the stdin digest, the digests of declared inputs, the pre-state digest of every
 output root, and, for kompile and kprove, the digests of the `kdep` requires closure (looked up in
 direct mode, as ccache does: a closure recorded on a miss is re-hashed on lookup). The closure is
-computed and hashed before the tool runs and checked again after it.
+computed and hashed before the tool runs and checked again after it, and the index also records
+every absent path at which a new file could change what a `requires` name resolves to; a lookup
+misses when any of them exists.
 
 Modes (REFERENCE_CACHE): `off` runs the tool; `on` replays a valid entry younger than the maximum
 age and stores a miss; `refresh` runs and overwrites; `verify` runs the tool when an entry exists
@@ -57,6 +59,7 @@ from pathlib import Path
 SCHEMA = "k-rust-reference-outputs-v1"
 MODES = ("off", "on", "refresh", "verify")
 DEFAULT_MAX_AGE_DAYS = 14.0
+NIX_STORE = "/nix/store/"
 PRUNE_INTERVAL_SECONDS = 86400
 # Files younger than this are re-hashed instead of trusted from the in-process digest memo, so a
 # write within the file system's timestamp granularity cannot hide behind an unchanged mtime.
@@ -366,8 +369,10 @@ def parse_kdep(text: str) -> list[str]:
     return paths
 
 
-def kdep_files(kdep: str, argv: list[str], cwd: str, environment: dict) -> list[str]:
-    """The absolute paths of the requires closure kdep resolves."""
+def kdep_files(kdep: str, argv: list[str], cwd: str, environment: dict) -> tuple[list[str], list[str]]:
+    """The absolute paths of the requires closure kdep resolves, and the directories a `requires`
+    name can be resolved against: the -I directories, the directory of every file in the closure
+    (a name may be relative to the requiring file), and, conservatively, the working directory."""
     source, forwarded = closure_request(argv)
     completed = subprocess.run(
         [kdep, *forwarded, source], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
@@ -380,7 +385,42 @@ def kdep_files(kdep: str, argv: list[str], cwd: str, environment: dict) -> list[
     for path in files:
         if not os.path.isfile(path):
             raise CacheError(f"kdep listed a missing file: {path}")
-    return files
+    directories = {os.path.normpath(os.path.abspath(cwd)),
+                   os.path.dirname(os.path.normpath(os.path.join(cwd, source)))}
+    directories.update(os.path.normpath(os.path.join(cwd, forwarded[index + 1]))
+                       for index in range(0, len(forwarded), 2) if forwarded[index] == "-I")
+    directories.update(os.path.dirname(path) for path in files)
+    return files, sorted(directories)
+
+
+def _in_store(path: str) -> bool:
+    return path.startswith(NIX_STORE)
+
+
+def shadow_candidates(files: list[str], directories: list[str]) -> list[str]:
+    """Every path, other than a closure file, at which a file could change what kompile reads.
+
+    Which file a `requires` name denotes depends on which of its candidate locations exist, so a
+    file appearing at another candidate can replace a required file without changing it. The
+    names are every way a closure file is reachable from a search directory, and the candidates
+    are each name under each search directory: a superset of the real lookup whatever order the
+    directories are tried in. A superset only adds misses, never a stale hit. Names are not
+    formed across the Nix store boundary (a relative name from a mutable directory into the
+    store, or back), and no candidate lies in the store: its existing paths never change.
+    """
+    names = {os.path.relpath(path, directory)
+             for path in files for directory in directories
+             if _in_store(path) == _in_store(directory)}
+    closure = set(files)
+    candidates = set()
+    for directory in directories:
+        if _in_store(directory):
+            continue
+        for name in names:
+            candidate = os.path.normpath(os.path.join(directory, name))
+            if candidate not in closure and not _in_store(candidate):
+                candidates.add(candidate)
+    return sorted(candidates)
 
 
 def stat_signature(st: os.stat_result) -> list[int]:
@@ -391,11 +431,14 @@ def stat_signature(st: os.stat_result) -> list[int]:
 class ClosureState:
     """The requires closure as it was before the tool ran.
 
-    `closure` is normalised for the key and the direct-mode index; `files` maps each absolute
-    closure path to its digest and stat signature, so the state can be checked again after the run.
+    `closure` and `absent` are normalised for the key and the direct-mode index; `files` maps each
+    absolute closure path to its digest and stat signature, and `absent_paths` lists the absolute
+    shadow candidates that did not exist, so the state can be checked again after the run.
     """
     closure: list
+    absent: list
     files: dict
+    absent_paths: list
 
     def change(self) -> str | None:
         """Why the closure the tool read may differ from this state, or None."""
@@ -406,6 +449,9 @@ class ClosureState:
                     return f"a required file changed while the tool ran: {path}"
             except OSError:
                 return f"a required file disappeared while the tool ran: {path}"
+        for path in self.absent_paths:
+            if os.path.lexists(path):
+                return f"a file that can shadow a required file appeared while the tool ran: {path}"
         return None
 
 
@@ -799,7 +845,8 @@ class ReferenceCache:
             raise CacheError(f"unknown closure kind {invocation.closure}")
         direct_key = sha256_bytes(canonical(base))
         try:
-            closure = json.loads(self.index_path(direct_key).read_text())["closure"]
+            index = json.loads(self.index_path(direct_key).read_text())
+            closure, absent = index["closure"], index["absent"]
         except (OSError, ValueError, KeyError, TypeError):
             return None, direct_key
         for path, digest in closure:
@@ -808,21 +855,26 @@ class ReferenceCache:
                     return None, direct_key
             except OSError:
                 return None, direct_key
+        for path in absent:
+            # A file at another candidate location of a required name can replace what the
+            # recorded closure resolved to without changing any recorded file.
+            if os.path.lexists(self.expand(path)):
+                return None, direct_key
         return dict(base, closure=closure), direct_key
 
     def _closure_before(self, invocation: Invocation) -> ClosureState:
-        """The requires closure, hashed before the tool runs.
+        """The requires closure and its shadow candidates, hashed before the tool runs.
 
-        A closure file whose modification or status-change time is not before kdep started may
-        have changed between kdep reading it and its digest being taken, so such a state is
-        refused.
+        A closure file or an existing shadow candidate whose modification or status-change time
+        is not before kdep started may have changed between kdep reading it and its digest being
+        taken, so such a state is refused.
         """
         if invocation.closure != "kdep":
             raise CacheError(f"unknown closure kind {invocation.closure}")
         if not invocation.kdep:
             raise CacheError("no kdep executable for the closure")
         started = time.time_ns()
-        files = kdep_files(invocation.kdep, invocation.argv, invocation.cwd,
+        files, directories = kdep_files(invocation.kdep, invocation.argv, invocation.cwd,
                                         invocation.environment)
         state = {}
         for path in files:
@@ -830,9 +882,24 @@ class ReferenceCache:
             if max(st.st_mtime_ns, st.st_ctime_ns) >= started:
                 raise CacheError(f"a required file changed while its closure was computed: {path}")
             state[path] = (file_digest(path, st, memo=False), stat_signature(st))
+        absent = []
+        for candidate in shadow_candidates(files, directories):
+            try:
+                st = os.lstat(candidate)
+            except FileNotFoundError:
+                absent.append(candidate)
+                continue
+            except NotADirectoryError:
+                absent.append(candidate)
+                continue
+            if max(st.st_mtime_ns, st.st_ctime_ns) >= started:
+                raise CacheError(f"a file that can shadow a required file appeared while its "
+                                 f"closure was computed: {candidate}")
         return ClosureState(
             closure=[[self.normalise(path), digest] for path, (digest, _) in state.items()],
+            absent=[self.normalise(path) for path in absent],
             files=state,
+            absent_paths=absent,
         )
 
     def _fresh(self, runner, status: str, detail: str = "") -> Result:
@@ -893,7 +960,8 @@ class ReferenceCache:
             if closure_state is not None:
                 index = self.index_path(direct_key)
                 self._ensure(index.parent)
-                _atomic_write(index, canonical({"closure": closure_state.closure}))
+                _atomic_write(index, canonical({"closure": closure_state.closure,
+                                                "absent": closure_state.absent}))
             return True, key
         except (CacheError, OSError, tarfile.TarError) as error:
             return False, f"not stored: {error}"
