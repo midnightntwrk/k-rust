@@ -704,7 +704,14 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     Ok(Value::Int(found.map_or(-1i64, |i| i as i64).into()))
 }
 fn parse_int(value: &str, radix: u32) -> Result<Value, String> {
-    BigInt::parse_bytes(value.as_bytes(), radix)
+    // An optional sign and one or more digits of the base. The integer parser alone would also
+    // skip `_` separators, which are not digits.
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let well_formed =
+        !digits.is_empty() && digits.chars().all(|character| character.is_digit(radix));
+    well_formed
+        .then(|| BigInt::parse_bytes(value.as_bytes(), radix))
+        .flatten()
         .map(Value::Int)
         .ok_or_else(|| {
             "Argument to hook STRING.string2int invalid. Expected a valid integer.".into()
@@ -830,5 +837,23 @@ mod tests {
         assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
         assert_eq!(int_powmod(int(0), int(0), int(-1)), Ok(int(0)));
         assert!(int_powmod(int(2), int(3), int(0)).is_err());
+    }
+
+    /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
+    /// its base in either case; a `_` separator is neither.
+    #[test]
+    fn integer_parsing_accepts_only_signed_digits() {
+        let parsed = |text: &str, radix| match parse_int(text, radix) {
+            Ok(Value::Int(value)) => Some(value),
+            _ => None,
+        };
+        assert_eq!(parsed("+15", 10), Some(int(15)));
+        assert_eq!(parsed("-007", 10), Some(int(-7)));
+        assert_eq!(parsed("fF", 16), Some(int(255)));
+        for text in ["1_0", "1_", "_1", "-_1", "", "+", "-", "+-1", " 1", "1e3"] {
+            assert_eq!(parsed(text, 10), None, "{text:?}");
+        }
+        assert_eq!(parsed("f_f", 16), None);
+        assert_eq!(parsed("12", 2), None);
     }
 }
