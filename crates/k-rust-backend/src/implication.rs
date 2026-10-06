@@ -20,7 +20,9 @@
 //! check_predicates (up to three solver subqueries) and up to four is_sat queries (the third, \
 //! after one simplification of the antecedent's knowledge, only when a matched consequent is \
 //! refuted, undecided or unprepared, empty_unless_consistent; the fourth only when the complete \
-//! policy grades a failing part, grade_outside)"""
+//! policy grades a failing part, grade_outside), and, when the complete policy grades a term \
+//! mismatch it shows no instance outside of, one more simplification of the antecedent's \
+//! knowledge and up to two more is_sat queries (antecedent_is_empty)"""
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -249,24 +251,14 @@ pub fn grade_bottom_consequent(
     antecedent: &Pattern,
     solver: &dyn SmtSolver,
 ) -> Stoppable<ImplicationVerdict> {
-    let verdict = grade_outside(
+    grade_outside(
         definition,
         antecedent,
         Outside::ConsequentCondition(MatchReport::refuted(Bindings::default())),
         OutsideEvidence::Everywhere(Everywhere::BottomConsequent),
+        Emptiness::Undecided,
         solver,
-    )?;
-    if matches!(verdict, ImplicationVerdict::Indeterminate { .. })
-        && antecedent_is_empty(
-            definition,
-            antecedent,
-            SimplificationOptions::default(),
-            solver,
-        )?
-    {
-        return Ok(ImplicationVerdict::VacuouslyValid);
-    }
-    Ok(verdict)
+    )
 }
 
 /// Whether `antecedent` is shown to have no instance: its constraints are syntactically false or
@@ -968,8 +960,11 @@ pub fn check_implication_with_existentials(
 /// consequent, if it has any. `Invalid` asserts such an instance, so it holds a
 /// [`Counterexample`] (`grade_verdict`): a refutation needs an instance of the antecedent, and a
 /// contingent answer an instance of the antecedent with the negated obligations, each shown
-/// syntactically or by an exact solver `Sat`. Otherwise the answer is `Indeterminate` with the
-/// same report, since the implication may hold vacuously.
+/// syntactically or by an exact solver `Sat`. Without that instance the implication may hold
+/// vacuously. The check has already answered `VacuouslyValid` where it showed the antecedent
+/// empty while deciding obligations (`empty_unless_consistent`); a term mismatch decided none, so
+/// its grading decides the emptiness (`grade_outside`). Any other answer without an instance is
+/// `Indeterminate` with the same report.
 pub fn check_implication_with_existentials_complete(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -1588,8 +1583,19 @@ fn grade_verdict(
         antecedent,
         antecedent_variable,
     } = checked;
-    let grade =
-        |outside, evidence| grade_outside(definition, &antecedent, outside, evidence, solver);
+    // `empty_unless_consistent` decided the emptiness of a refuted, undecided or unprepared
+    // match, and a contingent one was searched for a contradiction on stronger facts; a term
+    // mismatch decided nothing, so its grading decides it.
+    let grade = |outside, evidence, emptiness| {
+        grade_outside(
+            definition,
+            &antecedent,
+            outside,
+            evidence,
+            emptiness,
+            solver,
+        )
+    };
     let refuted_everywhere = |refuted| OutsideEvidence::Everywhere(Everywhere::Refuted(refuted));
     match established {
         Established::Holds(bindings) => Ok(ImplicationVerdict::Valid(bindings)),
@@ -1597,6 +1603,7 @@ fn grade_verdict(
         Established::TermMismatch => grade(
             Outside::TermMismatch,
             OutsideEvidence::Everywhere(Everywhere::TermMismatch),
+            Emptiness::Undecided,
         ),
         // A remainder obligation refuted by the simplifier is reported as a term mismatch, and
         // one refuted by the solver as partial coverage; either puts every instance outside.
@@ -1606,7 +1613,11 @@ fn grade_verdict(
             origin: Origin::MatchRemainder,
             bindings: _,
             obligations: _,
-        } => grade(Outside::TermMismatch, refuted_everywhere(refuted)),
+        } => grade(
+            Outside::TermMismatch,
+            refuted_everywhere(refuted),
+            Emptiness::Decided,
+        ),
         Established::Refuted {
             refuted,
             by: Refuter::Solver,
@@ -1620,6 +1631,7 @@ fn grade_verdict(
                 obligations,
             )),
             refuted_everywhere(refuted),
+            Emptiness::Decided,
         ),
         Established::Refuted {
             refuted,
@@ -1630,6 +1642,7 @@ fn grade_verdict(
         } => grade(
             Outside::ConsequentCondition(MatchReport::refuted(bindings)),
             refuted_everywhere(refuted),
+            Emptiness::Decided,
         ),
         // The instances that falsify the obligations are outside; the report is the part of
         // the antecedent that would lie in the consequent, or the match's bindings.
@@ -1646,6 +1659,7 @@ fn grade_verdict(
             grade(
                 Outside::PartialCoverage(coverage),
                 OutsideEvidence::Where(obligations),
+                Emptiness::Decided,
             )
         }
         Established::Contingent {
@@ -1655,6 +1669,7 @@ fn grade_verdict(
         } => grade(
             Outside::ConsequentCondition(MatchReport::contingent(bindings)),
             OutsideEvidence::Where(obligations),
+            Emptiness::Decided,
         ),
         // An undecided remainder obligation is reported as the condition under which the
         // implication would hold; nothing is shown outside.
@@ -1677,31 +1692,66 @@ fn grade_verdict(
     }
 }
 
+/// Whether the check already decided if the antecedent has no instance, before a failing part
+/// of the consequent is graded ([`grade_outside`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Emptiness {
+    /// The check decided it and did not show the antecedent empty: `empty_unless_consistent`
+    /// decided the knowledge of a refuted match, and a contingent match was searched for a
+    /// contradiction among facts that include the knowledge (`refuted_by_simplification`).
+    Decided,
+    /// Nothing decided it: the consequent's term did not match, so no obligation was decided on
+    /// the antecedent's knowledge, or the consequent is `\bottom`, which has no match at all.
+    Undecided,
+}
+
 /// Grade a failing part of the consequent under the complete policy.
+///
+/// `A -> C` holds when every instance of `A` lies in `C`, so it holds of an `A` with no instance
+/// whatever `C` is, its term included. Each failing part names the instances of `A` outside `C`;
+/// it says nothing about whether there are any.
 ///
 /// `Invalid` asserts an instance of the antecedent outside the consequent, so it is answered
 /// only when `Counterexample::outside` shows one from `evidence`: an instance of the antecedent
 /// when every instance is outside, or an instance of the antecedent conjoined with the negated
 /// obligations when those instances are. Without that instance the implication may hold
-/// vacuously, so the answer is `Indeterminate`; the report is kept either way, because it
-/// describes the antecedent's instances whether or not there are any. A stop of the solver's
-/// query is no answer about that instance, so it is returned rather than graded `Indeterminate`.
+/// vacuously. When `emptiness` is still undecided, it is decided here (`antecedent_is_empty`):
+/// an antecedent shown to have no instance answers `VacuouslyValid`. Otherwise the answer is
+/// `Indeterminate`, never `Valid`, since an emptiness the simplifier and the solver did not show
+/// is not known; the report is kept, because it describes the antecedent's instances whether or
+/// not there are any. Both decisions are made only on this failing path, after the check, so a
+/// consequent that holds costs nothing more. A stop of a solver query is no answer about that
+/// instance or that emptiness, so it is returned rather than graded `Indeterminate`.
 fn grade_outside(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     outside: Outside,
     evidence: OutsideEvidence,
+    emptiness: Emptiness,
     solver: &dyn SmtSolver,
 ) -> Stoppable<ImplicationVerdict> {
+    if let Some(counterexample) =
+        Counterexample::outside(definition, antecedent, &evidence, solver)?
+    {
+        return Ok(ImplicationVerdict::Invalid {
+            counterexample,
+            outside: Some(outside),
+        });
+    }
     Ok(
-        match Counterexample::outside(definition, antecedent, &evidence, solver)? {
-            Some(counterexample) => ImplicationVerdict::Invalid {
-                counterexample,
+        if emptiness == Emptiness::Undecided
+            && antecedent_is_empty(
+                definition,
+                antecedent,
+                SimplificationOptions::default(),
+                solver,
+            )?
+        {
+            ImplicationVerdict::VacuouslyValid
+        } else {
+            ImplicationVerdict::Indeterminate {
                 outside: Some(outside),
-            },
-            None => ImplicationVerdict::Indeterminate {
-                outside: Some(outside),
-            },
+            }
         },
     )
 }
@@ -4764,6 +4814,69 @@ mod tests {
                 grade_bottom_consequent(&definition, &antecedent, solver)
                     .expect("the grading does not stop"),
                 ImplicationVerdict::VacuouslyValid
+            );
+        };
+        check(&NoSolver);
+        #[cfg(feature = "z3")]
+        check(&Z3Solver::new(&definition).expect("Z3 should initialize"));
+    }
+
+    /// `A -> C` holds when every instance of `A` lies in `C`, so an `A` with no instance implies a
+    /// consequent whose term it does not match as well. `cfg(M Map (1 |-> 2)) ∧ ¬(1 in_keys M =
+    /// false)` has none (see above); its term does not match `cfg(.Map)`. The complete policy
+    /// shows no instance outside and then decides the emptiness the mismatch left undecided:
+    /// vacuously valid. The proof policy's term mismatch, that no instance lies in the
+    /// destination, is true of it too, and is kept. Under `1 in_keys M = false` the state has
+    /// instances, all outside `cfg(.Map)`, so the answer is not valid.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_empty_antecedent_implies_a_consequent_whose_term_it_does_not_match() {
+        let definition = map_frame_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let is_false = Predicate::Equals(
+            term(&definition, ONE_IN_KEYS),
+            term(&definition, r#"\dv{SortBool{}}("false")"#),
+        );
+        let empty = map_frame_state(&definition, Predicate::Not(Box::new(is_false.clone())));
+        let mismatched = pattern(&definition, "cfg{}(mapUnit{}())");
+        assert_eq!(
+            check_complete(&definition, &empty, &mismatched, &solver),
+            Ok(ImplicationVerdict::VacuouslyValid)
+        );
+        assert_eq!(
+            check_implication(&definition, &empty, &mismatched, &solver),
+            Ok(Coverage::TermMismatch)
+        );
+        let inhabited = map_frame_state(&definition, is_false);
+        let verdict = check_complete(&definition, &inhabited, &mismatched, &solver)
+            .expect("implication should be checked");
+        assert_ne!(verdict.status(), ImplicationStatus::Valid, "{verdict:#?}");
+        assert_eq!(
+            verdict.failure(),
+            Some(ImplicationFailure::TermMismatch),
+            "{verdict:#?}"
+        );
+    }
+
+    /// The same for `cfg(end, S Set SetItem(1)) ∧ ¬⌈S Set SetItem(1)⌉`, whose emptiness only the
+    /// simplifier shows (the solver reads the `\ceil` as an opaque atom), against `cfg(end,
+    /// .Set)`, with or without a solver.
+    #[test]
+    fn an_antecedent_that_states_its_term_undefined_implies_a_mismatched_consequent() {
+        let definition = set_frame_definition();
+        let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
+        let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
+        antecedent
+            .constraints
+            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                set,
+            )))));
+        let mismatched = pattern(&definition, "cfg{}(end{}(), setUnit{}())");
+        let check = |solver: &dyn SmtSolver| {
+            assert_eq!(
+                check_complete(&definition, &antecedent, &mismatched, solver),
+                Ok(ImplicationVerdict::VacuouslyValid)
             );
         };
         check(&NoSolver);
