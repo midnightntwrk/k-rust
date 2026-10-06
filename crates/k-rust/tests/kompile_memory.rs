@@ -8,6 +8,11 @@
 //! module, and each of those sentences carries a module-wide provenance receipt.
 //! Peak RSS is measured by `scripts/conformance/measure.py` on the child process, the same
 //! helper the WASM ratchet uses.
+//!
+//! The pin runs the `krust` binary, which cargo builds only with the `cli` feature
+//! (`required-features` in the crate manifest), so the file is compiled only with it.
+
+#![cfg(feature = "cli")]
 
 use std::{
     fs,

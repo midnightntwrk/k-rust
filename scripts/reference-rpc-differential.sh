@@ -6,6 +6,7 @@ source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
 source "$workspace/scripts/reference-cache.sh"
+source "$workspace/scripts/reference-server-port.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
@@ -14,8 +15,11 @@ kast=${K_KAST:-}
 kore_parser=${K_KORE_PARSER:-}
 kore_rpc=${K_KORE_RPC:-}
 rpc_client=${K_KORE_RPC_CLIENT:-}
-reference_port=${REFERENCE_RPC_PORT:-31347}
-rust_port=${RUST_RPC_PORT:-31348}
+# Each server binds the port its variable names; 0 (the default) lets the kernel assign a free
+# one, which the gate reads back from the server (scripts/reference-server-port.sh), so
+# concurrent runs never share a server.
+reference_port=${REFERENCE_RPC_PORT:-0}
+rust_port=${RUST_RPC_PORT:-0}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
@@ -138,24 +142,10 @@ stop_server() {
   fi
 }
 
+# wait_for_server REQUESTED: sets server_port to the port the started server listens on.
 wait_for_server() {
-  local port=$1
-  local attempt
-  for ((attempt = 1; attempt <= 100; attempt++)); do
-    if (exec 3<>"${BASH_TCP_PREFIX:-/dev/tcp}/127.0.0.1/$port") 2>/dev/null; then
-      exec 3>&-
-      return 0
-    fi
-    if ! kill -0 "$server_pid" 2>/dev/null; then
-      echo "error: RPC server exited before listening on port $port" >&2
-      cat "$server_log" >&2
-      return 1
-    fi
-    sleep 0.1
-  done
-  echo "error: RPC server did not listen on port $port" >&2
-  cat "$server_log" >&2
-  return 1
+  reference_wait_for_server_port "$server_pid" "$server_log" "$1"
+  server_port=$reference_listening_port
 }
 
 send_raw() {
@@ -179,7 +169,9 @@ run_reference_krun() {
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
-      reference_cached krun "$name:$(basename "$output")" --input "$work/kompiled" --stdin \
+      # The request state is a function of the program and the definition: krun runs with an
+      # empty standard input (the cache's default without --stdin), never the caller's.
+      reference_cached krun "$name:$(basename "$output")" --input "$work/kompiled" \
         --store-status 0 -- \
         "$krun" "$@" >"$output"
     ); then
@@ -205,7 +197,8 @@ generate_state() {
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    reference_cached krun "$name:$stem" --input "$work/kompiled" --stdin \
+    # As in run_reference_krun, standard input is empty, not the caller's.
+    reference_cached krun "$name:$stem" --input "$work/kompiled" \
       --env K_KAST --env KAST_DEFINITION --env KAST_PROGRAM_SORT -- \
       "$krun" "$input" \
       --definition "$work/kompiled" \
@@ -607,7 +600,7 @@ for reference_oracle in "${reference_oracles[@]}"; do
   server_pid=$!
   server_log="$work/server-$rpc_flavour.log"
   wait_for_server "$reference_port"
-  collect_responses "$reference_port" "reference-$rpc_flavour"
+  collect_responses "$server_port" "reference-$rpc_flavour"
   stop_server
 done
 
@@ -630,7 +623,7 @@ echo "[$name:rpc] collecting Rust responses"
 server_pid=$!
 server_log="$work/server.log"
 wait_for_server "$rust_port"
-collect_responses "$rust_port" rust
+collect_responses "$server_port" rust
 stop_server
 
 mapfile -t responses < <(jq -r '.responses[]' <<<"$rpc")
