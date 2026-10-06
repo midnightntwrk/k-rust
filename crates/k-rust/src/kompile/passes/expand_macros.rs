@@ -97,7 +97,10 @@ struct MacroRule {
     head_instance: Option<Vec<Option<Sort>>>,
 }
 
-/// Apply Java's forward `ExpandMacros` sentence transformation.
+/// Expand the macro and alias rules of each module in the rules, claims and contexts the
+/// module declares: an application or token that a rule's left side matches is replaced by the
+/// rule's right side, innermost first, until no rule applies, a rule that is not `macro-rec` or
+/// `alias-rec` applying at most once on a path.
 ///
 /// ```compile_fail,E0432
 /// use k_rust::definition::checks::check_smt_lemmas; // 6e56f086: validated before expansion
