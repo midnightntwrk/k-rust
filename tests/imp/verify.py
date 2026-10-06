@@ -36,7 +36,11 @@ from support.parallel import settle_all, worker_count  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.reference import Key, Snapshot, add_refresh_argument  # noqa: E402
+from support.imp_oracle import reduce_definition  # noqa: E402
+from support.reference import (  # noqa: E402
+    Key, Output, Snapshot, add_refresh_argument, json_sorted_lists,
+    reduce_kprove_temp, reduce_store_paths, repository_inputs, sorted_kore_claims,
+)
 from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
 
 
@@ -57,8 +61,28 @@ EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
 REPLACED_K_TAIL_CELLS = ["k"]
 PRESERVED_MAP_REMAINDER_CELLS = ["env"]
-KOMPILE_TESTS_REFERENCE = HERE / "reference" / "kompile-tests"
+REFERENCE = HERE / "reference"
+KOMPILE_TESTS_REFERENCE = REFERENCE / "kompile-tests"
 KOMPILE_TEST_COUNT = 2
+UPSTREAM_IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
+UPSTREAM_DEFINITION = UPSTREAM_IMP / "src/kimp/kdist/imp-semantics"
+REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
+EMITTED_DEFINITION_INPUT = "emitted/definition.k"
+"""The key name of the KRS-emitted `definition.k` the actual route compiles."""
+
+
+def reduce_source_definition(text: str) -> str:
+    """The stored `parsed.json` or `compiled.json` of an IMP.4 definition.
+
+    It omits the metadata attributes krs-gate removes, and sorts each module's
+    `localSentences`, which K writes in a run-dependent order for the emitted
+    modules and which the projection reads as a multiset.
+    """
+
+    return sort_sentences(reduce_definition(text))
+
+
+sort_sentences = json_sorted_lists(("localSentences",))
 
 BASE_TOOLS = ("cargo", "rustc", "rustfmt", "clippy-driver", "git")
 """Tools every run needs: the Rust checks and the checkout verification."""
@@ -97,12 +121,30 @@ class Context:
     workspace: Path
     target: Path
     live_java: bool = True
-    """Whether a layer that runs Java K live runs: a refresh, or IMP.4-IMP.8."""
+    """Whether a layer that runs Java K live runs: a refresh, or IMP.6-IMP.8."""
     refresh: bool = False
+    """Whether the run refreshes the reference snapshots."""
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     snapshots: list[Snapshot] = field(default_factory=list)
     """Reference snapshots to finish once every layer passed."""
+
+    def upstream(self) -> dict[str, str]:
+        """The upstream revision every IMP.4-IMP.8 snapshot reads."""
+
+        revisions = table(self.pins.get("revisions"), "pins.revisions")
+        return {"imp": str(table(revisions.get("imp"), "revisions.imp").get("commit"))}
+
+    def snapshot(self, name: str, tools: tuple[str, ...], inputs: Mapping[str, Path]) -> Snapshot:
+        """Open the layer snapshot `reference/<name>` and finish it with the gate."""
+
+        snapshot = Snapshot(
+            REFERENCE / name, Key(tools=tools, upstream=self.upstream(), inputs=inputs),
+            workspace=self.workspace, refresh=self.refresh,
+            executables={tool: self.tools[tool] for tool in tools} if self.refresh else None,
+        )
+        self.snapshots.append(snapshot)
+        return snapshot
 
 
 def required_tools(live_java: bool) -> tuple[str, ...]:
@@ -186,7 +228,7 @@ def phase_preflight(context: Context) -> str:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 
     checkouts = {
-        "imp": ROOT.parent / "inspirations/runtimeverification/imp-semantics",
+        "imp": UPSTREAM_IMP,
         "k_rust": ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main",
     }
     expected = {
@@ -461,53 +503,79 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
     reference = context.workspace / "reference-execution-kompiled"
     actual_failure = context.workspace / "actual-execution-llvm-kompiled"
     reference_failure = context.workspace / "reference-execution-llvm-kompiled"
-    upstream = (
-        ROOT.parent
-        / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"
-    )
-    run(
-        [
-            context.tools["kompile"], actual_source,
-            "--backend", "haskell", "--main-module", MODULE,
-            "--syntax-module", MODULE, "--emit-json",
-            "--output-definition", actual,
-        ],
-        timeout=600,
-    )
-    run(
-        [
-            context.tools["kompile"], actual_source,
-            "--backend", "llvm", "--main-module", MODULE,
-            "--syntax-module", MODULE, "--emit-json",
-            "--output-definition", actual_failure,
-        ],
-        timeout=900,
-    )
-    run(
-        [
-            context.tools["kompile"], HERE / "../imp_static_semantics/fixtures/static-adjunct.k",
-            "-I", upstream, "--backend", "llvm",
-            "--main-module", REFERENCE_MODULE,
-            "--syntax-module", REFERENCE_SYNTAX_MODULE, "--emit-json",
-            "--output-definition", reference_failure,
-        ],
-        timeout=900,
-    )
-    run(
-        [
-            context.tools["kompile"], HERE / "../imp_static_semantics/fixtures/static-adjunct.k",
-            "-I", upstream, "--backend", "haskell",
-            "--main-module", REFERENCE_MODULE,
-            "--syntax-module", REFERENCE_SYNTAX_MODULE, "--emit-json",
-            "--output-definition", reference,
-        ],
-        timeout=600,
-    )
-    for directory in (actual, reference):
-        for name in ("parsed.json", "compiled.json", "definition.kore"):
-            if not directory.joinpath(name).is_file():
-                raise GateError(f"source frontend omitted {directory.name}/{name}")
+    # The reference side is keyed by the upstream revision and the adjunct
+    # fixture; the actual side by the digest of the emitted definition.k.
+    # Replay restores what the later layers read: both projected definitions
+    # and the actual KORE that IMP.5 compares with the native build.
+    k = context.snapshot("source-definitions", ("kompile",), source_inputs(actual_source))
+    commands: list[tuple[str, list[str | os.PathLike[str]], int, tuple[Output, ...]]] = [
+        (
+            "kompile/actual-haskell",
+            [
+                actual_source, "--backend", "haskell", "--main-module", MODULE,
+                "--syntax-module", MODULE, "--emit-json", "--output-definition", actual,
+            ],
+            600,
+            (
+                Output(actual / "parsed.json", reduce_source_definition),
+                Output(actual / "compiled.json", reduce_source_definition),
+                Output(actual / "definition.kore", reduce_store_paths),
+            ),
+        ),
+        (
+            "kompile/actual-llvm",
+            [
+                actual_source, "--backend", "llvm", "--main-module", MODULE,
+                "--syntax-module", MODULE, "--emit-json", "--output-definition", actual_failure,
+            ],
+            900,
+            (),
+        ),
+        (
+            "kompile/reference-llvm",
+            [
+                REFERENCE_SOURCE, "-I", UPSTREAM_DEFINITION, "--backend", "llvm",
+                "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
+                "--emit-json", "--output-definition", reference_failure,
+            ],
+            900,
+            (),
+        ),
+        (
+            "kompile/reference-haskell",
+            [
+                REFERENCE_SOURCE, "-I", UPSTREAM_DEFINITION, "--backend", "haskell",
+                "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
+                "--emit-json", "--output-definition", reference,
+            ],
+            600,
+            (
+                Output(reference / "parsed.json", reduce_source_definition),
+                Output(reference / "compiled.json", reduce_source_definition),
+            ),
+        ),
+    ]
+    for label, arguments, timeout, outputs in commands:
+        process = k.run(label, "kompile", arguments, timeout=timeout, outputs=outputs)
+        if process.returncode != 0:
+            raise GateError(f"{label} failed: {compact(process)}")
+        if context.refresh:
+            directory = Path(arguments[arguments.index("--output-definition") + 1])
+            if not directory.joinpath("definition.kore").is_file():
+                raise GateError(f"source frontend omitted {directory.name}/definition.kore")
+        for output in outputs:
+            if not output.path.is_file():
+                raise GateError(f"source frontend omitted {output.path.parent.name}/{output.path.name}")
     return SourceDefinitions(actual, reference, actual_failure, reference_failure, actual_source, {})
+
+
+def source_inputs(actual_source: Path) -> dict[str, Path]:
+    """The key inputs of a snapshot that reads both compiled source definitions."""
+
+    return {
+        **repository_inputs([REFERENCE_SOURCE]),
+        EMITTED_DEFINITION_INPUT: actual_source,
+    }
 
 
 def phase_source_definition(context: Context, artifacts: Artifacts) -> SourceDefinitions:
@@ -600,24 +668,31 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
         f'  imports IMP-VERIFICATION-SYNTAX\n\n{claim_source}endmodule\n',
         encoding="utf-8",
     )
-    upstream = (
-        ROOT.parent
-        / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics"
-    )
     spec_temp = context.workspace / "native-spec-temp"
     spec_temp.mkdir()
-    run(
+    spec_kore = context.workspace / "native-spec" / "spec.kore"
+    # The claims compile against the actual definition IMP.4 compiled, so the
+    # emitted definition.k keys this snapshot as well as the spec.k digest.
+    k = context.snapshot(
+        "native-claims", ("kprove",), {EMITTED_DEFINITION_INPUT: execution_source},
+    )
+    process = k.run(
+        "kprove/dry-run", "kprove",
         [
-            context.tools["kprove"], spec_path, "-I", upstream,
-            "-d", definitions.actual,
+            spec_path, "-I", UPSTREAM_DEFINITION, "-d", definitions.actual,
             "--spec-module", spec_module, "--dry-run", "--temp-dir", spec_temp,
         ],
         timeout=900,
+        # kprove writes the claims in a run-dependent order; the comparator reads them by label.
+        outputs=(Output(
+            spec_kore, sorted_kore_claims,
+            locate=lambda: unique_file(spec_temp, "spec.kore", "kprove --dry-run"),
+        ),),
+        streams={"stdout": reduce_kprove_temp},
     )
-    spec_matches = sorted(spec_temp.rglob("spec.kore"))
-    if len(spec_matches) != 1:
-        raise GateError(f"kprove --dry-run emitted {len(spec_matches)} spec.kore files")
-    comparator.extend(["--reference-claims", spec_matches[0], spec_module])
+    if process.returncode != 0 or not spec_kore.is_file():
+        raise GateError(f"kprove --dry-run did not emit spec.kore: {compact(process)}")
+    comparator.extend(["--reference-claims", spec_kore, spec_module])
     for source, target in table(native_policy.get("label_map", {}), "native label map").items():
         comparator.extend(["--label", f"{source}={target}"])
     result = run(comparator, timeout=600, environment=env)
@@ -627,6 +702,15 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     )
     require_exact_summary(result, expected_summary, "native comparator")
     return result.stdout.strip()
+
+
+def unique_file(directory: Path, name: str, producer: str) -> Path:
+    """The one file `name` a tool wrote below `directory`, or a missing path when it wrote none."""
+
+    matches = sorted(directory.rglob(name))
+    if len(matches) > 1:
+        raise GateError(f"{producer} emitted {len(matches)} {name} files")
+    return matches[0] if matches else directory / name
 
 
 def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
@@ -825,7 +909,7 @@ def main() -> int:
     passed: set[str] = set()
     artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
-        # IMP.4-IMP.8 still run Java K live; only IMP.2's kompile tests replay a snapshot.
+        # IMP.6-IMP.8 still run Java K live; every other K invocation replays a snapshot.
         context = Context(
             pins, corpus, Path(temporary), arguments.target_dir.resolve(),
             live_java=arguments.refresh_reference or not arguments.artifacts_only,

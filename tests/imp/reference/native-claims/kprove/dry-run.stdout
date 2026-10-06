@@ -1,0 +1,1 @@
+kore-exec {{work}}/actual-execution-kompiled/definition.kore --module KRS-IMP --prove {{work}}/native-spec-temp/.kprove-TEMP/spec.kore --spec-module KRS-IMP-SPEC --output {{work}}/native-spec-temp/.kprove-TEMP/result.kore

@@ -1,0 +1,65 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kompile"]
+
+[key.upstream]
+imp = "683a773418add3bcae8ded47c2b24e94494e1988"
+
+[key.inputs]
+"emitted/definition.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
+
+[[invocation]]
+label = "kompile/actual-haskell"
+argv = ["kompile", "{{work}}/actual-execution.k", "--backend", "haskell", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP", "--emit-json", "--output-definition", "{{work}}/actual-execution-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "42bc0d650898d8cb3773e14f310907ace161d691730ed65a3233c8de3a52ba27"
+
+[invocation.inputs]
+"{{work}}/actual-execution.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+
+[invocation.outputs]
+"{{work}}/actual-execution-kompiled/compiled.json" = "35a49418e81b1ef7ad21df7978dcbb738594b74a9793fb99129ab8f420ec3cb9"
+"{{work}}/actual-execution-kompiled/definition.kore" = "f067481bd1c741b8c13f0145dee90ed84ab28d7cb7d717d5cf9307191fc62609"
+"{{work}}/actual-execution-kompiled/parsed.json" = "62b0d5153bb7baafde1990fc9b8289c85527f7dd429322919bc388e93540fd2c"
+
+[[invocation]]
+label = "kompile/actual-llvm"
+argv = ["kompile", "{{work}}/actual-execution.k", "--backend", "llvm", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP", "--emit-json", "--output-definition", "{{work}}/actual-execution-llvm-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "42bc0d650898d8cb3773e14f310907ace161d691730ed65a3233c8de3a52ba27"
+
+[invocation.inputs]
+"{{work}}/actual-execution.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kompile/reference-haskell"
+argv = ["kompile", "{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "--backend", "haskell", "--main-module", "KRS-IMP-STATIC", "--syntax-module", "KRS-IMP-STATIC-SYNTAX", "--emit-json", "--output-definition", "{{work}}/reference-execution-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
+
+[invocation.outputs]
+"{{work}}/reference-execution-kompiled/compiled.json" = "98f3ae8724a90d79e463b557fd8fb0ed1f760abc42c3fd0a71de46d721026ff4"
+"{{work}}/reference-execution-kompiled/parsed.json" = "e8e91b36ed3b5094e6d53d8c5a997d19152ae54749a5272e476a8a78b9b55037"
+
+[[invocation]]
+label = "kompile/reference-llvm"
+argv = ["kompile", "{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "--backend", "llvm", "--main-module", "KRS-IMP-STATIC", "--syntax-module", "KRS-IMP-STATIC-SYNTAX", "--emit-json", "--output-definition", "{{work}}/reference-execution-llvm-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
+
+[invocation.outputs]
