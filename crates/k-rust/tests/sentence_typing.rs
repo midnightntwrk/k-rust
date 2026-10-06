@@ -499,7 +499,9 @@ fn a_user_sort_above_k_is_circular() {
 }
 
 // A cast on an as-pattern fixes the sort both sides are placed at, before any least upper bound:
-// `#SemanticCastToBool(z #as B:Bool)` places `z:Nat` at `Bool`, which compilation rejects.
+// `P #as A` is one value, so `#SemanticCastToBool(z #as B:Bool)` constrains each side as a cast
+// written on it would, and `z:Bool` casts a `Nat` to an incomparable sort, which compilation
+// rejects as it rejects that cast written directly.
 #[test]
 fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
     let loaded = load();
@@ -514,7 +516,7 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
     );
     let error = sentence_typing(loaded.resolved(), "TYPED", &ill_sorted).unwrap_err();
     assert!(
-        matches!(&error, SentenceTypingError::Sort { error: SortInjectionError::IllSortedTerm(mismatch), .. }
+        matches!(&error, SentenceTypingError::Sort { error: SortInjectionError::IncomparableCast(mismatch), .. }
             if mismatch.found == Sort::new("Nat") && mismatch.required == Sort::new("Bool")),
         "{error}"
     );
