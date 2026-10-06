@@ -195,9 +195,20 @@ fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
         Ok(base) => base,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
-    Ok(BigInt::parse_bytes(value.as_bytes(), base)
+    Ok(parse_integer(value, base)
         .map(int_term)
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+}
+
+/// An optional sign followed by one or more digits of `radix`, in either case. The integer
+/// parser alone would also skip `_` separators, which are not digits.
+fn parse_integer(value: &str, radix: u32) -> Option<BigInt> {
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let well_formed =
+        !digits.is_empty() && digits.chars().all(|character| character.is_digit(radix));
+    well_formed
+        .then(|| BigInt::parse_bytes(value.as_bytes(), radix))
+        .flatten()
 }
 
 fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -220,9 +231,7 @@ fn string_to_int(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(value
-        .parse::<BigInt>()
-        .ok()
+    Ok(parse_integer(value, 10)
         .map(int_term)
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
@@ -619,5 +628,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
+    /// its base in either case; a `_` separator is neither, so such strings are undefined.
+    #[test]
+    fn integer_conversions_accept_only_signed_digits() {
+        let to_int = |text: &str| evaluate("STRING.string2int", vec![string_term(text)]);
+        let to_base = |text: &str, base: i64| {
+            evaluate(
+                "STRING.string2base",
+                vec![string_term(text), int_term(base.into())],
+            )
+        };
+        assert_eq!(to_int("+15"), BuiltinResult::Value(int_term(15.into())));
+        assert_eq!(to_int("-007"), BuiltinResult::Value(int_term((-7).into())));
+        assert_eq!(
+            to_base("fF", 16),
+            BuiltinResult::Value(int_term(255.into()))
+        );
+        for text in ["1_0", "1_", "_1", "-_1", "", "+", "-", "+-1", " 1", "1e3"] {
+            assert_eq!(to_int(text), BuiltinResult::Bottom, "{text:?}");
+        }
+        assert_eq!(to_base("f_f", 16), BuiltinResult::Bottom);
+        assert_eq!(to_base("12", 2), BuiltinResult::Bottom);
     }
 }
