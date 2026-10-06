@@ -3235,6 +3235,51 @@ print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
     );
 }
 
+#[test]
+fn a_step_exclusion_excludes_a_case_only_when_it_covers_every_step_at_the_case_verdict() {
+    // A step exclusion names one step's divergence. Another step at the case's verdict, before or
+    // after it, keeps the case ranked, so the exclusion of one recipe of a many-recipe case does
+    // not hide a later divergence of another.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import ratchet
+
+EXCLUSION = {"step_exclusions": [{"step": "kompile", "out": "bad.k.out", "exclusion": "x", "reason": "r"}]}
+bad = {"step": "kompile", "out": "bad.k.out", "verdict": "mismatch"}
+other = {"step": "kompile", "out": "other.k.out", "verdict": "mismatch"}
+program = {"step": "krun", "test": "p", "verdict": "match"}
+error = {"step": "krun", "test": "p", "verdict": "krust-error"}
+
+def exclusion(verdict, steps):
+    return ratchet.matching_step_exclusion({"verdict": verdict, "step": steps}, EXCLUSION)
+
+print(json.dumps({
+    "only": exclusion("mismatch", [bad, program]),
+    "later": exclusion("mismatch", [bad, other]),
+    "earlier": exclusion("mismatch", [other, bad]),
+    "worse": exclusion("krust-error", [bad, error]),
+    "case": ratchet.matching_step_exclusion({"verdict": "mismatch", "step": [other]}, {"exclusion": "y"}),
+}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        probes,
+        serde_json::json!({"only": "x", "later": "", "earlier": "", "worse": "", "case": "y"})
+    );
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),

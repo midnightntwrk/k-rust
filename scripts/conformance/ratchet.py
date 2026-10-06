@@ -179,23 +179,31 @@ STEP_SELECTORS = ("test", "out", "step", "verify_error")
 
 
 def matching_step_exclusion(result: dict, expectation: dict) -> str:
+    """The exclusion of a case: its own, or the step exclusion of its first step at the case's
+    verdict when a step exclusion covers every step at that verdict. A step exclusion names one
+    step's divergence; another step at the same verdict keeps the case ranked."""
     if expectation.get("exclusion"):
         return expectation["exclusion"]
-    failing = next(
-        (
-            step
-            for step in result.get("step", [])
-            if step.get("verdict") == result.get("verdict")
-        ),
-        None,
-    )
-    if failing is None:
+    failing = [
+        step for step in result.get("step", []) if step.get("verdict") == result.get("verdict")
+    ]
+    if not failing:
         return ""
-    for exclusion in expectation.get("step_exclusions", []):
-        selectors = [key for key in STEP_SELECTORS if key in exclusion]
-        if selectors and all(failing.get(key) == exclusion[key] for key in selectors):
-            return exclusion.get("exclusion", "")
-    return ""
+    exclusions = []
+    for step in failing:
+        exclusion = next(
+            (
+                exclusion
+                for exclusion in expectation.get("step_exclusions", [])
+                if (selectors := [key for key in STEP_SELECTORS if key in exclusion])
+                and all(step.get(key) == exclusion[key] for key in selectors)
+            ),
+            None,
+        )
+        if exclusion is None:
+            return ""
+        exclusions.append(exclusion.get("exclusion", ""))
+    return exclusions[0]
 
 
 def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:
