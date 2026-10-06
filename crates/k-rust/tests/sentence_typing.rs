@@ -885,11 +885,11 @@ endmodule
     assert!(assert_view_agrees_with_compilation(&loaded) > 0);
 }
 
-// A cast on a rewrite, `plus((E => z):Nat, z)`, types the rewrite: the parser also casts its left
-// side, so `E` is a `Nat`. Projecting the rewrite to either side drops the outer cast with it,
-// so each side, a `Nat`, is placed at the `Exp` argument of `plus` itself (as
-// `inj{Nat, Exp}`), while `E` is required at the bound of its own cast. The view reports the
-// placements compilation emits.
+// A cast on a rewrite, `plus((E => z):Nat, z)`, types the rewrite and constrains each side (the
+// parser also casts the left side), so `E` is a `Nat`. Projecting the rewrite to either side
+// leaves no position of its own to the outer cast, so each side, a `Nat`, is placed at the `Exp`
+// argument of `plus` itself (as `inj{Nat, Exp}`), while `E` is required at the bound of its own
+// cast. The view reports the placements compilation emits.
 #[test]
 fn a_cast_rewrite_places_its_sides_where_the_rewrite_stands() {
     let source = format!(

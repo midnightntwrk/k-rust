@@ -625,3 +625,64 @@ fn a_nested_cast_constrains_its_operand_by_both_sorts() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+// A rewrite `C[L => R]` denotes `C[L]` on the left of the rule and `C[R]` on the right, so a cast
+// around it, `C[(L => R):S]`, constrains each side as a cast written on that side would:
+// `C[L:S] => C[R:S]`. The parser writes the left side's cast itself (`(E => z):Nat` loads as
+// `#SemanticCastToNat(#SemanticCastToNat(E) => z)`); a term without it means the same.
+#[test]
+fn a_cast_around_a_rewrite_constrains_each_side() {
+    let base = load_exps();
+    let parsed = compiled_cast_axiom(&base).unwrap();
+    assert!(
+        parsed.contains("Lblplus{}(inj{SortNat{},SortExp{}}(VarE:SortNat{})"),
+        "{parsed}"
+    );
+    let cast_rewrite =
+        |left: Term, right: Term| app("plus", vec![cast("Nat", rewrite(left, right)), z()]);
+    let mut failures = Vec::new();
+    for (route, loaded) in exps_with_cast_body(&base, cast_rewrite(variable("E", None), z())) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if axiom != parsed {
+            failures.push(format!("unsorted side, {route}: {axiom}"));
+        }
+    }
+    // The bound types every occurrence of the variable.
+    let shared = app(
+        "plus",
+        vec![
+            cast("Nat", rewrite(variable("E", None), z())),
+            variable("E", None),
+        ],
+    );
+    for (route, loaded) in exps_with_cast_body(&base, shared) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(VarE:SortNat{})")
+            || axiom.contains("VarE:SortExp{}")
+        {
+            failures.push(format!("shared variable, {route}: {axiom}"));
+        }
+    }
+    for (route, loaded) in exps_with_cast_body(&base, cast_rewrite(variable("E", Some("Exp")), z()))
+    {
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "resolve semantic casts"
+                    && error.message.contains(
+                        "variable E has explicit sort Exp outside semantic cast sort Nat",
+                    ) => {}
+            other => failures.push(format!("sorted side, {route}: {other:?}")),
+        }
+    }
+    // A right side of sort `Exp` claimed to be a `Nat` is projected, as under a direct cast.
+    for (route, loaded) in exps_with_cast_body(
+        &base,
+        cast_rewrite(variable("E", None), app("f", vec![variable("E", None)])),
+    ) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(Lblproject'Coln'Nat{}(") {
+            failures.push(format!("function side, {route}: {axiom}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

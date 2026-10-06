@@ -429,20 +429,35 @@ fn collect_cast_bounds(
     (casts, typed_variables, errors)
 }
 
-/// The terms whose value a semantic cast with operand `operand` constrains: the operand and,
-/// through each nested semantic cast, that cast's operand, since a cast denotes the value of its
-/// operand.
+/// The terms whose value a semantic cast with operand `operand` constrains: the operand, the
+/// operand of each nested semantic cast (a cast denotes the value of its operand), and each side
+/// of a rewrite (`C[L => R]` denotes `C[L]` on the left of the rule and `C[R]` on the right, so
+/// `(L => R):S` constrains `L` and `R` as `L:S => R:S` does).
 fn cast_values(operand: &Term) -> Vec<&Term> {
-    let mut values = vec![operand];
-    let mut current = operand;
-    // Invariant: `values` holds `operand` and the operands of the nested casts above `current`,
-    // outermost first; each step descends one level of the finite term.
-    while let Term::Apply { label, arguments } = current.unannotated()
-        && label.semantic_cast_sort().is_some()
-        && let [inner] = arguments.as_slice()
-    {
-        values.push(inner);
-        current = inner;
+    let mut values = Vec::new();
+    let mut pending = vec![operand];
+    // Invariant: `values` holds the visited terms and `pending` the unvisited ones whose value
+    // the cast constrains; each step descends one level of the finite term.
+    while let Some(value) = pending.pop() {
+        values.push(value);
+        match value.unannotated() {
+            Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
+                if let [inner] = arguments.as_slice() {
+                    pending.push(inner);
+                }
+            }
+            Term::Rewrite { left, right } => {
+                pending.push(right);
+                pending.push(left);
+            }
+            Term::Apply { .. }
+            | Term::InjectedLabel(_)
+            | Term::Token { .. }
+            | Term::Variable { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => {}
+        }
     }
     values
 }
@@ -578,14 +593,16 @@ fn transform(
 /// that constrains its value. Another term carries the cast as its metadata sort. A term already
 /// carrying a cast (a nested cast `t:T:S`) is constrained by both, and bound collection rejected
 /// incomparable ones, so it keeps the narrower: `T` when `T` is at or below `S` (the outer cast
-/// is then an upcast, which places nothing), else `S`.
+/// is then an upcast, which places nothing), else `S`. A rewrite carries the cast, and each of
+/// its sides carries it as a cast written on that side would, since `(L => R):S` means
+/// `L:S => R:S`.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
 )]
 fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
     let metadata = term.metadata().cloned();
-    match term.into_unannotated() {
+    let term = match term.into_unannotated() {
         Term::Variable {
             name,
             sort: existing,
@@ -594,19 +611,22 @@ fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
                 name,
                 sort: existing.or(Some(sort)),
             };
-            metadata.map_or(variable.clone(), |metadata| {
+            return metadata.map_or(variable.clone(), |metadata| {
                 variable.with_metadata(metadata)
-            })
-        }
-        term => {
-            let mut metadata = metadata.unwrap_or_default();
-            metadata.sort = Some(match metadata.sort.take() {
-                Some(inner) if below(&inner, &sort, subsorts) => inner,
-                _ => sort,
             });
-            term.with_metadata(metadata)
         }
-    }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(attach_sort(*left, sort.clone(), subsorts)),
+            right: Box::new(attach_sort(*right, sort.clone(), subsorts)),
+        },
+        term => term,
+    };
+    let mut metadata = metadata.unwrap_or_default();
+    metadata.sort = Some(match metadata.sort.take() {
+        Some(inner) if below(&inner, &sort, subsorts) => inner,
+        _ => sort,
+    });
+    term.with_metadata(metadata)
 }
 
 #[cfg(test)]
