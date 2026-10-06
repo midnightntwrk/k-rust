@@ -18,6 +18,7 @@ LEDGER = ROOT / "docs-plan" / "tour.toml"
 PAGES = ROOT / "docs-site" / "src" / "pages"
 VOCS_CONFIG = ROOT / "docs-site" / "vocs.config.ts"
 FACADE = ROOT / "crates" / "krs" / "src" / "lib.rs"
+BUILTIN_FACADE = ROOT / "crates" / "krs" / "src" / "builtin.rs"
 CLI_MAIN = ROOT / "crates" / "krs-cli" / "src" / "main.rs"
 
 
@@ -382,9 +383,9 @@ def main() -> None:
     if missing_macros:
         fail(f"language reference omits public macro exports: {missing_macros}")
 
-    builtin_start = facade.index("pub mod builtin {")
-    builtin_end = facade.index("\n/// A symbolic object-language term", builtin_start)
-    builtin_source = facade[builtin_start:builtin_end]
+    if "pub mod builtin;" not in facade:
+        fail("could not locate the public builtin facade module")
+    builtin_source = BUILTIN_FACADE.read_text(encoding="utf-8")
     builtin_aliases = set(
         re.findall(r"pub use (?:self::)?[A-Za-z_][A-Za-z0-9_]* as ([a-z][a-z0-9_]*);", builtin_source)
     )
