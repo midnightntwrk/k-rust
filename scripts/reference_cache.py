@@ -15,7 +15,8 @@ every hit. It holds the schema, the manifest pins, the tool identity, the argume
 working directory with per-run scratch prefixes replaced by placeholders, the semantic
 environment, the stdin digest, the digests of declared inputs, the pre-state digest of every
 output root, and, for kompile and kprove, the digests of the `kdep` requires closure (looked up in
-direct mode, as ccache does: a closure recorded on a miss is re-hashed on lookup).
+direct mode, as ccache does: a closure recorded on a miss is re-hashed on lookup). The closure is
+computed and hashed before the tool runs and checked again after it.
 
 Modes (REFERENCE_CACHE): `off` runs the tool; `on` replays a valid entry younger than the maximum
 age and stores a miss; `refresh` runs and overwrites; `verify` runs the tool when an entry exists
@@ -156,10 +157,11 @@ def k_opts_semantics(k_opts: str) -> list[str]:
 _digest_memo: dict[tuple[int, int, int, int], str] = {}
 
 
-def file_digest(path: str, st: os.stat_result | None = None) -> str:
+def file_digest(path: str, st: os.stat_result | None = None, memo: bool = True) -> str:
+    """The SHA-256 of a file; `memo=False` reads the file even when the memo knows its stat."""
     st = st or os.stat(path)
     memo_key = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
-    trusted = time.time() - st.st_mtime_ns / 1e9 > DIGEST_MEMO_MIN_AGE_SECONDS
+    trusted = memo and time.time() - st.st_mtime_ns / 1e9 > DIGEST_MEMO_MIN_AGE_SECONDS
     if trusted and memo_key in _digest_memo:
         return _digest_memo[memo_key]
     digest = hashlib.sha256()
@@ -364,7 +366,8 @@ def parse_kdep(text: str) -> list[str]:
     return paths
 
 
-def kdep_closure(kdep: str, argv: list[str], cwd: str, environment: dict) -> list[list[str]]:
+def kdep_files(kdep: str, argv: list[str], cwd: str, environment: dict) -> list[str]:
+    """The absolute paths of the requires closure kdep resolves."""
     source, forwarded = closure_request(argv)
     completed = subprocess.run(
         [kdep, *forwarded, source], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
@@ -372,13 +375,38 @@ def kdep_closure(kdep: str, argv: list[str], cwd: str, environment: dict) -> lis
     )
     if completed.returncode != 0:
         raise CacheError("kdep failed: " + completed.stderr.decode("utf-8", "replace")[:300])
-    closure = []
-    for path in sorted(set(parse_kdep(completed.stdout.decode("utf-8", "surrogateescape")))):
-        absolute = os.path.normpath(os.path.join(cwd, path))
-        if not os.path.isfile(absolute):
-            raise CacheError(f"kdep listed a missing file: {absolute}")
-        closure.append([absolute, file_digest(absolute)])
-    return closure
+    files = sorted({os.path.normpath(os.path.join(cwd, path))
+                    for path in parse_kdep(completed.stdout.decode("utf-8", "surrogateescape"))})
+    for path in files:
+        if not os.path.isfile(path):
+            raise CacheError(f"kdep listed a missing file: {path}")
+    return files
+
+
+def stat_signature(st: os.stat_result) -> list[int]:
+    return [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns]
+
+
+@dataclass
+class ClosureState:
+    """The requires closure as it was before the tool ran.
+
+    `closure` is normalised for the key and the direct-mode index; `files` maps each absolute
+    closure path to its digest and stat signature, so the state can be checked again after the run.
+    """
+    closure: list
+    files: dict
+
+    def change(self) -> str | None:
+        """Why the closure the tool read may differ from this state, or None."""
+        for path, (digest, signature) in self.files.items():
+            try:
+                st = os.stat(path)
+                if stat_signature(st) != signature or file_digest(path, st, memo=False) != digest:
+                    return f"a required file changed while the tool ran: {path}"
+            except OSError:
+                return f"a required file disappeared while the tool ran: {path}"
+        return None
 
 
 # --- the cache ----------------------------------------------------------------------------------
@@ -442,6 +470,12 @@ class ReferenceCache:
     def normalise(self, text: str) -> str:
         for name, path in self.placeholders:
             text = text.replace(path, "@{" + name + "}")
+        return text
+
+    def expand(self, text: str) -> str:
+        """The path a normalised path names in this run."""
+        for name, path in self.placeholders:
+            text = text.replace("@{" + name + "}", path)
         return text
 
     def semantic_environment(self, environment: dict, names=()) -> dict:
@@ -726,6 +760,14 @@ class ReferenceCache:
                     return result
             else:
                 detail = f"entry older than the maximum age ({age / 86400:.1f} days)"
+        closure_state = None
+        if invocation.closure is not None and not (self.mode == "verify" and entry):
+            # The closure is computed and hashed before the tool runs and checked again after
+            # it, so a result is stored only under the closure the tool actually read.
+            try:
+                closure_state = self._closure_before(invocation)
+            except (CacheError, OSError, subprocess.SubprocessError) as error:
+                closure_state = CacheError(str(error))
         result, captured, seconds = self._capture(invocation, runner)
         if self.mode == "verify" and entry:
             result = self._verify(invocation, runner, entry, result, captured)
@@ -740,7 +782,8 @@ class ReferenceCache:
         else:
             result.status = "refresh" if self.mode == "refresh" else "miss"
             result.detail = detail
-        stored, outcome = self._store_quietly(invocation, base, direct_key, result, captured, seconds)
+        stored, outcome = self._store_quietly(invocation, base, direct_key, result, captured,
+                                              seconds, closure_state)
         if stored:
             result.key = outcome
         elif result.status in ("miss", "refresh"):
@@ -757,15 +800,40 @@ class ReferenceCache:
         direct_key = sha256_bytes(canonical(base))
         try:
             closure = json.loads(self.index_path(direct_key).read_text())["closure"]
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             return None, direct_key
         for path, digest in closure:
             try:
-                if file_digest(path) != digest:
+                if file_digest(self.expand(path)) != digest:
                     return None, direct_key
             except OSError:
                 return None, direct_key
         return dict(base, closure=closure), direct_key
+
+    def _closure_before(self, invocation: Invocation) -> ClosureState:
+        """The requires closure, hashed before the tool runs.
+
+        A closure file whose modification or status-change time is not before kdep started may
+        have changed between kdep reading it and its digest being taken, so such a state is
+        refused.
+        """
+        if invocation.closure != "kdep":
+            raise CacheError(f"unknown closure kind {invocation.closure}")
+        if not invocation.kdep:
+            raise CacheError("no kdep executable for the closure")
+        started = time.time_ns()
+        files = kdep_files(invocation.kdep, invocation.argv, invocation.cwd,
+                                        invocation.environment)
+        state = {}
+        for path in files:
+            st = os.stat(path)
+            if max(st.st_mtime_ns, st.st_ctime_ns) >= started:
+                raise CacheError(f"a required file changed while its closure was computed: {path}")
+            state[path] = (file_digest(path, st, memo=False), stat_signature(st))
+        return ClosureState(
+            closure=[[self.normalise(path), digest] for path, (digest, _) in state.items()],
+            files=state,
+        )
 
     def _fresh(self, runner, status: str, detail: str = "") -> Result:
         rc, out, err, seconds, timed_out = runner()
@@ -797,18 +865,17 @@ class ReferenceCache:
                 return "the RLIMIT_AS fallback guard can fail this run for want of address space"
         return None
 
-    def _store_quietly(self, invocation, base, direct_key, result, captured, seconds):
+    def _store_quietly(self, invocation, base, direct_key, result, captured, seconds,
+                       closure_state=None):
         reason = self.storable(invocation, result)
         if reason:
             return False, reason
         try:
             preimage = base
-            if invocation.closure == "kdep":
-                if not invocation.kdep:
-                    raise CacheError("no kdep executable for the closure")
-                closure = kdep_closure(invocation.kdep, invocation.argv, invocation.cwd,
-                                       invocation.environment)
-                preimage = dict(base, closure=closure)
+            if invocation.closure is not None:
+                if not isinstance(closure_state, ClosureState):
+                    raise CacheError(str(closure_state or "no closure was computed"))
+                preimage = dict(base, closure=closure_state.closure)
             # The inputs must still be what the key says: a concurrent edit invalidates the run.
             argument_files = sorted(
                 [self.normalise(path), file_digest(path)]
@@ -817,15 +884,16 @@ class ReferenceCache:
             if (self.input_digests(invocation) != base["inputs"]
                     or argument_files != base["argument_files"]):
                 return False, "an input changed while the tool ran"
-            for path, digest in preimage.get("closure", []):
-                if file_digest(path) != digest:
-                    return False, "a required file changed while the tool ran"
+            if closure_state is not None:
+                change = closure_state.change()
+                if change:
+                    return False, change
             key = sha256_bytes(canonical(preimage))
             self.store(key, preimage, invocation, result, captured, seconds)
-            if invocation.closure == "kdep":
+            if closure_state is not None:
                 index = self.index_path(direct_key)
                 self._ensure(index.parent)
-                _atomic_write(index, canonical({"closure": preimage["closure"]}))
+                _atomic_write(index, canonical({"closure": closure_state.closure}))
             return True, key
         except (CacheError, OSError, tarfile.TarError) as error:
             return False, f"not stored: {error}"

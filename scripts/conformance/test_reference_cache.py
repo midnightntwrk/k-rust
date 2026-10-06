@@ -39,6 +39,24 @@ case $required in /*) ;; *) required=$PWD/$required ;; esac
 printf 'x-kompiled/timestamp : \\\\\\n    %s \\\\\\n    %s\\n' "$PWD/$source" "$required"
 """
 
+# A stand-in for kdep that resolves the name in the source's first line through the -I directories
+# in order, then the source's directory, and rewrites the resolved file after printing it when
+# KDEP_EDIT is set (an edit landing while the closure is computed).
+KDEP_SEARCH = """#!/usr/bin/env bash
+dirs=()
+while [ $# -gt 1 ]; do
+  case $1 in -I) dirs+=("$2"); shift 2 ;; *) shift ;; esac
+done
+source=$1
+name=$(head -n 1 "$source")
+for dir in "${dirs[@]}" "$(dirname "$source")"; do
+  if [ -f "$dir/$name" ]; then required=$(cd "$dir" && pwd)/$name; break; fi
+done
+[ -n "${required:-}" ] || { echo "cannot find $name" >&2; exit 1; }
+printf 'x-kompiled/timestamp : \\\\\\n    %s \\\\\\n    %s\\n' "$PWD/$source" "$required"
+if [ -n "${KDEP_EDIT:-}" ]; then echo edited >> "$required"; fi
+"""
+
 
 class CacheFixture(unittest.TestCase):
     def setUp(self):
@@ -340,6 +358,17 @@ class ClosureTests(CacheFixture):
     def kompile(self):
         return self.invocation(argv_extra=["source.k"], closure="kdep", kdep=str(self.kdep))
 
+    def searching_kompile(self, include_arguments, work=None):
+        work = work or self.work
+        kdep = self.root / "bin" / "kdep-search"
+        if not kdep.exists():
+            kdep.write_text(KDEP_SEARCH)
+            kdep.chmod(0o755)
+        if not (work / "source.k").exists():
+            (work / "source.k").write_text("required.k\n")
+        return self.invocation(work=work, argv_extra=[*include_arguments, "source.k"],
+                               closure="kdep", kdep=str(kdep))
+
     def test_the_requires_closure_is_rechecked_on_lookup(self):
         # The required file lies outside the output root and the argument vector, so only the
         # recorded closure names it.
@@ -354,6 +383,53 @@ class ClosureTests(CacheFixture):
         required.write_text("module B endmodule\n")
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "miss",
                          "a changed required file invalidates the entry")
+
+    def test_a_required_file_edited_while_the_tool_runs_is_not_stored(self):
+        # The tool read the old content; storing it under the new content's digest would replay
+        # a stale result for every later run.
+        required = self.root / "lib" / "required.k"
+        required.parent.mkdir()
+        (self.work / "source.k").write_text(f"{required}\n")
+        required.write_text("module A endmodule\n")
+        time.sleep(0.05)
+        tool = self.runner()
+
+        def edit_while_running():
+            outcome = tool()
+            required.write_text("module B endmodule\n")
+            return outcome
+        first = self.cache().run(self.kompile(), edit_while_running)
+        self.assertEqual(first.status, "uncacheable")
+        self.assertIn("changed while the tool ran", first.detail)
+        self.reset_work()
+        self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "miss")
+        self.reset_work()
+        self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "hit")
+
+    def test_a_required_file_edited_while_the_closure_is_computed_is_not_stored(self):
+        inc = self.root / "inc"
+        inc.mkdir()
+        (inc / "required.k").write_text("module A endmodule\n")
+        time.sleep(0.05)
+        invocation = self.searching_kompile(["-I", str(inc)])
+        invocation.environment["KDEP_EDIT"] = "1"
+        result = self.cache().run(invocation, self.runner())
+        self.assertEqual(result.status, "uncacheable")
+        self.assertIn("changed while its closure was computed", result.detail)
+
+    def test_a_closure_inside_the_scratch_directory_is_a_placeholder(self):
+        other = self.root / "work-b"
+        for work in (self.work, other):
+            work.mkdir(exist_ok=True)
+            (work / "input.txt").write_text("one\n")
+            (work / "stale.txt").write_text("stale\n")
+            (work / "source.k").write_text("required.k\n")
+            (work / "required.k").write_text("module A endmodule\n")
+        time.sleep(0.05)
+        self.assertEqual(self.cache().run(self.searching_kompile([]), self.runner()).status, "miss")
+        result = self.cache(work=other).run(self.searching_kompile([], work=other),
+                                            self.runner(work=other))
+        self.assertEqual(result.status, "hit")
 
     def test_a_failing_closure_computation_leaves_the_result_unstored(self):
         (self.work / "source.k").write_text("missing.k\n")
