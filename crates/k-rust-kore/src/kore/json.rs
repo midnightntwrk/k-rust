@@ -1401,6 +1401,101 @@ mod tests {
             assert_eq!(parse_pattern(&pattern.to_string()).unwrap(), pattern);
         }
     }
+
+    /// Every way a document can fail to be a KORE JSON pattern is refused with an error that
+    /// names the cause, and where it lies: the JSON text's position for a syntax error, the
+    /// field and the JSON type it holds for a field of the wrong type or value, and the
+    /// offending tag, field or name otherwise. Each message is the one place that cause is
+    /// reported, so each case checks it exactly.
+    #[test]
+    fn rejects_each_malformed_document_naming_its_cause() {
+        let envelope = |format: Value, version: Value, term: Value| {
+            json!({ "format": format, "version": version, "term": term }).to_string()
+        };
+        let kore = |term: Value| envelope(json!("KORE"), json!(1), term);
+        let cases = [
+            (
+                r#"{"format":"KORE","version":1,"term":"#.to_owned(),
+                "expected a JSON value at line 1 column 37",
+            ),
+            (
+                "{\n  \"format\": \"KORE\",\n  \"version\": 1,\n  \"term\": nul\n}".to_owned(),
+                "expected `null` at line 4 column 11",
+            ),
+            (
+                envelope(json!("XML"), json!(1), app("a")),
+                r#"unsupported KORE JSON format "XML""#,
+            ),
+            (
+                envelope(json!("KORE"), json!(2), app("a")),
+                "unsupported KORE JSON version 2",
+            ),
+            (
+                envelope(json!(1), json!(1), app("a")),
+                "invalid type: number, expected a string for field `format`",
+            ),
+            (
+                envelope(json!("KORE"), json!("1"), app("a")),
+                "invalid type: string, expected u32 for field `version`",
+            ),
+            (
+                envelope(json!("KORE"), json!(-1), app("a")),
+                "invalid value: -1, expected u32 for field `version`",
+            ),
+            (
+                envelope(json!("KORE"), json!(4_294_967_296_u64), app("a")),
+                "invalid value: 4294967296, expected u32 for field `version`",
+            ),
+            (
+                kore(json!({ "tag": "App", "name": "a", "sorts": [], "args": "x" })),
+                "invalid type: string, expected an array for field `args`",
+            ),
+            (
+                kore(json!({ "tag": "Top", "sort": { "tag": "SortFoo", "name": "S" } })),
+                "unknown variant `SortFoo`, expected `SortVar` or `SortApp`",
+            ),
+            (
+                kore(json!({
+                    "tag": "And",
+                    "sort": sort(),
+                    "patterns": [app("a")],
+                    "second": app("b")
+                })),
+                "unknown field `second`",
+            ),
+            (
+                kore(json!({ "tag": "LeftAssoc", "symbol": "f", "sorts": [], "argss": [] })),
+                "associative application requires at least one argument",
+            ),
+        ];
+        for (document, expected) in cases {
+            let error = from_str(&document).expect_err(&document);
+            assert_eq!(error.to_string(), expected, "{document}");
+        }
+
+        let quantifier = kore(json!({
+            "tag": "Exists",
+            "sort": sort(),
+            "var": "a b",
+            "varSort": sort(),
+            "arg": app("a")
+        }));
+        let error = from_str(&quantifier).expect_err("an invalid quantifier variable");
+        assert!(
+            error
+                .to_string()
+                .starts_with("Lexical error in quantifier variable : a b"),
+            "{error}"
+        );
+        // Displaying an error passes on the failure of the writer it is written to.
+        struct Refuses;
+        impl std::fmt::Write for Refuses {
+            fn write_str(&mut self, _: &str) -> std::fmt::Result {
+                Err(std::fmt::Error)
+            }
+        }
+        assert!(std::fmt::Write::write_fmt(&mut Refuses, format_args!("{error}")).is_err());
+    }
 }
 
 #[cfg(test)]
