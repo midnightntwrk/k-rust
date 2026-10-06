@@ -286,21 +286,46 @@ fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
+/// `ordChar(S)` is the number of the one code point of S, undefined for any other length. A
+/// stored byte that starts no UTF-8 sequence is one code point (`code_point_units`): the one a
+/// `\xNN` escape writes, which both K's string syntax and the KORE language specification make
+/// U+00NN, so its number is the byte's value.
 fn ord(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.ord", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut characters = value.chars();
-    let Some(character) = characters.next() else {
+    let mut units = code_point_units(value);
+    let (Some(start), None) = (units.next(), units.next()) else {
         return Ok(BuiltinResult::Bottom);
     };
-    if characters.next().is_some() {
-        return Ok(BuiltinResult::Bottom);
-    }
+    debug_assert_eq!(start, 0);
     Ok(BuiltinResult::Value(int_term(BigInt::from(
-        character as u32,
+        code_point_number(value),
     ))))
+}
+
+/// The number of the code point that the bytes of one unit (`code_point_units`) store.
+pub(super) fn code_point_number(unit: &[u8]) -> u32 {
+    match std::str::from_utf8(unit) {
+        Ok(character) => u32::from(
+            character
+                .chars()
+                .next()
+                .expect("a unit holds one code point"),
+        ),
+        Err(_) => u32::from(unit[0]),
+    }
+}
+
+/// The stored bytes of each code point of a `String` value (see `code_point_units`).
+pub(super) fn code_points(value: &[u8]) -> impl Iterator<Item = &[u8]> + '_ {
+    let mut starts = code_point_units(value).peekable();
+    std::iter::from_fn(move || {
+        let start = starts.next()?;
+        let end = starts.peek().copied().unwrap_or(value.len());
+        Some(&value[start..end])
+    })
 }
 
 fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -616,6 +641,30 @@ mod tests {
             evaluate("STRING.chr", vec![int_term(0x1f980.into())]),
             BuiltinResult::Value(string_term("🦀"))
         );
+    }
+
+    /// A stored byte that starts no UTF-8 sequence is the code point of the same number, the one
+    /// a `\xNN` escape writes; a string of more or fewer than one code point has no `ordChar`.
+    #[test]
+    fn ord_of_a_raw_byte_is_its_value() {
+        for (bytes, expected) in [(vec![0xe9], 233), (vec![0x80], 128), (vec![0xff], 255)] {
+            assert_eq!(
+                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                BuiltinResult::Value(int_term(BigInt::from(expected))),
+                "ordChar({bytes:x?})"
+            );
+        }
+        assert_eq!(
+            evaluate("STRING.ord", vec![string_term("é")]),
+            BuiltinResult::Value(int_term(BigInt::from(233)))
+        );
+        for bytes in [vec![0xff, 0xfe], vec![0xff, b'a'], vec![]] {
+            assert_eq!(
+                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                BuiltinResult::Bottom,
+                "ordChar({bytes:x?})"
+            );
+        }
     }
 
     /// A symbolic code point may be valid on some instances, so `chrChar` of it is not decided.

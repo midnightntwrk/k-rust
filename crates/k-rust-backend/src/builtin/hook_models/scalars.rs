@@ -323,19 +323,20 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
             .map(|byte| char::from(*byte))
             .collect::<String>()
             .into_bytes())),
-        ("BYTES.string2bytes", [Str(text)]) => match std::str::from_utf8(text) {
-            Ok(text) => text
-                .chars()
-                .map(|character| u8::try_from(u32::from(character)).ok())
-                .collect::<Option<Vec<_>>>()
-                .map_or_else(
-                    // `String2Bytes` is total, but no byte is a code point above 255, so the
-                    // documentation gives no value for such a string.
-                    Spec::unspecified,
-                    |bytes| Spec::value(Bytes(bytes)),
-                ),
-            Err(_) => Spec::open(),
-        },
+        // The code point of each unit, a raw byte standing for U+00NN, as one byte.
+        ("BYTES.string2bytes", [Str(text)]) => units(text)
+            .into_iter()
+            .map(|unit| match std::str::from_utf8(unit) {
+                Ok(character) => u8::try_from(u32::from(character.chars().next().unwrap())).ok(),
+                Err(_) => Some(unit[0]),
+            })
+            .collect::<Option<Vec<_>>>()
+            .map_or_else(
+                // `String2Bytes` is total, but no byte is a code point above 255, so the
+                // documentation gives no value for such a string.
+                Spec::unspecified,
+                |bytes| Spec::value(Bytes(bytes)),
+            ),
         ("BYTES.decodeBytes", [Str(encoding), Bytes(bytes)]) => {
             match decode_text(std::str::from_utf8(encoding).unwrap(), bytes) {
                 Some(text) => Spec::partial(text.map(|text| Str(text.into_bytes()))),
@@ -745,9 +746,9 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                 Ok(character) => {
                     Spec::value(Val::int(u32::from(character.chars().next().unwrap())))
                 }
-                // A byte outside UTF-8 is a code point of the stored string, but which
-                // number `ordChar` gives it is not documented.
-                Err(_) => Spec::open(),
+                // A byte outside UTF-8 is a code point of the stored string, the one a `\xNN`
+                // escape writes: U+00NN.
+                Err(_) => Spec::value(Val::int(unit[0])),
             },
             _ => textual(text, Spec::bottom()),
         },

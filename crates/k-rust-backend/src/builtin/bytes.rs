@@ -60,13 +60,19 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// `String2Bytes` is the inverse of `Bytes2String`, which maps each byte to the code point of
 /// the same number. No byte maps to a code point above 255, and the hook is `total`, so on a
 /// string holding one its value is not given by the definition and the application is left
-/// unevaluated.
+/// unevaluated. A stored byte that starts no UTF-8 sequence is the code point of its own value.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(bytes) = encode_8_bit(value) else {
+    if !sort.is_builtin(BuiltinSort::String) {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    let Some(bytes) = super::string::code_points(value.as_bytes())
+        .map(|unit| u8::try_from(super::string::code_point_number(unit)).ok())
+        .collect::<Option<Vec<_>>>()
+    else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::Unspecified {
                 detail: "String2Bytes of a string holding a code point above 255".into(),
@@ -414,13 +420,6 @@ fn string_term(value: impl Into<String>) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
 }
 
-fn encode_8_bit(value: &str) -> Option<Vec<u8>> {
-    value
-        .chars()
-        .map(|character| u8::try_from(character as u32).ok())
-        .collect()
-}
-
 fn decode_8_bit(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| char::from(*byte)).collect()
 }
@@ -693,6 +692,14 @@ mod tests {
         assert_eq!(
             string_to_bytes(&[string_term("a\u{ff}")]),
             Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xff])))
+        );
+        // A stored byte outside UTF-8 is the code point of its value.
+        assert_eq!(
+            string_to_bytes(&[Term::domain_value(
+                Sort::builtin(BuiltinSort::String),
+                vec![b'a', 0xe9, 0xff]
+            )]),
+            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xe9, 0xff])))
         );
         for text in ["\u{100}", "a🦀"] {
             assert!(
