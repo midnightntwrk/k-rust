@@ -166,6 +166,10 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(slice)))
 }
 
+/// `replaceAtBytes(DEST, INDEX, SRC)` replaces the bytes of `DEST` in `[INDEX, INDEX + N)`, N the
+/// length of `SRC`; it is `#False` when that range is not inside `DEST`, that is unless
+/// `0 <= INDEX` and `INDEX + N <= lengthBytes(DEST)`, as for `substrBytes`. An empty `SRC` at an
+/// index past the end is therefore undefined, and at the end it changes nothing.
 fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.replaceAt", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
@@ -180,9 +184,6 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(replacement) = read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if replacement.is_empty() {
-        return Ok(BuiltinResult::Value(bytes_term(&bytes)));
-    }
     let Some(end) = index.checked_add(replacement.len()) else {
         return Ok(BuiltinResult::Bottom);
     };
@@ -620,6 +621,18 @@ mod tests {
             replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"x")]),
             Ok(BuiltinResult::Bottom)
         );
+        // An empty replacement range is inside `abc` at 0 to 3, and not after it.
+        assert_eq!(
+            replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"")]),
+            Ok(BuiltinResult::Value(bytes_term(b"abc")))
+        );
+        for index in [4, 100] {
+            assert_eq!(
+                replace_at(&[bytes_term(b"abc"), integer(index), bytes_term(b"")]),
+                Ok(BuiltinResult::Bottom),
+                "replaceAtBytes(abc, {index}, .Bytes)"
+            );
+        }
     }
 
     #[test]

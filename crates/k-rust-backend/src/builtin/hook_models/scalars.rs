@@ -388,9 +388,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                     bytes[index..index + source.len()].copy_from_slice(source);
                     Spec::value(Bytes(bytes))
                 }
-                // An empty source replaces nothing; whether an index past the end is then
-                // valid is not documented.
-                None if source.is_empty() && index.is_positive() => Spec::open(),
+                // `#False` unless the replaced range lies inside the value, an empty one too.
                 None => Spec::bottom(),
             }
         }
