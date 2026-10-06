@@ -8,7 +8,7 @@ use krs_ir_levels::{
     k_surface::SentenceVariables,
 };
 
-use super::{EmitContext, EmitError, quoted};
+use super::{EmitContext, EmitError};
 
 pub(super) fn render_context_term(
     term: &DefinitionTerm,
@@ -181,15 +181,7 @@ fn render_term_with_binders(
             }
         },
         DefinitionTermKind::Token { value } => {
-            if matches!(term.sort(), DefinitionSortRef::Builtin(_)) {
-                output.push(value);
-            } else {
-                output.push("#token(");
-                output.push(&quoted(value));
-                output.push(",");
-                output.push(&quoted(context.sort_name_ref(term.sort())?));
-                output.push(")");
-            }
+            output.push(&context.token(value, term.sort())?);
         }
         DefinitionTermKind::KSequence { items, .. } => {
             if items.is_empty() {

@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::{BuiltinOperation, NodeOrigin, NonEmpty};
+use krs_ir::{BuiltinOperation, BuiltinSort, NodeOrigin, NonEmpty};
 use krs_ir_levels::{
     DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm, ListOperands, MapEntry,
     MapOperands, SetOperands,
     k_surface::{SentenceVariables, VariableNaming},
 };
 
-use super::{EmitContext, term::render_term};
+use super::{EmitContext, term::render_term, token::TokenLexicon};
 
 fn node(key: &str) -> NodeOrigin {
     krs_ir::testing::origin_in(
@@ -26,6 +26,7 @@ fn context() -> EmitContext<'static> {
         non_associative_groups: BTreeSet::new(),
         repeated_ancestors: BTreeMap::new(),
         naming: VariableNaming::default(),
+        lexicon: TokenLexicon::default(),
     }
 }
 
@@ -328,4 +329,35 @@ fn remaining_collection_operations_have_exact_canonical_k_source() {
     for (term, expected) in terms {
         assert_eq!(render(&term, &context), expected);
     }
+}
+
+#[test]
+fn tokens_print_bare_only_when_k_lexes_them_back() {
+    let context = context();
+    for (sort, value, expected) in [
+        (BuiltinSort::Int, "-7", "-7"),
+        (BuiltinSort::Bool, "true", "true"),
+        (BuiltinSort::Bytes, r#"b"\x00""#, r#"b"\x00""#),
+        (BuiltinSort::String, r#""a\"b""#, r#""a\"b""#),
+        // `ID-SYNTAX` gives `Id` no rule-grammar lexical syntax, so no Id spelling is bare.
+        (BuiltinSort::Id, "$x", r#"#token("$x","Id")"#),
+        (BuiltinSort::Id, "x", r#"#token("x","Id")"#),
+        (BuiltinSort::Int, "1_000", r#"#token("1_000","Int")"#),
+        (
+            BuiltinSort::String,
+            "unquoted",
+            r#"#token("unquoted","String")"#,
+        ),
+    ] {
+        let term =
+            DefinitionTerm::token(node("token"), DefinitionSortRef::Builtin(sort), value).unwrap();
+        assert_eq!(render(&term, &context), expected, "{sort:?} {value:?}");
+    }
+    let unspellable = DefinitionTerm::token(
+        node("token"),
+        DefinitionSortRef::Builtin(BuiltinSort::Id),
+        "line\nbreak",
+    )
+    .unwrap();
+    assert!(render_term(&unspellable, &context, &SentenceVariables::default(), false).is_err());
 }

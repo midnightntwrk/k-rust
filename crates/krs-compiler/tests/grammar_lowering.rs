@@ -642,7 +642,9 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(source.contains(", function, total, hook(KRYPTO.bn128valid)]"));
     assert!(source.contains(", function, total, hook(KRYPTO.bn128add)]"));
     assert!(source.contains(", function, total, hook(KRYPTO.bn128mul)]"));
-    assert!(source.contains("+Int 1"));
+    // The `[a-z]+` token production has K lexical precedence 2, equal to `Int`'s, so a bare `1`
+    // is not guaranteed to lex as an `Int` and the emitter spells it with `#token`.
+    assert!(source.contains(r#"+Int #token("1","Int")"#));
     let configuration = source
         .lines()
         .find(|line| line.trim_start().starts_with("<k> "))
@@ -651,6 +653,6 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(configuration.starts_with("    <k> $PGM:"));
     assert!(configuration.ends_with(" </k>"));
     assert!(!configuration.contains(" PGM:"));
-    assert!(source.contains("PGM:Int +Int 1"));
-    assert!(!source.contains("$PGM:Int +Int 1"));
+    assert!(source.contains(r#"PGM:Int +Int #token("1","Int")"#));
+    assert!(!source.contains("$PGM:Int +Int"));
 }

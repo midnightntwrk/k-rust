@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
+const DOLLAR_IDS: &str = include_str!("fixtures/dollar-ids/src/lib.rs");
 
 #[test]
 fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
@@ -20,6 +21,7 @@ fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
     for (name, source) in [
         ("foo-bar", FOO_BAR),
         ("nested-function-pattern", NESTED_FUNCTION_PATTERN),
+        ("dollar-ids", DOLLAR_IDS),
     ] {
         let temporary = temp_dir();
         let manifest = materialize_fixture(temporary.path(), source);
@@ -536,6 +538,51 @@ fn assert_timing_invariants(timings: &serde_json::Value) {
         assert!(span["seconds"].as_f64().unwrap() >= 0.0);
         previous_depth = depth;
     }
+}
+
+/// Emits the `$`-identifier claims fixture and returns its retained artifact directory.
+fn emit_dollar_ids(target: &Path, temporary: &Path) -> PathBuf {
+    let manifest = materialize_fixture(temporary, DOLLAR_IDS);
+    let emitted = temporary.join("emitted");
+    assert_success(&command(target, &manifest, "emit-k", Some(&emitted), &[]));
+    emitted
+}
+
+#[test]
+fn emitted_claims_spell_dollar_identifiers_as_tokens_and_variables_readably() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = emit_dollar_ids(target.path(), temporary.path());
+    let spec = fs::read_to_string(emitted.join("spec.k")).unwrap();
+    assert_eq!(
+        spec,
+        r#"requires "definition.k"
+
+module ORG-KRS-CLI-FOO-BAR-SPEC
+  imports ORG-KRS-CLI-FOO-BAR
+
+  claim [assign-x]:
+    <k> #token("$x","Id") = 1 ; ~> Tail:K => .K ~> Tail:K </k>
+    <env> .Map => #token("$x","Id") |-> 1 </env>
+endmodule
+"#
+    );
+    let definition = fs::read_to_string(emitted.join("definition.k")).unwrap();
+    assert!(
+        definition
+            .contains("    <env> OldEnv:Map => OldEnv:Map [ Name:Id <- Value:Value ] </env>\n")
+    );
+}
+
+/// The C2-002 regression: K's rule grammar has no lexical syntax for `Id` under `ID-SYNTAX`, so a
+/// bare `$x` stops `kprove` at its scanner, while the emitted `#token` spelling reads back.
+#[test]
+#[ignore = "requires pin-matched K 7.1.337 tools"]
+fn emitted_dollar_identifier_claims_pass_the_pinned_kprove_dry_run() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = emit_dollar_ids(target.path(), temporary.path());
+    let _proof = krs_test_support::kprove_dry_run_reference(&emitted, "ORG-KRS-CLI-FOO-BAR");
 }
 
 fn command(

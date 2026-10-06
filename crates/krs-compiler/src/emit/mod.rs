@@ -1,5 +1,6 @@
 mod sentence;
 mod term;
+mod token;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -24,6 +25,7 @@ use crate::{
 };
 use sentence::emit_sentence;
 use term::Rendered;
+use token::TokenLexicon;
 
 /// Generated artifact holding the claim-free semantics.
 pub use crate::artifacts::DEFINITION_ARTIFACT;
@@ -225,6 +227,7 @@ struct EmitContext<'a> {
     non_associative_groups: BTreeSet<ProductionGroupId>,
     repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
     naming: VariableNaming,
+    lexicon: TokenLexicon,
 }
 
 impl<'a> EmitContext<'a> {
@@ -251,6 +254,25 @@ impl<'a> EmitContext<'a> {
             non_associative_groups,
             repeated_ancestors,
             naming: VariableNaming::new(definition),
+            lexicon: TokenLexicon::new(definition),
+        }
+    }
+
+    /// Spells a token bare when K's rule parser lexes that spelling back to the same token of the
+    /// same sort, and as `#token("<value>","<Sort>")` otherwise.
+    fn token(&self, value: &str, sort: &DefinitionSortRef) -> Result<String, EmitError> {
+        if let DefinitionSortRef::Builtin(builtin) = sort
+            && self.lexicon.is_bare(*builtin, value)
+        {
+            return Ok(value.to_owned());
+        }
+        let sort = self.sort_name_ref(sort)?;
+        match (token::token_literal(value), token::token_literal(sort)) {
+            (Some(value), Some(sort)) => Ok(format!("#token({value},{sort})")),
+            _ => Err(EmitError::UnsupportedShape {
+                node: "token",
+                detail: format!("{value:?} of sort {sort} has no exact `#token` spelling"),
+            }),
         }
     }
 
