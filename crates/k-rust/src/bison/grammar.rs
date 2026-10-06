@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "prepare_user_lists"]
+//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "derived_root_labels", "remove_uses_of_empty_restricted_sorts", "prepare_user_lists"]
 //! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
@@ -27,7 +27,10 @@
 //! Deterministic Bison grammar rendering for standalone program parsers.
 //!
 //! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
-//! O(pairs * productions). Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! O(pairs * productions). A subsort child of a restricted sort is restricted too when it derives
+//! an excluded label at its root, which one indexed DFS per child decides in O(productions);
+//! uses of restricted sorts left without productions are then removed by a worklist over use
+//! counts, linear in the exported productions. Reachability is a visited-set DFS, O(reachable sorts * productions).
 //! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -386,6 +389,14 @@ fn transform_priority_and_associativity(
     }
 
     let base = productions.clone();
+    let mut by_result = BTreeMap::<&Sort, Vec<&GrammarProduction>>::new();
+    for production in &base {
+        by_result
+            .entry(&production.result)
+            .or_default()
+            .push(production);
+    }
+    let mut root_labels = BTreeMap::<Sort, BTreeSet<String>>::new();
     let mut queue = pending.iter().cloned().collect::<VecDeque<_>>();
     let mut expanded = BTreeSet::new();
     // Invariant: `expanded` contains the processed restricted-sort states and every queued state
@@ -398,10 +409,20 @@ fn transform_priority_and_associativity(
         let restricted = restricted_sort(&sort, ordinal);
         for production in base.iter().filter(|production| production.result == sort) {
             if let Some(child) = grammar_subsort_child(production) {
-                let child = child.clone();
-                if pending.insert((child.clone(), excluded.clone())) {
-                    queue.push_back((child.clone(), excluded.clone()));
-                }
+                // A subsort injection is not written in the program text, so a term of the
+                // child sort stands at the restricted position itself: the child is restricted
+                // by the same exclusion, unless it derives no excluded production at its root.
+                let child_labels = root_labels
+                    .entry(child.clone())
+                    .or_insert_with(|| derived_root_labels(&by_result, child));
+                let child = if child_labels.is_disjoint(&excluded) {
+                    child.clone()
+                } else {
+                    if pending.insert((child.clone(), excluded.clone())) {
+                        queue.push_back((child.clone(), excluded.clone()));
+                    }
+                    restricted_sort(child, ordinal)
+                };
                 productions.push(GrammarProduction {
                     result: restricted.clone(),
                     items: vec![ProductionItem::NonTerminal {
@@ -423,7 +444,85 @@ fn transform_priority_and_associativity(
     }
     productions.sort_by_key(structural_key);
     productions.dedup_by_key(|production| structural_key(production));
+    let restricted = expanded
+        .iter()
+        .map(|(sort, excluded)| restricted_sort(sort, ordinals[excluded]))
+        .collect();
+    remove_uses_of_empty_restricted_sorts(&mut productions, &restricted);
     Ok(productions)
+}
+
+/// The labels of the productions `sort` derives at its root: its labeled productions and those
+/// of the sorts it derives through unlabeled subsort productions. `by_result` indexes the
+/// productions by result sort, so one call reads each production at most once.
+fn derived_root_labels(
+    by_result: &BTreeMap<&Sort, Vec<&GrammarProduction>>,
+    sort: &Sort,
+) -> BTreeSet<String> {
+    let mut labels = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    let mut pending = vec![sort];
+    // Invariant: `labels` holds the labels of the non-subsort productions of every sort in
+    // `visited`, and `pending` holds the subsort children of those sorts not yet visited; each
+    // sort is visited once.
+    while let Some(sort) = pending.pop() {
+        if !visited.insert(sort) {
+            continue;
+        }
+        for production in by_result.get(sort).into_iter().flatten() {
+            if let Some(child) = grammar_subsort_child(production) {
+                pending.push(child);
+            } else if let Some(label) = production_label(&production.source) {
+                labels.insert(label.name.clone());
+            }
+        }
+    }
+    labels
+}
+
+/// Remove every production that uses a restricted sort without productions, until no
+/// production does. Such a sort derives nothing, so a production using it derives nothing
+/// either, and Bison rejects a nonterminal without rules.
+fn remove_uses_of_empty_restricted_sorts(
+    productions: &mut Vec<GrammarProduction>,
+    restricted: &BTreeSet<Sort>,
+) {
+    let mut remaining = BTreeMap::<Sort, usize>::new();
+    let mut users = BTreeMap::<Sort, Vec<usize>>::new();
+    for (index, production) in productions.iter().enumerate() {
+        if restricted.contains(&production.result) {
+            *remaining.entry(production.result.clone()).or_default() += 1;
+        }
+        for sort in nonterminal_sorts(&production.items) {
+            if restricted.contains(sort) {
+                users.entry(sort.clone()).or_default().push(index);
+            }
+        }
+    }
+    let mut empty = restricted
+        .iter()
+        .filter(|sort| !remaining.contains_key(*sort))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut removed = vec![false; productions.len()];
+    // Invariant: `removed` marks exactly the productions that use a sort popped from `empty`,
+    // `remaining` counts the unmarked productions of each restricted sort, and a sort enters
+    // `empty` once, when its count is or reaches zero.
+    while let Some(sort) = empty.pop() {
+        for &index in users.get(&sort).into_iter().flatten() {
+            if std::mem::replace(&mut removed[index], true) {
+                continue;
+            }
+            if let Some(count) = remaining.get_mut(&productions[index].result) {
+                *count -= 1;
+                if *count == 0 {
+                    empty.push(productions[index].result.clone());
+                }
+            }
+        }
+    }
+    let mut removed = removed.into_iter();
+    productions.retain(|_| !removed.next().expect("one mark per production"));
 }
 
 fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, GrammarError> {
@@ -1865,6 +1964,319 @@ mod tests {
         assert!(first_output.contains("_u23_"));
         assert!(first_output.contains("n->symbol = \"Lbladd{}\""));
         assert!(first_output.contains("n->symbol = \"Lblmultiply{}\""));
+    }
+
+    /// Labels of the productions `sort` derives at its root in `productions`: its labeled
+    /// productions and those of the sorts it derives through unlabeled subsort productions.
+    /// Written apart from `derived_root_labels`, which the transformation itself uses.
+    fn root_labels(productions: &[GrammarProduction], sort: &Sort) -> BTreeSet<String> {
+        let mut labels = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut pending = vec![sort.clone()];
+        while let Some(sort) = pending.pop() {
+            if !visited.insert(sort.clone()) {
+                continue;
+            }
+            for production in productions.iter().filter(|p| p.result == sort) {
+                match (&production.source, production.items.as_slice()) {
+                    (
+                        Sentence::Production { label: None, .. },
+                        [ProductionItem::NonTerminal { sort, .. }],
+                    ) => pending.push(sort.clone()),
+                    (
+                        Sentence::Production {
+                            label: Some(label), ..
+                        },
+                        _,
+                    ) => {
+                        labels.insert(label.name.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        labels
+    }
+
+    /// The exported production of the source production labeled `label`.
+    fn exported<'a>(productions: &'a [GrammarProduction], label: &str) -> &'a GrammarProduction {
+        productions
+            .iter()
+            .find(|production| {
+                let Sentence::Production {
+                    sort,
+                    label: Some(source),
+                    ..
+                } = &production.source
+                else {
+                    return false;
+                };
+                source.name == label && &production.result == sort
+            })
+            .unwrap_or_else(|| panic!("no exported production labeled {label}"))
+    }
+
+    fn operand(production: &GrammarProduction, index: usize) -> &Sort {
+        let ProductionItem::NonTerminal { sort, .. } = &production.items[index] else {
+            panic!("item {index} of {production:?} is not a nonterminal")
+        };
+        sort
+    }
+
+    /// `parser.bison.priorities`: the first and last operand of a labeled production derive, at
+    /// their root, exactly the operand sort's productions minus the labels of lesser priority and
+    /// those the associativity of that side excludes, also when an excluded production is
+    /// reached through a subsort; an inner operand and a subsort the exclusion cannot reach stay
+    /// unrestricted.
+    #[test]
+    fn restricted_operands_exclude_lesser_priority_and_associativity_through_subsorts() {
+        let binary = |sort: &str, operator: &str, label: &str| {
+            production(
+                sort,
+                vec![
+                    nonterminal("Exp"),
+                    ProductionItem::Terminal(operator.into()),
+                    nonterminal("Exp"),
+                ],
+                Some(label),
+                &[],
+            )
+        };
+        let associativity = |associativity, tag: &str| Sentence::SyntaxAssociativity {
+            associativity,
+            tags: vec![tag.into()],
+            attributes: Attributes::default(),
+        };
+        let sentences = vec![
+            // `plus` reaches `Exp` through two subsort paths, `Mid` and `Mid` via `Wrap`.
+            production("Exp", vec![nonterminal("Mid")], None, &[]),
+            production("Mid", vec![nonterminal("Add")], None, &[]),
+            production("Mid", vec![nonterminal("Wrap")], None, &[]),
+            production("Wrap", vec![nonterminal("Add")], None, &[]),
+            binary("Add", "+", "plus"),
+            binary("Exp", "*", "mul"),
+            binary("Exp", "^", "pow"),
+            production(
+                "Exp",
+                vec![
+                    ProductionItem::Terminal("(".into()),
+                    nonterminal("Exp"),
+                    ProductionItem::Terminal(")".into()),
+                ],
+                Some("paren"),
+                &[],
+            ),
+            production("Exp", vec![nonterminal("Int")], None, &[]),
+            production(
+                "Int",
+                vec![ProductionItem::Terminal("1".into())],
+                Some("one"),
+                &[],
+            ),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["pow".into()], vec!["mul".into()], vec!["plus".into()]],
+                attributes: Attributes::default(),
+            },
+            associativity(Associativity::Left, "plus"),
+            associativity(Associativity::NonAssoc, "mul"),
+            associativity(Associativity::Right, "pow"),
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+
+        let all = ["plus", "mul", "pow", "paren", "one"];
+        let without = |excluded: &[&str]| {
+            all.iter()
+                .filter(|label| !excluded.contains(label))
+                .map(|label| (*label).to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        for (label, left, right) in [
+            ("plus", &[][..], &["plus"][..]),
+            ("mul", &["plus", "mul"][..], &["plus", "mul"][..]),
+            ("pow", &["plus", "mul", "pow"][..], &["plus", "mul"][..]),
+        ] {
+            let production = exported(&productions, label);
+            for (index, excluded) in [(0, left), (2, right)] {
+                assert_eq!(
+                    root_labels(&productions, operand(production, index)),
+                    without(excluded),
+                    "operand {index} of {label}"
+                );
+            }
+        }
+        assert_eq!(
+            operand(exported(&productions, "paren"), 1),
+            &Sort::new("Exp")
+        );
+        // Every sort a production uses is defined, as Bison requires of a nonterminal.
+        let defined = productions
+            .iter()
+            .map(|production| &production.result)
+            .collect::<BTreeSet<_>>();
+        for production in &productions {
+            for sort in nonterminal_sorts(&production.items) {
+                assert!(defined.contains(sort), "{sort} is used by {production:?}");
+            }
+        }
+        // `Int` derives no excluded label, so every restricted sort keeps it as is.
+        let int_parents = productions
+            .iter()
+            .filter(|production| grammar_subsort_child(production) == Some(&Sort::new("Int")))
+            .count();
+        let restricted_exp = productions
+            .iter()
+            .map(|production| &production.result)
+            .filter(|sort| sort.name.starts_with("Exp#"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(int_parents, 1 + restricted_exp.len());
+    }
+
+    /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and
+    /// one terminator production of the same `+` or `*` kind, with the list on one side, is
+    /// rejected; a formal parametric list is kept unlowered.
+    #[test]
+    fn user_lists_are_validated_and_formal_lists_are_kept() {
+        let recursive = |items: Vec<ProductionItem>, label: Option<&str>, kind: &str| {
+            production("Es", items, label, &[("userList", kind)])
+        };
+        let right = || {
+            vec![
+                nonterminal("E"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("Es"),
+            ]
+        };
+        let left = || {
+            vec![
+                nonterminal("Es"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("E"),
+            ]
+        };
+        let terminator = |label: Option<&str>, kind: &str| {
+            production(
+                "Es",
+                vec![ProductionItem::Terminal(".Es".into())],
+                label,
+                &[("userList", kind)],
+            )
+        };
+        for (members, message) in [
+            (
+                vec![
+                    recursive(right(), Some("cons"), "*"),
+                    recursive(right(), Some("cons2"), "*"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "expected one recursive and one terminator production",
+            ),
+            (
+                vec![recursive(right(), Some("cons"), "*")],
+                "expected one recursive and one terminator production",
+            ),
+            (
+                vec![recursive(right(), None, "*"), terminator(Some("nil"), "*")],
+                "recursive production has no constructor label",
+            ),
+            (
+                vec![recursive(right(), Some("cons"), "*"), terminator(None, "*")],
+                "terminator production has no constructor label",
+            ),
+            (
+                vec![
+                    recursive(right(), Some("cons"), "+"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "recursive and terminator productions must have the same `+` or `*` userList attribute",
+            ),
+            (
+                vec![
+                    recursive(right(), Some("cons"), "?"),
+                    terminator(Some("nil"), "?"),
+                ],
+                "recursive and terminator productions must have the same `+` or `*` userList attribute",
+            ),
+            (
+                vec![
+                    recursive(
+                        vec![
+                            nonterminal("E"),
+                            ProductionItem::Terminal(",".into()),
+                            nonterminal("E"),
+                        ],
+                        Some("cons"),
+                        "*",
+                    ),
+                    terminator(Some("nil"), "*"),
+                ],
+                "recursive production must contain the list sort on exactly one side",
+            ),
+            (
+                vec![
+                    recursive(left(), Some("cons"), "*"),
+                    terminator(Some("nil"), "*"),
+                ],
+                "left-associative `List` is not supported by K's Bison transform",
+            ),
+        ] {
+            let error = prepare(&members).map(|_| ()).unwrap_err().to_string();
+            assert_eq!(error, format!("invalid user list Es: {message}"));
+        }
+        for members in [
+            vec![
+                recursive(right(), Some("cons"), "*"),
+                terminator(Some("nil"), "*"),
+            ],
+            vec![
+                recursive(left(), Some("cons"), "+"),
+                terminator(Some("nil"), "+"),
+            ],
+        ] {
+            assert!(prepare(&members).is_ok(), "{members:?}");
+        }
+
+        let parameter = Sort::new("T");
+        let formal = |items: Vec<ProductionItem>, label: &str| Sentence::Production {
+            label: Some(Label::with_parameters(label, vec![parameter.clone()])),
+            parameters: vec![parameter.clone()],
+            sort: Sort::with_parameters("Ps", vec![parameter.clone()]),
+            items,
+            attributes: attributes(&[("userList", "*")]),
+        };
+        let parametric_list = Sort::with_parameters("Ps", vec![parameter.clone()]);
+        let members = vec![
+            formal(
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(",".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parametric_list.clone(),
+                        name: None,
+                    },
+                ],
+                "pcons",
+            ),
+            formal(vec![ProductionItem::Terminal(".Ps".into())], "pnil"),
+        ];
+        let prepared = prepare(&members).unwrap();
+        assert_eq!(
+            prepared
+                .productions
+                .iter()
+                .map(|production| (production.result.clone(), production.source.clone()))
+                .collect::<Vec<_>>(),
+            members
+                .iter()
+                .map(|member| (parametric_list.clone(), member.clone()))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

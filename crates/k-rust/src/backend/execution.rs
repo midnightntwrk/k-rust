@@ -1248,9 +1248,14 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
 mod captured_stdout_tests {
     use std::sync::Arc;
 
-    use k_rust_backend::term::{Sort, Symbol, Term};
+    use k_rust_backend::{
+        rewrite::{ExecutionLeaf, HaltReason, Pattern},
+        rule::Predicate,
+        term::{CollectionSymbols, ListDefinition, MapDefinition, Sort, Symbol, Term},
+        transition::ExecutionIoState,
+    };
 
-    use super::stdout_stream_buffers;
+    use super::{captured_stdout_buffer, stdout_stream_buffers};
 
     fn app(name: &str, arguments: Vec<Term>) -> Term {
         let sort = Sort::simple("SortK");
@@ -1310,6 +1315,201 @@ mod captured_stdout_tests {
         let non_buffer = stdout_cell(app("other", vec![]));
         for malformed in [missing, non_list, non_string, non_buffer] {
             assert!(stdout_stream_buffers(&malformed).is_empty());
+        }
+    }
+
+    fn list_definition(element: &str, sort: &str) -> Arc<ListDefinition> {
+        Arc::new(ListDefinition {
+            symbols: CollectionSymbols {
+                unit: format!("Lbl'Stop'{sort}").into(),
+                element: element.into(),
+                concat: format!("Lbl'Unds'{sort}'Unds'").into(),
+            },
+            element_sort: "SortKItem".into(),
+            list_sort: format!("Sort{sort}").into(),
+        })
+    }
+
+    fn map_definition() -> Arc<MapDefinition> {
+        Arc::new(MapDefinition {
+            symbols: CollectionSymbols {
+                unit: "Lbl'Stop'Map".into(),
+                element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
+                concat: "Lbl'Unds'Map'Unds'".into(),
+            },
+            key_sort: "SortKItem".into(),
+            value_sort: "SortKItem".into(),
+            map_sort: "SortMap".into(),
+        })
+    }
+
+    /// The three-item stream list `#ostream(1) "off" #buffer(text)` as an internal list.
+    fn stream_items(text: &[u8]) -> Term {
+        Term::list(
+            list_definition("LblListItem", "List"),
+            vec![
+                app(
+                    "Lbl'Hash'ostream",
+                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
+                ),
+                Term::domain_value(Sort::simple("SortString"), "off"),
+                buffer(Term::domain_value(
+                    Sort::simple("SortString"),
+                    text.to_vec(),
+                )),
+            ],
+            None,
+        )
+    }
+
+    fn internal_stdout_cell(text: &[u8]) -> Term {
+        app("Lbl'-LT-'stdout'-GT-'", vec![stream_items(text)])
+    }
+
+    fn int(value: u32) -> Term {
+        Term::domain_value(Sort::simple("SortInt"), value.to_string())
+    }
+
+    fn sorted(mut buffers: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+        buffers.sort();
+        buffers
+    }
+
+    /// `backend.execution.captured_stdout`: every stdout stream cell of the externalized leaf is
+    /// found, wherever an internal Map, List or Set holds it: Map keys, values and rest, List
+    /// heads, middle and tails, Set elements and rest.
+    #[test]
+    fn finds_stdout_cells_held_by_maps_lists_and_sets() {
+        let cell = |byte: u8| internal_stdout_cell(&[byte]);
+        let map = Term::map(
+            map_definition(),
+            vec![
+                (int(1), app("Lbl'-LT-'thread'-GT-'", vec![cell(b'a')])),
+                (app("key", vec![cell(b'b')]), int(2)),
+            ],
+            Some(app("restMap", vec![cell(b'c')])),
+        );
+        let list = Term::list(
+            list_definition("LblListItem", "List"),
+            vec![cell(b'd'), int(3)],
+            Some((
+                app("middleList", vec![cell(b'e')]),
+                vec![int(4), cell(b'f')],
+            )),
+        );
+        let set = Term::set(
+            list_definition("LblSetItem", "Set"),
+            vec![cell(b'g'), int(5)],
+            Some(app("restSet", vec![cell(b'h')])),
+        );
+        for (collection, expected) in [
+            (&map, &b"abc"[..]),
+            (&list, &b"def"[..]),
+            (&set, &b"gh"[..]),
+        ] {
+            let configuration = app("Lbl'-LT-'generatedTop'-GT-'", vec![collection.clone()]);
+            assert_eq!(
+                sorted(stdout_stream_buffers(&configuration)),
+                expected.iter().map(|byte| vec![*byte]).collect::<Vec<_>>(),
+                "{collection:?}"
+            );
+        }
+        let all = app("top", vec![map, list, set]);
+        assert_eq!(
+            sorted(stdout_stream_buffers(&all)),
+            b"abcdefgh"
+                .iter()
+                .map(|byte| vec![*byte])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// `backend.execution.captured_stdout`: a collection element exists as an application only
+    /// in the externalized term, so a List or Set whose element symbol is itself a stdout cell
+    /// label holds a stdout cell at each element.
+    #[test]
+    fn finds_stdout_cells_formed_by_collection_elements() {
+        let list = Term::list(
+            list_definition("Lbl'-LT-'out'-GT-'", "OutList"),
+            vec![stream_items(b"head")],
+            Some((app("middle", vec![]), vec![stream_items(b"tail")])),
+        );
+        let set = Term::set(
+            list_definition("Lbl'-LT-'out'-GT-'", "OutSet"),
+            vec![stream_items(b"element")],
+            None,
+        );
+        assert_eq!(
+            sorted(stdout_stream_buffers(&app("top", vec![list, set]))),
+            vec![b"element".to_vec(), b"head".to_vec(), b"tail".to_vec()]
+        );
+    }
+
+    fn leaf(term: Term, constraints: Vec<Predicate>, halt_reason: HaltReason) -> ExecutionLeaf {
+        ExecutionLeaf {
+            pattern: Pattern { term, constraints },
+            depth: 7,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            effects: Vec::new(),
+            io: ExecutionIoState::default(),
+            halt_reason,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// `backend.execution.captured_stdout`: captured output exists only for one unconstrained,
+    /// complete leaf holding exactly one stdout stream, here under a Map-shaped configuration.
+    #[test]
+    fn captured_output_requires_one_complete_unconstrained_leaf_with_one_stream() {
+        let configuration = |cells: &[&[u8]]| {
+            Term::map(
+                map_definition(),
+                cells
+                    .iter()
+                    .enumerate()
+                    .map(|(key, text)| {
+                        let key = u32::try_from(key).unwrap();
+                        (int(key), internal_stdout_cell(text))
+                    })
+                    .collect(),
+                None,
+            )
+        };
+        let terminal = || HaltReason::TerminalRule { rule: "r".into() };
+        for halt_reason in [HaltReason::Stuck, terminal()] {
+            let leaf = leaf(configuration(&[b"out"]), Vec::new(), halt_reason);
+            assert_eq!(captured_stdout_buffer(&[&leaf]).unwrap(), b"out");
+        }
+
+        let none = leaf(configuration(&[]), Vec::new(), HaltReason::Stuck);
+        let two = leaf(configuration(&[b"1", b"2"]), Vec::new(), HaltReason::Stuck);
+        let constrained = leaf(configuration(&[b"out"]), vec![Predicate::True], terminal());
+        let one = leaf(configuration(&[b"out"]), Vec::new(), HaltReason::Stuck);
+        let bounded = leaf(configuration(&[b"out"]), Vec::new(), HaltReason::DepthBound);
+        for (finals, message) in [
+            (vec![], "found 0 leaves"),
+            (
+                vec![&none],
+                "found 1 leaf: constraints=0, stdout stream buffers=0",
+            ),
+            (
+                vec![&two],
+                "found 1 leaf: constraints=0, stdout stream buffers=2",
+            ),
+            (
+                vec![&constrained],
+                "found 1 leaf: constraints=1, stdout stream buffers=1",
+            ),
+            (
+                vec![&one, &one],
+                "found 2 leaves: constraints=0, stdout stream buffers=1; constraints=0, stdout stream buffers=1",
+            ),
+            (vec![&bounded], "leaf halted at depth 7 with DepthBound"),
+        ] {
+            let error = captured_stdout_buffer(&finals).unwrap_err().to_string();
+            assert!(error.ends_with(message), "{error}");
         }
     }
 }

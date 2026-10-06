@@ -5846,6 +5846,16 @@ symbol = "restricted_sort"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "derived_root_labels"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "remove_uses_of_empty_restricted_sorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
 symbol = "prepare_user_lists"
 
 [[node.cost]]
