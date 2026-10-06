@@ -1235,3 +1235,475 @@ fn identity_injections_do_not_supply_terminals() {
         assert_eq!(paths, [expected], "{label}");
     }
 }
+
+/// VI-T10 R4-D1: both equalities hold at Y = 0 in matching logic (bottom equals bottom).
+/// Before the guard Z3 retained a Trivial leaf but refuted its X=1,Y=0 instance as Unsat;
+/// refuse before execution so that no relation query can use that test predicate.
+#[test]
+fn audit_vi_t10_partial_equalities_require_input_refusal() {
+    const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{},Y:SortInt{})";
+    let positive = format!(r#"Lbl'Unds-GT-'Int'Unds'{{}}({DIV},\dv{{SortInt{{}}}}("0"))"#);
+    let conditions = [
+        (
+            "eq-succ",
+            format!(
+                r#"\equals{{SortInt{{}},SortGeneratedTopCell{{}}}}({DIV},Lbl'UndsPlus'Int'Unds'{{}}({DIV},\dv{{SortInt{{}}}}("1")))"#
+            ),
+        ),
+        (
+            "eq-notbool",
+            format!(
+                r"\equals{{SortBool{{}},SortGeneratedTopCell{{}}}}({positive},LblnotBool'Unds'{{}}({positive}))"
+            ),
+        ),
+    ];
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("partialreq.k"),
+            "TV01UNSAT",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("baseline");
+    for (label, condition) in conditions {
+        let initial = Pattern::And {
+            sort: kore_sort("SortGeneratedTopCell"),
+            arguments: vec![
+                support::initial_state(
+                    support::app("Lblpair", vec![int("X"), int("Y")]),
+                    "SortProg",
+                ),
+                k_rust::kore::parser::parse_pattern(&condition).expect("condition"),
+            ],
+        };
+        let mut backend = backend(&side, "TV01UNSAT");
+        let admission = bridge::validate_test_initial_state(&mut backend, &initial);
+        assert!(
+            matches!(
+                admission,
+                Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+            ),
+            "{label}: undefined instances must be protected before execution, got {admission:?}"
+        );
+        // Deliberately bypass admission: this is the T-UNSAT violation that justifies
+        // refusing the input, adjudicated by the supervisor on 2026-10-07.
+        let measured = audit_vi_t10_relation_rows(
+            &side,
+            "TV01UNSAT",
+            &initial,
+            &[equal("X", 1), equal("Y", 0)],
+            &[equal("X", 1), equal("Y", 1)],
+        );
+        eprintln!("TB02-EQUALITY {label}: {measured:?}");
+        assert_eq!(
+            measured,
+            [row(
+                if cfg!(feature = "z3") {
+                    HaltClass::Trivial
+                } else {
+                    HaltClass::Stuck
+                },
+                LeafFeasibility::Unknown,
+                if cfg!(feature = "z3") {
+                    Feasibility::Unsat
+                } else {
+                    Feasibility::Unknown
+                },
+                if cfg!(feature = "z3") {
+                    Feasibility::Unsat
+                } else {
+                    Feasibility::Unknown
+                },
+            )],
+            "{label}"
+        );
+    }
+}
+
+/// VI-T11: free set variables are refused explicitly before the backend's undecided step.
+/// A set binder is local and is not a free test-state input.
+#[test]
+fn audit_vi_t11_free_set_variables_require_input_refusal() {
+    let mut backend = Backend::new(
+        r"[] module MAIN sort SortS{} [] symbol Lbla{}() : SortS{} [constructor{}()] endmodule []",
+        "MAIN",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    for source in ["@Rule-hM:SortS{}", r"\and{SortS{}}(Lbla{}(),@M:SortS{})"] {
+        let pattern = k_rust::kore::parser::parse_pattern(source).expect("set input");
+        let admission = bridge::validate_test_initial_state(&mut backend, &pattern);
+        assert!(
+            matches!(
+                admission,
+                Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+            ),
+            "{source}: must refuse a free set variable before execution, got {admission:?}"
+        );
+    }
+    let local =
+        k_rust::kore::parser::parse_pattern(r"\mu{}(@M:SortS{},@M:SortS{})").expect("local binder");
+    assert!(bridge::validate_test_initial_state(&mut backend, &local).is_ok());
+}
+
+/// VI-T10: admitted monotone predicates, defined and undefined valuations, plus a genuinely
+/// empty predicate. Report every depth-0 discard and require an actual-instance row to stay.
+#[test]
+fn audit_vi_t10_positive_predicates_do_not_discard_instances() {
+    const PART: &str = r"Lblpart{}(X:SortInt{})";
+    const TOP: &str = "SortGeneratedTopCell{}";
+    let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
+    let rows = [
+        ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})"), true),
+        ("equals", atom.clone(), true),
+        (
+            "in",
+            format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
+            true,
+        ),
+        (
+            "and",
+            format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())"),
+            true,
+        ),
+        ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())"), true),
+        (
+            "exists",
+            format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})"),
+            true,
+        ),
+        (
+            "forall",
+            format!(r"\forall{{{TOP}}}(X:SortInt{{}},{atom})"),
+            false,
+        ),
+        (
+            "empty",
+            format!(
+                r#"\equals{{SortInt{{}},{TOP}}}(\dv{{SortInt{{}}}}("1"),\dv{{SortInt{{}}}}("2"))"#
+            ),
+            false,
+        ),
+    ];
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("partialreq.k"),
+            "TV01UNSAT",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("baseline");
+    for (label, condition, inhabited) in rows {
+        let initial = Pattern::And {
+            sort: kore_sort("SortGeneratedTopCell"),
+            arguments: vec![
+                support::initial_state(
+                    support::app("Lblpair", vec![int("X"), int("Y")]),
+                    "SortProg",
+                ),
+                k_rust::kore::parser::parse_pattern(&condition).expect("predicate"),
+            ],
+        };
+        let mut backend = backend(&side, "TV01UNSAT");
+        bridge::validate_test_initial_state(&mut backend, &initial).expect("positive predicate");
+        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+            .execute(&mut backend, &initial, BUDGET)
+            .expect("execution");
+        let rows = execution
+            .leaves()
+            .iter()
+            .map(|leaf| {
+                (
+                    leaf.halt,
+                    leaf.feasibility,
+                    leaf.branch.depth,
+                    bridge::discarded(leaf),
+                )
+            })
+            .collect::<Vec<_>>();
+        eprintln!("TB02-POSITIVE {label}: {rows:?}");
+        assert_eq!(
+            rows,
+            [(
+                if label == "empty" {
+                    HaltClass::Vacuous
+                } else {
+                    HaltClass::Stuck
+                },
+                if label == "or" {
+                    LeafFeasibility::Syntactic
+                } else {
+                    LeafFeasibility::Unknown
+                },
+                0,
+                if label == "empty" {
+                    Some(DiscardReason::Vacuous)
+                } else {
+                    None
+                }
+            )],
+            "{label}"
+        );
+        if inhabited {
+            assert!(
+                rows.iter().all(
+                    |(halt, feasibility, _, discard)| *halt != HaltClass::Vacuous
+                        && *feasibility != LeafFeasibility::Unsat
+                        && discard.is_none()
+                ),
+                "{label}: an X=0 instance was dropped"
+            );
+        }
+    }
+}
+
+/// Executes directly so refusal regressions can retain the evidence behind the guard.
+fn audit_vi_t10_relation_rows(
+    side: &ValidatedDefinition,
+    module: &str,
+    initial: &Pattern,
+    instance: &[TermRelation],
+    outside: &[TermRelation],
+) -> Vec<DefinednessRow> {
+    let leaves = leaves(side, module, initial);
+    assert!(leaves.iter().all(|leaf| leaf.branch.depth == 0));
+    backend(side, module)
+        .with_solver(None, |definition, solver| {
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(initial));
+            Ok::<_, BackendError>(
+                leaves
+                    .iter()
+                    .map(|leaf| {
+                        let path = real_path(&predicates(state(leaf)));
+                        DefinednessRow {
+                            halt: leaf.halt,
+                            feasibility: leaf.feasibility,
+                            discarded: bridge::discarded(leaf),
+                            at_instance: relations.feasible(&path, instance),
+                            outside: relations.feasible(&path, outside),
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .expect("instance queries")
+}
+
+/// Review F5: Y=0 makes Y=1 outside every leaf, including the tautological or/exists rows.
+#[test]
+fn audit_vi_t10_positive_predicate_instance_queries_are_not_refuted() {
+    const PART: &str = r"Lblpart{}(X:SortInt{})";
+    const TOP: &str = "SortGeneratedTopCell{}";
+    let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("partialreq.k"),
+            "TV01UNSAT",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("baseline");
+    for (label, source) in [
+        ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})")),
+        ("equals", atom.clone()),
+        (
+            "in",
+            format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
+        ),
+        ("and", format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())")),
+        ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())")),
+        ("exists", format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})")),
+    ] {
+        let initial = Pattern::And {
+            sort: kore_sort("SortGeneratedTopCell"),
+            arguments: vec![
+                support::initial_state(
+                    support::app("Lblpair", vec![int("X"), int("Y")]),
+                    "SortProg",
+                ),
+                k_rust::kore::parser::parse_pattern(&source).expect("positive condition"),
+                k_rust::kore::parser::parse_pattern(
+                    r#"\equals{SortInt{},SortGeneratedTopCell{}}(Y:SortInt{},\dv{SortInt{}}("0"))"#,
+                )
+                .expect("Y=0"),
+            ],
+        };
+        bridge::validate_test_initial_state(&mut backend(&side, "TV01UNSAT"), &initial)
+            .expect("admitted");
+        let rows = audit_vi_t10_relation_rows(
+            &side,
+            "TV01UNSAT",
+            &initial,
+            &[equal("X", 0), equal("Y", 0)],
+            &[equal("X", 0), equal("Y", 1)],
+        );
+        eprintln!("TB02-POSITIVE-QUERY {label}: {rows:?}");
+        let solved = cfg!(feature = "z3") && label == "or";
+        assert_eq!(
+            rows,
+            [row(
+                HaltClass::Stuck,
+                if solved {
+                    LeafFeasibility::Solver
+                } else {
+                    LeafFeasibility::Unknown
+                },
+                if solved {
+                    Feasibility::Sat
+                } else {
+                    Feasibility::Unknown
+                },
+                if solved {
+                    Feasibility::Unsat
+                } else {
+                    Feasibility::Unknown
+                }
+            )],
+            "{label}"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.at_instance != Feasibility::Unsat && row.discarded.is_none())
+        );
+    }
+}
+
+/// Review F6: measure the declared-total String2Bytes hook's Bottom residue; do not refuse it.
+#[test]
+fn audit_vi_t10_string2bytes_declared_totality_residue() {
+    let validator = NativeValidator::bind(support::load("tb02input.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("baseline");
+    let definition =
+        k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore).expect("KORE");
+    let symbol = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .find_map(|sentence| {
+            if let k_rust::kore::ast::Sentence::SymbolDeclaration { symbol, .. } = sentence
+                && symbol.name.contains("String2Bytes")
+            {
+                Some(symbol.clone())
+            } else {
+                None
+            }
+        })
+        .expect("compiled String2Bytes symbol");
+    eprintln!("TB02-STRING2BYTES symbol: {}", symbol.name);
+    let initial = Pattern::And {
+        sort: kore_sort("SortGeneratedTopCell"),
+        arguments: vec![
+            support::initial_state(support::app("Lbldone", vec![support::int(1)]), "SortProg"),
+            Pattern::Ceil {
+                operand_sort: Box::new(kore_sort("SortBytes")),
+                result_sort: kore_sort("SortGeneratedTopCell"),
+                argument: Box::new(Pattern::Application {
+                    symbol,
+                    arguments: vec![Pattern::DomainValue {
+                        sort: kore_sort("SortString"),
+                        value: "Ā".into(),
+                    }],
+                }),
+            },
+        ],
+    };
+    bridge::validate_test_initial_state(&mut backend(&side, "TB02INPUT"), &initial)
+        .expect("not refused");
+    let rows = leaves(&side, "TB02INPUT", &initial)
+        .iter()
+        .map(|leaf| {
+            (
+                leaf.halt,
+                leaf.feasibility,
+                leaf.branch.depth,
+                bridge::discarded(leaf),
+            )
+        })
+        .collect::<Vec<_>>();
+    eprintln!("TB02-STRING2BYTES: {rows:?}");
+    assert_eq!(
+        rows,
+        [(
+            HaltClass::Vacuous,
+            LeafFeasibility::Unknown,
+            0,
+            Some(DiscardReason::Vacuous)
+        )]
+    );
+}
+
+/// F1: a bare String pattern carries the same String value as its domain-value spelling.
+#[test]
+fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
+    let validator = NativeValidator::bind(support::load("tb02string.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("baseline");
+    let mut backend = backend(&side, "TB02STRING");
+    for source in [r#"\dv{SortString{}}("\x80")"#, r#""\x80""#] {
+        let value =
+            k_rust::kore::parser::parse_pattern(source).expect("invalid UTF-8 parses as bytes");
+        for input in [
+            value.clone(),
+            Pattern::Not {
+                sort: kore_sort("SortString"),
+                argument: Box::new(value),
+            },
+        ] {
+            assert!(
+                matches!(
+                    bridge::validate_test_initial_state(&mut backend, &input),
+                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                ),
+                "{source}: {input:?}"
+            );
+        }
+    }
+    for source in [
+        r#"\dv{SortString{}}("A")"#,
+        r#"\dv{SortString{}}("\u0080")"#,
+        r#""\xc3\xa9""#,
+    ] {
+        let input = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
+        assert!(bridge::validate_test_initial_state(&mut backend, &input).is_ok());
+    }
+}
+
+/// TB02-R2-F1: every test-written Float token is refused at any polarity,
+/// including the rule literal and k-rust's hook-produced canonical spelling.
+#[test]
+fn audit_vi_t11_review2_float_guard_is_independent_of_polarity() {
+    let validator = NativeValidator::bind(support::load("tb02float.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("Float fixture");
+    let mut backend = backend(&side, "TB02FLOAT");
+    for spelling in [
+        "1.0",
+        "1.00",
+        "1.0e0",
+        "1.0d",
+        "1.0p53x11",
+        "10.0e-1",
+        "1.0000000000000000e0",
+        "1.0000000000000000e+00",
+    ] {
+        let value = Pattern::DomainValue {
+            sort: kore_sort("SortFloat"),
+            value: spelling.into(),
+        };
+        for input in [
+            value.clone(),
+            Pattern::Not {
+                sort: kore_sort("SortFloat"),
+                argument: Box::new(value),
+            },
+        ] {
+            let admission = bridge::validate_test_initial_state(&mut backend, &input);
+            assert!(
+                matches!(
+                    admission,
+                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                ),
+                "{spelling}: {input:?}: {admission:?}"
+            );
+        }
+    }
+}

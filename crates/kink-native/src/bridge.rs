@@ -50,9 +50,10 @@
 
 use k_rust::backend::{Backend, SearchFailureOutput};
 use k_rust::kore::{
-    ast::{Pattern, Sort},
+    ast::{Pattern, Sort, VariableKind},
     codec, walk,
 };
+use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::term::{FunctionType, SymbolType};
 use kink_pattern::{
     CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventPresence, ExecutionStop,
@@ -76,14 +77,56 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence, cano
 /// ([`canonical_injection`]): an identity, reversed, nested or ill-sorted injection is
 /// refused, because the matcher keeps `inj{S,S}(t)` apart from `t` and so runs a test the
 /// definition's semantics does not distinguish from a canonical one (TV-01 fix 1, R1-F1).
+/// Term equality with non-total applications on both operands is refused: both may be
+/// undefined at one valuation, so solver refutation does not refute matching-logic equality.
+/// Free set variables are refused explicitly; local set binders remain local (TB-02).
+/// String domain values and bare String patterns must contain valid UTF-8 at any polarity;
+/// invalid bytes can satisfy String guards that no K String satisfies (TB-02 review F1).
+/// Float domain values are refused at any polarity: token spelling and Float equality
+/// disagree, even for a hook-produced canonical spelling (TB-02 review 2, F1).
 /// Campaign admission maps failure through its existing baseline oracle refusal gate.
 pub fn validate_test_initial_state(
     backend: &mut Backend,
     state: &Pattern,
 ) -> Result<(), ExecutionAdapterFailure> {
+    if let Some(variable) = state
+        .free_variables()
+        .iter()
+        .find(|variable| variable.kind == VariableKind::Set)
+    {
+        return Err(ExecutionAdapterFailure::InvalidState(format!(
+            "test state contains a free set variable: {}",
+            variable.name
+        )));
+    }
     backend.with_solver(None, |definition, _| {
         let mut work = vec![(state, false)];
         while let Some((node, negated)) = work.pop() {
+            if let Pattern::DomainValue { sort, .. } = node
+                && matches!(sort, Sort::Application { name, .. }
+                    if definition.sorts().get(name.as_str()).is_some_and(|sort|
+                        sort.hook.as_deref() == Some("FLOAT.Float")))
+            {
+                return Err(ExecutionAdapterFailure::InvalidState(
+                    "test state contains a Float domain value without canonical token identity"
+                        .into(),
+                ));
+            }
+            let invalid_string = match node {
+                Pattern::String(value) => value.as_utf8().is_err(),
+                Pattern::DomainValue { sort, value } => {
+                    value.as_utf8().is_err()
+                        && matches!(sort, Sort::Application { name, .. }
+                            if definition.sorts().get(name.as_str()).is_some_and(|sort|
+                                sort.hook.as_deref() == Some("STRING.String")))
+                }
+                _ => false,
+            };
+            if invalid_string {
+                return Err(ExecutionAdapterFailure::InvalidState(
+                    "test state contains a String value whose bytes are not valid UTF-8".into(),
+                ));
+            }
             if let Pattern::Application { symbol, .. }
             | Pattern::AssociativeApplication { symbol, .. } = node
                 && symbol.name == "inj"
@@ -113,7 +156,13 @@ pub fn validate_test_initial_state(
                     symbol.name
                 )));
             }
-            let negated = negated || !positive_input_position(node);
+            // Term equality also holds when both operands are undefined. The solver's
+            // two-valued refutation cannot exclude that instance (TB-02, VI-T10 R4-D1).
+            let partial_equality = matches!(node, Pattern::Equals { left, right, .. }
+                if term_head(left) && term_head(right)
+                    && input_has_non_total_application(definition, left)
+                    && input_has_non_total_application(definition, right));
+            let negated = negated || partial_equality || !positive_input_position(node);
             work.extend(
                 walk::children(node)
                     .into_iter()
@@ -122,6 +171,30 @@ pub fn validate_test_initial_state(
         }
         Ok(())
     })
+}
+
+/// Whether a term's definedness is not supplied by the definition's declared totality.
+fn input_has_non_total_application(definition: &BackendDefinition, term: &Pattern) -> bool {
+    let mut work = vec![term];
+    while let Some(node) = work.pop() {
+        if let Pattern::Application { symbol, .. } | Pattern::AssociativeApplication { symbol, .. } =
+            node
+            && symbol.name != "inj"
+            && !definition
+                .symbols()
+                .get(symbol.name.as_str())
+                .is_some_and(|symbol| {
+                    matches!(
+                        symbol.attributes.symbol_type,
+                        SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+                    )
+                })
+        {
+            return true;
+        }
+        work.extend(walk::children(node));
+    }
+    false
 }
 
 /// Term-head classification used by input polarity and state conjunct partitioning.

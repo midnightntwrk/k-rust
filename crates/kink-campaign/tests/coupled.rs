@@ -6847,14 +6847,12 @@ fn audit_so_rule_condition_failed_mutant_is_not_killed() {
             budget: BUDGET,
         };
         for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign, &generation, mode).expect("admitted");
-            eprintln!(
-                "SO-09 (c) campaign {mode:?}: {:?} {:?}",
-                outcomes(&run),
-                run.mutants[0].report.status
-            );
-            assert_eq!(outcomes(&run), [vec![U, U]]);
-            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+            // TB-02 review 2 F1: validate_test_initial_state refuses test-written
+            // FLOAT.Float domain values; the former [[U,U]] Unknown is now Refused.
+            // RuleConditionFailed leaf coverage remains in the native bridge audit.
+            let failure = run_campaign(&campaign, &generation, mode).expect_err("Float refused");
+            eprintln!("SO-09 (c) campaign {mode:?}: {:?}", failure.kind());
+            assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
         }
     });
 }
@@ -6890,5 +6888,890 @@ fn audit_so_prestart_cancel_never_reaches_a_mutant_verdict() {
         let failure = run_campaign(&campaign, &generation, ScheduleMode::Full)
             .expect_err("the baseline does not finish");
         assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+    });
+}
+
+// ---------------------------------------------------------------- TB-02 test-written input
+
+fn audit_vi_t11_input_rows() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    Pattern,
+)> {
+    let parse = |source: &str| k_rust::kore::parser::parse_pattern(source).expect("input parses");
+    let integer = |n| support::int(n);
+    let item = |n| {
+        support::app(
+            "LblListItem",
+            vec![tv01_inj("SortInt", "SortKItem", integer(n))],
+        )
+    };
+    let unit = || support::app("Lbl'Stop'List", vec![]);
+    let concat = |args| support::app("Lbl'Unds'List'Unds'", args);
+    let mi = |k, v| {
+        support::app(
+            "Lbl'UndsPipe'-'-GT-Unds'",
+            vec![
+                tv01_inj("SortInt", "SortKItem", integer(k)),
+                tv01_inj("SortInt", "SortKItem", integer(v)),
+            ],
+        )
+    };
+    let si = |n| {
+        support::app(
+            "LblSetItem",
+            vec![tv01_inj("SortInt", "SortKItem", integer(n))],
+        )
+    };
+    let map = |args| support::app("Lbl'Unds'Map'Unds'", args);
+    let set = |args| support::app("Lbl'Unds'Set'Unds'", args);
+    let mut rows = Vec::new();
+    for (id, rule, head, sort, source) in [
+        (
+            "bool-true",
+            "bool",
+            "boolCheck",
+            "Bool",
+            r#"\dv{SortBool{}}("true")"#,
+        ),
+        (
+            "bool-escape",
+            "bool",
+            "boolCheck",
+            "Bool",
+            r#"\dv{SortBool{}}("\x74rue")"#,
+        ),
+        (
+            "bool-invalid",
+            "bool",
+            "boolCheck",
+            "Bool",
+            r#"\dv{SortBool{}}("TRUE")"#,
+        ),
+        (
+            "string-ascii",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("A")"#,
+        ),
+        (
+            "string-hex",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("\x41")"#,
+        ),
+        (
+            "string-unicode",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("\u0041")"#,
+        ),
+        (
+            "string-high-hex",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("\x80")"#,
+        ),
+        (
+            "string-high-unicode",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("\u0080")"#,
+        ),
+        (
+            "string-escapes",
+            "string",
+            "stringCheck",
+            "String",
+            r#"\dv{SortString{}}("\n\t\r\f\"\\")"#,
+        ),
+        (
+            "bytes-ascii",
+            "bytes",
+            "bytesCheck",
+            "Bytes",
+            r#"\dv{SortBytes{}}("A")"#,
+        ),
+        (
+            "bytes-hex",
+            "bytes",
+            "bytesCheck",
+            "Bytes",
+            r#"\dv{SortBytes{}}("\x41")"#,
+        ),
+        (
+            "bytes-unicode",
+            "bytes",
+            "bytesCheck",
+            "Bytes",
+            r#"\dv{SortBytes{}}("\u0041")"#,
+        ),
+        (
+            "bytes-high-hex",
+            "bytes",
+            "bytesCheck",
+            "Bytes",
+            r#"\dv{SortBytes{}}("\x80")"#,
+        ),
+        (
+            "bytes-high-unicode",
+            "bytes",
+            "bytesCheck",
+            "Bytes",
+            r#"\dv{SortBytes{}}("\u0080")"#,
+        ),
+    ] {
+        rows.push((id, rule, head, sort, parse(source)));
+    }
+    rows.extend([
+        ("list-flat", "list", "listCheck", "List", concat(vec![item(1), item(2)])),
+        ("list-units", "list", "listCheck", "List", concat(vec![unit(), concat(vec![item(1), concat(vec![item(2), unit()])])])),
+        ("list-reversed", "list", "listCheck", "List", concat(vec![item(2), item(1)])),
+        ("list-duplicate", "list", "listCheck", "List", concat(vec![item(1), item(1)])),
+        ("map-order", "map", "mapCheck", "Map", map(vec![mi(3,4), mi(1,2)])),
+        ("map-units", "map", "mapCheck", "Map", map(vec![support::app("Lbl'Stop'Map", vec![]), map(vec![mi(1,2),mi(3,4)])])),
+        ("map-duplicate", "map", "mapCheck", "Map", map(vec![mi(1,2),mi(1,2)])),
+        ("set-order", "set", "setCheck", "Set", set(vec![si(2),si(1)])),
+        ("set-units", "set", "setCheck", "Set", set(vec![support::app("Lbl'Stop'Set", vec![]),set(vec![si(1),si(2)])])),
+        ("set-duplicate", "set", "setCheck", "Set", set(vec![si(1),si(1),si(2)])),
+        ("list-left-assoc", "list", "listCheck", "List", parse(r#"\left-assoc{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1"))),LblListItem{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2"))),Lbl'Stop'List{}()))"#)),
+        ("map-right-assoc", "map", "mapCheck", "Map", parse(r#"\right-assoc{}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2"))),Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("3")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("4"))),Lbl'Stop'Map{}()))"#)),
+        ("map-symbolic-key", "map", "mapCheck", "Map", map(vec![
+            support::app("Lbl'UndsPipe'-'-GT-Unds'", vec![tv01_inj("SortInt", "SortKItem", support::var("X", "SortInt")), tv01_inj("SortInt", "SortKItem", integer(2))]), mi(3,4)
+        ])),
+        ("free-set", "set", "setCheck", "Set", parse("@Rule-hM:SortSet{}")),
+    ]);
+    rows
+}
+
+/// R1-F1 amplifier: exact lhs and equality-guarded lhs denote the same rewrite relation.
+/// The ASCII-literal String/Bytes rows check decoding consistency, not escape safety.
+/// All rows use an owise baseline, both profiles, both schedules, and a whole-state slot.
+#[test]
+fn audit_vi_t11_non_normal_inputs_against_owise_are_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("tb02input.k"), CompileOptions::default());
+        validator.compile_baseline().expect("TB02INPUT compiles");
+        for (id, rule, head, sort, argument) in audit_vi_t11_input_rows() {
+            let baseline = validator.baseline();
+            let label = format!("TB02INPUT.{rule}");
+            let expected = term(baseline, &label, &[0, 0, 0]);
+            let patch = Patch::new(vec![
+                replaced(baseline, &label, &[0, 0, 0], so_var("X", sort)),
+                replaced(
+                    baseline,
+                    &label,
+                    &[1],
+                    Term::apply("_==K_", vec![so_var("X", sort), expected]),
+                ),
+            ])
+            .expect("equivalent patch");
+            let generation = fixed(baseline, &[(&label, &[0])], "tb02-equal", &patch);
+            let tests = [case(
+                id,
+                support::initial_state(app(head, vec![argument]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TB02INPUT",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB02-T11 {id} {mode:?}: {result:?}");
+                let expected = match id {
+                    "bool-invalid" | "map-duplicate" | "set-duplicate" => {
+                        ViResult::Refused(CampaignFailureKind::BaselineError)
+                    }
+                    "free-set" | "string-high-hex" | "map-symbolic-key" => {
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                    }
+                    _ => ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![],
+                    },
+                };
+                assert_eq!(result, expected, "{id} {mode:?}");
+                assert!(!result.killed());
+            }
+        }
+    });
+}
+
+/// VI-T10: total function redefinition beneath not, every positive partial predicate form,
+/// strict-partial term equalities and an empty test-written predicate (no K instance).
+#[test]
+fn audit_vi_t10_test_written_predicates_are_not_killed() {
+    with_stack(|| {
+        const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{},Y:SortInt{})";
+        const PART: &str = r"LblpartialInput{}(X:SortInt{})";
+        const TOP: &str = "SortGeneratedTopCell{}";
+        let positive = format!(r#"Lbl'Unds-GT-'Int'Unds'{{}}({DIV},\dv{{SortInt{{}}}}("0"))"#);
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("tb02input.k"),
+                "TB02PRED",
+            ),
+            CompileOptions::default(),
+        );
+        validator
+            .compile_baseline()
+            .expect("predicate fixture compiles");
+        let baseline = validator.baseline();
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "TB02PRED.totalInput",
+            &[0, 1],
+            Term::apply("_+Int_", vec![int_token(0), int_token(7)]),
+        )])
+        .expect("equivalent total redefinition");
+        let generation = fixed(
+            baseline,
+            &[("TB02PRED.totalInput", &[0, 1])],
+            "tb02-total",
+            &patch,
+        );
+        let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
+        let rows = [
+            (
+                "total-under-not",
+                format!(
+                    r#"\not{{{TOP}}}(\equals{{SortInt{{}},{TOP}}}(LbltotalInput{{}}(\dv{{SortInt{{}}}}("0")),\dv{{SortInt{{}}}}("8")))"#
+                ),
+            ),
+            ("partial-under-not", format!(r"\not{{{TOP}}}({atom})")),
+            (
+                "positive-ceil",
+                format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})"),
+            ),
+            ("positive-equals", atom.clone()),
+            (
+                "positive-in",
+                format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
+            ),
+            (
+                "positive-and",
+                format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())"),
+            ),
+            (
+                "positive-or",
+                format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())"),
+            ),
+            (
+                "positive-exists",
+                format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})"),
+            ),
+            (
+                "positive-forall",
+                format!(r"\forall{{{TOP}}}(X:SortInt{{}},{atom})"),
+            ),
+            (
+                "eq-succ",
+                format!(
+                    r#"\equals{{SortInt{{}},{TOP}}}({DIV},Lbl'UndsPlus'Int'Unds'{{}}({DIV},\dv{{SortInt{{}}}}("1")))"#
+                ),
+            ),
+            (
+                "eq-notbool",
+                format!(
+                    r"\equals{{SortBool{{}},{TOP}}}({positive},LblnotBool'Unds'{{}}({positive}))"
+                ),
+            ),
+            (
+                "empty-predicate",
+                format!(
+                    r#"\equals{{SortInt{{}},{TOP}}}(\dv{{SortInt{{}}}}("1"),\dv{{SortInt{{}}}}("2"))"#
+                ),
+            ),
+        ];
+        for (id, source) in rows {
+            let program = if id == "total-under-not" {
+                app("pair", vec![support::int(1), support::int(2)])
+            } else {
+                app(
+                    "pair",
+                    vec![support::var("X", "SortInt"), support::var("Y", "SortInt")],
+                )
+            };
+            let initial = Pattern::And {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: vec![
+                    support::initial_state(program, "SortProg"),
+                    k_rust::kore::parser::parse_pattern(&source).expect("condition parses"),
+                ],
+            };
+            let tests = [case(id, initial, &[whole_term()])];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TB02PRED",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB02-T10 {id} {mode:?}: {result:?}");
+                if id == "total-under-not" {
+                    assert_eq!(
+                        result,
+                        ViResult::Ran {
+                            tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                            status: MutantStatus::Survived,
+                            killing: vec![]
+                        },
+                        "{id} {mode:?}"
+                    );
+                } else {
+                    assert_eq!(
+                        result,
+                        ViResult::Refused(if id == "empty-predicate" {
+                            CampaignFailureKind::BaselineError
+                        } else {
+                            CampaignFailureKind::BaselineOracleFailed
+                        }),
+                        "{id} {mode:?}"
+                    );
+                }
+                assert!(!result.killed(), "{id} {mode:?}: {result:?}");
+            }
+        }
+        for (id, value) in [
+            ("partial-config-defined", 0),
+            ("partial-config-undefined", 1),
+        ] {
+            let tests = [case(
+                id,
+                support::initial_state(
+                    app(
+                        "pair",
+                        vec![
+                            app("partialInput", vec![support::int(value)]),
+                            support::int(2),
+                        ],
+                    ),
+                    "SortProg",
+                ),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TB02PRED",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB02-T10 {id} {mode:?}: {result:?}");
+                let expected = if value == 0 {
+                    ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![],
+                    }
+                } else {
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                };
+                assert_eq!(result, expected, "{id} {mode:?}");
+                assert!(!result.killed());
+            }
+        }
+    });
+}
+
+/// VI-T10(i): a direct production attribute edit has no rule origin.
+/// This does not exclude a production redeclaration by insertion, measured below.
+#[test]
+fn audit_vi_t10_declared_totality_change_has_no_rule_origin() {
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("tb02input.k"),
+            "TB02PRED",
+        ),
+        CompileOptions::default(),
+    );
+    let baseline = validator.baseline();
+    let (production, sentence) = baseline
+        .authored_sentences()
+        .find(|(_, sentence)| {
+            sentence.attributes().string(AttributeKey::Symbol) == Some("totalInput")
+        })
+        .expect("total function production");
+    let patch = Patch::new(vec![Edit::RemoveAttribute {
+        at: production.clone(),
+        key: AttributeKey::Total.as_str().into(),
+        expected: sentence
+            .attributes()
+            .value(AttributeKey::Total)
+            .expect("total")
+            .clone(),
+    }])
+    .expect("remove declared totality");
+    validator.compile_baseline().expect("baseline");
+    validator
+        .validate(&patch)
+        .expect("equivalent function equation still compiles");
+    let discovery = derive_sites(
+        baseline,
+        "tb02-totality",
+        &[
+            SiteSelector::RuleLabel("TB02PRED.totalInput".into()),
+            SiteSelector::Path(vec![0]),
+        ],
+    )
+    .expect("rule discovery");
+    let selection = select(&discovery, exact(1, 1), 1).expect("selection");
+    let failure = match selection.fold("tb02-totality", |_| patch.clone()) {
+        Err(failure) => failure,
+        Ok(_) => panic!("production edit has no rule origin"),
+    };
+    assert_eq!(
+        failure.kind(),
+        kink_patch::CandidateFailureKind::UnauthorizedEdit
+    );
+}
+
+/// Review F1: invalid UTF-8 acts as a phantom code point between U+007F and U+0080.
+/// The range and singleton guards are equivalent to false and equality on K Strings.
+#[test]
+fn audit_vi_t11_invalid_utf8_string_inputs_are_refused() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("tb02string.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("String fixture");
+        let mut literal_bytes = Vec::new();
+        let definition = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
+            .expect("compiled KORE");
+        for module in &definition.modules {
+            for sentence in &module.sentences {
+                if let k_rust::kore::ast::Sentence::Axiom { pattern, .. } = sentence {
+                    k_rust::kore::walk::for_each_post_order(pattern, |node| {
+                        if let Pattern::DomainValue { sort, value } = node
+                            && *sort == kore_sort("SortString")
+                        {
+                            literal_bytes.push(value.as_bytes().to_vec());
+                        }
+                    });
+                }
+            }
+        }
+        for bytes in [vec![0x7f], vec![0xc2, 0x80], vec![0xc2, 0x81]] {
+            assert!(
+                literal_bytes.contains(&bytes),
+                "fixture literal missing {bytes:?}"
+            );
+        }
+        eprintln!("TB02-STRING fixture literals include 7f, c280, c281");
+        let baseline = validator.baseline();
+        let mut failures = Vec::new();
+        for (head, label, patch) in [
+            (
+                "stringRange",
+                "TB02STRING.range",
+                Patch::new(vec![replaced(
+                    baseline,
+                    "TB02STRING.range",
+                    &[1],
+                    ei_bool(false),
+                )])
+                .expect("false range"),
+            ),
+            (
+                "stringPoint",
+                "TB02STRING.point",
+                Patch::new(vec![
+                    replaced(
+                        baseline,
+                        "TB02STRING.point",
+                        &[0, 0, 0],
+                        so_var("S", "String"),
+                    ),
+                    replaced(
+                        baseline,
+                        "TB02STRING.point",
+                        &[1],
+                        Term::apply("pointGuard", vec![so_var("S", "String")]),
+                    ),
+                ])
+                .expect("guarded point"),
+            ),
+        ] {
+            let generation = fixed(baseline, &[(label, &[0])], "tb02-string", &patch);
+            let observation = vec![StepEventSpec {
+                constructor: "fire7".into(),
+                pre: support::k_config(
+                    app(head, vec![support::var("S", "SortString")]),
+                    "SortProg",
+                    "R",
+                    "C",
+                ),
+                post: Some(support::k_config(
+                    app("done", vec![support::int(7)]),
+                    "SortProg",
+                    "R",
+                    "C2",
+                )),
+                payload: vec![],
+            }];
+            let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+            let plan = PatternPlan::new(
+                &vocabulary,
+                vec![],
+                vec![PatternArm {
+                    atoms: vec![Atom {
+                        constructor: "fire7".into(),
+                        payload: vec![],
+                    }],
+                    relations: vec![],
+                }],
+                None,
+            )
+            .expect("fire plan");
+            let oracles = [
+                whole_term(),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::State(StateProjection::ExitStop {
+                        exit_code_cell: None,
+                    }),
+                )
+                .expect("exit"),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .expect("fire"),
+            ];
+            for (id, source, invalid) in [
+                ("invalid-hex", r#"\dv{SortString{}}("\x80")"#, true),
+                ("invalid-raw", r#""\x80""#, true),
+                ("ascii", r#"\dv{SortString{}}("A")"#, false),
+                ("unicode", r#"\dv{SortString{}}("\u0080")"#, false),
+                ("utf8-hex", r#"\dv{SortString{}}("\xc3\xa9")"#, false),
+            ] {
+                let argument =
+                    k_rust::kore::parser::parse_pattern(source).expect("String argument");
+                let tests = [case(
+                    id,
+                    support::initial_state(app(head, vec![argument]), "SortProg"),
+                    &oracles,
+                )];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "TB02STRING",
+                    observation: &observation,
+                    classify: &tv01_classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let result = ViResult::of(&campaign, &generation, mode);
+                    eprintln!("TB02-STRING {head} {id} {mode:?}: {result:?}");
+                    let expected = if invalid {
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                    } else {
+                        ViResult::Ran {
+                            tests: vec![(id.into(), TestRun::Compared(vec![A, A, A]))],
+                            status: MutantStatus::Survived,
+                            killing: vec![],
+                        }
+                    };
+                    if result != expected {
+                        failures.push(format!("{head} {id} {mode:?}: {result:?}"));
+                    }
+                }
+            }
+        }
+        let surrogate = k_rust::kore::parser::parse_pattern(r#"\dv{SortString{}}("\uD800")"#);
+        eprintln!("TB02-STRING surrogate: {surrogate:?}");
+        assert!(surrogate.is_err(), "surrogate is not a Unicode scalar");
+        assert!(failures.is_empty(), "unsafe String inputs: {failures:?}");
+    });
+}
+
+/// F4: origin authorization permits these writes, but local patch application refuses
+/// production insertion and changing a rule sentence into a production.
+#[test]
+fn audit_vi_t10_redeclared_total_function_is_not_killed() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("tb02input.k"),
+                "TB02PRED",
+            ),
+            CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let mut sentence = baseline
+            .authored_sentences()
+            .find(|(_, sentence)| {
+                sentence.attributes().string(AttributeKey::Symbol) == Some("totalInput")
+            })
+            .expect("production")
+            .1
+            .clone();
+        for key in [
+            AttributeKey::Total,
+            AttributeKey::Label,
+            AttributeKey::UniqueId,
+            AttributeKey::Origin,
+            AttributeKey::Location,
+            AttributeKey::Source,
+            AttributeKey::SourceId,
+            AttributeKey::SentenceStartOffset,
+            AttributeKey::SentenceEndOffset,
+            AttributeKey::ContentStartLine,
+            AttributeKey::ContentStartColumn,
+            AttributeKey::ContentStartOffset,
+        ] {
+            sentence.attributes_mut().remove(key.as_str());
+        }
+        let at = support::rule(baseline, "TB02PRED.totalInput");
+        let condition=k_rust::kore::parser::parse_pattern(r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{},SortGeneratedTopCell{}}(LbltotalInput{}(\dv{SortInt{}}("0")),\dv{SortInt{}}("8")))"#).expect("condition");
+        let tests = [case(
+            "total-under-not",
+            Pattern::And {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: vec![
+                    support::initial_state(
+                        app("pair", vec![support::int(1), support::int(2)]),
+                        "SortProg",
+                    ),
+                    condition,
+                ],
+            },
+            &[whole_term()],
+        )];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "TB02PRED",
+            observation: &[],
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for (label, edit) in [
+            (
+                "insert",
+                Edit::InsertSentence {
+                    position: InsertPosition::After(at.clone()),
+                    ordinal: 0,
+                    sentence: sentence.clone(),
+                },
+            ),
+            (
+                "replace",
+                Edit::ReplaceSentence {
+                    at: at.clone(),
+                    replacement: sentence,
+                },
+            ),
+        ] {
+            let patch = Patch::new(vec![edit]).expect("redeclaration");
+            let discovery = derive_sites(
+                baseline,
+                "tb02-redeclare",
+                &[
+                    SiteSelector::RuleLabel("TB02PRED.totalInput".into()),
+                    SiteSelector::Path(vec![0]),
+                ],
+            )
+            .expect("origin");
+            let generation = select(&discovery, exact(1, 1), 1)
+                .expect("selection")
+                .fold("tb02-redeclare", |_| patch.clone())
+                .expect("authorized edit");
+            let [CandidateDisposition::Rejected(failure)] = generation.dispositions() else {
+                panic!("{label}: {:?}", generation.dispositions())
+            };
+            eprintln!("TB02-REDECLARE {label} fold: {failure}");
+            assert_eq!(
+                failure.kind(),
+                kink_patch::PatchFailureKind::LocallyIllFormed
+            );
+            if label == "insert" {
+                assert_eq!(
+                    failure.to_string(),
+                    "locally-ill-formed: only rules, claims and contexts can be replaced or inserted"
+                );
+            } else {
+                assert!(failure.to_string().contains("changes sentence kind"));
+            }
+            assert!(generation.candidates().is_empty());
+            assert!(!generation.scored());
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, mode).expect("admitted baseline");
+                eprintln!(
+                    "TB02-REDECLARE {label} {mode:?}: {} mutants (rejected origin)",
+                    run.mutants.len()
+                );
+                assert!(run.mutants.is_empty());
+            }
+        }
+    });
+}
+
+/// F3: Bytes Unicode escapes may denote different bytes in K and k-rust, but the matcher
+/// and length/index hooks agree on every byte sequence k-rust reads.
+#[test]
+fn audit_vi_t11_bytes_escape_consistency_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("tb02bytes.k"), CompileOptions::default());
+        validator.compile_baseline().expect("Bytes fixture");
+        let baseline = validator.baseline();
+        let patch = Patch::new(vec![
+            replaced(
+                baseline,
+                "TB02BYTES.point",
+                &[0, 0, 0],
+                so_var("B", "Bytes"),
+            ),
+            replaced(
+                baseline,
+                "TB02BYTES.point",
+                &[1],
+                Term::apply("byteGuard", vec![so_var("B", "Bytes")]),
+            ),
+        ])
+        .expect("equivalent Bytes guard");
+        let generation = fixed(baseline, &[("TB02BYTES.point", &[0])], "tb02-bytes", &patch);
+        for (id, source) in [
+            ("hex", r#"\dv{SortBytes{}}("\x80")"#),
+            ("unicode", r#"\dv{SortBytes{}}("\u0080")"#),
+        ] {
+            let argument = k_rust::kore::parser::parse_pattern(source).expect("Bytes input");
+            let tests = [case(
+                id,
+                support::initial_state(app("bytesPoint", vec![argument]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TB02BYTES",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB02-BYTES {id} {mode:?}: {result:?}");
+                assert_eq!(
+                    result,
+                    ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![]
+                    }
+                );
+            }
+        }
+    });
+}
+
+/// TB02-R2-F1: matcher token text and Float equality disagree on spellings of 1.0.
+/// Admission cannot choose a canonical spelling safely: hook output differs from rule literals.
+#[test]
+fn audit_vi_t11_review2_float_domain_values_are_refused() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("tb02float.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("Float fixture");
+        let definition = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
+            .expect("compiled KORE");
+        let mut has_literal = false;
+        for module in &definition.modules {
+            for sentence in &module.sentences {
+                if let k_rust::kore::ast::Sentence::Axiom { pattern, .. } = sentence {
+                    k_rust::kore::walk::for_each_post_order(pattern, |node| {
+                        if let Pattern::DomainValue { sort, value } = node
+                            && *sort == kore_sort("SortFloat")
+                            && value.as_bytes() == b"1.0"
+                        {
+                            has_literal = true;
+                        }
+                    });
+                }
+            }
+        }
+        assert!(has_literal, "compiled Float rule literal must remain 1.0");
+        eprintln!("TB02-R2-FLOAT compiled literal: 1.0");
+        let baseline = validator.baseline();
+        let label = "TB02FLOAT.point";
+        let patch = Patch::new(vec![
+            replaced(baseline, label, &[0, 0, 0], so_var("F", "Float")),
+            replaced(
+                baseline,
+                label,
+                &[1],
+                Term::apply(
+                    "_==Float_",
+                    vec![so_var("F", "Float"), term(baseline, label, &[0, 0, 0])],
+                ),
+            ),
+        ])
+        .expect("equivalent Float equality guard");
+        let generation = fixed(baseline, &[(label, &[0])], "tb02-r2-float", &patch);
+        let mut failures = Vec::new();
+        for spelling in [
+            "1.0",
+            "1.00",
+            "1.0e0",
+            "1.0d",
+            "1.0p53x11",
+            "10.0e-1",
+            "1.0000000000000000e0",
+            "1.0000000000000000e+00",
+        ] {
+            let tests = [case(
+                spelling,
+                support::initial_state(
+                    app(
+                        "floatCheck",
+                        vec![Pattern::DomainValue {
+                            sort: kore_sort("SortFloat"),
+                            value: spelling.into(),
+                        }],
+                    ),
+                    "SortProg",
+                ),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "TB02FLOAT",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB02-R2-FLOAT {spelling} {mode:?}: {result:?}");
+                if result != ViResult::Refused(CampaignFailureKind::BaselineOracleFailed) {
+                    failures.push(format!("{spelling} {mode:?}: {result:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "unsafe Float inputs: {failures:?}");
     });
 }
