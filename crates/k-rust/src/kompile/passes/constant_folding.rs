@@ -626,10 +626,22 @@ fn checked_rem(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, Unfolded
         rem
     })
 }
-/// `base ^Int exponent` for every natural exponent: the powers of 0, 1 and -1 stay small, and
-/// another base's power is computed only when it fits the bound, since |base|^exponent has at
-/// least (bits - 1) * exponent + 1 bits (the result is checked again when it is folded).
+/// `base ^Int exponent`, the exponentiation of two integers: the powers of 1 and -1 for every
+/// exponent (for a negative one, `b^-n` is the integer `1 / b^n` exactly when `|b| = 1`), those of
+/// any other base for every natural exponent, and none for a negative one, where no integer is the
+/// power. The powers of 0, 1 and -1 stay small, and another base's power is computed only when it
+/// fits the bound, since |base|^exponent has at least (bits - 1) * exponent + 1 bits (the result
+/// is checked again when it is folded).
 fn int_pow(base: BigInt, exponent: BigInt) -> Result<BigInt, Unfolded> {
+    if base.magnitude().is_one() {
+        // The parity of the two's complement, also for a negative exponent.
+        let odd = (&exponent & BigInt::one()).is_one();
+        return Ok(if base.is_negative() && odd {
+            base
+        } else {
+            BigInt::one()
+        });
+    }
     let exponent = natural(&exponent, "INT.pow")?;
     if exponent.is_zero() {
         return Ok(BigInt::one());
@@ -1023,6 +1035,30 @@ mod tests {
 
     fn int(value: i64) -> BigInt {
         BigInt::from(value)
+    }
+
+    /// `b ^Int -n` is the integer `1 / b^n` exactly when `|b| = 1`: the powers of 1 and -1 fold
+    /// for every exponent, and those of any other base are undefined for a negative one.
+    #[test]
+    fn folds_powers_of_unit_bases_for_every_exponent() {
+        for (base, exponent, expected) in [(1, -1, 1), (1, -8, 1), (-1, -1, -1), (-1, -2, 1)] {
+            assert_eq!(
+                int_pow(int(base), int(exponent)),
+                Ok(int(expected)),
+                "{base} ^Int {exponent}"
+            );
+        }
+        let huge = -(BigInt::one() << 100u32) - 1u8;
+        assert_eq!(int_pow(int(-1), huge), Ok(int(-1)));
+        for (base, exponent) in [(0, -1), (2, -1), (-3, -2)] {
+            assert!(
+                matches!(
+                    int_pow(int(base), int(exponent)),
+                    Err(Unfolded::Undefined(_))
+                ),
+                "{base} ^Int {exponent}"
+            );
+        }
     }
 
     /// A negative base ends the Euclidean recursion on a remainder of -1, so its inverse is the

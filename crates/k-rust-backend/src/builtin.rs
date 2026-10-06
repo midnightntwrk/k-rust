@@ -842,27 +842,37 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 /// `^Int` with `floor` as the floor of its result bound (`result_size_limit`).
+///
+/// `domains.md` describes `^Int` as "the exponentiation of two integers", of sort `Int`, and does
+/// not declare it `total`. For a negative exponent `-n`, `b ^Int -n` is the integer `1 / b^n`
+/// exactly when `|b| = 1`: the powers of 1 and -1 have a value for every exponent, and those of
+/// any other base (0, or a magnitude of at least 2) have no integer value there, so the
+/// application is undefined.
 fn int_pow_within(arguments: &[Term], floor: u64) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if exponent.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
-    }
-    if exponent.is_zero() || base.is_one() {
+    if base.is_one() {
         return Ok(BuiltinResult::Value(int_term(BigInt::one())));
     }
-    if base.is_zero() {
-        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
-    }
     if base == -BigInt::one() {
+        // The parity of the two's complement, also for a negative exponent.
         let odd = (&exponent & BigInt::one()).is_one();
         return Ok(BuiltinResult::Value(int_term(if odd {
             -BigInt::one()
         } else {
             BigInt::one()
         })));
+    }
+    if exponent.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    if exponent.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::one())));
+    }
+    if base.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
     }
     let limit = result_size_limit(floor, base.bits().saturating_add(exponent.bits()));
     // Described only when refused, by the operands' sizes (`describe_int`).
@@ -2387,6 +2397,33 @@ mod tests {
         );
     }
 
+    /// `b ^Int -n` is the integer `1 / b^n` exactly when `|b| = 1`, so the powers of 1 and -1
+    /// have values for every exponent (and those of other bases are undefined, in
+    /// `undefined_integer_operations_are_bottom`).
+    #[test]
+    fn unit_bases_have_a_power_for_every_exponent() {
+        for (base, exponent, expected) in [
+            (1, -1, 1),
+            (1, -7, 1),
+            (-1, -1, -1),
+            (-1, -2, 1),
+            (-1, -3, -1),
+            (-1, 0, 1),
+            (1, 0, 1),
+        ] {
+            assert_eq!(
+                evaluate_int("INT.pow", &[base, exponent]),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "{base} ^Int {exponent}"
+            );
+        }
+        let huge = -(BigInt::one() << 100u32) - 1u8;
+        assert_eq!(
+            evaluate_hook("INT.pow", &[int_term(-BigInt::one()), int_term(huge)]),
+            Ok(Ok(BuiltinResult::Value(int_term(-BigInt::one()))))
+        );
+    }
+
     #[test]
     fn undefined_integer_operations_are_bottom() {
         assert_eq!(
@@ -2395,6 +2432,14 @@ mod tests {
         );
         assert_eq!(
             evaluate_int("INT.pow", &[2, -1]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
+            evaluate_int("INT.pow", &[0, -1]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
+            evaluate_int("INT.pow", &[-3, -2]),
             Ok(Ok(BuiltinResult::Bottom))
         );
         assert_eq!(
