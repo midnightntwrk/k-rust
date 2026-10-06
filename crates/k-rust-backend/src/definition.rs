@@ -835,8 +835,9 @@ pub enum DefinitionError {
     AliasCycle(Vec<String>),
     /// Unfolding the aliases of a request pattern, or of the axioms of a definition, would add
     /// `added` to the size of what is unfolded (`alias::Size`: its pattern and sort nodes and the
-    /// bytes of their names), more than the `available` part of the limit
-    /// (`alias::UNFOLDING_LIMIT`) that its operation has left.
+    /// bytes of their names), more than the `available` part of its operation's budget that is
+    /// left: the larger of `alias::UNFOLDING_LIMIT` and `alias::UNFOLDING_FACTOR` times the size
+    /// of the patterns the operation unfolds.
     AliasUnfoldingTooLarge {
         added: u64,
         available: u64,
@@ -984,8 +985,9 @@ impl fmt::Display for DefinitionError {
             Self::AliasUnfoldingTooLarge { added, available } => {
                 write!(
                     formatter,
-                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of the limit of {} on what alias unfolding may add",
-                    crate::alias::UNFOLDING_LIMIT
+                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of what alias unfolding may add: the larger of {} and {} times the size of the patterns unfolded",
+                    crate::alias::UNFOLDING_LIMIT,
+                    crate::alias::UNFOLDING_FACTOR
                 )
             }
             Self::MacroOrAliasInImplication(symbol) => {
@@ -1614,8 +1616,9 @@ impl BackendDefinition {
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
-        // The axioms of a definition are unfolded together, within one budget.
-        let mut unfolding = UnfoldingBudget::new();
+        // The axioms of a definition are unfolded together, within one budget relative to the
+        // size of the modules loaded.
+        let mut unfolding = UnfoldingBudget::for_modules(ordered);
         visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
             for &index in &rule_orders[module.name.as_str()] {
@@ -4824,6 +4827,39 @@ mod tests {
             definition.internalize_pattern(&pattern, &[]),
             Err(DefinitionError::AliasUnfoldingTooLarge { .. })
         ));
+    }
+
+    /// A closed alias applied by many axioms unfolds to a copy of its body at each application,
+    /// as the alias of a priority group's rules does in every rule of a later group: an unfolding
+    /// that grows with the product of the axioms and the body, not exponentially. A definition
+    /// whose axioms add more than the floor `UNFOLDING_LIMIT` (12 copies of a body of about
+    /// 360,000 units), but less than `UNFOLDING_FACTOR` times the definition's own size, loads.
+    #[test]
+    fn loads_a_closed_alias_applied_by_many_axioms_beyond_the_floor() {
+        const DISJUNCTS: usize = 40_000;
+        const RULES: usize = 12;
+        let mut source = String::from(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol pair{}(S{}, S{}) : S{} [constructor{}()]
+                symbol a{}() : S{} [constructor{}()]
+        "#});
+        let body = vec!["pair{}(a{}(), a{}())"; DISJUNCTS].join(", ");
+        source.push_str(&format!(
+            "    alias earlier{{}}() : S{{}} where earlier{{}}() := \\or{{S{{}}}}({body}) []\n"
+        ));
+        for rule in 0..RULES {
+            source.push_str(&format!(
+                "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(earlier{{}}()), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later{rule}\")]\n"
+            ));
+        }
+        source.push_str("endmodule []\n");
+        let definition = parse_definition(&source).expect("the definition should parse");
+
+        let loaded = BackendDefinition::internalize(&definition, "MAIN")
+            .expect("an unfolding within a multiple of the definition's size should load");
+        assert_eq!(loaded.classified_axioms().len(), RULES);
     }
 
     /// An alias argument that the alias keeps no copy of is not unfolded at all: an axiom and a

@@ -1167,7 +1167,7 @@ id = "backend.alias.unfold"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding alias unfolding"
-variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * p) for a request since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1239,7 +1239,7 @@ bound = "O(p + o log^2 o + v log o): every node it visits is built once, as outp
 
 [[node.cost]]
 mode = "definition load (measure_aliases)"
-bound = "O(B log B + A) to measure and lay out each body once, then one expand call per axiom, whose builds together exceed the axioms by at most UNFOLDING_LIMIT"
+bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D), D the written size of the axioms, claims and alias bodies of the loaded modules"
 
 [[node]]
 kind = "algorithm"

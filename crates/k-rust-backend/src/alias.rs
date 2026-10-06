@@ -2,7 +2,7 @@
 //! id = "backend.alias.unfold"
 //! name = "capture-avoiding alias unfolding"
 //! sites = ["expand", "expand_within", "collect", "measure_aliases", "unfolded_size", "measure_node", "visit_associative", "lay_out", "Expander::expand", "Expander::enter", "Expander::expand_binder"]
-//! variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + UNFOLDING_LIMIT since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
+//! variable = "p = pattern size; o = what the unfolding builds and checks: the unfolded pattern, for each alias application it unfolds the application and one unit per argument, and for each binder of a body it enters one capture check per parameter substituted under a binder of that body, at most p + max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * p) for a request since it is measured before it is built; v = variables of the alias bodies an unfolding enters whose names have the form {base}Alias{digits}, at most B; B = total size of the alias bodies; A = total parameters and sort parameters of the aliases"
 //! counters = []
 //! no_counter = "alias unfolding has no dedicated counter; each alias body is measured and laid out once at load, and patterns are unfolded once per axiom at load and once per internalize_term or internalize_pattern request"
 //! span = "per call"
@@ -13,7 +13,7 @@
 //!
 //! [[cost]]
 //! mode = "definition load (measure_aliases)"
-//! bound = "O(B log B + A) to measure and lay out each body once, then one expand call per axiom, whose builds together exceed the axioms by at most UNFOLDING_LIMIT"
+//! bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D), D the written size of the axioms, claims and alias bodies of the loaded modules"
 //! ```
 //!
 //! Capture-avoiding alias unfolding, measured before it is built; no counter; the loops are the
@@ -47,37 +47,60 @@ use k_rust_kore::measure::{self, Algorithm};
 
 use crate::definition::DefinitionError;
 
-/// The most that unfolding aliases may add to the size ([`Size`]) of the patterns of one
-/// operation: one request pattern, or every axiom of a definition being loaded together.
+/// The least that unfolding aliases may add to the size ([`Size`]) of the patterns of one
+/// operation, one request pattern or every axiom of a definition being loaded together, however
+/// small they are: an operation's budget ([`UnfoldingBudget`]) is the larger of this floor and
+/// [`UNFOLDING_FACTOR`] times the size of what it was given.
 ///
 /// The size counts what unfolding builds: each pattern and sort node and each byte of the names
 /// they own, of the unfolded pattern and of each alias application it enters, plus one unit for
 /// each argument of such an application. A cloned node allocates its own names, so memory grows
 /// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes
-/// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
-/// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
-/// and every later pass over them multiply. A binder renamed to avoid capture gets `Alias` and
-/// an index added to its name, so the size spent counts each name that renaming can lengthen at
-/// the longest index the operation can reach ([`Size::bound`]): what is built never exceeds what
-/// is spent. On renaming shapes the bound is within 10% of what is built; where a body's
-/// one-byte binders could be renamed but are not, it can count up to about 4 times what is built.
-/// Time grows with the size too: unfolding builds nothing it does not count, and the size also counts the
-/// capture checks at the binders of the alias bodies it enters, the one part of its work that is
-/// not proportional to what it builds. Each unit is visited or checked once, with map and set
-/// operations of logarithmic cost, whatever the number of free variables of the arguments. The
-/// fresh names a renamed binder tries are not counted, but each candidate is tried at most once
-/// per operation, so the tries are one per renamed binder and one per name of the form of a
-/// fresh name among the variables built and those of the alias bodies entered ([`Expander`]).
-/// With the stack provided up front, as operations provide it, a release build took 18 to 150 ns
-/// per measured unit on alias chains that duplicate their argument, nest binders around it, pass
-/// it through 256,000 nested bodies, or rename every binder they nest around it, on a body of
-/// 64,000 nested binders that are all renamed, and on a chain of 64,000 renamed binders around an
-/// argument whose free variables spell the first 64,000 candidates; unfolding 98% of the limit
-/// took 0.55 s. A pattern that large is too large to execute or prove anything about,
-/// while the aliases of generated definitions (the modalities of claims, which unfold to their
-/// argument) add next to nothing, and the patterns a client sends are not counted, only what
-/// unfolding adds to them.
+/// with one-byte names, on a 64-bit target, so the floor, 2^22 (4,194,304), lets the unfolded
+/// pattern of a small operation reach a few hundred MiB at worst, which the internal terms built
+/// from it and every later pass over them multiply. A binder renamed to avoid capture gets
+/// `Alias` and an index added to its name, so the size spent counts each name that renaming can
+/// lengthen at the longest index the operation can reach ([`Size::bound`]): what is built never
+/// exceeds what is spent. On renaming shapes the bound is within 10% of what is built; where a
+/// body's one-byte binders could be renamed but are not, it can count up to about 4 times what is
+/// built. Time grows with the size too: unfolding builds nothing it does not count, and the size
+/// also counts the capture checks at the binders of the alias bodies it enters, the one part of
+/// its work that is not proportional to what it builds. Each unit is visited or checked once,
+/// with map and set operations of logarithmic cost, whatever the number of free variables of the
+/// arguments. The fresh names a renamed binder tries are not counted, but each candidate is tried
+/// at most once per operation, so the tries are one per renamed binder and one per name of the
+/// form of a fresh name among the variables built and those of the alias bodies entered
+/// ([`Expander`]). With the stack provided up front, as operations provide it, a release build
+/// took 18 to 150 ns per measured unit on alias chains that duplicate their argument, nest
+/// binders around it, pass it through 256,000 nested bodies, or rename every binder they nest
+/// around it, on a body of 64,000 nested binders that are all renamed, and on a chain of 64,000
+/// renamed binders around an argument whose free variables spell the first 64,000 candidates;
+/// unfolding 98% of the floor took 0.55 s.
 pub(crate) const UNFOLDING_LIMIT: u64 = 1 << 22;
+
+/// How many times its own size, as written ([`Size`]), unfolding may add to the patterns of an
+/// operation above [`UNFOLDING_LIMIT`].
+///
+/// The budget exists because an unfolding can be exponentially larger than its input: a chain
+/// of `n` aliases, each applying the next twice, unfolds to `2^n` nodes from a module of a few
+/// kilobytes, and that must be refused before it is built. What makes such an input harmful is
+/// the ratio of what it makes the backend build to what was sent, not the absolute size: a
+/// definition without aliases is loaded at a cost proportional to its own size, however large.
+/// A budget linear in the input bounds that ratio, so the memory and time an operation spends on
+/// unfolding stay within a constant factor of what loading or reading its input costs anyway,
+/// whatever the aliases, while a small input still gets only the floor.
+///
+/// Unfoldings polynomial in the definition are real: a closed alias applied by many axioms
+/// unfolds to a copy of its body at each application, as the alias that collects the left-hand
+/// sides of a priority group's rules does in every rule of a later group. A 15 MB EVM definition
+/// of 6.4 million units built that way spends about 51.5 million units on unfolding (8.1 times
+/// its own size): a release build loaded it in 2.4 s more, and with 1.4 GB more peak memory, than
+/// the same definition with those bodies emptied (about 47 ns and 28 bytes of peak memory per
+/// unit, the internal terms built from the unfolded axioms included). The factor leaves about
+/// four times that ratio for definitions of the same shape with more rules, and bounds what a
+/// 1 MB KORE text (about 0.4 million units) can add to about 14 million units, about 400 MB at
+/// the same cost per unit.
+pub(crate) const UNFOLDING_FACTOR: u64 = 32;
 
 #[derive(Clone, Debug)]
 pub(crate) struct AliasDefinition {
@@ -213,7 +236,6 @@ fn length(name: &str) -> u64 {
 }
 
 /// The size of `pattern` as written ([`Size`]), with a work list.
-#[cfg(test)]
 fn size(pattern: &kore::Pattern) -> u64 {
     let mut total = 0_u64;
     let mut pending = vec![pattern];
@@ -318,16 +340,38 @@ fn written_size(pattern: &kore::Pattern) -> u64 {
     add_own(&mut Size::default().body(), 0, pattern, &BTreeMap::new())
 }
 
-/// What unfolding may still add to the patterns of one operation ([`UNFOLDING_LIMIT`]).
+/// What unfolding may still add to the patterns of one operation: at first the larger of
+/// [`UNFOLDING_LIMIT`] and [`UNFOLDING_FACTOR`] times the size of the patterns the operation was
+/// given, as written.
 pub(crate) struct UnfoldingBudget {
     available: u64,
 }
 
 impl UnfoldingBudget {
-    pub(crate) fn new() -> Self {
+    /// The budget of an operation given patterns of size `input` as written.
+    pub(crate) fn for_input(input: u64) -> Self {
         Self {
-            available: UNFOLDING_LIMIT,
+            available: UNFOLDING_LIMIT.max(input.saturating_mul(UNFOLDING_FACTOR)),
         }
+    }
+
+    /// The budget of loading `modules`, whose axioms are unfolded together: their input is every
+    /// axiom, claim, and alias body they declare, each counted once as written.
+    pub(crate) fn for_modules(modules: &[&kore::Module]) -> Self {
+        let input = modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .map(|sentence| match sentence {
+                kore::Sentence::Axiom { pattern, .. } | kore::Sentence::Claim { pattern, .. } => {
+                    size(pattern)
+                }
+                kore::Sentence::AliasDeclaration { right, .. } => size(right),
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SortDeclaration { .. }
+                | kore::Sentence::SymbolDeclaration { .. } => 0,
+            })
+            .fold(0, u64::saturating_add);
+        Self::for_input(input)
     }
 
     fn spend(&mut self, added: u64) -> Result<(), DefinitionError> {
@@ -1237,7 +1281,7 @@ pub(crate) fn expand<'p>(
     pattern: &'p kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
 ) -> Result<Cow<'p, kore::Pattern>, DefinitionError> {
-    expand_within(pattern, aliases, &mut UnfoldingBudget::new())
+    expand_measured(pattern, aliases, None)
 }
 
 /// Unfold the aliases of `pattern`, after measuring what that builds and spending what it adds to
@@ -1248,6 +1292,16 @@ pub(crate) fn expand_within<'p>(
     aliases: &BTreeMap<String, AliasDefinition>,
     budget: &mut UnfoldingBudget,
 ) -> Result<Cow<'p, kore::Pattern>, DefinitionError> {
+    expand_measured(pattern, aliases, Some(budget))
+}
+
+/// [`expand_within`] with `budget`, or, when it is `None`, with the budget of an operation given
+/// `pattern` alone ([`UnfoldingBudget::for_input`]), which the measurement sizes.
+fn expand_measured<'p>(
+    pattern: &'p kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+    budget: Option<&mut UnfoldingBudget>,
+) -> Result<Cow<'p, kore::Pattern>, DefinitionError> {
     let _span = measure::algorithm_span(Algorithm::BackendAliasUnfold);
     if aliases.is_empty() {
         return Ok(Cow::Borrowed(pattern));
@@ -1256,12 +1310,14 @@ pub(crate) fn expand_within<'p>(
     if !measurement.applies_alias {
         return Ok(Cow::Borrowed(pattern));
     }
-    budget.spend(
-        measurement
-            .unfolded
-            .bound(|| body_names(aliases))
-            .saturating_sub(measurement.written),
-    )?;
+    let added = measurement
+        .unfolded
+        .bound(|| body_names(aliases))
+        .saturating_sub(measurement.written);
+    match budget {
+        Some(budget) => budget.spend(added)?,
+        None => UnfoldingBudget::for_input(measurement.written).spend(added)?,
+    }
     let mut expander = Expander::new(aliases);
     expander
         .expand(&mut Scope::pattern(), pattern, 0, false)
@@ -2834,6 +2890,50 @@ mod tests {
         );
     }
 
+    /// A balanced tree of `pair` with `2^height` leaves `X:S{}`: a pattern without aliases whose
+    /// written size grows with `height`.
+    fn wide_pair_tree(height: u32) -> String {
+        if height == 0 {
+            "X:S{}".to_owned()
+        } else {
+            let half = wide_pair_tree(height - 1);
+            format!("pair{{}}({half},{half})")
+        }
+    }
+
+    /// A request may add up to `UNFOLDING_FACTOR` times its own written size, however far that is
+    /// above the floor `UNFOLDING_LIMIT`, and is refused, before anything is built, beyond that:
+    /// what an operation may build is bounded relative to what it was sent.
+    #[test]
+    fn a_request_may_add_a_multiple_of_its_own_size_and_no_more() {
+        let aliases = aliases_of(&doubling_chain(18));
+        let wide = wide_pair_tree(15);
+        let application = "al0{}(X:S{})";
+
+        let twice = parse_pattern(&format!(
+            "pair{{}}(pair{{}}({application}, {application}), {wide})"
+        ))
+        .unwrap();
+        let unfolded_size = measured(&twice, &aliases).unwrap();
+        let added = unfolded_size - size(&twice);
+        assert!(added > UNFOLDING_LIMIT);
+        assert!(added <= UNFOLDING_FACTOR * size(&twice));
+        let unfolded = expand(&twice, &aliases).expect("the request should unfold");
+        assert_eq!(size(&unfolded) + unfold(&twice, &aliases).1, unfolded_size);
+
+        let four = parse_pattern(&format!(
+            "pair{{}}(pair{{}}(pair{{}}({application}, {application}), pair{{}}({application}, {application})), {wide})"
+        ))
+        .unwrap();
+        let added = measured(&four, &aliases).unwrap() - size(&four);
+        let available = UNFOLDING_FACTOR * size(&four);
+        assert!(available > UNFOLDING_LIMIT && added > available);
+        assert_eq!(
+            expand(&four, &aliases),
+            Err(DefinitionError::AliasUnfoldingTooLarge { added, available })
+        );
+    }
+
     /// Loading still finds every malformed alias application and cycle in the bodies, which it
     /// no longer unfolds.
     #[test]
@@ -3216,7 +3316,7 @@ mod tests {
                 "{shape}: a budget of {} admitted an unfolding that adds {added}",
                 added - 1
             );
-            let mut budget = UnfoldingBudget::new();
+            let mut budget = UnfoldingBudget::for_input(0);
             expand_within(&pattern, &aliases, &mut budget).expect("the unfolding fits the limit");
             let spent = UNFOLDING_LIMIT - budget.available;
             assert!(spent >= added, "{shape}: spent {spent} for {added}");
