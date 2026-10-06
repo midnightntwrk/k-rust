@@ -989,6 +989,12 @@ impl Term {
     /// (`FailReason::DuplicateKeys`), to the hooks, and to the simplifier, which reports the map
     /// as `\bottom`. A caller that builds a map from bindings that may repeat a key with intent
     /// to overwrite (`MAP.updateAll`) resolves the repeats itself.
+    ///
+    /// A map term holds its entries in one vector, so building one of `n` entries costs `O(n)`:
+    /// the copy of the entries, their order (`order_collection`), and the attributes synthesized
+    /// from every entry, and the map it replaces is freed entry by entry. A hook that updates an
+    /// `n`-entry map therefore pays `O(n)` per update, and a run that grows a map by `n` updates
+    /// pays `O(n^2)`; a step that carries a map without updating it builds no map.
     pub fn map(
         definition: Arc<MapDefinition>,
         mut entries: Vec<(Self, Self)>,
