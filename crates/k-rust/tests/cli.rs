@@ -835,12 +835,12 @@ fn exit_reference_fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/exit")
 }
 
+/// `krun` on the stdin delimiter fixture. Its subject is how the `STDIN-STREAM` rules of the
+/// embedded `domains.md` read integers from `$STDIN`, so it resolves builtins from the copies
+/// compiled into `krust` and needs no K checkout.
 fn stdin_delimiter_run_command() -> (Command, PathBuf) {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fixtures = manifest.join("tests/fixtures/reference/execution/stdin-delimiter-run");
-    let builtin = manifest
-        .join("../..")
-        .join("k/k-distribution/include/kframework/builtin");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/stdin-delimiter-run");
     let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
     command.args([
         "krun",
@@ -854,8 +854,6 @@ fn stdin_delimiter_run_command() -> (Command, PathBuf) {
         "Stmt",
         "-I",
         fixtures.to_str().unwrap(),
-        "--builtin-directory",
-        builtin.to_str().unwrap(),
         "--io",
         "off",
     ]);
@@ -1392,21 +1390,24 @@ fn reference_krun_honours_the_configuration_cell_parser_attribute() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/cfg");
     let expected = fs::read_to_string(fixtures.join("parser-config.kore")).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            fixtures.join("parser.k").to_str().unwrap(),
-            fixtures.join("go.pgm").to_str().unwrap(),
-            "--main-module",
-            "PARSER",
-            "--sort",
-            "Pgm",
-            "-cENV=selected",
-            "--depth",
-            "0",
-        ])
-        .output()
-        .unwrap();
+    // Both runs parse their `-c` value with the per-cell parser of one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &fixtures.join("parser.k"),
+        &["--main-module", "PARSER"],
+        &compiled,
+    );
+    let krun = |configuration: &str| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(fixtures.join("go.pgm"))
+            .args(["--sort", "Pgm", configuration, "--depth", "0"])
+            .output()
+            .unwrap()
+    };
+    let output = krun("-cENV=selected");
 
     assert!(
         output.status.success(),
@@ -1420,25 +1421,12 @@ fn reference_krun_honours_the_configuration_cell_parser_attribute() {
     );
     assert!(stdout.contains("LblselectedEnv"), "{stdout}");
 
-    let rejected = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            fixtures.join("parser.k").to_str().unwrap(),
-            fixtures.join("go.pgm").to_str().unwrap(),
-            "--main-module",
-            "PARSER",
-            "--sort",
-            "Pgm",
-            "-cENV=main",
-            "--depth",
-            "0",
-        ])
-        .output()
-        .unwrap();
+    let rejected = krun("-cENV=main");
     assert!(
         !rejected.status.success(),
         "the per-cell parser unexpectedly accepted main-module-only syntax"
     );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -1497,21 +1485,20 @@ fn krun_at_kitem_matches_krun_at_the_concrete_sort() {
         .join("tests/fixtures/reference/inner/programs/cast-kitem");
     let definition = fixtures.join("test.k");
     let program = fixtures.join("1.test");
+    // Both sorts run the program on one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "TEST", "--syntax-module", "TEST"],
+        &compiled,
+    );
     let run = |sort: &str| {
         Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                program.to_str().unwrap(),
-                "--main-module",
-                "TEST",
-                "--syntax-module",
-                "TEST",
-                "--sort",
-                sort,
-                "--depth",
-                "10",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(&program)
+            .args(["--sort", sort, "--depth", "10"])
             .output()
             .unwrap()
     };
@@ -1529,6 +1516,7 @@ fn krun_at_kitem_matches_krun_at_the_concrete_sort() {
         String::from_utf8_lossy(&at_kitem.stderr)
     );
     assert_eq!(at_kitem.stdout, concrete.stdout);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -2070,21 +2058,21 @@ endmodule
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
+    // Both runs, with and without `$ENV`, use one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
+    let krun = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args(["krun", "--definition"]).arg(&compiled).args([
             "--sort",
             "State",
             "--expression",
             "a",
-            "-c",
-            "ENV=.Map",
-            "--depth",
-            "10",
-        ])
+        ]);
+        command
+    };
+    let output = krun()
+        .args(["-c", "ENV=.Map", "--depth", "10"])
         .output()
         .unwrap();
 
@@ -2097,19 +2085,7 @@ endmodule
     assert!(output.contains("Lblb{}()"), "{output}");
     assert!(output.contains("Lbl'Stop'Map{}()"), "{output}");
 
-    let missing = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "State",
-            "--expression",
-            "a",
-        ])
-        .output()
-        .unwrap();
+    let missing = krun().output().unwrap();
     assert!(!missing.status.success());
     assert!(
         String::from_utf8_lossy(&missing.stderr)
@@ -2503,8 +2479,31 @@ fn reference_krun_io_off_reads_single_delimiters() {
 
 #[test]
 fn reference_krun_io_off_reports_undefined_delimiter_runs() {
+    // Both inputs run on one compilation; `reference_krun_io_off_reads_single_delimiters` runs
+    // the same command from source.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/stdin-delimiter-run");
+    kcompile_for_krun(
+        &fixtures.join("test.k"),
+        &[
+            "--main-module",
+            "STDIN-DELIMITER-RUN",
+            "--syntax-module",
+            "STDIN-DELIMITER-RUN-SYNTAX",
+            "-I",
+            fixtures.to_str().unwrap(),
+        ],
+        &compiled,
+    );
     for input in ["runs.in", "leading.in"] {
-        let (mut command, fixtures) = stdin_delimiter_run_command();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(fixtures.join("three.pgm"))
+            .args(["--sort", "Stmt", "--io", "off"]);
         let output = output_with_stdin(&mut command, &fs::read(fixtures.join(input)).unwrap());
 
         assert!(
@@ -2528,6 +2527,7 @@ fn reference_krun_io_off_reports_undefined_delimiter_runs() {
             "{input}: {stderr}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -2695,19 +2695,17 @@ fn krun_io_off_buffers_stdin_in_the_reference_here_string_shape() {
             r#"\dv{SortString{}}("a\r\n\nb\n")"#,
         ),
     ];
+    // Every case buffers its standard input into one compiled definition's `$STDIN`.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&fixtures.join("io.k"), &["--main-module", "IO"], &compiled);
     for (input, mode, expected) in cases {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-        command.args([
-            "krun",
-            fixtures.join("io.k").to_str().unwrap(),
-            fixtures.join("program.pgm").to_str().unwrap(),
-            "--main-module",
-            "IO",
-            "--sort",
-            "Int",
-            "--depth",
-            "0",
-        ]);
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(fixtures.join("program.pgm"))
+            .args(["--sort", "Int", "--depth", "0"]);
         command.args(mode);
         let output = output_with_stdin(&mut command, input);
 
@@ -2722,6 +2720,7 @@ fn krun_io_off_buffers_stdin_in_the_reference_here_string_shape() {
             "stdin {input:?} under {mode:?} must buffer {expected}:\n{stdout}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -3218,20 +3217,14 @@ endmodule
 #[test]
 fn krun_follows_the_first_rule_by_default_and_explores_with_strategy_all() {
     let (root, definition) = branching_search_fixture();
+    // The three strategies run one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
     let krun = |extra: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "MAIN",
-                "--sort",
-                "State",
-                "--expression",
-                "a",
-                "--depth",
-                "10",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "State", "--expression", "a", "--depth", "10"])
             .args(extra)
             .output()
             .unwrap();
@@ -3342,20 +3335,23 @@ endmodule
 "#,
     )
     .unwrap();
+    // The bounded run, the whole run and the search use one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "STRICT",
+            "--syntax-module",
+            "STRICT-SYNTAX",
+        ],
+        &compiled,
+    );
     let krun = |extra: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "STRICT",
-                "--syntax-module",
-                "STRICT-SYNTAX",
-                "--sort",
-                "Exp",
-                "--expression",
-                "(1 + 2) + (3 + 4)",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Exp", "--expression", "(1 + 2) + (3 + 4)"])
             .args(extra)
             .output()
             .unwrap();
@@ -3431,28 +3427,37 @@ fn krun_search_explores_an_unconditional_branch() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `krun --pattern` of `a` on the branching search fixture, from its source or, when `definition`
+/// is a directory, from that compiled definition.
 fn run_branching_surface_pattern(definition: &Path, pattern: &str, extra: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-    command.args([
-        "krun",
-        definition.to_str().unwrap(),
-        "--main-module",
-        "MAIN",
-        "--syntax-module",
-        "MAIN",
-        "--sort",
-        "State",
-        "--expression",
-        "a",
-        "--pattern",
-        pattern,
-    ]);
+    command.arg("krun");
+    if definition.is_dir() {
+        command.arg("--definition").arg(definition);
+    } else {
+        command
+            .arg(definition)
+            .args(["--main-module", "MAIN", "--syntax-module", "MAIN"]);
+    }
+    command.args(["--sort", "State", "--expression", "a", "--pattern", pattern]);
     command.args(extra).output().unwrap()
+}
+
+/// The branching search fixture compiled once, for tests that run it several times.
+fn compiled_branching_search_fixture() -> (PathBuf, PathBuf) {
+    let (root, definition) = branching_search_fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "MAIN", "--syntax-module", "MAIN"],
+        &compiled,
+    );
+    (root, compiled)
 }
 
 #[test]
 fn krun_surface_pattern_projects_ordinary_final_states() {
-    let (root, definition) = branching_search_fixture();
+    let (root, definition) = compiled_branching_search_fixture();
 
     let matching = run_branching_surface_pattern(&definition, "<k> d </k>", &[]);
     assert!(
@@ -3503,7 +3508,7 @@ fn krun_surface_pattern_projects_every_strategy_all_final_state() {
 
 #[test]
 fn krun_surface_pattern_routes_through_each_explicit_search_mode() {
-    let (root, definition) = branching_search_fixture();
+    let (root, definition) = compiled_branching_search_fixture();
     for (mode, pattern) in [
         ("--search-final", "<k> d </k>"),
         ("--search-all", "<k> a </k>"),
@@ -3525,7 +3530,7 @@ fn krun_surface_pattern_routes_through_each_explicit_search_mode() {
 
 #[test]
 fn krun_surface_pattern_filters_only_generated_anonymous_bindings() {
-    let (root, definition) = branching_search_fixture();
+    let (root, definition) = compiled_branching_search_fixture();
 
     let named = run_branching_surface_pattern(&definition, "<k> S:State </k>", &[]);
     assert!(
@@ -3781,19 +3786,21 @@ fn kore_exec_merges_converging_final_states() {
 fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/trivial-result-execution");
+    // Execution and search run one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &fixtures.join("test.k"),
+        &["--main-module", "TR", "--syntax-module", "TR-SYNTAX"],
+        &compiled,
+    );
     let run = |search: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-        command.args([
-            "krun",
-            fixtures.join("test.k").to_str().unwrap(),
-            "--main-module",
-            "TR",
-            "--syntax-module",
-            "TR-SYNTAX",
-            "--sort",
-            "Pgm",
-            fixtures.join("false-ensures.pgm").to_str().unwrap(),
-        ]);
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Pgm"])
+            .arg(fixtures.join("false-ensures.pgm"));
         if search {
             command.arg("--search-final");
         }
@@ -3817,6 +3824,7 @@ fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
             "search={search}: {stdout}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -3987,12 +3995,13 @@ fn default_search_binds_the_reference_result_variable() {
 #[test]
 fn search_bound_truncation_is_reported_to_the_user() {
     let (root, definition) = branching_search_fixture();
+    // Both bounds search one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
         .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
             "--sort",
             "State",
             "--expression",
@@ -4020,11 +4029,9 @@ fn search_bound_truncation_is_reported_to_the_user() {
     assert!(!stdout.contains("\\or{"), "{stdout}");
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
         .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
             "--sort",
             "State",
             "--expression",
@@ -4111,15 +4118,19 @@ fn search_bound_stops_a_catch_all_over_an_infinite_result_stream() {
 fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/branching-order.k");
+    // Both search types search one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "BR", "--syntax-module", "BR-SYNTAX"],
+        &compiled,
+    );
     let run = |search_type: &str| {
         Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
             .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "BR",
-                "--syntax-module",
-                "BR-SYNTAX",
                 "--sort",
                 "Pgm",
                 "--expression",
@@ -4167,6 +4178,7 @@ fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
         &String::from_utf8(final_states.stdout).unwrap(),
         &["c", "d", "zz"],
     );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -4318,15 +4330,17 @@ fn krun_owise_decides_distinct_ground_overloaded_list_shapes() {
 fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/branching-order.k");
+    // The bounded and the unbounded search search one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "BR", "--syntax-module", "BR-SYNTAX"],
+        &compiled,
+    );
     let run = |bound: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
-        command.args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "BR",
-            "--syntax-module",
-            "BR-SYNTAX",
+        command.args(["krun", "--definition"]).arg(&compiled).args([
             "--sort",
             "Pgm",
             "--expression",
@@ -4372,6 +4386,7 @@ fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
     let bounded = members(&String::from_utf8(bounded.stdout).unwrap());
     assert_eq!(bounded.len(), 2);
     assert!(bounded.is_subset(&unbounded));
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// Each step of `go(M, L, N)` adds a new variable `?K` to the map and the list, by any of three
@@ -4400,20 +4415,18 @@ endmodule
 "#,
     )
     .unwrap();
+    // Both search modes search one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "T", "--syntax-module", "T"],
+        &compiled,
+    );
     let run = |search: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "T",
-                "--syntax-module",
-                "T",
-                "--sort",
-                "KItem",
-                "--expression",
-                "go(.Map, .List, 4)",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "KItem", "--expression", "go(.Map, .List, 4)"])
             .args(search)
             .output()
             .unwrap();
@@ -5458,6 +5471,134 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A hand-written KORE definition for the `kore-*` servers: `a => f(a)`, `b => c`, and the
+/// function equation `f(a) = b`, so `a` executes to `c` in two steps through the equation.
+fn kore_rpc_definition() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kore-rpc/definition.kore")
+}
+
+#[test]
+fn kore_simplify_applies_the_function_equations_of_the_definition() {
+    let (root, _) = fixture();
+    let simplify = |pattern: &str| {
+        let path = root.join("pattern.kore");
+        fs::write(&path, pattern).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-simplify")
+            .arg(kore_rpc_definition())
+            .args(["--module", "MAIN", "--pattern"])
+            .arg(&path)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{pattern}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    // The equation `f(a) = b` applies; no equation defines `f(c)`, which stays as it is.
+    assert_eq!(simplify("f{}(a{}())\n"), "b{}()\n");
+    assert_eq!(simplify("f{}(c{}())\n"), "f{}(c{}())\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A `kore-rpc` server stopped when the test ends, whether it passes or not.
+struct KoreRpcServer(std::process::Child);
+
+impl Drop for KoreRpcServer {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn kore_rpc_serves_execute_and_simplify_on_an_ephemeral_port() {
+    use std::{
+        io::{BufRead, BufReader},
+        net::TcpStream,
+        time::Duration,
+    };
+
+    let mut server = KoreRpcServer(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-rpc")
+            .arg(kore_rpc_definition())
+            .args(["--module", "MAIN", "--server-port", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    // Port 0 asks the system for a free port; the server announces the address it bound.
+    let mut announcement = String::new();
+    BufReader::new(server.0.stderr.take().unwrap())
+        .read_line(&mut announcement)
+        .unwrap();
+    let address = announcement
+        .strip_prefix("KORE JSON-RPC listening on ")
+        .unwrap_or_else(|| panic!("no listening address in {announcement:?}"))
+        .trim();
+    let port = address.rsplit_once(':').unwrap().1.parse::<u16>().unwrap();
+    assert_ne!(port, 0, "{announcement}");
+
+    let stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut request = |request: serde_json::Value| {
+        writeln!(writer, "{request}").unwrap();
+        let mut response = String::new();
+        reader.read_line(&mut response).unwrap();
+        serde_json::from_str::<serde_json::Value>(&response)
+            .unwrap_or_else(|error| panic!("{error}: {response:?}"))
+    };
+    let constant =
+        |name: &str| serde_json::json!({ "tag": "App", "name": name, "sorts": [], "args": [] });
+    let state = |term: serde_json::Value| serde_json::json!({ "format": "KORE", "version": 1, "term": term });
+
+    // `a` rewrites to `f(a)`, which the equation simplifies to `b`, which rewrites to `c`.
+    let executed = request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "execute",
+        "params": { "state": state(constant("a")) },
+    }));
+    assert_eq!(executed["id"], 1, "{executed}");
+    assert_eq!(executed["result"]["reason"], "stuck", "{executed}");
+    assert_eq!(executed["result"]["depth"], 2, "{executed}");
+    assert_eq!(
+        executed["result"]["state"]["term"]["term"],
+        constant("c"),
+        "{executed}"
+    );
+
+    // A second request on the same connection: the equation `f(a) = b`.
+    let simplified = request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "simplify",
+        "params": {
+            "state": state(serde_json::json!({
+                "tag": "App", "name": "f", "sorts": [], "args": [constant("a")]
+            })),
+        },
+    }));
+    assert_eq!(simplified["id"], 2, "{simplified}");
+    assert_eq!(
+        simplified["result"]["state"]["term"],
+        constant("b"),
+        "{simplified}"
+    );
+    drop(server);
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");
@@ -5480,6 +5621,8 @@ endmodule
 
 #[test]
 fn kprove_proves_a_modal_claim_in_process() {
+    // Both runs start from source: this test keeps `kprove` of a definition that is its own
+    // specification module, and the saved-proof round trip, on the source path.
     let (root, definition, saved_proofs) = modal_claim_fixture();
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -5551,31 +5694,50 @@ fn kprove_proves_a_modal_claim_in_process() {
 fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     let source = include_str!("fixtures/claim-modality/dup.k");
     let (root, definition) = fixture();
-    for (case, spec, expected) in [
+    let swap_claims = |spec: &str| {
+        spec.replace(
+            "  claim [one]: <k> a => b </k> [one-path]\n  claim [all]: <k> a => b </k>",
+            "  claim [all]: <k> a => b </k>\n  claim [one]: <k> a => b </k> [one-path]",
+        )
+    };
+    let deterministic = |spec: &str| spec.replace("  rule <k> a => c </k>\n", "");
+    // Each variant of the specification is compiled once; every proof of it below reads that
+    // compilation.
+    let compile = |name: &str, spec: String| {
+        fs::write(&definition, spec).unwrap();
+        let compiled = root.join(name);
+        kcompile_for_proving(&definition, "DUP-SPEC", "DUP-SPEC", &compiled);
+        compiled
+    };
+    let nondeterministic_one_first = compile("one-first", source.to_owned());
+    let nondeterministic_all_first = compile("all-first", swap_claims(source));
+    let deterministic_one_first = compile("deterministic", deterministic(source));
+    let deterministic_all_first = compile(
+        "deterministic-all-first",
+        swap_claims(&deterministic(source)),
+    );
+    let kprove = |compiled: &Path| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["kprove", "--compiled-definition"])
+            .arg(compiled)
+            .args(["--main-module", "DUP-SPEC"]);
+        command
+    };
+
+    for (case, compiled, expected) in [
         (
             "one-first",
-            source.to_owned(),
+            &nondeterministic_one_first,
             [("one", "proven ("), ("all", "disproved (")],
         ),
         (
             "all-first",
-            source.replace(
-                "  claim [one]: <k> a => b </k> [one-path]\n  claim [all]: <k> a => b </k>",
-                "  claim [all]: <k> a => b </k>\n  claim [one]: <k> a => b </k> [one-path]",
-            ),
+            &nondeterministic_all_first,
             [("all", "disproved ("), ("one", "proven (")],
         ),
     ] {
-        fs::write(&definition, spec).unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "kprove",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "DUP-SPEC",
-            ])
-            .output()
-            .unwrap();
+        let output = kprove(compiled).output().unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(!output.status.success(), "{case}: {stdout}");
         let claims = stdout
@@ -5592,16 +5754,7 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     }
 
     // On a deterministic definition the all-path proof can discharge the same one-path body.
-    fs::write(&definition, source.replace("  rule <k> a => c </k>\n", "")).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "kprove",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "DUP-SPEC",
-        ])
-        .output()
-        .unwrap();
+    let output = kprove(&deterministic_one_first).output().unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
         output.status.success(),
@@ -5611,21 +5764,10 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     assert!(stdout.contains("claim DUP-SPEC.one: proven ("), "{stdout}");
     assert!(stdout.contains("claim DUP-SPEC.all: proven ("), "{stdout}");
 
-    let all_first = source.replace("  rule <k> a => c </k>\n", "").replace(
-        "  claim [one]: <k> a => b </k> [one-path]\n  claim [all]: <k> a => b </k>",
-        "  claim [all]: <k> a => b </k>\n  claim [one]: <k> a => b </k> [one-path]",
-    );
-    fs::write(&definition, all_first).unwrap();
     let saved = root.join("proofs.kore");
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "kprove",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "DUP-SPEC",
-            "--save-proofs",
-            saved.to_str().unwrap(),
-        ])
+    let output = kprove(&deterministic_all_first)
+        .arg("--save-proofs")
+        .arg(&saved)
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -5641,25 +5783,16 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     );
 
     fs::remove_file(&saved).unwrap();
-    fs::write(&definition, source).unwrap();
-    let selected = |label: &str| {
-        Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "kprove",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "DUP-SPEC",
-                "--claim",
-                label,
-                "--save-proofs",
-                saved.to_str().unwrap(),
-            ])
+    let selected = |compiled: &Path, label: &str| {
+        kprove(compiled)
+            .args(["--claim", label, "--save-proofs"])
+            .arg(&saved)
             .output()
             .unwrap()
     };
-    let one = selected("one");
+    let one = selected(&nondeterministic_one_first, "one");
     assert!(one.status.success(), "{one:?}");
-    let all = selected("all");
+    let all = selected(&nondeterministic_one_first, "all");
     let stdout = String::from_utf8(all.stdout).unwrap();
     assert!(!all.status.success(), "{stdout}");
     assert!(
@@ -5668,10 +5801,9 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     );
 
     fs::remove_file(&saved).unwrap();
-    fs::write(&definition, source.replace("  rule <k> a => c </k>\n", "")).unwrap();
-    let all = selected("all");
+    let all = selected(&deterministic_one_first, "all");
     assert!(all.status.success(), "{all:?}");
-    let one = selected("one");
+    let one = selected(&deterministic_one_first, "one");
     let stdout = String::from_utf8(one.stdout).unwrap();
     assert!(one.status.success(), "{stdout}");
     assert!(
@@ -5686,7 +5818,7 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
         k_rust::kore::printer::Printer::pretty(100).print_definition(&legacy),
     )
     .unwrap();
-    let old_file = selected("one");
+    let old_file = selected(&deterministic_one_first, "one");
     assert!(!old_file.status.success(), "{old_file:?}");
     assert!(
         String::from_utf8_lossy(&old_file.stderr).contains("predates modality-aware"),
@@ -6858,11 +6990,15 @@ fn kprove_claim_selection_does_not_use_unselected_lemmas() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
     let specification = fixtures.join("lemma-spec.k");
+    // The isolated claim and the batch read one compiled specification.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&specification, "LEMMA-SPEC", "SPLIT", &compiled);
 
     let isolated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&compiled)
         .args([
-            "kprove",
-            specification.to_str().unwrap(),
             "--main-module",
             "LEMMA-SPEC",
             "--definition-module",
@@ -6882,9 +7018,9 @@ fn kprove_claim_selection_does_not_use_unselected_lemmas() {
     );
 
     let batch = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&compiled)
         .args([
-            "kprove",
-            specification.to_str().unwrap(),
             "--main-module",
             "LEMMA-SPEC",
             "--definition-module",
@@ -6904,6 +7040,7 @@ fn kprove_claim_selection_does_not_use_unselected_lemmas() {
         batch_stdout.contains("claim LEMMA-SPEC.cb: disproved"),
         "{batch_stdout}"
     );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -7175,9 +7312,14 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
     let specification = fixtures.join("trivial-spec.k");
+    // Both vacuity policies read one compiled specification.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&specification, "TRIVIAL-SPEC", "SPLIT", &compiled);
     let common = [
         "kprove",
-        specification.to_str().unwrap(),
+        "--compiled-definition",
+        compiled.to_str().unwrap(),
         "--main-module",
         "TRIVIAL-SPEC",
         "--definition-module",
@@ -7225,6 +7367,7 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
             "{allowed_stdout}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// Rules whose result is undefined on part of the instances they apply to: a false `ensures`
@@ -7296,11 +7439,14 @@ endmodule
 fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
     let (root, definition) = fixture();
     fs::write(&definition, UNDEFINED_STEP).unwrap();
+    // The three proof runs read one compiled specification.
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "UNDEF-SPEC", "UNDEF", &compiled);
     let prove = |extra: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
             .args([
-                "kprove",
-                definition.to_str().unwrap(),
                 "--main-module",
                 "UNDEF-SPEC",
                 "--definition-module",
@@ -7403,22 +7549,17 @@ endmodule
 fn set_concatenation_is_nilpotent_in_krun_and_kprove() {
     let (root, definition) = fixture();
     fs::write(&definition, NILPOTENT_SET).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "NSET", "--syntax-module", "NSET"],
+        &compiled,
+    );
     let run = |program: &str| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "NSET",
-                "--syntax-module",
-                "NSET",
-                "-s",
-                "Pgm",
-                "--io",
-                "off",
-                "-e",
-                program,
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["-s", "Pgm", "--io", "off", "-e", program])
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -7539,22 +7680,17 @@ endmodule
 fn a_repeated_set_element_or_map_key_is_bottom_where_it_is_built() {
     let (root, definition) = fixture();
     fs::write(&definition, REPEATED_COLLECTION).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "RCOL", "--syntax-module", "RCOL"],
+        &compiled,
+    );
     let run = |program: &str| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "RCOL",
-                "--syntax-module",
-                "RCOL",
-                "-s",
-                "Pgm",
-                "--io",
-                "off",
-                "-e",
-                program,
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["-s", "Pgm", "--io", "off", "-e", program])
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -7685,22 +7821,17 @@ endmodule
 fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
     let (root, definition) = fixture();
     fs::write(&definition, CONTRADICTED_TOTAL).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "CTOT", "--syntax-module", "CTOT"],
+        &compiled,
+    );
     let run = |program: &str| {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "CTOT",
-                "--syntax-module",
-                "CTOT",
-                "-s",
-                "Pgm",
-                "--io",
-                "off",
-                "-e",
-                program,
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["-s", "Pgm", "--io", "off", "-e", program])
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -7812,13 +7943,16 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     )
     .unwrap();
 
+    // Both claims are proven by their own process on one compiled specification.
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&specification, "ANDINT-SPEC", "ANDINT", &compiled);
     for (claim, verdict, certified) in
         [("vacuous", "failed", false), ("control", "disproved", true)]
     {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
             .args([
-                "kprove",
-                specification.to_str().unwrap(),
                 "--main-module",
                 "ANDINT-SPEC",
                 "--definition-module",
@@ -7948,13 +8082,16 @@ fn kprove_does_not_certify_a_stuck_leaf_over_an_empty_sort() {
     )
     .unwrap();
 
+    // Both claims are proven by their own process on one compiled specification.
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&specification, "VOID-SPEC", "VOID", &compiled);
     for (claim, verdict, certified) in
         [("vacuous", "failed", false), ("control", "disproved", true)]
     {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
             .args([
-                "kprove",
-                specification.to_str().unwrap(),
                 "--main-module",
                 "VOID-SPEC",
                 "--definition-module",
@@ -8055,6 +8192,14 @@ endmodule
         ),
     ];
     for (specification, module, definition_module, claim, leaf_term, (verdict, leaf)) in cases {
+        // The four flag sets are proof options: one compilation serves them all.
+        let compiled = root.join(format!("{module}-compiled"));
+        kcompile_for_proving(
+            &root.join(specification),
+            module,
+            definition_module,
+            &compiled,
+        );
         for flags in [
             &[][..],
             &["--allow-vacuous"][..],
@@ -8062,9 +8207,9 @@ endmodule
             &["--allow-vacuous", "--disable-stuck-check"][..],
         ] {
             let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args(["kprove", "--compiled-definition"])
+                .arg(&compiled)
                 .args([
-                    "kprove",
-                    root.join(specification).to_str().unwrap(),
                     "--main-module",
                     module,
                     "--definition-module",
@@ -8257,19 +8402,13 @@ endmodule
     )
     .unwrap();
 
+    // Both simplification budgets run one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "Pgm",
-            "--expression",
-            "run(3)",
-            "--depth",
-            "20",
-        ])
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["--sort", "Pgm", "--expression", "run(3)", "--depth", "20"])
         .output()
         .unwrap();
 
@@ -8284,11 +8423,9 @@ endmodule
     assert!(!output.contains("Lblfoo"), "{output}");
 
     let limited = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
         .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
             "--sort",
             "Pgm",
             "--expression",
@@ -9755,21 +9892,22 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
     ];
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
     let definition = fixtures.join("bn128-execution.k");
+    // Every program runs on one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "BN128-EXECUTION"],
+        &compiled,
+    );
 
     for (program, expected) in cases {
-        let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "BN128-EXECUTION",
-                "--sort",
-                "Input",
-                program_path.to_str().unwrap(),
-                "--depth",
-                "10",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Input"])
+            .arg(fixtures.join(program))
+            .args(["--depth", "10"])
             .output()
             .unwrap();
         assert!(
@@ -9783,6 +9921,7 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
             "{program}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// The BN128 section of `plugin/krypto.md` at blockchain-k-plugin `651a2db5`, the plugin the pinned
@@ -9850,6 +9989,9 @@ endmodule
 fn krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions() {
     let (root, definition) = fixture();
     fs::write(&definition, PINNED_PLUGIN_BN128).unwrap();
+    // Every check runs on one compiled definition.
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
     let boolean = |value: &str| format!(r#"\dv{{SortBool{{}}}}("{value}")"#);
     let doubled = concat!(
         "Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int{}(\n",
@@ -9867,18 +10009,9 @@ fn krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions() {
         ("pairing", boolean("true")),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "MAIN",
-                "--sort",
-                "Check",
-                "--expression",
-                check,
-                "--depth",
-                "10",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Check", "--expression", check, "--depth", "10"])
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -9902,24 +10035,30 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/star-cell-heating");
     let definition = fixtures.join("test.k");
+    // The three programs of the List-cell variant run on one compiled definition; the single run
+    // of the Set-cell variant below compiles from source.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "STAR-CELL-HEATING",
+            "--syntax-module",
+            "STAR-CELL-HEATING-SYNTAX",
+        ],
+        &compiled,
+    );
     for (program, thread_cells, next) in [
         ("one.pgm", 1, "1"),
         ("two.pgm", 2, "2"),
         ("two-late.pgm", 2, "2"),
     ] {
-        let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                program_path.to_str().unwrap(),
-                "--main-module",
-                "STAR-CELL-HEATING",
-                "--syntax-module",
-                "STAR-CELL-HEATING-SYNTAX",
-                "--sort",
-                "Stmt",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(fixtures.join(program))
+            .args(["--sort", "Stmt"])
             .output()
             .unwrap();
         assert!(
@@ -9980,6 +10119,7 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
         "\\bottom{SortGeneratedTopCell{}}()",
         "{stdout}"
     );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -9992,20 +10132,29 @@ fn krun_surface_pattern_projects_set_typed_star_cell() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/star-cell-heating");
     let definition = fixtures.join("test.k");
+    // Every run uses one compiled definition of the Set-cell variant.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "STAR-CELL-HEATING-SET",
+            "--syntax-module",
+            "STAR-CELL-HEATING-SYNTAX",
+        ],
+        &compiled,
+    );
     for program in ["one.pgm"] {
         for (surface_pattern, expected_binding) in [
             ("<k> .K </k>", None),
             ("<k> KK:K </k>", Some(parse_pattern("dotk{}()").unwrap())),
         ] {
             let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args(["krun", "--definition"])
+                .arg(&compiled)
+                .arg(fixtures.join(program))
                 .args([
-                    "krun",
-                    definition.to_str().unwrap(),
-                    fixtures.join(program).to_str().unwrap(),
-                    "--main-module",
-                    "STAR-CELL-HEATING-SET",
-                    "--syntax-module",
-                    "STAR-CELL-HEATING-SYNTAX",
                     "--sort",
                     "Stmt",
                     "--io",
@@ -10037,14 +10186,10 @@ fn krun_surface_pattern_projects_set_typed_star_cell() {
     }
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .arg(fixtures.join("two.pgm"))
         .args([
-            "krun",
-            definition.to_str().unwrap(),
-            fixtures.join("two.pgm").to_str().unwrap(),
-            "--main-module",
-            "STAR-CELL-HEATING-SET",
-            "--syntax-module",
-            "STAR-CELL-HEATING-SYNTAX",
             "--sort",
             "Stmt",
             "--io",
@@ -10083,6 +10228,7 @@ fn krun_surface_pattern_projects_set_typed_star_cell() {
         ["SortStmt{}", "SortKItem{}"],
         "{binding:?}"
     );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -10090,25 +10236,30 @@ fn krun_solves_map_keys_bound_by_a_star_set_cell_before_nested_sets() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/star-cell-map-nested-set");
     let definition = fixtures.join("test.k");
+    // Every program runs on one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "STAR-CELL-MAP-NESTED-SET",
+            "--syntax-module",
+            "STAR-CELL-MAP-NESTED-SET-SYNTAX",
+        ],
+        &compiled,
+    );
     for (program, cast_remains) in [
         ("neg-two.pgm", true),
         ("pos-two.pgm", false),
         ("pos2-two.pgm", false),
         ("two.pgm", false),
     ] {
-        let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                program_path.to_str().unwrap(),
-                "--main-module",
-                "STAR-CELL-MAP-NESTED-SET",
-                "--syntax-module",
-                "STAR-CELL-MAP-NESTED-SET-SYNTAX",
-                "--sort",
-                "Stmt",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(fixtures.join(program))
+            .args(["--sort", "Stmt"])
             .output()
             .unwrap();
         assert!(
@@ -10124,6 +10275,7 @@ fn krun_solves_map_keys_bound_by_a_star_set_cell_before_nested_sets() {
         );
         assert!(!stdout.contains("\\or{"), "{program}: {stdout}");
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -10300,21 +10452,22 @@ fn krun_executes_float_fixture_to_pinned_kore_results() {
     ];
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
     let definition = fixtures.join("float-execution.k");
+    // Every program runs on one compiled definition.
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "FLOAT-EXECUTION"],
+        &compiled,
+    );
 
     for (program, expected) in cases {
-        let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "krun",
-                definition.to_str().unwrap(),
-                "--main-module",
-                "FLOAT-EXECUTION",
-                "--sort",
-                "Input",
-                program_path.to_str().unwrap(),
-                "--depth",
-                "10",
-            ])
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Input"])
+            .arg(fixtures.join(program))
+            .args(["--depth", "10"])
             .output()
             .unwrap();
         assert!(
@@ -10328,6 +10481,7 @@ fn krun_executes_float_fixture_to_pinned_kore_results() {
             "{program}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -10620,6 +10774,143 @@ fn kcompile_writes_no_counter_file_without_krust_counters() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The repository's `examples/` definition named `name`.
+fn example(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples")
+        .join(name)
+}
+
+/// The standard output of a `krust` run that must succeed, as `scripts/backend-smoke.sh` reads
+/// it (`set -e` and a command substitution of standard output).
+fn successful_stdout(command: &mut Command) -> String {
+    let output = command.stdin(Stdio::null()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{command:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The number of lines of `text` that contain `needle`, which is what `grep -c` counts.
+fn lines_containing(text: &str, needle: &str) -> usize {
+    text.lines().filter(|line| line.contains(needle)).count()
+}
+
+/// The first two flows of `scripts/backend-smoke.sh`: `kcompile` of `examples/rewrite.k` writes
+/// the three non-empty backend KORE files, and the in-process backend rewrites `a` to `b`. The
+/// run reads that compilation rather than compiling the example again.
+#[test]
+fn backend_smoke_kcompile_writes_kore_artifacts_that_krun_rewrites() {
+    let (root, _) = fixture();
+    let compiled = root.join("rust");
+    kcompile_for_krun(
+        &example("rewrite.k"),
+        &["--main-module", "REWRITE"],
+        &compiled,
+    );
+    for artifact in ["definition.kore", "syntaxDefinition.kore", "macros.kore"] {
+        let length = fs::metadata(compiled.join(artifact))
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        assert!(length > 0, "{artifact} is missing or empty");
+    }
+
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "State", "--expression", "a", "--depth", "10"]),
+    );
+    assert!(execution.contains("Lblb{}()"), "{execution}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `scripts/backend-smoke.sh`: two equal builtin Lists built by one rule unify through the full
+/// frontend and backend path, so the second rule fires and both cells keep their three items.
+#[test]
+fn backend_smoke_krun_matches_equal_builtin_lists() {
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg(example("list-unification.k"))
+            .args([
+                "--main-module",
+                "LIST-UNIFICATION",
+                "--sort",
+                "Val",
+                "--expression",
+                "test1",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(
+        execution.contains("Lblsuccess'Unds'LIST-UNIFICATION'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert_eq!(
+        lines_containing(&execution, "LblListItem{}"),
+        6,
+        "{execution}"
+    );
+}
+
+/// `scripts/backend-smoke.sh`: a rule selects the concrete Map entry keyed by the `<k>` value
+/// and removes it through AC framing, leaving the two other entries.
+#[test]
+fn backend_smoke_krun_removes_a_concrete_map_entry_through_ac_framing() {
+    let execution = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg(example("map-framing.k"))
+            .args([
+                "--main-module",
+                "MAP-FRAMING",
+                "--sort",
+                "Val",
+                "--expression",
+                "a",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(
+        execution.contains("Lblb'Unds'MAP-FRAMING'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert!(
+        execution.contains("Lblc'Unds'MAP-FRAMING'Unds'Val{}()"),
+        "{execution}"
+    );
+    assert_eq!(
+        lines_containing(&execution, "Lbl'UndsPipe'-'-GT-Unds'{}("),
+        2,
+        "{execution}"
+    );
+}
+
+/// `scripts/backend-smoke.sh`: the one-path reachability claim of `examples/reachability.k` is
+/// proven with the in-process solver.
+#[test]
+fn backend_smoke_kprove_proves_a_reachability_claim() {
+    let proof = successful_stdout(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kprove")
+            .arg(example("reachability.k"))
+            .args([
+                "--main-module",
+                "REACHABILITY",
+                "--claim",
+                "reaches-b",
+                "--depth",
+                "10",
+            ]),
+    );
+    assert!(proof.contains("claim reaches-b: proven"), "{proof}");
+}
+
 /// Prove each named claim of an inlined specification on its own and return the verdict word
 /// `krust kprove` reports for it (`proven`, `disproved`, `indeterminate`, ...), or `error` with
 /// its diagnostic on standard error when the prover rejects the claim.
@@ -10644,7 +10935,8 @@ fn kprove_claim_verdicts(
 }
 
 /// Each claim's verdict word and the outcome word of each of its reported leaves
-/// (`Stuck`, `Vacuous`, ...), in output order.
+/// (`Stuck`, `Vacuous`, ...), in output order. Each claim is proven by its own `kprove` process;
+/// when there is more than one, they share one `kcompile --for-proving` of the specification.
 fn kprove_claim_leaves(
     definition: (&str, &str),
     specification: (&str, &str),
@@ -10653,57 +10945,182 @@ fn kprove_claim_leaves(
     claims: &[&str],
     extra_args: &[&str],
 ) -> Vec<(String, String, Vec<String>)> {
-    let (root, _) = fixture();
-    fs::write(root.join(definition.0), definition.1).unwrap();
-    let specification_path = root.join(specification.0);
-    fs::write(&specification_path, specification.1).unwrap();
-    let verdicts = claims
-        .iter()
-        .map(|claim| {
-            let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-                .args([
-                    "kprove",
-                    specification_path.to_str().unwrap(),
-                    "--main-module",
-                    main_module,
-                    "--definition-module",
-                    definition_module,
-                    "--depth",
-                    "10",
-                    "--claim",
-                    claim,
-                ])
-                .args(extra_args)
-                .output()
-                .unwrap();
-            let stdout = String::from_utf8(output.stdout).unwrap();
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let leaves = stdout
-                .lines()
-                .filter_map(|line| line.strip_prefix("  "))
-                .filter_map(|line| line.split_once(" at depth "))
-                .map(|(outcome, _)| outcome.to_owned())
-                .collect::<Vec<_>>();
-            let prefix = format!("claim {claim}: ");
-            let verdict = stdout
-                .lines()
-                .find_map(|line| line.strip_prefix(&prefix))
-                .and_then(|rest| rest.split_whitespace().next())
-                .map(str::to_owned)
-                .unwrap_or_else(|| {
-                    eprintln!("{claim}: {}", stderr.trim());
-                    "error".to_owned()
-                });
-            assert_eq!(
-                output.status.success(),
-                verdict == "proven",
-                "{claim}: {stdout}\n{stderr}"
-            );
-            ((*claim).to_owned(), verdict, leaves)
-        })
-        .collect();
-    fs::remove_dir_all(root).unwrap();
-    verdicts
+    let fixture = ProofFixture::new(definition, specification, main_module, definition_module);
+    let fixture = if claims.len() > 1 {
+        fixture.compiled()
+    } else {
+        fixture
+    };
+    fixture.claim_leaves(claims, extra_args)
+}
+
+/// The definition and specification of a claims test, written into the test's own temporary
+/// directory. [`ProofFixture::compiled`] compiles the specification once, so that every later
+/// `kprove` of the test reads that one compilation instead of compiling the same sources again.
+/// Each claim is still proven by its own process, so no claim sees another as a circularity.
+struct ProofFixture {
+    root: PathBuf,
+    specification: PathBuf,
+    main_module: String,
+    definition_module: String,
+    compiled: Option<PathBuf>,
+}
+
+impl ProofFixture {
+    fn new(
+        definition: (&str, &str),
+        specification: (&str, &str),
+        main_module: &str,
+        definition_module: &str,
+    ) -> Self {
+        let (root, _) = fixture();
+        fs::write(root.join(definition.0), definition.1).unwrap();
+        let specification_path = root.join(specification.0);
+        fs::write(&specification_path, specification.1).unwrap();
+        Self {
+            root,
+            specification: specification_path,
+            main_module: main_module.to_owned(),
+            definition_module: definition_module.to_owned(),
+            compiled: None,
+        }
+    }
+
+    /// Compile the specification once; later proofs read the compiled definition.
+    fn compiled(mut self) -> Self {
+        let compiled = self.root.join("compiled-specification");
+        kcompile_for_proving(
+            &self.specification,
+            &self.main_module,
+            &self.definition_module,
+            &compiled,
+        );
+        self.compiled = Some(compiled);
+        self
+    }
+
+    /// `kprove` of this specification, from its compilation when there is one and otherwise from
+    /// source, without the claim selection and proof options.
+    fn kprove(&self) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.arg("kprove");
+        match &self.compiled {
+            Some(compiled) => command.arg("--compiled-definition").arg(compiled),
+            None => command.arg(&self.specification),
+        };
+        command.args([
+            "--main-module",
+            &self.main_module,
+            "--definition-module",
+            &self.definition_module,
+        ]);
+        command
+    }
+
+    fn claim_leaves(
+        &self,
+        claims: &[&str],
+        extra_args: &[&str],
+    ) -> Vec<(String, String, Vec<String>)> {
+        claims
+            .iter()
+            .map(|claim| {
+                let output = self
+                    .kprove()
+                    .args(["--depth", "10", "--claim", claim])
+                    .args(extra_args)
+                    .output()
+                    .unwrap();
+                let stdout = String::from_utf8(output.stdout).unwrap();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let leaves = stdout
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("  "))
+                    .filter_map(|line| line.split_once(" at depth "))
+                    .map(|(outcome, _)| outcome.to_owned())
+                    .collect::<Vec<_>>();
+                let prefix = format!("claim {claim}: ");
+                let verdict = stdout
+                    .lines()
+                    .find_map(|line| line.strip_prefix(&prefix))
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        eprintln!("{claim}: {}", stderr.trim());
+                        "error".to_owned()
+                    });
+                assert_eq!(
+                    output.status.success(),
+                    verdict == "proven",
+                    "{claim}: {stdout}\n{stderr}"
+                );
+                ((*claim).to_owned(), verdict, leaves)
+            })
+            .collect()
+    }
+}
+
+impl Drop for ProofFixture {
+    fn drop(&mut self) {
+        // A failing test keeps its sources for inspection, as the tests that remove their
+        // fixture after the last assertion do.
+        if !std::thread::panicking() {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+}
+
+/// `kcompile --for-proving` of `specification` into `output`, asserting that it succeeds. A test
+/// that proves several claims of one specification compiles it once with this and passes
+/// `output` to `kprove --compiled-definition`.
+fn kcompile_for_proving(
+    specification: &Path,
+    main_module: &str,
+    definition_module: &str,
+    output: &Path,
+) -> Output {
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(specification)
+        .args([
+            "--main-module",
+            main_module,
+            "--definition-module",
+            definition_module,
+            "--for-proving",
+            "--output-directory",
+        ])
+        .arg(output)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    compiled
+}
+
+/// `kcompile` of `source` with the compile options `options` (modules, include directories) into
+/// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
+/// once with this and passes `output` to `krun --definition`.
+fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(source)
+        .args(options)
+        .arg("--output-directory")
+        .arg(output)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    compiled
 }
 
 fn verdicts_of(leaves: &[(String, String, Vec<String>)]) -> Vec<(String, String)> {
@@ -11038,15 +11455,15 @@ module SPLIT-SPEC
   claim <k> s(0, _X) => s(?P:Int, ?V:Int) </k> ensures ?P *Int ?P ==Int ?P andBool (1 -Int ?P) *Int (?V -Int 7) ==Int 0 [label(contingent-false)]
 endmodule
 "#;
+    let fixture = ProofFixture::new(
+        ("split-probe.k", definition),
+        ("split-spec.k", specification),
+        "SPLIT-SPEC",
+        "SPLIT-PROBE",
+    )
+    .compiled();
     for extra in [&[][..], &["--disable-stuck-check"][..]] {
-        let leaves = kprove_claim_leaves(
-            ("split-probe.k", definition),
-            ("split-spec.k", specification),
-            "SPLIT-SPEC",
-            "SPLIT-PROBE",
-            &["covered-then-stuck", "contingent-false"],
-            extra,
-        );
+        let leaves = fixture.claim_leaves(&["covered-then-stuck", "contingent-false"], extra);
         assert_eq!(
             verdicts_of(&leaves),
             expected_verdicts(&[
@@ -11085,15 +11502,15 @@ module REMAINDER-SPEC
   claim <k> st(_X) => st(1) </k> [label(remainder-false)]
 endmodule
 "#;
+    let fixture = ProofFixture::new(
+        ("remainder-probe.k", definition),
+        ("remainder-spec.k", specification),
+        "REMAINDER-SPEC",
+        "REMAINDER-PROBE",
+    )
+    .compiled();
     for extra in [&[][..], &["--disable-stuck-check"][..]] {
-        let leaves = kprove_claim_leaves(
-            ("remainder-probe.k", definition),
-            ("remainder-spec.k", specification),
-            "REMAINDER-SPEC",
-            "REMAINDER-PROBE",
-            &["remainder-rewritable", "remainder-false"],
-            extra,
-        );
+        let leaves = fixture.claim_leaves(&["remainder-rewritable", "remainder-false"], extra);
         assert_eq!(
             leaves[0],
             (
@@ -11159,6 +11576,13 @@ endmodule
     // refutation. The reached `st(0)` of the false claims has no successor: a certified one.
     let stopped = || ("failed".to_owned(), vec!["Stuck".to_owned()]);
     let refuted = || ("disproved".to_owned(), vec!["Stuck (certified)".to_owned()]);
+    let fixture = ProofFixture::new(
+        ("remainder-probe.k", definition),
+        ("remainder-spec.k", specification),
+        "REMAINDER-SPEC",
+        "REMAINDER-PROBE",
+    )
+    .compiled();
     for (extra, expected) in [
         (&[][..], [stopped(), stopped(), stopped(), stopped()]),
         (
@@ -11171,14 +11595,7 @@ endmodule
             ],
         ),
     ] {
-        let leaves = kprove_claim_leaves(
-            ("remainder-probe.k", definition),
-            ("remainder-spec.k", specification),
-            "REMAINDER-SPEC",
-            "REMAINDER-PROBE",
-            &claims,
-            extra,
-        );
+        let leaves = fixture.claim_leaves(&claims, extra);
         let expected = claims
             .iter()
             .zip(expected)
@@ -11219,10 +11636,13 @@ endmodule
     .unwrap();
     let prelude = root.join("inconsistent.smt2");
     fs::write(&prelude, "(assert false)\n").unwrap();
+    // Both claims are proven by their own process on one compiled specification.
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&specification, "PROBE-SPEC", "PROBE", &compiled);
     let no_query = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&compiled)
         .args([
-            "kprove",
-            specification.to_str().unwrap(),
             "--main-module",
             "PROBE-SPEC",
             "--definition-module",
@@ -11236,9 +11656,9 @@ endmodule
         .unwrap();
     assert!(no_query.status.success(), "{no_query:?}");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&compiled)
         .args([
-            "kprove",
-            specification.to_str().unwrap(),
             "--main-module",
             "PROBE-SPEC",
             "--definition-module",
@@ -11353,15 +11773,15 @@ module SPLIT-SPEC
   claim <k> q(X, Y) => q(?Z, ?Z) </k> ensures ?Z ==Int X [label(q-ens-false)]
 endmodule
 "#;
+    let fixture = ProofFixture::new(
+        ("split-probe.k", definition),
+        ("split-spec.k", specification),
+        "SPLIT-SPEC",
+        "SPLIT-PROBE",
+    )
+    .compiled();
     for extra in [&[][..], &["--allow-vacuous"][..]] {
-        let leaves = kprove_claim_leaves(
-            ("split-probe.k", definition),
-            ("split-spec.k", specification),
-            "SPLIT-SPEC",
-            "SPLIT-PROBE",
-            &["q-ens-false"],
-            extra,
-        );
+        let leaves = fixture.claim_leaves(&["q-ens-false"], extra);
         assert_eq!(leaves, [refuted_leaf("q-ens-false")], "{extra:?}");
     }
 }
@@ -11380,15 +11800,15 @@ module REM-SPEC
   claim <k> start => middle </k> <n> X => X +Int 1 </n> [label(free-remainder)]
 endmodule
 "#;
+    let fixture = ProofFixture::new(
+        ("cell-probe2.k", CELL_PROBE2),
+        ("rem-spec.k", specification),
+        "REM-SPEC",
+        "CELL-PROBE2",
+    )
+    .compiled();
     for extra in [&[][..], &["--allow-vacuous"][..]] {
-        let leaves = kprove_claim_leaves(
-            ("cell-probe2.k", CELL_PROBE2),
-            ("rem-spec.k", specification),
-            "REM-SPEC",
-            "CELL-PROBE2",
-            &["free-remainder"],
-            extra,
-        );
+        let leaves = fixture.claim_leaves(&["free-remainder"], extra);
         assert_eq!(leaves, [refuted_leaf("free-remainder")], "{extra:?}");
     }
 }
@@ -11622,6 +12042,199 @@ endmodule
     assert_eq!(leaves, [failed_stuck_leaf("frame-restarts")]);
 }
 
+/// The `[[proof]]` cases of `scripts/reference-differential.toml` whose sources are committed
+/// in this repository and that need no `semantics-support`, as
+/// `scripts/reference-proof-differential.sh` selects them, by name.
+fn local_proof_corpus() -> Vec<(String, toml::Value)> {
+    let manifest: toml::Value =
+        toml::from_str(include_str!("../../../scripts/reference-differential.toml")).unwrap();
+    manifest["proof"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| {
+            let local = |key: &str| case[key].as_str().unwrap().starts_with("${workspace}/");
+            local("source")
+                && local("specification")
+                && !case["requires"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|requirement| requirement.as_str() == Some("semantics-support"))
+        })
+        .map(|case| (case["name"].as_str().unwrap().to_owned(), case.clone()))
+        .collect()
+}
+
+/// The krust half of `scripts/reference-proof-differential.sh` for one local proof case: the
+/// case's `claims` are proven together in one `kprove`, which succeeds and reports each of them
+/// `proven`; its `failure-claim` alone makes `kprove` fail with the `failure-verdict` (by
+/// default `disproved`), and a `failed` verdict must carry a `failure-verdict-reason`. The
+/// script also runs the reference prover on the same claims; that comparison stays there.
+fn assert_local_proof_case_verdicts(name: &str) {
+    let (_, case) = local_proof_corpus()
+        .into_iter()
+        .find(|(case, _)| case == name)
+        .unwrap_or_else(|| panic!("no local proof case {name}"));
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let path = |key: &str| {
+        let value = case[key].as_str().unwrap();
+        workspace.join(value.strip_prefix("${workspace}/").unwrap())
+    };
+    let text = |key: &str| case[key].as_str().unwrap().to_owned();
+    let specification = path("specification");
+    let semantics_directory = path("source").parent().unwrap().to_owned();
+    let spec_module = text("spec-module");
+    let definition_module = text("definition-module");
+    let depth = case["depth"].as_integer().unwrap().to_string();
+    let proven_claims = case
+        .get("claims")
+        .and_then(toml::Value::as_array)
+        .map(|claims| {
+            claims
+                .iter()
+                .map(|claim| claim.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let failure_claim = text("failure-claim");
+    let failure_verdict = case
+        .get("failure-verdict")
+        .map_or("disproved", |verdict| verdict.as_str().unwrap());
+    match failure_verdict {
+        "disproved" => {}
+        "failed" => assert!(
+            case.get("failure-verdict-reason")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|reason| !reason.is_empty()),
+            "{name}:{failure_claim} expects failed without a failure-verdict-reason"
+        ),
+        verdict => panic!("unknown failure-verdict {verdict} for {name}:{failure_claim}"),
+    }
+
+    // A case with both a proven batch and a failure claim compiles its specification once.
+    let (root, _) = fixture();
+    let include = semantics_directory.to_str().unwrap();
+    let compiled = (!proven_claims.is_empty()).then(|| {
+        let compiled = root.join("compiled");
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(&specification)
+            .args([
+                "--main-module",
+                &spec_module,
+                "--definition-module",
+                &definition_module,
+                "--for-proving",
+                "-I",
+                include,
+                "--output-directory",
+            ])
+            .arg(&compiled)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        compiled
+    });
+    let kprove = |claims: &[String]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.arg("kprove");
+        match &compiled {
+            Some(compiled) => command.arg("--compiled-definition").arg(compiled),
+            None => command.arg(&specification).args(["-I", include]),
+        };
+        command.args([
+            "--main-module",
+            &spec_module,
+            "--definition-module",
+            &definition_module,
+        ]);
+        for claim in claims {
+            command.args(["--claim", claim]);
+        }
+        let output = command
+            .args(["--depth", &depth])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        // The script greps standard output and standard error together.
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (output.status.success(), log)
+    };
+
+    if !proven_claims.is_empty() {
+        let (success, log) = kprove(&proven_claims);
+        assert!(
+            success,
+            "{name}: k-rust did not prove every selected claim\n{log}"
+        );
+        for claim in &proven_claims {
+            assert!(
+                log.contains(&format!("claim {claim}: proven")),
+                "{name}:{claim}: no proven verdict\n{log}"
+            );
+        }
+    }
+    let (success, log) = kprove(std::slice::from_ref(&failure_claim));
+    assert!(
+        !success,
+        "{name}: k-rust unexpectedly proved {failure_claim}\n{log}"
+    );
+    assert!(
+        log.contains(&format!("claim {failure_claim}: {failure_verdict} ")),
+        "{name}:{failure_claim}: no {failure_verdict} verdict\n{log}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Each local proof case of the manifest has a test below, so a new case is not silently left
+/// to the reference gate alone.
+#[test]
+fn reference_proof_corpus_local_cases_each_have_a_verdict_test() {
+    let names = local_proof_corpus()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "mini-proof",
+            "split-proof",
+            "trusted-lemma-proof",
+            "trivial-proof"
+        ]
+    );
+}
+
+#[test]
+fn reference_proof_corpus_mini_proof_verdicts() {
+    assert_local_proof_case_verdicts("mini-proof");
+}
+
+#[test]
+fn reference_proof_corpus_split_proof_verdicts() {
+    assert_local_proof_case_verdicts("split-proof");
+}
+
+#[test]
+fn reference_proof_corpus_trusted_lemma_proof_verdicts() {
+    assert_local_proof_case_verdicts("trusted-lemma-proof");
+}
+
+#[test]
+fn reference_proof_corpus_trivial_proof_verdicts() {
+    assert_local_proof_case_verdicts("trivial-proof");
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kore_exec_search_final_keeps_symbolic_anywhere_remainder_constrained() {
@@ -11762,18 +12375,29 @@ module MAIN
   rule <t> <k> a => b ... </k> R </t> requires isTCellFragment(R)
 endmodule
 "#;
+    // The run and the two pattern searches use one compiled definition.
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
+    let krun = |arguments: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Foo", "--expression", "a"])
+            .args(arguments)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
     // The fragment test of `R` becomes the conjunction of the sort tests of `<mem>` and `<x>`.
-    let stdout = krun_success(
-        SOURCE,
-        &[
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "Foo",
-            "--expression",
-            "a",
-        ],
-    );
+    let stdout = krun(&[]);
     assert!(
         stdout.contains(
             "Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lblb'Unds'MAIN'Unds'Foo{}())"
@@ -11787,24 +12411,13 @@ endmodule
         "<t> <k> X:Foo </k> <mem> Y:Foo </mem> <x> _ </x> </t>",
         "<t> <k> X:Foo </k> R </t> requires isTCellFragment(R)",
     ] {
-        let stdout = krun_success(
-            SOURCE,
-            &[
-                "--main-module",
-                "MAIN",
-                "--sort",
-                "Foo",
-                "--expression",
-                "a",
-                "--pattern",
-                pattern,
-            ],
-        );
+        let stdout = krun(&["--pattern", pattern]);
         assert!(
             stdout.contains("VarX:SortFoo{}, Lblb'Unds'MAIN'Unds'Foo{}()"),
             "{pattern}: {stdout}"
         );
     }
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// Run `krust kcompile` on `source`, written as the definition of a fresh fixture, into a
