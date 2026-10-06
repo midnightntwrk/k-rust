@@ -35,7 +35,7 @@ if (($# > 1)); then
   exit 2
 fi
 name=${1:-${available[0]:-}}
-if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
+if ! grep -Fxq "$name" <<<"$(printf '%s\n' "${available[@]}")"; then
   echo "error: unknown runnable local RPC case: $name" >&2
   echo "available cases: ${available[*]}" >&2
   exit 2
@@ -65,7 +65,7 @@ done
 reference_require_k_version "$kompile"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 rpc_flavour=$(
-  if "$kore_rpc" --help 2>&1 | grep -q -- '--no-smt'; then
+  if grep -q -- '--no-smt' <<<"$("$kore_rpc" --help 2>&1)"; then
     echo booster
   else
     echo legacy
@@ -583,7 +583,7 @@ for reference_oracle in "${reference_oracles[@]}"; do
     echo "error: requested RPC oracle is unavailable: $reference_oracle" >&2
     exit 2
   fi
-  if "$reference_oracle" --help 2>&1 | grep -q -- '--no-smt'; then
+  if grep -q -- '--no-smt' <<<"$("$reference_oracle" --help 2>&1)"; then
     rpc_flavour=booster
     oracle_name=kore-rpc-booster
     smt_off_args=(--no-smt)
@@ -635,7 +635,7 @@ stop_server
 
 mapfile -t responses < <(jq -r '.responses[]' <<<"$rpc")
 for reference_oracle in "${reference_oracles[@]}"; do
-  if "$reference_oracle" --help 2>&1 | grep -q -- '--no-smt'; then
+  if grep -q -- '--no-smt' <<<"$("$reference_oracle" --help 2>&1)"; then
     rpc_flavour=booster
     oracle_name=kore-rpc-booster
   else

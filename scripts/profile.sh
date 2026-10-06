@@ -302,7 +302,7 @@ fi
 [[ "$PROFILE_WORK_ROOT" == /* ]] || PROFILE_WORK_ROOT="$workspace/$PROFILE_WORK_ROOT"
 
 kcompile_timings=0
-if [[ -x "$KRUST_BIN" ]] && "$KRUST_BIN" kcompile --help 2>/dev/null | grep -q -- --timings; then
+if [[ -x "$KRUST_BIN" ]] && grep -q -- --timings <<<"$("$KRUST_BIN" kcompile --help 2>/dev/null)"; then
   kcompile_timings=1
 fi
 
@@ -349,7 +349,7 @@ command -v jq >/dev/null 2>&1 || fail "jq is required to check the profile and r
 command -v python3 >/dev/null 2>&1 || fail "python3 is required for scripts/conformance/measure.py"
 [[ -x "$KRUST_BIN" ]] || fail "krust binary is missing: $KRUST_BIN (run cargo build --profile profiling -p k-rust --bin krust --locked)"
 if command -v readelf >/dev/null 2>&1; then
-  readelf -S "$KRUST_BIN" | grep -q '\.debug_line' || fail "KRUST_BIN has no line tables; build with --profile profiling"
+  grep -q '\.debug_line' <<<"$(readelf -S "$KRUST_BIN")" || fail "KRUST_BIN has no line tables; build with --profile profiling"
 else
   echo "note: readelf is not on PATH; not checking that $KRUST_BIN has line tables" >&2
 fi

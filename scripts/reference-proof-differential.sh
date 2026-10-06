@@ -81,7 +81,7 @@ reference_announce_krust_gate_build
 )
 reference_cache_begin "$work"
 for name in "${selected[@]}"; do
-  if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
+  if ! grep -Fxq "$name" <<<"$(printf '%s\n' "${available[@]}")"; then
     echo "error: unknown runnable local proof case: $name" >&2
     echo "available cases: ${available[*]}" >&2
     exit 2

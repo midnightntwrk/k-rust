@@ -446,7 +446,7 @@ mapfile -t ladder_values < <(jq -r '.ladder_values[]' <<<"$shape")
 if ((${#ladder_values[@]})); then
   params=("${ladder_values[@]}")
   if [[ -n "$param" ]]; then
-    printf '%s\n' "${ladder_values[@]}" | grep -Fxq -- "$param" \
+    grep -Fxq -- "$param" <<<"$(printf '%s\n' "${ladder_values[@]}")" \
       || fail "$param is not a ladder value of $workload (${ladder_values[*]})"
     params=("$param")
   fi
@@ -563,12 +563,12 @@ fi
 
 [[ -x "$KRUST_BIN" ]] || fail "krust binary is missing: $KRUST_BIN (see --help for the build command)"
 if command -v readelf >/dev/null 2>&1; then
-  readelf -S "$KRUST_BIN" | grep -q '\.debug_line' || fail "KRUST_BIN has no line tables; build with --profile profiling"
+  grep -q '\.debug_line' <<<"$(readelf -S "$KRUST_BIN")" || fail "KRUST_BIN has no line tables; build with --profile profiling"
 fi
 if [[ "$command_kind" == observed-execute ]]; then
   [[ -x "$KRUST_OBSERVED_BIN" ]] || fail "observed driver is missing: $KRUST_OBSERVED_BIN"
 else
-  "$KRUST_BIN" "$command_kind" --help | grep -q -- --trace-aggregate \
+  grep -q -- --trace-aggregate <<<"$("$KRUST_BIN" "$command_kind" --help)" \
     || fail "KRUST_BIN has no --trace-aggregate option; rebuild it from this checkout"
 fi
 if [[ "$dirty" == true && "$allow_dirty" != 1 ]]; then

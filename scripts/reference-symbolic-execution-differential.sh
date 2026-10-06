@@ -27,7 +27,7 @@ if (($#)); then
   selected=("$@")
 fi
 for name in "${selected[@]}"; do
-  if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
+  if ! grep -Fxq "$name" <<<"$(printf '%s\n' "${available[@]}")"; then
     echo "error: unknown symbolic execution case: $name" >&2
     echo "available cases: ${available[*]}" >&2
     exit 2
