@@ -2218,44 +2218,52 @@ mod tests {
         }
     }
 
-    /// `rootFloat(F, 2)` is the root of degree 2, IEEE 754 rootn(F, 2): the square root, except
-    /// that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
-    /// `rootFloat(F, 2)`). Other degrees are not implemented.
+    /// `rootFloat(F, N)` is IEEE 754 rootn(F, N) for every degree. Degree 2 is the square root,
+    /// except that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
+    /// `rootFloat(F, 2)`); degree 0 and an even root of a negative value are NaN; a zero gives a
+    /// zero of its sign for an odd positive degree, +0 for an even one, an infinity of its sign
+    /// for an odd negative degree and +inf for an even one; an infinity gives an infinity for a
+    /// positive degree and a zero for a negative one, with its sign for an odd degree and NaN for
+    /// an even root of -inf.
     #[test]
-    fn float_root_of_degree_two_is_the_ieee_even_root() {
+    fn float_root_is_the_ieee_rootn_of_every_degree() {
         let cases = [
-            ("4.0f", "2.00000000e+00p24x8"),
-            ("2.0", "1.4142135623730951e+00p53x11"),
-            ("-4.0f", "NaNp24x8"),
-            ("NaN", "NaNp53x11"),
-            ("Infinityf", "Infinityp24x8"),
-            ("-Infinity", "NaNp53x11"),
-            ("0.0", "0e+00p53x11"),
-            ("-0.0f", "0e+00p24x8"),
-            ("-0.0", "0e+00p53x11"),
+            ("4.0f", 2, "2.00000000e+00p24x8"),
+            ("2.0", 2, "1.4142135623730951e+00p53x11"),
+            ("-4.0f", 2, "NaNp24x8"),
+            ("NaN", 2, "NaNp53x11"),
+            ("Infinityf", 2, "Infinityp24x8"),
+            ("-Infinity", 2, "NaNp53x11"),
+            ("0.0", 2, "0e+00p53x11"),
+            ("-0.0f", 2, "0e+00p24x8"),
+            ("-0.0", 2, "0e+00p53x11"),
+            ("8.0f", 3, "2.00000000e+00p24x8"),
+            ("-8.0", 3, "-2.0000000000000000e+00p53x11"),
+            ("27.0", 3, "3.0000000000000000e+00p53x11"),
+            ("16.0", -4, "5.0000000000000000e-01p53x11"),
+            ("-8.0", 4, "NaNp53x11"),
+            ("2.0", 0, "NaNp53x11"),
+            ("2.0", 1, "2.0000000000000000e+00p53x11"),
+            ("4.0", -1, "2.5000000000000000e-01p53x11"),
+            ("-0.0", 3, "-0e+00p53x11"),
+            ("-0.0", -3, "-Infinityp53x11"),
+            ("-0.0", -2, "Infinityp53x11"),
+            ("0.0f", -3, "Infinityp24x8"),
+            ("Infinity", -3, "0e+00p53x11"),
+            ("-Infinity", 3, "-Infinityp53x11"),
+            ("-Infinity", -3, "-0e+00p53x11"),
+            ("-Infinityf", 4, "NaNp24x8"),
         ];
-        for (value, expected) in cases {
+        for (value, degree, expected) in cases {
             assert_eq!(
                 evaluate_hook(
                     "FLOAT.root",
-                    &[float_term(value), int_term(BigInt::from(2))],
+                    &[float_term(value), int_term(BigInt::from(degree))],
                 ),
                 Ok(Ok(BuiltinResult::Value(float_term(expected)))),
-                "root({value}, 2)"
+                "root({value}, {degree})"
             );
         }
-
-        assert_eq!(
-            evaluate_hook(
-                "FLOAT.root",
-                &[float_term("8.0f"), int_term(BigInt::from(3))],
-            ),
-            Ok(Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::ArgumentOutOfRange {
-                    detail: "root degree 3 (only 2 is implemented)".into(),
-                }
-            )))
-        );
     }
 
     #[test]

@@ -12,7 +12,7 @@
 
 use std::{
     cmp::Ordering,
-    ffi::{CStr, CString},
+    ffi::{CStr, CString, c_long},
     ptr,
     str::FromStr,
 };
@@ -198,13 +198,17 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
         "STRING.float2string" => unary_float(values, |a| Ok(Value::String(a.token()))),
         "STRING.floatFormat" => float_format(values),
         "STRING.string2float" => match values {
-            [value] => Some(string_value(value).and_then(KFloat::parse).map(Value::Float)),
-            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected one argument".into()))),
+            [value] => Some(
+                string_value(value)
+                    .and_then(KFloat::parse)
+                    .map(Value::Float),
+            ),
+            _ => Some(Err(Unfolded::Unsupported(
+                "constant-folding hook expected one argument".into(),
+            ))),
         },
         "FLOAT.precision" => unary_float(values, |a| Ok(Value::Int(a.value.prec().into()))),
-        "FLOAT.exponentBits" => {
-            unary_float(values, |a| Ok(Value::Int(a.exponent_bits.into())))
-        }
+        "FLOAT.exponentBits" => unary_float(values, |a| Ok(Value::Int(a.exponent_bits.into()))),
         "FLOAT.exponent" => unary_float(values, |a| {
             let (minimum, maximum) = exponent_limits(a.exponent_bits)?;
             let exponent = if a.value.is_zero() {
@@ -296,18 +300,32 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
             (value, direction)
         }),
         "FLOAT.lt" => compare_float(values, |ordering| ordering == Some(Ordering::Less)),
-        "FLOAT.le" => compare_float(values, |ordering| ordering != Some(Ordering::Greater) && ordering.is_some()),
+        "FLOAT.le" => compare_float(values, |ordering| {
+            ordering != Some(Ordering::Greater) && ordering.is_some()
+        }),
         "FLOAT.gt" => compare_float(values, |ordering| ordering == Some(Ordering::Greater)),
-        "FLOAT.ge" => compare_float(values, |ordering| ordering != Some(Ordering::Less) && ordering.is_some()),
+        "FLOAT.ge" => compare_float(values, |ordering| {
+            ordering != Some(Ordering::Less) && ordering.is_some()
+        }),
         "FLOAT.eq" => compare_float(values, |ordering| ordering == Some(Ordering::Equal)),
         "FLOAT.ne" => compare_float(values, |ordering| ordering != Some(Ordering::Equal)),
         "FLOAT.root" => match values {
             [Value::Float(a), b] => Some(int_value(b).and_then(|root| {
-                let root = root.to_i32().ok_or_else(|| "Argument to hook FLOAT.root out of range. Expected a 32-bit signed integer.".to_owned())?;
-                a.unary_round(|value| value.root_i_round(root, Round::Nearest))
+                // Every integer degree has a root (IEEE 754 rootn); MPFR takes one in a C `long`.
+                let degree = root
+                    .to_i64()
+                    .and_then(|degree| c_long::try_from(degree).ok())
+                    .ok_or_else(|| {
+                        Unfolded::Unsupported(format!(
+                            "FLOAT.root of degree {root} is beyond the C long MPFR's rootn takes"
+                        ))
+                    })?;
+                a.unary_round(|value| root_of_degree(value, degree))
                     .map(Value::Float)
             })),
-            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected Float and Int".into()))),
+            _ => Some(Err(Unfolded::Unsupported(
+                "constant-folding hook expected Float and Int".into(),
+            ))),
         },
         "FLOAT.round" => round_float(values),
         "FLOAT.int2float" => int_to_float(values),
@@ -320,13 +338,33 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
             }
             // Total, and NaN and the infinities have no nearest integer: the definition gives
             // no value there.
-            let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| Unfolded::Unspecified("Float2Int of NaN or an infinity has no nearest integer.".into()))?.0;
-            Ok(BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())?)
+            let integer = a
+                .value
+                .to_integer_round(Round::Nearest)
+                .ok_or_else(|| {
+                    Unfolded::Unspecified(
+                        "Float2Int of NaN or an infinity has no nearest integer.".into(),
+                    )
+                })?
+                .0;
+            Ok(BigInt::from_str(&integer.to_string())
+                .map(Value::Int)
+                .map_err(|error| error.to_string())?)
         }),
         "FLOAT.maxValue" => extreme_value(values, true),
         "FLOAT.minValue" => extreme_value(values, false),
         _ => None,
     }
+}
+
+/// `value` replaced by its root of degree `degree`, IEEE 754 rootn rounded to nearest at its
+/// precision, and the direction of that rounding.
+fn root_of_degree(value: &mut Float, degree: c_long) -> Ordering {
+    let raw = value.as_raw_mut();
+    // SAFETY: `raw` is the initialized `mpfr_t` of `value`, which `mpfr_rootn_si` may read and
+    // write as both its operand and its result (MPFR allows the two to be the same variable).
+    let ternary = unsafe { mpfr::rootn_si(raw, raw, degree, mpfr::rnd_t::RNDN) };
+    ternary.cmp(&0)
 }
 
 fn unary_float(
@@ -819,6 +857,139 @@ mod tests {
         assert_eq!(root(2), "0e+00p53x11");
         assert_eq!(root(4), "0e+00p53x11");
         assert_eq!(root(3), "-0e+00p53x11");
+    }
+
+    /// The two evaluators compute `rootFloat` independently (MPFR here, an exact rounding search
+    /// in the backend); both must give the correctly rounded IEEE rootn, so they agree on every
+    /// value and degree: binary64 and binary32 values spread over the whole exponent range
+    /// (bit patterns from a fixed linear congruential sequence) and every degree from -12 to 12
+    /// and a few far beyond 32 bits.
+    #[test]
+    fn roots_agree_with_the_backend_on_every_degree() {
+        use crate::names::BuiltinSort;
+        let backend_root = |token: &str, degree: &BigInt| {
+            let result = k_rust_backend::builtin::evaluate_hook(
+                "FLOAT.root",
+                &[
+                    k_rust_backend::term::Term::domain_value(
+                        k_rust_backend::term::Sort::builtin(BuiltinSort::Float),
+                        token,
+                    ),
+                    k_rust_backend::term::Term::domain_value(
+                        k_rust_backend::term::Sort::builtin(BuiltinSort::Int),
+                        degree.to_string(),
+                    ),
+                ],
+            );
+            let Ok(Ok(k_rust_backend::builtin::BuiltinResult::Value(value))) = result else {
+                panic!("the backend gives {result:?} for rootFloat({token}, {degree})");
+            };
+            let k_rust_backend::term::TermKind::DomainValue { value, .. } = value.kind() else {
+                panic!("a Float domain value");
+            };
+            float(value.as_utf8().unwrap())
+        };
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            state
+        };
+        let mut tokens = vec!["1.0".to_owned(), "0.5f".to_owned()];
+        for _ in 0..60 {
+            let double = f64::from_bits(next() & 0x7fff_ffff_ffff_ffff);
+            let single = f32::from_bits((next() >> 33) as u32);
+            for value in [double, -double] {
+                if value.is_finite() {
+                    tokens.push(format!("{value:e}"));
+                }
+            }
+            if single.is_finite() {
+                tokens.push(format!("{single:e}f"));
+            }
+        }
+        let degrees = (-12..=12)
+            .map(BigInt::from)
+            .chain([
+                BigInt::from(1u64 << 33) + 1,
+                -BigInt::from(1u64 << 35),
+                BigInt::from(i64::MAX),
+            ])
+            .collect::<Vec<_>>();
+        for token in &tokens {
+            for degree in &degrees {
+                let Some(Ok(Value::Float(folded))) = evaluate(
+                    "FLOAT.root",
+                    &[Value::Float(float(token)), Value::Int(degree.clone())],
+                ) else {
+                    panic!("rootFloat({token}, {degree}) is not folded");
+                };
+                assert_eq!(
+                    folded.token(),
+                    backend_root(token, degree).token(),
+                    "rootFloat({token}, {degree})"
+                );
+            }
+        }
+    }
+
+    /// Every integer degree has a root, so a degree outside 32 bits is folded like any other
+    /// (MPFR takes a C `long`), to the backend's value; a degree beyond that is left for
+    /// execution as one the fold does not compute, not as an undefined application.
+    #[test]
+    fn folds_roots_of_degrees_beyond_32_bits() {
+        use crate::names::BuiltinSort;
+        let two_31 = BigInt::from(1u64 << 31);
+        for degree in [
+            two_31.clone(),
+            -two_31.clone() - 1,
+            BigInt::from(1u64 << 40),
+        ] {
+            for token in ["2.0", "1.0e-300", "123.456f"] {
+                let folded = match evaluate(
+                    "FLOAT.root",
+                    &[Value::Float(float(token)), Value::Int(degree.clone())],
+                ) {
+                    Some(Ok(Value::Float(value))) => value.token(),
+                    other => panic!("rootFloat({token}, {degree}) gave {other:?}"),
+                };
+                let backend = k_rust_backend::builtin::evaluate_hook(
+                    "FLOAT.root",
+                    &[
+                        k_rust_backend::term::Term::domain_value(
+                            k_rust_backend::term::Sort::builtin(BuiltinSort::Float),
+                            token,
+                        ),
+                        k_rust_backend::term::Term::domain_value(
+                            k_rust_backend::term::Sort::builtin(BuiltinSort::Int),
+                            degree.to_string(),
+                        ),
+                    ],
+                );
+                let Ok(Ok(k_rust_backend::builtin::BuiltinResult::Value(value))) = backend else {
+                    panic!("the backend gives {backend:?} for rootFloat({token}, {degree})");
+                };
+                let k_rust_backend::term::TermKind::DomainValue { value, .. } = value.kind() else {
+                    panic!("a Float domain value");
+                };
+                assert_eq!(
+                    folded,
+                    value.as_utf8().unwrap(),
+                    "rootFloat({token}, {degree})"
+                );
+            }
+        }
+        assert!(matches!(
+            evaluate(
+                "FLOAT.root",
+                &[
+                    Value::Float(float("2.0")),
+                    Value::Int(BigInt::from(1) << 64)
+                ],
+            ),
+            Some(Err(Unfolded::Unsupported(_)))
+        ));
     }
 
     /// `Float2Int` is total, and NaN and the infinities have no nearest integer, so its value

@@ -199,8 +199,8 @@ hooks = [
   "BYTES.updateMInt",
 ]
 
-# FLOAT.root evaluates the WASM-required degree 2 for binary32 and binary64.
-# Other degrees remain unevaluated rather than approximated.
+# FLOAT.root evaluates IEEE 754 rootn of every integer degree for binary32 and
+# binary64, correctly rounded.
 [[unsupported]]
 reason = "WASM-unused arbitrary-precision, transcendental, remainder, and exponent hooks are not implemented"
 hooks = [
