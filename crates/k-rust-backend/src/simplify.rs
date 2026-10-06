@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
 //! span = "per call"
@@ -14,12 +14,16 @@
 //! [[cost]]
 //! mode = "rule condition"
 //! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+//!
+//! [[cost]]
+//! mode = "report retraction (retract_dropped)"
+//! bound = "only when the call raised a report of an equation passed over on a kept subterm: one walk of the result's term and conditions, each shared node once"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
 //! counters = ["SimplifyInvocations"]
 //! span = "per call"
@@ -28,6 +32,10 @@
 //! [[cost]]
 //! mode = "one round"
 //! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+//!
+//! [[cost]]
+//! mode = "report retraction (retract_dropped)"
+//! bound = "only when the call raised a report of an equation passed over on a kept subject: one walk of the resulting predicates and their terms, each shared node once"
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
@@ -56,7 +64,7 @@ use crate::{
     condition::{DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation},
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
-    diagnostic::{self, BackendDiagnostic},
+    diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     matching::{
         CollectionMatches, InjectionEquality, MatchFailed, MatchMode, MatchResult,
         match_collection_remainders_all_in_definition, match_injection_equality,
@@ -346,7 +354,37 @@ pub(crate) fn simplify_in_execution_with_solver(
     .layered()
 }
 
+/// The term simplifier's entry: a report of an equation passed over on a subterm survives only if
+/// the result, its term or the conditions it carries, still holds that subterm
+/// ([`diagnostic::retract_dropped`]).
 fn simplify_with_optional_execution(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    diagnostic::retract_dropped(
+        || {
+            simplify_term_entry(
+                definition,
+                term,
+                known_predicates,
+                options,
+                solver,
+                execution,
+            )
+        },
+        |result| {
+            result.as_ref().ok().map(|simplified| {
+                Occurrences::of([&simplified.term], simplified.conditions().as_slice())
+            })
+        },
+    )
+}
+
+fn simplify_term_entry(
     definition: &BackendDefinition,
     term: &Term,
     known_predicates: &[Predicate],
@@ -405,7 +443,15 @@ pub(crate) fn simplify_pattern_details_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<PatternSimplification, SimplificationError>> {
-    simplify_pattern_details(definition, pattern, options, solver).layered()
+    diagnostic::retract_dropped(
+        || simplify_pattern_details(definition, pattern, options, solver),
+        |result| {
+            result.as_ref().ok().map(|simplified| {
+                Occurrences::of([&simplified.pattern.term], &simplified.pattern.constraints)
+            })
+        },
+    )
+    .layered()
 }
 
 fn simplify_pattern_details(
@@ -627,6 +673,22 @@ fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
 /// }
 /// ```
 pub fn simplify_predicates_with_solver(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
+    diagnostic::retract_dropped(
+        || simplify_predicates_entry(definition, predicates, known_predicates, options, solver),
+        |result| match result {
+            Ok(Ok(simplified)) => Some(Occurrences::of([], simplified)),
+            Ok(Err(_)) | Err(_) => None,
+        },
+    )
+}
+
+fn simplify_predicates_entry(
     definition: &BackendDefinition,
     predicates: &[Predicate],
     known_predicates: &[Predicate],
@@ -1322,7 +1384,16 @@ pub fn simplify_predicate_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Predicate, SimplificationError>> {
-    simplify_predicate(definition, predicate, known_predicates, options, solver).layered()
+    diagnostic::retract_dropped(
+        || simplify_predicate(definition, predicate, known_predicates, options, solver),
+        |result| {
+            result
+                .as_ref()
+                .ok()
+                .map(|simplified| Occurrences::of([], [simplified]))
+        },
+    )
+    .layered()
 }
 
 fn simplify_predicate(
@@ -1363,8 +1434,16 @@ pub fn simplify_and_decide_predicate_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Predicate, SimplificationError>> {
-    simplify_and_decide_predicate(definition, predicate, known_predicates, options, solver)
-        .layered()
+    diagnostic::retract_dropped(
+        || simplify_and_decide_predicate(definition, predicate, known_predicates, options, solver),
+        |result| {
+            result
+                .as_ref()
+                .ok()
+                .map(|decided| Occurrences::of([], [decided]))
+        },
+    )
+    .layered()
 }
 
 fn simplify_and_decide_predicate(
@@ -1832,7 +1911,7 @@ fn simplify_predicate_with_budget(
         &mut indeterminate,
     )?
     else {
-        indeterminate.commit();
+        indeterminate.commit(|| Subject::Predicate(simplified.clone()));
         return Ok(simplified);
     };
     if *remaining == 0 {
@@ -3480,7 +3559,7 @@ fn simplify_root(
         scan => scan,
     };
     // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
-    indeterminate.commit();
+    indeterminate.commit(|| Subject::Term(term.clone()));
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()

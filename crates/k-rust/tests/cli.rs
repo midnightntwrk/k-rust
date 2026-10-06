@@ -1930,6 +1930,58 @@ endmodule
     }
 }
 
+/// A call that the same simplification leaves unevaluated and then drops is not in the result,
+/// and the result does not depend on its value, so it is not reported. With `f` total, `f(3)`
+/// is dropped by the requires of `k1`, whose first disjunct holds (so `k1` applies), and by
+/// `drop`, whose definedness obligation `f` being total discharges; the same holds at each of
+/// the 200 steps of a loop. A call the result keeps is still reported.
+#[test]
+fn krun_does_not_report_a_call_the_same_simplification_drops() {
+    let source = |configuration: &str| {
+        format!(
+            r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Int ::= f(Int) [function, total, symbol(f)]
+  syntax Int ::= k(Int) [function, symbol(k)]
+  syntax Int ::= drop(Int) [function, symbol(drop)]
+  syntax KItem ::= done(Int) [symbol(done)]
+  syntax KItem ::= step(Int) [symbol(step)]
+  configuration <k> {configuration} </k>
+  rule [fu]: f(X) => Y requires Y ==Int X +Int 1
+  rule [k1]: k(X) => 1 requires X >=Int 0 orBool f(X) ==Int 4
+  rule [k2]: k(_) => 2 [owise]
+  rule drop(_) => 0
+  rule <k> step(N) => step(N +Int k(N)) </k> requires N <Int 200
+  rule <k> step(N) => done(N) </k> requires N >=Int 200
+endmodule
+"#
+        )
+    };
+    for (configuration, result) in [
+        ("done(k(3))", "1"),
+        ("step(0)", "200"),
+        ("done(drop(f(3)))", "0"),
+    ] {
+        let (stdout, warnings) = krun_equation_warnings(&source(configuration));
+        assert!(
+            stdout.contains(&format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{result}"))"#)),
+            "{configuration}: {stdout}"
+        );
+        assert!(warnings.is_empty(), "{configuration}: {warnings:?}");
+    }
+    let (stdout, warnings) = krun_equation_warnings(&source("done(f(3))"));
+    assert!(stdout.contains("Lblf{}"), "{stdout}");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with("warning: equation MAIN.fu "),
+        "{}",
+        warnings[0]
+    );
+}
+
 #[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();

@@ -2403,6 +2403,11 @@ symbol = "simplify_predicates_with_solver"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_predicates_entry"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "predicate_conjunct_index"
 
 [[node.sites]]
@@ -2418,6 +2423,10 @@ symbol = "simplify_predicate_with_budget"
 [[node.cost]]
 mode = "one round"
 bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+
+[[node.cost]]
+mode = "report retraction (retract_dropped)"
+bound = "only when the call raised a report of an equation passed over on a kept subject: one walk of the resulting predicates and their terms, each shared node once"
 
 [[node]]
 kind = "algorithm"
@@ -2437,6 +2446,16 @@ symbol = "simplify_with_optional_execution"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/diagnostic.rs"
+symbol = "retract_dropped"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/diagnostic.rs"
+symbol = "Occurrences::of"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify/scan.rs"
 symbol = "scan_term_theory"
 
@@ -2449,6 +2468,11 @@ symbol = "scan_group"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_with_optional_execution"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_term_entry"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2492,6 +2516,10 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 [[node.cost]]
 mode = "rule condition"
 bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+
+[[node.cost]]
+mode = "report retraction (retract_dropped)"
+bound = "only when the call raised a report of an equation passed over on a kept subterm: one walk of the result's term and conditions, each shared node once"
 
 [[node]]
 kind = "algorithm"

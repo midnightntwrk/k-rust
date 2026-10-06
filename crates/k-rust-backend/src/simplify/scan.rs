@@ -12,7 +12,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
     definition::BackendDefinition,
-    diagnostic::{self, Buffered},
+    diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
     rule::{RewriteRule, Theory, applicable_groups, term_index},
     term::Term,
@@ -168,15 +168,22 @@ pub(super) enum EquationAttempt<T, N> {
 /// equation, so the subject is kept only if no other equation of the scan, or of a scan of
 /// another theory on the same subject, rewrites it. The caller that sees the subject kept
 /// commits the held diagnostics ([`IndeterminateAttempts::commit`]); a caller whose subject was
-/// rewritten drops them, since the result they describe is not the one returned.
+/// rewritten drops them, since the result they describe is not the one returned. Once committed,
+/// they explain that subject, and the simplifier entry that returns the result keeps them only if
+/// the result still holds it ([`diagnostic::retract_dropped`]).
 #[derive(Default)]
 pub(super) struct IndeterminateAttempts(Vec<Buffered>);
 
 impl IndeterminateAttempts {
-    /// The subject is kept: record the held diagnostics, attempt by attempt in scan order.
-    pub(super) fn commit(self) {
+    /// The subject is kept at its node: record the held diagnostics, attempt by attempt in scan
+    /// order, each explaining the subject, which is built only when there is one to record.
+    pub(super) fn commit(self, subject: impl FnOnce() -> Subject) {
+        if self.0.iter().all(Buffered::is_empty) {
+            return;
+        }
+        let subject = subject();
         for attempt in self.0 {
-            attempt.commit();
+            attempt.commit_kept(&subject);
         }
     }
 }

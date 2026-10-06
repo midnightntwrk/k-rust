@@ -7,12 +7,14 @@ use std::{
     rc::Rc,
 };
 
+use rustc_hash::FxHashSet;
+
 use crate::{
     builtin::UnsupportedHookReason,
     rule::{Predicate, collect_all_variables, rename_predicates},
     simplify::{BudgetSubject, ConditionIndeterminacy, SimplificationError},
     term::{
-        Variable,
+        Term, TermKind, Variable,
         names::{
             FreshMarker, encode_variable_name, rule_variable_definition_name, with_fresh_marker,
         },
@@ -40,10 +42,12 @@ pub enum BackendDiagnostic {
     ///
     /// Like every diagnostic emitted during an equation attempt, it is reported only with an
     /// outcome the simplification keeps (`buffer`): the equation applied, or the attempt was
-    /// indeterminate and no other equation rewrote the subject, which was left unevaluated. An
-    /// attempt whose `requires` was refuted, one that another equation superseded, and one made
-    /// while simplifying the condition of an enclosing attempt that was itself refuted or
-    /// superseded report nothing.
+    /// indeterminate and no other equation rewrote the subject, which was left unevaluated, and
+    /// the result of the simplification still holds that subject (`retract_dropped`). An attempt
+    /// whose `requires` was refuted, one that another equation superseded, one whose subject a
+    /// later part of the same simplification dropped, and one made while simplifying the
+    /// condition of an enclosing attempt that was itself refuted, superseded or dropped report
+    /// nothing.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
@@ -193,6 +197,24 @@ pub fn printable_condition<'a>(
 struct Emission {
     position: u64,
     kind: EmissionKind,
+    /// The subject the emission explains, when it was raised during an equation attempt that was
+    /// passed over and left that subject unevaluated ([`Buffered::commit_kept`]); `None` for
+    /// every other emission. It is kept only while the subject is ([`retract_dropped`]).
+    subject: Option<Subject>,
+}
+
+/// What a report raised during a passed-over equation attempt explains: the term, or for a ceil
+/// or predicate equation the predicate, that the attempt left unevaluated at its node.
+///
+/// Such a report tells a client why the result keeps that subject unevaluated. If a later part of
+/// the same simplification drops the subject, the result does not depend on its value (an
+/// equation that drops an argument holds for every value of it, a condition decided without it
+/// holds whatever it is, and a definedness that is not provable stays in the result as `⌈t⌉`, so
+/// the subject then still occurs), and the report explains nothing the client receives.
+#[derive(Clone, Debug)]
+pub(crate) enum Subject {
+    Term(Term),
+    Predicate(Predicate),
 }
 
 #[derive(Clone, Debug)]
@@ -271,7 +293,11 @@ fn record_in_sink(kind: EmissionKind) {
     SINK.with(|sink| {
         if let Some(sink) = sink.borrow_mut().as_mut() {
             let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
-            sink.record(Emission { position, kind });
+            sink.record(Emission {
+                position,
+                kind,
+                subject: None,
+            });
         }
     });
 }
@@ -317,7 +343,7 @@ fn record(emissions: &mut Vec<Emission>, emission: Emission) {
 
 fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
     let mut diagnostics = Vec::with_capacity(emissions.len());
-    for Emission { position, kind } in emissions {
+    for Emission { position, kind, .. } in emissions {
         match kind {
             EmissionKind::Single(diagnostic) => diagnostics.push(Sequenced {
                 position,
@@ -480,6 +506,143 @@ impl Buffered {
                 }
             }
         });
+    }
+
+    /// Whether nothing is held.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The held emissions of an attempt that was passed over, whose `subject` its node keeps:
+    /// [`Self::commit`] them, each now explaining `subject`.
+    ///
+    /// They stand or fall with it: the attempt's own report says why the subject is kept, and a
+    /// report raised while its condition was simplified (of a term inside the `requires`, say)
+    /// says why that condition stayed open. A subject an inner node gave an emission is replaced,
+    /// since the inner term matters to the result only through this attempt's subject.
+    pub(crate) fn commit_kept(mut self, subject: &Subject) {
+        for emission in &mut self.0 {
+            emission.subject = Some(subject.clone());
+        }
+        self.commit();
+    }
+}
+
+/// Run a simplifier entry, keeping each report that explains a subject
+/// ([`Buffered::commit_kept`]) only if the entry's result still holds that subject.
+///
+/// `occurrences` gives what the caller receives (the simplified term with the conditions it
+/// carries, or the simplified predicates), or `None` for a failure or a stop, which keeps every
+/// report, as no result replaced the work they describe. It is called only when some report
+/// explains a subject. Every other emission, and the order and positions of all of them, are as
+/// if `action` had emitted into the current collector directly. A report that survives keeps its
+/// subject, so an enclosing entry that drops the subject in turn retracts it there.
+///
+/// ```toml algorithm-site
+/// id = "backend.simplify.term"
+/// role = "part"
+/// sites = ["retract_dropped", "Occurrences::of"]
+/// ```
+pub(crate) fn retract_dropped<T>(
+    action: impl FnOnce() -> T,
+    occurrences: impl FnOnce(&T) -> Option<Occurrences>,
+) -> T {
+    let (result, mut held) = buffer(action);
+    if held.0.iter().any(|emission| emission.subject.is_some())
+        && let Some(occurrences) = occurrences(&result)
+    {
+        held.0.retain(|emission| {
+            emission
+                .subject
+                .as_ref()
+                .is_none_or(|subject| occurrences.holds(subject))
+        });
+    }
+    held.commit();
+    result
+}
+
+/// Every subterm and sub-predicate of a simplifier entry's result, for [`retract_dropped`].
+#[derive(Default)]
+pub(crate) struct Occurrences {
+    terms: FxHashSet<Term>,
+    predicates: FxHashSet<Predicate>,
+}
+
+impl Occurrences {
+    /// The subterms of `terms` and the sub-predicates of `predicates`, with every term the
+    /// predicates carry.
+    pub(crate) fn of<'a>(
+        terms: impl IntoIterator<Item = &'a Term>,
+        predicates: impl IntoIterator<Item = &'a Predicate>,
+    ) -> Self {
+        let mut occurrences = Self::default();
+        let mut pending_terms = terms.into_iter().collect::<Vec<_>>();
+        let mut pending_predicates = predicates.into_iter().collect::<Vec<_>>();
+        // Invariant: each popped predicate's sub-predicates and direct terms are pushed once, the
+        // first time it is inserted; a predicate seen before has had its parts pushed already.
+        while let Some(predicate) = pending_predicates.pop() {
+            if !occurrences.predicates.insert(predicate.clone()) {
+                continue;
+            }
+            match predicate {
+                Predicate::True | Predicate::False => {}
+                Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+                    pending_terms.push(term);
+                }
+                Predicate::Equals(left, right) | Predicate::In(left, right) => {
+                    pending_terms.extend([left, right]);
+                }
+                Predicate::Absent(absence) => {
+                    pending_terms.extend([absence.key(), absence.rest(), absence.joined()]);
+                }
+                Predicate::Not(inner)
+                | Predicate::Exists(_, inner)
+                | Predicate::Forall(_, inner) => {
+                    pending_predicates.push(inner);
+                }
+                Predicate::And(inner) | Predicate::Or(inner) => pending_predicates.extend(inner),
+                Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                    pending_predicates.extend([&**left, &**right]);
+                }
+            }
+        }
+        // Invariant: as above, a term's children are pushed only when it is first inserted, so a
+        // subterm shared by several parents is walked once.
+        while let Some(term) = pending_terms.pop() {
+            if !occurrences.terms.insert(term.clone()) {
+                continue;
+            }
+            match term.kind() {
+                TermKind::And(left, right) => pending_terms.extend([left, right]),
+                TermKind::Application { arguments, .. } => pending_terms.extend(arguments),
+                TermKind::Injection { term, .. } => pending_terms.push(term),
+                TermKind::Map { entries, rest, .. } => {
+                    pending_terms.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+                    pending_terms.extend(rest);
+                }
+                TermKind::List { heads, rest, .. } => {
+                    pending_terms.extend(heads);
+                    if let Some((middle, tails)) = rest {
+                        pending_terms.push(middle);
+                        pending_terms.extend(tails);
+                    }
+                }
+                TermKind::Set { elements, rest, .. } => {
+                    pending_terms.extend(elements);
+                    pending_terms.extend(rest);
+                }
+                TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+            }
+        }
+        occurrences
+    }
+
+    fn holds(&self, subject: &Subject) -> bool {
+        match subject {
+            Subject::Term(term) => self.terms.contains(term),
+            Subject::Predicate(predicate) => self.predicates.contains(predicate),
+        }
     }
 }
 
@@ -754,6 +917,67 @@ mod tests {
             repeated.commit();
         });
         assert_eq!(recorded, [hook("H", UnsupportedHookReason::NotImplemented)]);
+    }
+
+    /// A report committed for a kept subject survives a simplifier entry only if the entry's
+    /// result holds the subject, as a subterm or inside a predicate; reports without a subject
+    /// always survive, and a failed entry keeps every report. The outermost kept subject decides:
+    /// a report raised inside an attempt whose own subject is then kept explains that subject.
+    #[test]
+    fn a_report_of_a_kept_subject_is_retracted_when_the_result_drops_it() {
+        let variable =
+            |name: &str| Term::variable(Variable::new(name, crate::term::Sort::simple("SortInt")));
+        let (x, y) = (variable("X"), variable("Y"));
+        let kept = |limit, subject: &Term| {
+            let ((), held) = buffer(|| emit(term_exhausted(limit)));
+            held.commit_kept(&Subject::Term(subject.clone()));
+        };
+        let entry = |result: Option<Predicate>| {
+            collect(|| {
+                retract_dropped(
+                    || {
+                        emit(term_exhausted(1));
+                        kept(2, &x);
+                        kept(3, &y);
+                        // `Y` explained inside an attempt whose subject `X` is kept.
+                        let ((), outer) = buffer(|| kept(4, &y));
+                        outer.commit_kept(&Subject::Term(x.clone()));
+                        result
+                    },
+                    |result| {
+                        result
+                            .as_ref()
+                            .map(|predicate| Occurrences::of([], [predicate]))
+                    },
+                )
+            })
+            .1
+        };
+        let x_only = Predicate::Not(Box::new(Predicate::Ceil(x.clone())));
+        assert_eq!(
+            entry(Some(x_only)),
+            [term_exhausted(1), term_exhausted(2), term_exhausted(4)]
+        );
+        assert_eq!(entry(Some(Predicate::True)), [term_exhausted(1)]);
+        assert_eq!(
+            entry(None),
+            [
+                term_exhausted(1),
+                term_exhausted(2),
+                term_exhausted(3),
+                term_exhausted(4)
+            ]
+        );
+        // A survivor keeps its subject, so an enclosing entry that drops it retracts it.
+        let ((), recorded) = collect(|| {
+            retract_dropped(
+                || {
+                    retract_dropped(|| kept(5, &x), |()| Some(Occurrences::of([&x], [])));
+                },
+                |()| Some(Occurrences::of([&y], [])),
+            );
+        });
+        assert!(recorded.is_empty(), "{recorded:?}");
     }
 
     /// Repeated attempts of a rule whose condition fails the same way report one fact; another

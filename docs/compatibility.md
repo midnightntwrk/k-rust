@@ -806,6 +806,7 @@ Otherwise the attempt is indeterminate (`ConditionIndeterminacy::UnboundResultVa
 When no other equation rewrites the subject, the attempt is reported as an `UndecidedCondition` diagnostic of the equation with that reason and the decided `requires`, so a simplification that leaves the application unevaluated says why; `krust krun` prints it as a warning naming the variables as the K source writes them.
 A subject that another equation evaluates (one of the same priority, or a lower-priority simplification) has nothing to explain, and the attempt is not reported.
 Nor is one made while the condition of an enclosing equation attempt was simplified, when that attempt was refuted or superseded: the subject was then part of a condition the result does not depend on.
+Nor is one whose subject a later part of the same simplification drops, as `drop(_) => 0` drops `f(3)` for a total `f`, or as `X >=Int 0 orBool f(X) ==Int 4` holds at `X = 3` whatever `f(3)` is: the result is what it would be had the equation applied.
 That is the same outcome as an equation whose `requires` is open: the subject is kept, and a function's lower-priority and `owise` equations do not apply in its place, while a simplification is passed over.
 The static definedness analysis does not use such a ceil equation.
 
