@@ -3946,6 +3946,40 @@ fn krun_executes_hook_edges_to_the_backend_results() {
     assert_eq!(strings, vec![""], "{stdout}");
 }
 
+/// No String holds a surrogate code point, so `chrChar(55296)` is undefined and the rule that
+/// builds it has an undefined result: the run ends in `\bottom` and names the refuted
+/// definedness of the application.
+#[test]
+fn krun_reaches_bottom_for_chr_of_a_surrogate() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("hook-boundaries.k").to_str().unwrap(),
+            "--main-module",
+            "HOOK-BOUNDARIES",
+            "--syntax-module",
+            "HOOK-BOUNDARIES-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("surrogate.hooks").to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout, "\\bottom{SortGeneratedTopCell{}}()\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("applied with an undefined result")
+            && stderr.contains(r#"(\dv{SortInt{}}("55296"))"#),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

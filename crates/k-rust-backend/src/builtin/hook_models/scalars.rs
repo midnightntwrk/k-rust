@@ -733,16 +733,14 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             )
         }
         ("STRING.int2string", [Int(value)]) => Spec::value(Str(value.to_string().into_bytes())),
-        // A string holding the one code point; a surrogate has no UTF-8 form, and what it
-        // becomes is not documented.
-        ("STRING.chr", [Int(value)]) => match value.to_u32() {
-            Some(0xd800..=0xdfff) => Spec::open(),
-            value => Spec::partial(
-                value
-                    .and_then(char::from_u32)
-                    .map(|character| Str(character.to_string().into_bytes())),
-            ),
-        },
+        // A string holding the one code point; no String holds a surrogate (KORE string
+        // literals cannot) or a number outside the code points, so those are undefined.
+        ("STRING.chr", [Int(value)]) => Spec::partial(
+            value
+                .to_u32()
+                .and_then(char::from_u32)
+                .map(|character| Str(character.to_string().into_bytes())),
+        ),
         ("STRING.ord", [Str(text)]) => match units(text).as_slice() {
             [unit] => match std::str::from_utf8(unit) {
                 Ok(character) => {

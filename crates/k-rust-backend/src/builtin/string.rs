@@ -269,6 +269,9 @@ fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(value.to_string())))
 }
 
+/// `chrChar(N)` is the string of the one code point N. A String value holds no surrogate code
+/// point (KORE string literals cannot write one) and no number outside the code points, so
+/// `chrChar` of one has no value: it is undefined (the hook is partial).
 fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.chr", arguments, 1)?;
     // A symbolic code point may be valid on some instances and invalid on others.
@@ -278,9 +281,6 @@ fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = value.to_u32() else {
         return Ok(BuiltinResult::Bottom);
     };
-    if (0xd800..=0xdfff).contains(&value) {
-        return Ok(BuiltinResult::Value(string_term('\u{fffd}'.to_string())));
-    }
     Ok(char::from_u32(value)
         .map(|value| string_term(value.to_string()))
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn a_character_is_one_code_point_long() {
-        for code_point in [233, 0xd800, 0x1f980] {
+        for code_point in [233, 0xd7ff, 0xe000, 0x1f980] {
             let BuiltinResult::Value(character) =
                 evaluate("STRING.chr", vec![int_term(code_point.into())])
             else {
@@ -580,12 +580,30 @@ mod tests {
         }
     }
 
+    /// No String holds a surrogate code point or a number outside the code points as a
+    /// character, so `chrChar` of one is undefined; `ordChar(chrChar(N)) == N` wherever it is
+    /// defined.
     #[test]
-    fn chr_replaces_surrogates_and_rejects_out_of_range() {
-        assert_eq!(
-            evaluate("STRING.chr", vec![int_term(55296.into())]),
-            BuiltinResult::Value(string_term("\u{fffd}"))
-        );
+    fn chr_of_a_surrogate_or_a_non_code_point_is_undefined() {
+        for code_point in [0xd800, 0xdbff, 0xdc00, 0xdfff] {
+            assert_eq!(
+                evaluate("STRING.chr", vec![int_term(code_point.into())]),
+                BuiltinResult::Bottom,
+                "chrChar({code_point})"
+            );
+        }
+        for code_point in [0, 0xd7ff, 0xe000, 0x10ffff] {
+            let BuiltinResult::Value(character) =
+                evaluate("STRING.chr", vec![int_term(code_point.into())])
+            else {
+                panic!("chrChar({code_point}) is defined");
+            };
+            assert_eq!(
+                evaluate("STRING.ord", vec![character]),
+                BuiltinResult::Value(int_term(code_point.into())),
+                "ordChar(chrChar({code_point}))"
+            );
+        }
         assert_eq!(
             evaluate("STRING.chr", vec![int_term((-1).into())]),
             BuiltinResult::Bottom

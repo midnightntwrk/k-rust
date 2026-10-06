@@ -1464,24 +1464,10 @@ fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
     }
 }
 
-/// Cases where the fold leaves the application unfolded although the backend computes a value.
-fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
-    match hook {
-        // A surrogate code point is not a Unicode scalar value, so no string holds it as one
-        // character; the backend substitutes U+FFFD, the fold rejects it.
-        "STRING.chr" => arguments[0]
-            .int()
-            .to_u32()
-            .is_some_and(|code| (0xd800..=0xdfff).contains(&code)),
-        _ => false,
-    }
-}
-
 #[derive(Default, Debug)]
 struct Tally {
     values: usize,
     undefined: usize,
-    refused: usize,
     too_large: usize,
     unspecified: usize,
     unchecked: usize,
@@ -1548,12 +1534,9 @@ fn check_case(
             tally.too_large += 1;
         }
         (Expect::Value(expected), Err(unfolded)) => {
-            if !fold_may_refuse(hook, arguments) {
-                return Err(format!(
-                    "the fold leaves {unfolded:?} where the oracle gives {expected:?}"
-                ));
-            }
-            tally.refused += 1;
+            return Err(format!(
+                "the fold leaves {unfolded:?} where the oracle gives {expected:?}"
+            ));
         }
         (Expect::Undefined, Ok(folded)) => {
             return Err(format!(
