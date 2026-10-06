@@ -108,11 +108,18 @@ check_system_mode cli
 echo "[graph] checking the default GitHub-release positive control"
 check_default_mode
 
+# The runtime steps check which Z3 library the build links and that inference runs against it.
+# Neither depends on the optimization level, so their fresh target directory is built entirely
+# unoptimized: the dev profile's optimized dependencies would cost several times the CPU time of
+# the whole check for nothing it asserts.
+unoptimized=(--config profile.dev.opt-level=0 --config 'profile.dev.package."*".opt-level=0')
+
 echo "[runtime] exercising Z3 inference against the system library"
 # libtest exits 0 when its filter selects nothing, so a renamed test would pass this step without
 # running. Select the test by its exact name and require the run to report that one test passing.
 runtime_test=z3_prunes_ill_typed_ambiguity_branches
 CARGO_TARGET_DIR="$work/target" cargo test \
+  "${unoptimized[@]}" \
   --manifest-path "$workspace/Cargo.toml" \
   -p k-rust \
   --test inner_rules \
@@ -131,6 +138,7 @@ fi
 echo "[runtime] exercising the system-linked CLI"
 inference=$(CARGO_TARGET_DIR="$work/target" cargo run \
   --quiet \
+  "${unoptimized[@]}" \
   --manifest-path "$workspace/Cargo.toml" \
   -p k-rust \
   --bin krust \

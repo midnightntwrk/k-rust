@@ -13,11 +13,30 @@ reference_job_fallback_virtual_memory_kib=${REFERENCE_DIFFERENTIAL_JOB_FALLBACK_
 # target/release/krust and scripts/profile.sh target/profiling/krust, and a gate must
 # never replace either with a binary that runs the checkers. KRUST_GATE_TARGET_DIR
 # moves that directory; KRUST_GATE_INVARIANT_CHECKS=0 builds without the feature.
+#
+# KRUST_GATE_Z3 selects how the Z3 library is acquired, for krust and for the comparator.
+# `gh-release` (the default) builds Cargo's default features, whose z3-sys build script
+# downloads the Z3 release archive. `system` builds `--no-default-features --features cli`:
+# `cli` already enables `z3-inference`, so the code and the features are the same, and only
+# the download is left out; z3-sys then links the Z3 the build environment provides
+# (pkg-config, or its Z3_* variables, as `with-z3-static-4.16.0` sets them).
 krust_gate_target_dir=${KRUST_GATE_TARGET_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/target/gates"}
 if [[ "$krust_gate_target_dir" != /* ]]; then
   krust_gate_target_dir=$PWD/$krust_gate_target_dir
 fi
-krust_gate_cargo_args=(--target-dir "$krust_gate_target_dir")
+case ${KRUST_GATE_Z3:-gh-release} in
+  gh-release)
+    krust_gate_z3_args=()
+    ;;
+  system)
+    krust_gate_z3_args=(--no-default-features --features cli)
+    ;;
+  *)
+    echo "error: KRUST_GATE_Z3 must be gh-release or system" >&2
+    return 2
+    ;;
+esac
+krust_gate_cargo_args=(--target-dir "$krust_gate_target_dir" "${krust_gate_z3_args[@]}")
 case ${KRUST_GATE_INVARIANT_CHECKS:-1} in
   1)
     krust_gate_cargo_args+=(--features kompile-invariant-checks)
@@ -32,6 +51,7 @@ case ${KRUST_GATE_INVARIANT_CHECKS:-1} in
     ;;
 esac
 # The release binary that `cargo build --release "${krust_gate_cargo_args[@]}"` writes.
+# shellcheck disable=SC2034  # the gate scripts that source this file execute it
 krust_gate_binary="$krust_gate_target_dir/release/krust"
 
 reference_announce_krust_gate_build() {
@@ -40,9 +60,10 @@ reference_announce_krust_gate_build() {
 
 # reference_build_comparator WORKSPACE [CARGO ARGUMENT...]
 #   Builds the reference_differential comparator test binary once and prints its path, so a gate
-#   runs it directly instead of paying a cargo freshness check per comparison. Without further
-#   arguments it is the binary `cargo test -p k-rust --test reference_differential` runs; run it
-#   from crates/k-rust, the directory cargo runs it in.
+#   runs it directly instead of paying a cargo freshness check per comparison. With only
+#   "${krust_gate_z3_args[@]}" it is the binary `cargo test -p k-rust --test reference_differential`
+#   runs; a caller that shares the gate krust's build passes "${krust_gate_cargo_args[@]}", which
+#   holds the same Z3 selection. Run it from crates/k-rust, the directory cargo runs it in.
 reference_build_comparator() {
   local workspace=$1
   local executable

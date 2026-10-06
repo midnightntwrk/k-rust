@@ -96,6 +96,244 @@ fn every_gate_builds_krust_with_the_gate_cargo_arguments() {
     }
 }
 
+/// `KRUST_GATE_Z3` selects how Z3 is acquired for every Rust build a gate makes, so the
+/// comparator builds carry the guard's Z3 arguments as the krust builds do (through
+/// `krust_gate_cargo_args`, checked above): `reference_build_comparator` receives
+/// `krust_gate_z3_args` or the whole `krust_gate_cargo_args`, and a direct `cargo test` names
+/// `krust_gate_z3_args`.
+#[test]
+fn every_gate_builds_the_comparator_with_the_gate_z3_selection() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut comparator_builds = 0;
+    for script in [
+        "scripts/conformance-ratchet.sh",
+        "scripts/reference-differential.sh",
+        "scripts/reference-kast-differential.sh",
+        "scripts/reference-non-imp-execution-differential.sh",
+        "scripts/reference-proof-differential.sh",
+        "scripts/reference-rpc-differential.sh",
+        "scripts/reference-mir-execution-differential.sh",
+        SYMBOLIC_EXECUTION_SCRIPT_PATH,
+    ] {
+        let text = fs::read_to_string(workspace.join(script)).expect("read gate script");
+        for needle in ["reference_build_comparator \"$workspace\"", "cargo test "] {
+            for (start, _) in text.match_indices(needle) {
+                let command = shell_command_at(&text, start);
+                comparator_builds += 1;
+                assert!(
+                    command.contains("\"${krust_gate_z3_args[@]}\"")
+                        || command.contains("\"${krust_gate_cargo_args[@]}\""),
+                    "{script} builds the comparator without the gate's Z3 selection:\n{command}"
+                );
+            }
+        }
+    }
+    assert!(
+        comparator_builds >= 6,
+        "the gates no longer build the comparator"
+    );
+}
+
+/// Every reference tool a gate runs for its results (kompile, krun, kprove, kast, kore-exec,
+/// kore-parser) goes through the reference-output cache (`scripts/reference-cache.sh`), which
+/// keys each call on what its result depends on, and each gate opens the cache after its pin
+/// checks and closes it with the summary that fails on a verify mismatch. The RPC server sessions
+/// stay outside it: the RPC gate's oracle session (the whole session, both servers and every
+/// request included, costs under two CPU seconds) and the execution gate's one-request reference
+/// simplifier session (N41).
+#[test]
+fn every_reference_tool_call_of_a_gate_goes_through_the_cache() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
+        .expect("symbolic differential script");
+    let tools = [
+        "\"$kompile\"",
+        "\"$krun\"",
+        "\"$kprove\"",
+        "\"$kast\"",
+        "\"$kore_exec\"",
+        "\"$kore_parser\"",
+    ];
+    let mut cached_calls = 0;
+    for script in JAVA_BACKED_DIFFERENTIAL_SCRIPTS
+        .iter()
+        .copied()
+        .chain([symbolic.as_str()])
+    {
+        let name = script
+            .lines()
+            .rev()
+            .find(|line| line.contains(" passed\""))
+            .unwrap_or_default();
+        for needle in [
+            "source \"$workspace/scripts/reference-cache.sh\"",
+            "reference_cache_begin \"$work\"",
+            "reference_cache_finish",
+        ] {
+            assert!(script.contains(needle), "gate without {needle}: {name}");
+        }
+        let lines = script.lines().collect::<Vec<_>>();
+        for (index, line) in lines.iter().enumerate() {
+            let call = line.trim_start();
+            if !tools.iter().any(|tool| call.starts_with(tool)) {
+                continue;
+            }
+            let mut start = index;
+            while start > 0 && lines[start - 1].trim_end().ends_with('\\') {
+                start -= 1;
+            }
+            assert!(
+                lines[start..=index]
+                    .iter()
+                    .any(|line| line.contains("reference_cached ")),
+                "a gate runs a reference tool outside the cache:\n{}",
+                lines[start..=index].join("\n")
+            );
+            cached_calls += 1;
+        }
+    }
+    assert!(
+        cached_calls >= 20,
+        "only {cached_calls} reference calls found"
+    );
+}
+
+/// Run `script` (case arguments `cases`) against fake reference tools and a fake `cargo` that
+/// records its arguments, with `KRUST_GATE_Z3` set to `selection` (unset for `None`); returns the
+/// exit status, the recorded cargo argument lines and the standard error.
+fn gate_cargo_calls(
+    script: &str,
+    cases: &[&str],
+    selection: Option<&str>,
+) -> (Option<i32>, Vec<String>, String) {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("gate-z3");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let calls = fixture.join("calls");
+    let cargo_calls = fixture.join("cargo-calls");
+    for tool in ["kompile", "kore-parser", "kore-exec", "krun", "kmir-python"] {
+        let prologue = match tool {
+            "kompile" => FAKE_KOMPILE_PROLOGUE,
+            "kmir-python" => ": >\"$4\"\n",
+            _ => "",
+        };
+        write_environment_probe(&fixture.join(tool), tool, prologue);
+    }
+    let target = fake_gate_rust_toolchain(&fixture, "", "");
+    let comparator = fixture.join("comparator");
+    write_environment_probe(
+        &fixture.join("cargo"),
+        "cargo",
+        &format!(
+            r#"
+printf '%s\n' "$*" >>{cargo_calls:?}
+if [[ "$1" == test && " $* " == *" --no-run "* ]]; then
+  printf '{{"reason":"compiler-artifact","target":{{"name":"reference_differential"}},"profile":{{"test":true}},"executable":"%s"}}\n' {comparator:?}
+fi
+"#
+        ),
+    );
+    let mir_checkout = fixture.join("mir-semantics");
+    for pinned in [
+        "kmir/src/kmir/kdist/mir-semantics/kmir.md",
+        "kmir/src/tests/integration/data/exec-smir/main-a-b-c/main-a-b-c.smir.json",
+    ] {
+        let path = mir_checkout.join(pinned);
+        fs::create_dir_all(path.parent().unwrap()).expect("create fake MIR checkout");
+        fs::write(path, "").expect("write fake MIR input");
+    }
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut command = Command::new("bash");
+    command
+        .arg(workspace.join(script))
+        .args(cases)
+        .env("PATH", &path)
+        .env("ENVIRONMENT_CALLS", &calls)
+        .env("K_CHECKOUT", &k_checkout)
+        .env("K_KOMPILE", fixture.join("kompile"))
+        .env("K_KORE_PARSER", fixture.join("kore-parser"))
+        .env("K_KORE_EXEC", fixture.join("kore-exec"))
+        .env("K_KRUN", fixture.join("krun"))
+        .env("KMIR_PYTHON", fixture.join("kmir-python"))
+        .env("MIR_SEMANTICS_CHECKOUT", &mir_checkout)
+        .env("KRUST_GATE_TARGET_DIR", &target)
+        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+    match selection {
+        Some(value) => command.env("KRUST_GATE_Z3", value),
+        None => command.env_remove("KRUST_GATE_Z3"),
+    };
+    let output = command.output().expect("run gate fixture");
+    let recorded = fs::read_to_string(&cargo_calls)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    fs::remove_dir_all(fixture).expect("remove gate fixture");
+    (
+        output.status.code(),
+        recorded,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// `KRUST_GATE_Z3=system` gives every cargo call of a gate `--no-default-features --features
+/// cli`, the default features without z3-sys's release download; unset, the gates build Cargo's
+/// default features as CI does; any other value is refused before any build.
+#[test]
+fn gate_cargo_calls_follow_the_z3_selection() {
+    for (script, cases, calls) in [
+        (SYMBOLIC_EXECUTION_SCRIPT_PATH, &["symbolic-owise"][..], 2),
+        (
+            "scripts/reference-mir-execution-differential.sh",
+            &[][..],
+            3,
+        ),
+    ] {
+        let (status, system, stderr) = gate_cargo_calls(script, cases, Some("system"));
+        assert_eq!(
+            status,
+            Some(0),
+            "{script} with KRUST_GATE_Z3=system: {stderr}"
+        );
+        assert_eq!(system.len(), calls, "{script}: {system:#?}");
+        for call in &system {
+            assert_eq!(
+                call.matches("--no-default-features --features cli").count(),
+                1,
+                "{script} cargo call without the system Z3 selection: {call}"
+            );
+        }
+
+        for selection in [None, Some("gh-release")] {
+            let (status, default, stderr) = gate_cargo_calls(script, cases, selection);
+            assert_eq!(status, Some(0), "{script} with {selection:?}: {stderr}");
+            assert_eq!(default.len(), calls, "{script}: {default:#?}");
+            for call in &default {
+                assert!(
+                    !call.contains("--no-default-features"),
+                    "{script} with {selection:?} must build the default features: {call}"
+                );
+            }
+        }
+
+        let (status, rejected, stderr) = gate_cargo_calls(script, cases, Some("download"));
+        assert_eq!(status, Some(2), "{script}: {stderr}");
+        assert!(
+            stderr.contains("KRUST_GATE_Z3 must be gh-release or system"),
+            "{script}: {stderr}"
+        );
+        assert!(
+            rejected.is_empty(),
+            "{script} built before refusing: {rejected:#?}"
+        );
+    }
+}
+
 #[test]
 fn differential_manifest_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
@@ -641,6 +879,47 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
     }
 }
 
+/// The I/O mode and the standard input are part of the initial configuration of a definition
+/// that declares `$IO` or `$STDIN`, so the two sides of an execution comparison are comparable
+/// only from the same values, and with real I/O a result would depend on the process's
+/// streams. Every run of the execution gate, program, search and any alike, therefore gives
+/// both krust and the reference krun `--io off` and an empty standard input (`</dev/null`).
+#[test]
+fn execution_gate_runs_both_sides_with_io_off_on_empty_input() {
+    let krust_invocations = execution_gate_krust_krun_invocations(EXECUTION_SCRIPT);
+    assert_eq!(
+        krust_invocations.len(),
+        3,
+        "one krust krun invocation each for the programs, the searches, and the any runs"
+    );
+    for invocation in krust_invocations {
+        assert!(
+            invocation.contains("--io off") && invocation.trim_end().ends_with("</dev/null"),
+            "a krust run of the execution gate must start with I/O off on empty input:\n{invocation}"
+        );
+    }
+    let reference_invocations = EXECUTION_SCRIPT
+        .split("run_reference_krun ")
+        .skip(1)
+        .filter_map(|call| {
+            let end = call.find("--output kore")?;
+            let rest = &call[end + "--output kore".len()..];
+            Some((&call[..end], rest.lines().next().unwrap_or_default()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reference_invocations.len(),
+        3,
+        "one reference krun invocation each for the programs, the searches, and the any runs"
+    );
+    for (invocation, redirection) in reference_invocations {
+        assert!(
+            invocation.contains("--io off") && redirection.trim() == "</dev/null",
+            "a reference run of the execution gate must start with I/O off on empty input:\n{invocation}--output kore{redirection}"
+        );
+    }
+}
+
 #[test]
 fn every_gate_rejects_unknown_cases_before_validating_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -722,6 +1001,395 @@ fn differential_manifest_rejects_prerequisites_the_gates_cannot_enforce() {
     fs::remove_dir_all(fixture).unwrap();
 }
 
+/// N42: options that change the reference definition an execution case compares against are
+/// sound only for programs that cannot reach what they change, so each case that carries them
+/// states why (`reference-kompile-options-reason`); only the execution gate reads them.
+#[test]
+fn reference_kompile_options_need_a_reason_and_an_execution_case() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-reference-options");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let reason = "reference-kompile-options-reason = \"no program reaches the removed rule\"\n";
+    for (manifest, valid) in [
+        (case("execution", ""), true),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = [\"--allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            true,
+        ),
+        (
+            case(
+                "execution",
+                "reference-kompile-options = [\"--allow-anywhere-haskell\"]\n",
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                "reference-kompile-options = [\"--allow-anywhere-haskell\"]\nreference-kompile-options-reason = \" \"\n",
+            ),
+            false,
+        ),
+        (case("execution", reason), false),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = []\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("reference-kompile-options = [\"allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!("reference-kompile-options = [\"--allow-anywhere-haskell\"]\n{reason}"),
+            ),
+            false,
+        ),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_options = manifest["execution"]
+        .as_array()
+        .expect("execution cases")
+        .iter()
+        .filter(|entry| entry.get("reference-kompile-options").is_some())
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_options, ["star-cell-heating-set"]);
+
+    // The options reach the reference kompile and nothing else.
+    let uses = EXECUTION_SCRIPT
+        .match_indices("\"${reference_kompile_options[@]}\"")
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [use_index] = uses.as_slice() else {
+        panic!("the execution gate passes the reference options once: {uses:?}");
+    };
+    let kompile = EXECUTION_SCRIPT[..*use_index]
+        .rfind("reference_cached kompile ")
+        .expect("the options are passed to the reference kompile");
+    assert!(
+        !EXECUTION_SCRIPT[kompile..*use_index].contains(')'),
+        "the options are arguments of the reference kompile command"
+    );
+}
+
+/// N41: `reference-result-simplification-reason` is a written reason on an `[[execution]]` case
+/// with programs and without search, any or oracle-exception runs; the renderer refuses anything
+/// else, and only `star-cell-heating-set` carries it.
+#[test]
+fn reference_result_simplification_needs_a_reason_and_program_results() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-reference-simplification");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let reason = "reference-result-simplification-reason = \"the reference leaves branches it did not refute\"\n";
+    let programs = "programs = [\"a.pgm\"]\n";
+    for (manifest, valid) in [
+        (case("execution", &format!("{programs}{reason}")), true),
+        (case("execution", reason), false),
+        (
+            case(
+                "execution",
+                &format!("{programs}reference-result-simplification-reason = \" \"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}reference-result-simplification-reason = true\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.search]]\nname = \"s\"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.any]]\nname = \"a\"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.oracle-exception]]\nprogram = \"a.pgm\"\n"),
+            ),
+            false,
+        ),
+        (case("symbolic", reason), false),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_simplification = manifest["execution"]
+        .as_array()
+        .expect("execution cases")
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("reference-result-simplification-reason")
+                .is_some()
+        })
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_simplification, ["star-cell-heating-set"]);
+}
+
+/// Run the execution gate on `case` against fake reference tools, a fake reference RPC server
+/// that only listens, a fake RPC client that answers `simplify` with `\bottom` (or with an error
+/// when `FAKE_RPC_ERROR=1`), and a fake comparator that records which reference result it got
+/// and fails on the raw one unless `FAKE_RAW_STATUS` says otherwise (and on the simplified one
+/// with `FAKE_SIMPLIFIED_STATUS`). Returns the exit status, the call log, standard output and
+/// standard error, and whether the fake server still listened after the gate exited.
+fn execution_gate_with_reference_simplifier(
+    case: &str,
+    environment: &[(&str, &str)],
+) -> (Option<i32>, String, String, String, bool) {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("execution-simplifier");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let calls = fixture.join("calls");
+    write_environment_probe(&fixture.join("kompile"), "kompile", FAKE_KOMPILE_PROLOGUE);
+    write_environment_probe(
+        &fixture.join("krun"),
+        "krun",
+        r#"printf '%s\n' '\or{S{}}(a{}(), b{}())'"#,
+    );
+    write_environment_probe(&fixture.join("kast"), "kast", "");
+    write_environment_probe(
+        &fixture.join("kore-parser"),
+        "kore-parser $*",
+        r#"printf '%s\n' '{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}'"#,
+    );
+    write_environment_probe(
+        &fixture.join("kore-rpc"),
+        "kore-rpc",
+        r#"
+printf 'kore-rpc %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
+while (($#)); do [[ $1 == --server-port ]] && port=$2; shift; done
+exec python3 -c 'import socket, sys, time
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen(8)
+time.sleep(600)' "$port"
+"#,
+    );
+    write_environment_probe(
+        &fixture.join("kore-rpc-client"),
+        "kore-rpc-client-done",
+        r#"
+printf 'kore-rpc-client %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
+while (($#)); do [[ $1 == -o ]] && out=$2; shift; done
+if [[ ${FAKE_RPC_ERROR:-0} == 1 ]]; then
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Could not verify pattern"}}' >"$out"
+else
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"state":{"format":"KORE","version":1,"term":{"tag":"Bottom","sort":{"tag":"SortApp","name":"S","args":[]}}}}}' >"$out"
+fi
+"#,
+    );
+    let target = fake_gate_rust_toolchain(
+        &fixture,
+        "",
+        r#"
+printf 'comparator %s|\n' "$(basename "$K_REFERENCE_EXECUTION")" >>"$ENVIRONMENT_CALLS"
+case $K_REFERENCE_EXECUTION in
+  *.json) exit "${FAKE_SIMPLIFIED_STATUS:-0}" ;;
+  *) exit "${FAKE_RAW_STATUS:-101}" ;;
+esac
+"#,
+    );
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port();
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut command = Command::new("bash");
+    command
+        .arg(workspace.join("scripts/reference-non-imp-execution-differential.sh"))
+        .arg(case)
+        .env("PATH", &path)
+        .env("ENVIRONMENT_CALLS", &calls)
+        .env("K_CHECKOUT", &k_checkout)
+        .env("K_KOMPILE", fixture.join("kompile"))
+        .env_remove("K_KRUN")
+        .env_remove("K_KAST")
+        .env_remove("K_KORE_PARSER")
+        .env_remove("K_KORE_RPC_CLIENT")
+        .env("REFERENCE_SIMPLIFIER_PORT", port.to_string())
+        .env("KRUST_GATE_TARGET_DIR", &target)
+        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+        .stdin(std::process::Stdio::null());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().expect("run execution gate fixture");
+    let still_listening = std::net::TcpStream::connect(("127.0.0.1", port)).is_ok();
+    let log = fs::read_to_string(&calls).unwrap_or_default();
+    fs::remove_dir_all(fixture).expect("remove execution gate fixture");
+    (
+        output.status.code(),
+        log,
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        still_listening,
+    )
+}
+
+/// N41: for a case with `reference-result-simplification-reason` the execution gate first
+/// requires the raw reference result to differ from the port's, then compares the port's result
+/// against the state the reference's Haskell backend RPC server (`kore-rpc`, on the case's
+/// reference definition and main module, without SMT) answers to one `simplify` request, prints
+/// the reason with the N41 label, and stops the server. A simplified result that differs, an RPC
+/// error, or a raw result that already compares equal fails the gate; a case without the key
+/// never starts the server.
+#[test]
+fn execution_gate_compares_against_the_reference_simplifier_only_for_opted_in_cases() {
+    let (status, log, stdout, stderr, listening) =
+        execution_gate_with_reference_simplifier("star-cell-heating-set", &[]);
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    assert!(!listening, "the gate left the reference simplifier running");
+    let comparisons = log
+        .lines()
+        .filter_map(|line| line.strip_prefix("comparator "))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        comparisons,
+        [
+            "star-cell-heating-set-two.pgm.reference.kore|",
+            "star-cell-heating-set-two.pgm.reference.simplified.json|",
+            "star-cell-heating-set-two-late.pgm.reference.kore|",
+            "star-cell-heating-set-two-late.pgm.reference.simplified.json|",
+        ],
+        "{log}"
+    );
+    let servers = log
+        .lines()
+        .filter(|line| line.starts_with("kore-rpc "))
+        .collect::<Vec<_>>();
+    assert_eq!(servers.len(), 2, "one server per program result: {log}");
+    for server in servers {
+        assert!(
+            server.contains("star-cell-heating-set-kompiled/definition.kore --module STAR-CELL-HEATING-SET --smt none --no-bug-report --server-port"),
+            "{server}"
+        );
+    }
+    assert_eq!(
+        log.lines()
+            .filter(|line| line.starts_with("kore-rpc-client ") && line.contains(" simplify "))
+            .count(),
+        2,
+        "{log}"
+    );
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: Without SMT"))
+            .count(),
+        2,
+        "{stdout}"
+    );
+
+    let (status, log, _, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_SIMPLIFIED_STATUS", "101")],
+    );
+    assert_ne!(
+        status,
+        Some(0),
+        "a simplified result that differs must fail: {log}"
+    );
+    assert!(!stderr.contains("no longer needed"), "{stderr}");
+
+    let (status, log, _, stderr, listening) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_RPC_ERROR", "1")],
+    );
+    assert_eq!(status, Some(1), "{log}{stderr}");
+    assert!(
+        stderr.contains("the reference simplifier returned no state"),
+        "{stderr}"
+    );
+    assert!(!listening, "the gate left the reference simplifier running");
+
+    let (status, log, _, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_RAW_STATUS", "0")],
+    );
+    assert_eq!(status, Some(1), "{log}{stderr}");
+    assert!(
+        stderr.contains(
+            "reference result simplification for star-cell-heating-set:two.pgm is no longer needed"
+        ),
+        "{stderr}"
+    );
+    assert!(!log.contains("kore-rpc"), "{log}");
+
+    let (status, log, stdout, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-map-nested-set",
+        &[("FAKE_RAW_STATUS", "0")],
+    );
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    assert!(!log.contains("kore-rpc"), "{log}");
+    assert!(!log.contains(".json"), "{log}");
+}
+
 #[test]
 fn every_gate_normalisation_is_registered() {
     let register = NORMALISATIONS
@@ -737,13 +1405,13 @@ fn every_gate_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     let expected = (1..=28)
         .filter(|id| *id != 2)
-        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40])
+        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, and N30 through N40 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N42 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()

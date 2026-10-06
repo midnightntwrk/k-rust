@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 mir_checkout=${MIR_SEMANTICS_CHECKOUT:-"$workspace/mir-semantics"}
 kompile=${K_KOMPILE:-}
@@ -23,6 +24,7 @@ if [[ ! -x "$krun" ]]; then
   echo "error: missing matching pinned reference executable: $krun" >&2
   exit 2
 fi
+kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
 if [[ ! -x "$kmir_python" ]]; then
   echo "error: set KMIR_PYTHON to the pinned kmir environment's Python executable" >&2
   exit 2
@@ -55,6 +57,7 @@ if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
 else
   trap 'find "$work" -depth -delete' EXIT
 fi
+reference_cache_begin "$work"
 reference_definition="$work/reference-kompiled"
 rust_definition="$work/rust-kompiled"
 initial="$work/main-a-b-c.initial.kore"
@@ -63,11 +66,16 @@ rust_result="$work/main-a-b-c.rust.kore"
 
 # The reference Haskell kompile (its kore-exec validation) and krun default to a
 # single capability, as the compile gate scopes GHCRTS to its Haskell backend.
+# Both are cached (scripts/reference-cache.sh): the kompile is keyed on the requires
+# closure of kmir.md, the krun on the definition and the initial pattern it reads.
+# The kmir Python step is not: it runs a Python environment the manifest does not pin,
+# and the krun key holds the bytes it writes.
 echo "[mir] compiling the pinned concrete Haskell definition"
 (
   export K_OPTS="$reference_k_opts"
   export GHCRTS=${GHCRTS:--N1}
-  "$kompile" "$source_path" \
+  reference_cached kompile mir --output-root "$reference_definition" --kdep "$kdep" -- \
+    "$kompile" "$source_path" \
     --backend haskell \
     --main-module KMIR \
     --syntax-module KMIR-AST \
@@ -99,11 +107,12 @@ echo "[mir] executing the shared pattern with the pinned Haskell backend"
 (
   export K_OPTS="$reference_k_opts"
   export GHCRTS=${GHCRTS:--N1}
-  "$krun" "$initial" \
+  reference_cached krun mir:main-a-b-c --input "$reference_definition" --store-status 0 -- \
+    "$krun" "$initial" \
     --definition "$reference_definition" \
     --term \
     --parser cat \
-    --output kore
+    --output kore </dev/null
 ) >"$reference_result"
 
 echo "[mir] executing the shared pattern with k-rust"
@@ -119,8 +128,9 @@ K_REFERENCE_EXECUTION="$reference_result" \
   K_DIFFERENTIAL_DEFINITION="$reference_definition/definition.kore" \
   K_DIFFERENTIAL_MODULE=KMIR \
   K_DIFFERENTIAL_INITIAL_PATTERN="$initial" \
-  cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+  cargo test --quiet "${krust_gate_z3_args[@]}" --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --test reference_differential -- --ignored --exact \
     executed_kore_matches_the_reference_backend
 
+reference_cache_finish
 echo "reference MIR shared-KORE execution differential passed"
