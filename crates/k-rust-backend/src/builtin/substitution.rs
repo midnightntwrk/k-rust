@@ -359,8 +359,12 @@ fn substitute(
     }
 
     Ok(SubstituteOutcome::Value(match term.kind() {
-        TermKind::And(left, right) => {
-            let left = substitution_value!(substitute(
+        // `\and(L, R)` denotes the values L and R share, and the result is the image of those
+        // values. When L and R are one term that image is the image of L, computed once so that
+        // both sides carry the same fresh names: two different renamings of one value are two
+        // distinct constructor terms, whose conjunction denotes no value.
+        TermKind::And(left, right) if left == right => {
+            let side = substitution_value!(substitute(
                 left,
                 target,
                 replacement,
@@ -369,16 +373,29 @@ fn substitute(
                 sort_graph,
                 fresh,
             ));
-            let right = substitution_value!(substitute(
-                right,
-                target,
-                replacement,
-                replacement_free,
-                kvar_sorts,
-                sort_graph,
-                fresh,
-            ));
-            Term::and(left, right)
+            Term::and(side.clone(), side)
+        }
+        // For distinct sides the image of the shared values is the conjunction of the images
+        // only when no two values are identified, and substitution identifies some (`x` and
+        // `y` under `x := y`). Where the target does not occur free the substitution renames
+        // nothing and is the identity on both sides, so the conjunction is kept as it is.
+        // Otherwise two distinct concrete values share none, so the conjunction denotes no
+        // value; with an opaque subterm the shared values depend on the instance, and the call
+        // stays unevaluated.
+        TermKind::And(left, right) => {
+            let (Some(left_occurs), Some(right_occurs)) = (
+                contains_free_kvar(left, target, kvar_sorts)?,
+                contains_free_kvar(right, target, kvar_sorts)?,
+            ) else {
+                return Ok(SubstituteOutcome::NotApplicable);
+            };
+            if !left_occurs && !right_occurs {
+                term.clone()
+            } else if left.attributes().constructor_like && right.attributes().constructor_like {
+                return Ok(SubstituteOutcome::Bottom);
+            } else {
+                return Ok(SubstituteOutcome::NotApplicable);
+            }
         }
         TermKind::Application {
             symbol,
@@ -680,8 +697,9 @@ fn freshen_bound_kvar_identities_inner(
     }
 
     Ok(Some(match term.kind() {
-        TermKind::And(left, right) => {
-            let Some(left) = freshen_bound_kvar_identities_inner(
+        // Renaming is a function of the value: one term is renamed once, for both sides.
+        TermKind::And(left, right) if left == right => {
+            let Some(side) = freshen_bound_kvar_identities_inner(
                 left,
                 conflict,
                 kvar_sorts,
@@ -691,7 +709,22 @@ fn freshen_bound_kvar_identities_inner(
             else {
                 return Ok(None);
             };
-            let Some(right) = freshen_bound_kvar_identities_inner(
+            Term::and(side.clone(), side)
+        }
+        // Distinct sides renamed apart get different fresh names, so a value they shared would
+        // no longer be shared: keep the conjunction only when the renaming leaves both sides.
+        TermKind::And(left, right) => {
+            let Some(renamed_left) = freshen_bound_kvar_identities_inner(
+                left,
+                conflict,
+                kvar_sorts,
+                fresh,
+                bound_renamings,
+            )?
+            else {
+                return Ok(None);
+            };
+            let Some(renamed_right) = freshen_bound_kvar_identities_inner(
                 right,
                 conflict,
                 kvar_sorts,
@@ -701,7 +734,10 @@ fn freshen_bound_kvar_identities_inner(
             else {
                 return Ok(None);
             };
-            Term::and(left, right)
+            if renamed_left != *left || renamed_right != *right {
+                return Ok(None);
+            }
+            term.clone()
         }
         TermKind::Application {
             symbol,
@@ -1407,6 +1443,69 @@ mod tests {
                 kvar("x")
             ),
             BuiltinResult::Value(kvar("y"))
+        );
+    }
+
+    fn exp_lambda(name: &str, body: Term) -> Term {
+        Term::injection(val_sort(), exp_sort(), lambda(name, body))
+    }
+
+    #[test]
+    fn renames_the_two_sides_of_a_repeated_conjunct_alike() {
+        // `y` is free in the replacement, so the binder `y` is renamed; the conjunct is one
+        // value and must stay one value.
+        let side = exp_lambda("y", exp_var("x"));
+        let renamed = exp_lambda("y0", exp_var("y"));
+        assert_eq!(
+            run(Term::and(side.clone(), side), kvar("y"), kvar("x")),
+            BuiltinResult::Value(Term::and(renamed.clone(), renamed))
+        );
+        // The replacement's own binder `y` lands under the body's binder `y` and is renamed
+        // apart: once, for both copies of the repeated conjunct.
+        let identity = exp_lambda("y", exp_var("y"));
+        let renamed = exp_lambda("y0", exp_var("y0"));
+        assert_eq!(
+            run(
+                lambda("y", exp_var("x")),
+                Term::and(identity.clone(), identity),
+                kvar("x")
+            ),
+            BuiltinResult::Value(lambda("y", Term::and(renamed.clone(), renamed)))
+        );
+    }
+
+    #[test]
+    fn does_not_merge_distinct_conjuncts_the_substitution_identifies() {
+        // `\and(x, y)` denotes no value (distinct tokens); `x := y` must not make it `y`.
+        assert_eq!(
+            run(Term::and(exp_var("x"), exp_var("y")), kvar("y"), kvar("x")),
+            BuiltinResult::Bottom
+        );
+        // With an opaque `Int` the sides share a value for no instance before the substitution
+        // and for `N = M` after it, so the call has no value it could return.
+        let (n, m) = (variable("N", int_sort()), variable("M", int_sort()));
+        assert_eq!(
+            run(
+                Term::and(plus(exp_var("x"), n.clone()), plus(exp_var("y"), m.clone())),
+                kvar("y"),
+                kvar("x")
+            ),
+            BuiltinResult::NotApplicable
+        );
+        // Where the target does not occur the conjunction is kept.
+        let untouched = Term::and(plus(exp_var("z"), n), plus(exp_var("y"), m));
+        assert_eq!(
+            run(untouched.clone(), kvar("y"), kvar("x")),
+            BuiltinResult::Value(untouched)
+        );
+        // A replacement conjunction whose distinct sides would be renamed apart.
+        assert_eq!(
+            run(
+                lambda("y", exp_var("x")),
+                Term::and(exp_lambda("y", exp_var("y")), exp_lambda("y", exp_var("z"))),
+                kvar("x")
+            ),
+            BuiltinResult::NotApplicable
         );
     }
 
