@@ -19,7 +19,7 @@ use k_rust_kore::kore::{
 use crate::{
     definition::BackendDefinition,
     externalize::{self, ConjunctionShape},
-    fresh::FreshCounter,
+    fresh::{FreshCounter, RequestNames},
     rewrite::{Pattern, RewriteResult, rewrite_step_with_solver},
     rule::Predicate,
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
@@ -30,8 +30,14 @@ use crate::{
 
 /// Maps from `SortKey` to `SortValue`, a function `opaqueMap` into them and `opaqueKey` into the
 /// keys (no equations), constructors `box(SortMap)`, `st(SortMap, SortMap)`,
-/// `st3(SortBox, SortBox, SortKey)` and `done`, and the rule `rule_lhs => done`.
+/// `st3(SortBox, SortBox, SortKey)`, `done` and `res(SortKey, SortKey, SortValue, SortMap)`, and
+/// the rule `rule_lhs => done`.
 fn definition(rule_lhs: &str) -> BackendDefinition {
+    definition_with_rhs(rule_lhs, "done{}()")
+}
+
+/// [`definition`] with the rule `rule_lhs => rule_rhs`.
+fn definition_with_rhs(rule_lhs: &str, rule_rhs: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
             module MAIN
@@ -50,9 +56,10 @@ fn definition(rule_lhs: &str) -> BackendDefinition {
                 symbol st{{}}(SortMap{{}}, SortMap{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol st3{{}}(SortBox{{}}, SortBox{{}}, SortKey{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol done{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol res{{}}(SortKey{{}}, SortKey{{}}, SortValue{{}}, SortMap{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
                 axiom{{}} \rewrites{{SortS{{}}}}(
                     \and{{SortS{{}}}}({rule_lhs}, \top{{SortS{{}}}}()),
-                    \and{{SortS{{}}}}(done{{}}(), \top{{SortS{{}}}}())
+                    \and{{SortS{{}}}}({rule_rhs}, \top{{SortS{{}}}}())
                 ) [label{{}}("narrow")]
             endmodule []"#
     );
@@ -271,12 +278,14 @@ fn renamings(from: &[Variable], onto: &BTreeSet<Variable>) -> Vec<Substitution> 
 /// conjunct must be a definedness condition. A branch that drops a pair (wider than the rule's
 /// match, so the remainder loses the instances in between) fails the first direction; one that
 /// adds an equality fails the second.
+///
+/// Returns those renamings, which name the fresh existential each rule variable became.
 fn assert_condition_is(
     branch: &Pattern,
     configuration: &Variable,
     rule_variables: &[Variable],
     expected: &[(Term, Term)],
-) {
+) -> Vec<Substitution> {
     let shown = show(&branch.constraints);
     let mut fresh = free_variables(&branch.constraints);
     assert!(
@@ -302,27 +311,43 @@ fn assert_condition_is(
         .collect::<Vec<_>>();
     let matched = renamings(rule_variables, &fresh)
         .into_iter()
-        .any(|renaming| {
+        .filter(|renaming| {
             let expected = expected
                 .iter()
-                .map(|(left, right)| (substitute(left, &renaming), substitute(right, &renaming)))
+                .map(|(left, right)| (substitute(left, renaming), substitute(right, renaming)))
                 .collect::<Vec<_>>();
             entails_all(&equalities, &expected) && entails_all(&expected, &equalities)
-        });
+        })
+        .collect::<Vec<_>>();
     assert!(
-        matched,
+        !matched.is_empty(),
         "the condition is not equivalent to the rule's pair equalities: {shown}"
     );
+    matched
 }
 
-/// The one applied branch and the remainder of a step on `subject`.
+/// The one applied branch, whose term is `done`, and the remainder of a step on `subject`.
 fn split(definition: &BackendDefinition, subject: &str) -> (Pattern, Pattern) {
     let pattern = Pattern {
         term: term(definition, subject),
         constraints: Vec::new(),
     };
-    let mut fresh = FreshCounter::for_request(&[&pattern]);
-    match rewrite_step_with_solver(definition, &pattern, &mut fresh, &Contingent)
+    let (branch, remainder) = split_with(
+        definition,
+        &pattern,
+        &mut FreshCounter::for_request(&[&pattern]),
+    );
+    assert!(is_application_of(&branch.term, "done"), "{branch:?}");
+    (branch, remainder)
+}
+
+/// The one applied branch and the remainder of a step on `pattern`, minting from `fresh`.
+fn split_with(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh: &mut FreshCounter,
+) -> (Pattern, Pattern) {
+    match rewrite_step_with_solver(definition, pattern, fresh, &Contingent)
         .expect("no stop is armed")
     {
         RewriteResult::Branch {
@@ -331,10 +356,6 @@ fn split(definition: &BackendDefinition, subject: &str) -> (Pattern, Pattern) {
             ..
         } if branches.len() == 1 => {
             let branch = branches.pop().expect("one branch");
-            assert!(
-                is_application_of(&branch.pattern.term, "done"),
-                "{branch:?}"
-            );
             assert_eq!(remainder.pattern.term, pattern.term);
             (branch.pattern, remainder.pattern)
         }
@@ -368,6 +389,74 @@ fn assert_complement(branch: &Pattern, remainder: &Pattern, configuration: &Vari
     assert_eq!(bound, fresh, "exactly the fresh variables are quantified");
 }
 
+/// The left-hand side of the functional-symbolic case, matched against `st(M, M)`.
+const FUNCTIONAL_SYMBOLIC_LHS: &str = r#"st{}(opaqueMap{}(K:SortKey{}), mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{}))"#;
+
+/// The left-hand side of the function-equality case, matched against `st3(B, B, "k")`.
+const FUNCTION_EQUALITY_LHS: &str = r#"st3{}(box{}(opaqueMap{}(K:SortKey{})), box{}(mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{})), opaqueKey{}(V:SortValue{}))"#;
+
+/// What a step of the functional-symbolic case must split on: the configuration variable `M`,
+/// the rule's variables the match leaves unbound, and the rule's pair equalities over them.
+fn functional_symbolic_pairs(
+    definition: &BackendDefinition,
+) -> (Variable, Vec<Variable>, Vec<(Term, Term)>) {
+    let m = Variable::new("M", Sort::simple("SortMap"));
+    let rule_variables = vec![
+        Variable::new("K", Sort::simple("SortKey")),
+        Variable::new("K2", Sort::simple("SortKey")),
+        Variable::new("V2", Sort::simple("SortValue")),
+        Variable::new("R", Sort::simple("SortMap")),
+    ];
+    let configuration = Term::variable(m.clone());
+    let expected = vec![
+        (
+            configuration.clone(),
+            term(definition, "opaqueMap{}(K:SortKey{})"),
+        ),
+        (
+            configuration,
+            term(
+                definition,
+                "mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{})",
+            ),
+        ),
+    ];
+    (m, rule_variables, expected)
+}
+
+/// What a step of the function-equality case must split on, as [`functional_symbolic_pairs`].
+fn function_equality_pairs(
+    definition: &BackendDefinition,
+) -> (Variable, Vec<Variable>, Vec<(Term, Term)>) {
+    let b = Variable::new("B", Sort::simple("SortBox"));
+    let rule_variables = vec![
+        Variable::new("K", Sort::simple("SortKey")),
+        Variable::new("K2", Sort::simple("SortKey")),
+        Variable::new("V2", Sort::simple("SortValue")),
+        Variable::new("R", Sort::simple("SortMap")),
+        Variable::new("V", Sort::simple("SortValue")),
+    ];
+    let configuration = Term::variable(b.clone());
+    let expected = vec![
+        (
+            configuration.clone(),
+            term(definition, "box{}(opaqueMap{}(K:SortKey{}))"),
+        ),
+        (
+            configuration,
+            term(
+                definition,
+                "box{}(mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{}))",
+            ),
+        ),
+        (
+            term(definition, "opaqueKey{}(V:SortValue{})"),
+            term(definition, r#"\dv{SortKey{}}("k")"#),
+        ),
+    ];
+    (b, rule_variables, expected)
+}
+
 /// Functional-symbolic narrowing: the rule `st(opaqueMap(K), K2 |-> V2 R)` against `st(M, M)`.
 /// Matching leaves `opaqueMap(K) ~ M` and `K2 |-> V2 R ~ M`, unification binds `M` and leaves
 /// the two map sides unsolved, and each pair has a functional rule side and the configuration
@@ -377,31 +466,9 @@ fn assert_complement(branch: &Pattern, remainder: &Pattern, configuration: &Vari
 /// rule's match and makes the remainder, its complement, lose the instances in between.
 #[test]
 fn functional_symbolic_narrowing_splits_the_configuration_on_its_variable() {
-    let definition = definition(
-        r#"st{}(opaqueMap{}(K:SortKey{}), mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{}))"#,
-    );
+    let definition = definition(FUNCTIONAL_SYMBOLIC_LHS);
     let (branch, remainder) = split(&definition, "st{}(M:SortMap{}, M:SortMap{})");
-    let m = Variable::new("M", Sort::simple("SortMap"));
-    let rule_variables = [
-        Variable::new("K", Sort::simple("SortKey")),
-        Variable::new("K2", Sort::simple("SortKey")),
-        Variable::new("V2", Sort::simple("SortValue")),
-        Variable::new("R", Sort::simple("SortMap")),
-    ];
-    let configuration = Term::variable(m.clone());
-    let expected = [
-        (
-            configuration.clone(),
-            term(&definition, "opaqueMap{}(K:SortKey{})"),
-        ),
-        (
-            configuration,
-            term(
-                &definition,
-                "mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{})",
-            ),
-        ),
-    ];
+    let (m, rule_variables, expected) = functional_symbolic_pairs(&definition);
     assert_condition_is(&branch, &m, &rule_variables, &expected);
     assert_complement(&branch, &remainder, &m);
 }
@@ -414,39 +481,80 @@ fn functional_symbolic_narrowing_splits_the_configuration_on_its_variable() {
 /// `K'`, `K2'`, `V2'`, `R'`, `V'`; the applied branch's condition is those three equalities.
 #[test]
 fn function_equality_recovery_splits_the_configuration_on_its_variable() {
-    let definition = definition(
-        r#"st3{}(box{}(opaqueMap{}(K:SortKey{})), box{}(mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{})), opaqueKey{}(V:SortValue{}))"#,
-    );
+    let definition = definition(FUNCTION_EQUALITY_LHS);
     let (branch, remainder) = split(
         &definition,
         r#"st3{}(B:SortBox{}, B:SortBox{}, \dv{SortKey{}}("k"))"#,
     );
-    let b = Variable::new("B", Sort::simple("SortBox"));
-    let rule_variables = [
-        Variable::new("K", Sort::simple("SortKey")),
-        Variable::new("K2", Sort::simple("SortKey")),
-        Variable::new("V2", Sort::simple("SortValue")),
-        Variable::new("R", Sort::simple("SortMap")),
-        Variable::new("V", Sort::simple("SortValue")),
-    ];
-    let configuration = Term::variable(b.clone());
-    let expected = [
-        (
-            configuration.clone(),
-            term(&definition, "box{}(opaqueMap{}(K:SortKey{}))"),
-        ),
-        (
-            configuration,
-            term(
-                &definition,
-                "box{}(mapConcat{}(mapItem{}(K2:SortKey{}, V2:SortValue{}), R:SortMap{}))",
-            ),
-        ),
-        (
-            term(&definition, "opaqueKey{}(V:SortValue{})"),
-            term(&definition, r#"\dv{SortKey{}}("k")"#),
-        ),
-    ];
+    let (b, rule_variables, expected) = function_equality_pairs(&definition);
     assert_condition_is(&branch, &b, &rule_variables, &expected);
     assert_complement(&branch, &remainder, &b);
+}
+
+/// The successor of a recovered match is the rule's right-hand side over the fresh existentials
+/// its branch condition constrains, each one a mint of the request's counter.
+///
+/// The rule `lhs => res(K, K2, V2, R)` uses the variables the match leaves unbound, so its
+/// successor is what the condition says only if it names the same existentials: the successor
+/// must be the right-hand side under a renaming that makes the condition the rule's pair
+/// equalities. And every name a rewrite introduces is minted by the request's counter, which
+/// skips the spellings of the request's variables (`fresh::RequestNames`), so a successor never
+/// prints a variable like one the request wrote. Here the request's names include the spellings
+/// of the rule's own variables, as a client may write in an argument that an alias drops: a
+/// recovery that let the rule's variables through unminted would print exactly like them.
+#[test]
+fn the_successor_of_a_recovered_match_is_over_the_minted_existentials_of_its_branch() {
+    let rhs = "res{}(K:SortKey{}, K2:SortKey{}, V2:SortValue{}, R:SortMap{})";
+    type Pairs = fn(&BackendDefinition) -> (Variable, Vec<Variable>, Vec<(Term, Term)>);
+    let cases: [(&str, &str, Pairs); 2] = [
+        (
+            FUNCTIONAL_SYMBOLIC_LHS,
+            "st{}(M:SortMap{}, M:SortMap{})",
+            functional_symbolic_pairs,
+        ),
+        (
+            FUNCTION_EQUALITY_LHS,
+            r#"st3{}(B:SortBox{}, B:SortBox{}, \dv{SortKey{}}("k"))"#,
+            function_equality_pairs,
+        ),
+    ];
+    for (lhs, subject, pairs) in cases {
+        let definition = definition_with_rhs(lhs, rhs);
+        let rule = definition
+            .rewrite_theory()
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .next()
+            .map(|stored| &stored.rule)
+            .expect("the rule is indexed");
+        let pattern = Pattern {
+            term: term(&definition, subject),
+            constraints: Vec::new(),
+        };
+        let mut names = RequestNames::of(&[&pattern]);
+        names.add_variables(&rule.lhs.attributes().variables);
+        let mut fresh = FreshCounter::for_request_names(names.clone());
+        let (branch, remainder) = split_with(&definition, &pattern, &mut fresh);
+        let (configuration, rule_variables, expected) = pairs(&definition);
+        let renamings = assert_condition_is(&branch, &configuration, &rule_variables, &expected);
+        assert_complement(&branch, &remainder, &configuration);
+        let rhs = term(&definition, rhs);
+        assert!(
+            renamings
+                .iter()
+                .any(|renaming| substitute(&rhs, renaming) == branch.term),
+            "{lhs}: the successor is not the right-hand side over the condition's existentials: \
+             {:?} under {}",
+            branch.term,
+            show(&branch.constraints)
+        );
+        for variable in &branch.term.attributes().variables {
+            assert!(
+                !names.spells(&variable.name),
+                "{lhs}: the successor's {} prints like a name of the request",
+                variable.name
+            );
+        }
+    }
 }
