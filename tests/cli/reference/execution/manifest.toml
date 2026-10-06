@@ -1,0 +1,43 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kompile", "krun"]
+
+[key.upstream]
+
+[key.inputs]
+
+[[invocation]]
+label = "kompile/definition"
+argv = ["kompile", "{{work}}/definition.k", "--main-module", "ORG-KRS-CLI-ORACLE", "--syntax-module", "ORG-KRS-CLI-ORACLE", "--backend", "llvm", "--emit-json", "--output-definition", "{{work}}/compiled-definition"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/definition.k" = "f59262aeaaebaf00b274e26270ddb0feabaf8011742ac6f7c95612f5c8df724a"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final"
+argv = ["krun", "--definition", "{{work}}/compiled-definition", "--output", "kore"]
+returncode = 0
+stdout = "627d9b02760d44f729b3154b916a27efef7052e4811872a023098ee02da631e6"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/initial"
+argv = ["krun", "--definition", "{{work}}/compiled-definition", "--depth", "0", "--output", "kore"]
+returncode = 0
+stdout = "1eb9bd9cb6fcc6282fb5b9f91bf2c36d777e77fbee2e94faf494deb752ac0c56"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+
+[invocation.outputs]

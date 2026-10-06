@@ -30,10 +30,13 @@ KRS identities. The verifier also rejects absolute paths, pointer-like values,
 
 Negative cases cover omitted and nonexistent facets, ambiguous Cargo package
 names, an authored Cargo-check failure, and preservation of an unowned
-nonempty artifact directory. If both `kompile` and `krun` are present at the
-K version `Krs.lock` pins, the emitted K is compiled with the LLVM backend and
-executed to prove `foo -> bar`. Missing tools are reported as unavailable;
-present tools at a different version are a hard mismatch and are never used.
+nonempty artifact directory. The emitted K is compiled with the LLVM backend
+and executed to prove `foo -> bar`.
+By default the oracle replays the Java K results recorded in `reference/execution/`, keyed by the `Krs.lock` K version and the digest of the emitted `definition.k`, and needs no K tool;
+a missing snapshot or a changed `definition.k` fails closed and names `--refresh-reference`.
+With `--refresh-reference`, `kompile` and `krun` must be present at the K version `Krs.lock` pins
+(present tools at a different version are a hard mismatch and are never used),
+and the snapshot is rewritten only when every other check passes.
 
 `pins.json` pins the fixture (an input, edited deliberately) and the artifact
 digests (outputs). After an intended output change, re-record the artifact

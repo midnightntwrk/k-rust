@@ -20,8 +20,9 @@ from support.lock import k_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
+from support.reference import Key, Snapshot, add_refresh_argument, live_tools  # noqa: E402
 from support.report import Results  # noqa: E402
-from support.tools import executable, find_k_tool, k_tool, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -29,6 +30,8 @@ FIXTURE = HERE / "fixtures" / "foo-bar"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
+REFERENCE = HERE / "reference" / "execution"
+REFERENCE_TOOLS = ("kompile", "krun")
 
 
 def build_cli(results: Results) -> Path | None:
@@ -349,18 +352,32 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     results.add("unsafe_output", "PASS" if preserved else "FAIL", "nonempty unowned output rejected without changing bytes" if preserved else compact(unsafe))
 
 
-def reference_execution(results: Results, artifacts: dict[str, bytes], workspace: Path) -> None:
-    missing = [name for name in ("kompile", "krun") if find_k_tool(name) is None]
-    if missing:
-        results.add("reference_execution", "UNAVAILABLE", f"missing {', '.join(missing)}; K compile/execution did not run", required=False)
-        return
-    try:
-        executables = {name: k_tool(name, k_version()) for name in ("kompile", "krun")}
-    except GateError as error:
-        results.add("reference_execution", "MISMATCH", f"{error}; execution was refused")
-        return
+def reference_execution(
+    results: Results, artifacts: dict[str, bytes], workspace: Path, *, refresh: bool
+) -> Snapshot | None:
+    """Compile and execute the emitted K with the recorded (or, on refresh, live) Java K.
+
+    The snapshot is keyed by the digest of the emitted `definition.k`; the
+    caller finishes it only after every other check passed.
+    """
+
+    executables = None
+    if refresh:
+        try:
+            executables = live_tools(REFERENCE_TOOLS)
+        except GateError as error:
+            results.add("reference_execution", "MISMATCH", f"{error}; execution was refused")
+            return None
 
     workspace.mkdir(parents=True)
+    try:
+        k = Snapshot(
+            REFERENCE, Key(tools=REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
+            executables=executables,
+        )
+    except GateError as error:
+        results.add("reference_execution", "FAIL", str(error))
+        return None
     source = workspace / "definition.k"
     source.write_bytes(artifacts["definition.k"])
     definition_ir = workspace / "definition-ir.json"
@@ -369,12 +386,50 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
         gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
     except (GateError, OSError) as error:
         results.add("reference_execution", "FAIL", str(error))
-        return
+        return None
     main_module = krs_gate.ir_query(gate, workspace, {"kind": "modules"}, environment=z3_environment())["main_module"]
     definition = workspace / "compiled-definition"
-    compile_process = run(
+    try:
+        compile_process, initial, final = reference_runs(k, source, main_module, definition)
+    except GateError as error:
+        results.add("reference_execution", "FAIL", str(error))
+        return None
+    if compile_process.returncode != 0:
+        results.add("reference_execution", "FAIL", compact(compile_process))
+        return None
+    if initial.returncode != 0 or final.returncode != 0:
+        results.add("reference_execution", "FAIL", compact(initial if initial.returncode != 0 else final))
+        return None
+    try:
+        with krs_gate.Session(gate, environment=z3_environment()) as session:
+            session.load(definition_ir, main_module)
+            session.read(initial.stdout, "initial")
+            session.expect("initial", "k", text="foo ~> .K")
+            session.read(final.stdout, "final")
+            session.expect("final", "k", text="bar ~> .K")
+    except (GateError, OSError, UnicodeError) as error:
+        results.add("reference_execution", "FAIL", str(error))
+        return None
+    source_mode = "live" if refresh else "recorded"
+    results.add(
+        "reference_execution", "PASS",
+        f"{source_mode} K {k_version()} compiled canonical output and executed foo -> bar",
+    )
+    return k
+
+
+def reference_runs(
+    k: Snapshot, source: Path, main_module: str, definition: Path
+) -> tuple[subprocess.CompletedProcess[str], ...]:
+    """Compile the emitted K and run it to depth zero and to completion.
+
+    Execution stops at a rejected compilation, whose result is then returned three times.
+    """
+
+    compile_process = k.run(
+        "kompile/definition",
+        "kompile",
         [
-            executables["kompile"],
             str(source),
             "--main-module",
             main_module,
@@ -387,28 +442,15 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
             str(definition),
         ],
         timeout=240,
-        check=False,
-        text=False,
     )
     if compile_process.returncode != 0:
-        results.add("reference_execution", "FAIL", compact(compile_process))
-        return
-    initial = run([executables["krun"], "--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60, check=False, text=False)
-    final = run([executables["krun"], "--definition", str(definition), "--output", "kore"], timeout=60, check=False, text=False)
-    if initial.returncode != 0 or final.returncode != 0:
-        results.add("reference_execution", "FAIL", compact(initial if initial.returncode != 0 else final))
-        return
-    try:
-        with krs_gate.Session(gate, environment=z3_environment()) as session:
-            session.load(definition_ir, main_module)
-            session.read(initial.stdout.decode("utf-8"), "initial")
-            session.expect("initial", "k", text="foo ~> .K")
-            session.read(final.stdout.decode("utf-8"), "final")
-            session.expect("final", "k", text="bar ~> .K")
-    except (GateError, OSError, UnicodeError) as error:
-        results.add("reference_execution", "FAIL", str(error))
-        return
-    results.add("reference_execution", "PASS", f"K {k_version()} compiled canonical output and executed foo -> bar")
+        return compile_process, compile_process, compile_process
+    initial = k.run(
+        "krun/initial", "krun",
+        ["--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60,
+    )
+    final = k.run("krun/final", "krun", ["--definition", str(definition), "--output", "kore"], timeout=60)
+    return compile_process, initial, final
 
 
 def main() -> int:
@@ -418,6 +460,7 @@ def main() -> int:
         action="store_true",
         help="run the oracle and rewrite the artifact pins it measured",
     )
+    add_refresh_argument(parser)
     arguments = parser.parse_args()
     pins = Ledger(PINS, record=arguments.record)
     results = Results(width=11)
@@ -425,6 +468,7 @@ def main() -> int:
     if binary is None:
         return 1
     gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
+    snapshot: Snapshot | None = None
     with tempfile.TemporaryDirectory(prefix="krs-cli-oracle-a-") as first_raw, tempfile.TemporaryDirectory(prefix="krs-cli-oracle-relocated-b-") as second_raw:
         first_root = Path(first_raw)
         second_root = Path(second_raw) / "different" / "depth"
@@ -434,10 +478,17 @@ def main() -> int:
         if first is not None and second is not None:
             verify_relocation(results, first, second)
             verify_pins(results, pins, first)
-            reference_execution(results, first, first_root / "reference")
+            snapshot = reference_execution(
+                results, first, first_root / "reference", refresh=arguments.refresh_reference,
+            )
         else:
             results.add("clean_relocation", "FAIL", "positive command run did not complete")
         negative_cases(binary, first_root / "negative", results)
+    if snapshot is not None and not results.failed:
+        try:
+            results.add("reference_snapshot", "PASS", snapshot.finish())
+        except GateError as error:
+            results.add("reference_snapshot", "FAIL", str(error))
     if not results.failed:
         pins.finish("CLI acceptance oracle")
     print("\nCLI acceptance oracle:", "FAIL" if results.failed else "PASS")
