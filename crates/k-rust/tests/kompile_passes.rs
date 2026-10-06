@@ -3317,8 +3317,8 @@ fn folds_right_shifts_by_any_natural_amount() {
     );
 }
 
-/// A folded value is part of the emitted definition, so the fold writes none above 2^20 bits, the
-/// backend's own bound on `^Int` results; a larger one stays for execution.
+/// A folded value is part of the emitted definition, so the fold writes none above 2^20 bits, its
+/// own bound (never above the backend's on `^Int` results); a larger one stays for execution.
 #[test]
 fn leaves_results_above_the_result_bound_unfolded() {
     let source = |exponent: &str| {

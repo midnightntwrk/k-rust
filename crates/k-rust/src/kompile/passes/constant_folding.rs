@@ -412,9 +412,12 @@ enum Unfolded {
 /// The largest value the fold writes into a definition, in bits: an `Int`'s bit length, eight
 /// times a `String`'s UTF-8 length, a `Float`'s precision. A compile must not spend time or
 /// memory unrelated to the size of its input, and a folded token is part of the emitted
-/// definition, so a larger value is left for execution. The backend computes `^Int` and `<<Int`
-/// results up to the same bound, so the fold never writes one the backend would not compute.
-pub(crate) const MAX_FOLDED_BITS: u64 = k_rust_backend::builtin::MAX_INT_RESULT_BITS;
+/// definition, read on every load, so a larger value is left for execution: 2^20 bits is
+/// 315,653 decimal digits. The backend's bound on `^Int` and `<<Int` results is never below this
+/// one (asserted below), so the fold never writes a value the backend would not compute.
+pub(crate) const MAX_FOLDED_BITS: u64 = 1 << 20;
+
+const _: () = assert!(MAX_FOLDED_BITS <= k_rust_backend::builtin::MAX_INT_RESULT_BITS);
 
 /// The size of a value in the unit of `MAX_FOLDED_BITS`.
 fn value_bits(value: &Value) -> u64 {

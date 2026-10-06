@@ -874,7 +874,7 @@ fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
                 [function{}(), total{}(), hook{}("BOOL.and")]
             "#,
     );
-    let beyond = 1u64 << 20;
+    let beyond = 1u64 << 24;
     for (hook, too_large) in [
         (
             "INT.pow",

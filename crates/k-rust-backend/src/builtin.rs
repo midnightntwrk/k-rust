@@ -736,17 +736,17 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 }
 
 /// The floor of the size bound on the `Int` results of `^Int` and `<<Int`, in bits (see
-/// [`result_size_limit`]): 2^20 bits, 315,653 decimal digits. A result above its bound is
+/// [`result_size_limit`]): 2^24 bits, 5,050,446 decimal digits. A result above its bound is
 /// reported as too large (`ResultTooLarge`) instead of computed, and the application stays
 /// unevaluated.
 ///
-/// The constant is chosen from the cost of using the result: an `Int` is held as its decimal
-/// domain value and read back on every hook application, and converting between decimal and
-/// binary grows faster than linearly in the length: at 2^20 bits one conversion takes tens of
-/// milliseconds, at 2^22 bits about a second, at 2^32 bits it does not end in practice. The
-/// constant folder uses the same bound, so it never writes a value this backend would not
-/// compute.
-pub const MAX_INT_RESULT_BITS: u64 = 1 << 20;
+/// The floor is where a refused result could not be used in reasonable time anyway. An `Int` is
+/// held as its decimal domain value and read back on every hook application on it, and reading
+/// decimal grows quadratically in the length (num-bigint 0.4.8, release build): about 1.3 s at
+/// 2^22 bits and 4.8 s at 2^23 bits, which a run can afford a few times, but 20 s at 2^24 bits,
+/// 71 s at 2^25 bits, and days at 2^32 bits. Computing and writing the value cost less (0.6 s
+/// and 1.7 s at 2^24 bits).
+pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The largest result a hook computes when the result's size is set by the value of an argument
 /// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
@@ -1615,11 +1615,11 @@ mod tests {
         assert_eq!(powmod(2, 3, 0), Ok(Ok(BuiltinResult::Bottom)));
     }
 
-    /// A result of exactly 2^20 bits is computed and one more bit is reported as too large, for
-    /// `^Int` and `<<Int` alike.
+    /// From one-word arguments, a result of exactly `MAX_INT_RESULT_BITS` bits is computed and
+    /// one more bit is reported as too large, for `^Int` and `<<Int` alike.
     #[test]
     fn int_results_are_computed_up_to_the_result_bound() {
-        let bound = BigInt::from(1u32 << 20);
+        let bound = BigInt::from(MAX_INT_RESULT_BITS);
         let too_large = |result: Stoppable<Result<BuiltinResult, BuiltinError>>| {
             matches!(
                 result,
@@ -1741,11 +1741,12 @@ mod tests {
     }
 
     /// The size of a power is decided before it is computed, so a power above the bound is
-    /// never computed only to be refused (`3 ^Int 700000` has at least 700,001 bits, below the
-    /// bound, and in fact 1,109,474, above it); and the decision agrees with the exact length.
+    /// never computed only to be refused (`3 ^Int 700000` has at least 700,001 bits, below a
+    /// bound of 2^20 bits, and in fact 1,109,474, above it); and the decision agrees with the
+    /// exact length.
     #[test]
     fn power_size_is_decided_before_computing() {
-        let bound = MAX_INT_RESULT_BITS;
+        let bound = 1 << 20;
         for (base, exponent, expected) in [
             (3, 700_000, PowerSize::TooLarge),
             (-3, 700_000, PowerSize::TooLarge),

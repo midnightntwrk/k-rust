@@ -1513,7 +1513,7 @@ fn check_case(
             }
             tally.values += 1;
         }
-        // The fold writes no value larger than its bound, the backend's result bound.
+        // The fold writes no value larger than its own bound, which the backend may compute.
         (Expect::Value(expected), Err(Unfolded::TooLarge(_)))
             if expected.bits() > MAX_FOLDED_BITS =>
         {

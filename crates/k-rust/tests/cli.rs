@@ -3994,7 +3994,8 @@ fn krun_leaves_chr_of_a_surrogate_unevaluated() {
 /// unsupported-hook error naming the bound instead of branching on a condition over one that
 /// the solver cannot decide (`<<Int` has no interpreted SMT encoding, so `shl` would otherwise
 /// end in both `pos` and the unreachable `nonpos`), or of ending in a configuration that holds
-/// one. `i` hides the constants from the constant folder.
+/// one. A result within the bound is computed (`computed`, 2^20 + 1 bits from one-word
+/// arguments, under the 2^24-bit floor). `i` hides the constants from the constant folder.
 #[test]
 fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
     const SOURCE: &str = r#"
@@ -4004,20 +4005,22 @@ module BOUND
   imports K-EQUAL
   configuration <k> $PGM:Pgm </k>
   syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
+               | "computed"
   syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
   syntax Int ::= i(Int) [function, total]
   rule i(X) => X
-  rule <k> unused => r(false andBool (2 ^Int i(1048576) >Int i(0))) </k>
-  rule <k> unusedshl => r(false andBool (1 <<Int i(1048576) >Int i(0))) </k>
-  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(1048576) #fi) </k>
-  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(1048576)) >Int i(0)
+  rule <k> unused => r(false andBool (2 ^Int i(16777216) >Int i(0))) </k>
+  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(16777216) #fi) </k>
+  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
   rule <k> guard => r(4) </k> [owise]
-  rule <k> decided => r(1) </k> requires 2 ^Int i(1048577) >Int i(0)
+  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
   rule <k> decided => r(4) </k> [owise]
-  rule <k> dropped => g(1 <<Int i(1048577)) </k>
+  rule <k> dropped => g(1 <<Int i(16777217)) </k>
   rule <k> g(_) => r(9) </k>
-  rule <k> used => r(2 ^Int 1048576) </k>
-  rule <k> shl => f(1 <<Int i(1048577)) </k>
+  rule <k> used => r(2 ^Int 16777216) </k>
+  rule <k> shl => f(1 <<Int i(16777217)) </k>
+  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
   rule <k> f(X) => r(pos) </k> requires X >Int 0
   rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
 endmodule
@@ -4052,12 +4055,12 @@ endmodule
     };
     let warned = |stderr: &str, hook: &str| {
         stderr.contains(&format!("hook {hook} was left unevaluated"))
-            && stderr.contains("needs more than 1048576 bits")
+            && stderr.contains("needs more than 16777216 bits")
     };
     let halted = |stderr: &str, hook: &str| {
         stderr.contains(&format!(
             "unsupported hook '{hook}' on constructor-like arguments"
-        )) && stderr.contains("needs more than 1048576 bits")
+        )) && stderr.contains("needs more than 16777216 bits")
     };
     let item = |value: &str| {
         format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
@@ -4084,6 +4087,14 @@ endmodule
         assert!(success, "{program}: {stdout}{stderr}");
         assert!(stdout.contains(&item(value)), "{program}: {stdout}");
     }
+    // A result above 2^20 bits but within the 2^24-bit floor is computed.
+    let (success, stdout, stderr) = run("computed");
+    assert!(success, "computed: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))"#)
+            && !stderr.contains("left unevaluated"),
+        "computed: {stdout}{stderr}"
+    );
     for (program, hook) in [("used", "INT.pow"), ("shl", "INT.shl")] {
         let (success, stdout, stderr) = run(program);
         assert!(!success, "{program}: {stdout}{stderr}");

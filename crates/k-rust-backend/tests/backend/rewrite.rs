@@ -6849,7 +6849,7 @@ fn size_bound_branching_definition() -> BackendDefinition {
             ) [label{}("discard")]
             axiom{} \rewrites{SortState{}}(
                 \and{SortState{}}(go{}(), \top{SortState{}}()),
-                f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))
+                f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777216")))
             ) [label{}("go")]
             axiom{} \rewrites{SortState{}}(
                 \and{SortState{}}(
@@ -6896,7 +6896,7 @@ fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
             } if hook == "INT.shl"
         )
     };
-    let too_large = r#"f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#;
+    let too_large = r#"f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777216")))"#;
 
     // The state `go` rewrites to carries the application into both rules' conditions.
     let execution = execute_with_solver(
@@ -6949,7 +6949,7 @@ fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
     // A step that discards the value goes ahead; a state that would end the run does not.
     let execution = execute_with_solver(
         &definition,
-        subject(r#"g{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#),
+        subject(r#"g{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777216")))"#),
         ExecutionOptions::default(),
         &undeciding,
     );
@@ -6961,7 +6961,7 @@ fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
         ),
         "{execution:#?}"
     );
-    let ending = subject(r#"h{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#);
+    let ending = subject(r#"h{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777216")))"#);
     let result = rewrite_step_with_solver(
         &definition,
         &ending,
