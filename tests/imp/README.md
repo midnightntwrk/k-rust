@@ -117,7 +117,8 @@ Each snapshot is one directory under `reference/`:
 - `kompile-tests/` (IMP.2): `kompile` of the canonical sources the `control_flow_lowering` and `fixed_state_lowering` kompile tests export through `KRS_REFERENCE_EXPORT_DIR`, keyed by each exported source;
 - `source-definitions/` (IMP.4): the Haskell and LLVM `kompile` runs of the upstream reference (the static adjunct over upstream IMP) and of the emitted `definition.k`.
   It stores the `parsed.json` and `compiled.json` of both Haskell definitions and the actual `definition.kore` IMP.5 compares;
-- `native-claims/` (IMP.5): `kprove --dry-run` on the emitted claims, storing the `spec.kore` the native comparator merges;
+- `native-claims/` (IMP.5): `kprove --dry-run` on the emitted claims, storing the `spec.kore` the native comparator merges.
+  The spec module imports only the emitted definition: the emitted claims spell every `Id` token as `#token`, so they need no upstream `Id` syntax;
 - `behavior/` (IMP.6): every `kast` and `krun` run of both routes, storing their output;
 - `proofs/` (IMP.7): the two `kompile` runs, the 21 reference, 21 actual, and 21 dry-run `kprove` runs, the residual KORE `kprove` run of each incomplete proof, and the 21 `kore-exec` runs on the native build.
   Each proof's exit status is in the manifest, and its JSON result and emitted claim are stored one member per line, without source locations, so a proof result reads and diffs as text;

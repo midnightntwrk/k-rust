@@ -152,15 +152,13 @@ class ProofTests(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "unknown or missing pin fields"):
             proofs.compare_proof_evidence({"claim": evidence}, {"claim": evidence}, pins)
 
-    def test_actual_spec_imports_verification_only_identifier_syntax(self) -> None:
+    def test_actual_spec_imports_only_the_emitted_definition(self) -> None:
         source = run_proofs.actual_spec_source(Path("actual-execution.k"), "  claim body\n")
         self.assertEqual(
             source,
-            'requires "actual-execution.k"\n'
-            'requires "imp-verification.k"\n\n'
+            'requires "actual-execution.k"\n\n'
             "module KRS-IMP-SPEC\n"
-            "  imports KRS-IMP\n"
-            "  imports IMP-VERIFICATION-SYNTAX\n\n"
+            "  imports KRS-IMP\n\n"
             "  claim body\n"
             "endmodule\n",
         )

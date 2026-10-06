@@ -133,14 +133,16 @@ def source_cases(pins: Ledger, proofs: Any) -> list[dict[str, Any]]:
 
 
 def actual_spec_source(execution_source: Path, claims: str) -> str:
-    """Wrap emitted claims with the upstream verification-only Id syntax."""
+    """Wrap the emitted claims in a spec module over the emitted definition alone.
+
+    The emitted claims spell every `Id` token as `#token`, so they parse
+    without the upstream verification-only `Id` syntax.
+    """
 
     return (
-        f'requires "{execution_source.name}"\n'
-        'requires "imp-verification.k"\n\n'
+        f'requires "{execution_source.name}"\n\n'
         f"module {ACTUAL_SPEC_MODULE}\n"
-        f"  imports {ACTUAL_MODULE}\n"
-        f"  imports IMP-VERIFICATION-SYNTAX\n\n{claims}endmodule\n"
+        f"  imports {ACTUAL_MODULE}\n\n{claims}endmodule\n"
     )
 
 
@@ -435,7 +437,7 @@ def actual_source_kore_result(
             "--claims", case["actual_claim"], "--output", "kore",
             "--depth", str(case["bounds"].depth),
             "--branching-allowed", str(case["bounds"].branching_allowed),
-            "-I", workspace, "-I", IMP_DEFINITION,
+            "-I", workspace,
         ],
         timeout=WATCHDOG_SECONDS,
         streams={"stderr": reduce_kore_exec_log},
@@ -539,7 +541,7 @@ def main() -> int:
                     k=k, label=f"kprove/actual/{case['name']}",
                     definition=actual_definition, spec=actual_spec,
                     module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
-                    spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
+                    spec_json=spec_json, includes=(workspace,),
                 )),
                 "dry_run": job(lambda case=case: dry_run_spec(
                     k=k, definition=reference_definition, case=case,

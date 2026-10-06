@@ -19,7 +19,6 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import ROOT, GateError, krs_gate  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
-from support.pins import load_json, table  # noqa: E402
 from support.reference import (  # noqa: E402
     Key, Snapshot, add_refresh_argument, add_staging_argument, live_tools, snapshot_directory,
 )
@@ -29,18 +28,16 @@ from support.tools import checkout_scratch, z3_environment  # noqa: E402
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
 EMITTED_CLAIMS = 20
 REFERENCE = ROOT / "tests/imp/reference/frontend-diagnostic"
-IMP_PINS = ROOT / "tests/imp/pins.json"
 
 
 def frontend_key(definition: Path) -> Key:
-    """The snapshot key: the upstream IMP revision and the emitted definition the spec requires."""
+    """The snapshot key: the emitted definition the spec requires.
 
-    revisions = table(load_json(IMP_PINS).get("revisions"), "pins.revisions")
-    return Key(
-        tools=("kompile",),
-        upstream={"imp": str(table(revisions.get("imp"), "revisions.imp").get("commit"))},
-        inputs={"emitted/definition.k": definition},
-    )
+    The spec reads nothing upstream: the emitted claims spell every `Id` token
+    as `#token`, so they need no upstream `Id` syntax.
+    """
+
+    return Key(tools=("kompile",), inputs={"emitted/definition.k": definition})
 
 
 def exact_mapping(
@@ -65,7 +62,6 @@ def main() -> int:
         help="also require K's frontend Location for an induced spec failure",
     )
     parser.add_argument("--module")
-    parser.add_argument("--verification-definition", type=Path)
     add_refresh_argument(parser)
     add_staging_argument(parser)
     arguments = parser.parse_args()
@@ -87,11 +83,6 @@ def main() -> int:
         return 0
     if not arguments.module:
         raise GateError("--module is required with --frontend")
-    if arguments.verification_definition is None:
-        raise GateError("--verification-definition is required with --frontend")
-    verification_definition = arguments.verification_definition.resolve()
-    if not verification_definition.joinpath("imp-verification.k").is_file():
-        raise GateError("verification definition lacks imp-verification.k")
 
     _, claims_text = emitted_claims(arguments.spec.parent, arguments.module, EMITTED_CLAIMS, gate=gate, environment=z3_environment())
     execution = arguments.spec.with_name("definition.k").read_bytes()
@@ -109,11 +100,9 @@ def main() -> int:
     broken_claims = claims[:claim_start] + b"+" + claims[claim_start + len(mapped):]
     spec_module = f"{arguments.module}-DIAGNOSTIC-SPEC"
     spec_header = (
-        b'requires "execution.k"\n'
-        b'requires "imp-verification.k"\n\n'
+        b'requires "execution.k"\n\n'
         + f"module {spec_module}\n".encode()
-        + f"  imports {arguments.module}\n".encode()
-        + b"  imports IMP-VERIFICATION-SYNTAX\n\n"
+        + f"  imports {arguments.module}\n\n".encode()
     )
     broken = spec_header + broken_claims + b"endmodule\n"
     generated_start = len(spec_header) + claim_start
@@ -132,8 +121,7 @@ def main() -> int:
         )
         process = k.run(
             "kompile/induced-spec-error", "kompile",
-            [broken_path, "-I", temporary,
-             "-I", verification_definition, "--main-module", spec_module,
+            [broken_path, "-I", temporary, "--main-module", spec_module,
              "--syntax-module", spec_module, "--backend", "llvm",
              "--output-definition", temporary / "out"],
             timeout=180,

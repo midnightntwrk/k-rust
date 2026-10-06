@@ -672,11 +672,9 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
         raise GateError("native label map is not the exact 20-claim mapping")
     spec_path = context.workspace / "actual-claims-spec.k"
     spec_path.write_text(
-        f'requires "{execution_source.name}"\n'
-        'requires "imp-verification.k"\n\n'
+        f'requires "{execution_source.name}"\n\n'
         f'module {spec_module}\n'
-        f'  imports {MODULE}\n'
-        f'  imports IMP-VERIFICATION-SYNTAX\n\n{claim_source}endmodule\n',
+        f'  imports {MODULE}\n\n{claim_source}endmodule\n',
         encoding="utf-8",
     )
     spec_temp = context.workspace / "native-spec-temp"
@@ -690,7 +688,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     process = k.run(
         "kprove/dry-run", "kprove",
         [
-            spec_path, "-I", UPSTREAM_DEFINITION, "-d", definitions.actual,
+            spec_path, "-d", definitions.actual,
             "--spec-module", spec_module, "--dry-run", "--temp-dir", spec_temp,
         ],
         timeout=900,
@@ -819,7 +817,6 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
             "--authored", HERE / "rust-definition/src/claims.rs",
             "--source-relative-path", "src/claims.rs", "--token", "bool::and",
             "--frontend", "--module", MODULE,
-            "--verification-definition", UPSTREAM_DEFINITION,
             *context.child_snapshot("frontend-diagnostic"),
         ],
     ]
