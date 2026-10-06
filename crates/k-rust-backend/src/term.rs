@@ -1,8 +1,8 @@
 //! Immutable backend terms with cached synthetic attributes (`variables`, `evaluated`,
 //! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
 //! an algorithm; `Counter::TermConstructed` per construction; equality and order of two terms
-//! keep their pending pairs on a work list below a bounded recursion, so they take a bounded native
-//! stack at any height.
+//! keep their pending pairs on a work list below a bounded recursion, and apartness on a work
+//! list, so they take a bounded native stack at any height.
 //!
 //! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`.
 //! The Lean attribute bridge checks `ceil_free`, macro presence and k-cell count separately;
@@ -1455,66 +1455,57 @@ impl Term {
     /// Collections are not separated by this comparison table.
     /// Symbolic equation heads have no certificate, because [`Self::with_evaluated_cache`] requires groundness.
     /// The injection callback receives two injections and may separate their denotations or supply operands whose equality is equivalent to theirs.
+    ///
+    /// The search is depth-first over argument pairs, the first apart pair deciding, with the
+    /// pairs above the one being tried kept on a work list rather than the native stack: it runs
+    /// between two stack checks of the simplifier (the definedness of a map's keys, `KEQUAL`) on
+    /// terms of any height, and a recursion over two deep keys with a long common spine overran
+    /// the red zone there.
     #[must_use]
-    #[deny(clippy::wildcard_enum_match_arm)]
     pub(crate) fn apart_with(
         &self,
         other: &Self,
         injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
     ) -> Option<head::Apart> {
-        if self == other {
-            return None;
-        }
-        let fixed = |term| match head::classify_value(term, &mut head::CertifiedOnly) {
-            head::Head::Fixed(fixed) => Some(fixed),
-            // A variable, a conjunction, a function, an equation head without the certificate,
-            // or a macro or alias: its value's root is not the term's.
-            head::Head::Open(_) | head::Head::Residual => None,
-        };
-        let left = fixed(self)?;
-        let right = fixed(other)?;
-        match head::compare_roots(left, right) {
-            head::RootComparison::Distinct(witness) => {
-                distinct_roots_decide(left.root(), right.root())
-                    .then(|| head::Apart::of_roots(witness))
+        let mut frames = Vec::new();
+        let mut next = Some((self.clone(), other.clone()));
+        loop {
+            if let Some((left, right)) = next.take() {
+                match apart_step(&left, &right, injections) {
+                    ApartStep::Apart(witness) => return Some(lift_apart(&frames, witness)),
+                    ApartStep::Undecided => {}
+                    ApartStep::Arguments => frames.push(ApartFrame::Arguments {
+                        left,
+                        right,
+                        tried: 0,
+                    }),
+                    ApartStep::Operands(left, right) => {
+                        frames.push(ApartFrame::Operands);
+                        next = Some((left, right));
+                        continue;
+                    }
+                }
             }
-            head::RootComparison::SameApplication(same) => same
-                .pairs()
-                .find_map(|(left, right)| left.apart_with(right, injections))
-                .map(|argument| head::Apart::through_argument(same, argument)),
-            // Applications of one symbol with different arities are ill-formed.
-            head::RootComparison::ArityMismatch => None,
-            head::RootComparison::DomainValues => head::Apart::of_domain_values(left, right),
-            head::RootComparison::Injections => {
-                let (
-                    TermKind::Injection {
-                        source: left_source,
-                        target: left_target,
-                        term: left,
-                    },
-                    TermKind::Injection {
-                        source: right_source,
-                        target: right_target,
-                        term: right,
-                    },
-                ) = (self.kind(), other.kind())
-                else {
-                    unreachable!("two injection roots are injections");
+            // The next argument pair of the innermost application pair that has one left. An
+            // application pair whose argument pairs are all undecided is undecided, and so is an
+            // injection pair whose operands are.
+            while next.is_none() {
+                next = match frames.last_mut() {
+                    None => return None,
+                    Some(ApartFrame::Arguments { left, right, tried }) => {
+                        let pair = same_application(left, right)
+                            .pairs()
+                            .nth(*tried)
+                            .map(|(left, right)| (left.clone(), right.clone()));
+                        *tried += 1;
+                        pair
+                    }
+                    Some(ApartFrame::Operands) => None,
                 };
-                if left_source == right_source && left_target == right_target {
-                    // One injection is injective, so disjoint operands have disjoint images.
-                    return left.apart_with(right, injections);
-                }
-                let comparison = injections(self, other);
-                match &comparison {
-                    InjectionComparison::Distinct => head::Apart::of_injection_sorts(&comparison),
-                    // The injections are equal exactly when these terms are, so a witness for
-                    // the terms is one for the injections.
-                    InjectionComparison::Compare(left, right) => left.apart_with(right, injections),
-                    InjectionComparison::Undecided => None,
+                if next.is_none() {
+                    frames.pop();
                 }
             }
-            head::RootComparison::Collections(_) => None,
         }
     }
 
@@ -1787,6 +1778,126 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
         (Some(left), Some(right)) => left || right,
         (None, _) | (_, None) => false,
     }
+}
+
+/// A pair above the one [`Term::apart_with`] is trying.
+enum ApartFrame {
+    /// Two applications of one free symbol, apart when a pair of their arguments is; `tried`
+    /// argument pairs were undecided.
+    Arguments {
+        left: Term,
+        right: Term,
+        tried: usize,
+    },
+    /// Two injections, apart exactly when their operands are.
+    Operands,
+}
+
+/// What one pair of [`Term::apart_with`]'s search decides at its roots.
+enum ApartStep {
+    Apart(head::Apart),
+    Undecided,
+    /// Two applications of one free symbol: their argument pairs decide.
+    Arguments,
+    /// Two injections: this pair of operands decides.
+    Operands(Term, Term),
+}
+
+/// The root of a term whose value has that root, with the simplifier's certificate as the only
+/// evidence for an equation head.
+fn apart_root(term: &Term) -> Option<head::Fixed<'_>> {
+    match head::classify_value(term, &mut head::CertifiedOnly) {
+        head::Head::Fixed(fixed) => Some(fixed),
+        // A variable, a conjunction, a function, an equation head without the certificate,
+        // or a macro or alias: its value's root is not the term's.
+        head::Head::Open(_) | head::Head::Residual => None,
+    }
+}
+
+/// The argument pairs of two applications that [`apart_step`] found to be of one free symbol.
+fn same_application<'t>(left: &'t Term, right: &'t Term) -> head::SameApplication<'t> {
+    let (Some(left), Some(right)) = (apart_root(left), apart_root(right)) else {
+        unreachable!("an application pair has fixed roots");
+    };
+    let head::RootComparison::SameApplication(same) = head::compare_roots(left, right) else {
+        unreachable!("an application pair has one free symbol");
+    };
+    same
+}
+
+/// One pair of [`Term::apart_with`]'s search, decided at its roots where they decide.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn apart_step(
+    left: &Term,
+    right: &Term,
+    injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+) -> ApartStep {
+    if left == right {
+        return ApartStep::Undecided;
+    }
+    let (Some(left_root), Some(right_root)) = (apart_root(left), apart_root(right)) else {
+        return ApartStep::Undecided;
+    };
+    match head::compare_roots(left_root, right_root) {
+        head::RootComparison::Distinct(witness) => {
+            if distinct_roots_decide(left_root.root(), right_root.root()) {
+                ApartStep::Apart(head::Apart::of_roots(witness))
+            } else {
+                ApartStep::Undecided
+            }
+        }
+        head::RootComparison::SameApplication(_) => ApartStep::Arguments,
+        // Applications of one symbol with different arities are ill-formed.
+        head::RootComparison::ArityMismatch => ApartStep::Undecided,
+        head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root)
+            .map_or(ApartStep::Undecided, ApartStep::Apart),
+        head::RootComparison::Injections => {
+            let (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_operand,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_operand,
+                },
+            ) = (left.kind(), right.kind())
+            else {
+                unreachable!("two injection roots are injections");
+            };
+            if left_source == right_source && left_target == right_target {
+                // One injection is injective, so disjoint operands have disjoint images.
+                return ApartStep::Operands(left_operand.clone(), right_operand.clone());
+            }
+            let comparison = injections(left, right);
+            match comparison {
+                InjectionComparison::Distinct => head::Apart::of_injection_sorts(&comparison)
+                    .map_or(ApartStep::Undecided, ApartStep::Apart),
+                // The injections are equal exactly when these terms are, so a witness for
+                // the terms is one for the injections.
+                InjectionComparison::Compare(left, right) => ApartStep::Operands(left, right),
+                InjectionComparison::Undecided => ApartStep::Undecided,
+            }
+        }
+        head::RootComparison::Collections(_) => ApartStep::Undecided,
+    }
+}
+
+/// The witness for the outermost pair of [`Term::apart_with`]'s search from the witness for the
+/// innermost one: lifted through every application pair above it (an argument pair apart makes
+/// the applications apart) and passed through every injection pair.
+fn lift_apart(frames: &[ApartFrame], witness: head::Apart) -> head::Apart {
+    frames
+        .iter()
+        .rev()
+        .fold(witness, |witness, frame| match frame {
+            ApartFrame::Arguments { left, right, .. } => {
+                head::Apart::through_argument(same_application(left, right), witness)
+            }
+            ApartFrame::Operands => witness,
+        })
 }
 
 /// How two injections with different source sorts into one position compare; see
@@ -2853,6 +2964,21 @@ mod tests {
                 (false, Ordering::Less, Ordering::Greater)
             )
         );
+    }
+
+    /// Apartness of deep terms takes the same native stack whatever their height (a recursion per
+    /// level overflowed the small thread in every build): two equal chains are not apart, and two
+    /// that differ in their innermost free constant are.
+    #[test]
+    fn deep_terms_are_found_apart_on_a_small_stack() {
+        let apart = on_deep_chains(|a, a_copy, b| {
+            let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+            (
+                a.apart_with(a_copy, &undecided).is_some(),
+                a.apart_with(b, &undecided).is_some(),
+            )
+        });
+        assert_eq!(apart, (false, true));
     }
 
     fn constructor() -> Arc<Symbol> {

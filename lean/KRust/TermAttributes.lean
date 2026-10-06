@@ -290,7 +290,10 @@ def structDistinctZip (ev : Term → Bool) (injd : Term → Term → Bool) :
   | _, _             => false
 end
 
-/- `apart_with` (term.rs): `structurally_distinct_with` without the ground gate (A). -/
+/- `apart_with` (term.rs): `structurally_distinct_with` without the ground gate (A). The Rust
+searches the argument pairs depth-first with the pending pairs on a work list rather than by
+recursion; it finds a witness exactly when some pair of the search is apart, which is this
+disjunction. -/
 mutual
 def apart (ev : Term → Bool) (injd : Term → Term → Bool) (a b : Term) : Bool :=
   decide (a ≠ b) &&
