@@ -11,4 +11,5 @@ simplify.rounds = 7
 simplify.invocations = 9
 simplify.nodes_skipped_evaluated = 30
 simplify.builtin_evaluations = 1
+simplify.assumption_nodes = 2
 term.constructed = 15

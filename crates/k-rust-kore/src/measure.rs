@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 15;
+pub const COUNTER_SCHEMA_VERSION: u64 = 16;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -461,6 +461,9 @@ pub enum Counter {
     /// Term nodes a simplifier entry's report retraction searched for the subjects of its
     /// reports.
     SimplifyRetractionNodes,
+    /// Predicate nodes the predicate simplifier's assumption lookups walked: counted against
+    /// the largest assumed conjunct, and hashed or copied when no larger.
+    SimplifyAssumptionNodes,
     /// SMT queries issued, including result-cache hits.
     SmtQueries,
     /// SMT queries that ran a solver instance.
@@ -501,7 +504,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 75;
+    pub const COUNT: usize = 76;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -562,6 +565,7 @@ impl Counter {
         Counter::SimplifyEquationAttempts,
         Counter::SimplifyBuiltinEvaluations,
         Counter::SimplifyRetractionNodes,
+        Counter::SimplifyAssumptionNodes,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
@@ -644,6 +648,7 @@ impl Counter {
             Counter::SimplifyEquationAttempts => "simplify.equation_attempts",
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SimplifyRetractionNodes => "simplify.retraction_nodes",
+            Counter::SimplifyAssumptionNodes => "simplify.assumption_nodes",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",

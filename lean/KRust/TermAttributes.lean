@@ -37,9 +37,9 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
     application_raw       :325-347
     domain_value          :428-441, variable :443-449
     injection             :451-469  (flattens inj-of-inj, copies the child's attributes)
-    Term::map             :471-509  (entries.sort() on (key, value) pairs; a repeated key is kept, with the same value or not)
+    Term::map             :471-509  (order_collection on (key, value) pairs; a repeated key is kept, with the same value or not)
     Term::list            :511-560
-    Term::set             :562-595  (elements.sort(); a repeated element is kept: concatenation is nilpotent)
+    Term::set             :562-595  (order_collection; a repeated element is kept: concatenation is nilpotent)
     with_evaluated_cache  :611-618  (copies the kind, changes only `evaluated`)
     visit_symbols         :760-805, macro_or_alias_symbol :808-816
     structurally_distinct_after_normalization, certified_normal_application (KK-59)
@@ -473,17 +473,17 @@ structure TotalOrder (le : Term → Term → Bool) : Prop where
   trans   : ∀ a b c, le a b = true → le b c = true → le a c = true
   antisym : ∀ a b, le a b = true → le b a = true → a = b
 
-/-- The derived lexicographic order on `(Term, Term)` that `Vec::sort` uses (term.rs:488). -/
+/-- The derived lexicographic order on `(Term, Term)` that `order_collection` puts map entries in. -/
 def lexLe (le : Term → Term → Bool) (a b : Term × Term) : Bool :=
   (le a.1 b.1 && !le b.1 a.1) || (le a.1 b.1 && le b.1 a.1 && le a.2 b.2)
 
-/-- Every adjacent pair satisfies `r` (what `sort` leaves behind). -/
+/-- Every adjacent pair satisfies `r` (what `order_collection` leaves behind). -/
 def Adjacent {α} (r : α → α → Prop) : List α → Prop
   | a :: b :: rest => r a b ∧ Adjacent r (b :: rest)
   | _              => True
 
-/- What the constructors guarantee and the proof uses: map entries sorted (term.rs:488), set
-elements sorted (`sort`, :579). Neither constructor deduplicates: `ceil_free` checks
+/- What the constructors guarantee and the proof uses: map entries sorted (`order_collection`), set
+elements sorted (`order_collection`). Neither constructor deduplicates: `ceil_free` checks
 adjacent keys itself, and adjacent set elements likewise (a set keeps a repeated element).
 Hypothesis: every term the public constructors build satisfies `WF`, checked by the property test
 `constructed_collections_are_sorted` of k-rust-backend `tests/backend/term_order.rs`. -/
