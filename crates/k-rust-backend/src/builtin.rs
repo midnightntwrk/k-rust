@@ -887,23 +887,23 @@ fn int_pow_within(arguments: &[Term], floor: u64) -> HookResult<BuiltinResult> {
             },
         ))
     };
-    let Some(mut exponent_bits) = exponent.to_u64() else {
+    let Some(mut remaining) = exponent.to_u64() else {
         return too_large(describe_int(&base));
     };
-    let size = power_size(&base, exponent_bits, limit);
+    let size = power_size(&base, remaining, limit);
     if size == PowerSize::TooLarge {
         return too_large(describe_int(&base));
     }
     // The base is squared in place below; an undecided size is checked after computing.
     let undecided_base = (size == PowerSize::Undecided).then(|| describe_int(&base));
     let mut result = BigInt::one();
-    while exponent_bits != 0 {
+    while remaining != 0 {
         crate::stop::check()?;
-        if exponent_bits & 1 == 1 {
+        if remaining & 1 == 1 {
             result *= &base;
         }
-        exponent_bits >>= 1;
-        if exponent_bits != 0 {
+        remaining >>= 1;
+        if remaining != 0 {
             base = &base * &base;
         }
     }
