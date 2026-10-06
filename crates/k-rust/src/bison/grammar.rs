@@ -31,7 +31,8 @@
 //! `applyPriority` names, else its first and last item when they are nonterminals. A subsort child of a restricted sort is restricted too when it derives
 //! an excluded label at its root, which one indexed DFS per child decides in O(productions);
 //! the productions that restriction leaves deriving no finite tree are then removed by two
-//! productivity worklists, linear in the exported items. Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! productivity worklists, linear in the exported items; a third, after rendering, decides whether
+//! the start sort derives a program at all. Reachability is a visited-set DFS, O(reachable sorts * productions).
 //! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -57,6 +58,13 @@ enum GrammarError {
     CircularOverload(Vec<ProductionId>),
     MissingStartProduction {
         sort: Sort,
+    },
+    /// The start sort has productions, but none derives a finite program: each needs an operand
+    /// of a sort that derives none. Each entry is a production's rendered items with those
+    /// operand sorts.
+    UnproductiveStartSort {
+        sort: Sort,
+        productions: Vec<(String, Vec<Sort>)>,
     },
     MissingSemanticAction {
         sort: Sort,
@@ -114,6 +122,22 @@ impl fmt::Display for GrammarError {
                     "program start sort {sort} has no Bison production"
                 )
             }
+            Self::UnproductiveStartSort { sort, productions } => write!(
+                formatter,
+                "program start sort {sort} derives no program: each of its productions needs a sort that derives none ({})",
+                productions
+                    .iter()
+                    .map(|(items, operands)| format!(
+                        "{items} needs {}",
+                        operands
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
             Self::MissingSemanticAction { sort } => {
                 write!(
                     formatter,
@@ -321,6 +345,45 @@ fn render_inner(
             )?;
         }
         output.push_str(";\n");
+    }
+    // Bison requires the start symbol to derive a sentence. A start sort whose productions all
+    // need a sort without finite programs has no programs at all, the same empty program
+    // language as a start sort without productions, so it is reported the same way, by sort.
+    // The check follows rendering so that a production's own error, which names the
+    // production and its location, is reported first.
+    let productive = productive_sorts(&productions, Sort::clone);
+    if !productive.contains(start) {
+        return Err(GrammarError::UnproductiveStartSort {
+            sort: start.clone(),
+            productions: productions
+                .iter()
+                .filter(|production| &production.result == start)
+                .map(|production| {
+                    // Report the source production: the exported items differ from it only in
+                    // operand sorts that restriction renamed, position by position.
+                    let source = if let Sentence::Production { items, .. } = &production.source
+                        && items.len() == production.items.len()
+                    {
+                        items
+                    } else {
+                        &production.items
+                    };
+                    let mut missing = Vec::new();
+                    for (exported, written) in production.items.iter().zip(source) {
+                        if let (
+                            ProductionItem::NonTerminal { sort, .. },
+                            ProductionItem::NonTerminal { sort: written, .. },
+                        ) = (exported, written)
+                            && !productive.contains(sort)
+                            && !missing.contains(written)
+                        {
+                            missing.push(written.clone());
+                        }
+                    }
+                    (render_items(source), missing)
+                })
+                .collect(),
+        });
     }
     output.push_str(
         "\n%%\n\nvoid yyerror (YYLTYPE *loc, void *scanner, const char *s) {\n\
@@ -538,6 +601,19 @@ fn derived_root_labels(
         }
     }
     labels
+}
+
+/// The items of a production as K syntax: terminals quoted, nonterminals by sort.
+fn render_items(items: &[ProductionItem]) -> String {
+    items
+        .iter()
+        .map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => sort.to_string(),
+            ProductionItem::Terminal(text) => quote_c_string(text),
+            ProductionItem::RegexTerminal { regex, .. } => format!("r{}", quote_c_string(regex)),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Remove every production that derives no finite tree only because of restriction.
@@ -2727,6 +2803,13 @@ mod tests {
         let sentences = vec![
             production("Big", vec![nonterminal("Small")], None, &[]),
             production("BigArg", vec![nonterminal("SmallArg")], None, &[]),
+            // A program of the argument sort, so the start sort has programs.
+            production(
+                "SmallArg",
+                vec![ProductionItem::Terminal("s".into())],
+                Some("s"),
+                &[],
+            ),
             production(
                 "Small",
                 vec![
@@ -2816,6 +2899,13 @@ mod tests {
     fn equal_result_overload_returns_the_lesser_application_directly() {
         let sentences = vec![
             production("BigArg", vec![nonterminal("SmallArg")], None, &[]),
+            // A program of the argument sort, so the start sort has programs.
+            production(
+                "SmallArg",
+                vec![ProductionItem::Terminal("s".into())],
+                Some("s"),
+                &[],
+            ),
             production(
                 "R",
                 vec![
@@ -2848,6 +2938,13 @@ mod tests {
     fn overload_k_argument_recovers_only_a_canonical_singleton() {
         let sentences = vec![
             production("K", vec![nonterminal("KItem")], None, &[]),
+            // A program of the argument sort, so the start sort has programs.
+            production(
+                "KItem",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                &[],
+            ),
             production(
                 "R",
                 vec![ProductionItem::Terminal("f".into()), nonterminal("KItem")],
@@ -3102,6 +3199,45 @@ mod tests {
                 .to_string()
                 .contains("program start sort Missing has no Bison production")
         );
+    }
+
+    /// A start sort whose every production needs a program of a sort that has none (here only
+    /// itself, as a sort declared bare whose only production in the syntax module is a
+    /// conditional over it) has no programs; the export reports the sort and the productions
+    /// instead of handing Bison a start symbol that derives no sentence.
+    #[test]
+    fn rejects_a_start_sort_that_derives_no_program() {
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production("Bool", vec![terminal("true")], Some("true"), &[]),
+            production(
+                "Sim",
+                vec![
+                    terminal("#if"),
+                    nonterminal("Bool"),
+                    terminal("#then"),
+                    nonterminal("Sim"),
+                    terminal("#else"),
+                    nonterminal("Sim"),
+                    terminal("#fi"),
+                ],
+                Some("ite"),
+                &[],
+            ),
+            production("Pgm", vec![nonterminal("Sim")], None, &[]),
+            production("Pgm", vec![terminal("skip")], Some("skip"), &[]),
+        ];
+
+        for mode in [Mode::Lr, Mode::Glr] {
+            let error = rendered(&sentences, "Sim", mode).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "program start sort Sim derives no program: each of its productions needs a sort that derives none (\"#if\" Bool \"#then\" Sim \"#else\" Sim \"#fi\" needs Sim)"
+            );
+        }
+        // A sort with programs beside the empty one still exports, without the empty sort.
+        let output = rendered(&sentences, "Pgm", Mode::Lr).unwrap();
+        assert!(output.contains("top: SortPgm__"), "{output}");
     }
 
     /// `parser.bison.priorities` against the priority filter K's documentation defines ("Symbol

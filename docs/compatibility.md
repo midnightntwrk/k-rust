@@ -863,6 +863,7 @@ An unknown or untranslatable flag must remain explicitly unsupported rather than
 The `declined-capability` category records steps requiring an interface with no Rust equivalent.
 Semantic input selection, warning handling, execution status, and configuration initialization remain testable contracts; this policy does not exclude them.
 The source-plus-flags interface includes standalone Bison parser generation and executable or shared-library parser artifacts, while relying on the system Bison, Flex, and C compiler rather than implementing those tools in Rust.
+A generated parser accepts exactly the programs of the start sort in the syntax module; when that sort has no programs there (no production, or every production needs a sort without programs, as for a sort declared bare whose program syntax lives in a module the syntax module does not import), there is no Bison grammar for it, and generation fails before Bison with an error naming the sort and those productions.
 
 `krun --output captured` is an explicit ordinary-execution mode for definition-computed console output.
 It uses buffered `--io off` stream semantics with pre-buffered standard input, requires exactly one complete unconstrained terminal execution leaf and exactly one structurally identified stdout stream buffer, writes that buffer to process stdout once, and suppresses KORE rendering.
