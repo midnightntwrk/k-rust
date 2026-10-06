@@ -138,10 +138,12 @@ def main() -> int:
              "--output-definition", temporary / "out"],
             timeout=180,
         )
-        k.finish()
     locations = [tuple(map(int, match.groups())) for match in LOCATION.finditer(process.stderr)]
     if process.returncode == 0 or not any(location[:2] == (line, column) for location in locations):
         raise GateError("K frontend failure did not select the exact induced generated range")
+    # Only a passing check completes the snapshot, so a failing refresh
+    # rewrites neither the committed snapshot nor the staged one.
+    k.finish()
     print(json.dumps({
         "artifact_generated_location": [artifact_line, artifact_column],
         "authored_range": origin,
