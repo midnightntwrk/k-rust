@@ -1542,14 +1542,6 @@ fn check_case(
                 "the fold gives {folded:?} where the value is larger than the result bound"
             ));
         }
-        // The fold does not compute with parameters above 2^31 - 1, defined or not.
-        (Expect::Undefined, Err(Unfolded::Unsupported(_)))
-            if arguments.iter().any(
-                |argument| matches!(argument, Arg::Int(value) if *value > BigInt::from(i32::MAX)),
-            ) =>
-        {
-            tally.undefined += 1;
-        }
         (Expect::Undefined, Err(unfolded)) => {
             return Err(format!(
                 "the fold leaves {unfolded:?} where the hook is undefined"
