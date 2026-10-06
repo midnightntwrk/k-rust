@@ -1,0 +1,48 @@
+# cargo-nextest configuration for the workspace.
+#
+# nextest runs every test in its own process, up to `--test-threads` (by default the number of
+# CPUs) at a time, and counts each test as one thread unless an override below says otherwise.
+# A test that spawns `krust` waits for the child, so it uses one CPU at a time and needs no
+# override. Doc-tests do not run under nextest; run them with `cargo test --doc`.
+
+[test-groups]
+# Tests that measure the machine: peak RSS and the wall-clock timing residual of a `krust
+# kcompile` child, judged against fixed bounds.
+machine-measurement = { max-threads = 1 }
+
+[profile.default]
+# Report a test as slow after each minute, and stop it after ten. The slowest tests take about
+# two minutes on a loaded workstation, so ten minutes turns only a hang into a failure.
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# The measurement tests run alone, so that other tests' CPU and memory contention does not move
+# the quantities they bound. `measure.py` stops their child after 900 seconds, so nextest waits
+# longer than that before stopping the test itself.
+#
+# A test that needs every slot waits until all running tests finish, and nothing else starts
+# meanwhile. The tests below that reserve more than one slot therefore have the highest
+# priority: they start first, before any long test holds a slot.
+[[profile.default.overrides]]
+filter = 'package(k-rust) & (binary(kompile_memory) | binary(timings_residual) | binary(kompile_scaling))'
+test-group = "machine-measurement"
+threads-required = "num-test-threads"
+priority = 100
+slow-timeout = { period = "60s", terminate-after = 20 }
+
+# This test reruns its own binary under libtest, whose default thread count is the number of
+# CPUs, so it reserves that many slots instead of one.
+[[profile.default.overrides]]
+filter = 'package(k-rust) & binary(inner_rules) & test(=every_rule_test_passes_under_checked_inference)'
+threads-required = "num-cpus"
+priority = 100
+
+# The freshness gate's advisory report line names the report file; print it on success too.
+[[profile.default.overrides]]
+filter = 'package(algo-graph) & binary(freshness)'
+success-output = "final"
+
+# A profile for continuous integration: run every test even after a failure, as
+# `cargo test --no-fail-fast` does, and print each failure's output at the end as well.
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
