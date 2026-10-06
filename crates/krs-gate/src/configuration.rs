@@ -254,7 +254,8 @@ impl Configuration {
 
     /// Assemble `initGeneratedTopCell` from surface text for the declared variables.
     ///
-    /// [`ConfigurationAssembler`] binds `$PGM` first, at its declared sort with the syntax module, and then the remaining names in lexical order.
+    /// [`ConfigurationAssembler`] binds `$PGM` first with the syntax module, and then the remaining names in lexical order.
+    /// `$PGM` starts at its declared sort, or at `KItem` when it is declared `K`, as K's generated program parser does; krun takes this start sort from `--sort`.
     /// `$IO` and `$STDIN`, when declared and omitted, receive stream defaults with IO off and empty stdin.
     /// Each supplied variable is also rendered on its own through the surface pipeline that cell expectations use, for routes that pass a value as KORE.
     ///
@@ -284,7 +285,12 @@ impl Configuration {
                     .variables
                     .get(name)
                     .ok_or("definition has no configuration variable `$PGM`")?;
-                self.assembler.program(sort, source)?;
+                let start_sort = if sort.is_builtin(BuiltinSort::K) {
+                    KastSort::builtin(BuiltinSort::KItem)
+                } else {
+                    sort.clone()
+                };
+                self.assembler.program(&start_sort, source)?;
             } else {
                 self.assembler.bind(name, source)?;
             }
@@ -403,5 +409,35 @@ endmodule
             "\\dv{SortInt{}}(\"3\")"
         );
         assert_eq!(configured["variables"]["PGM"]["sort"], "SortPgm{}");
+    }
+
+    #[test]
+    fn configure_starts_a_k_declared_program_at_kitem() {
+        let parsed = k_rust::outer::parse(
+            "program.k",
+            r#"
+module MAIN
+  syntax Command ::= "run" [symbol(run)]
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(ConfigurationContext {
+            frontend_definition: loaded.into_definition(),
+            configuration_variables: BTreeMap::from([(
+                "PGM".to_owned(),
+                Sort::builtin(BuiltinSort::K),
+            )]),
+        })
+        .unwrap();
+        let configured = configuration
+            .configure(json!({"PGM": "run"}).as_object().unwrap())
+            .unwrap();
+        let pattern = configured["pattern"].as_str().unwrap();
+        assert!(pattern.contains("Lblrun{}()"), "{pattern}");
     }
 }
