@@ -98,9 +98,18 @@ pub(crate) const UNFOLDING_LIMIT: u64 = 1 << 22;
 /// its own size): a release build loaded it in 2.4 s more, and with 1.4 GB more peak memory, than
 /// the same definition with those bodies emptied (about 47 ns and 28 bytes of peak memory per
 /// unit, the internal terms built from the unfolded axioms included). The factor leaves about
-/// four times that ratio for definitions of the same shape with more rules, and bounds what a
-/// 1 MB KORE text (about 0.4 million units) can add to about 14 million units, about 400 MB at
-/// the same cost per unit.
+/// four times that ratio for definitions of the same shape with more rules.
+///
+/// What a unit costs once the unfolded axioms are internalized depends on its shape, since a
+/// unit is a node or a byte of a name: those closed bodies have long names, while a chain of
+/// aliases over one-byte variables, applied by an axiom under `\not`, costs about 235 bytes of
+/// peak memory and 290 ns per unit (7.9 million units took 1.8 GB and 2.3 s more than the same
+/// module without the chain), the most measured. So 1 MB of KORE text, about 0.4 to 0.65 million
+/// units, may make one operation build from about 0.4 GB up to about 5 GB. Patterns written out
+/// cost at least as much per unit as their unfolding: the same variable shape written out, as a
+/// 3.9 MB module of 2.4 million units, took about 460 bytes and 600 ns per unit to add, parsing
+/// included. So what the factor bounds is the ratio: unfolding costs at most about 32 times what
+/// loading the patterns the operation supplied costs.
 pub(crate) const UNFOLDING_FACTOR: u64 = 32;
 
 #[derive(Clone, Debug)]
