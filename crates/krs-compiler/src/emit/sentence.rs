@@ -14,7 +14,7 @@ use krs_ir_levels::{
 };
 
 use super::{
-    EmitContext, EmitError, Writer, quoted,
+    EmitContext, EmitError, Writer, quoted_kstring, quoted_outer,
     term::{render_context_term, render_rewrite, render_term},
 };
 
@@ -87,13 +87,13 @@ fn emit_production(
         }
         let start = writer.source.len();
         match item.kind() {
-            GrammarProductionItemKind::Terminal { text } => writer.push(&quoted(text)),
+            GrammarProductionItemKind::Terminal { text } => writer.push(&quoted_outer(text)),
             GrammarProductionItemKind::NonTerminal { sort, .. } => {
                 writer.push(context.sort_name_ref(sort)?);
             }
             GrammarProductionItemKind::RegexTerminal { regex, .. } => {
                 writer.push("r");
-                writer.push(&quoted(regex));
+                writer.push(&quoted_outer(regex));
             }
         }
         writer.record(item.origin().key(), start, writer.source.len())?;
@@ -384,19 +384,19 @@ fn emit_fixed_cell(
             CellAttribute::Color { origin, value } => {
                 let attribute_start = writer.source.len();
                 writer.push(" color=");
-                writer.push(&quoted(value.as_str()));
+                writer.push(&quoted_kstring(value.as_str()));
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
             CellAttribute::Multiplicity { origin, value } => {
                 let attribute_start = writer.source.len();
                 writer.push(" multiplicity=");
-                writer.push(&quoted(value.as_str()));
+                writer.push(&quoted_kstring(value.as_str()));
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
             CellAttribute::CollectionType { origin, value } => {
                 let attribute_start = writer.source.len();
                 writer.push(" type=");
-                writer.push(&quoted(value.as_str()));
+                writer.push(&quoted_kstring(value.as_str()));
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
         }

@@ -7,7 +7,7 @@ use krs_ir_levels::{
     k_surface::{SentenceVariables, VariableNaming},
 };
 
-use super::{EmitContext, term::render_term, token::TokenLexicon};
+use super::{EmitContext, quoted_kstring, quoted_outer, term::render_term, token::TokenLexicon};
 
 fn node(key: &str) -> NodeOrigin {
     krs_ir::testing::origin_in(
@@ -360,4 +360,27 @@ fn tokens_print_bare_only_when_k_lexes_them_back() {
     )
     .unwrap();
     assert!(render_term(&unspellable, &context, &SentenceVariables::default(), false).is_err());
+}
+
+#[test]
+fn outer_syntax_literals_use_only_the_outer_lexer_escapes() {
+    assert_eq!(quoted_outer("if"), r#""if""#);
+    assert_eq!(quoted_outer("a\"b\\c"), r#""a\"b\\c""#);
+    assert_eq!(quoted_outer("\n\r\t"), r#""\n\r\t""#);
+    // Outer.jj reads any other character literally; `\u{..}` would not lex.
+    assert_eq!(quoted_outer("\u{1b}[0m\u{7f}"), "\"\u{1b}[0m\u{7f}\"");
+    assert_eq!(quoted_outer("é→"), "\"é→\"");
+    assert_eq!(quoted_outer(r"[0-9]+\."), r#""[0-9]+\\.""#);
+}
+
+#[test]
+fn cell_properties_use_kstring_escapes() {
+    assert_eq!(quoted_kstring("red"), r#""red""#);
+    assert_eq!(quoted_kstring("a\"b\\c"), r#""a\"b\\c""#);
+    assert_eq!(quoted_kstring("\n\r\t\u{c}"), r#""\n\r\t\f""#);
+    assert_eq!(
+        quoted_kstring("\u{0}\u{1b}\u{7f}\u{9f}"),
+        r#""\x00\x1B\x7F\x9F""#
+    );
+    assert_eq!(quoted_kstring("é→"), "\"é→\"");
 }

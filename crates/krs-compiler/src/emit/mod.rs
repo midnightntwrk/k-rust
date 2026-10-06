@@ -506,7 +506,12 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
     }
 }
 
-fn quoted(value: &str) -> String {
+/// Quotes a string literal of K's outer syntax (terminals and regex terminals).
+///
+/// The outer lexer (`Outer.jj` `STRING` and `STRING_REGEX`) accepts only the escapes
+/// `\"`, `\\`, `\n`, `\r`, and `\t`, and reads every other character other than a
+/// raw newline literally, so every other character is written as itself.
+fn quoted_outer(value: &str) -> String {
     let mut result = String::from("\"");
     for character in value.chars() {
         match character {
@@ -515,9 +520,32 @@ fn quoted(value: &str) -> String {
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
+            character => result.push(character),
+        }
+    }
+    result.push('"');
+    result
+}
+
+/// Quotes a `KString`, the token sort of configuration cell properties.
+///
+/// `KString` (`kast.md`) accepts the escapes `\"`, `\\`, `\n`, `\r`, `\t`, `\f`, and
+/// `\xHH`, and forbids a raw newline or carriage return; other control characters are
+/// written as `\xHH` so the emitted file stays printable.
+fn quoted_kstring(value: &str) -> String {
+    let mut result = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\u{c}' => result.push_str("\\f"),
             character if character.is_control() => {
                 use std::fmt::Write as _;
-                write!(result, "\\u{{{:x}}}", u32::from(character))
+                // Every Unicode control character is below U+0100.
+                write!(result, "\\x{:02X}", u32::from(character))
                     .expect("writing to String cannot fail");
             }
             character => result.push(character),
