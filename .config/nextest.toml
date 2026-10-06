@@ -54,8 +54,10 @@ failure-output = "immediate-final"
 # every sort inference runs both engines and fails on a disagreement, and returns what the
 # default mode returns when they agree. k-rust's `measure_ratchet` pins the work of one engine,
 # so it returns early under checked mode; it is left out here, and `scripts/measure-ratchet.sh`
-# runs it in the default mode.
+# runs it in the default mode. `k-rust-wasm` ships without Z3, and in a workspace build Cargo
+# compiles it with the Z3 features other members select, so its tests run in CI's portable steps
+# instead.
 [profile.ci-checked]
 fail-fast = false
 failure-output = "immediate-final"
-default-filter = 'not binary_id(k-rust::measure_ratchet)'
+default-filter = 'not (binary_id(k-rust::measure_ratchet) | package(k-rust-wasm))'

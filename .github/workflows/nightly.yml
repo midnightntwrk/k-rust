@@ -1,0 +1,49 @@
+name: Nightly
+
+# Checks that do not run on every push. The schedule and a manual dispatch run all of them on the
+# default branch; CI calls this workflow on every push and pull request with the checks whose
+# trigger paths changed (scripts/ci-changed-paths.sh), and the others are skipped.
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      portable-suite:
+        description: Run the full portable test suite
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  portable-suite:
+    name: Full portable suite
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.portable-suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
+      # Every test of the crates the WebAssembly package ships, built without Z3 inference, MPFR
+      # constant folding or the backend's Z3 solver.
+      - name: Test the portable feature set
+        run: >-
+          cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
+          -p k-rust -p k-rust-wasm -p k-rust-backend

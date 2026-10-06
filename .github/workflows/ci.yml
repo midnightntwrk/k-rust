@@ -11,6 +11,52 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Decides which path-triggered checks this push or pull request needs. Those checks run in
+  # `path-triggered` below, and every night on main (nightly.yml).
+  changes:
+    name: Select path-triggered checks
+    runs-on: ubuntu-latest
+    outputs:
+      portable-suite: ${{ steps.select.outputs.portable-suite }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compare the changed paths with each check's triggers
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_FORCED: ${{ github.event.forced }}
+          PULL_REQUEST_BASE: ${{ github.event.pull_request.base.sha }}
+          PULL_REQUEST_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          case "$EVENT_NAME" in
+            push)
+              forced=()
+              if [[ $PUSH_FORCED == true ]]; then forced=(--forced); fi
+              scripts/ci-changed-paths.sh --push "$PUSH_BEFORE" "$GITHUB_SHA" "${forced[@]}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request)
+              scripts/ci-changed-paths.sh --pull-request "$PULL_REQUEST_BASE" "$PULL_REQUEST_HEAD" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              scripts/ci-changed-paths.sh --all >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+  # A check whose trigger paths did not change is skipped at the job level, which GitHub reports
+  # as a skipped check that counts as passing, so a required check never waits for it.
+  path-triggered:
+    name: Path-triggered
+    needs: changes
+    uses: ./.github/workflows/nightly.yml
+    with:
+      portable-suite: ${{ needs.changes.outputs.portable-suite == 'true' }}
+
   msrv:
     name: Rust 1.88 MSRV
     runs-on: ubuntu-latest
@@ -128,8 +174,16 @@ jobs:
       - name: Check portable feature set
         run: cargo clippy -p k-rust -p k-rust-wasm --all-targets --no-default-features --locked -- -D warnings
 
-      - name: Test portable feature set
-        run: cargo test -p k-rust -p k-rust-wasm --no-default-features --locked
+      # The subset whose tests run only in the portable build; the full portable suite is
+      # path-triggered and nightly (nightly.yml). Checked inference in the Z3 step compares the
+      # portable engine's decisions with Z3's on every other parse.
+      - name: Test the portable feature set's subset
+        run: >-
+          cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
+          -p k-rust -p k-rust-wasm --lib --test inner_parser --test definition_regex
+
+      - name: Test the backend without Z3
+        run: cargo nextest run --locked --no-fail-fast --profile ci -p k-rust-backend
 
       - name: Check WebAssembly compatibility
         run: cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
