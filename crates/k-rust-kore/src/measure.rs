@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 14;
+pub const COUNTER_SCHEMA_VERSION: u64 = 15;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -365,6 +365,11 @@ pub enum Counter {
     KompileMacroApplications,
     /// Terms macro expansion visited, expanding their children and trying their rules.
     KompileMacroExpansionVisits,
+    /// Term nodes macro expansion walked to measure a term (its depth), apart from expanding it.
+    KompileMacroMeasuredNodes,
+    /// Whole copies of a macro application recorded for a retry of its rules, each compared
+    /// with the term at its path when it is retried.
+    KompileMacroSubjectWalks,
     /// Candidate rules scanned while building owise guards.
     KompileOwiseCompetitorScans,
     /// Membership probes used to deduplicate provenance links.
@@ -493,7 +498,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 72;
+    pub const COUNT: usize = 74;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -508,6 +513,8 @@ impl Counter {
         Counter::KompileInjectionsInserted,
         Counter::KompileMacroApplications,
         Counter::KompileMacroExpansionVisits,
+        Counter::KompileMacroMeasuredNodes,
+        Counter::KompileMacroSubjectWalks,
         Counter::KompileOwiseCompetitorScans,
         Counter::ProvenanceLinkDedupProbes,
         Counter::ProvenanceReceiptRenders,
@@ -585,6 +592,8 @@ impl Counter {
             Counter::KompileInjectionsInserted => "kompile.injections_inserted",
             Counter::KompileMacroApplications => "kompile.macro_applications",
             Counter::KompileMacroExpansionVisits => "kompile.macro_expansion_visits",
+            Counter::KompileMacroMeasuredNodes => "kompile.macro_measured_nodes",
+            Counter::KompileMacroSubjectWalks => "kompile.macro_subject_walks",
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
             Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",

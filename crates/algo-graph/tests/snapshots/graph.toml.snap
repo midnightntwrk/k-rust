@@ -86,6 +86,34 @@ symbol = "Counter::KompileMacroExpansionVisits"
 
 [[node]]
 kind = "observation"
+id = "KompileMacroMeasuredNodes"
+provenance = "table"
+area = "kompile"
+name = "KompileMacroMeasuredNodes"
+table = "Counter::ALL"
+registry_name = "kompile.macro_measured_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileMacroMeasuredNodes"
+
+[[node]]
+kind = "observation"
+id = "KompileMacroSubjectWalks"
+provenance = "table"
+area = "kompile"
+name = "KompileMacroSubjectWalks"
+table = "Counter::ALL"
+registry_name = "kompile.macro_subject_walks"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileMacroSubjectWalks"
+
+[[node]]
+kind = "observation"
 id = "KompileOwiseCompetitorScans"
 provenance = "table"
 area = "kompile"
@@ -4927,7 +4955,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = applications recorded for a retry over the sentence: one per failed try of an application whose rule set has a head fixing a sort parameter, and one per macro-headed proper ancestor (at most h) of each retry that rewrites; G = nodes of the largest application recorded for a retry, at most N; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
@@ -5014,15 +5042,35 @@ symbol = "Expander::new"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::shape"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::measure"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::settled_parts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Identities::identify"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Chain::repeats"
 
 [[node.cost]]
 mode = "one sentence, no macro rule with a parametric head"
-bound = "O((N + W x (P + U)) x R + W x S)"
+bound = "O((N + W x (P + U)) x R + K)"
 
 [[node.cost]]
 mode = "one sentence, some macro rule with a parametric head (typed in place)"
-bound = "O((W + 1) x (N x (h + R) + T))"
+bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h + R + G))"
 
 [[node.cost]]
 mode = "Expander construction per module"
@@ -8934,6 +8982,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "kompile.macros.expand"
 to = "KompileMacroExpansionVisits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.macros.expand"
+to = "KompileMacroMeasuredNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.macros.expand"
+to = "KompileMacroSubjectWalks"
 provenance = "declared"
 
 [[edge]]

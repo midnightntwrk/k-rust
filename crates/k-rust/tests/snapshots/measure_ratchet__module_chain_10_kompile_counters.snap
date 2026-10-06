@@ -12,6 +12,7 @@ kompile.production_catalogs_built = 726
 kompile.partial_orders_built = 1359
 kompile.injections_inserted = 450
 kompile.macro_expansion_visits = 7370
+kompile.macro_measured_nodes = 14740
 kompile.owise_competitor_scans = 379
 provenance.link_dedup_probes = 149261
 kompile.sentence_copies = 30449
