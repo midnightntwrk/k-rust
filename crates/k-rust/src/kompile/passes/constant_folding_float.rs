@@ -842,6 +842,22 @@ mod tests {
         assert_eq!(special.exponent_bits, 30);
     }
 
+    /// `rootFloat(F, N)` is the Nth root: the even root of -0 is +0 and the odd root -0, so
+    /// `sqrtFloat(-0.0)`, which `domains.md` defines as `rootFloat(F, 2)`, is +0.
+    #[test]
+    fn roots_negative_zero_by_the_parity_of_the_degree() {
+        let root = |degree: i64| match evaluate(
+            "FLOAT.root",
+            &[Value::Float(float("-0.0")), Value::Int(degree.into())],
+        ) {
+            Some(Ok(Value::Float(value))) => value.token(),
+            other => panic!("rootFloat(-0.0, {degree}) gave {other:?}"),
+        };
+        assert_eq!(root(2), "0e+00p53x11");
+        assert_eq!(root(4), "0e+00p53x11");
+        assert_eq!(root(3), "-0e+00p53x11");
+    }
+
     /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build
     /// it or a token names it.
     #[test]

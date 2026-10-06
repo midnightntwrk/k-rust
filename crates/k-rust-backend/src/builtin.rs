@@ -1793,8 +1793,11 @@ mod tests {
         }
     }
 
+    /// `rootFloat(F, 2)` is the root of degree 2, IEEE 754 rootn(F, 2): the square root, except
+    /// that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
+    /// `rootFloat(F, 2)`). Other degrees are not implemented.
     #[test]
-    fn float_root_uses_native_ieee_square_root_only_for_degree_two() {
+    fn float_root_of_degree_two_is_the_ieee_even_root() {
         let cases = [
             ("4.0f", "2.00000000e+00p24x8"),
             ("2.0", "1.4142135623730951e+00p53x11"),
@@ -1803,7 +1806,8 @@ mod tests {
             ("Infinityf", "Infinityp24x8"),
             ("-Infinity", "NaNp53x11"),
             ("0.0", "0e+00p53x11"),
-            ("-0.0f", "-0e+00p24x8"),
+            ("-0.0f", "0e+00p24x8"),
+            ("-0.0", "0e+00p53x11"),
         ];
         for (value, expected) in cases {
             assert_eq!(

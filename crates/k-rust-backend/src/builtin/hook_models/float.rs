@@ -310,11 +310,13 @@ fn integral(format: Format, bits: u64, direction: Ordering) -> u64 {
     round_scaled(format, negative, &magnitude, 0)
 }
 
+/// `rootFloat(x, 2)`: the Nth root of degree 2, which is IEEE 754 rootn(x, 2) and differs from
+/// squareRoot only at -0, whose even root is +0.
 fn square_root(format: Format, bits: u64) -> u64 {
     match classify(format, bits) {
         Exact::Nan | Exact::Infinite(true) => format.nan(),
         Exact::Infinite(false) => bits,
-        Exact::Finite(_, n, _) if n.is_zero() => bits,
+        Exact::Finite(_, n, _) if n.is_zero() => 0,
         Exact::Finite(true, ..) => format.nan(),
         Exact::Finite(false, mut n, mut e) => {
             if e.rem_euclid(2) == 1 {

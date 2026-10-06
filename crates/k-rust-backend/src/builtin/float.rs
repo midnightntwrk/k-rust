@@ -120,10 +120,13 @@ impl KFloat {
         }
     }
 
-    fn sqrt(self) -> Self {
+    /// `rootFloat(x, 2)`, the root of degree 2: IEEE 754 rootn(x, 2), which is squareRoot
+    /// except that the even root of -0 is +0. (`sqrtFloat` is the K rule `rootFloat(F, 2)`.)
+    fn second_root(self) -> Self {
+        // `value == 0.0` holds for either zero.
         match self {
-            Self::Binary32(value) => Self::Binary32(value.sqrt()),
-            Self::Binary64(value) => Self::Binary64(value.sqrt()),
+            Self::Binary32(value) => Self::Binary32(if value == 0.0 { 0.0 } else { value.sqrt() }),
+            Self::Binary64(value) => Self::Binary64(if value == 0.0 { 0.0 } else { value.sqrt() }),
         }
     }
 
@@ -254,7 +257,7 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     }
-    Ok(BuiltinResult::Value(float_term(value.sqrt())))
+    Ok(BuiltinResult::Value(float_term(value.second_root())))
 }
 
 fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {

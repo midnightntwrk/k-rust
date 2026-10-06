@@ -1450,20 +1450,6 @@ fn libm_model(hook: &str, arguments: &[Arg]) -> Option<Fl> {
     Some(in_format(first, operation(first.as_f64(), second)))
 }
 
-/// Cases whose result the hook's documentation leaves open, so that neither evaluator is wrong.
-fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
-    match hook {
-        // `rootFloat(-0.0, 2)`: a k-th root of a negative zero is +0 for even k, while
-        // `sqrtFloat`, which `domains.md` defines as `rootFloat(F, 2)`, is -0 under IEEE 754.
-        "FLOAT.root" => {
-            standard_float(arguments[0].float())
-                .is_some_and(|value| value.as_f64() == 0.0 && value.as_f64().is_sign_negative())
-                && (arguments[1].int() % BigInt::from(2)).is_zero()
-        }
-        _ => false,
-    }
-}
-
 #[derive(Default, Debug)]
 struct Tally {
     values: usize,
@@ -1508,7 +1494,6 @@ fn check_case(
             }
             documented
         }
-        None if ambiguous(hook, arguments) => Expect::Unchecked,
         None => backend.unwrap_or_else(|| model_expectation(hook, arguments)),
     };
 
