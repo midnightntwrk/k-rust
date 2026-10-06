@@ -409,7 +409,7 @@ status = "current"
 coverage = "advanced"
 chapter = "scale"
 prerequisites = ["syntax-templates"]
-evidence = ["crates/krs-macros/src/lib.rs", "semantics/kmir/src/lib.rs"]
+evidence = ["crates/krs-macros/src/lib.rs", "crates/krs-macros/tests/fixtures/positive/src/main.rs"]
 note = "IMP imports Id, so the tour needs a separate authored-token example."
 
 [[concept]]
@@ -466,7 +466,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-evaluation"
 prerequisites = ["constructor-families", "symbolic-terms"]
-evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/src/rule.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/src/rule/block.rs"]
 gloss = "A readable rule table turns each named pattern-to-result row into an independent semantic sentence."
 
 [[concept]]
@@ -572,7 +572,7 @@ coverage = "advanced"
 chapter = "scale"
 prerequisites = ["nested-cells"]
 evidence = [
-    "crates/krs-syntax/src/attribute.rs",
+    "crates/krs-syntax/src/attribute/state.rs",
     "crates/krs-macros/tests/fixtures/positive/src/main.rs",
     "semantics/kevm/src/lib.rs",
 ]
@@ -585,7 +585,7 @@ status = "qualified"
 coverage = "advanced"
 chapter = "scale"
 prerequisites = ["nested-cells"]
-evidence = ["crates/krs-syntax/src/attribute.rs", "semantics/kevm/src/lib.rs"]
+evidence = ["crates/krs-syntax/src/attribute/state.rs", "semantics/kevm/src/lib.rs"]
 note = "The parser accepts multiplicity star with Bag, List, Map, or Set cell types; only Map currently has language-scale end-to-end evidence. Optional cells and broader multiplicities are unsupported."
 
 [[concept]]
@@ -684,7 +684,7 @@ status = "unqualified"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["simplifications"]
-evidence = ["crates/krs-syntax/src/attribute.rs", "crates/krs-compiler/tests/control_flow_lowering.rs"]
+evidence = ["crates/krs-syntax/src/attribute/sort.rs", "crates/krs-compiler/tests/control_flow_lowering.rs"]
 note = "The parser and lowering accept simplification(priority = N), but no positive authored macro fixture was found during review."
 
 [[concept]]
@@ -873,7 +873,7 @@ status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["repeated-cells"]
-evidence = ["crates/krs-syntax/src/attribute.rs", "docs-plan/authoring-spec/open-questions.md"]
+evidence = ["crates/krs-syntax/src/attribute/state.rs", "docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "restricted-rust"
