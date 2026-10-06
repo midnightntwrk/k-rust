@@ -210,67 +210,81 @@ fn compile(loaded: &LoadedDefinition, backend: CompilationBackend) -> Result<(),
     .map(|_| ())
 }
 
-#[test]
-fn loaded_token_terms_require_a_domain_sort() {
-    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
-        let original = source_loaded(backend);
-        compile(&original, backend).unwrap();
+/// A token term whose sort is not a domain sort is rejected where the definition is checked, on
+/// `backend`, whether the definition was loaded from source or from its structured main module;
+/// tokens of domain sorts compile.
+fn assert_loaded_token_terms_require_a_domain_sort(backend: CompilationBackend) {
+    let original = source_loaded(backend);
+    compile(&original, backend).unwrap();
 
-        let invalid = replacement_loaded(
-            original.clone(),
-            Term::apply("counter", vec![token("7", "Nat"), Term::apply("z", vec![])]),
-        );
-        let error = compile(&invalid, backend).unwrap_err();
-        assert_eq!(error.stage, "definition checks");
-        assert!(
-            error.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == DiagnosticCode::InvalidDomainValue
-                    && diagnostic.message.contains("Token \"7\" of sort Nat")
-                    && diagnostic.message.contains("Rule")
-            }),
-            "{error:?}"
-        );
+    let invalid = replacement_loaded(
+        original.clone(),
+        Term::apply("counter", vec![token("7", "Nat"), Term::apply("z", vec![])]),
+    );
+    let error = compile(&invalid, backend).unwrap_err();
+    assert_eq!(error.stage, "definition checks");
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::InvalidDomainValue
+                && diagnostic.message.contains("Token \"7\" of sort Nat")
+                && diagnostic.message.contains("Rule")
+        }),
+        "{error:?}"
+    );
 
-        for right in [
-            Term::apply("integer", vec![token("7", "Int")]),
-            Term::apply("named", vec![token("alice", "Name")]),
-            Term::apply(
-                "counter",
-                vec![Term::apply("z", vec![]), Term::apply("z", vec![])],
-            ),
-        ] {
-            compile(&replacement_loaded(original.clone(), right), backend).unwrap();
-        }
+    for right in [
+        Term::apply("integer", vec![token("7", "Int")]),
+        Term::apply("named", vec![token("alice", "Name")]),
+        Term::apply(
+            "counter",
+            vec![Term::apply("z", vec![]), Term::apply("z", vec![])],
+        ),
+    ] {
+        compile(&replacement_loaded(original.clone(), right), backend).unwrap();
+    }
 
-        let main = original
-            .definition()
-            .modules
-            .iter()
-            .find(|module| module.name == "MAIN")
-            .unwrap()
-            .clone();
-        let structured = load_structured(
-            Definition {
-                main_module: "MAIN".into(),
-                modules: vec![main],
-                attributes: Default::default(),
-            },
-            &options(backend),
-        )
-        .unwrap();
-        compile(&structured, backend).unwrap();
-        let invalid = replacement_loaded(
-            structured,
-            Term::apply("counter", vec![token("7", "Nat"), Term::apply("z", vec![])]),
-        );
-        let error = compile(&invalid, backend).unwrap_err();
-        assert!(
-            error.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == DiagnosticCode::InvalidDomainValue
-                    && diagnostic.message.contains("Token \"7\" of sort Nat")
-            }),
-            "{error:?}"
-        );
+    let main = original
+        .definition()
+        .modules
+        .iter()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .clone();
+    let structured = load_structured(
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![main],
+            attributes: Default::default(),
+        },
+        &options(backend),
+    )
+    .unwrap();
+    compile(&structured, backend).unwrap();
+    let invalid = replacement_loaded(
+        structured,
+        Term::apply("counter", vec![token("7", "Nat"), Term::apply("z", vec![])]),
+    );
+    let error = compile(&invalid, backend).unwrap_err();
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::InvalidDomainValue
+                && diagnostic.message.contains("Token \"7\" of sort Nat")
+        }),
+        "{error:?}"
+    );
+}
+
+mod loaded_token_terms_require_a_domain_sort {
+    use super::{CompilationBackend, assert_loaded_token_terms_require_a_domain_sort};
+
+    #[test]
+    fn rust() {
+        assert_loaded_token_terms_require_a_domain_sort(CompilationBackend::Rust);
+    }
+
+    #[test]
+    fn llvm() {
+        assert_loaded_token_terms_require_a_domain_sort(CompilationBackend::Llvm);
     }
 }
 

@@ -103,115 +103,111 @@ struct Case {
     portable: Option<&'static str>,
 }
 
-const CASES: &[Case] = &[
-    Case {
-        name: "let_variable",
+/// The case's rule loads as the rule its build expects, and the generated lambdas of that loaded
+/// definition compile to the snapshot `probe_<name>`, which both builds share.
+fn assert_case(case: &Case) {
+    let loaded = load("P", &probe(case.rule));
+    let expected = if cfg!(feature = "z3-inference") {
+        case.loaded
+    } else {
+        case.portable.unwrap_or(case.loaded)
+    };
+    assert_eq!(loaded_rules(&loaded), [expected], "{}", case.name);
+    insta::assert_snapshot!(
+        format!("probe_{}", case.name),
+        lambda_kore(&loaded),
+        case.rule
+    );
+}
+
+/// One test per case, named by the case.
+macro_rules! local_function_cases {
+    ($($name:ident { $($field:ident: $value:expr),* $(,)? })*) => {
+        mod local_function_rules_load_and_compile_to_the_same_kore_in_both_builds {
+            $(
+                #[test]
+                fn $name() {
+                    super::assert_case(&super::Case {
+                        name: stringify!($name),
+                        $($field: $value),*
+                    });
+                }
+            )*
+        }
+    };
+}
+
+local_function_cases! {
+    let_variable {
         rule: "rule op(A) => val(#let Y = A #in Y)",
         loaded: "op(#SemanticCastToInt(A))=>val(#let(#SemanticCastToInt(Y),#SemanticCastToInt(A),#SemanticCastToInt(Y))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "let_cast_binder",
+    }
+    let_cast_binder {
         rule: "rule op(A) => val(#let Y:Int = A #in Y)",
         loaded: "op(#SemanticCastToInt(A))=>val(#let(#SemanticCastToInt(Y),#SemanticCastToInt(A),#SemanticCastToInt(Y))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "let_partial_body",
+    }
+    let_partial_body {
         rule: "rule op(A) => val(#let Y = A #in 10 /Int Y)",
         loaded: "op(#SemanticCastToInt(A))=>val(#let(#SemanticCastToInt(Y),#SemanticCastToInt(A),`_/Int_`(#token(\"10\",\"Int\"),#SemanticCastToInt(Y)))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "let_unconstrained_binder",
+    }
+    let_unconstrained_binder {
         rule: "rule op(A) => val(#let X = op(A) #in 1)",
         loaded: "op(#SemanticCastToInt(A))=>val(#let(#SemanticCastToK(X),op(#SemanticCastToInt(A)),#token(\"1\",\"Int\"))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "let_nested",
+    }
+    let_nested {
         rule: "rule op(A) => val(#let X = A #in #let Z = X #in Z +Int X)",
         loaded: "op(#SemanticCastToInt(A))=>val(#let(#SemanticCastToInt(X),#SemanticCastToInt(A),#let(#SemanticCastToInt(Z),#SemanticCastToInt(X),`_+Int_`(#SemanticCastToInt(Z),#SemanticCastToInt(X))))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "let_in_requires",
+    }
+    let_in_requires {
         rule: "rule op(A) => val(A) requires #let B = A #in B >Int 0",
         loaded: "op(#SemanticCastToInt(A))=>val(#SemanticCastToInt(A)) requires #let(#SemanticCastToInt(B),#SemanticCastToInt(A),`_>Int_`(#SemanticCastToInt(B),#token(\"0\",\"Int\")))",
         portable: None,
-    },
-    Case {
-        name: "fun_identity",
+    }
+    fun_identity {
         rule: "rule op(A) => val(#fun(Y => Y)(A))",
         loaded: "op(#SemanticCastToInt(A))=>val(#fun2(#SemanticCastToInt(Y)=>#SemanticCastToInt(Y),#SemanticCastToInt(A))) requires #token(\"true\",\"Bool\")",
         portable: Some(
             "op(#SemanticCastToInt(A))=>val(#fun3(#SemanticCastToInt(Y),#SemanticCastToInt(Y),#SemanticCastToInt(A))) requires #token(\"true\",\"Bool\")",
         ),
-    },
-    Case {
-        name: "fun_body_under_a_function",
+    }
+    fun_body_under_a_function {
         rule: "rule op(A) => val(#fun(Y => Y +Int 1)(A))",
         loaded: "op(#SemanticCastToInt(A))=>val(#fun2(#SemanticCastToInt(Y)=>`_+Int_`(#SemanticCastToInt(Y),#token(\"1\",\"Int\")),#SemanticCastToInt(A))) requires #token(\"true\",\"Bool\")",
         portable: Some(
             "op(#SemanticCastToInt(A))=>val(#fun3(#SemanticCastToInt(Y),`_+Int_`(#SemanticCastToInt(Y),#token(\"1\",\"Int\")),#SemanticCastToInt(A))) requires #token(\"true\",\"Bool\")",
         ),
-    },
-    Case {
-        name: "fun_unconstrained_pattern",
+    }
+    fun_unconstrained_pattern {
         rule: "rule op(A) => val(#fun(X => 1)(A))",
         loaded: "op(#SemanticCastToInt(A))=>val(#fun3(#SemanticCastToK(X),#token(\"1\",\"Int\"),#SemanticCastToInt(A))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "fun_constructor_pattern",
+    }
+    fun_constructor_pattern {
         rule: "rule op(A) => val(#fun(op(X) => X)(op(A)))",
         loaded: "op(#SemanticCastToInt(A))=>val(#fun3(op(#SemanticCastToInt(X)),#SemanticCastToInt(X),op(#SemanticCastToInt(A)))) requires #token(\"true\",\"Bool\")",
         portable: None,
-    },
-    Case {
-        name: "fun_nested_argument",
+    }
+    fun_nested_argument {
         rule: "rule op(A) => val(#fun(X => X)(#fun(Z => Z)(A)))",
         loaded: "op(#SemanticCastToInt(A))=>val(#fun3(#SemanticCastToInt(X),#SemanticCastToInt(X),#fun2(#SemanticCastToK(Z)=>#SemanticCastToK(Z),#SemanticCastToInt(A)))) requires #token(\"true\",\"Bool\")",
         portable: Some(
             "op(#SemanticCastToInt(A))=>val(#fun3(#SemanticCastToInt(X),#SemanticCastToInt(X),#fun3(#SemanticCastToK(Z),#SemanticCastToK(Z),#SemanticCastToInt(A)))) requires #token(\"true\",\"Bool\")",
         ),
-    },
-    Case {
-        name: "match_k",
+    }
+    match_k {
         rule: "rule op(A) => val(0) requires A :=K 1",
         loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:=K_`(#SemanticCastToInt(A),#token(\"1\",\"Int\"))",
         portable: None,
-    },
-    Case {
-        name: "mismatch_k",
+    }
+    mismatch_k {
         rule: "rule op(A) => val(0) requires A :/=K 1",
         loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:/=K_`(#SemanticCastToInt(A),#token(\"1\",\"Int\"))",
         portable: None,
-    },
-];
-
-#[test]
-fn local_function_rules_load_in_both_builds() {
-    for case in CASES {
-        let loaded = load("P", &probe(case.rule));
-        let expected = if cfg!(feature = "z3-inference") {
-            case.loaded
-        } else {
-            case.portable.unwrap_or(case.loaded)
-        };
-        assert_eq!(loaded_rules(&loaded), [expected], "{}", case.name);
-    }
-}
-
-#[test]
-fn generated_lambdas_compile_to_the_same_kore_in_both_builds() {
-    for case in CASES {
-        let loaded = load("P", &probe(case.rule));
-        insta::assert_snapshot!(
-            format!("probe_{}", case.name),
-            lambda_kore(&loaded),
-            case.rule
-        );
     }
 }
 
