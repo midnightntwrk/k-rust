@@ -12042,6 +12042,199 @@ endmodule
     assert_eq!(leaves, [failed_stuck_leaf("frame-restarts")]);
 }
 
+/// The `[[proof]]` cases of `scripts/reference-differential.toml` whose sources are committed
+/// in this repository and that need no `semantics-support`, as
+/// `scripts/reference-proof-differential.sh` selects them, by name.
+fn local_proof_corpus() -> Vec<(String, toml::Value)> {
+    let manifest: toml::Value =
+        toml::from_str(include_str!("../../../scripts/reference-differential.toml")).unwrap();
+    manifest["proof"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| {
+            let local = |key: &str| case[key].as_str().unwrap().starts_with("${workspace}/");
+            local("source")
+                && local("specification")
+                && !case["requires"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|requirement| requirement.as_str() == Some("semantics-support"))
+        })
+        .map(|case| (case["name"].as_str().unwrap().to_owned(), case.clone()))
+        .collect()
+}
+
+/// The krust half of `scripts/reference-proof-differential.sh` for one local proof case: the
+/// case's `claims` are proven together in one `kprove`, which succeeds and reports each of them
+/// `proven`; its `failure-claim` alone makes `kprove` fail with the `failure-verdict` (by
+/// default `disproved`), and a `failed` verdict must carry a `failure-verdict-reason`. The
+/// script also runs the reference prover on the same claims; that comparison stays there.
+fn assert_local_proof_case_verdicts(name: &str) {
+    let (_, case) = local_proof_corpus()
+        .into_iter()
+        .find(|(case, _)| case == name)
+        .unwrap_or_else(|| panic!("no local proof case {name}"));
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let path = |key: &str| {
+        let value = case[key].as_str().unwrap();
+        workspace.join(value.strip_prefix("${workspace}/").unwrap())
+    };
+    let text = |key: &str| case[key].as_str().unwrap().to_owned();
+    let specification = path("specification");
+    let semantics_directory = path("source").parent().unwrap().to_owned();
+    let spec_module = text("spec-module");
+    let definition_module = text("definition-module");
+    let depth = case["depth"].as_integer().unwrap().to_string();
+    let proven_claims = case
+        .get("claims")
+        .and_then(toml::Value::as_array)
+        .map(|claims| {
+            claims
+                .iter()
+                .map(|claim| claim.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let failure_claim = text("failure-claim");
+    let failure_verdict = case
+        .get("failure-verdict")
+        .map_or("disproved", |verdict| verdict.as_str().unwrap());
+    match failure_verdict {
+        "disproved" => {}
+        "failed" => assert!(
+            case.get("failure-verdict-reason")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|reason| !reason.is_empty()),
+            "{name}:{failure_claim} expects failed without a failure-verdict-reason"
+        ),
+        verdict => panic!("unknown failure-verdict {verdict} for {name}:{failure_claim}"),
+    }
+
+    // A case with both a proven batch and a failure claim compiles its specification once.
+    let (root, _) = fixture();
+    let include = semantics_directory.to_str().unwrap();
+    let compiled = (!proven_claims.is_empty()).then(|| {
+        let compiled = root.join("compiled");
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(&specification)
+            .args([
+                "--main-module",
+                &spec_module,
+                "--definition-module",
+                &definition_module,
+                "--for-proving",
+                "-I",
+                include,
+                "--output-directory",
+            ])
+            .arg(&compiled)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        compiled
+    });
+    let kprove = |claims: &[String]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.arg("kprove");
+        match &compiled {
+            Some(compiled) => command.arg("--compiled-definition").arg(compiled),
+            None => command.arg(&specification).args(["-I", include]),
+        };
+        command.args([
+            "--main-module",
+            &spec_module,
+            "--definition-module",
+            &definition_module,
+        ]);
+        for claim in claims {
+            command.args(["--claim", claim]);
+        }
+        let output = command
+            .args(["--depth", &depth])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        // The script greps standard output and standard error together.
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (output.status.success(), log)
+    };
+
+    if !proven_claims.is_empty() {
+        let (success, log) = kprove(&proven_claims);
+        assert!(
+            success,
+            "{name}: k-rust did not prove every selected claim\n{log}"
+        );
+        for claim in &proven_claims {
+            assert!(
+                log.contains(&format!("claim {claim}: proven")),
+                "{name}:{claim}: no proven verdict\n{log}"
+            );
+        }
+    }
+    let (success, log) = kprove(std::slice::from_ref(&failure_claim));
+    assert!(
+        !success,
+        "{name}: k-rust unexpectedly proved {failure_claim}\n{log}"
+    );
+    assert!(
+        log.contains(&format!("claim {failure_claim}: {failure_verdict} ")),
+        "{name}:{failure_claim}: no {failure_verdict} verdict\n{log}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Each local proof case of the manifest has a test below, so a new case is not silently left
+/// to the reference gate alone.
+#[test]
+fn reference_proof_corpus_local_cases_each_have_a_verdict_test() {
+    let names = local_proof_corpus()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "mini-proof",
+            "split-proof",
+            "trusted-lemma-proof",
+            "trivial-proof"
+        ]
+    );
+}
+
+#[test]
+fn reference_proof_corpus_mini_proof_verdicts() {
+    assert_local_proof_case_verdicts("mini-proof");
+}
+
+#[test]
+fn reference_proof_corpus_split_proof_verdicts() {
+    assert_local_proof_case_verdicts("split-proof");
+}
+
+#[test]
+fn reference_proof_corpus_trusted_lemma_proof_verdicts() {
+    assert_local_proof_case_verdicts("trusted-lemma-proof");
+}
+
+#[test]
+fn reference_proof_corpus_trivial_proof_verdicts() {
+    assert_local_proof_case_verdicts("trivial-proof");
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kore_exec_search_final_keeps_symbolic_anywhere_remainder_constrained() {
