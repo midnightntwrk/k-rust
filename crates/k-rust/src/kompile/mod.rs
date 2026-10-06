@@ -19,6 +19,8 @@ pub mod pipeline;
 mod retarget;
 mod search_pattern;
 mod sort_injections;
+#[cfg(test)]
+pub(crate) mod stage_harness;
 mod term_to_kore;
 mod view;
 
