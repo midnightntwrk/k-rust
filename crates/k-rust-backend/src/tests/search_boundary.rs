@@ -16,12 +16,16 @@ use crate::{
         search_paths,
     },
     simplify::SimplificationError,
+    smt::{Satisfiability, SmtError, SmtSolver, Validity},
+    stop::Stoppable,
     stop::{CancellationToken, StopCause},
+    substitution::Substitution,
     term::{Term, TermKind},
 };
 
-/// `a => b => c` and `m => macroed`, over constructors `a`, `b`, `c` and `m`, a macro symbol
-/// `macroed`, and `unsupported(\dv)`, an application of a hooked function whose hook the backend
+/// `a => b => c`, `m => macroed` and `p => q` ensuring `g(q) = q`, over constructors `a`, `b`,
+/// `c`, `m`, `p` and `q`, a macro symbol `macroed`, a total function `g` without equations, and
+/// `unsupported(\dv)`, an application of a hooked function whose hook the backend
 /// does not implement and which has no equations.
 fn definition() -> BackendDefinition {
     let rule = |label: &str, left: &str, right: &str| {
@@ -44,11 +48,18 @@ fn definition() -> BackendDefinition {
                 symbol m{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol macroed{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), macro{{}}()]
                 symbol pair{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol p{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol q{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
                 hooked-symbol unsupported{{}}(SortV{{}}) : SortS{{}}
                     [function{{}}(), total{{}}(), hook{{}}("TEST.unimplemented")]
                 {a_b}
                 {b_c}
                 {m_macroed}
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(p{{}}(), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(q{{}}(), \equals{{SortS{{}}, SortS{{}}}}(g{{}}(q{{}}()), q{{}}()))
+                ) [label{{}}("p-q")]
             endmodule []"#,
         a_b = rule("a-b", "a{}()", "b{}()"),
         b_c = rule("b-c", "b{}()", "c{}()"),
@@ -291,4 +302,75 @@ fn a_state_whose_simplification_fails_is_a_simplification_entry() {
         assert!(matches!(result.end, SearchEnd::Exhausted(_)), "{place}");
         assert!(!result.is_complete(), "{place}");
     }
+}
+
+/// A solver that cancels `token` when it is asked about a predicate that mentions `g`, then
+/// answers as if nothing happened: the request is cancelled while the search is underway.
+struct CancelOnG {
+    token: CancellationToken,
+}
+
+impl CancelOnG {
+    fn observe(&self, predicates: &[Predicate]) {
+        let mut mentions = false;
+        for predicate in predicates {
+            predicate.visit_terms(&mut |term| {
+                term.visit_symbols(&mut |symbol| mentions |= symbol.name.as_ref() == "g");
+            });
+        }
+        if mentions {
+            self.token.cancel();
+        }
+    }
+}
+
+impl SmtSolver for CancelOnG {
+    fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        self.observe(predicates);
+        Ok(Ok(Satisfiability::Sat))
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        self.observe(known);
+        self.observe(checked);
+        Ok(Ok(Validity::Contingent))
+    }
+}
+
+/// A request cancelled while the search is underway keeps what was established before: the
+/// results already retained are published, and the state whose exploration observed the
+/// cancellation is the one `Stopped` entry, with no successor. Here the cancellation arrives
+/// while the step from `p` decides the condition `g(q) = q` it ensures, after `p` itself was
+/// retained, so `p` is both the one result and the stopped state, and `q` is never reached.
+#[test]
+fn a_request_cancelled_midway_keeps_the_results_retained_before_it() {
+    let definition = definition();
+    let token = CancellationToken::new();
+    let solver = CancelOnG {
+        token: token.clone(),
+    };
+    let result = token.scope(|| {
+        crate::search::search_paths_with_solver(
+            &definition,
+            pattern(&definition, "p{}()"),
+            options(SearchType::Star, u64::MAX),
+            &solver,
+        )
+    });
+    assert_eq!(witnesses(&result), owned(&[("p", 0)]), "{result:?}");
+    let [IncompleteSearch::Stopped { state, cause }] = result.incomplete.as_slice() else {
+        panic!("expected one stopped entry, found {result:?}");
+    };
+    assert_eq!(state_summary(state), ("p".to_owned(), 0));
+    assert_eq!(cause, &StopCause::Cancelled);
+    assert_eq!(result.end, SearchEnd::Stopped(StopCause::Cancelled));
 }
