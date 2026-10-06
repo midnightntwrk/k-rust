@@ -14,7 +14,7 @@ use k_rust_backend::{
     diagnostic::{self, BackendDiagnostic},
     fresh::FreshCounter,
     rewrite::*,
-    rule::Predicate,
+    rule::{Predicate, Theory},
     search::ResultModality,
     simplify::{
         BudgetSubject, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
@@ -8554,6 +8554,96 @@ fn axioms_sharing_an_identity_but_not_a_label_stay_ambiguous() {
     assert_eq!(
         ObservationOptions::with_rules(&definition, ["x-to-y"]),
         Err(ObservationFilterError::AmbiguousRule("x-to-y".into()))
+    );
+}
+
+/// Simplifications and definedness (`\ceil`) axioms are compared like rewrite axioms: one
+/// renaming of the variables over the side condition, the left-hand side and the result at
+/// once. `wrap(A) = R if C = "a"` is written as `(A, C, R)`; `(X, X, Y)` and `(P, P, Q)` are one
+/// equation and store one rule with both origins, while `(X, Y, Y)` (the condition on the result,
+/// equal to `(X, X, Y)` if the condition were renamed on its own) and `(X, X, X)` (`Z` would be
+/// the image of both `X` and `Y`) have other instances and stay rules of their own.
+#[test]
+fn equal_simplification_and_ceil_axioms_are_one_rule_that_lists_every_origin() {
+    let location = |line: usize| {
+        format!(
+            r#"org'Stop'kframework'Stop'attributes'Stop'Location{{}}("Location({line},1,{line},9)")"#
+        )
+    };
+    let simplification = |[argument, condition, result]: [&str; 3], line| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \equals{{SortS{{}}, R}}({condition}:SortS{{}}, \dv{{SortS{{}}}}("a")),
+                \equals{{SortS{{}}, R}}(
+                    wrap{{}}({argument}:SortS{{}}),
+                    \and{{SortS{{}}}}({result}:SortS{{}}, \top{{SortS{{}}}}())
+                )
+            ) [simplification{{}}(), {}]"#,
+            location(line)
+        )
+    };
+    let ceil = |[argument, condition, result]: [&str; 3], line| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \equals{{SortS{{}}, R}}({condition}:SortS{{}}, \dv{{SortS{{}}}}("a")),
+                \equals{{R, R}}(
+                    \ceil{{SortS{{}}, R}}(wrap{{}}({argument}:SortS{{}})),
+                    \and{{R}}(\ceil{{SortS{{}}, R}}(injectiveFunction{{}}({result}:SortS{{}})), \top{{R}}())
+                )
+            ) [simplification{{}}(), {}]"#,
+            location(line)
+        )
+    };
+    let variants = [
+        ["X", "X", "Y"],
+        ["P", "P", "Q"],
+        ["X", "Y", "Y"],
+        ["X", "X", "X"],
+    ];
+    let axioms = variants
+        .iter()
+        .enumerate()
+        .flat_map(|(index, variant)| {
+            [
+                simplification(*variant, index + 1),
+                ceil(*variant, index + 11),
+            ]
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let definition = definition(&axioms);
+
+    fn origins(theory: &Theory) -> Vec<Vec<&str>> {
+        let mut origins = theory
+            .values()
+            .flat_map(|priorities| priorities.values())
+            .flatten()
+            .map(|rule| {
+                rule.attributes
+                    .origins
+                    .iter()
+                    .map(|origin| origin.location.as_deref().unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        origins.sort();
+        origins
+    }
+    assert_eq!(
+        origins(definition.simplification_theory()),
+        [
+            vec!["Location(1,1,1,9)", "Location(2,1,2,9)"],
+            vec!["Location(3,1,3,9)"],
+            vec!["Location(4,1,4,9)"],
+        ]
+    );
+    assert_eq!(
+        origins(definition.ceil_theory()),
+        [
+            vec!["Location(11,1,11,9)", "Location(12,1,12,9)"],
+            vec!["Location(13,1,13,9)"],
+            vec!["Location(14,1,14,9)"],
+        ]
     );
 }
 
