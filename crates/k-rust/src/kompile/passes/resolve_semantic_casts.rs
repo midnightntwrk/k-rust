@@ -80,11 +80,13 @@ fn unlocated_error(message: impl Into<String>) -> ResolveSemanticCastsError {
     }
 }
 
-/// Apply the KORE backend form of Java's `ResolveSemanticCasts` pass.
+/// Resolve the semantic casts of every rule, claim and context of `definition` into compiler
+/// sort metadata.
 ///
-/// The backend requests `skipSortPredicates = true`, so casts become compiler sort metadata but do
-/// not add redundant `isSort` side conditions. Casted variables retain their inferred sort in the
-/// public variable node as well.
+/// A cast adds no `isSort` side condition here: a variable the cast types matches only terms of
+/// its sort, and sort injection realizes the cast of any other operand (an injection, a
+/// projection or a rejection), so the condition would constrain nothing more. Casted variables
+/// retain their inferred sort in the public variable node as well.
 pub fn resolve_semantic_casts(
     definition: &Definition,
 ) -> Result<Definition, ResolveSemanticCastsError> {
@@ -143,8 +145,8 @@ pub fn resolve_semantic_casts_in_sentence(
 /// A cast adds `isS` of its operand only when `cast_condition` gives it a condition: a sort
 /// with a sort predicate, or `Bag`; a cast to any other sort adds nothing.
 ///
-/// This is Java's `ResolveSemanticCasts(false)` mode used for standalone patterns. Macro and
-/// alias sentences suppress predicates because their casts describe matching syntax rather than
+/// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
+/// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
     subsorts: &PartialOrder<Sort>,
@@ -240,7 +242,7 @@ fn resolve_semantic_casts_in_sentence_mut(
     }
     for root in roots {
         let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-        *root = transform(taken, &casts, &typed_variables);
+        *root = transform(taken, &casts, &typed_variables, subsorts);
     }
 
     if !add_predicates
@@ -260,7 +262,7 @@ fn resolve_semantic_casts_in_sentence_mut(
         match cast_condition(sort.role()) {
             CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
                 label: Label::sort_predicate(&sort),
-                arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
+                arguments: vec![transform(cast.clone(), &casts, &typed_variables, subsorts)],
             }),
             CastCondition::Static => None,
         }
@@ -336,25 +338,44 @@ fn collect_cast_bounds(
                 return;
             };
             casts.insert(term.unannotated().clone());
-            if let Term::Variable {
-                name,
-                sort: existing,
-            } = argument.unannotated()
-            {
-                if is_anonymous(name) {
-                    if let Some(existing) = existing
-                        && !below(existing, &sort, subsorts)
-                    {
-                        errors.push(format!(
-                            "variable {name} has sort {existing} outside semantic cast sort {sort} at {term}"
-                        ));
+            for value in cast_values(argument) {
+                match value.unannotated() {
+                    Term::Variable {
+                        name,
+                        sort: existing,
+                    } => {
+                        if is_anonymous(name) {
+                            if let Some(existing) = existing
+                                && !below(existing, &sort, subsorts)
+                            {
+                                errors.push(format!(
+                                    "variable {name} has sort {existing} outside semantic cast sort {sort} at {term}"
+                                ));
+                            }
+                        } else {
+                            variables
+                                .entry(name.clone())
+                                .or_default()
+                                .casts
+                                .push((sort.clone(), term.clone()));
+                        }
                     }
-                } else {
-                    variables
-                        .entry(name.clone())
-                        .or_default()
-                        .casts
-                        .push((sort, term.clone()));
+                    Term::Apply { label, .. } => {
+                        if let Some(nested) = label.semantic_cast_sort()
+                            && !below(&nested, &sort, subsorts)
+                            && !below(&sort, &nested, subsorts)
+                        {
+                            errors.push(format!(
+                                "semantic cast sort {sort} is incomparable with the nested cast sort {nested} at {term}"
+                            ));
+                        }
+                    }
+                    Term::InjectedLabel(_)
+                    | Term::Token { .. }
+                    | Term::Rewrite { .. }
+                    | Term::As { .. }
+                    | Term::Sequence(_)
+                    | Term::Annotated { .. } => {}
                 }
             }
         });
@@ -408,6 +429,39 @@ fn collect_cast_bounds(
         }
     }
     (casts, typed_variables, errors)
+}
+
+/// The terms whose value a semantic cast with operand `operand` constrains: the operand, the
+/// operand of each nested semantic cast (a cast denotes the value of its operand), and each side
+/// of a rewrite (`C[L => R]` denotes `C[L]` on the left of the rule and `C[R]` on the right, so
+/// `(L => R):S` constrains `L` and `R` as `L:S => R:S` does).
+fn cast_values(operand: &Term) -> Vec<&Term> {
+    let mut values = Vec::new();
+    let mut pending = vec![operand];
+    // Invariant: `values` holds the visited terms and `pending` the unvisited ones whose value
+    // the cast constrains; each step descends one level of the finite term.
+    while let Some(value) = pending.pop() {
+        values.push(value);
+        match value.unannotated() {
+            Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
+                if let [inner] = arguments.as_slice() {
+                    pending.push(inner);
+                }
+            }
+            Term::Rewrite { left, right } => {
+                pending.push(right);
+                pending.push(left);
+            }
+            Term::Apply { .. }
+            | Term::InjectedLabel(_)
+            | Term::Token { .. }
+            | Term::Variable { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => {}
+        }
+    }
+    values
 }
 
 /// The sorts semantic-cast resolution gives the named variables of a rule-like sentence, or the
@@ -476,7 +530,12 @@ fn is_true(term: &Term) -> bool {
 }
 
 // Invariant: each call replaces an application in `casts` by its transformed argument carrying the cast sort, gives a variable its sort from `typed_variables`, and otherwise recurses into the immediate subterms of `term`; the finite `term` bounds the recursion.
-fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<String, Sort>) -> Term {
+fn transform(
+    term: Term,
+    casts: &BTreeSet<Term>,
+    typed_variables: &BTreeMap<String, Sort>,
+    subsorts: &PartialOrder<Sort>,
+) -> Term {
     let source_metadata = term.metadata().cloned();
     if casts.contains(term.unannotated()) {
         let Term::Apply { label, arguments } = term.into_unannotated() else {
@@ -488,29 +547,33 @@ fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<Stri
         let [argument] = arguments
             .try_into()
             .unwrap_or_else(|_| unreachable!("only unary semantic casts enter the cast set"));
-        return attach_sort(transform(argument, casts, typed_variables), sort);
+        return attach_sort(
+            transform(argument, casts, typed_variables, subsorts),
+            sort,
+            subsorts,
+        );
     }
 
     let rebuilt = match term.into_unannotated() {
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(transform(*left, casts, typed_variables)),
-            right: Box::new(transform(*right, casts, typed_variables)),
+            left: Box::new(transform(*left, casts, typed_variables, subsorts)),
+            right: Box::new(transform(*right, casts, typed_variables, subsorts)),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(transform(*pattern, casts, typed_variables)),
-            alias: Box::new(transform(*alias, casts, typed_variables)),
+            pattern: Box::new(transform(*pattern, casts, typed_variables, subsorts)),
+            alias: Box::new(transform(*alias, casts, typed_variables, subsorts)),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
-                .map(|item| transform(item, casts, typed_variables))
+                .map(|item| transform(item, casts, typed_variables, subsorts))
                 .collect(),
         ),
         Term::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
-                .map(|argument| transform(argument, casts, typed_variables))
+                .map(|argument| transform(argument, casts, typed_variables, subsorts))
                 .collect(),
         },
         Term::Variable { name, sort } => Term::Variable {
@@ -526,13 +589,22 @@ fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<Stri
     }
 }
 
+/// `term`, the resolved operand of a semantic cast to `sort`, carrying that cast.
+///
+/// A variable keeps a sort of its own: cast-bound collection made it at or below every cast
+/// that constrains its value. Another term carries the cast as its metadata sort. A term already
+/// carrying a cast (a nested cast `t:T:S`) is constrained by both, and bound collection rejected
+/// incomparable ones, so it keeps the narrower: `T` when `T` is at or below `S` (the outer cast
+/// is then an upcast, which places nothing), else `S`. A rewrite carries the cast, and each of
+/// its sides carries it as a cast written on that side would, since `(L => R):S` means
+/// `L:S => R:S`.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
 )]
-fn attach_sort(term: Term, sort: Sort) -> Term {
+fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
     let metadata = term.metadata().cloned();
-    match term.into_unannotated() {
+    let term = match term.into_unannotated() {
         Term::Variable {
             name,
             sort: existing,
@@ -541,16 +613,22 @@ fn attach_sort(term: Term, sort: Sort) -> Term {
                 name,
                 sort: existing.or(Some(sort)),
             };
-            metadata.map_or(variable.clone(), |metadata| {
+            return metadata.map_or(variable.clone(), |metadata| {
                 variable.with_metadata(metadata)
-            })
+            });
         }
-        term => {
-            let mut metadata = metadata.unwrap_or_default();
-            metadata.sort = Some(sort);
-            term.with_metadata(metadata)
-        }
-    }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(attach_sort(*left, sort.clone(), subsorts)),
+            right: Box::new(attach_sort(*right, sort.clone(), subsorts)),
+        },
+        term => term,
+    };
+    let mut metadata = metadata.unwrap_or_default();
+    metadata.sort = Some(match metadata.sort.take() {
+        Some(inner) if below(&inner, &sort, subsorts) => inner,
+        _ => sort,
+    });
+    term.with_metadata(metadata)
 }
 
 #[cfg(test)]

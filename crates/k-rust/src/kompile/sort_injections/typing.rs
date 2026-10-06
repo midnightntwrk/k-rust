@@ -586,7 +586,9 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                         (Term::Rewrite { .. }, _) | (Term::As { .. }, Branch::Right)
                     );
                 if dropped {
-                    // The projection drops the cast with the rewrite or as-pattern it annotates.
+                    // The projection removes the rewrite or as-pattern the cast annotates, and
+                    // the cast's own position with it (resolution put a rewrite's cast on each
+                    // side, which occupies the cast's position).
                     self.delegate(path, 0);
                 } else {
                     let mut operand = path.clone();

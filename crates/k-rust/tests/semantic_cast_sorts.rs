@@ -483,3 +483,206 @@ fn reports_each_independent_variable_conflict() {
                 .contains("incomparable cast bounds Bool and Nat")
     }));
 }
+
+const EXPS: &str = include_str!("fixtures/semantic_cast_sorts/exps.k");
+
+/// `exps.k` loaded for the Rust backend; its rule `EXPS.cast` is the parsed `plus((E => z):Nat, z)`.
+fn load_exps() -> LoadedDefinition {
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    load_for_compilation(
+        ResolvedSource::new("exps.k", EXPS),
+        "EXPS",
+        None,
+        &mut resolver,
+        &options(CompilationBackend::Rust),
+    )
+    .unwrap()
+    .0
+}
+
+/// The rule `EXPS.cast` of `base` with `body`, reached through both loader routes that take terms
+/// rather than text: a loaded definition edited and relinked, and a structured definition.
+fn exps_with_cast_body(
+    base: &LoadedDefinition,
+    body: Term,
+) -> [(&'static str, LoadedDefinition); 2] {
+    let mut definition = base.definition().clone();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "EXPS")
+        .unwrap();
+    let slot = module
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| sentence.attributes().string(AttributeKey::Label) == Some("EXPS.cast"))
+        .unwrap();
+    let Sentence::Rule { body: old, .. } = k_rust::definition::sentence_mut(slot) else {
+        unreachable!()
+    };
+    *old = body;
+    let sentence = (**slot).clone();
+    let parsed = k_rust::outer::parse("exps.k", EXPS).unwrap();
+    let mut structured = k_rust::outer::lower(&parsed, "EXPS").unwrap();
+    let module = structured
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "EXPS")
+        .unwrap();
+    let bubble = module
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| {
+            matches!(&***sentence, Sentence::Bubble { contents, .. } if contents.contains("(E => z):Nat"))
+        })
+        .unwrap();
+    *k_rust::definition::sentence_mut(bubble) = sentence;
+    [
+        ("relink", relink(base, definition)),
+        (
+            "structured",
+            load_structured(structured, &options(CompilationBackend::Rust)).unwrap(),
+        ),
+    ]
+}
+
+/// The pattern of the axiom labelled `label` in `kore`, without its attributes (which hold a
+/// hash of the sentence) and without whitespace.
+fn axiom_pattern(kore: &str, label: &str) -> String {
+    let end = kore
+        .find(&format!("label{{}}(\"{label}\")"))
+        .unwrap_or_else(|| panic!("no axiom labelled {label}"));
+    let start = kore[..end].rfind("axiom{").unwrap();
+    let attributes = kore[..end].rfind('[').unwrap();
+    kore[start..attributes].split_whitespace().collect()
+}
+
+fn compiled_cast_axiom(loaded: &LoadedDefinition) -> Result<String, k_rust::kompile::CompileError> {
+    compile(loaded, CompilationBackend::Rust)
+        .map(|artifacts| axiom_pattern(&artifacts.definition_kore, "EXPS.cast"))
+}
+
+fn z() -> Term {
+    app("z", vec![])
+}
+
+// A cast is a sort membership constraint on the value of its operand, and the value of a cast is
+// the value of its operand: `t:T:S` claims that `t` is in both `T` and `S`. The static sort of
+// `t:T` is `T`, so an enclosing cast incomparable with `T` claims what no term can satisfy.
+#[test]
+fn a_nested_cast_constrains_its_operand_by_both_sorts() {
+    let base = load_exps();
+    // A variable under `Nat` and `Exp` is a `Nat`, wherever the outer cast is.
+    let variable_body = app(
+        "plus",
+        vec![
+            cast("Nat", cast("Exp", variable("X", None))),
+            rewrite(z(), variable("X", None)),
+        ],
+    );
+    // A function result of sort `Exp` claimed to be a `Nat` is projected to `Nat`; the `Exp`
+    // cast around that claim is an upcast and does not undo it.
+    let term_body = app(
+        "plus",
+        vec![
+            variable("Y", Some("Exp")),
+            rewrite(z(), cast("Exp", cast("Nat", app("f", vec![z()])))),
+        ],
+    );
+    let mut failures = Vec::new();
+    for (route, loaded) in exps_with_cast_body(&base, variable_body) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(VarX:SortNat{})")
+            || axiom.contains("VarX:SortExp{}")
+        {
+            failures.push(format!("variable, {route}: {axiom}"));
+        }
+    }
+    for (route, loaded) in exps_with_cast_body(&base, term_body) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(Lblproject'Coln'Nat{}(") {
+            failures.push(format!("function result, {route}: {axiom}"));
+        }
+    }
+    // `z:Bool` claims a `Nat` constructor is a `Bool`, whatever cast encloses the claim.
+    let incomparable = app(
+        "plus",
+        vec![
+            variable("Y", Some("Exp")),
+            rewrite(z(), cast("Exp", cast("Bool", z()))),
+        ],
+    );
+    for (route, loaded) in exps_with_cast_body(&base, incomparable) {
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "resolve semantic casts"
+                    && error.message.contains(
+                        "semantic cast sort Exp is incomparable with the nested cast sort Bool",
+                    ) => {}
+            other => failures.push(format!("incomparable, {route}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A rewrite `C[L => R]` denotes `C[L]` on the left of the rule and `C[R]` on the right, so a cast
+// around it, `C[(L => R):S]`, constrains each side as a cast written on that side would:
+// `C[L:S] => C[R:S]`. The parser writes the left side's cast itself (`(E => z):Nat` loads as
+// `#SemanticCastToNat(#SemanticCastToNat(E) => z)`); a term without it means the same.
+#[test]
+fn a_cast_around_a_rewrite_constrains_each_side() {
+    let base = load_exps();
+    let parsed = compiled_cast_axiom(&base).unwrap();
+    assert!(
+        parsed.contains("Lblplus{}(inj{SortNat{},SortExp{}}(VarE:SortNat{})"),
+        "{parsed}"
+    );
+    let cast_rewrite =
+        |left: Term, right: Term| app("plus", vec![cast("Nat", rewrite(left, right)), z()]);
+    let mut failures = Vec::new();
+    for (route, loaded) in exps_with_cast_body(&base, cast_rewrite(variable("E", None), z())) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if axiom != parsed {
+            failures.push(format!("unsorted side, {route}: {axiom}"));
+        }
+    }
+    // The bound types every occurrence of the variable.
+    let shared = app(
+        "plus",
+        vec![
+            cast("Nat", rewrite(variable("E", None), z())),
+            variable("E", None),
+        ],
+    );
+    for (route, loaded) in exps_with_cast_body(&base, shared) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(VarE:SortNat{})")
+            || axiom.contains("VarE:SortExp{}")
+        {
+            failures.push(format!("shared variable, {route}: {axiom}"));
+        }
+    }
+    for (route, loaded) in exps_with_cast_body(&base, cast_rewrite(variable("E", Some("Exp")), z()))
+    {
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "resolve semantic casts"
+                    && error.message.contains(
+                        "variable E has explicit sort Exp outside semantic cast sort Nat",
+                    ) => {}
+            other => failures.push(format!("sorted side, {route}: {other:?}")),
+        }
+    }
+    // A right side of sort `Exp` claimed to be a `Nat` is projected, as under a direct cast.
+    for (route, loaded) in exps_with_cast_body(
+        &base,
+        cast_rewrite(variable("E", None), app("f", vec![variable("E", None)])),
+    ) {
+        let axiom = compiled_cast_axiom(&loaded).unwrap();
+        if !axiom.contains("inj{SortNat{},SortExp{}}(Lblproject'Coln'Nat{}(") {
+            failures.push(format!("function side, {route}: {axiom}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

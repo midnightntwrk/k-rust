@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "derived_root_labels", "remove_uses_of_empty_restricted_sorts", "prepare_user_lists"]
+//! sites = ["transform_priority_and_associativity", "checked_operands", "constrain_side", "restricted_sort", "derived_root_labels", "remove_rules_restriction_made_useless", "prepare_user_lists"]
 //! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
@@ -27,10 +27,11 @@
 //! Deterministic Bison grammar rendering for standalone program parsers.
 //!
 //! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
-//! O(pairs * productions). A subsort child of a restricted sort is restricted too when it derives
+//! O(pairs * productions). The restricted operands of a labelled production are those its
+//! `applyPriority` names, else its first and last item when they are nonterminals. A subsort child of a restricted sort is restricted too when it derives
 //! an excluded label at its root, which one indexed DFS per child decides in O(productions);
-//! uses of restricted sorts left without productions are then removed by a worklist over use
-//! counts, linear in the exported productions. Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! the productions that restriction leaves deriving no finite tree are then removed by two
+//! productivity worklists, linear in the exported items. Reachability is a visited-set DFS, O(reachable sorts * productions).
 //! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -71,6 +72,10 @@ enum GrammarError {
     },
     InvalidUserList {
         sort: Sort,
+        message: String,
+    },
+    InvalidApplyPriority {
+        label: String,
         message: String,
     },
     Scanner(String),
@@ -138,6 +143,9 @@ impl fmt::Display for GrammarError {
             ),
             Self::InvalidUserList { sort, message } => {
                 write!(formatter, "invalid user list {sort}: {message}")
+            }
+            Self::InvalidApplyPriority { label, message } => {
+                write!(formatter, "production {label}: {message}")
             }
         }
     }
@@ -330,6 +338,7 @@ fn transform_priority_and_associativity(
     let priorities = compute_priorities(sentences.iter())
         .map_err(|cycle| GrammarError::CircularPriority(cycle.path))?;
     let associativities = compute_associativities(sentences.iter());
+    let no_associativity = BTreeSet::new();
     sources.sort_by_key(structural_key);
 
     let mut ordinals = BTreeMap::<BTreeSet<String>, usize>::new();
@@ -349,33 +358,17 @@ fn transform_priority_and_associativity(
         }
         let mut transformed = source.items.clone();
         if let Some(label) = label {
-            if matches!(
-                transformed.first(),
-                Some(ProductionItem::NonTerminal { .. })
-            ) {
+            for (index, side) in checked_operands(&source.source)? {
                 constrain_side(
-                    0,
+                    index,
                     &label.name,
                     &mut transformed,
                     &priorities,
-                    &associativities.right,
-                    &mut ordinals,
-                    &mut pending,
-                );
-            }
-            let last = transformed.len().saturating_sub(1);
-            if last != 0
-                && matches!(
-                    transformed.get(last),
-                    Some(ProductionItem::NonTerminal { .. })
-                )
-            {
-                constrain_side(
-                    last,
-                    &label.name,
-                    &mut transformed,
-                    &priorities,
-                    &associativities.left,
+                    match side {
+                        OperandSide::First => &associativities.right,
+                        OperandSide::Last => &associativities.left,
+                        OperandSide::Inner => &no_associativity,
+                    },
                     &mut ordinals,
                     &mut pending,
                 );
@@ -398,13 +391,10 @@ fn transform_priority_and_associativity(
     }
     let mut root_labels = BTreeMap::<Sort, BTreeSet<String>>::new();
     let mut queue = pending.iter().cloned().collect::<VecDeque<_>>();
-    let mut expanded = BTreeSet::new();
-    // Invariant: `expanded` contains the processed restricted-sort states and every queued state
-    // was discovered from a production of an already reachable state.
+    // Invariant: a state is queued exactly when it enters `pending` (the queue starts as its
+    // elements, and the only push follows a successful insertion), so each state is expanded
+    // once and `pending` holds every expanded or queued state.
     while let Some((sort, excluded)) = queue.pop_front() {
-        if !expanded.insert((sort.clone(), excluded.clone())) {
-            continue;
-        }
         let ordinal = ordinals[&excluded];
         let restricted = restricted_sort(&sort, ordinal);
         for production in base.iter().filter(|production| production.result == sort) {
@@ -444,12 +434,82 @@ fn transform_priority_and_associativity(
     }
     productions.sort_by_key(structural_key);
     productions.dedup_by_key(|production| structural_key(production));
-    let restricted = expanded
+    let origins = pending
         .iter()
-        .map(|(sort, excluded)| restricted_sort(sort, ordinals[excluded]))
-        .collect();
-    remove_uses_of_empty_restricted_sorts(&mut productions, &restricted);
+        .map(|(sort, excluded)| (restricted_sort(sort, ordinals[excluded]), sort.clone()))
+        .collect::<BTreeMap<_, _>>();
+    remove_rules_restriction_made_useless(&mut productions, &origins);
     Ok(productions)
+}
+
+/// Where an operand restricted by priority stands, which decides the associativity relation that
+/// restricts it too.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OperandSide {
+    /// The first item: a right-associative (or non-associative) group excludes its members.
+    First,
+    /// The last item: a left-associative (or non-associative) group excludes its members.
+    Last,
+    /// Any other operand: priority alone.
+    Inner,
+}
+
+/// The item indices of the operands of a labelled production that priority and associativity
+/// restrict, each with its side.
+///
+/// The operands are the positions (counted among the nonterminals from 1) that the production's
+/// `applyPriority` lists, and otherwise the first item and the last item when they are
+/// nonterminals: K's priority filter rejects a child of lesser priority, or of the same
+/// associativity group on the excluded side, only at those operands. Associativity is defined
+/// only for the leftmost and rightmost item, so an `applyPriority` operand elsewhere is
+/// restricted by priority alone; a listed position that names no operand restricts nothing.
+fn checked_operands(source: &Sentence) -> Result<Vec<(usize, OperandSide)>, GrammarError> {
+    let Sentence::Production {
+        label,
+        items,
+        attributes,
+        ..
+    } = source
+    else {
+        unreachable!("grammar productions come from production sentences")
+    };
+    let operands = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| matches!(item, ProductionItem::NonTerminal { .. }))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let count = operands.len();
+    let first = matches!(items.first(), Some(ProductionItem::NonTerminal { .. }));
+    let last = matches!(items.last(), Some(ProductionItem::NonTerminal { .. }));
+    let positions = match attributes.string(AttributeKey::ApplyPriority) {
+        Some(value) => crate::inner::parse_apply_priority(value).map_err(|error| {
+            GrammarError::InvalidApplyPriority {
+                label: label
+                    .as_ref()
+                    .map_or_else(String::new, |label| label.name.clone()),
+                message: error.to_string(),
+            }
+        })?,
+        None => [(first, 1), (last, count)]
+            .into_iter()
+            .filter_map(|(nonterminal, position)| nonterminal.then_some(position))
+            .collect(),
+    };
+    Ok(positions
+        .into_iter()
+        .filter(|position| (1..=count).contains(position))
+        .map(|position| {
+            let side = if position == 1 && first {
+                OperandSide::First
+            } else if position == count && last {
+                OperandSide::Last
+            } else {
+                OperandSide::Inner
+            };
+            (operands[position - 1], side)
+        })
+        .collect())
 }
 
 /// The labels of the productions `sort` derives at its root: its labeled productions and those
@@ -480,49 +540,74 @@ fn derived_root_labels(
     labels
 }
 
-/// Remove every production that uses a restricted sort without productions, until no
-/// production does. Such a sort derives nothing, so a production using it derives nothing
-/// either, and Bison rejects a nonterminal without rules.
-fn remove_uses_of_empty_restricted_sorts(
+/// Remove every production that derives no finite tree only because of restriction.
+///
+/// A sort derives a tree only through a production whose operands all derive one, so a
+/// production with an operand that derives nothing derives nothing either, and removing it
+/// leaves the trees the grammar derives unchanged. Restriction can leave a sort without
+/// productions (a restricted sort whose only production is excluded), and then every production
+/// using it, and the sorts left without productions in turn. Bison reports such a rule as
+/// useless, and the merge code of a GLR parser then depends on where that rule is rendered, so
+/// the export removes them. A production that already derives nothing in the source grammar
+/// (where each restricted sort `origins` maps is its unrestricted sort) is the definition's own
+/// and is kept, so the checks of rendering still report its errors.
+fn remove_rules_restriction_made_useless(
     productions: &mut Vec<GrammarProduction>,
-    restricted: &BTreeSet<Sort>,
+    origins: &BTreeMap<Sort, Sort>,
 ) {
-    let mut remaining = BTreeMap::<Sort, usize>::new();
+    let unrestricted = |sort: &Sort| origins.get(sort).cloned().unwrap_or_else(|| sort.clone());
+    let source = productive_sorts(productions, unrestricted);
+    let exported = productive_sorts(productions, Sort::clone);
+    productions.retain(|production| {
+        let operands = nonterminal_sorts(&production.items);
+        operands.iter().all(|operand| exported.contains(*operand))
+            || !operands
+                .iter()
+                .all(|operand| source.contains(&unrestricted(operand)))
+    });
+}
+
+/// The sorts that derive a finite tree in the grammar of `productions` with each sort replaced
+/// by its image under `sort`.
+///
+/// This is the productivity fixpoint, with one counter per production of its operand occurrences
+/// not yet known to be productive, so it is linear in the items of `productions`.
+fn productive_sorts(
+    productions: &[GrammarProduction],
+    sort: impl Fn(&Sort) -> Sort,
+) -> BTreeSet<Sort> {
+    let mut unproven = Vec::with_capacity(productions.len());
     let mut users = BTreeMap::<Sort, Vec<usize>>::new();
+    let mut proven = Vec::new();
     for (index, production) in productions.iter().enumerate() {
-        if restricted.contains(&production.result) {
-            *remaining.entry(production.result.clone()).or_default() += 1;
+        let operands = nonterminal_sorts(&production.items);
+        unproven.push(operands.len());
+        if operands.is_empty() {
+            proven.push(index);
         }
-        for sort in nonterminal_sorts(&production.items) {
-            if restricted.contains(sort) {
-                users.entry(sort.clone()).or_default().push(index);
-            }
-        }
-    }
-    let mut empty = restricted
-        .iter()
-        .filter(|sort| !remaining.contains_key(*sort))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut removed = vec![false; productions.len()];
-    // Invariant: `removed` marks exactly the productions that use a sort popped from `empty`,
-    // `remaining` counts the unmarked productions of each restricted sort, and a sort enters
-    // `empty` once, when its count is or reaches zero.
-    while let Some(sort) = empty.pop() {
-        for &index in users.get(&sort).into_iter().flatten() {
-            if std::mem::replace(&mut removed[index], true) {
-                continue;
-            }
-            if let Some(count) = remaining.get_mut(&productions[index].result) {
-                *count -= 1;
-                if *count == 0 {
-                    empty.push(productions[index].result.clone());
-                }
-            }
+        for operand in operands {
+            users.entry(sort(operand)).or_default().push(index);
         }
     }
-    let mut removed = removed.into_iter();
-    productions.retain(|_| !removed.next().expect("one mark per production"));
+    let mut productive = BTreeSet::new();
+    // Invariant: `productive` holds the result sorts of the popped productions, every one of
+    // which has all its operands productive; `unproven[index]` counts the operand occurrences of
+    // production `index` whose sort is not yet in `productive`, and a production enters `proven`
+    // once, when its count is or reaches zero.
+    while let Some(index) = proven.pop() {
+        let result = sort(&productions[index].result);
+        if productive.contains(&result) {
+            continue;
+        }
+        for &user in users.get(&result).into_iter().flatten() {
+            unproven[user] -= 1;
+            if unproven[user] == 0 {
+                proven.push(user);
+            }
+        }
+        productive.insert(result);
+    }
+    productive
 }
 
 fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, GrammarError> {
@@ -2112,7 +2197,7 @@ mod tests {
             operand(exported(&productions, "paren"), 1),
             &Sort::new("Exp")
         );
-        // Every sort a production uses is defined, as Bison requires of a nonterminal.
+        // Every sort a production uses has a production: a sort without one derives nothing.
         let defined = productions
             .iter()
             .map(|production| &production.result)
@@ -2133,6 +2218,143 @@ mod tests {
             .filter(|sort| sort.name.starts_with("Exp#"))
             .collect::<BTreeSet<_>>();
         assert_eq!(int_parents, 1 + restricted_exp.len());
+    }
+
+    /// `parser.bison.priorities`: `applyPriority` names the operands priority restricts, in place
+    /// of the first and last item. A named first or last item is also restricted by the
+    /// associativity of its side; a named inner operand by priority alone; an unnamed first item
+    /// is not restricted.
+    #[test]
+    fn apply_priority_names_the_operands_priority_restricts() {
+        let exp = || nonterminal("Exp");
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production(
+                "Exp",
+                vec![terminal("f("), exp(), terminal(","), exp(), terminal(")")],
+                Some("f"),
+                &[("applyPriority", "1")],
+            ),
+            production(
+                "Exp",
+                vec![exp(), terminal("?"), exp()],
+                Some("q"),
+                &[("applyPriority", "2")],
+            ),
+            production("Exp", vec![exp(), terminal("+"), exp()], Some("add"), &[]),
+            production("Exp", vec![terminal("1")], Some("one"), &[]),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["f".into(), "q".into()], vec!["add".into()]],
+                attributes: Attributes::default(),
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: Associativity::Left,
+                tags: vec!["f".into(), "q".into()],
+                attributes: Attributes::default(),
+            },
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+        let labels = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        let f = exported(&productions, "f");
+        assert_eq!(
+            root_labels(&productions, operand(f, 1)),
+            labels(&["f", "q", "one"])
+        );
+        assert_eq!(operand(f, 3), &Sort::new("Exp"));
+        let q = exported(&productions, "q");
+        assert_eq!(operand(q, 0), &Sort::new("Exp"));
+        assert_eq!(root_labels(&productions, operand(q, 2)), labels(&["one"]));
+        let add = exported(&productions, "add");
+        assert_eq!(operand(add, 0), &Sort::new("Exp"));
+        assert_eq!(operand(add, 2), &Sort::new("Exp"));
+
+        let invalid = [production(
+            "Exp",
+            vec![exp(), terminal("!")],
+            Some("bang"),
+            &[("applyPriority", "first")],
+        )];
+        let error =
+            transform_priority_and_associativity(&invalid, prepare(&invalid).unwrap().productions)
+                .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "production bang: invalid applyPriority value \"first\" in \"first\""
+        );
+    }
+
+    /// `parser.bison.priorities`: a production that restriction leaves deriving nothing is not
+    /// exported, also when it is a source production over a sort that restriction left without
+    /// productions: here `q`'s last operand may not derive `add`, so it derives nothing, so `q`
+    /// and then `Zoo` derive nothing. A production that derives nothing in the source grammar
+    /// (`ghost`) is the definition's own and is kept.
+    #[test]
+    fn productions_restriction_leaves_deriving_nothing_are_not_exported() {
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production("Num", vec![terminal("1")], Some("one"), &[]),
+            production("Zpgm", vec![nonterminal("Num")], None, &[]),
+            production("Zpgm", vec![nonterminal("Zoo")], None, &[]),
+            production("Zpgm", vec![nonterminal("S")], None, &[]),
+            production(
+                "Zpgm",
+                vec![nonterminal("Ghost"), terminal("!")],
+                Some("ghost"),
+                &[],
+            ),
+            production("S", vec![nonterminal("Add")], None, &[]),
+            production(
+                "Add",
+                vec![nonterminal("Zpgm"), terminal("+"), nonterminal("Zpgm")],
+                Some("add"),
+                &[],
+            ),
+            production(
+                "Zoo",
+                vec![nonterminal("Zpgm"), terminal("?"), nonterminal("S")],
+                Some("q"),
+                &[],
+            ),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["q".into()], vec!["add".into()]],
+                attributes: Attributes::default(),
+            },
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+        let defined = productions
+            .iter()
+            .map(|production| &production.result)
+            .collect::<BTreeSet<_>>();
+        for production in &productions {
+            for sort in nonterminal_sorts(&production.items) {
+                assert!(
+                    defined.contains(sort) || sort == &Sort::new("Ghost"),
+                    "{sort} is used by {production:?}"
+                );
+            }
+        }
+        let exported_labels = productions
+            .iter()
+            .filter_map(|production| production_label(&production.source))
+            .map(|label| label.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(!exported_labels.contains("q"), "{productions:#?}");
+        assert!(exported_labels.contains("ghost"), "{productions:#?}");
+        assert!(defined.contains(&Sort::new("Add")));
+        assert!(!defined.contains(&Sort::new("Zoo")));
     }
 
     /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and
@@ -2880,5 +3102,503 @@ mod tests {
                 .to_string()
                 .contains("program start sort Missing has no Bison production")
         );
+    }
+
+    /// `parser.bison.priorities` against the priority filter K's documentation defines ("Symbol
+    /// priority and associativity" in the K user manual), over random small grammars.
+    ///
+    /// The filter judges a tree: at each checked operand of a labelled production (the positions
+    /// `applyPriority` lists, else the first and the last item when it is a nonterminal), the
+    /// child's root label, read through the subsort productions that the program text does not
+    /// show, must not be of lesser priority than the parent, and associativity excludes a child
+    /// of the same group at the last item (left) or the first item (right). The exported grammar
+    /// must derive exactly the source grammar's trees that the filter allows, and hold no rule
+    /// that derives nothing unless the source grammar's rule already does.
+    mod priority_properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        #[derive(Clone, Debug)]
+        enum Shape {
+            Infix(usize, usize),
+            Prefix(usize),
+            Postfix(usize),
+            Closed(usize),
+            Pair(usize, usize),
+        }
+
+        #[derive(Clone, Debug)]
+        struct Operator {
+            result: usize,
+            shape: Shape,
+            apply_priority: Option<BTreeSet<usize>>,
+        }
+
+        #[derive(Clone, Debug)]
+        struct RandomGrammar {
+            sorts: usize,
+            subsorts: BTreeSet<(usize, usize)>,
+            atoms: BTreeSet<usize>,
+            operators: Vec<Operator>,
+            priorities: Vec<(usize, usize)>,
+            associativities: Vec<(Associativity, BTreeSet<usize>)>,
+        }
+
+        fn sort(index: usize) -> String {
+            format!("S{index}")
+        }
+
+        fn label(index: usize) -> String {
+            format!("l{index}")
+        }
+
+        fn random_grammar() -> impl Strategy<Value = RandomGrammar> {
+            (2usize..=4).prop_flat_map(|sorts| {
+                let shape = prop_oneof![
+                    (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Infix(left, right)),
+                    (0..sorts).prop_map(Shape::Prefix),
+                    (0..sorts).prop_map(Shape::Postfix),
+                    (0..sorts).prop_map(Shape::Closed),
+                    (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Pair(left, right)),
+                ];
+                let operator = (
+                    0..sorts,
+                    shape,
+                    proptest::option::weighted(
+                        0.3,
+                        proptest::collection::btree_set(1usize..=2, 1..=2),
+                    ),
+                )
+                    .prop_map(|(result, shape, apply_priority)| Operator {
+                        result,
+                        shape,
+                        apply_priority,
+                    });
+                (
+                    proptest::collection::btree_set((0..sorts, 0..sorts), 0..=3),
+                    proptest::collection::btree_set(0..sorts, 1..=sorts),
+                    proptest::collection::vec(operator, 1..=5),
+                    proptest::collection::vec((0usize..5, 0usize..5), 0..=4),
+                    proptest::collection::vec(
+                        (
+                            prop_oneof![
+                                Just(Associativity::Left),
+                                Just(Associativity::Right),
+                                Just(Associativity::NonAssoc),
+                            ],
+                            proptest::collection::btree_set(0usize..5, 1..=3),
+                        ),
+                        0..=2,
+                    ),
+                )
+                    .prop_map(
+                        move |(subsorts, atoms, operators, priorities, associativities)| {
+                            let count = operators.len();
+                            RandomGrammar {
+                                sorts,
+                                // Only edges from a lower to a higher index, so subsorts are
+                                // acyclic.
+                                subsorts: subsorts
+                                    .into_iter()
+                                    .filter(|(parent, child)| parent < child)
+                                    .collect(),
+                                atoms,
+                                // Only edges from a lower to a higher label, so priorities are
+                                // acyclic.
+                                priorities: priorities
+                                    .into_iter()
+                                    .map(|(higher, lower)| (higher % count, lower % count))
+                                    .filter(|(higher, lower)| higher < lower)
+                                    .collect(),
+                                associativities: associativities
+                                    .into_iter()
+                                    .map(|(associativity, members)| {
+                                        (
+                                            associativity,
+                                            members
+                                                .into_iter()
+                                                .map(|index| index % count)
+                                                .collect(),
+                                        )
+                                    })
+                                    .collect(),
+                                operators,
+                            }
+                        },
+                    )
+            })
+        }
+
+        impl Operator {
+            fn items(&self, index: usize) -> Vec<ProductionItem> {
+                let terminal = |text: String| ProductionItem::Terminal(text);
+                let operand = |sort_index: usize| nonterminal(&sort(sort_index));
+                match self.shape {
+                    Shape::Infix(left, right) => {
+                        vec![operand(left), terminal(format!("o{index}")), operand(right)]
+                    }
+                    Shape::Prefix(child) => vec![terminal(format!("o{index}")), operand(child)],
+                    Shape::Postfix(child) => vec![operand(child), terminal(format!("o{index}"))],
+                    Shape::Closed(child) => vec![
+                        terminal(format!("o{index}(")),
+                        operand(child),
+                        terminal(")".into()),
+                    ],
+                    Shape::Pair(left, right) => vec![
+                        terminal(format!("o{index}(")),
+                        operand(left),
+                        terminal(",".into()),
+                        operand(right),
+                        terminal(")".into()),
+                    ],
+                }
+            }
+        }
+
+        impl RandomGrammar {
+            fn sentences(&self) -> Vec<Sentence> {
+                let mut sentences = vec![
+                    syntax_sort("T", &[]),
+                    production(
+                        "T",
+                        vec![ProductionItem::Terminal("t".into())],
+                        Some("atom"),
+                        &[],
+                    ),
+                ];
+                sentences.extend((0..self.sorts).map(|index| syntax_sort(&sort(index), &[])));
+                sentences.extend(
+                    self.atoms
+                        .iter()
+                        .map(|index| production(&sort(*index), vec![nonterminal("T")], None, &[])),
+                );
+                sentences.extend(self.subsorts.iter().map(|(parent, child)| {
+                    production(&sort(*parent), vec![nonterminal(&sort(*child))], None, &[])
+                }));
+                for (index, operator) in self.operators.iter().enumerate() {
+                    let positions = operator.apply_priority.as_ref().map(|positions| {
+                        positions
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    });
+                    let attributes = positions
+                        .as_deref()
+                        .map(|positions| vec![("applyPriority", positions)])
+                        .unwrap_or_default();
+                    sentences.push(production(
+                        &sort(operator.result),
+                        operator.items(index),
+                        Some(&label(index)),
+                        &attributes,
+                    ));
+                }
+                sentences.extend(self.priorities.iter().map(|(higher, lower)| {
+                    Sentence::SyntaxPriority {
+                        priorities: vec![vec![label(*higher)], vec![label(*lower)]],
+                        attributes: Attributes::default(),
+                    }
+                }));
+                sentences.extend(self.associativities.iter().map(|(associativity, members)| {
+                    Sentence::SyntaxAssociativity {
+                        associativity: *associativity,
+                        tags: members.iter().map(|index| label(*index)).collect(),
+                        attributes: Attributes::default(),
+                    }
+                }));
+                sentences
+            }
+        }
+
+        /// A derivation tree of the source grammar: the index of a production among the
+        /// source productions, and one subtree per nonterminal item.
+        #[derive(Clone, Debug)]
+        struct Tree {
+            production: usize,
+            children: Vec<Tree>,
+        }
+
+        fn operand_sorts(items: &[ProductionItem]) -> Vec<&Sort> {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                    ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+                })
+                .collect()
+        }
+
+        /// At most `limit` trees of `sort` with at most `depth` nested labelled productions.
+        fn trees(sources: &[&Sentence], sort: &Sort, depth: usize, limit: usize) -> Vec<Tree> {
+            let mut result = Vec::new();
+            for (index, source) in sources.iter().enumerate() {
+                let Sentence::Production {
+                    sort: result_sort,
+                    items,
+                    label,
+                    ..
+                } = source
+                else {
+                    unreachable!()
+                };
+                if result_sort != sort {
+                    continue;
+                }
+                let operands = operand_sorts(items);
+                let child_depth = match (label, operands.is_empty()) {
+                    (_, true) => {
+                        result.push(Tree {
+                            production: index,
+                            children: Vec::new(),
+                        });
+                        continue;
+                    }
+                    // A subsort production is not a level of the program text.
+                    (None, false) => depth,
+                    (Some(_), false) if depth == 0 => continue,
+                    (Some(_), false) => depth - 1,
+                };
+                let mut combinations = vec![Vec::new()];
+                for operand in operands {
+                    let subtrees = trees(sources, operand, child_depth, limit);
+                    combinations = combinations
+                        .iter()
+                        .flat_map(|prefix| {
+                            subtrees.iter().map(move |subtree| {
+                                let mut combination = prefix.clone();
+                                combination.push(subtree.clone());
+                                combination
+                            })
+                        })
+                        .take(limit)
+                        .collect();
+                }
+                result.extend(combinations.into_iter().map(|children| Tree {
+                    production: index,
+                    children,
+                }));
+            }
+            result.truncate(limit);
+            result
+        }
+
+        fn source_label(source: &Sentence) -> Option<&str> {
+            let Sentence::Production { label, .. } = source else {
+                unreachable!()
+            };
+            label.as_ref().map(|label| label.name.as_str())
+        }
+
+        /// The documented filter, written from the declarations alone.
+        struct Filter {
+            /// `(parent, child)`: `child` has lesser priority than `parent` (transitively).
+            lesser: BTreeSet<(String, String)>,
+            /// `(parent, child)` pairs of a left (or non-assoc) group.
+            left: BTreeSet<(String, String)>,
+            /// `(parent, child)` pairs of a right (or non-assoc) group.
+            right: BTreeSet<(String, String)>,
+        }
+
+        impl Filter {
+            fn new(grammar: &RandomGrammar) -> Self {
+                let mut lesser = grammar
+                    .priorities
+                    .iter()
+                    .map(|(higher, lower)| (label(*higher), label(*lower)))
+                    .collect::<BTreeSet<_>>();
+                loop {
+                    let implied = lesser
+                        .iter()
+                        .flat_map(|(a, b)| {
+                            lesser
+                                .iter()
+                                .filter(move |(c, _)| c == b)
+                                .map(move |(_, d)| (a.clone(), d.clone()))
+                        })
+                        .collect::<Vec<_>>();
+                    let before = lesser.len();
+                    lesser.extend(implied);
+                    if lesser.len() == before {
+                        break;
+                    }
+                }
+                let mut left = BTreeSet::new();
+                let mut right = BTreeSet::new();
+                for (associativity, members) in &grammar.associativities {
+                    for parent in members {
+                        for child in members {
+                            let pair = (label(*parent), label(*child));
+                            if matches!(
+                                associativity,
+                                Associativity::Left | Associativity::NonAssoc
+                            ) {
+                                left.insert(pair.clone());
+                            }
+                            if matches!(
+                                associativity,
+                                Associativity::Right | Associativity::NonAssoc
+                            ) {
+                                right.insert(pair);
+                            }
+                        }
+                    }
+                }
+                Self {
+                    lesser,
+                    left,
+                    right,
+                }
+            }
+
+            fn allows(&self, sources: &[&Sentence], tree: &Tree) -> bool {
+                let source = sources[tree.production];
+                let Sentence::Production {
+                    items, attributes, ..
+                } = source
+                else {
+                    unreachable!()
+                };
+                if let Some(parent) = source_label(source) {
+                    let count = tree.children.len();
+                    let first = matches!(items.first(), Some(ProductionItem::NonTerminal { .. }));
+                    let last = matches!(items.last(), Some(ProductionItem::NonTerminal { .. }));
+                    let checked = attributes.string(AttributeKey::ApplyPriority).map_or_else(
+                        || {
+                            let mut positions = BTreeSet::new();
+                            if first {
+                                positions.insert(1);
+                            }
+                            if last {
+                                positions.insert(count);
+                            }
+                            positions
+                        },
+                        |positions| {
+                            positions
+                                .split(',')
+                                .map(|position| position.parse::<usize>().unwrap())
+                                .collect()
+                        },
+                    );
+                    for (index, child) in tree.children.iter().enumerate() {
+                        let position = index + 1;
+                        if !checked.contains(&position) {
+                            continue;
+                        }
+                        let mut root = child;
+                        while source_label(sources[root.production]).is_none()
+                            && root.children.len() == 1
+                        {
+                            root = &root.children[0];
+                        }
+                        let Some(child_label) = source_label(sources[root.production]) else {
+                            continue;
+                        };
+                        let pair = (parent.to_owned(), child_label.to_owned());
+                        if self.lesser.contains(&pair)
+                            || (position == 1 && first && self.right.contains(&pair))
+                            || (position == count && last && self.left.contains(&pair))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                tree.children
+                    .iter()
+                    .all(|child| self.allows(sources, child))
+            }
+        }
+
+        /// Whether `productions` derive `tree` from `sort` with productions whose source is the
+        /// tree's production at each node.
+        fn derives(
+            productions: &[GrammarProduction],
+            sources: &[&Sentence],
+            sort: &Sort,
+            tree: &Tree,
+        ) -> bool {
+            productions.iter().any(|production| {
+                &production.result == sort
+                    && &production.source == sources[tree.production]
+                    && operand_sorts(&production.items)
+                        .into_iter()
+                        .zip(&tree.children)
+                        .all(|(operand, child)| derives(productions, sources, operand, child))
+            })
+        }
+
+        /// The sorts of `productions` that derive a finite tree.
+        fn productive(productions: &[GrammarProduction]) -> BTreeSet<Sort> {
+            let mut productive = BTreeSet::new();
+            loop {
+                let before = productive.len();
+                for production in productions {
+                    if operand_sorts(&production.items)
+                        .iter()
+                        .all(|operand| productive.contains(*operand))
+                    {
+                        productive.insert(production.result.clone());
+                    }
+                }
+                if productive.len() == before {
+                    return productive;
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig {
+                cases: 256,
+                failure_persistence: None,
+                ..ProptestConfig::default()
+            })]
+
+            #[test]
+            fn the_export_derives_exactly_the_trees_priority_and_associativity_allow(
+                grammar in random_grammar()
+            ) {
+                let sentences = grammar.sentences();
+                let sources = sentences
+                    .iter()
+                    .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
+                    .collect::<Vec<_>>();
+                let exported = transform_priority_and_associativity(
+                    &sentences,
+                    prepare(&sentences).unwrap().productions,
+                )
+                .unwrap();
+                // Restriction leaves no rule that derives nothing, except the source grammar's
+                // own.
+                let exported_productive = productive(&exported);
+                let source_productive = productive(&prepare(&sentences).unwrap().productions);
+                for production in &exported {
+                    let Sentence::Production { items, .. } = &production.source else {
+                        unreachable!()
+                    };
+                    prop_assert!(
+                        operand_sorts(&production.items)
+                            .iter()
+                            .all(|operand| exported_productive.contains(*operand))
+                            || !operand_sorts(items)
+                                .iter()
+                                .all(|operand| source_productive.contains(*operand)),
+                        "{:?} derives nothing",
+                        production
+                    );
+                }
+                let filter = Filter::new(&grammar);
+                let start = Sort::new(sort(0));
+                for tree in trees(&sources, &start, 3, 2000) {
+                    prop_assert_eq!(
+                        derives(&exported, &sources, &start, &tree),
+                        filter.allows(&sources, &tree),
+                        "tree {:?}",
+                        tree
+                    );
+                }
+            }
+        }
     }
 }

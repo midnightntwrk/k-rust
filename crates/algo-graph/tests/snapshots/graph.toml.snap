@@ -5839,6 +5839,11 @@ symbol = "transform_priority_and_associativity"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "checked_operands"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
 symbol = "constrain_side"
 
 [[node.sites]]
@@ -5854,7 +5859,7 @@ symbol = "derived_root_labels"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
-symbol = "remove_uses_of_empty_restricted_sorts"
+symbol = "remove_rules_restriction_made_useless"
 
 [[node.sites]]
 crate = "k-rust"
