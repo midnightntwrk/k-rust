@@ -2692,37 +2692,59 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
         })?;
         backend.add_module(&source, true)?;
     }
-    let function_symbols = backend
-        .select_definition(Some(&options.module))?
-        .function_symbol_names();
-    let initial = backend.load_patterns(Some(&options.module), &options.pattern, "initial")?;
-    let output = backend.run_cli(
-        Some(&options.module),
-        initial,
-        BackendRunOptions {
-            depth: options.depth.unwrap_or(u64::MAX),
-            max_simplification_iterations: options
-                .max_simplification_iterations
-                .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
-            breadth_limit: options.breadth_limit,
-            execute_to_branch: options.execute_to_branch,
-            cut_point_rules: options.cut_point_rules.into_iter().collect(),
-            terminal_rules: options.terminal_rules.into_iter().collect(),
-            strategy: options.strategy.into(),
-            search: options.search.into_options(),
-            match_target: None,
-            function_symbols,
-            stop_leaves: options.stop_leaves,
-            step_timeout: options.timeout.timeout(),
-            moving_average_timeout: options.timeout.moving_average,
-            capture_stdout: false,
-            execution_input: None,
-        },
-    )?;
-    output
-        .pattern
-        .with_source(|source| write_kore_result(source, options.output.as_deref()))?;
-    Ok(ExitCode::from(output.exit_code))
+    let definition = backend.select_definition(Some(&options.module))?;
+    let function_symbols = definition.function_symbol_names();
+    let search = options.search.into_options();
+    // The input patterns are as deep as their files, which nothing bounds: verifying,
+    // internalizing, executing and printing them recurse over them, and so do the drops of the
+    // internal terms built from them. All of it runs on a stack the backend measures from the
+    // patterns read so far and the definition, which refuses a pattern too deep for any stack
+    // it provides. The initial pattern is verified before the search pattern is read, as each
+    // is needed.
+    let too_deep = |error| format!("the input patterns are too deep for the backend: {error}");
+    let initial = load_kore_syntax(&options.pattern, "initial")?;
+    let zone = definition.operation_depth(&[&initial]);
+    k_rust_backend::nesting::with_stack(zone, || -> Result<ExitCode, Box<dyn Error>> {
+        let initial = backend.internalize_executable(Some(&options.module), &initial)?;
+        let search_pattern = search
+            .as_ref()
+            .and_then(|search| search.pattern.as_deref())
+            .map(|path| load_kore_syntax(path, "search"))
+            .transpose()?;
+        let zone = zone.max(definition.operation_depth(&search_pattern.iter().collect::<Vec<_>>()));
+        drop(search_pattern);
+        k_rust_backend::nesting::with_stack(zone, || -> Result<ExitCode, Box<dyn Error>> {
+            let output = backend.run_cli(
+                Some(&options.module),
+                initial,
+                BackendRunOptions {
+                    depth: options.depth.unwrap_or(u64::MAX),
+                    max_simplification_iterations: options
+                        .max_simplification_iterations
+                        .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
+                    breadth_limit: options.breadth_limit,
+                    execute_to_branch: options.execute_to_branch,
+                    cut_point_rules: options.cut_point_rules.into_iter().collect(),
+                    terminal_rules: options.terminal_rules.into_iter().collect(),
+                    strategy: options.strategy.into(),
+                    search,
+                    match_target: None,
+                    function_symbols,
+                    stop_leaves: options.stop_leaves,
+                    step_timeout: options.timeout.timeout(),
+                    moving_average_timeout: options.timeout.moving_average,
+                    capture_stdout: false,
+                    execution_input: None,
+                },
+            )?;
+            output
+                .pattern
+                .with_source(|source| write_kore_result(source, options.output.as_deref()))?;
+            Ok(ExitCode::from(output.exit_code))
+        })
+        .map_err(too_deep)?
+    })
+    .map_err(too_deep)?
 }
 
 fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
@@ -2901,7 +2923,8 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
     })?;
     let mut backend =
         Backend::from_definition(definition, &options.module, BackendOptions::default())?;
-    let function_symbols = backend.select_definition(None)?.function_symbol_names();
+    let definition = backend.select_definition(None)?;
+    let function_symbols = definition.function_symbol_names();
 
     let target_source = fs::read_to_string(&options.pattern)?;
     let target = parse_kore_pattern(&target_source).map_err(|error| {
@@ -2913,39 +2936,51 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
             ),
         )
     })?;
-    let target = backend.with_solver(None, |definition, _| {
-        definition
-            .verify_standalone_pattern(&target, &[])
-            .and_then(|admitted| admitted.internalize_pattern())
-            .map_err(|error| BackendError(error.to_string()))
-    })?;
+    // As in `kore_exec`: each pattern, the internal terms built from it, the match and its
+    // output run on a stack the backend measures from the patterns read so far and the
+    // definition. The target is verified before the disjunction is read, as each is needed.
+    let too_deep = |error| format!("the input patterns are too deep for the backend: {error}");
+    let zone = definition.operation_depth(&[&target]);
+    k_rust_backend::nesting::with_stack(zone, || -> Result<(), Box<dyn Error>> {
+        let target = backend.with_solver(None, |definition, _| {
+            definition
+                .verify_standalone_pattern(&target, &[])
+                .and_then(|admitted| admitted.internalize_pattern())
+                .map_err(|error| BackendError(error.to_string()))
+        })?;
 
-    let disjunction_source = fs::read_to_string(&options.disjunction)?;
-    let disjunction = parse_kore_pattern(&disjunction_source).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "could not parse configuration disjunction {}: {error}",
-                options.disjunction.display()
-            ),
-        )
-    })?;
-    let alternatives = backend.with_solver(None, |definition, _| {
-        definition
-            .verify_standalone_pattern(&disjunction, &[])
-            .and_then(|admitted| admitted.internalize_disjunction())
-            .map_err(|error| BackendError(error.to_string()))
-    })?;
-    let matches = backend.match_patterns(None, &target, &alternatives)?;
-    let output_sort = externalize::sort(&target.term.sort());
-    let output = pattern_matches_output(
-        &matches,
-        &output_sort,
-        &target.term.sort(),
-        &BTreeSet::new(),
-        &function_symbols,
-    );
-    output.with_source(|source| write_kore_result(source, options.output.as_deref()))
+        let disjunction_source = fs::read_to_string(&options.disjunction)?;
+        let disjunction = parse_kore_pattern(&disjunction_source).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "could not parse configuration disjunction {}: {error}",
+                    options.disjunction.display()
+                ),
+            )
+        })?;
+        let zone = zone.max(definition.operation_depth(&[&disjunction]));
+        k_rust_backend::nesting::with_stack(zone, || -> Result<(), Box<dyn Error>> {
+            let alternatives = backend.with_solver(None, |definition, _| {
+                definition
+                    .verify_standalone_pattern(&disjunction, &[])
+                    .and_then(|admitted| admitted.internalize_disjunction())
+                    .map_err(|error| BackendError(error.to_string()))
+            })?;
+            let matches = backend.match_patterns(None, &target, &alternatives)?;
+            let output_sort = externalize::sort(&target.term.sort());
+            let output = pattern_matches_output(
+                &matches,
+                &output_sort,
+                &target.term.sort(),
+                &BTreeSet::new(),
+                &function_symbols,
+            );
+            output.with_source(|source| write_kore_result(source, options.output.as_deref()))
+        })
+        .map_err(too_deep)?
+    })
+    .map_err(too_deep)?
 }
 
 /// Write the pattern `source` denotes as `KorePrinter::pretty(100).print_pattern` prints it,
