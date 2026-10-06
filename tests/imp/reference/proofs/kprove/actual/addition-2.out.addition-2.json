@@ -7,7 +7,7 @@
    {
     "att": {
      "att": {
-      "digest": "qPk5Ij+R/XfWDDYVCSdTMmfq0uFoxN31NTIrKH+uoFM="
+      "digest": "O8MS/D3z1J/I5MVAi/TfI25MYn7rVSSjAm71PfIkVyU="
      },
      "node": "KAtt"
     },
@@ -16,18 +16,13 @@
       "isPublic": true,
       "name": "KRS-IMP",
       "node": "KImport"
-     },
-     {
-      "isPublic": true,
-      "name": "IMP-VERIFICATION-SYNTAX",
-      "node": "KImport"
      }
     ],
     "localSentences": [
      {
       "att": {
        "att": {
-        "UNIQUE_ID": "7ce91f9bfc570b8f0ac91f0ad9e455b9a615483eaeee05fc43ceaad0aac41392",
+        "UNIQUE_ID": "03ec32c8f7c3e7aa9785853d302ddba58beb9f328a813447989b294756c23603",
         "label": "KRS-IMP-SPEC.addition-2",
         "org.kframework.definition.Production": {
          "att": {
@@ -100,7 +95,7 @@
               "node": "KApply"
              },
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -125,7 +120,7 @@
               "token": "7"
              },
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -289,46 +284,6 @@
      }
     ],
     "name": "KRS-IMP-SPEC",
-    "node": "KFlatModule"
-   },
-   {
-    "att": {
-     "att": {
-      "digest": "uJNnUy6+Wv+hJAGF1lTI1fkFrEm3sZGiTFb0hVpXWek="
-     },
-     "node": "KAtt"
-    },
-    "imports": [
-     {
-      "isPublic": true,
-      "name": "ID-SYNTAX",
-      "node": "KImport"
-     }
-    ],
-    "localSentences": [
-     {
-      "att": {
-       "att": {
-        "token": ""
-       },
-       "node": "KAtt"
-      },
-      "node": "KProduction",
-      "params": [],
-      "productionItems": [
-       {
-        "node": "KRegexTerminal",
-        "regex": "\\$[a-zA-Z0-9_]+"
-       }
-      ],
-      "sort": {
-       "name": "Id",
-       "node": "KSort",
-       "params": []
-      }
-     }
-    ],
-    "name": "IMP-VERIFICATION-SYNTAX",
     "node": "KFlatModule"
    }
   ]

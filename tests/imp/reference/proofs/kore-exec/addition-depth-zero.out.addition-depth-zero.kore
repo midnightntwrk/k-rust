@@ -7,9 +7,9 @@ Lbl'-LT-'generatedTop'-GT-'{}(
                     /* Inj: */ inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("4"))
                 )
             ),
-            VarV7461696C:SortK{}
+            VarTail:SortK{}
         )
     ),
     Lbl'-LT-'env'-GT-'{}(Var'Unds'DotVar1:SortMap{}),
-    Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'KrsCounter74:SortInt{})
+    Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Krs'Unds'Counter74:SortInt{})
 )

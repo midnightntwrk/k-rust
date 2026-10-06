@@ -7,7 +7,7 @@
    {
     "att": {
      "att": {
-      "digest": "qPk5Ij+R/XfWDDYVCSdTMmfq0uFoxN31NTIrKH+uoFM="
+      "digest": "O8MS/D3z1J/I5MVAi/TfI25MYn7rVSSjAm71PfIkVyU="
      },
      "node": "KAtt"
     },
@@ -16,18 +16,13 @@
       "isPublic": true,
       "name": "KRS-IMP",
       "node": "KImport"
-     },
-     {
-      "isPublic": true,
-      "name": "IMP-VERIFICATION-SYNTAX",
-      "node": "KImport"
      }
     ],
     "localSentences": [
      {
       "att": {
        "att": {
-        "UNIQUE_ID": "0ffa7386a215560170a8f215ccdc7b653dd324487440a652922c568f65c67b24",
+        "UNIQUE_ID": "d64084cd4bb6b7cf4e1752e0f4b30e28705fd959c1ff06ea3695faa832f881aa",
         "label": "KRS-IMP-SPEC.branching-program",
         "org.kframework.definition.Production": {
          "att": {
@@ -211,7 +206,7 @@
               "node": "KApply"
              },
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -227,7 +222,7 @@
             "arity": 1,
             "items": [
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -262,7 +257,7 @@
            },
            "node": "KRewrite",
            "rhs": {
-            "name": "?ENVIRONMENT",
+            "name": "?Environment",
             "node": "KVariable",
             "sort": {
              "name": "Map",
@@ -343,46 +338,6 @@
      }
     ],
     "name": "KRS-IMP-SPEC",
-    "node": "KFlatModule"
-   },
-   {
-    "att": {
-     "att": {
-      "digest": "uJNnUy6+Wv+hJAGF1lTI1fkFrEm3sZGiTFb0hVpXWek="
-     },
-     "node": "KAtt"
-    },
-    "imports": [
-     {
-      "isPublic": true,
-      "name": "ID-SYNTAX",
-      "node": "KImport"
-     }
-    ],
-    "localSentences": [
-     {
-      "att": {
-       "att": {
-        "token": ""
-       },
-       "node": "KAtt"
-      },
-      "node": "KProduction",
-      "params": [],
-      "productionItems": [
-       {
-        "node": "KRegexTerminal",
-        "regex": "\\$[a-zA-Z0-9_]+"
-       }
-      ],
-      "sort": {
-       "name": "Id",
-       "node": "KSort",
-       "params": []
-      }
-     }
-    ],
-    "name": "IMP-VERIFICATION-SYNTAX",
     "node": "KFlatModule"
    }
   ]

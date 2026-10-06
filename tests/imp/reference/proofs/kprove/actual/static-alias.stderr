@@ -1,20 +1,22 @@
 kore-exec: [-] Warning (WarnTrivialClaim):
-    Claim proven without rewriting at: {{work}}/actual-spec.k:46:5-46:58
-[Warning] Compiler: Variable 'V7461696C' defined but not used. Prefix variable
-name with underscore if this is intentional.
+    Claim proven without rewriting at: {{work}}/actual-spec.k:44:5-44:48
+[Warning] Compiler: Variable 'Tail' defined but not used. Prefix variable name
+with underscore if this is intentional.
 	Source({{work}}/actual-execution.k)
-	Location(77,17,77,26)
-	77 |	    <k> HERE ~> V7461696C:K </k>
-	   .	                ^~~~~~~~~
-[Warning] Compiler: Variable '?ENVIRONMENT' defined but not used. Prefix
+	Location(77,17,77,21)
+	77 |	    <k> HERE ~> Tail:K </k>
+	   .	                ^~~~
+[Warning] Compiler: Variable '?Environment' defined but not used. Prefix
 variable name with underscore if this is intentional.
 	Source({{work}}/actual-spec.k)
-	Location(35,23,35,35)
-	35 |	    <env> _ENV:Map => ?ENVIRONMENT:Map </env>
+	Location(33,23,33,35)
+	33 |	    <env> _ENV:Map => ?Environment:Map </env>
 	   .	                      ^~~~~~~~~~~~
-[Warning] Compiler: Variable '?NEW_VALUE' defined but not used. Prefix variable
+[Warning] Compiler: Variable '?NewValue' defined but not used. Prefix variable
 name with underscore if this is intentional.
 	Source({{work}}/actual-spec.k)
-	Location(71,45,71,55)
-	71 |	    <env> $n |-> _OLD_VALUE:Value => $n |-> ?NEW_VALUE:Value </env>
-	   .	                                            ^~~~~~~~~~
+	Location(69,75,69,84)
+	69 |	    <env> #token("$n","Id") |-> _OLD_VALUE:Value => #token("$n","Id") |->
+?NewValue:Value </env>
+	   .	                                                                         
+^~~~~~~~~

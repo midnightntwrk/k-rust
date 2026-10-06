@@ -8,17 +8,17 @@ tools = ["kprove"]
 imp = "683a773418add3bcae8ded47c2b24e94494e1988"
 
 [key.inputs]
-"emitted/definition.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"emitted/definition.k" = "8876da20261920d612527fd1bfa396cfff062c5c0be29756fce0a586527b2238"
 
 [[invocation]]
 label = "kprove/dry-run"
-argv = ["kprove", "{{work}}/actual-claims-spec.k", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "-d", "{{work}}/actual-execution-kompiled", "--spec-module", "KRS-IMP-SPEC", "--dry-run", "--temp-dir", "{{work}}/native-spec-temp"]
+argv = ["kprove", "{{work}}/actual-claims-spec.k", "-d", "{{work}}/actual-execution-kompiled", "--spec-module", "KRS-IMP-SPEC", "--dry-run", "--temp-dir", "{{work}}/native-spec-temp"]
 returncode = 0
 stdout = "39dbc1a1a75688a37b5757417c4fd0d3e1ed024388418c66de2c0ea37ce88965"
-stderr = "5d19accc53ad248ca3d6520322acdb4b2192bbd66467dddf990dc6b588b009ed"
+stderr = "e81a1693b3311231950bbd654360fcc26f206c0399beaefb1345df145dbd6021"
 
 [invocation.inputs]
-"{{work}}/actual-claims-spec.k" = "0994c9f845ff45d23de0faa28f14dd5284916e2ede13c3f5c8a44d0266946efb"
+"{{work}}/actual-claims-spec.k" = "0beb4c2a588af41c8088f8bee88b506204dad3ee4230295a53bbc1abb1d4f94b"
 
 [invocation.outputs]
-"{{work}}/native-spec/spec.kore" = "1524fea1c3e3bb000cf31194fb4071a0c065f5b05060922484c9cb83cf807bd7"
+"{{work}}/native-spec/spec.kore" = "5bad32517a9bd1944badfedca9a1256668318272e9c2aebf118576e8c7817cfc"

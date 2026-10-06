@@ -1,10 +1,10 @@
 Lbl'-LT-'generatedTop'-GT-'{}(
-    Lbl'-LT-'k'-GT-'{}(VarV7461696C:SortK{}),
+    Lbl'-LT-'k'-GT-'{}(VarTail:SortK{}),
     Lbl'-LT-'env'-GT-'{}(
         /* InternalMap: */ /* concrete element: */ Lbl'UndsPipe'-'-GT-Unds'{}(
             /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),
             /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("-1"))
         )
     ),
-    Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'KrsCounter86:SortInt{})
+    Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Krs'Unds'Counter86:SortInt{})
 )

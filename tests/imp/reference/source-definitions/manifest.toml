@@ -8,7 +8,7 @@ tools = ["kompile"]
 imp = "683a773418add3bcae8ded47c2b24e94494e1988"
 
 [key.inputs]
-"emitted/definition.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"emitted/definition.k" = "8876da20261920d612527fd1bfa396cfff062c5c0be29756fce0a586527b2238"
 "tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
 
 [[invocation]]
@@ -16,25 +16,25 @@ label = "kompile/actual-haskell"
 argv = ["kompile", "{{work}}/actual-execution.k", "--backend", "haskell", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP", "--emit-json", "--output-definition", "{{work}}/actual-execution-kompiled"]
 returncode = 0
 stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-stderr = "42bc0d650898d8cb3773e14f310907ace161d691730ed65a3233c8de3a52ba27"
+stderr = "f5db2b07474bb05b9d304c1251a1964e4e4dc0556d8ec3c2635f3c6f256d8384"
 
 [invocation.inputs]
-"{{work}}/actual-execution.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"{{work}}/actual-execution.k" = "8876da20261920d612527fd1bfa396cfff062c5c0be29756fce0a586527b2238"
 
 [invocation.outputs]
-"{{work}}/actual-execution-kompiled/compiled.json" = "35a49418e81b1ef7ad21df7978dcbb738594b74a9793fb99129ab8f420ec3cb9"
-"{{work}}/actual-execution-kompiled/definition.kore" = "f067481bd1c741b8c13f0145dee90ed84ab28d7cb7d717d5cf9307191fc62609"
-"{{work}}/actual-execution-kompiled/parsed.json" = "62b0d5153bb7baafde1990fc9b8289c85527f7dd429322919bc388e93540fd2c"
+"{{work}}/actual-execution-kompiled/compiled.json" = "dfd376a579f636d069d78c4764f17d976b1fda6cacb4233a6514a54d83871d4b"
+"{{work}}/actual-execution-kompiled/definition.kore" = "5ed1eca733446414aab4722b651081b417ff30177f821efaacf244bea38bef07"
+"{{work}}/actual-execution-kompiled/parsed.json" = "3d825439f1f43f8bfdb6d45382db71ffdb5d6d518d1c3230ef618d7ee1218e17"
 
 [[invocation]]
 label = "kompile/actual-llvm"
 argv = ["kompile", "{{work}}/actual-execution.k", "--backend", "llvm", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP", "--emit-json", "--output-definition", "{{work}}/actual-execution-llvm-kompiled"]
 returncode = 0
 stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-stderr = "42bc0d650898d8cb3773e14f310907ace161d691730ed65a3233c8de3a52ba27"
+stderr = "f5db2b07474bb05b9d304c1251a1964e4e4dc0556d8ec3c2635f3c6f256d8384"
 
 [invocation.inputs]
-"{{work}}/actual-execution.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"{{work}}/actual-execution.k" = "8876da20261920d612527fd1bfa396cfff062c5c0be29756fce0a586527b2238"
 
 [invocation.outputs]
 
@@ -49,8 +49,8 @@ stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 "{{root}}/tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
 
 [invocation.outputs]
-"{{work}}/reference-execution-kompiled/compiled.json" = "98f3ae8724a90d79e463b557fd8fb0ed1f760abc42c3fd0a71de46d721026ff4"
-"{{work}}/reference-execution-kompiled/parsed.json" = "e8e91b36ed3b5094e6d53d8c5a997d19152ae54749a5272e476a8a78b9b55037"
+"{{work}}/reference-execution-kompiled/compiled.json" = "d14e4dfb9da9eac90352ac59a017031eda6771ea0389ff31a59a3e016ae77092"
+"{{work}}/reference-execution-kompiled/parsed.json" = "71afc99c23c0f2d871aa2d1c18f9e938f915999878f6095bfc363cb785abec51"
 
 [[invocation]]
 label = "kompile/reference-llvm"

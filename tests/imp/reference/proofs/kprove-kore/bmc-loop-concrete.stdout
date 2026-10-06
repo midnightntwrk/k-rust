@@ -1,1 +1,1 @@
-Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(VarV7461696C:SortK{}),Lbl'-LT-'env'-GT-'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("-1")))),Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))
+Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(VarTail:SortK{}),Lbl'-LT-'env'-GT-'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("-1")))),Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))

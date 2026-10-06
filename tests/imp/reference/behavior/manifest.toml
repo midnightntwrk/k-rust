@@ -8,7 +8,7 @@ tools = ["kast", "krun"]
 imp = "683a773418add3bcae8ded47c2b24e94494e1988"
 
 [key.inputs]
-"emitted/definition.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+"emitted/definition.k" = "8876da20261920d612527fd1bfa396cfff062c5c0be29756fce0a586527b2238"
 "tests/imp_static_semantics/fixtures/static-adjunct.k" = "a472a6fa703853587e38ff254b10b7d748a0f301ca33b7ec8c27809dcfed5dc2"
 
 [[invocation]]

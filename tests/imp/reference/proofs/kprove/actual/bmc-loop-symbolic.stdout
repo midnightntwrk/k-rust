@@ -11,7 +11,7 @@
          {
           "args": [
            {
-            "name": "V7461696C",
+            "name": "Tail",
             "node": "KVariable",
             "sort": {
              "name": "K",
@@ -73,7 +73,7 @@
                 "token": "$s"
                },
                {
-                "name": "V73",
+                "name": "S",
                 "node": "KVariable",
                 "sort": {
                  "name": "Int",
@@ -151,7 +151,7 @@
          {
           "args": [
            {
-            "name": "V73",
+            "name": "S",
             "node": "KVariable",
             "sort": {
              "name": "Int",
@@ -226,7 +226,7 @@
        {
         "args": [
          {
-          "name": "V73",
+          "name": "S",
           "node": "KVariable",
           "sort": {
            "name": "Int",
@@ -310,7 +310,7 @@
         "token": "0"
        },
        {
-        "name": "V73",
+        "name": "S",
         "node": "KVariable",
         "sort": {
          "name": "Int",

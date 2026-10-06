@@ -7,7 +7,7 @@
    {
     "att": {
      "att": {
-      "digest": "qPk5Ij+R/XfWDDYVCSdTMmfq0uFoxN31NTIrKH+uoFM="
+      "digest": "O8MS/D3z1J/I5MVAi/TfI25MYn7rVSSjAm71PfIkVyU="
      },
      "node": "KAtt"
     },
@@ -16,18 +16,13 @@
       "isPublic": true,
       "name": "KRS-IMP",
       "node": "KImport"
-     },
-     {
-      "isPublic": true,
-      "name": "IMP-VERIFICATION-SYNTAX",
-      "node": "KImport"
      }
     ],
     "localSentences": [
      {
       "att": {
        "att": {
-        "UNIQUE_ID": "a6c09ab92d6af830edccfaa7db6ae492b42617022572fc05f19b677938863bc3",
+        "UNIQUE_ID": "5e31709468ec9bc48c88149efdb2848e8a35812cbb55d70b7d646eb5269dda29",
         "label": "KRS-IMP-SPEC.sum-N",
         "org.kframework.definition.Production": {
          "att": {
@@ -127,7 +122,7 @@
                     "token": "$n"
                    },
                    {
-                    "name": "V6E",
+                    "name": "N",
                     "node": "KVariable",
                     "sort": {
                      "name": "Int",
@@ -323,7 +318,7 @@
               "node": "KApply"
              },
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -339,7 +334,7 @@
             "arity": 1,
             "items": [
              {
-              "name": "V7461696C",
+              "name": "Tail",
               "node": "KVariable",
               "sort": {
                "name": "K",
@@ -392,7 +387,7 @@
                  {
                   "args": [
                    {
-                    "name": "V6E",
+                    "name": "N",
                     "node": "KVariable",
                     "sort": {
                      "name": "Int",
@@ -403,7 +398,7 @@
                    {
                     "args": [
                      {
-                      "name": "V6E",
+                      "name": "N",
                       "node": "KVariable",
                       "sort": {
                        "name": "Int",
@@ -576,7 +571,7 @@
          "token": "0"
         },
         {
-         "name": "V6E",
+         "name": "N",
          "node": "KVariable",
          "sort": {
           "name": "Int",
@@ -596,46 +591,6 @@
      }
     ],
     "name": "KRS-IMP-SPEC",
-    "node": "KFlatModule"
-   },
-   {
-    "att": {
-     "att": {
-      "digest": "uJNnUy6+Wv+hJAGF1lTI1fkFrEm3sZGiTFb0hVpXWek="
-     },
-     "node": "KAtt"
-    },
-    "imports": [
-     {
-      "isPublic": true,
-      "name": "ID-SYNTAX",
-      "node": "KImport"
-     }
-    ],
-    "localSentences": [
-     {
-      "att": {
-       "att": {
-        "token": ""
-       },
-       "node": "KAtt"
-      },
-      "node": "KProduction",
-      "params": [],
-      "productionItems": [
-       {
-        "node": "KRegexTerminal",
-        "regex": "\\$[a-zA-Z0-9_]+"
-       }
-      ],
-      "sort": {
-       "name": "Id",
-       "node": "KSort",
-       "params": []
-      }
-     }
-    ],
-    "name": "IMP-VERIFICATION-SYNTAX",
     "node": "KFlatModule"
    }
   ]

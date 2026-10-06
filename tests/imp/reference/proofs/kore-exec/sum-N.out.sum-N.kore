@@ -105,7 +105,7 @@
                                 /* Inj: */ inj{SortStmt{}, SortKItem{}}(
                                     LblemptyBlock{}()
                                 ),
-                                VarV7461696C:SortK{}
+                                VarTail:SortK{}
                             )
                         )
                     )
@@ -119,14 +119,14 @@
                     /* Inj: */ inj{SortInt{}, SortKItem{}}(
                         Lbl'UndsPlus'Int'Unds'{}(
                             Lbl'UndsPlus'Int'Unds'{}(
-                                VarV6E:SortInt{},
+                                VarN:SortInt{},
                                 Lbl'UndsPlus'Int'Unds'{}(
-                                    VarV6E:SortInt{},
+                                    VarN:SortInt{},
                                     \dv{SortInt{}}("-1")
                                 )
                             ),
                             Lbl'UndsPlus'Int'Unds'{}(
-                                VarV6E:SortInt{},
+                                VarN:SortInt{},
                                 \dv{SortInt{}}("-2")
                             )
                         )
@@ -136,21 +136,21 @@
                     /* Inj: */ inj{SortId{}, SortKItem{}}(\dv{SortId{}}("$n")),
                     /* Inj: */ inj{SortInt{}, SortKItem{}}(
                         Lbl'UndsPlus'Int'Unds'{}(
-                            VarV6E:SortInt{},
+                            VarN:SortInt{},
                             \dv{SortInt{}}("-3")
                         )
                     )
                 )
             )
         ),
-        Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'KrsCounter77:SortInt{})
+        Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Krs'Unds'Counter77:SortInt{})
     ),
     \and{SortGeneratedTopCell{}}(
         \equals{SortBool{}, SortGeneratedTopCell{}}(
             \dv{SortBool{}}("true"),
             Lbl'Unds-LT-'Int'Unds'{}(
                 \dv{SortInt{}}("0"),
-                Lbl'UndsPlus'Int'Unds'{}(VarV6E:SortInt{}, \dv{SortInt{}}("-2"))
+                Lbl'UndsPlus'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("-2"))
             )
         ),
         \and{SortGeneratedTopCell{}}(
@@ -159,7 +159,7 @@
                 Lbl'Unds-LT-'Int'Unds'{}(
                     \dv{SortInt{}}("0"),
                     Lbl'UndsPlus'Int'Unds'{}(
-                        VarV6E:SortInt{},
+                        VarN:SortInt{},
                         \dv{SortInt{}}("-1")
                     )
                 )
@@ -169,14 +169,14 @@
                     \dv{SortBool{}}("true"),
                     Lbl'Unds-LT-'Int'Unds'{}(
                         \dv{SortInt{}}("0"),
-                        VarV6E:SortInt{}
+                        VarN:SortInt{}
                     )
                 ),
                 \equals{SortBool{}, SortGeneratedTopCell{}}(
                     \dv{SortBool{}}("true"),
                     Lbl'Unds-LT-Eqls'Int'Unds'{}(
                         \dv{SortInt{}}("0"),
-                        VarV6E:SortInt{}
+                        VarN:SortInt{}
                     )
                 )
             )
