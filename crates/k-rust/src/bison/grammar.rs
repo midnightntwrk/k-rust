@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "checked_operands", "constrain_side", "restricted_sort", "derived_root_labels", "remove_uses_of_empty_restricted_sorts", "prepare_user_lists"]
+//! sites = ["transform_priority_and_associativity", "checked_operands", "constrain_side", "restricted_sort", "derived_root_labels", "remove_rules_restriction_made_useless", "prepare_user_lists"]
 //! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
@@ -30,8 +30,8 @@
 //! O(pairs * productions). The restricted operands of a labelled production are those its
 //! `applyPriority` names, else its first and last item when they are nonterminals. A subsort child of a restricted sort is restricted too when it derives
 //! an excluded label at its root, which one indexed DFS per child decides in O(productions);
-//! uses of restricted sorts left without productions are then removed by a worklist over use
-//! counts, linear in the exported productions. Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! the productions that restriction leaves deriving no finite tree are then removed by two
+//! productivity worklists, linear in the exported items. Reachability is a visited-set DFS, O(reachable sorts * productions).
 //! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -434,11 +434,11 @@ fn transform_priority_and_associativity(
     }
     productions.sort_by_key(structural_key);
     productions.dedup_by_key(|production| structural_key(production));
-    let restricted = pending
+    let origins = pending
         .iter()
-        .map(|(sort, excluded)| restricted_sort(sort, ordinals[excluded]))
-        .collect();
-    remove_uses_of_empty_restricted_sorts(&mut productions, &restricted);
+        .map(|(sort, excluded)| (restricted_sort(sort, ordinals[excluded]), sort.clone()))
+        .collect::<BTreeMap<_, _>>();
+    remove_rules_restriction_made_useless(&mut productions, &origins);
     Ok(productions)
 }
 
@@ -540,49 +540,74 @@ fn derived_root_labels(
     labels
 }
 
-/// Remove every production that uses a restricted sort without productions, until no
-/// production does. Such a sort derives nothing, so a production using it derives nothing
-/// either, and Bison rejects a nonterminal without rules.
-fn remove_uses_of_empty_restricted_sorts(
+/// Remove every production that derives no finite tree only because of restriction.
+///
+/// A sort derives a tree only through a production whose operands all derive one, so a
+/// production with an operand that derives nothing derives nothing either, and removing it
+/// leaves the trees the grammar derives unchanged. Restriction can leave a sort without
+/// productions (a restricted sort whose only production is excluded), and then every production
+/// using it, and the sorts left without productions in turn. Bison reports such a rule as
+/// useless, and the merge code of a GLR parser then depends on where that rule is rendered, so
+/// the export removes them. A production that already derives nothing in the source grammar
+/// (where each restricted sort `origins` maps is its unrestricted sort) is the definition's own
+/// and is kept, so the checks of rendering still report its errors.
+fn remove_rules_restriction_made_useless(
     productions: &mut Vec<GrammarProduction>,
-    restricted: &BTreeSet<Sort>,
+    origins: &BTreeMap<Sort, Sort>,
 ) {
-    let mut remaining = BTreeMap::<Sort, usize>::new();
+    let unrestricted = |sort: &Sort| origins.get(sort).cloned().unwrap_or_else(|| sort.clone());
+    let source = productive_sorts(productions, unrestricted);
+    let exported = productive_sorts(productions, Sort::clone);
+    productions.retain(|production| {
+        let operands = nonterminal_sorts(&production.items);
+        operands.iter().all(|operand| exported.contains(*operand))
+            || !operands
+                .iter()
+                .all(|operand| source.contains(&unrestricted(operand)))
+    });
+}
+
+/// The sorts that derive a finite tree in the grammar of `productions` with each sort replaced
+/// by its image under `sort`.
+///
+/// This is the productivity fixpoint, with one counter per production of its operand occurrences
+/// not yet known to be productive, so it is linear in the items of `productions`.
+fn productive_sorts(
+    productions: &[GrammarProduction],
+    sort: impl Fn(&Sort) -> Sort,
+) -> BTreeSet<Sort> {
+    let mut unproven = Vec::with_capacity(productions.len());
     let mut users = BTreeMap::<Sort, Vec<usize>>::new();
+    let mut proven = Vec::new();
     for (index, production) in productions.iter().enumerate() {
-        if restricted.contains(&production.result) {
-            *remaining.entry(production.result.clone()).or_default() += 1;
+        let operands = nonterminal_sorts(&production.items);
+        unproven.push(operands.len());
+        if operands.is_empty() {
+            proven.push(index);
         }
-        for sort in nonterminal_sorts(&production.items) {
-            if restricted.contains(sort) {
-                users.entry(sort.clone()).or_default().push(index);
-            }
-        }
-    }
-    let mut empty = restricted
-        .iter()
-        .filter(|sort| !remaining.contains_key(*sort))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut removed = vec![false; productions.len()];
-    // Invariant: `removed` marks exactly the productions that use a sort popped from `empty`,
-    // `remaining` counts the unmarked productions of each restricted sort, and a sort enters
-    // `empty` once, when its count is or reaches zero.
-    while let Some(sort) = empty.pop() {
-        for &index in users.get(&sort).into_iter().flatten() {
-            if std::mem::replace(&mut removed[index], true) {
-                continue;
-            }
-            if let Some(count) = remaining.get_mut(&productions[index].result) {
-                *count -= 1;
-                if *count == 0 {
-                    empty.push(productions[index].result.clone());
-                }
-            }
+        for operand in operands {
+            users.entry(sort(operand)).or_default().push(index);
         }
     }
-    let mut removed = removed.into_iter();
-    productions.retain(|_| !removed.next().expect("one mark per production"));
+    let mut productive = BTreeSet::new();
+    // Invariant: `productive` holds the result sorts of the popped productions, every one of
+    // which has all its operands productive; `unproven[index]` counts the operand occurrences of
+    // production `index` whose sort is not yet in `productive`, and a production enters `proven`
+    // once, when its count is or reaches zero.
+    while let Some(index) = proven.pop() {
+        let result = sort(&productions[index].result);
+        if productive.contains(&result) {
+            continue;
+        }
+        for &user in users.get(&result).into_iter().flatten() {
+            unproven[user] -= 1;
+            if unproven[user] == 0 {
+                proven.push(user);
+            }
+        }
+        productive.insert(result);
+    }
+    productive
 }
 
 fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, GrammarError> {
@@ -2172,7 +2197,7 @@ mod tests {
             operand(exported(&productions, "paren"), 1),
             &Sort::new("Exp")
         );
-        // Every sort a production uses is defined, as Bison requires of a nonterminal.
+        // Every sort a production uses has a production: a sort without one derives nothing.
         let defined = productions
             .iter()
             .map(|production| &production.result)
@@ -2265,6 +2290,71 @@ mod tests {
             error.to_string(),
             "production bang: invalid applyPriority value \"first\" in \"first\""
         );
+    }
+
+    /// `parser.bison.priorities`: a production that restriction leaves deriving nothing is not
+    /// exported, also when it is a source production over a sort that restriction left without
+    /// productions: here `q`'s last operand may not derive `add`, so it derives nothing, so `q`
+    /// and then `Zoo` derive nothing. A production that derives nothing in the source grammar
+    /// (`ghost`) is the definition's own and is kept.
+    #[test]
+    fn productions_restriction_leaves_deriving_nothing_are_not_exported() {
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production("Num", vec![terminal("1")], Some("one"), &[]),
+            production("Zpgm", vec![nonterminal("Num")], None, &[]),
+            production("Zpgm", vec![nonterminal("Zoo")], None, &[]),
+            production("Zpgm", vec![nonterminal("S")], None, &[]),
+            production(
+                "Zpgm",
+                vec![nonterminal("Ghost"), terminal("!")],
+                Some("ghost"),
+                &[],
+            ),
+            production("S", vec![nonterminal("Add")], None, &[]),
+            production(
+                "Add",
+                vec![nonterminal("Zpgm"), terminal("+"), nonterminal("Zpgm")],
+                Some("add"),
+                &[],
+            ),
+            production(
+                "Zoo",
+                vec![nonterminal("Zpgm"), terminal("?"), nonterminal("S")],
+                Some("q"),
+                &[],
+            ),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["q".into()], vec!["add".into()]],
+                attributes: Attributes::default(),
+            },
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+        let defined = productions
+            .iter()
+            .map(|production| &production.result)
+            .collect::<BTreeSet<_>>();
+        for production in &productions {
+            for sort in nonterminal_sorts(&production.items) {
+                assert!(
+                    defined.contains(sort) || sort == &Sort::new("Ghost"),
+                    "{sort} is used by {production:?}"
+                );
+            }
+        }
+        let exported_labels = productions
+            .iter()
+            .filter_map(|production| production_label(&production.source))
+            .map(|label| label.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(!exported_labels.contains("q"), "{productions:#?}");
+        assert!(exported_labels.contains("ghost"), "{productions:#?}");
+        assert!(defined.contains(&Sort::new("Add")));
+        assert!(!defined.contains(&Sort::new("Zoo")));
     }
 
     /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and
