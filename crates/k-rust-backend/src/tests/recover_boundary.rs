@@ -5,9 +5,9 @@
 //! Both recover a rule application by stating the unresolved pairs as equalities over fresh
 //! existentials for the rule's unbound variables. Each test checks that the step then splits
 //! the configuration exactly: the applied branch's condition is equivalent to those equalities
-//! (no pair dropped, none added), which constrain the configuration's own variable, and the
-//! remainder is the configuration under their negation, so every instance is in exactly the one
-//! of the two the rule's match puts it in.
+//! (no pair dropped, none added, and no other conjunct they do not imply), which constrain the
+//! configuration's own variable, and the remainder is the configuration under their negation, so
+//! every instance is in exactly the one of the two the rule's match puts it in.
 
 use std::collections::BTreeSet;
 
@@ -21,11 +21,11 @@ use crate::{
     externalize::{self, ConjunctionShape},
     fresh::{FreshCounter, RequestNames},
     rewrite::{Pattern, RewriteResult, rewrite_step_with_solver},
-    rule::Predicate,
+    rule::{Absence, Predicate},
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::Stoppable,
     substitution::{Substitution, substitute},
-    term::{HeadRole, Sort, Term, TermKind, Variable},
+    term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
 };
 
 /// Maps from `SortKey` to `SortValue`, a function `opaqueMap` into them and `opaqueKey` into the
@@ -122,14 +122,29 @@ fn show(predicates: &[Predicate]) -> String {
     )
 }
 
-/// Whether `predicate` only states that terms are defined: a `ceil`, possibly under existentials,
-/// or a key's absence from a map's other keys. An equality between a variable and a term implies
-/// that the term is defined, so such a conjunct never narrows the expected condition.
-fn is_definedness(predicate: &Predicate) -> bool {
-    match predicate {
-        Predicate::Ceil(_) | Predicate::Absent(_) => true,
-        Predicate::Exists(_, inner) => is_definedness(inner),
-        _ => false,
+/// The immediate subterms of `term`, collection elements included, so that the closure knows
+/// every term a definedness witness can be drawn from.
+fn children(term: &Term) -> Vec<Term> {
+    match term.kind() {
+        TermKind::Application { arguments, .. } => arguments.clone(),
+        TermKind::Injection { term, .. } => vec![term.clone()],
+        TermKind::And(left, right) => vec![left.clone(), right.clone()],
+        TermKind::Map { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|(key, value)| [key.clone(), value.clone()])
+            .chain(rest.clone())
+            .collect(),
+        TermKind::List { heads, rest, .. } => heads
+            .iter()
+            .cloned()
+            .chain(rest.iter().flat_map(|(middle, tails)| {
+                std::iter::once(middle.clone()).chain(tails.iter().cloned())
+            }))
+            .collect(),
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().cloned().chain(rest.clone()).collect()
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => Vec::new(),
     }
 }
 
@@ -166,10 +181,8 @@ impl Closure {
         if let Some(index) = self.terms.iter().position(|known| known == term) {
             return index;
         }
-        if let TermKind::Application { arguments, .. } = term.kind() {
-            for argument in arguments {
-                self.add(argument);
-            }
+        for child in children(term) {
+            self.add(&child);
         }
         self.terms.push(term.clone());
         self.parent.push(self.parent.len());
@@ -239,6 +252,96 @@ impl Closure {
         changed
     }
 
+    /// The terms whose class is known to be defined, i.e. to denote exactly one element, by
+    /// facts valid in every model: an element variable is one element, and so is a domain
+    /// value; a constructor or a total (`functional`) symbol applied to defined arguments, and a
+    /// sort injection of a defined term, are defined; a class is defined when one of its terms
+    /// is, since its terms are equal. Every constructor of this module's definition is also
+    /// declared `functional`.
+    fn defined_terms(&mut self) -> Vec<bool> {
+        let mut defined_classes = BTreeSet::new();
+        loop {
+            let mut changed = false;
+            for index in 0..self.terms.len() {
+                let term = self.terms[index].clone();
+                let defined = match term.kind() {
+                    TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+                    TermKind::DomainValue { .. } => true,
+                    TermKind::Application {
+                        symbol, arguments, ..
+                    } => {
+                        matches!(
+                            symbol.attributes.symbol_type,
+                            SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+                        ) && arguments.iter().all(|argument| {
+                            let argument = self.add(argument);
+                            defined_classes.contains(&self.find(argument))
+                        })
+                    }
+                    TermKind::Injection { term, .. } => {
+                        let inner = self.add(term);
+                        defined_classes.contains(&self.find(inner))
+                    }
+                    _ => false,
+                };
+                if defined {
+                    changed |= defined_classes.insert(self.find(index));
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        (0..self.terms.len())
+            .map(|index| defined_classes.contains(&self.find(index)))
+            .collect()
+    }
+
+    /// Whether `term` is defined in every model of the hypotheses ([`Closure::defined_terms`]).
+    fn defines(&mut self, term: &Term) -> bool {
+        let index = self.add(term);
+        while self.saturate_once() {}
+        self.defined_terms()[index]
+    }
+
+    /// Whether the hypotheses entail the definedness condition `predicate`: `\ceil(t)` when `t`
+    /// is defined; `\exists x. φ` when `φ` holds with `x` replaced by some term of `x`'s sort
+    /// already in the closure (if `x` occurs in a defined `t`, its replacement is defined,
+    /// because an application to `\bottom` is `\bottom`, so it witnesses `x`); an absence as
+    /// the pattern it stands for ([`Absence`]): `\exists V. \ceil(key |-> V rest)` for a map,
+    /// `\ceil(SetItem(key) rest)` for a set. Nothing else is entailed.
+    fn entails_definedness(&mut self, predicate: &Predicate) -> bool {
+        match predicate {
+            Predicate::Ceil(term) => self.defines(term),
+            Predicate::Exists(variable, body) => {
+                let Predicate::Ceil(term) = body.as_ref() else {
+                    return false;
+                };
+                let candidates = self
+                    .terms
+                    .iter()
+                    .filter(|candidate| candidate.sort() == variable.sort)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                candidates.into_iter().any(|candidate| {
+                    let instance =
+                        substitute(term, &Substitution::from([(variable.clone(), candidate)]));
+                    self.defines(&instance)
+                })
+            }
+            Predicate::Absent(absence) => {
+                let ceil = Predicate::Ceil(absence.joined().clone());
+                match absence.binder() {
+                    Some(binder) => {
+                        self.entails_definedness(&Predicate::Exists(binder.clone(), Box::new(ceil)))
+                    }
+                    None => self.entails_definedness(&ceil),
+                }
+            }
+            _ => false,
+        }
+    }
+
     fn entails(&mut self, (left, right): &(Term, Term)) -> bool {
         let (left, right) = (self.add(left), self.add(right));
         self.find(left) == self.find(right)
@@ -275,9 +378,12 @@ fn renamings(from: &[Variable], onto: &BTreeSet<Variable>) -> Vec<Substitution> 
 /// The branch's free variables other than `configuration` are its fresh existentials; there must
 /// be one per rule variable. For some sort-preserving renaming of the rule variables onto them,
 /// the branch's equalities and the renamed `expected` must entail each other, and every other
-/// conjunct must be a definedness condition. A branch that drops a pair (wider than the rule's
-/// match, so the remainder loses the instances in between) fails the first direction; one that
-/// adds an equality fails the second.
+/// conjunct must be a definedness condition that the branch's equalities entail
+/// ([`Closure::entails_definedness`]), so that the condition is equivalent to its equalities
+/// alone. A branch that drops a pair (wider than the rule's match, so the remainder loses the
+/// instances in between) fails the first direction; one that adds an equality fails the second;
+/// one that adds a definedness condition the equalities do not imply (narrower than the rule's
+/// match, possibly empty) fails the third check.
 ///
 /// Returns those renamings, which name the fresh existential each rule variable became.
 fn assert_condition_is(
@@ -298,17 +404,25 @@ fn assert_condition_is(
         rule_variables.len(),
         "one fresh existential per unbound rule variable: {shown}"
     );
-    let equalities = branch
+    let (equalities, others): (Vec<_>, Vec<_>) = branch
         .constraints
         .iter()
-        .filter_map(|predicate| match predicate {
-            Predicate::Equals(left, right) => Some((left.clone(), right.clone())),
-            other => {
-                assert!(is_definedness(other), "unexpected conjunct in {shown}");
-                None
-            }
+        .partition(|predicate| matches!(predicate, Predicate::Equals(..)));
+    let equalities = equalities
+        .into_iter()
+        .map(|predicate| match predicate {
+            Predicate::Equals(left, right) => (left.clone(), right.clone()),
+            _ => unreachable!("partitioned on equalities"),
         })
         .collect::<Vec<_>>();
+    let mut closure = Closure::new(&equalities, []);
+    for other in others {
+        assert!(
+            closure.entails_definedness(other),
+            "the conjunct {} is not implied by the branch's equalities: {shown}",
+            show(std::slice::from_ref(other))
+        );
+    }
     let matched = renamings(rule_variables, &fresh)
         .into_iter()
         .filter(|renaming| {
@@ -471,6 +585,44 @@ fn functional_symbolic_narrowing_splits_the_configuration_on_its_variable() {
     let (m, rule_variables, expected) = functional_symbolic_pairs(&definition);
     assert_condition_is(&branch, &m, &rule_variables, &expected);
     assert_complement(&branch, &remainder, &m);
+}
+
+/// The condition check itself: a branch whose conjuncts are the rule's pair equalities and one
+/// more definedness condition that they do not imply is not the rule's match. Here the extra
+/// conjunct is the absence of `K2'` from `opaqueMap(K')`; the equalities put `K2'` in that map
+/// (`opaqueMap(K') = K2' |-> V2' R'`), so the condition is unsatisfiable, the applied branch is
+/// empty, and every instance would fall to the remainder.
+#[test]
+#[should_panic(expected = "is not implied by the branch's equalities")]
+fn a_definedness_conjunct_the_equalities_do_not_imply_fails_the_condition_check() {
+    let definition = definition(FUNCTIONAL_SYMBOLIC_LHS);
+    let (mut branch, _) = split(&definition, "st{}(M:SortMap{}, M:SortMap{})");
+    let (m, rule_variables, expected) = functional_symbolic_pairs(&definition);
+    let absence = branch
+        .constraints
+        .iter()
+        .find_map(|predicate| match predicate {
+            Predicate::Absent(absence) => Some(absence.clone()),
+            _ => None,
+        })
+        .expect("the branch states that its map pattern is defined");
+    let opaque = branch
+        .constraints
+        .iter()
+        .find_map(|predicate| match predicate {
+            Predicate::Equals(left, right) => [left, right]
+                .into_iter()
+                .find(|side| is_application_of(side, "opaqueMap"))
+                .cloned(),
+            _ => None,
+        })
+        .expect("the branch equates the configuration with opaqueMap(K')");
+    branch.constraints.push(Absence::predicate(
+        absence.collection(),
+        absence.key().clone(),
+        opaque,
+    ));
+    assert_condition_is(&branch, &m, &rule_variables, &expected);
 }
 
 /// Function-equality witness: the rule `st3(box(opaqueMap(K)), box(K2 |-> V2 R), opaqueKey(V))`
