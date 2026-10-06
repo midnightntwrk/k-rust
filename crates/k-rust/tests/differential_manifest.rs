@@ -137,9 +137,10 @@ fn every_gate_builds_the_comparator_with_the_gate_z3_selection() {
 /// Every reference tool a gate runs for its results (kompile, krun, kprove, kast, kore-exec,
 /// kore-parser) goes through the reference-output cache (`scripts/reference-cache.sh`), which
 /// keys each call on what its result depends on, and each gate opens the cache after its pin
-/// checks and closes it with the summary that fails on a verify mismatch. The RPC oracle
-/// server session is the one reference run outside it: the whole session, both servers and every
-/// request included, costs under two CPU seconds.
+/// checks and closes it with the summary that fails on a verify mismatch. The RPC server sessions
+/// stay outside it: the RPC gate's oracle session (the whole session, both servers and every
+/// request included, costs under two CPU seconds) and the execution gate's one-request reference
+/// simplifier session (N41).
 #[test]
 fn every_reference_tool_call_of_a_gate_goes_through_the_cache() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1099,6 +1100,294 @@ fn reference_kompile_options_need_a_reason_and_an_execution_case() {
         !EXECUTION_SCRIPT[kompile..*use_index].contains(')'),
         "the options are arguments of the reference kompile command"
     );
+}
+
+/// N41: `reference-result-simplification-reason` is a written reason on an `[[execution]]` case
+/// with programs and without search, any or oracle-exception runs; the renderer refuses anything
+/// else, and only `star-cell-heating-set` carries it.
+#[test]
+fn reference_result_simplification_needs_a_reason_and_program_results() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-reference-simplification");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let reason = "reference-result-simplification-reason = \"the reference leaves branches it did not refute\"\n";
+    let programs = "programs = [\"a.pgm\"]\n";
+    for (manifest, valid) in [
+        (case("execution", &format!("{programs}{reason}")), true),
+        (case("execution", reason), false),
+        (
+            case(
+                "execution",
+                &format!("{programs}reference-result-simplification-reason = \" \"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}reference-result-simplification-reason = true\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.search]]\nname = \"s\"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.any]]\nname = \"a\"\n"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "execution",
+                &format!("{programs}{reason}[[execution.oracle-exception]]\nprogram = \"a.pgm\"\n"),
+            ),
+            false,
+        ),
+        (case("symbolic", reason), false),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_simplification = manifest["execution"]
+        .as_array()
+        .expect("execution cases")
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("reference-result-simplification-reason")
+                .is_some()
+        })
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_simplification, ["star-cell-heating-set"]);
+}
+
+/// Run the execution gate on `case` against fake reference tools, a fake reference RPC server
+/// that only listens, a fake RPC client that answers `simplify` with `\bottom` (or with an error
+/// when `FAKE_RPC_ERROR=1`), and a fake comparator that records which reference result it got
+/// and fails on the raw one unless `FAKE_RAW_STATUS` says otherwise (and on the simplified one
+/// with `FAKE_SIMPLIFIED_STATUS`). Returns the exit status, the call log, standard output and
+/// standard error, and whether the fake server still listened after the gate exited.
+fn execution_gate_with_reference_simplifier(
+    case: &str,
+    environment: &[(&str, &str)],
+) -> (Option<i32>, String, String, String, bool) {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("execution-simplifier");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let calls = fixture.join("calls");
+    write_environment_probe(&fixture.join("kompile"), "kompile", FAKE_KOMPILE_PROLOGUE);
+    write_environment_probe(
+        &fixture.join("krun"),
+        "krun",
+        r#"printf '%s\n' '\or{S{}}(a{}(), b{}())'"#,
+    );
+    write_environment_probe(&fixture.join("kast"), "kast", "");
+    write_environment_probe(
+        &fixture.join("kore-parser"),
+        "kore-parser $*",
+        r#"printf '%s\n' '{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}'"#,
+    );
+    write_environment_probe(
+        &fixture.join("kore-rpc"),
+        "kore-rpc",
+        r#"
+printf 'kore-rpc %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
+while (($#)); do [[ $1 == --server-port ]] && port=$2; shift; done
+exec python3 -c 'import socket, sys, time
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen(8)
+time.sleep(600)' "$port"
+"#,
+    );
+    write_environment_probe(
+        &fixture.join("kore-rpc-client"),
+        "kore-rpc-client-done",
+        r#"
+printf 'kore-rpc-client %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
+while (($#)); do [[ $1 == -o ]] && out=$2; shift; done
+if [[ ${FAKE_RPC_ERROR:-0} == 1 ]]; then
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Could not verify pattern"}}' >"$out"
+else
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"state":{"format":"KORE","version":1,"term":{"tag":"Bottom","sort":{"tag":"SortApp","name":"S","args":[]}}}}}' >"$out"
+fi
+"#,
+    );
+    let target = fake_gate_rust_toolchain(
+        &fixture,
+        "",
+        r#"
+printf 'comparator %s|\n' "$(basename "$K_REFERENCE_EXECUTION")" >>"$ENVIRONMENT_CALLS"
+case $K_REFERENCE_EXECUTION in
+  *.json) exit "${FAKE_SIMPLIFIED_STATUS:-0}" ;;
+  *) exit "${FAKE_RAW_STATUS:-101}" ;;
+esac
+"#,
+    );
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port();
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut command = Command::new("bash");
+    command
+        .arg(workspace.join("scripts/reference-non-imp-execution-differential.sh"))
+        .arg(case)
+        .env("PATH", &path)
+        .env("ENVIRONMENT_CALLS", &calls)
+        .env("K_CHECKOUT", &k_checkout)
+        .env("K_KOMPILE", fixture.join("kompile"))
+        .env_remove("K_KRUN")
+        .env_remove("K_KAST")
+        .env_remove("K_KORE_PARSER")
+        .env_remove("K_KORE_RPC_CLIENT")
+        .env("REFERENCE_SIMPLIFIER_PORT", port.to_string())
+        .env("KRUST_GATE_TARGET_DIR", &target)
+        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+        .stdin(std::process::Stdio::null());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().expect("run execution gate fixture");
+    let still_listening = std::net::TcpStream::connect(("127.0.0.1", port)).is_ok();
+    let log = fs::read_to_string(&calls).unwrap_or_default();
+    fs::remove_dir_all(fixture).expect("remove execution gate fixture");
+    (
+        output.status.code(),
+        log,
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        still_listening,
+    )
+}
+
+/// N41: for a case with `reference-result-simplification-reason` the execution gate first
+/// requires the raw reference result to differ from the port's, then compares the port's result
+/// against the state the reference's Haskell backend RPC server (`kore-rpc`, on the case's
+/// reference definition and main module, without SMT) answers to one `simplify` request, prints
+/// the reason with the N41 label, and stops the server. A simplified result that differs, an RPC
+/// error, or a raw result that already compares equal fails the gate; a case without the key
+/// never starts the server.
+#[test]
+fn execution_gate_compares_against_the_reference_simplifier_only_for_opted_in_cases() {
+    let (status, log, stdout, stderr, listening) =
+        execution_gate_with_reference_simplifier("star-cell-heating-set", &[]);
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    assert!(!listening, "the gate left the reference simplifier running");
+    let comparisons = log
+        .lines()
+        .filter_map(|line| line.strip_prefix("comparator "))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        comparisons,
+        [
+            "star-cell-heating-set-two.pgm.reference.kore|",
+            "star-cell-heating-set-two.pgm.reference.simplified.json|",
+            "star-cell-heating-set-two-late.pgm.reference.kore|",
+            "star-cell-heating-set-two-late.pgm.reference.simplified.json|",
+        ],
+        "{log}"
+    );
+    let servers = log
+        .lines()
+        .filter(|line| line.starts_with("kore-rpc "))
+        .collect::<Vec<_>>();
+    assert_eq!(servers.len(), 2, "one server per program result: {log}");
+    for server in servers {
+        assert!(
+            server.contains("star-cell-heating-set-kompiled/definition.kore --module STAR-CELL-HEATING-SET --smt none --no-bug-report --server-port"),
+            "{server}"
+        );
+    }
+    assert_eq!(
+        log.lines()
+            .filter(|line| line.starts_with("kore-rpc-client ") && line.contains(" simplify "))
+            .count(),
+        2,
+        "{log}"
+    );
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: Without SMT"))
+            .count(),
+        2,
+        "{stdout}"
+    );
+
+    let (status, log, _, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_SIMPLIFIED_STATUS", "101")],
+    );
+    assert_ne!(
+        status,
+        Some(0),
+        "a simplified result that differs must fail: {log}"
+    );
+    assert!(!stderr.contains("no longer needed"), "{stderr}");
+
+    let (status, log, _, stderr, listening) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_RPC_ERROR", "1")],
+    );
+    assert_eq!(status, Some(1), "{log}{stderr}");
+    assert!(
+        stderr.contains("the reference simplifier returned no state"),
+        "{stderr}"
+    );
+    assert!(!listening, "the gate left the reference simplifier running");
+
+    let (status, log, _, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("FAKE_RAW_STATUS", "0")],
+    );
+    assert_eq!(status, Some(1), "{log}{stderr}");
+    assert!(
+        stderr.contains(
+            "reference result simplification for star-cell-heating-set:two.pgm is no longer needed"
+        ),
+        "{stderr}"
+    );
+    assert!(!log.contains("kore-rpc"), "{log}");
+
+    let (status, log, stdout, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-map-nested-set",
+        &[("FAKE_RAW_STATUS", "0")],
+    );
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    assert!(!log.contains("kore-rpc"), "{log}");
+    assert!(!log.contains(".json"), "{log}");
 }
 
 #[test]

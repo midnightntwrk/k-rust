@@ -48,6 +48,11 @@ if [[ -z "$krun" ]]; then
 fi
 kast=${kast:-"$(dirname "$kompile")/kast"}
 kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
+kore_parser=${K_KORE_PARSER:-"$(dirname "$kompile")/kore-parser"}
+rpc_client=${K_KORE_RPC_CLIENT:-"$(dirname "$kompile")/kore-rpc-client"}
+# The Haskell backend's own RPC server: the engine the reference krun runs (kore-exec).
+reference_simplifier=$(dirname "$kompile")/kore-rpc
+reference_simplifier_port=${REFERENCE_SIMPLIFIER_PORT:-31349}
 for tool in "$krun" "$kast"; do
   if [[ ! -x "$tool" ]]; then
     echo "error: missing matching pinned reference executable: $tool" >&2
@@ -62,11 +67,87 @@ reference_require_k_version "$kompile"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-reference-execution.XXXXXX")
-if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
-  trap 'echo "differential artifacts retained at: $work"' EXIT
-else
-  trap 'find "$work" -depth -delete' EXIT
-fi
+simplifier_pid=
+cleanup() {
+  stop_reference_simplifier
+  if [[ "${REFERENCE_DIFFERENTIAL_KEEP_WORK:-0}" == 1 ]]; then
+    echo "differential artifacts retained at: $work"
+  else
+    find "$work" -depth -delete
+  fi
+}
+trap cleanup EXIT
+
+stop_reference_simplifier() {
+  if [[ -n "$simplifier_pid" ]]; then
+    kill "$simplifier_pid" 2>/dev/null || true
+    wait "$simplifier_pid" 2>/dev/null || true
+    simplifier_pid=
+  fi
+}
+
+# N41: simplify_reference_result RESULT SIMPLIFIED
+#   Writes to SIMPLIFIED (KORE JSON) the pattern the reference's own simplifier makes of the
+#   reference result RESULT: one `simplify` request to a fresh Haskell backend RPC server on the
+#   case's reference definition and main module, without SMT as the oracle runs (N14). The
+#   simplification is an equality the reference asserts about its own output, so comparing the
+#   port's result against it does not depend on the port. The server session is one request on
+#   a fresh server and is not cached (docs/testing.md, "Reference-output cache").
+simplify_reference_result() {
+  local result=$1
+  local simplified=$2
+  local stem=${result%.kore}
+  local attempt
+  for tool in "$kore_parser" "$reference_simplifier" "$rpc_client"; do
+    if [[ ! -x "$tool" ]]; then
+      echo "error: missing matching pinned reference executable: $tool" >&2
+      exit 2
+    fi
+  done
+  (
+    ulimit -v "$reference_memory_kib"
+    export GHCRTS=
+    reference_cached kore-parser "$(basename "$stem").json" -- \
+      "$kore_parser" "$definition/definition.kore" \
+      --pattern "$result" \
+      --module "$main_module" \
+      --print-pattern-json \
+      --no-print-definition >"$stem.json"
+  )
+  if (exec 3<>"/dev/tcp/127.0.0.1/$reference_simplifier_port") 2>/dev/null; then
+    echo "error: port $reference_simplifier_port is in use; set REFERENCE_SIMPLIFIER_PORT" >&2
+    exit 2
+  fi
+  (
+    ulimit -v "$reference_memory_kib"
+    export GHCRTS=${GHCRTS:--N1}
+    exec "$reference_simplifier" "$definition/definition.kore" \
+      --module "$main_module" \
+      --smt none \
+      --no-bug-report \
+      --server-port "$reference_simplifier_port"
+  ) >"$stem.simplifier.log" 2>&1 </dev/null &
+  simplifier_pid=$!
+  for ((attempt = 1; ; attempt++)); do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$reference_simplifier_port") 2>/dev/null; then
+      break
+    fi
+    if ! kill -0 "$simplifier_pid" 2>/dev/null || ((attempt == 600)); then
+      echo "error: the reference simplifier did not listen on port $reference_simplifier_port" >&2
+      cat "$stem.simplifier.log" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  "$rpc_client" --port "$reference_simplifier_port" --log-level Error simplify "$stem.json" \
+    -o "$stem.simplify-response.json" </dev/null
+  stop_reference_simplifier
+  if ! jq -e '.result.state' "$stem.simplify-response.json" >"$simplified"; then
+    echo "error: the reference simplifier returned no state:" >&2
+    cat "$stem.simplify-response.json" >&2
+    exit 1
+  fi
+}
 
 run_reference_krun() {
   local output=$1
@@ -184,6 +265,8 @@ for name in "${selected[@]}"; do
   mapfile -t reference_kompile_options < <(
     jq -r '(.["reference-kompile-options"] // [])[]' <<<"$suite"
   )
+  # N41: a case whose reference results the reference's own simplifier reduces, with the reason.
+  reference_simplification_reason=$(jq -r '.["reference-result-simplification-reason"] // ""' <<<"$suite")
   if [[ ! -f "$source" ]]; then
     echo "error: missing $name semantics source: $source" >&2
     exit 2
@@ -297,6 +380,23 @@ for name in "${selected[@]}"; do
         echo "error: committed oracle exception expectations for $name:$program_name are equivalent" >&2
         exit 2
       fi
+    elif [[ -n "$reference_simplification_reason" ]]; then
+      echo "[$name:$program_name] N41: comparing with the reference result as the reference simplifies it: $reference_simplification_reason"
+      if compare_execution \
+        "$work/$name-$program_name.reference.kore" \
+        "$work/$name-$program_name.rust.kore" \
+        "$definition/definition.kore" \
+        "$main_module" >/dev/null 2>&1; then
+        echo "error: reference result simplification for $name:$program_name is no longer needed" >&2
+        exit 1
+      fi
+      simplify_reference_result "$work/$name-$program_name.reference.kore" \
+        "$work/$name-$program_name.reference.simplified.json"
+      compare_execution \
+        "$work/$name-$program_name.reference.simplified.json" \
+        "$work/$name-$program_name.rust.kore" \
+        "$definition/definition.kore" \
+        "$main_module"
     else
       compare_execution \
         "$work/$name-$program_name.reference.kore" \

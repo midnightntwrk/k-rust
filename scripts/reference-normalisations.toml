@@ -451,13 +451,12 @@ justification = "A parsed definition records configuration expansion before comp
 
 [[normalisation]]
 id = "N41"
-gate = "execution, symbolic execution, and MIR execution"
-anchor = "crates/k-rust/tests/reference_differential.rs:pair_without_bottom_disjuncts"
-anchor_symbol = "pair_without_bottom_disjuncts"
-anchor_helpers = ["disjuncts_not_bottom", "simplifies_to_bottom"]
-rule = "When K_DIFFERENTIAL_DEFINITION supplies a definition and the disjuncts of an exact comparison do not pair (N15), drop from either side every disjunct that is \\bottom or that `krust kore-simplify` reduces to \\bottom against that definition, and pair the remaining disjuncts again. A disjunct the simplifier keeps, or fails on, is kept. The any-strategy (N26) and GotStuck (N17) comparisons do not use it."
-justification = "Simplification replaces a pattern by an equal one, and \\or(\\bottom, P) is P, so dropping such disjuncts leaves each result the same pattern. An engine may report a branch whose condition it did not refute, such as the reference without SMT (N14) keeping a heating step under isKResult(n) = false for an integer n that the definition makes a KResult. The verdict trusts the port's simplifier, as N15 trusts its prover."
-env = "K_DIFFERENTIAL_DEFINITION"
+gate = "execution"
+anchor = "scripts/reference-non-imp-execution-differential.sh:simplify_reference_result"
+anchor_symbol = "simplify_reference_result"
+anchor_helpers = ["reference-result-simplification-reason"]
+rule = "For an execution case that carries reference-result-simplification-reason, and only for its program results, send the reference result (converted by the pinned kore-parser) as one simplify request to a fresh Haskell backend kore-rpc server on the case's reference definition and main module with --smt none, and compare the port's result against the state of the response (KORE JSON, which the comparator reads by its .json extension). Print the reason with the N41 label for each such comparison, and fail when the unsimplified reference result already compares equal (the step is no longer needed). scripts/reference-manifest.py refuses the key without a written reason, outside [[execution]], without programs, and beside search, any or oracle-exception. No comparison removes a disjunct on the port's own simplifier's say-so."
+justification = "Simplification replaces a pattern by an equal one, so the reference's simplified result is the same pattern as its reported result, by the reference's own account; comparing the port's result against it keeps the comparison independent of the port. A reference run without SMT (N14) can report branches whose side condition it left unrefuted (star-cell-heating-set: isKResult(n) = false for an Int n, with KResult ::= Int), which its own simplifier reduces to \\bottom. The step is opt-in per case because the reference's raw result is the stronger oracle form for every other case."
 
 [[normalisation]]
 id = "N42"

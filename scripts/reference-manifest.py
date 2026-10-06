@@ -119,6 +119,32 @@ def validate_reference_kompile_options(manifest: dict) -> None:
             )
 
 
+def validate_reference_result_simplification(manifest: dict) -> None:
+    """N41: the execution gate compares a case's program results against the reference result as
+    the reference's own simplifier rewrites it only when the case says why
+    (reference-result-simplification-reason). The step is defined for program results, so a case
+    with search or any runs, or with an oracle exception, cannot carry it."""
+    key = "reference-result-simplification-reason"
+    for section in ("compile", "kast", "proof", "rpc", "symbolic"):
+        for case in manifest.get(section, []):
+            if key in case:
+                raise ValueError(
+                    f"{key} on {section} case {case.get('name')} is only read for execution"
+                )
+    for case in manifest.get("execution", []):
+        if key not in case:
+            continue
+        name = case.get("name")
+        reason = case[key]
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"{key} on execution case {name} must be a written reason")
+        if not case.get("programs"):
+            raise ValueError(f"{key} on execution case {name} needs programs")
+        for other in ("search", "any", "oracle-exception"):
+            if other in case:
+                raise ValueError(f"{key} on execution case {name} cannot be combined with {other}")
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
@@ -126,6 +152,7 @@ def main() -> int:
         validate_requirements(manifest)
         validate_compile_outcomes(manifest)
         validate_reference_kompile_options(manifest)
+        validate_reference_result_simplification(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

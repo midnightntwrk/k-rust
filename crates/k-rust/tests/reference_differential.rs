@@ -5601,23 +5601,22 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
     fs::remove_dir_all(directory).unwrap();
 }
 
-/// A scratch directory holding a fake `krust` whose `kore-simplify` prints `\bottom{S{}}()` for
-/// a pattern that mentions `dead{}` and echoes any other pattern unchanged, recording each call;
-/// and an empty definition file. Returns (directory, krust, definition, calls).
-fn bottom_simplifier_fixture(
-    label: &str,
-) -> (
-    std::path::PathBuf,
-    std::path::PathBuf,
-    std::path::PathBuf,
-    std::path::PathBuf,
-) {
+/// The exact execution comparison never lets the port's simplifier remove a disjunct of either
+/// side: the simplifier is code under test and shares its constructor-domain checks and SMT layer
+/// with the executor, so a defect that loses a feasible branch in the port's execution could
+/// otherwise remove the reference's copy of that branch and turn the difference into a pass. Here a
+/// fake `krust kore-simplify` reduces every pattern to `\bottom` (a defect of that kind); a port
+/// result missing a reference branch, or holding an extra one, still fails, and the comparison
+/// never asks for a simplification. Reference results that only the reference's own simplifier
+/// reduces are handled per case by the execution gate (N41).
+#[test]
+fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let directory = env::temp_dir().join(format!(
-        "k-rust-bottom-{label}-{}-{nonce}",
+        "k-rust-execution-no-simplify-{}-{nonce}",
         std::process::id()
     ));
     fs::create_dir(&directory).unwrap();
@@ -5626,7 +5625,7 @@ fn bottom_simplifier_fixture(
     fs::write(
         &krust,
         format!(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\n[[ $1 == kore-simplify ]] || exit 3\nwhile (($#)); do [[ $1 == --pattern ]] && p=$2; shift; done\nif grep -qF 'dead{{}}' \"$p\"; then printf '\\\\bottom{{S{{}}}}()\\n'; else cat \"$p\"; fi\n",
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\n[[ $1 == kore-simplify ]] || exit 3\nprintf '\\\\bottom{{S{{}}}}()\\n'\n",
             calls = calls.display(),
         ),
     )
@@ -5640,86 +5639,44 @@ fn bottom_simplifier_fixture(
     }
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
-    (directory, krust, definition, calls)
-}
-
-/// N41: the reference leaves branches whose condition is false (a heating step on a value the
-/// definition makes a `KResult`), the port reports `\bottom`. Both denote `\bottom`: the
-/// comparison passes once the simplifier reduces each reference branch to `\bottom`, and fails
-/// without a definition to simplify against.
-#[test]
-fn execution_comparator_drops_disjuncts_that_simplify_to_bottom() {
-    let reference = normalize_execution_pattern(
-        parse_pattern(concat!(
-            r#"\or{S{}}(\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), dead{}(\dv{Int{}}("1")))), "#,
-            r#"\and{S{}}(t{}(\dv{Int{}}("2")), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), dead{}(\dv{Int{}}("2")))))"#,
-        ))
-        .unwrap(),
-    );
-    let actual = normalize_execution_pattern(parse_pattern(r"\bottom{S{}}()").unwrap());
-    let (directory, krust, definition, calls) = bottom_simplifier_fixture("all");
     let oracle = ImplicationOracle {
         krust: &krust,
         definition: &definition,
     };
+    let pattern = |text: &str| normalize_execution_pattern(parse_pattern(text).unwrap());
 
-    compare_execution_modulo_implication(&reference, &actual, Some(oracle), "TEST")
-        .expect("both results denote bottom");
-    let calls = fs::read_to_string(&calls).unwrap();
-    assert_eq!(
-        calls.lines().count(),
-        2,
-        "one simplification per reference disjunct; the port's \\bottom needs none: {calls}"
-    );
-    assert!(
-        calls
-            .lines()
-            .all(|line| line.contains(definition.to_str().unwrap())
-                && line.contains("--module TEST")),
-        "{calls}"
-    );
-    let error = compare_execution_modulo_implication(&reference, &actual, None, "TEST")
-        .expect_err("without a definition nothing is simplified");
-    assert!(error.contains("unpaired disjunct"), "{error}");
-    fs::remove_dir_all(directory).unwrap();
-}
-
-/// N41 drops only what the simplifier reduces to `\bottom`: a reference branch it leaves alone
-/// still needs a port partner, and a port branch missing from the reference still fails.
-#[test]
-fn execution_comparator_keeps_disjuncts_the_simplifier_does_not_reduce() {
-    let (directory, krust, definition, _) = bottom_simplifier_fixture("kept");
-    let oracle = ImplicationOracle {
-        krust: &krust,
-        definition: &definition,
-    };
-    let reference = normalize_execution_pattern(
-        parse_pattern(concat!(
-            r#"\or{S{}}(\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), dead{}(\dv{Int{}}("1")))), "#,
-            r#"t{}(\dv{Int{}}("2")))"#,
-        ))
-        .unwrap(),
-    );
-    let live = normalize_execution_pattern(parse_pattern(r#"t{}(\dv{Int{}}("2"))"#).unwrap());
-    compare_execution_modulo_implication(&reference, &live, Some(oracle), "TEST")
-        .expect("the remaining reference branch pairs with the port's");
-
-    let bottom = normalize_execution_pattern(parse_pattern(r"\bottom{S{}}()").unwrap());
-    let error = compare_execution_modulo_implication(&reference, &bottom, Some(oracle), "TEST")
-        .expect_err("a branch the simplifier keeps needs a partner");
-    assert!(
-        error.contains(r#"unpaired disjunct: t{}(\dv{Int{}}("2"))"#) && error.contains("N41"),
-        "{error}"
-    );
-
-    let extra = normalize_execution_pattern(
-        parse_pattern(r#"\or{S{}}(t{}(\dv{Int{}}("2")), t{}(\dv{Int{}}("3")))"#).unwrap(),
-    );
-    let error = compare_execution_modulo_implication(&reference, &extra, Some(oracle), "TEST")
-        .expect_err("a port branch the reference lacks still fails");
+    let reference = pattern(r#"\or{S{}}(t{}(\dv{Int{}}("1")), t{}(\dv{Int{}}("2")))"#);
+    let error = compare_execution_modulo_implication(
+        &reference,
+        &pattern(r#"t{}(\dv{Int{}}("1"))"#),
+        Some(oracle),
+        "TEST",
+    )
+    .expect_err("a reference branch the port lost fails");
+    assert!(error.contains("unpaired"), "{error}");
+    let error = compare_execution_modulo_implication(
+        &pattern(r#"t{}(\dv{Int{}}("1"))"#),
+        &pattern(r#"\or{S{}}(t{}(\dv{Int{}}("1")), t{}(\dv{Int{}}("3")))"#),
+        Some(oracle),
+        "TEST",
+    )
+    .expect_err("a port branch the reference lacks fails");
     assert!(
         error.contains(r#"unpaired disjunct: t{}(\dv{Int{}}("3"))"#),
         "{error}"
+    );
+    let error = compare_execution_modulo_implication(
+        &reference,
+        &pattern(r"\bottom{S{}}()"),
+        Some(oracle),
+        "TEST",
+    )
+    .expect_err("a reference the port's simplifier calls \\bottom is still compared as it is");
+    assert!(error.contains("unpaired"), "{error}");
+    let calls = fs::read_to_string(&calls).unwrap_or_default();
+    assert!(
+        !calls.contains("kore-simplify"),
+        "the comparison asked the port's simplifier: {calls}"
     );
     fs::remove_dir_all(directory).unwrap();
 }
@@ -6597,19 +6554,6 @@ fn compare_execution_disjuncts(
 
     let reference_disjuncts = execution_disjuncts(reference);
     let actual_disjuncts = execution_disjuncts(actual);
-    let Some(expected) = expected_unpaired_actual else {
-        return pair_every_disjunct(&reference_disjuncts, &actual_disjuncts, oracle, module)
-            .or_else(|error| match oracle {
-                Some(oracle) => pair_without_bottom_disjuncts(
-                    &reference_disjuncts,
-                    &actual_disjuncts,
-                    oracle,
-                    module,
-                    error,
-                ),
-                None => Err(error),
-            });
-    };
     let paired_actual = pair_disjuncts(
         &reference_disjuncts,
         &actual_disjuncts,
@@ -6623,130 +6567,31 @@ fn compare_execution_disjuncts(
         .filter(|(_, paired)| !**paired)
         .map(|(index, _)| actual_disjuncts[index])
         .collect::<Vec<_>>();
-    let mut expected = execution_disjuncts(expected)
-        .into_iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    let mut unpaired = unpaired_actual
-        .iter()
-        .map(|pattern| pattern.to_string())
-        .collect::<Vec<_>>();
-    expected.sort();
-    unpaired.sort();
-    if unpaired != expected {
-        let term = unpaired_actual
-            .first()
-            .map(|pattern| split_constrained(pattern).0.to_string())
-            .unwrap_or_else(|| "<none>".into());
-        return Err(format!(
-            "unpaired disjunct: {term}; GotStuck stop leaves differ (expected {expected:?}, actual {unpaired:?})"
-        ));
+    if let Some(expected) = expected_unpaired_actual {
+        let mut expected = execution_disjuncts(expected)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut unpaired = unpaired_actual
+            .iter()
+            .map(|pattern| pattern.to_string())
+            .collect::<Vec<_>>();
+        expected.sort();
+        unpaired.sort();
+        if unpaired != expected {
+            let term = unpaired_actual
+                .first()
+                .map(|pattern| split_constrained(pattern).0.to_string())
+                .unwrap_or_else(|| "<none>".into());
+            return Err(format!(
+                "unpaired disjunct: {term}; GotStuck stop leaves differ (expected {expected:?}, actual {unpaired:?})"
+            ));
+        }
+    } else if let Some(disjunct) = unpaired_actual.first() {
+        let (term, _) = split_constrained(disjunct);
+        return Err(format!("unpaired disjunct: {term}"));
     }
     Ok(())
-}
-
-/// Pair every reference disjunct with a distinct port disjunct (`pair_disjuncts`) and require
-/// every port disjunct to be paired.
-fn pair_every_disjunct(
-    reference_disjuncts: &[&Pattern],
-    actual_disjuncts: &[&Pattern],
-    oracle: Option<ImplicationOracle>,
-    module: &str,
-) -> Result<(), String> {
-    let paired_actual = pair_disjuncts(
-        reference_disjuncts,
-        actual_disjuncts,
-        PairingDriver::Reference,
-        oracle,
-        module,
-    )?;
-    match paired_actual.iter().position(|paired| !paired) {
-        Some(index) => {
-            let (term, _) = split_constrained(actual_disjuncts[index]);
-            Err(format!("unpaired disjunct: {term}"))
-        }
-        None => Ok(()),
-    }
-}
-
-/// N41: when the disjuncts of an exact comparison do not pair, drop from either side every
-/// disjunct that denotes `\bottom` and pair the rest again. A disjunct denotes `\bottom` when
-/// it is `\bottom`, or when `krust kore-simplify` reduces it to `\bottom` against the
-/// definition: simplification replaces a pattern by an equal one, and `\or(\bottom, P)` is
-/// `P`, so both results are the same pattern with or without such disjuncts. An engine that
-/// leaves a branch whose condition it did not refute (the reference without SMT, N14) reports
-/// such a disjunct. The verdict trusts the port's simplifier, as N15 trusts its prover; a
-/// disjunct the simplifier cannot reduce, or fails on, is kept. The any-strategy (N26) and
-/// GotStuck (N17) comparisons count disjuncts and do not use it.
-fn pair_without_bottom_disjuncts(
-    reference_disjuncts: &[&Pattern],
-    actual_disjuncts: &[&Pattern],
-    oracle: ImplicationOracle,
-    module: &str,
-    error: String,
-) -> Result<(), String> {
-    let reference_live = disjuncts_not_bottom(reference_disjuncts, oracle, module);
-    let actual_live = disjuncts_not_bottom(actual_disjuncts, oracle, module);
-    let dropped_reference = reference_disjuncts.len() - reference_live.len();
-    let dropped_actual = actual_disjuncts.len() - actual_live.len();
-    if dropped_reference == 0 && dropped_actual == 0 {
-        return Err(error);
-    }
-    pair_every_disjunct(&reference_live, &actual_live, Some(oracle), module).map_err(|retry| {
-        format!(
-            "{retry} (N41 dropped {dropped_reference} reference and {dropped_actual} port disjuncts that simplify to \\bottom; before that: {error})"
-        )
-    })
-}
-
-/// The disjuncts that are not `\bottom` and that `krust kore-simplify` does not reduce to
-/// `\bottom` (N41).
-fn disjuncts_not_bottom<'p>(
-    disjuncts: &[&'p Pattern],
-    oracle: ImplicationOracle,
-    module: &str,
-) -> Vec<&'p Pattern> {
-    disjuncts
-        .iter()
-        .copied()
-        .filter(|disjunct| {
-            !matches!(disjunct, Pattern::Bottom { .. })
-                && !simplifies_to_bottom(oracle, disjunct, module)
-        })
-        .collect()
-}
-
-/// Whether `krust kore-simplify` reduces `pattern` to `\bottom` against the oracle's definition;
-/// a failed or unparseable simplification is not a reduction.
-fn simplifies_to_bottom(oracle: ImplicationOracle, pattern: &Pattern, module: &str) -> bool {
-    let Ok(nonce) = SystemTime::now().duration_since(UNIX_EPOCH) else {
-        return false;
-    };
-    let directory = env::temp_dir().join(format!(
-        "k-rust-execution-bottom-{}-{}",
-        std::process::id(),
-        nonce.as_nanos()
-    ));
-    if fs::create_dir(&directory).is_err() {
-        return false;
-    }
-    let path = directory.join("disjunct.kore");
-    let bottom = fs::write(&path, pattern.to_string()).is_ok()
-        && Command::new(oracle.krust)
-            .arg("kore-simplify")
-            .arg(oracle.definition)
-            .arg("--module")
-            .arg(module)
-            .arg("--pattern")
-            .arg(&path)
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .and_then(|stdout| parse_pattern(stdout.trim()).ok())
-            .is_some_and(|simplified| matches!(simplified, Pattern::Bottom { .. }));
-    let _ = fs::remove_dir_all(directory);
-    bottom
 }
 
 /// N26: every port disjunct pairs with a distinct reference disjunct (term equal, constraints

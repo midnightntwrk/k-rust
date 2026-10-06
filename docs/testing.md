@@ -184,7 +184,7 @@ Entries live per user under `${XDG_CACHE_HOME:-~/.cache}/k-rust/reference-output
 The conformance ratchet runs every fourth measured `--all` run of a log in `verify` mode unless `REFERENCE_CACHE` is set.
 Each gate prints its hit and miss counts; the conformance driver records each step's reference calls as `reference_cache`.
 `scripts/reference-fixtures-refresh.sh` runs the reference tools directly and never reads the cache.
-Two reference runs of the gates stay uncached: the MIR gate's kmir Python step, whose Python environment the manifest does not pin (the krun after it is keyed on the pattern it writes), and the RPC gate's oracle server session, whose responses depend on every earlier request to the same server and which costs under two CPU seconds.
+Three reference runs of the gates stay uncached: the MIR gate's kmir Python step, whose Python environment the manifest does not pin (the krun after it is keyed on the pattern it writes), the RPC gate's oracle server session, whose responses depend on every earlier request to the same server and which costs under two CPU seconds, and the execution gate's one-request reference simplifier session (N41).
 
 ## Comparator evidence
 
@@ -199,6 +199,8 @@ A simplification or comparison that fails or is unavailable leaves the text mism
 The `oracle_confirmed` field is `true` when the reference re-run reproduces the checked-in output, `false` when a completed re-run refutes it, and `"not-run (reference crash)"` when a crash, timeout, or environmental failure prevents the re-run from producing an oracle.
 The driver uses `"not-run (budget)"` when the case budget prevents the confirmation attempt.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
+No gate comparison drops a disjunct because the port's simplifier reduces it to `\bottom`: that would let the code under test remove the reference's copy of a branch the port lost.
+When the reference reports branches it did not refute, an execution case may instead carry `reference-result-simplification-reason`, and the execution gate compares the port's result against the reference result as the reference's own simplifier (one `simplify` request to the Haskell backend's `kore-rpc`) rewrites it, printing the reason with the N41 label; that evidence comes from the reference, not the port.
 
 ## Harness recipes
 

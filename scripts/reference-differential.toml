@@ -1411,17 +1411,18 @@ programs = [
   "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/two.pgm",
 ]
 
-# Both results denote \bottom. k-rust's tasks finish as two equal cells of a Set collection, an
-# undefined step (docs/compatibility.md#set-concatenation-is-nilpotent). Every disjunct of the
-# reference's result carries a condition isKResult(n) = false for an integer n, while
-# `KResult ::= Int` makes isKResult(n) true; the comparator drops such disjuncts once the
-# simplifier reduces them to \bottom (N41).
+# k-rust's tasks finish as two equal cells of a Set collection, an undefined step, and its result
+# is \bottom (docs/compatibility.md#set-concatenation-is-nilpotent). The pinned krun reports a
+# disjunction instead, every disjunct of which carries a condition isKResult(n) = false for an
+# integer n, which `KResult ::= Int` makes false; the reference's own simplifier reduces that
+# disjunction to \bottom, and the gate compares against its simplification (N41).
 [[execution]]
 name = "star-cell-heating-set"
 requires = ["reference-toolchain"]
 constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
 reference-kompile-options = ["--allow-anywhere-haskell"]
 reference-kompile-options-reason = "The pinned Haskell kompile rejects an [anywhere] rule; --allow-anywhere-haskell removes the fixture's one, I:Int[J:Int] => I +Int J, from the reference definition. The comparison is unaffected: neither program contains _[_], and no rule's right-hand side builds one (the strictness of _[_] only rearranges an existing one), so no reachable configuration holds a redex of the removed rule."
+reference-result-simplification-reason = "Without SMT (N14) the pinned krun leaves heating branches whose side condition isKResult(n) = false it did not refute although n is an Int and KResult ::= Int; one simplify request to the Haskell backend's kore-rpc on the same definition evaluates isKResult and reduces every such branch to \\bottom."
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
 main-module = "STAR-CELL-HEATING-SET"
 syntax-module = "STAR-CELL-HEATING-SYNTAX"
