@@ -57,7 +57,7 @@ Phases:
   - 33 generate sort predicate syntax: = kompile.sort_helpers.generate (phase 20)
   - 34 generate sort projections: = kompile.sort_helpers.generate (phase 20)
   - 35 expand macros
-    - kompile.macros.expand — O((N + W x (P + U)) x R + K + S log W) +2 modes — at k-rust/kompile/passes/expand_macros.rs `expand_macros`
+    - kompile.macros.expand — O((N + W x (P + U)) x R + K) +2 modes — at k-rust/kompile/passes/expand_macros.rs `expand_macros`
   - 36 add implicit computation cell
   - 37 resolve fresh constants
     - kompile.fresh_constants.resolve — O(N + F log F + L) plus one… — at k-rust/kompile/passes/resolve_fresh_constants.rs `resolve_fresh_constants`

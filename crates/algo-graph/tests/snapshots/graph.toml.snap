@@ -5054,15 +5054,20 @@ symbol = "Expander::settled_parts"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Identities::identify"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Chain::repeats"
 
 [[node.cost]]
 mode = "one sentence, no macro rule with a parametric head"
-bound = "O((N + W x (P + U)) x R + K + S log W)"
+bound = "O((N + W x (P + U)) x R + K)"
 
 [[node.cost]]
 mode = "one sentence, some macro rule with a parametric head (typed in place)"
-bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + S log W + Y x S)"
+bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + Y x S)"
 
 [[node.cost]]
 mode = "Expander construction per module"

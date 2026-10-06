@@ -362,9 +362,11 @@ fn recursive_macro_expansion_visits_grow_linearly() {
     }
 }
 
-/// Two `macro-rec` recursions over cons lists that carry a list of n elements along: `rev`
-/// reverses it into an accumulator (the subject's depth falls and then rises), and `drop` counts
-/// a numeral down beside it (every subject is as deep as the list). `{parametric}` stands for an
+/// Three `macro-rec` recursions over cons lists that carry a list of n elements along: `rev`
+/// reverses it into an accumulator (the subject's depth falls and then rises), `drop` counts
+/// a numeral down beside it (every subject is as deep as the list), and `dropw` does the same but
+/// passes the list through the `macro-rec` application `w` at every step, so each step starts a
+/// new chain of root rewrites whose subject holds the whole list. `{parametric}` stands for an
 /// optional parametric macro, whose presence makes expansion type each sentence and expand it in
 /// place.
 const CARRYING_SOURCE: &str = r#"
@@ -373,6 +375,8 @@ module MAIN
   syntax List ::= "nil" [symbol(nil)] | cons(Elem, List) [symbol(cons)]
                 | rev(List, List) [macro-rec, symbol(rev)]
                 | drop(List, Nat) [macro-rec, symbol(drop)]
+                | dropw(List, Nat) [macro-rec, symbol(dropw)]
+                | w(List) [macro-rec, symbol(w)]
   syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
   syntax Foo ::= "c" [symbol(c)] | wrap(List) [symbol(wrap)]
   {parametric}
@@ -380,6 +384,9 @@ module MAIN
   rule rev(nil, A) => A
   rule drop(L, s(N)) => drop(L, N)
   rule drop(L, z) => L
+  rule dropw(L, s(N)) => dropw(w(L), N)
+  rule dropw(L, z) => L
+  rule w(A) => A
   rule c => wrap(nil)
 endmodule
 "#;
@@ -396,6 +403,15 @@ fn countdown(length: usize) -> Term {
     }
     arguments[1] = numeral;
     application("drop", arguments)
+}
+
+/// `dropw(cons(a, ... cons(a, nil)), s(... s(z)))` over `length` elements and `length / 2`
+/// successors.
+fn wrapped_countdown(length: usize) -> Term {
+    let Term::Apply { arguments, .. } = countdown(length) else {
+        unreachable!("a countdown is an application")
+    };
+    application("dropw", arguments)
 }
 
 /// The work of expanding `input` in a rule and as a program of `CARRYING_SOURCE`, with a
@@ -422,13 +438,15 @@ fn expand_carrying(input: &Term, typed: bool) -> (Snapshot, Snapshot) {
     (in_rule, in_program)
 }
 
-/// The work counters of `expand_carrying` for both recursions at `length` elements, with
+/// The work counters of `expand_carrying` for the three recursions at `length` elements, with
 /// their names and the number of rewrites each makes.
 fn carrying_work(length: usize, typed: bool) -> Vec<(String, usize, Snapshot)> {
     let mut work = Vec::new();
     for (name, input, rewrites) in [
         ("rev", reversal(length), length + 1),
         ("drop", countdown(length), length / 2 + 1),
+        // Each of the length / 2 steps rewrites `dropw` and then `w`, and `dropw(L, z)` ends it.
+        ("dropw", wrapped_countdown(length), length + 1),
     ] {
         let (in_rule, in_program) = expand_carrying(&input, typed);
         work.push((format!("{name} of {length} in a rule"), rewrites, in_rule));
@@ -443,8 +461,9 @@ fn carrying_work(length: usize, typed: bool) -> Vec<(String, usize, Snapshot)> {
 
 /// Asserts that every counter of `counters` grows at most linearly from 100 to 200 elements in
 /// each of `carrying_work`'s expansions, and stays within `per_element` per element plus
-/// `slack`; the subject walks, copies of a chain's checkpoint at its powers of two and
-/// comparisons with them, stay within twice the binary logarithm of the rewrites plus `slack`.
+/// `slack`; and that no expansion walks a subject: the repeat check stores and compares the
+/// identities that the shapes of the subjects record, and these inputs hold no application
+/// recorded for a retry.
 fn assert_carrying_work_is_linear(typed: bool, counters: &[(Counter, usize)], slack: usize) {
     let at_100 = carrying_work(100, typed);
     let at_200 = carrying_work(200, typed);
@@ -464,11 +483,10 @@ fn assert_carrying_work_is_linear(typed: bool, counters: &[(Counter, usize)], sl
                 delta.get(*counter)
             );
         }
-        let logarithm = usize::BITS - rewrites.leading_zeros();
-        assert!(
-            delta.get(Counter::KompileMacroSubjectWalks) <= u64::from(2 * logarithm) + 4,
-            "{name}: {} subject walks",
-            delta.get(Counter::KompileMacroSubjectWalks)
+        assert_eq!(
+            delta.get(Counter::KompileMacroSubjectWalks),
+            0,
+            "{name}: subject walks"
         );
     }
     for ((name, _, at_100), (_, _, at_200)) in at_100.iter().zip(&at_200) {
@@ -484,32 +502,33 @@ fn assert_carrying_work_is_linear(typed: bool, counters: &[(Counter, usize)], sl
 }
 
 /// A `macro-rec` rewrite reads the depths of its subject, result and bindings from what the
-/// expansion that built them recorded, and compares a subject with the chain's checkpoint only
-/// when their recorded fingerprints agree, so the nodes walked to measure terms grow linearly in
-/// n and the subject walks logarithmically. Measuring the bindings of every rewrite makes the
-/// measured nodes grow with n squared, and comparing every equally deep subject makes the
-/// countdown walk its subject on every rewrite.
+/// expansion that built them recorded, and the repeat check stores and compares the identity the
+/// subject's shape records, so the nodes walked to measure terms grow linearly in n and no
+/// subject is walked. Measuring the bindings of every rewrite makes the measured nodes grow with
+/// n squared; comparing every equally deep subject makes the countdown walk its subject on every
+/// rewrite; and copying the subject at a chain's first rewrite makes the wrapped countdown copy
+/// the list at each of its steps, each of which starts a chain for `w`.
 #[test]
 fn recursive_macro_rewrites_measure_and_compare_linearly() {
-    // Measured 6n + 61 nodes (rev) and 7.5n + 61 (drop) in a rule and 10 fewer in a program:
-    // three depth measurements of the input, for the stack the expansion is given and for its
-    // growth allowance. Subject walks: 5 to 7, the checkpoints and no comparison.
+    // Measured 6n + 85 nodes (rev) and 7.5n + 85 (drop and dropw) in a rule and 10 fewer in a
+    // program: three depth measurements of the input, for the stack the expansion is given and
+    // for its growth allowance.
     assert_carrying_work_is_linear(false, &[(Counter::KompileMacroMeasuredNodes, 8)], 64);
 }
 
 /// The in-place expansion of a sentence with a parametric macro head keeps the settled parts of
 /// its input and of each rewrite's result as they are, so it visits only what lies above a
-/// macro application, and it records depths and fingerprints as the expansion without a
+/// macro application, and it records depths and identities as the expansion without a
 /// parametric head does; so the terms it visits and the nodes it walks to measure terms grow
-/// linearly in n, and it copies no subject but at the chain's checkpoints. Re-expanding the
-/// bindings of every rewrite makes the visits grow with n squared, and copying each visited
-/// term to try its rules makes a subject walk of every visit.
+/// linearly in n, and it walks no subject. Re-expanding the bindings of every rewrite makes the
+/// visits grow with n squared, and copying each visited term to try its rules makes a subject
+/// walk of every visit.
 #[test]
 fn typed_recursive_macro_expansion_work_grows_linearly() {
-    // Measured n + 3 visits (rev; 3 for drop, whose results hold only settled bindings), and
-    // 8n + 75 (rev) and 10n + 75 (drop) measured nodes: the untyped path's measurements plus
-    // the walk that finds the settled parts of each sentence or program. Subject walks: 5 to
-    // 7, as without a parametric head.
+    // Measured n + 3 visits (rev; 3 for drop, whose results hold only settled bindings; n / 2
+    // + 3 for dropw, one per `w` its steps build), and 8n + 99 (rev) and 10n + 99 (drop and
+    // dropw) measured nodes: the untyped path's measurements plus the walk that finds the
+    // settled parts of each sentence or program.
     assert_carrying_work_is_linear(
         true,
         &[

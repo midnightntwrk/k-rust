@@ -367,8 +367,8 @@ pub enum Counter {
     KompileMacroExpansionVisits,
     /// Term nodes macro expansion walked to measure a term (its depth), apart from expanding it.
     KompileMacroMeasuredNodes,
-    /// Whole copies and structural comparisons of the subject of a macro rewrite chain, made to
-    /// find a repeating chain or to record an application for a retry.
+    /// Whole copies of a macro application recorded for a retry of its rules, each compared
+    /// with the term at its path when it is retried.
     KompileMacroSubjectWalks,
     /// Candidate rules scanned while building owise guards.
     KompileOwiseCompetitorScans,

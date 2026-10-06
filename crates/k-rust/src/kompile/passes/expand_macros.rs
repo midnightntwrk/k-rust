@@ -1,17 +1,17 @@
 //! ```toml algorithm
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
-//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Expander::shape", "Expander::measure", "Expander::settled_parts", "Chain::repeats"]
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Expander::shape", "Expander::measure", "Expander::settled_parts", "Identities::identify", "Chain::repeats"]
 //! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = retries of applications whose rule set has a head fixing a sort parameter; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 //! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits", "KompileMacroMeasuredNodes", "KompileMacroSubjectWalks"]
 //!
 //! [[cost]]
 //! mode = "one sentence, no macro rule with a parametric head"
-//! bound = "O((N + W x (P + U)) x R + K + S log W)"
+//! bound = "O((N + W x (P + U)) x R + K)"
 //!
 //! [[cost]]
 //! mode = "one sentence, some macro rule with a parametric head (typed in place)"
-//! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + S log W + Y x S)"
+//! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + Y x S)"
 //!
 //! [[cost]]
 //! mode = "Expander construction per module"
@@ -27,9 +27,9 @@
 //! An application is rewritten at its root in a loop (`Expander::expand_chain`, `Expander::try_rules`) until no rule applies, so a long chain of root rewrites takes no native stack.
 //! Without a parametric head, the result of a rewrite is expanded except where it copies a binding that the expansion of the subject's arguments found settled (`Known`): such a copy is kept as it is, so a rewrite visits (`KompileMacroExpansionVisits`) the nodes of the right side and the copies of unsettled bindings, O(P + U).
 //! The bindings are moved, with their shapes, out of the rewritten subject into the result (`Expander::instantiate`), and copied only for the other occurrences of a variable used more than once (K).
-//! Expansion records each term it builds in a `Shape` computed from its children's (`Expander::shape`): whether it is settled and, when the expander has a `macro-rec` or `alias-rec` rule, its depth and a fingerprint that equal terms share.
-//! A recursive rewrite reads the depths of its subject and of its bindings from the subject's shape, from which the result's depth follows (`instance_depth`), and the repeat check compares two subjects only where their depths and fingerprints agree (`Chain::repeats`); neither walks the terms (`KompileMacroMeasuredNodes`, `KompileMacroSubjectWalks`).
-//! What is not linear in what the rewrites build is the repeat check's copy of the subject at each of its checkpoints, at steps 1, 2, 4, ..., O(S log W) in all.
+//! Expansion records each term it builds in a `Shape` computed from its children's (`Expander::shape`): whether it is settled and, when the expander has a `macro-rec` or `alias-rec` rule, its depth and its identity, a number it shares exactly with the equal terms recorded in the same sentence (`Identities::identify`: a node is numbered by its own fields and its children's numbers, and each such key gets one number).
+//! A recursive rewrite reads the depths of its subject and of its bindings from the subject's shape, from which the result's depth follows (`instance_depth`), and the repeat check stores and compares subjects by identity (`Chain::repeats`); neither walks nor copies a term (`KompileMacroMeasuredNodes`, `KompileMacroSubjectWalks`).
+//! An identity costs one expected-constant hash-table lookup per recorded node, besides hashing the node's own fields and arity, and the table keeps one entry per distinct node recorded in the sentence.
 //! Only `macro-rec` and `alias-rec` rules may apply again on a path, so only their rewrites can make expansion diverge; `Expander::record_rewrite` accounts for those alone and reports, at the macro rule, a chain that returns to a subject it already rewrote (`Chain::repeats`, Brent's cycle finding), more than `MAX_RECURSIVE_REWRITES` recursive rewrites in one sentence, and a path whose recursive rewrites have added more depth than `growth_allowance` (the larger of `MIN_RECURSIVE_GROWTH` and the input's depth).
 //! The expansion of a sentence or standalone term, and each level of its recursion, runs with a stack red zone in proportion to the deepest term it may hold (`stack_zone`), on a heap-grown segment when the thread's stack runs low (`with_stack`).
 //!
@@ -42,12 +42,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     rc::Rc,
 };
 
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
+use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -597,8 +598,10 @@ struct Expander<'view, 'definition> {
     macros: BTreeMap<LabelHead, Rc<[MacroRule]>>,
     token_macros: BTreeMap<Sort, Rc<[MacroRule]>>,
     /// Whether some macro rule is `macro-rec` or `alias-rec`: only then does a rewrite read the
-    /// depths and fingerprints of terms, and only then are they recorded in their [`Shape`]s.
+    /// depths and identities of terms, and only then are they recorded in their [`Shape`]s.
     records_shapes: bool,
+    /// The identities of the terms recorded in the current sentence or standalone term.
+    identities: Identities,
     /// The typing view of the term module, present when some macro rule has a parametric head:
     /// then an application's instance is read from the typing of the sentence it stands in.
     typer: Option<SentenceTyper<'definition>>,
@@ -711,6 +714,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 .map(|(sort, rules)| (sort, Rc::from(rules)))
                 .collect(),
             records_shapes,
+            identities: Identities::default(),
             typer,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
@@ -1001,7 +1005,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 &rule.sentence,
             ))
         };
-        if chain.repeats(subject, applied, subject_depth, shape.fingerprint) {
+        if chain.repeats(applied, shape.identity) {
             return diverges(format!(
                 "Macro expansion does not terminate: expanding {} with this macro rule leads back to {}, so the expansion repeats forever.",
                 shown(subject),
@@ -1029,6 +1033,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// Start the expansion of one sentence or standalone term, whose terms are at most
     /// `input_depth` deep, with its full budget.
     fn begin(&mut self, input_depth: usize) {
+        self.identities.clear();
         self.recursive_rewrites = 0;
         self.growth_allowance = growth_allowance(input_depth);
         self.red_zone = stack_zone(input_depth);
@@ -1451,7 +1456,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
 
     /// The shape of `node`, whose children have the shapes `children`, given whether its head
     /// has macro rules (`has_rules`); see [`Shape`] for what is recorded.
-    fn shape(&self, node: &Term, children: Vec<Shape>, has_rules: bool) -> Shape {
+    fn shape(&mut self, node: &Term, children: Vec<Shape>, has_rules: bool) -> Shape {
         let settled = !has_rules && children.iter().all(|child| child.settled);
         if !self.records_shapes {
             return Shape {
@@ -1463,7 +1468,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         Shape {
             settled,
             depth,
-            fingerprint: fingerprint(node, &children),
+            identity: self.identities.identify(node, &children),
             children,
         }
     }
@@ -1484,7 +1489,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
 
     /// The shape of `term`, measured by one walk of it, without recursion
     /// (`KompileMacroMeasuredNodes`): for a term no expansion has just built.
-    fn measure(&self, term: &Term) -> Shape {
+    fn measure(&mut self, term: &Term) -> Shape {
         // The nodes in preorder with their numbers of children.
         let mut order = Vec::new();
         let mut pending = vec![term];
@@ -1513,7 +1518,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
 
     /// What one walk of `term`, without recursion (`KompileMacroMeasuredNodes`), finds settled
     /// in it: each maximal settled subterm with its shape, and the children of the others.
-    fn settled_parts(&self, term: &Term) -> Known {
+    fn settled_parts(&mut self, term: &Term) -> Known {
         // The nodes in preorder with their numbers of children.
         let mut order = Vec::new();
         let mut pending = vec![term];
@@ -1695,7 +1700,7 @@ enum Known {
 /// Expansion builds a term bottom-up and computes each node's shape from its children's
 /// shapes, so a shape costs O(1) per node of what expansion builds, and a binding of a rule
 /// moves with its shape into the result ([`Expander::instantiate`]).
-/// The depth and the fingerprint are recorded only when the expander has a `macro-rec` or
+/// The depth and the identity are recorded only when the expander has a `macro-rec` or
 /// `alias-rec` rule ([`Expander::records_shapes`]), the only rules whose rewrites read them;
 /// otherwise they are zero and a shape keeps no children.
 #[derive(Clone, Debug, Default)]
@@ -1704,10 +1709,9 @@ struct Shape {
     settled: bool,
     /// The depth [`term_depth`] measures.
     depth: usize,
-    /// A hash of the term that equal terms share: it reads what [`Term::cmp`] compares, the
-    /// kind of each node, its label, token or variable and their sorts, and its children in
-    /// order, and no annotation.
-    fingerprint: u64,
+    /// The number [`Identities`] gives the term, which it shares exactly with the terms equal
+    /// to it among those the expansion records; 0 when not recorded.
+    identity: u32,
     /// The shapes of the term's children, in the order expansion visits them.
     children: Vec<Shape>,
 }
@@ -1795,7 +1799,7 @@ fn binding_shapes<'pattern, 'shape>(
 }
 
 /// Feed `sort` into `hasher` as `Sort::cmp` reads it: its name, then its parameters in order.
-fn hash_sort(sort: &Sort, hasher: &mut DefaultHasher) {
+fn hash_sort(sort: &Sort, hasher: &mut impl Hasher) {
     sort.name.hash(hasher);
     sort.parameters.len().hash(hasher);
     for parameter in &sort.parameters {
@@ -1804,7 +1808,7 @@ fn hash_sort(sort: &Sort, hasher: &mut DefaultHasher) {
 }
 
 /// Feed `label` into `hasher` as `Label::cmp` reads it: its name, then its sort parameters.
-fn hash_label(label: &Label, hasher: &mut DefaultHasher) {
+fn hash_label(label: &Label, hasher: &mut impl Hasher) {
     label.name.hash(hasher);
     label.parameters.len().hash(hasher);
     for parameter in &label.parameters {
@@ -1812,43 +1816,175 @@ fn hash_label(label: &Label, hasher: &mut DefaultHasher) {
     }
 }
 
-/// The fingerprint of `term` given the shapes of its children ([`Shape::fingerprint`]). Terms
-/// equal under [`Term::cmp`] are of the same kind with equal node fields and equal children,
-/// so they have equal fingerprints.
-fn fingerprint(term: &Term, children: &[Shape]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    match term.unannotated() {
-        Term::InjectedLabel(label) => {
-            0u8.hash(&mut hasher);
-            hash_label(label, &mut hasher);
+/// The fields of one node that [`Term::cmp`] compares apart from its children: its kind and
+/// its label, token or variable with their sorts. Annotations are not among them.
+#[derive(PartialEq)]
+enum Head {
+    InjectedLabel(Label),
+    Rewrite,
+    As,
+    Variable(String, Option<Sort>),
+    Sequence,
+    Apply(Label),
+    Token(String, Sort),
+}
+
+impl Head {
+    /// The head of `node`.
+    fn of(node: &Term) -> Self {
+        match node.unannotated() {
+            Term::InjectedLabel(label) => Self::InjectedLabel(label.clone()),
+            Term::Rewrite { .. } => Self::Rewrite,
+            Term::As { .. } => Self::As,
+            Term::Variable { name, sort } => Self::Variable(name.clone(), sort.clone()),
+            Term::Sequence(_) => Self::Sequence,
+            Term::Apply { label, .. } => Self::Apply(label.clone()),
+            Term::Token { token, sort } => Self::Token(token.clone(), sort.clone()),
+            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
         }
-        Term::Rewrite { .. } => 1u8.hash(&mut hasher),
-        Term::As { .. } => 2u8.hash(&mut hasher),
-        Term::Variable { name, sort } => {
-            3u8.hash(&mut hasher);
-            name.hash(&mut hasher);
-            sort.is_some().hash(&mut hasher);
-            if let Some(sort) = sort {
+    }
+
+    /// Whether this is the head of `node`, compared as [`Term::cmp`] compares it.
+    fn is(&self, node: &Term) -> bool {
+        match (self, node.unannotated()) {
+            (Self::InjectedLabel(head), Term::InjectedLabel(label))
+            | (Self::Apply(head), Term::Apply { label, .. }) => head == label,
+            (Self::Rewrite, Term::Rewrite { .. })
+            | (Self::As, Term::As { .. })
+            | (Self::Sequence, Term::Sequence(_)) => true,
+            (Self::Variable(head_name, head_sort), Term::Variable { name, sort }) => {
+                head_name == name && head_sort == sort
+            }
+            (Self::Token(head_token, head_sort), Term::Token { token, sort }) => {
+                head_token == token && head_sort == sort
+            }
+            _ => false,
+        }
+    }
+
+    /// The hash of the head of `node`, as [`Self::is`] compares it.
+    fn hash(node: &Term) -> u64 {
+        let mut hasher = FxHasher::default();
+        match node.unannotated() {
+            Term::InjectedLabel(label) => {
+                0u8.hash(&mut hasher);
+                hash_label(label, &mut hasher);
+            }
+            Term::Rewrite { .. } => 1u8.hash(&mut hasher),
+            Term::As { .. } => 2u8.hash(&mut hasher),
+            Term::Variable { name, sort } => {
+                3u8.hash(&mut hasher);
+                name.hash(&mut hasher);
+                sort.is_some().hash(&mut hasher);
+                if let Some(sort) = sort {
+                    hash_sort(sort, &mut hasher);
+                }
+            }
+            Term::Sequence(_) => 4u8.hash(&mut hasher),
+            Term::Apply { label, .. } => {
+                5u8.hash(&mut hasher);
+                hash_label(label, &mut hasher);
+            }
+            Term::Token { token, sort } => {
+                6u8.hash(&mut hasher);
+                token.hash(&mut hasher);
                 hash_sort(sort, &mut hasher);
             }
+            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
         }
-        Term::Sequence(_) => 4u8.hash(&mut hasher),
-        Term::Apply { label, .. } => {
-            5u8.hash(&mut hasher);
-            hash_label(label, &mut hasher);
-        }
-        Term::Token { token, sort } => {
-            6u8.hash(&mut hasher);
-            token.hash(&mut hasher);
-            hash_sort(sort, &mut hasher);
-        }
-        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+        hasher.finish()
     }
-    children.len().hash(&mut hasher);
-    for child in children {
-        child.fingerprint.hash(&mut hasher);
+}
+
+/// One number per distinct term recorded in the expansion of one sentence or standalone term
+/// ([`Shape::identity`]), so that two recorded terms are equal under [`Term::eq`] exactly when
+/// their numbers are equal: a node is numbered by its head and its children's numbers, and each
+/// such key is given one number.
+///
+/// By induction on terms, equal terms have equal heads and pairwise equal children, so equal
+/// keys and one number; and two terms with one number have one key, so equal heads and
+/// children with equal numbers, which are equal terms. Heads are numbered the same way, so a
+/// key holds no copy of a label; a lookup costs the hash of the node's own fields and of its
+/// children's numbers, and a new number one entry.
+#[derive(Default)]
+struct Identities {
+    /// The first head number, in `heads`, of each head hash ([`Head::hash`]).
+    head_chains: FxHashMap<u64, u32>,
+    /// The head numbered i at index i - 1, with the next head number of the same hash (0:
+    /// none).
+    heads: Vec<(Head, u32)>,
+    /// The first identity, in `keys`, of each key hash.
+    key_chains: FxHashMap<u64, u32>,
+    /// The key of identity i at index i - 1 (0 stands for no recorded identity): the head
+    /// number and the children's identities, with the next identity of the same key hash
+    /// (0: none).
+    keys: Vec<(u32, Box<[u32]>, u32)>,
+}
+
+impl Identities {
+    fn clear(&mut self) {
+        self.head_chains.clear();
+        self.heads.clear();
+        self.key_chains.clear();
+        self.keys.clear();
     }
-    hasher.finish()
+
+    /// The number of the head of `node`.
+    fn head(&mut self, node: &Term) -> u32 {
+        let hash = Head::hash(node);
+        let first = self.head_chains.get(&hash).copied().unwrap_or(0);
+        let mut next = first;
+        // Invariant: `next`, when not 0, is the number of a head of hash `hash` none of whose predecessors in the chain is the head of `node`; each iteration moves one step along the chain, whose links point to earlier numbers.
+        while next != 0 {
+            let (head, after) = &self.heads[next as usize - 1];
+            if head.is(node) {
+                return next;
+            }
+            next = *after;
+        }
+        self.heads.push((Head::of(node), first));
+        let number = u32::try_from(self.heads.len()).expect("fewer than 2^32 distinct heads");
+        self.head_chains.insert(hash, number);
+        number
+    }
+
+    /// The identity of `node`, whose children have the shapes `children`.
+    fn identify(&mut self, node: &Term, children: &[Shape]) -> u32 {
+        let head = self.head(node);
+        let mut hasher = FxHasher::default();
+        head.hash(&mut hasher);
+        children.len().hash(&mut hasher);
+        for child in children {
+            debug_assert_ne!(child.identity, 0, "every recorded child has an identity");
+            child.identity.hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+        let first = self.key_chains.get(&hash).copied().unwrap_or(0);
+        let mut next = first;
+        // Invariant: `next`, when not 0, is an identity whose key hash is `hash` and none of whose predecessors in the chain has the key of `node`; each iteration moves one step along the chain, whose links point to earlier identities.
+        while next != 0 {
+            let (key_head, key_children, after) = &self.keys[next as usize - 1];
+            if *key_head == head
+                && key_children.len() == children.len()
+                && key_children
+                    .iter()
+                    .zip(children)
+                    .all(|(identity, child)| *identity == child.identity)
+            {
+                return next;
+            }
+            next = *after;
+        }
+        self.keys.push((
+            head,
+            children.iter().map(|child| child.identity).collect(),
+            first,
+        ));
+        let identity =
+            u32::try_from(self.keys.len()).expect("fewer than 2^32 distinct recorded terms");
+        self.key_chains.insert(hash, identity);
+        identity
+    }
 }
 
 /// The children of `term` in the order expansion visits them.
@@ -2512,10 +2648,12 @@ fn sentence_depth(sentence: &Sentence) -> usize {
 ///
 /// `repeats` stores one subject at a time as Brent's cycle-finding algorithm does: the stored
 /// subject is replaced after 1, 2, 4, ... further steps, so a chain that enters a cycle of
-/// length λ after μ steps meets its stored subject again within 2(μ + λ) steps.
+/// length λ after μ steps meets its stored subject again within 2(μ + λ) steps. A subject is
+/// stored and compared by its identity ([`Identities`]), which decides equality exactly, so
+/// storing it copies nothing.
 struct Chain {
-    /// The stored subject, the number of rules applied above it, its depth and its fingerprint.
-    checkpoint: Option<(Term, usize, usize, u64)>,
+    /// The number of rules applied above the stored subject, and its identity.
+    checkpoint: Option<(usize, u32)>,
     /// Steps after which the stored subject is replaced.
     power: usize,
     /// Steps since the stored subject was stored.
@@ -2533,28 +2671,17 @@ impl Default for Chain {
 }
 
 impl Chain {
-    /// Whether `subject`, `depth` deep with fingerprint `fingerprint` and about to be rewritten
-    /// under `applied` applied rules, is the stored subject under as many; otherwise count the
-    /// step and store `subject` when its turn comes. Equal terms are equally deep and have equal
-    /// fingerprints ([`Shape`]), so the terms are compared only when both agree.
-    fn repeats(&mut self, subject: &Term, applied: usize, depth: usize, fingerprint: u64) -> bool {
-        if self.checkpoint.as_ref().is_some_and(
-            |(stored, count, stored_depth, stored_fingerprint)| {
-                *count == applied
-                    && *stored_depth == depth
-                    && *stored_fingerprint == fingerprint
-                    && {
-                        measure::bump(Counter::KompileMacroSubjectWalks);
-                        stored == subject
-                    }
-            },
-        ) {
+    /// Whether the subject of identity `identity`, about to be rewritten under `applied`
+    /// applied rules, is the stored subject under as many; otherwise count the step and store
+    /// it when its turn comes.
+    fn repeats(&mut self, applied: usize, identity: u32) -> bool {
+        debug_assert_ne!(identity, 0, "a recursive rewrite's subject has an identity");
+        if self.checkpoint == Some((applied, identity)) {
             return true;
         }
         self.steps += 1;
         if self.steps >= self.power {
-            measure::bump(Counter::KompileMacroSubjectWalks);
-            self.checkpoint = Some((subject.clone(), applied, depth, fingerprint));
+            self.checkpoint = Some((applied, identity));
             self.power = self.power.saturating_mul(2);
             self.steps = 0;
         }
