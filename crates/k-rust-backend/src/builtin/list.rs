@@ -189,6 +189,10 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         }))
 }
 
+/// `E in L`: `true` when `E` is syntactically one of `L`'s known elements, which every instance
+/// of `L` holds (the heads and, of an open list, the tails around its opaque middle); `false` only
+/// for a closed list whose every element is apart from `E`, since an open list's middle may hold
+/// any element; unevaluated otherwise.
 fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("LIST.in", arguments, 2)?;
     let [element, list] = arguments else {
@@ -197,14 +201,14 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     let TermKind::List { heads, rest, .. } = list.kind() else {
         return Ok(None);
     };
-    match rest {
-        None if heads.contains(element) => Ok(Some(bool_term(true))),
-        None if heads.iter().all(|head| values_differ(sorts, element, head)) => {
-            Ok(Some(bool_term(false)))
-        }
-        Some((_, tails)) if tails.contains(element) => Ok(Some(bool_term(true))),
-        _ => Ok(None),
+    let tails = rest.as_ref().map_or(&[][..], |(_, tails)| tails.as_slice());
+    if heads.contains(element) || tails.contains(element) {
+        return Ok(Some(bool_term(true)));
     }
+    Ok(
+        (rest.is_none() && heads.iter().all(|head| values_differ(sorts, element, head)))
+            .then(|| bool_term(false)),
+    )
 }
 
 fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -569,6 +573,29 @@ mod tests {
             range(&[list, integer(1), integer(1)]),
             Ok(BuiltinResult::Value(expected))
         );
+    }
+
+    /// Every instance of an open list holds its known elements, heads and tails alike, so an
+    /// element syntactically equal to one is a member; none is ever known not to be one, since
+    /// the opaque middle may hold any element.
+    #[test]
+    fn membership_in_an_open_list_holds_on_a_known_element_and_is_never_false() {
+        let middle = Term::variable(Variable::new("REST", Sort::simple("SortItems")));
+        let list = Term::list(
+            definition(),
+            vec![item("a")],
+            Some((middle, vec![item("c")])),
+        );
+
+        assert_eq!(
+            contains(&[item("a"), list.clone()], None),
+            Ok(Some(bool_term(true)))
+        );
+        assert_eq!(
+            contains(&[item("c"), list.clone()], None),
+            Ok(Some(bool_term(true)))
+        );
+        assert_eq!(contains(&[item("b"), list], None), Ok(None));
     }
 
     #[test]
