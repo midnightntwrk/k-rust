@@ -184,6 +184,7 @@ Entries live per user under `${XDG_CACHE_HOME:-~/.cache}/k-rust/reference-output
 The conformance ratchet runs every fourth measured `--all` run of a log in `verify` mode unless `REFERENCE_CACHE` is set.
 Each gate prints its hit and miss counts; the conformance driver records each step's reference calls as `reference_cache`.
 `scripts/reference-fixtures-refresh.sh` runs the reference tools directly and never reads the cache.
+Two reference runs of the gates stay uncached: the MIR gate's kmir Python step, whose Python environment the manifest does not pin (the krun after it is keyed on the pattern it writes), and the RPC gate's oracle server session, whose responses depend on every earlier request to the same server and which costs under two CPU seconds.
 
 ## Comparator evidence
 

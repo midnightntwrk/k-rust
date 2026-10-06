@@ -134,6 +134,69 @@ fn every_gate_builds_the_comparator_with_the_gate_z3_selection() {
     );
 }
 
+/// Every reference tool a gate runs for its results (kompile, krun, kprove, kast, kore-exec,
+/// kore-parser) goes through the reference-output cache (`scripts/reference-cache.sh`), which
+/// keys each call on what its result depends on, and each gate opens the cache after its pin
+/// checks and closes it with the summary that fails on a verify mismatch. The RPC oracle
+/// server session is the one reference run outside it: the whole session, both servers and every
+/// request included, costs under two CPU seconds.
+#[test]
+fn every_reference_tool_call_of_a_gate_goes_through_the_cache() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
+        .expect("symbolic differential script");
+    let tools = [
+        "\"$kompile\"",
+        "\"$krun\"",
+        "\"$kprove\"",
+        "\"$kast\"",
+        "\"$kore_exec\"",
+        "\"$kore_parser\"",
+    ];
+    let mut cached_calls = 0;
+    for script in JAVA_BACKED_DIFFERENTIAL_SCRIPTS
+        .iter()
+        .copied()
+        .chain([symbolic.as_str()])
+    {
+        let name = script
+            .lines()
+            .rev()
+            .find(|line| line.contains(" passed\""))
+            .unwrap_or_default();
+        for needle in [
+            "source \"$workspace/scripts/reference-cache.sh\"",
+            "reference_cache_begin \"$work\"",
+            "reference_cache_finish",
+        ] {
+            assert!(script.contains(needle), "gate without {needle}: {name}");
+        }
+        let lines = script.lines().collect::<Vec<_>>();
+        for (index, line) in lines.iter().enumerate() {
+            let call = line.trim_start();
+            if !tools.iter().any(|tool| call.starts_with(tool)) {
+                continue;
+            }
+            let mut start = index;
+            while start > 0 && lines[start - 1].trim_end().ends_with('\\') {
+                start -= 1;
+            }
+            assert!(
+                lines[start..=index]
+                    .iter()
+                    .any(|line| line.contains("reference_cached ")),
+                "a gate runs a reference tool outside the cache:\n{}",
+                lines[start..=index].join("\n")
+            );
+            cached_calls += 1;
+        }
+    }
+    assert!(
+        cached_calls >= 20,
+        "only {cached_calls} reference calls found"
+    );
+}
+
 /// Run `script` (case arguments `cases`) against fake reference tools and a fake `cargo` that
 /// records its arguments, with `KRUST_GATE_Z3` set to `selection` (unset for `None`); returns the
 /// exit status, the recorded cargo argument lines and the standard error.

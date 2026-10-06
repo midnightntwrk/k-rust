@@ -568,6 +568,9 @@ jq -n '{
   params: {module: "module RPC-EXTRA\nendmodule []", "name-as-id": true}
 }' >"$work/add-module-request.json"
 
+# The oracle sessions run uncached: each response depends on every earlier request to the same
+# server (add-module changes what later requests see), so only a whole session could be a cache
+# entry, and a warm run of this whole gate costs under two CPU seconds.
 reference_oracles=("$kore_rpc")
 if [[ "${REFERENCE_RPC_ORACLE:-}" == both ]]; then
   reference_oracles=("$reference_bin/kore-rpc-booster" "$reference_bin/kore-rpc")
