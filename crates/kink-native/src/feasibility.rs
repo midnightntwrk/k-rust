@@ -88,7 +88,7 @@ use kink_pattern::{Feasibility, PathInput, RelationDecider, RelationDecision, Te
 /// k-rust's variable-identity contract, version 3 (T-VI; module documentation): verbatim
 /// reading, injective printing with binder renaming, and unique free mints from one growing
 /// counter per request that skips every request spelling. These premises justify leaf Unsat
-/// and discard, relation Equal/Unequal/Unsat, step identity, and certificate generalization.
+/// and discard, relation Equal/Unequal/Unsat, and step identity.
 /// Unbound-result equation instances are unused and diagnosed, hence incomplete in the bridge.
 /// A contract mismatch fails compilation instead of silently removing a premise.
 const _: () = assert!(k_rust_backend::term::names::VARIABLE_IDENTITY == 3);
@@ -177,9 +177,8 @@ impl Inhabitation {
 /// The test's initial state, as the stable-name source of the cross-request rule
 /// ([`InitialVariables`]; variable-identity README VI-R7).
 ///
-/// It is the only input that [`BackendRelations::shared`],
-/// [`crate::step_events::ObservationDecider::new`] and
-/// [`crate::execution_difference::certify_difference`] accept for the variables they link
+/// It is the only input that [`BackendRelations::shared`] and
+/// [`crate::step_events::ObservationDecider::new`] accept for the variables they link
 /// between requests. The pattern must be the one every k-rust request that kink combines for
 /// one test receives as its input: the initial configuration of the test, run on the baseline
 /// and on the mutant, stepped and event-free. A leaf state, an observed payload or any other
@@ -2409,8 +2408,8 @@ mod tests {
             .expect("relations");
     }
 
-    /// state-observations SO-03 review R1-D3/R2-D2 (probe `r6`), the printed-name exposure the
-    /// EI certificate backstopped: `go(B)` narrows `B:Box` to `c(I)` with a fresh `I`, and the
+    /// state-observations SO-03 review R1-D3/R2-D2 (probe `r6`), the printed-name exposure
+    /// closed by variable identity: `go(B)` narrows `B:Box` to `c(I)` with a fresh `I`, and the
     /// test's own variable is named `ExVarI0`, the spelling k-rust printed that mint in before
     /// the variable-identity contract. Then the decoded state 1 read
     /// `seq(check2(ExVarI0), seq(check2(ExVarI0), done))`, so the declaration

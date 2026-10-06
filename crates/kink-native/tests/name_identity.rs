@@ -22,15 +22,9 @@ use k_rust_backend::{
 use kink_native::NativeValidator;
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass, SolverProfile,
+    SteppedExecution,
 };
-use kink_native::execution_difference::{
-    CertifiedSide, DifferenceCertificate, Exclusion, NotProvedReason, StateSequences,
-    certify_difference, definition_facts,
-};
-use kink_native::{
-    bridge,
-    feasibility::{LeafFeasibility, TestInitialState},
-};
+use kink_native::{bridge, feasibility::LeafFeasibility};
 use kink_patch::{Edit, Patch, TermRef};
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -355,93 +349,48 @@ fn scope_mutant(validator: &NativeValidator, positive_control: bool) -> Patch {
     Patch::new(edits).expect("scope patch")
 }
 
-fn scope_sequences(backend: &mut Backend, initial: &Pattern) -> StateSequences {
+fn scope_steps(backend: &mut Backend, initial: &Pattern) -> SteppedExecution {
     ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_steps(backend, initial, BUDGET)
         .expect("scope run")
         .expect("step states decode")
-        .certificate_sequences()
-        .expect("certificate sequences")
 }
 
-/// VI-AT1: the identical-relation existential mutant has NoWitness in both profiles.
-/// Per-position scope prefixes contain `.`, so the forged EI!M0!1 cannot equal a scope
-/// name (variable-identity README 16.3). Contract change (VI-03F): every KORE identifier
-/// is accepted verbatim, including EI-bB0-u2e-0-b1; a non-identifier is refused.
-/// The positive control always returns pair(a,a), proving [Clash, Clash] under Z3.
-/// Without Z3 baseline narrowing stops at the initial state, so that control has NoWitness.
+/// VI-AT1: ordinary identifiers preserve the baseline's leaf and state counts.
+/// Contract change (VI-03F): every KORE identifier is accepted verbatim, including
+/// EI-bB0-u2e-0-b1; a non-identifier is refused. The campaign-level scopeforge
+/// counterpart checks that forged names do not distinguish identical relations.
+/// Without Z3 baseline narrowing stops at the initial state.
 #[test]
 fn scope_name_forgery_does_not_prove_an_identical_relation() {
     let validator = NativeValidator::bind(support::load("scopeforge.k"), CompileOptions::default());
     let mut baseline = scope_backend(&validator, None);
     let mut mutant = scope_backend(&validator, Some(&scope_mutant(&validator, false)));
     let mut positive = scope_backend(&validator, Some(&scope_mutant(&validator, true)));
-    let facts = definition_facts(&mut baseline).expect("baseline facts");
-    let mutant_facts = definition_facts(&mut mutant).expect("mutant facts");
-    let positive_facts = definition_facts(&mut positive).expect("positive facts");
     for name in ["X", "EI-bM0-b1"] {
         let initial = support::initial_state(
             support::app("Lblstart", vec![support::var(name, "SortAb")]),
             "SortProg",
         );
-        let bs = scope_sequences(&mut baseline, &initial);
-        let ms = scope_sequences(&mut mutant, &initial);
-        assert_eq!(
-            certify_difference(
-                &mut baseline,
-                TestInitialState::of_test(&initial),
-                &facts,
-                &mutant_facts,
-                &bs,
-                &ms
-            ),
-            DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
-            "{name}",
-        );
-        let ps = scope_sequences(&mut positive, &initial);
-        let certificate = certify_difference(
-            &mut baseline,
-            TestInitialState::of_test(&initial),
-            &facts,
-            &positive_facts,
-            &bs,
-            &ps,
-        );
-        let expected = if cfg!(feature = "z3") {
-            DifferenceCertificate::Proved {
-                witness_side: CertifiedSide::Mutant,
-                witness_leaf: 0,
-                exclusions: vec![Exclusion::Clash, Exclusion::Clash],
-            }
-        } else {
-            DifferenceCertificate::NotProved(NotProvedReason::NoWitness)
-        };
-        assert_eq!(certificate, expected, "positive control {name}");
+        let bs = scope_steps(&mut baseline, &initial);
+        scope_steps(&mut mutant, &initial);
+        scope_steps(&mut positive, &initial);
         // The portable control cannot compare a post-state the baseline never exposes.
-        assert_eq!(bs.leaves.len(), if cfg!(feature = "z3") { 2 } else { 1 },);
+        assert_eq!(
+            bs.adapted.leaves().len(),
+            if cfg!(feature = "z3") { 2 } else { 1 },
+        );
         if !cfg!(feature = "z3") {
-            assert_eq!(bs.leaves[0].halt, HaltClass::Indeterminate);
-            assert_eq!(bs.leaves[0].states.len(), 1);
+            assert_eq!(bs.adapted.leaves()[0].halt, HaltClass::Indeterminate);
+            assert_eq!(bs.states[0].len(), 1);
         }
     }
     let initial = support::initial_state(
         support::app("Lblstart", vec![support::var("EI-bB0-u2e-0-b1", "SortAb")]),
         "SortProg",
     );
-    let bs = scope_sequences(&mut baseline, &initial);
-    let ms = scope_sequences(&mut mutant, &initial);
-    assert_eq!(
-        certify_difference(
-            &mut baseline,
-            TestInitialState::of_test(&initial),
-            &facts,
-            &mutant_facts,
-            &bs,
-            &ms
-        ),
-        DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
-        "ordinary identifier EI-bB0-u2e-0-b1",
-    );
+    scope_steps(&mut baseline, &initial);
+    scope_steps(&mut mutant, &initial);
     let invalid = support::initial_state(
         support::app("Lblstart", vec![support::var("EI!B0.0!1", "SortAb")]),
         "SortProg",

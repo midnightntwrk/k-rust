@@ -15,15 +15,13 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition, walk};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignRun, CertificateCheck, CrashPolicy,
-    ExecutionFailureKind, MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome,
-    OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun,
-    StateProjection, Tally, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
-    run_campaign, tally,
+    Campaign, CampaignFailureKind, CampaignRun, CrashPolicy, ExecutionFailureKind,
+    MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome, OracleSide, OracleValue,
+    PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection, Tally, TestCase,
+    TestEvidence, TestPlan, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile};
-use kink_native::execution_difference::DifferenceCertificate;
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
     Baseline, CandidateFailureKind, CandidateGeneration, Claim, Discovery, Edit, InsertPosition,
@@ -334,10 +332,6 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
         assert!(invalid.plan.tests.is_empty());
         assert!(invalid.evidence.is_empty());
         assert!(invalid.report.executed_test_ids.is_empty());
-        assert!(invalid.certificate_checks.is_empty());
-        assert!(run.mutants[1].certificate_checks.is_empty());
-        assert!(run.mutants[2].certificate_checks.is_empty());
-        assert!(run.mutants[3].certificate_checks.is_empty());
 
         let score = run.score.expect("a complete generation is scored");
         assert_eq!((score.killed, score.survived), (1, 2));
@@ -403,8 +397,7 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
 /// `counter(N, s(s(L))) => counter(s(s(N)), L)` takes `counter(z, s(s(z)))` to the baseline's
 /// final counter in one rewrite, skipping the baseline's intermediate state
 /// `counter(s(z), s(z))`. The final result agrees; the pattern of two consecutive increments
-/// distinguishes, and the certificate proves the trajectories differ: the mutant's complete
-/// path has one position against the baseline's two (`Length`). Both profiles.
+/// distinguishes through declared whole-transition events on those configurations. Both profiles.
 #[test]
 fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_difference() {
     with_stack(|| {
@@ -503,19 +496,6 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
             );
             assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
             assert_eq!(mutant.report.killing_test_ids, ["two"], "{schedule:?}");
-            assert_eq!(
-                mutant.certificate_checks,
-                [CertificateCheck {
-                    test_id: "two".into(),
-                    certificate: DifferenceCertificate::Proved {
-                        witness_side: kink_native::execution_difference::CertifiedSide::Mutant,
-                        witness_leaf: 0,
-                        exclusions: vec![kink_native::execution_difference::Exclusion::Length],
-                    },
-                    demoted_slots: vec![],
-                }],
-                "{schedule:?}"
-            );
         }
     });
 }
@@ -1153,7 +1133,6 @@ fn merged_observed_and_unobserved_authors_do_not_kill() {
         assert_eq!(run.mutants.len(), 1);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
         assert_eq!(
             outcomes(&run.mutants[0].plan.tests),
             [("C fires", vec![Agree])]

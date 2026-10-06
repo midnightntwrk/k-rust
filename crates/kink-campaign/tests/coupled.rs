@@ -14,16 +14,12 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CertificateCheck, CrashPolicy, FinalResult, MutantStatus,
-    OracleDeclaration, OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, Rational,
-    ScheduleMode, SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign,
-    tally,
+    Campaign, CampaignFailureKind, CrashPolicy, FinalResult, MutantStatus, OracleDeclaration,
+    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode,
+    SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::ExecutionBudget;
-use kink_native::execution_difference::{
-    CertifiedSide, DifferenceCertificate, Exclusion, NotProvedReason,
-};
 use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
@@ -578,11 +574,6 @@ fn single_site_release_is_killed_by_its_trace() {
                 mutant.written_sentences,
                 [support::rule(fixture.validator.baseline(), "SYMMEM.write")]
             );
-            assert_eq!(
-                mutant.certificate_checks,
-                ["ground-shared", "sym-shared", "sym-distinct"]
-                    .map(|test_id| { proved_length_check(test_id) })
-            );
         }
     });
 }
@@ -662,17 +653,6 @@ fn coupled_release_is_one_mutant_killed_by_its_trace() {
             let count = tally(&generation, &run).expect("tally");
             assert_eq!((count.killed, count.rejected_origins), (1, 0));
             assert!(outcomes(&run).iter().all(|row| row[0] == A));
-            assert_eq!(
-                mutant.certificate_checks,
-                if whole {
-                    vec!["ground-shared", "sym-shared", "sym-distinct"]
-                } else {
-                    vec!["ground-shared", "sym-shared", "sym-distinct", "sym-clash"]
-                }
-                .into_iter()
-                .map(proved_length_check)
-                .collect::<Vec<_>>()
-            );
         }
     });
 }
@@ -810,14 +790,6 @@ fn bounded_mutant_evidence_kills_only_by_a_match() {
                         vec![]
                     }
                 );
-                assert_eq!(
-                    full.mutants[0].certificate_checks,
-                    if status == MutantStatus::Killed {
-                        vec![proved_length_check("ground-shared")]
-                    } else {
-                        vec![]
-                    }
-                );
             }
         }
     });
@@ -922,7 +894,6 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
                 full.mutants[0].report.killing_test_ids,
                 ["sym-guarded", "ground-guarded"]
             );
-            assert_eq!(full.mutants[0].certificate_checks, [proved_guarded_check()]);
 
             let stopped =
                 run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
@@ -931,7 +902,6 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
             assert_eq!(mutant.report.executed_test_ids, ["sym-guarded"]);
             assert_eq!(mutant.report.killing_test_ids, ["sym-guarded"]);
             assert_eq!(mutant.plan.tests[1].run, TestRun::SkippedAfterKill);
-            assert_eq!(mutant.certificate_checks, [proved_guarded_check()]);
         } else {
             assert_eq!(
                 full.expect_err("symbolic baseline remains undecided")
@@ -950,7 +920,6 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
                 ground.mutants[0].report.killing_test_ids,
                 ["ground-guarded"]
             );
-            assert!(ground.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -1450,8 +1419,6 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
 
-        assert!(run.mutants[0].certificate_checks.is_empty());
-
         let zero_valued = [TestCase {
             id: "ground-zero-value".into(),
             initial_state: state(addr(z()), z(), addr(z()), z()),
@@ -1472,7 +1439,6 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
             run.mutants[0].report.killing_test_ids,
             ["ground-zero-value"]
         );
-        assert!(run.mutants[0].certificate_checks.is_empty());
 
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -1502,7 +1468,6 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -1582,7 +1547,6 @@ fn unmatched_declaration_is_absent_not_an_error() {
             }
         );
         assert_survived(&run, &[vec![A]]);
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -1819,7 +1783,6 @@ fn audit_ks_as2_requires_rephrasing_is_not_killed() {
                     }
                 );
                 assert!(run.mutants[0].report.killing_test_ids.is_empty());
-                assert!(run.mutants[0].certificate_checks.is_empty());
             } else {
                 assert_eq!(
                     run.expect_err("no-Z3 leaves the symbolic guard undecided")
@@ -1956,14 +1919,6 @@ fn audit_ks_as4_symbolic_before_terms_are_not_binding_values() {
                             MutantStatus::Survived
                         }
                     );
-                    assert_eq!(
-                        run.mutants[0].certificate_checks,
-                        if whole {
-                            vec![proved_length_check(&bound[0].id)]
-                        } else {
-                            vec![]
-                        }
-                    );
                 } else {
                     assert_eq!(
                         run.expect_err("symbolic binding refused").kind(),
@@ -2023,7 +1978,6 @@ fn audit_so_as5_guard_split_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A], vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2068,7 +2022,6 @@ fn audit_so_priority_shadowing_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A]; 2]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
 
         let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
         let mut twin = unlabelled_copy(baseline, "GUARDEDMEM.write");
@@ -2084,7 +2037,6 @@ fn audit_so_priority_shadowing_is_not_killed() {
         let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
             .expect("campaign");
         assert_survived(&run, &vec![vec![A, A]; 2]);
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2156,10 +2108,8 @@ fn audit_so_moved_unobserved_content_is_not_killed() {
                 assert_eq!(outcomes(&run), expected);
                 assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
                 assert!(run.mutants[0].report.killing_test_ids.is_empty());
-                assert!(run.mutants[0].certificate_checks.is_empty());
             } else {
                 assert_survived(&run, &expected);
-                assert!(run.mutants[0].certificate_checks.is_empty());
             }
         }
     });
@@ -2245,7 +2195,6 @@ fn audit_ks_as7_anchoring_fails_closed() {
             vec![vec![D, U, U, U], vec![U; 4], vec![U; 4], vec![U; 4]]
         );
         assert_eq!(mutant.report.killing_test_ids, ["ground-shared"]);
-        assert!(mutant.certificate_checks.is_empty());
         let side = fixture.validator.validate(&patch).expect("mutant");
         let mut backend = k_rust::backend::Backend::new(
             &side.artifacts().definition_kore,
@@ -2400,39 +2349,7 @@ fn audit_ks_as7_anchoring_fails_closed() {
     });
 }
 
-// ---------------------------------------------------------------- EI-04 certificate audit fixtures
-
-fn proved_length_check(test_id: &str) -> CertificateCheck {
-    CertificateCheck {
-        test_id: test_id.into(),
-        certificate: DifferenceCertificate::Proved {
-            witness_side: CertifiedSide::Mutant,
-            witness_leaf: 0,
-            exclusions: vec![Exclusion::Length],
-        },
-        demoted_slots: vec![],
-    }
-}
-
-fn proved_guarded_check() -> CertificateCheck {
-    CertificateCheck {
-        test_id: "sym-guarded".into(),
-        certificate: DifferenceCertificate::Proved {
-            witness_side: CertifiedSide::Mutant,
-            witness_leaf: 0,
-            exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
-        },
-        demoted_slots: vec![],
-    }
-}
-
-fn no_witness_check(test_id: &str) -> CertificateCheck {
-    CertificateCheck {
-        test_id: test_id.into(),
-        certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
-        demoted_slots: vec![1],
-    }
-}
+// ---------------------------------------------------------------- EI-04 execution audit fixtures
 
 fn ei_guard_split(baseline: &Baseline) -> Vec<Edit> {
     let write = support::rule(baseline, "GUARDEDMEM.write");
@@ -2488,7 +2405,6 @@ fn audit_so_g_fault_tail_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2574,7 +2490,6 @@ fn audit_so_symbolic_guard_split_is_not_killed() {
                 assert_eq!(outcomes(&run), vec![vec![A, A]], "{id}");
                 assert_eq!(run.mutants[0].report.status, MutantStatus::Survived, "{id}");
                 assert!(run.mutants[0].report.killing_test_ids.is_empty());
-                assert!(run.mutants[0].certificate_checks.is_empty());
             }
         }
     });
@@ -2619,7 +2534,6 @@ fn audit_so_symbolic_priority_shadowing_is_not_killed() {
             assert_eq!(outcomes(&run), vec![vec![A, A], vec![A, A]]);
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             assert!(run.mutants[0].report.killing_test_ids.is_empty());
-            assert!(run.mutants[0].certificate_checks.is_empty());
         } else {
             assert_eq!(
                 run.expect_err("symbolic baseline refused").kind(),
@@ -2634,7 +2548,6 @@ fn audit_so_symbolic_priority_shadowing_is_not_killed() {
             assert_eq!(outcomes(&ground), vec![vec![A, A]]);
             assert_eq!(ground.mutants[0].report.status, MutantStatus::Survived);
             assert!(ground.mutants[0].report.killing_test_ids.is_empty());
-            assert!(ground.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -2695,7 +2608,6 @@ fn audit_so_unobserved_difference_is_not_observed() {
         assert_eq!(outcomes(&run), vec![vec![A, A], vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2835,18 +2747,6 @@ fn ei_program(operations: Vec<Pattern>, last: Pattern) -> Pattern {
     support::initial_state(program, "SortProg")
 }
 
-fn ei_check(
-    test_id: &str,
-    certificate: DifferenceCertificate,
-    demoted: &[usize],
-) -> CertificateCheck {
-    CertificateCheck {
-        test_id: test_id.into(),
-        certificate,
-        demoted_slots: demoted.to_vec(),
-    }
-}
-
 /// AT1: freshgen observes its stamped continuation. Renaming an existential outside the payload preserves both declared values.
 /// The two definitions execute identically, so the result does not rest on names being renamed
 /// apart: under variable identity the renamed existential is minted from the request's counter
@@ -2904,7 +2804,6 @@ fn audit_so_at1_existential_rename_is_not_killed() {
             );
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             assert!(run.mutants[0].report.killing_test_ids.is_empty());
-            assert!(run.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -2983,7 +2882,6 @@ fn audit_so_at2_function_residue_is_not_killed() {
             assert_eq!(outcomes(&run), vec![vec![A, A]], "equation {with_equation}");
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             assert!(run.mutants[0].report.killing_test_ids.is_empty());
-            assert!(run.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -3037,18 +2935,6 @@ fn audit_ei_at3_breadth_bounded_baseline_is_refused() {
         assert_eq!(outcomes(&run), vec![vec![D]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
         assert_eq!(run.mutants[0].report.killing_test_ids, ["fork"]);
-        assert_eq!(
-            run.mutants[0].certificate_checks,
-            [ei_check(
-                "fork",
-                DifferenceCertificate::Proved {
-                    witness_side: CertifiedSide::Baseline,
-                    witness_leaf: 1,
-                    exclusions: vec![Exclusion::Clash],
-                },
-                &[],
-            )]
-        );
         let mut bounded = fixture.campaign(&tests);
         bounded.budget.max_breadth = std::num::NonZeroUsize::new(1);
         assert_eq!(
@@ -3108,18 +2994,6 @@ fn audit_ei_at5_withdrawn_remainder_path_is_proved_by_length() {
                 run.mutants[0].report.killing_test_ids,
                 ["sym-norm", "ground-norm"]
             );
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                [ei_check(
-                    "sym-norm",
-                    DifferenceCertificate::Proved {
-                        witness_side: CertifiedSide::Mutant,
-                        witness_leaf: 1,
-                        exclusions: vec![Exclusion::Length, Exclusion::Length],
-                    },
-                    &[],
-                )]
-            );
         } else {
             assert_eq!(
                 run.expect_err("no-Z3 leaves the symbolic guard undecided")
@@ -3130,7 +3004,6 @@ fn audit_ei_at5_withdrawn_remainder_path_is_proved_by_length() {
                 .expect("ground campaign");
             assert_eq!(outcomes(&run), vec![vec![D, D, D]]);
             assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
-            assert!(run.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -3180,18 +3053,6 @@ fn audit_ei_at6_changed_duplicate_keeps_its_kill() {
         assert_eq!(outcomes(&run), vec![vec![A, D]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
         assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-one"]);
-        assert_eq!(
-            run.mutants[0].certificate_checks,
-            [ei_check(
-                "ground-one",
-                DifferenceCertificate::Proved {
-                    witness_side: CertifiedSide::Mutant,
-                    witness_leaf: 1,
-                    exclusions: vec![Exclusion::Length],
-                },
-                &[],
-            )]
-        );
     });
 }
 
@@ -3220,7 +3081,6 @@ fn audit_so_at7_effect_only_difference_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -3283,7 +3143,6 @@ fn audit_so_at8_stuck_against_undefined_step_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A], vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -3335,7 +3194,6 @@ fn audit_so_at10_withdrawn_rule_competition_is_not_killed() {
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             assert!(run.mutants[0].report.killing_test_ids.is_empty());
             assert!(!run.mutants[0].report.claims.withdrawn.is_empty());
-            assert!(run.mutants[0].certificate_checks.is_empty());
         } else {
             assert_eq!(
                 run.expect_err("no-Z3 leaves the symbolic guard undecided")
@@ -3346,7 +3204,6 @@ fn audit_so_at10_withdrawn_rule_competition_is_not_killed() {
                 .expect("ground campaign");
             assert_eq!(outcomes(&run), vec![vec![A, A]]);
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
-            assert!(run.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -3401,16 +3258,14 @@ fn audit_ei_at11_constructor_lemma_is_refused() {
                     mutant.plan.mutant_failure,
                     Some(kink_campaign::MutantScopeFailure::Rejected)
                 );
-                assert!(mutant.certificate_checks.is_empty());
             } else {
                 assert_eq!(outcomes(&run), vec![vec![U, U, U]]);
-                assert!(mutant.certificate_checks.is_empty());
             }
         }
     });
 }
 
-/// FirstKill equals Full for surviving competition constructions and stops G at its first actual killing test. No competition slot needs certificate demotion.
+/// FirstKill equals Full for surviving competition constructions and stops G at its first actual killing test. Competition slots agree or stay Unknown.
 #[test]
 fn audit_so_at13_first_kill_equals_full() {
     with_stack(|| {
@@ -3450,21 +3305,18 @@ fn audit_so_at13_first_kill_equals_full() {
                 ),
                 vec![vec![A, A]; 3],
                 MutantStatus::Survived,
-                Vec::<&str>::new(),
                 3,
             ),
             (
                 fixed(baseline, &[("GUARDEDMEM.write", &[0])], "shadow", &shadow),
                 vec![vec![A, A]; 3],
                 MutantStatus::Survived,
-                Vec::<&str>::new(),
                 3,
             ),
             (
                 inverted_load_sign(baseline),
                 vec![vec![A, A], vec![D, D], vec![D, D]],
                 MutantStatus::Killed,
-                Vec::<&str>::new(),
                 2,
             ),
         ];
@@ -3476,20 +3328,13 @@ fn audit_so_at13_first_kill_equals_full() {
             })
             .collect::<Vec<_>>();
         let campaign = guarded.campaign(&tests);
-        for (generation, expected, status, demoted, executed) in rows {
+        for (generation, expected, status, executed) in rows {
             let full = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("full");
             let stopped =
                 run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
             assert_eq!(outcomes(&full), expected);
             let (full, stopped) = (&full.mutants[0], &stopped.mutants[0]);
             assert_eq!(full.report.status, status);
-            assert_eq!(
-                full.certificate_checks,
-                demoted
-                    .iter()
-                    .map(|test_id| no_witness_check(test_id))
-                    .collect::<Vec<_>>()
-            );
             assert_eq!(stopped.plan.tests[..executed], full.plan.tests[..executed]);
             assert!(
                 stopped.plan.tests[executed..]
@@ -3497,7 +3342,6 @@ fn audit_so_at13_first_kill_equals_full() {
                     .all(|test| test.run == TestRun::SkippedAfterKill)
             );
             assert_eq!(stopped.evidence, full.evidence[..executed]);
-            assert_eq!(stopped.certificate_checks, full.certificate_checks);
             assert_eq!(
                 stopped.report,
                 derive_mutant_report(&full.plan, &manifest, ScheduleMode::FirstKill)
@@ -3509,9 +3353,9 @@ fn audit_so_at13_first_kill_equals_full() {
 
 /// Variable identity (VI-04; EI-05 pinned the opposite): the stable variables are the test's
 /// initial variables, read verbatim, whatever their spelling. G's sym-guarded test with `X1`, `Y1`, `V1`, `W1`
-/// for `X`, `Y`, `V`, `W` keeps G's certificate (`Disjoint`, `Clash`, `Length`) and its pattern
+/// for `X`, `Y`, `V`, `W` keeps G's pattern
 /// kill (Z3), and FirstKill stops at it. Before VI-04 names ending in a digit were never
-/// stable (a mint could print as one), so the pattern slot was Unknown by a NoWitness demotion
+/// stable (a mint could print as one), so the pattern slot was Unknown
 /// (`[[A,U],[D,D]]`, killed by ground-guarded only). Without Z3 the symbolic baseline is
 /// refused, as for G.
 #[test]
@@ -3536,18 +3380,6 @@ fn audit_vi_digit_suffixed_initial_names_are_stable() {
             assert_eq!(
                 run.mutants[0].report.killing_test_ids,
                 ["sym-guarded-1", "ground-guarded"]
-            );
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                [CertificateCheck {
-                    test_id: "sym-guarded-1".into(),
-                    certificate: DifferenceCertificate::Proved {
-                        witness_side: CertifiedSide::Mutant,
-                        witness_leaf: 0,
-                        exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
-                    },
-                    demoted_slots: vec![],
-                }]
             );
             let first = run_campaign(
                 &fixture.campaign(&tests),
@@ -3670,7 +3502,7 @@ fn audit_vi_fresh_counter_collision_is_not_killed() {
 /// Under Z3, narrowing the user-sort variable leaves both baseline leaves Unknown,
 /// so admission refuses the baseline; without Z3 it is refused as well.
 /// The campaign never returns a CampaignRun or kills the mutant.
-/// The direct certificate is pinned in name_identity.rs.
+/// The leaf and invalid-name checks are pinned in name_identity.rs.
 #[test]
 fn audit_vi_scope_names_do_not_capture_stable_variables() {
     with_stack(|| {
@@ -4646,7 +4478,6 @@ fn audit_so_j1_write_stutter() {
             let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
                 .expect("campaign");
             assert_survived(&run, &[vec![A, A], vec![A, A]]);
-            assert!(run.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -4700,22 +4531,6 @@ fn audit_so_colocated() {
             assert_eq!(
                 run.mutants[0].report.killing_test_ids,
                 if whole { vec!["ground-zero"] } else { vec![] }
-            );
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                if whole {
-                    vec![ei_check(
-                        "ground-zero",
-                        DifferenceCertificate::Proved {
-                            witness_side: CertifiedSide::Mutant,
-                            witness_leaf: 0,
-                            exclusions: vec![Exclusion::Length],
-                        },
-                        &[],
-                    )]
-                } else {
-                    vec![]
-                }
             );
         }
     });
@@ -4794,22 +4609,6 @@ fn audit_so_fused_bump() {
                 run.mutants[0].report.killing_test_ids,
                 if whole { vec!["ground-zero"] } else { vec![] }
             );
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                if whole {
-                    vec![ei_check(
-                        "ground-zero",
-                        DifferenceCertificate::Proved {
-                            witness_side: CertifiedSide::Mutant,
-                            witness_leaf: 0,
-                            exclusions: vec![Exclusion::Clash],
-                        },
-                        &[],
-                    )]
-                } else {
-                    vec![]
-                }
-            );
         }
     });
 }
@@ -4876,13 +4675,6 @@ fn audit_so_fork_detour() {
                 vec![]
             };
             assert_eq!(run.mutants[0].report.killing_test_ids, kills);
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                kills
-                    .into_iter()
-                    .map(proved_length_check)
-                    .collect::<Vec<_>>()
-            );
         }
     });
 }
@@ -4936,13 +4728,6 @@ fn audit_so_release_after_load() {
                 vec!["ground-shared", "sym-shared", "sym-distinct", "sym-clash"]
             };
             assert_eq!(run.mutants[0].report.killing_test_ids, kills);
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                kills
-                    .into_iter()
-                    .map(proved_length_check)
-                    .collect::<Vec<_>>()
-            );
         }
     });
 }
@@ -5030,13 +4815,6 @@ fn audit_so_k_prime() {
                 vec!["ground-shared", "sym-shared", "sym-distinct", "sym-clash"]
             };
             assert_eq!(run.mutants[0].report.killing_test_ids, kills);
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                kills
-                    .into_iter()
-                    .map(proved_length_check)
-                    .collect::<Vec<_>>()
-            );
             let mut campaign = fixture.campaign(&fixture.tests[..1]);
             campaign.budget.max_depth = Some(4);
             let bounded =
@@ -5134,26 +4912,6 @@ fn audit_so_g_prime() {
                         vec!["ground-guarded"]
                     }
                 );
-                assert_eq!(
-                    full.mutants[0].certificate_checks,
-                    if whole {
-                        vec![ei_check(
-                            "sym-guarded",
-                            DifferenceCertificate::Proved {
-                                witness_side: CertifiedSide::Mutant,
-                                witness_leaf: 0,
-                                exclusions: vec![
-                                    Exclusion::Clash,
-                                    Exclusion::Disjoint,
-                                    Exclusion::Length,
-                                ],
-                            },
-                            &[],
-                        )]
-                    } else {
-                        vec![]
-                    }
-                );
             } else {
                 assert_eq!(
                     full.expect_err("symbolic baseline refused").kind(),
@@ -5175,7 +4933,6 @@ fn audit_so_g_prime() {
                 ground.mutants[0].report.killing_test_ids,
                 ["ground-guarded"]
             );
-            assert!(ground.mutants[0].certificate_checks.is_empty());
             let original = inverted_load_sign(baseline);
             let compiled = fixture.validator.compile_baseline().expect("baseline");
             let g = fixture
@@ -5271,13 +5028,6 @@ fn audit_so_dead_existential_rule_is_not_killed() {
             assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             let kills = Vec::<&str>::new();
             assert_eq!(run.mutants[0].report.killing_test_ids, kills);
-            assert_eq!(
-                run.mutants[0].certificate_checks,
-                kills
-                    .into_iter()
-                    .map(proved_length_check)
-                    .collect::<Vec<_>>()
-            );
             let compiled = fixture.validator.compile_baseline().expect("baseline");
             let mutant = fixture.validator.validate(&patch).expect("mutant");
             for test in &fixture.tests {
@@ -5498,7 +5248,6 @@ enum ViResult {
         tests: Vec<(String, TestRun)>,
         status: MutantStatus,
         killing: Vec<String>,
-        certificates: Vec<CertificateCheck>,
     },
 }
 
@@ -5523,7 +5272,6 @@ impl ViResult {
                         .collect(),
                     status: mutant.report.status,
                     killing: mutant.report.killing_test_ids.clone(),
-                    certificates: mutant.certificate_checks.clone(),
                 }
             }
         }
@@ -5539,32 +5287,24 @@ impl ViResult {
         )
     }
 
-    /// Every Killed result rests on a state-slot `Distinguish` or a `Proved` certificate.
+    /// Every Killed result has a declared slot that distinguishes on its killing test.
     fn assert_justified(&self, context: &str) {
         let Self::Ran {
             tests,
             status: MutantStatus::Killed,
             killing,
-            certificates,
         } = self
         else {
             return;
         };
         for id in killing {
-            let proved = certificates.iter().any(|check| {
-                check.test_id == *id
-                    && matches!(check.certificate, DifferenceCertificate::Proved { .. })
-            });
             let run = tests
                 .iter()
                 .find(|(test, _)| test == id)
                 .map(|(_, run)| run);
-            // Slot 0 of every VI-06 campaign is the state slot.
-            let state_slot = matches!(run, Some(TestRun::Compared(row)) if row.first() == Some(&D));
-            assert!(
-                proved || state_slot,
-                "{context}: {id} kills unjustified: {self:?}"
-            );
+            // Pattern slots use the shared decider and exact variable identities (VI-1..VI-5).
+            let distinguished = matches!(run, Some(TestRun::Compared(row)) if row.contains(&D));
+            assert!(distinguished, "{context}: {id} kills unjustified: {self:?}");
         }
     }
 }
@@ -5695,7 +5435,6 @@ fn vi_symmem_survives(result: &ViResult) {
         tests,
         status,
         killing,
-        certificates,
     } = result
     else {
         panic!("symmem A2 runs: {result:?}")
@@ -5705,18 +5444,15 @@ fn vi_symmem_survives(result: &ViResult) {
         vec![TestRun::Compared(vec![A, A, A, A]); 4]
     );
     assert_eq!(*status, MutantStatus::Survived);
-    assert!(killing.is_empty() && certificates.is_empty());
+    assert!(killing.is_empty());
 }
 
 /// G (`inverted_load_sign`) on its symbolic and ground tests: Z3 Killed by both, with G's
-/// certificate on the symbolic test; no-Z3 refuses the symbolic baseline.
+/// pattern difference on the symbolic test; no-Z3 refuses the symbolic baseline.
 fn vi_guarded_g_pinned(result: &ViResult, mode: ScheduleMode) {
     if cfg!(feature = "z3") {
         let ViResult::Ran {
-            status,
-            killing,
-            certificates,
-            ..
+            status, killing, ..
         } = result
         else {
             panic!("Z3 admits G: {result:?}")
@@ -5728,18 +5464,6 @@ fn vi_guarded_g_pinned(result: &ViResult, mode: ScheduleMode) {
             &["sym-guarded"]
         };
         assert_eq!(killing, expected);
-        assert_eq!(
-            *certificates,
-            [CertificateCheck {
-                test_id: "sym-guarded".into(),
-                certificate: DifferenceCertificate::Proved {
-                    witness_side: CertifiedSide::Mutant,
-                    witness_leaf: 0,
-                    exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
-                },
-                demoted_slots: vec![],
-            }]
-        );
     } else {
         assert_eq!(
             *result,
@@ -5817,7 +5541,6 @@ fn vi_guard_split_pinned(result: &ViResult) {
                 tests: vec![("sym-x".into(), TestRun::Compared(vec![A, A]))],
                 status: MutantStatus::Survived,
                 killing: vec![],
-                certificates: vec![],
             }
         );
     } else {
@@ -5846,7 +5569,7 @@ const VI_NEW_MINT_SPELLINGS: [&str; 5] = [
 
 /// VI-AT2: initial names spelled like pre-VI mints (`ExVarI0`, `ExVarI10`, `RuleVarX`,
 /// `X'Bang'apart1`, `Var'Ques'X0`) are ordinary variables. The symmem A2 rename survives and
-/// G keeps its certificate-backed kill (Z3; refused without Z3) under every rotation of those
+/// G keeps its declared pattern kill (Z3; refused without Z3) under every rotation of those
 /// spellings, Full and FirstKill, exactly as under the neutral names. Leaf rows (every Unsat
 /// and discard) are pinned per fixture in kink-native `audit_vi.rs`.
 #[test]
@@ -5876,7 +5599,7 @@ fn audit_vi_at2_old_mint_spellings_keep_every_campaign_result() {
 
 /// VI-AT3: initial names spelled like v3 printed mints (`Ex-hVarI-b0`, `Ex-hFrame-b0`,
 /// `X-bapart0`, `Ex-hVar'Ques'T-b0`, `Rule-hVarA`) are read as those variables and never
-/// re-minted: symmem A2 survives, G keeps its certificate (Z3), and the symbolic guard split
+/// re-minted: symmem A2 survives, G keeps its pattern kill (Z3), and the symbolic guard split
 /// survives (Z3; refused without Z3), as under the neutral names. kink-native `audit_vi.rs`
 /// pins the leaves next to narrowing that mints `Ex#VarI!N`.
 #[test]
@@ -6054,7 +5777,6 @@ fn vi_freshgen_pinned(result: &ViResult) {
                 tests: vec![("sym-two-writes".into(), TestRun::Compared(vec![A, A]))],
                 status: MutantStatus::Survived,
                 killing: vec![],
-                certificates: vec![],
             }
         );
     } else {
@@ -6291,7 +6013,6 @@ fn audit_vi_at11_forged_names_in_a_mutant_definition_are_ordinary() {
                     ],
                     status: MutantStatus::Survived,
                     killing: vec![],
-                    certificates: vec![],
                 }
             );
             for forged in ["?X-b0", "?Rule-hT", "?Ex-hVar'Ques'T-b0"] {
@@ -6409,11 +6130,251 @@ fn audit_vi_symwrap_total_head_is_not_killed() {
                         tests: vec![("ground-wrap".into(), TestRun::Compared(vec![U, U]))],
                         status: MutantStatus::Unknown,
                         killing: vec![],
-                        certificates: vec![],
                     }
                 };
                 assert_eq!(result, expected, "{} {mode:?}", test.id);
             }
         }
+    });
+}
+
+/// SO-AT1 keeps canonical identity; at v3, symbolic shadowing is a predicate-phrasing case.
+/// Its value-level Agree/Survived pin is audit_so_symbolic_priority_shadowing_is_not_killed.
+#[test]
+fn audit_so_identical_executions_keep_canonical_paths() {
+    with_stack(|| {
+        fn identical(campaign: &Campaign<'_>, patch: &Patch, label: &str) {
+            let baseline = campaign.validator.compile_baseline().expect("baseline");
+            let mutant = campaign.validator.validate(patch).expect("mutant");
+            for test in campaign.tests {
+                assert_eq!(
+                    pattern_paths(
+                        &baseline,
+                        &baseline,
+                        campaign.module,
+                        &test.initial_state,
+                        campaign.observation
+                    ),
+                    pattern_paths(
+                        &baseline,
+                        &mutant,
+                        campaign.module,
+                        &test.initial_state,
+                        campaign.observation
+                    ),
+                    "{label} {}",
+                    test.id
+                );
+            }
+        }
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let write = support::rule(baseline, "SYMMEM.write");
+        let op = |rule| term(baseline, rule, &[0, 0, 0]);
+        let relabel = Patch::new(vec![
+            replaced(baseline, "SYMMEM.write", &[0, 0, 0], op("SYMMEM.load")),
+            replaced(baseline, "SYMMEM.load", &[0, 0, 0], op("SYMMEM.write")),
+        ])
+        .expect("relabel");
+        let reinsert = Patch::new(vec![
+            Edit::DeleteSentence { at: write.clone() },
+            Edit::InsertSentence {
+                position: InsertPosition::ModuleEnd(write.module.clone()),
+                ordinal: 0,
+                sentence: unlabelled_copy(baseline, "SYMMEM.write"),
+            },
+        ])
+        .expect("reinsert");
+        let alpha = Patch::new(vec![
+            renamed(baseline, "SYMMEM.write", &[0, 0, 0, 1], "V", "U"),
+            renamed(baseline, "SYMMEM.load", &[0, 0, 0, 1], "V", "U"),
+        ])
+        .expect("alpha");
+        for (label, patch) in [
+            ("relabel", relabel),
+            ("reinsert", reinsert),
+            ("alpha", alpha),
+        ] {
+            identical(&fixture.campaign(&fixture.tests), &patch, label);
+        }
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
+        for rephrased in [false, true] {
+            let guard = if rephrased {
+                Term::apply("_<=Int_", vec![int_token(0), a.clone()])
+            } else {
+                term(baseline, "GUARDEDMEM.write", &[1])
+            };
+            let patch = Patch::new(vec![
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.write",
+                    &[0],
+                    term(baseline, "GUARDEDMEM.writeFault", &[0]),
+                ),
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.write",
+                    &[1],
+                    term(baseline, "GUARDEDMEM.writeFault", &[1]),
+                ),
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.writeFault",
+                    &[0],
+                    term(baseline, "GUARDEDMEM.write", &[0]),
+                ),
+                replaced(baseline, "GUARDEDMEM.writeFault", &[1], guard),
+            ])
+            .expect("moved content");
+            // The existing moved-content audit uses these ground instances.
+            let tests = [
+                case(
+                    "ground-negative",
+                    int_program(-1, 5, support::int(1), 7),
+                    &guarded.tests[1].oracles,
+                ),
+                case(
+                    "ground-one",
+                    int_program(1, 5, support::int(1), 7),
+                    &guarded.tests[1].oracles,
+                ),
+            ];
+            identical(
+                &guarded.campaign(&tests),
+                &patch,
+                if rephrased {
+                    "moved-rephrased"
+                } else {
+                    "moved"
+                },
+            );
+        }
+        let shadow = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::After(support::rule(baseline, "GUARDEDMEM.write")),
+            ordinal: 0,
+            sentence: ei_shadow(baseline, "GUARDEDMEM.write"),
+        }])
+        .expect("shadow");
+        let tests = [
+            case(
+                "sym-same",
+                state(
+                    addr(support::var("Y", "SortInt")),
+                    support::int(5),
+                    addr(support::var("Y", "SortInt")),
+                    support::int(7),
+                ),
+                &guarded.tests[1].oracles,
+            ),
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                &guarded.tests[1].oracles,
+            ),
+        ];
+        let compiled = guarded.validator.compile_baseline().expect("baseline");
+        let mutant = guarded.validator.validate(&shadow).expect("mutant");
+        let left = pattern_paths(
+            &compiled,
+            &compiled,
+            "GUARDEDMEM",
+            &tests[0].initial_state,
+            &guarded.observation,
+        );
+        let right = pattern_paths(
+            &compiled,
+            &mutant,
+            "GUARDEDMEM",
+            &tests[0].initial_state,
+            &guarded.observation,
+        );
+        if cfg!(feature = "z3") {
+            assert_eq!(left.len(), 2);
+            assert_eq!(right.len(), 2);
+            let predicate = |symbol| Pattern::Equals {
+                operand_sort: Box::new(kore_sort("SortBool")),
+                result_sort: kore_sort("SortGeneratedTopCell"),
+                left: Box::new(Pattern::DomainValue {
+                    sort: kore_sort("SortBool"),
+                    value: "true".into(),
+                }),
+                right: Box::new(support::app(
+                    symbol,
+                    vec![support::var("Y", "SortInt"), support::int(0)],
+                )),
+            };
+            assert_eq!(left[0].path_predicate, predicate("Lbl'Unds-LT-'Int'Unds'"));
+            assert_eq!(
+                right[0].path_predicate,
+                Pattern::Not {
+                    sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(predicate("Lbl'Unds-GT-Eqls'Int'Unds'")),
+                }
+            );
+            assert_eq!(
+                left[0]
+                    .execution_terminal
+                    .as_ref()
+                    .expect("fault terminal")
+                    .state,
+                support::initial_state(app("fault", vec![]), "SortProg")
+            );
+            assert!(left[0].events.is_empty());
+            // Compare the remaining fields without normalizing either actual path.
+            let mut expected = left.clone();
+            expected[0].path_predicate = right[0].path_predicate.clone();
+            assert_eq!(
+                expected, right,
+                "only the fault-leaf predicate phrasing differs"
+            );
+        } else {
+            assert_eq!(left, right);
+            assert_eq!(left.len(), 1);
+            assert_eq!(
+                left[0].path_predicate,
+                Pattern::Top {
+                    sort: kore_sort("SortGeneratedTopCell"),
+                }
+            );
+            assert_eq!(left[0].stop, kink_pattern::PathStop::SolverUnknown);
+            assert!(!left[0].complete);
+            assert!(left[0].execution_terminal.is_none());
+            assert!(left[0].events.is_empty());
+        }
+        identical(&guarded.campaign(&tests[1..]), &shadow, "ground-shadow");
+        let mut lemma = unlabelled_copy(baseline, "GUARDEDMEM.write");
+        if let k_rust::definition::Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } = &mut lemma
+        {
+            *body = Term::Rewrite {
+                left: Box::new(Term::apply("_+Int_", vec![a.clone(), int_token(0)])),
+                right: Box::new(a),
+            };
+            *requires = ei_bool(true);
+            *ensures = ei_bool(true);
+        } else {
+            panic!("rule");
+        }
+        lemma.attributes_mut().set(
+            AttributeKey::SmtLemma,
+            serde_json::Value::String(String::new()),
+        );
+        let dead_lemma = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::ModuleEnd(support::rule(baseline, "GUARDEDMEM.write").module),
+            ordinal: 0,
+            sentence: lemma,
+        }])
+        .expect("dead lemma");
+        identical(
+            &guarded.campaign(&guarded.tests),
+            &dead_lemma,
+            "dead-smt-lemma",
+        );
     });
 }

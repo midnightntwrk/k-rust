@@ -27,7 +27,6 @@ use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
 use kink_pattern::ExecutionBounds;
 
-use crate::execution_difference::{NotProvedReason, StateSequence, StateSequences};
 use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
 use crate::observation::AdaptedBranch;
 
@@ -243,28 +242,6 @@ pub enum StepRunFailure {
 pub struct SteppedExecution {
     pub adapted: AdaptedExecution,
     pub states: Vec<Vec<Pattern>>,
-}
-
-impl SteppedExecution {
-    /// The sequence view used by the temporary execution-difference certificate.
-    pub fn certificate_sequences(&self) -> Result<StateSequences, NotProvedReason> {
-        if self.adapted.timed_out {
-            return Err(NotProvedReason::Timeout);
-        }
-        Ok(StateSequences {
-            leaves: self
-                .adapted
-                .leaves
-                .iter()
-                .zip(&self.states)
-                .map(|(leaf, states)| StateSequence {
-                    halt: leaf.halt,
-                    states: states.clone(),
-                    feasibility: leaf.feasibility,
-                })
-                .collect(),
-        })
-    }
 }
 
 /// The leaves of one run without observation rules ([`ExecutionAdapter::execute_unobserved`]).

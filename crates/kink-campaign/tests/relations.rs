@@ -212,18 +212,6 @@ fn opaque_payloads_do_not_decide_a_pattern() {
             kink_campaign::MutantStatus::Killed
         );
         assert_eq!(run.mutants[0].report.killing_test_ids, ["clash"]);
-        assert_eq!(
-            run.mutants[0].certificate_checks,
-            [kink_campaign::CertificateCheck {
-                test_id: "clash".into(),
-                certificate: kink_native::execution_difference::DifferenceCertificate::Proved {
-                    witness_side: kink_native::execution_difference::CertifiedSide::Mutant,
-                    witness_leaf: 0,
-                    exclusions: vec![kink_native::execution_difference::Exclusion::Length],
-                },
-                demoted_slots: vec![],
-            }]
-        );
     });
 }
 

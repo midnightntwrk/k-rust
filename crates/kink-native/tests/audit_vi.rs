@@ -3,7 +3,7 @@
 //! printed injectively, and one counter per request skips every request spelling, so a
 //! test's initial variable is one variable whatever it is spelled. Each attack runs the
 //! neutral naming and forged namings and asserts that the forged spellings change no leaf,
-//! no feasibility, no discard and no certificate. The campaign-level attacks are the
+//! no feasibility or discard. The campaign-level attacks are the
 //! `audit_vi_at*` tests of kink-campaign's `coupled.rs`.
 
 #[path = "../../../testdata/k/support.rs"]
@@ -24,9 +24,6 @@ use k_rust::kore::{
 };
 use k_rust_backend::externalize;
 use kink_native::execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile};
-use kink_native::execution_difference::{
-    DifferenceCertificate, NotProvedReason, certify_difference, definition_facts,
-};
 use kink_native::{
     NativeValidator, bridge,
     feasibility::{LeafFeasibility, TestInitialState},
@@ -321,20 +318,15 @@ fn variables_by_name(pattern: &Pattern) -> BTreeMap<String, BTreeSet<Variable>> 
     names
 }
 
-/// VI-AT3 (names and certificate): with conflate's initial variables spelled `Ex-hVarI-b0`
+/// VI-AT3 (names): with conflate's initial variables spelled `Ex-hVarI-b0`
 /// and `Ex-hVarI-b1` (the printed spellings of its first two narrowing mints) or
 /// `Ex-hFrame-b0`/`X-bapart0`, no leaf or stepped state prints two variables alike, every
 /// variable spelled like an initial variable is that variable, the mints are never minted
-/// with a request spelling, and the certificate against conflatem (goPos and goNeg merged,
-/// identical on every ground instance) stays `NotProved(NoWitness)` for every naming.
+/// with a request spelling.
 #[test]
 fn audit_vi_at3_new_mint_spellings_are_never_reminted() {
     let validator = NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
-    let merged = NativeValidator::bind(support::load("conflatem.k"), CompileOptions::default());
     let mut baseline = backend(&validator, None, "CONFLATE");
-    let mut mutant = backend(&merged, None, "CONFLATEM");
-    let facts = definition_facts(&mut baseline).expect("baseline facts");
-    let mutant_facts = definition_facts(&mut mutant).expect("mutant facts");
     let program = |a: &str, b: &str, x: &str| {
         support::initial_state(
             seq(
@@ -375,30 +367,6 @@ fn audit_vi_at3_new_mint_spellings_are_never_reminted() {
                 }
             }
         }
-        let baseline_sequences = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute_steps(&mut baseline, &initial, BUDGET)
-            .expect("baseline run")
-            .expect("baseline steps")
-            .certificate_sequences()
-            .expect("baseline sequences");
-        let mutant_sequences = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute_steps(&mut mutant, &initial, BUDGET)
-            .expect("mutant run")
-            .expect("mutant steps")
-            .certificate_sequences()
-            .expect("mutant sequences");
-        assert_eq!(
-            certify_difference(
-                &mut baseline,
-                TestInitialState::of_test(&initial),
-                &facts,
-                &mutant_facts,
-                &baseline_sequences,
-                &mutant_sequences,
-            ),
-            DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
-            "{a} {b} {x}"
-        );
     }
     eprintln!("AT3 conflate mints: {minted:?}");
     if cfg!(feature = "z3") {

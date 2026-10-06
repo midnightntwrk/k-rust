@@ -41,18 +41,14 @@
 //! mutants are the candidates of one folded generation derived from the campaign's own
 //! baseline, and only a complete, nonempty generation is scored.
 //!
-//! A mutant is Killed only through a test with one of three forms of `Distinguish`:
-//! (i) a state-slot `Distinguish`, which means the ground terminal sets differ;
-//! (ii) a pattern-slot `Distinguish` on a test that also has a state-slot `Distinguish`;
-//! or (iii) a pattern-slot `Distinguish` on a test for which `certify_difference` returned
-//! `Proved`. `Proved` means some ground instance of the test's initial state has, as the
-//! two definitions run in k-rust, a baseline state sequence that no mutant-side sequence
-//! equals, or the reverse. Each pattern slot observes its own declared execution difference.
-//! A pattern-slot
-//! `Distinguish` meeting none of these cases becomes `Unknown`, and the check is recorded in
-//! `MutantRun::certificate_checks`. Every certificate failure in the sequence run, facts,
-//! internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate bug
-//! can lose a kill but never add one.
+//! A mutant is Killed only through a `Distinguish`: a state slot compares ground terminal
+//! sets, and a pattern slot compares declared functions of execution configurations.
+//! A pattern witness and complete contrary coverage prove that some ground instance has
+//! different observations. Both sides share the baseline signature and decider. Under
+//! k-rust variable identity v3, received names are read verbatim, printing is injective
+//! (VI-1..VI-5), and FreshCounter mints apart from received names within each request. Relation and
+//! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
+//! initial-state admission guard. Undecided evidence stays Unknown.
 
 use std::collections::BTreeSet;
 
@@ -70,11 +66,8 @@ use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile, StepRunFailure,
     SteppedExecution,
 };
-use kink_native::execution_difference::{
-    DefinitionFacts, DifferenceCertificate, NotProvedReason, StateSequences, certify_difference,
-    definition_facts,
-};
 use kink_native::feasibility::{BackendRelations, TestInitialState};
+use kink_native::signature::{DefinitionFacts, definition_facts};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
@@ -205,17 +198,6 @@ pub struct TestEvidence {
     pub run: SideRun,
 }
 
-/// A per-test execution-difference proof consulted for pattern-slot disagreements.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CertificateCheck {
-    /// The test whose pattern slots disagreed.
-    pub test_id: String,
-    /// The proof, or the reason it failed closed.
-    pub certificate: DifferenceCertificate,
-    /// Pattern slot indices changed from `Distinguish` to `Unknown`, in ascending order.
-    pub demoted_slots: Vec<usize>,
-}
-
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
 /// mutant is one `MutantRun` regardless of its edit count. Runs are in manifest order:
 /// none for a test planned as `SkippedAfterKill`, and none at all when a mutant-scope
@@ -227,8 +209,6 @@ pub struct MutantRun {
     pub plan: MutantPlan,
     pub report: MutantReport,
     pub evidence: Vec<TestEvidence>,
-    /// Checks consulted for this mutant, in manifest order.
-    pub certificate_checks: Vec<CertificateCheck>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -320,20 +300,10 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
 ///
 /// Step declarations validate once against the compiled baseline. Their pattern slots
 /// use one baseline observation decider on both sides, so a Distinguish observes an
-/// execution difference for some ground instance. The EI certificate remains an AND
-/// condition until the variable-identity close-out, using the cached stepped runs.
-///
-/// A mutant is Killed only through a test with (i) a state-slot `Distinguish`, meaning its
-/// ground terminal sets differ; (ii) a pattern-slot `Distinguish` on a test that also has a
-/// state-slot `Distinguish`; or (iii) a pattern-slot `Distinguish` on a test for which
-/// `certify_difference` returned `Proved`. `Proved` means some ground instance of the test's
-/// initial state has, as the two definitions run in k-rust, a baseline state sequence that no
-/// mutant-side sequence equals, or the reverse. Each pattern slot observes its declared
-/// function of execution configurations.
-/// A pattern-slot `Distinguish` meeting none of these cases becomes `Unknown`, with the check
-/// recorded in `MutantRun::certificate_checks`. Every certificate failure in the sequence run,
-/// facts, internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate
-/// bug can lose a kill but never add one.
+/// execution difference for some ground instance. Variable identity v3 reads names verbatim,
+/// prints injectively and mints apart within each request (VI-1..VI-5), justifying the shared
+/// decider's identity and relation decisions. A pattern witness and complete contrary
+/// coverage establish the declared observation difference directly.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -413,23 +383,21 @@ pub fn run_campaign(
         }
     }
     validate_baseline(admit(campaign.tests, &baseline_evidence))?;
-    let mut certifier = Certifier {
+    let mut observations = BaselineObservations {
         runtime: &mut runtime,
-        caches: baseline_runs.into_iter().map(|(_, cache)| cache).collect(),
         observation,
-        sequences: vec![None; campaign.tests.len()],
     };
 
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
-        let (tests, mutant_failure, evidence, claims, certificate_checks) = run_mutant(
+        let (tests, mutant_failure, evidence, claims) = run_mutant(
             campaign,
             &candidate.patch,
             &baseline,
             &baseline_evidence,
             schedule,
             (support.as_ref(), &symbolic),
-            &mut certifier,
+            &mut observations,
         );
         let plan = MutantPlan {
             mutant_id: MutantId(index),
@@ -444,7 +412,6 @@ pub fn run_campaign(
             plan,
             report,
             evidence,
-            certificate_checks,
         });
     }
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
@@ -485,27 +452,10 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     admission
 }
 
-/// Baseline sequence evidence is shared across every mutant and filled only when needed.
-struct Certifier<'a> {
+/// The baseline backend and validated declarations shared by both observation sides.
+struct BaselineObservations<'a> {
     runtime: &'a mut Runtime,
-    caches: Vec<RunCache>,
     observation: StepObservation,
-    sequences: Vec<Option<Result<StateSequences, NotProvedReason>>>,
-}
-
-impl Certifier<'_> {
-    fn sequences(&mut self, index: usize) -> Result<StateSequences, NotProvedReason> {
-        if self.sequences[index].is_none() {
-            self.sequences[index] = Some(
-                self.caches[index]
-                    .stepped
-                    .as_ref()
-                    .ok_or(NotProvedReason::Backend)
-                    .and_then(SteppedExecution::certificate_sequences),
-            );
-        }
-        self.sequences[index].clone().expect("filled above")
-    }
 }
 
 /// A mutant's tests, its mutant-scope failure, its runs and its claim withdrawal. Under
@@ -526,27 +476,25 @@ fn run_mutant(
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
     (support, symbolic): (Option<&ClaimSupport>, &[bool]),
-    certifier: &mut Certifier<'_>,
+    observations: &mut BaselineObservations<'_>,
 ) -> (
     Vec<TestPlan>,
     Option<MutantScopeFailure>,
     Vec<TestEvidence>,
     Withdrawal,
-    Vec<CertificateCheck>,
 ) {
     match prepare_mutant(campaign, patch, compiled_baseline, support) {
-        Err(failure) => (
-            Vec::new(),
-            Some(failure),
-            Vec::new(),
-            Withdrawal::default(),
-            Vec::new(),
-        ),
+        Err(failure) => (Vec::new(), Some(failure), Vec::new(), Withdrawal::default()),
         Ok((mut sides, claims)) => {
-            let (tests, evidence, checks) = run_tests(
-                campaign, &mut sides, symbolic, baseline, schedule, certifier,
+            let (tests, evidence) = run_tests(
+                campaign,
+                &mut sides,
+                symbolic,
+                baseline,
+                schedule,
+                observations,
             );
-            (tests, None, evidence, claims, checks)
+            (tests, None, evidence, claims)
         }
     }
 }
@@ -635,11 +583,11 @@ impl MutantSides {
         }
     }
 
-    fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, NotProvedReason> {
+    fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, String> {
         match (&mut self.symbolic, symbolic) {
             (SymbolicSide::Withdrawn(runtime), true) => runtime.facts(),
             // An unsupported symbolic side has already produced Failed(UnsupportedClaims).
-            (SymbolicSide::Unsupported, true) => Err(NotProvedReason::Backend),
+            (SymbolicSide::Unsupported, true) => Err("unsupported symbolic side".into()),
             _ => self.patched.facts(),
         }
     }
@@ -652,19 +600,12 @@ fn run_tests(
     symbolic: &[bool],
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
-    certifier: &mut Certifier<'_>,
-) -> (Vec<TestPlan>, Vec<TestEvidence>, Vec<CertificateCheck>) {
+    observations: &mut BaselineObservations<'_>,
+) -> (Vec<TestPlan>, Vec<TestEvidence>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
-    let mut checks = Vec::new();
     let mut killed = false;
-    for (index, ((test, baseline), symbolic)) in campaign
-        .tests
-        .iter()
-        .zip(baseline)
-        .zip(symbolic)
-        .enumerate()
-    {
+    for ((test, baseline), symbolic) in campaign.tests.iter().zip(baseline).zip(symbolic) {
         if killed {
             tests.push(TestPlan {
                 test_id: test.id.clone(),
@@ -678,7 +619,7 @@ fn run_tests(
             // The baseline's pattern sides were evaluated at admission by the same function of
             // (its stepped run, declarations, baseline signature, test initial variables), so
             // only the mutant's are evaluated here.
-            let signatures_match = certifier
+            let signatures_match = observations
                 .runtime
                 .facts()
                 .and_then(|baseline_facts| {
@@ -688,10 +629,10 @@ fn run_tests(
                 })
                 .unwrap_or(false);
             if signatures_match {
-                let mutant_patterns = certifier.runtime.step_sides(
+                let mutant_patterns = observations.runtime.step_sides(
                     campaign,
                     test,
-                    &certifier.observation,
+                    &observations.observation,
                     cache.stepped.as_ref(),
                 );
                 replace_patterns(test, &mut mutant, Some(&mutant_patterns));
@@ -700,7 +641,7 @@ fn run_tests(
                 replace_patterns(test, &mut mutant, None);
             }
         }
-        let mut run = match (&paired_baseline.run, &mutant.run) {
+        let run = match (&paired_baseline.run, &mutant.run) {
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
             (
                 SideRun::Sides {
@@ -727,63 +668,6 @@ fn run_tests(
                 TestRun::Failed(ExecutionFailureKind::Infrastructure)
             }
         };
-        if let TestRun::Compared(outcomes) = &mut run {
-            let has_pattern_difference =
-                test.oracles
-                    .iter()
-                    .zip(outcomes.iter())
-                    .any(|(declaration, outcome)| {
-                        matches!(declaration.projection(), Projection::Pattern { .. })
-                            && *outcome == OracleOutcome::Distinguish
-                    });
-            let has_state_difference =
-                test.oracles
-                    .iter()
-                    .zip(outcomes.iter())
-                    .any(|(declaration, outcome)| {
-                        matches!(declaration.projection(), Projection::State(_))
-                            && *outcome == OracleOutcome::Distinguish
-                    });
-            if has_pattern_difference && !has_state_difference {
-                let certificate = (|| {
-                    let baseline_sequences = certifier.sequences(index)?;
-                    let mutant_sequences = cache
-                        .stepped
-                        .as_ref()
-                        .ok_or(NotProvedReason::Backend)?
-                        .certificate_sequences()?;
-                    let baseline_facts = certifier.runtime.facts()?;
-                    let mutant_facts = sides.facts(*symbolic)?;
-                    Ok(certify_difference(
-                        &mut certifier.runtime.backend,
-                        TestInitialState::of_test(&test.initial_state),
-                        &baseline_facts,
-                        &mutant_facts,
-                        &baseline_sequences,
-                        &mutant_sequences,
-                    ))
-                })()
-                .unwrap_or_else(DifferenceCertificate::NotProved);
-                let mut demoted_slots = Vec::new();
-                if matches!(certificate, DifferenceCertificate::NotProved(_)) {
-                    for (index, (declaration, outcome)) in
-                        test.oracles.iter().zip(outcomes.iter_mut()).enumerate()
-                    {
-                        if matches!(declaration.projection(), Projection::Pattern { .. })
-                            && *outcome == OracleOutcome::Distinguish
-                        {
-                            *outcome = OracleOutcome::Unknown;
-                            demoted_slots.push(index);
-                        }
-                    }
-                }
-                checks.push(CertificateCheck {
-                    test_id: test.id.clone(),
-                    certificate,
-                    demoted_slots,
-                });
-            }
-        }
         killed = schedule == ScheduleMode::FirstKill && run.kills();
         tests.push(TestPlan {
             test_id: test.id.clone(),
@@ -791,7 +675,7 @@ fn run_tests(
         });
         evidence.push(mutant);
     }
-    (tests, evidence, checks)
+    (tests, evidence)
 }
 
 /// Stepped evidence retained from the primary run.
@@ -828,7 +712,7 @@ struct Runtime {
     backend: Backend,
     adapter: ExecutionAdapter,
     context: EvaluationContext,
-    facts: Option<Result<DefinitionFacts, NotProvedReason>>,
+    facts: Option<Result<DefinitionFacts, String>>,
 }
 
 impl Runtime {
@@ -856,9 +740,9 @@ impl Runtime {
         })
     }
 
-    fn facts(&mut self) -> Result<DefinitionFacts, NotProvedReason> {
+    fn facts(&mut self) -> Result<DefinitionFacts, String> {
         if self.facts.is_none() {
-            self.facts = Some(definition_facts(&mut self.backend));
+            self.facts = Some(definition_facts(&mut self.backend).map_err(|error| error.0));
         }
         self.facts.clone().expect("filled above")
     }
