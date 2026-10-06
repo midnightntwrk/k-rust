@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[test]
-fn native_code_spellings_match_the_pinned_wire_names() {
+fn native_code_spellings_forward_the_upstream_stable_spelling() {
     use k_rust::diagnostic::DiagnosticCode;
 
     for (code, expected) in [
@@ -17,9 +17,11 @@ fn native_code_spellings_match_the_pinned_wire_names() {
         (DiagnosticCode::UndefinedSort, "UndefinedSort"),
         (DiagnosticCode::UnusedSymbol, "UnusedSymbol"),
     ] {
+        assert_eq!(super::native_diagnostic_code(code).as_str(), expected);
+    }
+    for &code in DiagnosticCode::ALL {
         let mapped = super::native_diagnostic_code(code);
-        assert_eq!(mapped.as_str(), expected);
-        assert_eq!(mapped.as_str(), format!("{code:?}"));
+        assert_eq!(mapped.as_str(), code.as_str());
         assert!(
             !krs_diagnostic::codes::REGISTRY
                 .iter()

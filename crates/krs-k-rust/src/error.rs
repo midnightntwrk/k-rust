@@ -126,75 +126,8 @@ impl ToDiagnostic for FrontendDiagnostic {
 }
 
 fn native_diagnostic_code(code: NativeDiagnosticCode) -> Code {
-    // The upstream enum has no documented stable string spelling.
-    // Keep this exhaustive workaround so variant additions and renames require an explicit wire-code decision.
-    Code::foreign(match code {
-        NativeDiagnosticCode::CellCollectionVarWithoutInitial => "CellCollectionVarWithoutInitial",
-        NativeDiagnosticCode::ClaimInDefinition => "ClaimInDefinition",
-        NativeDiagnosticCode::DeprecatedAttribute => "DeprecatedAttribute",
-        NativeDiagnosticCode::DeprecatedProduction => "DeprecatedProduction",
-        NativeDiagnosticCode::DuplicateOverload => "DuplicateOverload",
-        NativeDiagnosticCode::DuplicateSentenceLabel => "DuplicateSentenceLabel",
-        NativeDiagnosticCode::DuplicateConfigurationCell => "DuplicateConfigurationCell",
-        NativeDiagnosticCode::DuplicateKLabel => "DuplicateKLabel",
-        NativeDiagnosticCode::DuplicateUserList => "DuplicateUserList",
-        NativeDiagnosticCode::FutureError => "FutureError",
-        NativeDiagnosticCode::InvalidAnonymousVariable => "InvalidAnonymousVariable",
-        NativeDiagnosticCode::InvalidAttribute => "InvalidAttribute",
-        NativeDiagnosticCode::InvalidAsPattern => "InvalidAsPattern",
-        NativeDiagnosticCode::InvalidBracketProduction => "InvalidBracketProduction",
-        NativeDiagnosticCode::InvalidAssociativity => "InvalidAssociativity",
-        NativeDiagnosticCode::InvalidCommutativeSimplification => {
-            "InvalidCommutativeSimplification"
-        }
-        NativeDiagnosticCode::InvalidConstantFolding => "InvalidConstantFolding",
-        NativeDiagnosticCode::InvalidCellConcretization => "InvalidCellConcretization",
-        NativeDiagnosticCode::InvalidContext => "InvalidContext",
-        NativeDiagnosticCode::InvalidExistentialVariable => "InvalidExistentialVariable",
-        NativeDiagnosticCode::InvalidFunctionPattern => "InvalidFunctionPattern",
-        NativeDiagnosticCode::InvalidFreshConstant => "InvalidFreshConstant",
-        NativeDiagnosticCode::InvalidFunctionConfiguration => "InvalidFunctionConfiguration",
-        NativeDiagnosticCode::InvalidLocalFunction => "InvalidLocalFunction",
-        NativeDiagnosticCode::InvalidHole => "InvalidHole",
-        NativeDiagnosticCode::InvalidHeatCool => "InvalidHeatCool",
-        NativeDiagnosticCode::InvalidListDeclaration => "InvalidListDeclaration",
-        NativeDiagnosticCode::InvalidMainCell => "InvalidMainCell",
-        NativeDiagnosticCode::InvalidMacroExpansion => "InvalidMacroExpansion",
-        NativeDiagnosticCode::InvalidOrPattern => "InvalidOrPattern",
-        NativeDiagnosticCode::InvalidRegex => "InvalidRegex",
-        NativeDiagnosticCode::InvalidRewrite => "InvalidRewrite",
-        NativeDiagnosticCode::InvalidIoStream => "InvalidIoStream",
-        NativeDiagnosticCode::IsSortPredicateConflict => "IsSortPredicateConflict",
-        NativeDiagnosticCode::InvalidSmtLemma => "InvalidSmtLemma",
-        NativeDiagnosticCode::InvalidSemanticCast => "InvalidSemanticCast",
-        NativeDiagnosticCode::InvalidSimplification => "InvalidSimplification",
-        NativeDiagnosticCode::InvalidStreamCell => "InvalidStreamCell",
-        NativeDiagnosticCode::InvalidStrictness => "InvalidStrictness",
-        NativeDiagnosticCode::InvalidUnitAttribute => "InvalidUnitAttribute",
-        NativeDiagnosticCode::IllegalFunctionOnLhs => "IllegalFunctionOnLhs",
-        NativeDiagnosticCode::InconsistentFunctionRuleAttributes => {
-            "InconsistentFunctionRuleAttributes"
-        }
-        NativeDiagnosticCode::MultipleTopSorts => "MultipleTopSorts",
-        NativeDiagnosticCode::InvalidTokenProduction => "InvalidTokenProduction",
-        NativeDiagnosticCode::InvalidDomainValue => "InvalidDomainValue",
-        NativeDiagnosticCode::MarkdownWarning => "MarkdownWarning",
-        NativeDiagnosticCode::MissingSyntaxModule => "MissingSyntaxModule",
-        NativeDiagnosticCode::ProofModuleRule => "ProofModuleRule",
-        NativeDiagnosticCode::ProofModuleSyntax => "ProofModuleSyntax",
-        NativeDiagnosticCode::SingletonOverload => "SingletonOverload",
-        NativeDiagnosticCode::UnusedVariable => "UnusedVariable",
-        NativeDiagnosticCode::UnboundVariable => "UnboundVariable",
-        NativeDiagnosticCode::UnadmittedHookNamespace => "UnadmittedHookNamespace",
-        NativeDiagnosticCode::UnsupportedExistentialVariable => "UnsupportedExistentialVariable",
-        NativeDiagnosticCode::UnsupportedCellBag => "UnsupportedCellBag",
-        NativeDiagnosticCode::UndefinedKLabel => "UndefinedKLabel",
-        NativeDiagnosticCode::UndeclaredTag => "UndeclaredTag",
-        NativeDiagnosticCode::UndefinedSort => "UndefinedSort",
-        NativeDiagnosticCode::UnrecognizedAttribute => "UnrecognizedAttribute",
-        NativeDiagnosticCode::UnsupportedParametricSort => "UnsupportedParametricSort",
-        NativeDiagnosticCode::UnusedSymbol => "UnusedSymbol",
-    })
+    // k-rust treats `DiagnosticCode::as_str` as a compatibility surface, so KRS forwards it unchanged.
+    Code::foreign(code.as_str())
 }
 
 /// Rejection by the pinned native preparation boundary.
