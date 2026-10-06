@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
@@ -59,6 +60,7 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   echo "error: set K_CHECKOUT to the pinned K checkout (default: $workspace/k)" >&2
   exit 2
 fi
+kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
 reference_require_k_version "$kompile"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
@@ -92,6 +94,7 @@ reference_announce_krust_gate_build
 reference_run_rust_frontend cargo build --quiet --release "${krust_gate_cargo_args[@]}" \
   --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 reference_comparator=$(reference_build_comparator "$workspace")
+reference_cache_begin "$work"
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source main_module parser_module include selector syntax_module hook_namespaces <<<"$fixture"
   selected=true
@@ -159,7 +162,8 @@ for fixture in "${cases[@]}"; do
       export K_OPTS="$reference_k_opts"
     fi
     cd "$reference"
-    "$kompile" "$source" \
+    reference_cached kompile "$name" --output-root . --kdep "$kdep" -- \
+      "$kompile" "$source" \
       --backend kore \
       --main-module "$main_module" \
       --output-definition kompiled \
@@ -190,7 +194,8 @@ for fixture in "${cases[@]}"; do
       if [[ -n "$reference_k_opts" ]]; then
         export K_OPTS="$reference_k_opts"
       fi
-      "$kast" \
+      reference_cached kast "$name:$parse_name" --input "$reference/kompiled" -- \
+        "$kast" \
         --definition "$reference/kompiled" \
         --module "$parser_module" \
         --sort "$parse_sort" \
@@ -248,7 +253,8 @@ for fixture in "${cases[@]}"; do
       if [[ -n "$reference_k_opts" ]]; then
         export K_OPTS="$reference_k_opts"
       fi
-      "$kast" \
+      reference_cached kast "$name:$rejected_name" --input "$reference/kompiled" -- \
+        "$kast" \
         --definition "$reference/kompiled" \
         --module "$parser_module" \
         --sort "$rejected_sort" \
@@ -271,4 +277,5 @@ if (($# && selected_count != $#)); then
   exit 2
 fi
 
+reference_cache_finish
 echo "reference KAST differential corpus passed"

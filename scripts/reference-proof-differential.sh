@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
@@ -48,6 +49,7 @@ if [[ ! -x "$kprove" ]]; then
   echo "error: set K_KPROVE to the matching pinned reference kprove executable" >&2
   exit 2
 fi
+kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
 if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   echo "error: set K_CHECKOUT to the pinned K checkout (default: $workspace/k)" >&2
   exit 2
@@ -77,6 +79,7 @@ reference_announce_krust_gate_build
   cargo build --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --bin krust
 )
+reference_cache_begin "$work"
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown runnable local proof case: $name" >&2
@@ -106,7 +109,8 @@ for name in "${selected[@]}"; do
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    "$kompile" "$semantics"       --backend haskell       --main-module "$main_module"       --syntax-module "$syntax_module"       --output-definition "$definition"       --warnings none
+    reference_cached kompile "$name" --output-root "$definition" --kdep "$kdep" -- \
+      "$kompile" "$semantics"       --backend haskell       --main-module "$main_module"       --syntax-module "$syntax_module"       --output-definition "$definition"       --warnings none
   )
 
   mapfile -t proven_claims < <(jq -r '(.claims // [])[]' <<<"$proof")
@@ -141,7 +145,8 @@ for name in "${selected[@]}"; do
       ulimit -v "$reference_memory_kib"
       export GHCRTS=${GHCRTS:--N1}
       export K_OPTS="$reference_k_opts"
-      "$kprove" "$specification" \
+      reference_cached kprove "$name:proven" --input "$definition" --kdep "$kdep" -- \
+        "$kprove" "$specification" \
         --definition "$definition" \
         --spec-module "$spec_module" \
         --claims "$reference_claims" \
@@ -186,7 +191,8 @@ for name in "${selected[@]}"; do
     ulimit -v "$reference_memory_kib"
     export GHCRTS=${GHCRTS:--N1}
     export K_OPTS="$reference_k_opts"
-    "$kprove" "$specification"       --definition "$definition"       --spec-module "$spec_module"       --claims "$failure_claim"       --depth "$proof_depth"       --output none       --warnings none       -I "$semantics_dir"
+    reference_cached kprove "$name:$failure_claim" --input "$definition" --kdep "$kdep" -- \
+      "$kprove" "$specification"       --definition "$definition"       --spec-module "$spec_module"       --claims "$failure_claim"       --depth "$proof_depth"       --output none       --warnings none       -I "$semantics_dir"
   ) >"$work/$name-$failure_claim.reference.log" 2>&1; then
     echo "error: reference kprove unexpectedly proved $name:$failure_claim" >&2
     exit 1
@@ -212,4 +218,5 @@ for name in "${selected[@]}"; do
   fi
 done
 
+reference_cache_finish
 echo "reference local proof differential corpus passed"

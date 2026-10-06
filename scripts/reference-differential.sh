@@ -5,6 +5,7 @@ workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
+source "$workspace/scripts/reference-cache.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
@@ -57,6 +58,7 @@ if [[ ! -d "$k_checkout/k-distribution/include/kframework/builtin" ]]; then
   echo "error: set K_CHECKOUT to the pinned K checkout (default: $workspace/k)" >&2
   exit 2
 fi
+kdep=${K_KDEP:-"$(dirname "$kompile")/kdep"}
 reference_require_k_version "$kompile"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
 
@@ -114,7 +116,8 @@ verify_rust_definition() {
       "$rust/definition.kore" "$definition"
   fi
   echo "[$name:$pairing] verifying k-rust definition.kore"
-  if ! run_reference_parser "$kore_parser" "$definition" \
+  if ! run_reference_parser reference_cached kore-parser "$name:$pairing:verify-rust" \
+    --input "$definition" -- "$kore_parser" "$definition" \
     >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
     cat "$work/$name/$pairing_key/verify-rust.log" >&2
     echo "error: k-rust definition rejected by kore-parser" >&2
@@ -159,6 +162,7 @@ reference_announce_krust_gate_build
 reference_run_rust_frontend cargo build --quiet --release "${krust_gate_cargo_args[@]}" \
   --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 reference_comparator=$(reference_build_comparator "$workspace")
+reference_cache_begin "$work"
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
     comparisons pairings expect reason reference_error <<<"$fixture"
@@ -252,7 +256,9 @@ for fixture in "${cases[@]}"; do
     set +e
     (
       cd "$reference"
-      run_reference_kompile "$kompile" "$source" \
+      run_reference_kompile reference_cached kompile "$name:$pairing" \
+        --output-root . --kdep "$kdep" -- \
+        "$kompile" "$source" \
         --backend "$reference_backend" \
         --main-module "$module" \
         --output-definition kompiled \
@@ -337,7 +343,8 @@ for fixture in "${cases[@]}"; do
       echo "[$name:$pairing] warning: definition verification disabled explicitly"
     else
       echo "[$name:$pairing] verifying reference definition.kore"
-      if ! run_reference_parser "$kore_parser" "$semantic_reference" \
+      if ! run_reference_parser reference_cached kore-parser "$name:$pairing:verify-reference" \
+        --input "$semantic_reference" -- "$kore_parser" "$semantic_reference" \
         >"$work/$name/$pairing_key/verify-reference.log" 2>&1; then
         cat "$work/$name/$pairing_key/verify-reference.log" >&2
         echo "error: reference definition rejected by kore-parser" >&2
@@ -395,4 +402,5 @@ if (($# && selected_count != $#)); then
   exit 2
 fi
 
+reference_cache_finish
 echo "reference differential corpus passed"
