@@ -100,9 +100,9 @@ what they block.
 13. **Method-call term sugar** (`e.update(k, v)`) — deferred and
     policy-blocked (r10: no Rust trait resolution in term position);
     would need a closed sort-directed method table. [result README]
-14. **`imp-verification.k`** (`[simplification]` rules, regex `token`
-    productions) — inexpressible on this surface; the next thing a
-    reader looks for, explicitly out of the IMP specimen's scope.
+14. **`imp-verification.k`** (`[simplification]` rules, regex `token` productions) — explicitly out of the readable IMP specimen's scope, and the next thing a reader looks for.
+    The four `[simplification]` lemmas are expressed with the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
+    The `$`-prefixed `Id` token production has no authored counterpart: claims write such identifiers with `k::id!("$n")`.
 15. **Exact-parity `% ` format escape** — currently a plain space, same
     compromise as the IMP port (C5).
 16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).
