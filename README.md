@@ -66,7 +66,8 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
   - `../inspirations/midnightntwrk/k-rust-krs-main` (`k-rust`, a Cargo path dependency of `krs-k-rust`);
   - `../inspirations/runtimeverification/{wasm-semantics,evm-semantics,mir-semantics,imp-semantics}` (port and IMP authorities);
   - `../inspirations/runtimeverification/k` (K 7.1.337, for gates that need the K toolchain).
-- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the IMP reference oracles, the complete IMP gate, and the Java reference runs.
+- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the complete IMP gate's comparison layers, the Java reference runs, and every reference-snapshot refresh.
+  The IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates, and `--artifacts-only` IMP runs, replay recorded Java K results and need no K tool.
   The KWasm, KEVM, and KMIR gates need it only with `--java-reference`.
 
 ### Workspace
@@ -103,6 +104,19 @@ The repository hygiene check fails if any tracked file references the untracked,
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 ```
+
+### Recorded Java K results
+
+Java K 7.1.337 results change only when K, an upstream revision, or an input changes, so gates replay committed snapshots of them instead of running Java K on every run.
+A snapshot is a directory under its gate (for example `tests/imp-state/reference/oracle/`) whose `manifest.toml` holds its key and the digest of every stored file.
+The key covers the `Krs.lock` K version, the K tools, the argument vector of each invocation, the upstream revisions, and the digest of every input file, including any KRS-emitted `.k` file a tool reads.
+Only the evidence the comparators read is stored, never a whole kompiled directory.
+
+By default a gate replays its snapshots and needs no K tool.
+A missing snapshot or any key difference fails closed and names `--refresh-reference`; a gate never falls back to running Java K and never skips the reference layer.
+To re-record, put the pinned K `bin` directory on `PATH` and run the gate with `--refresh-reference`: it runs Java K live and, only if every step passes, rewrites exactly the snapshots it measured.
+`--refresh-reference` rewrites snapshots and `--record` rewrites output pins; the two are independent and may be combined.
+The IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates, and the kompile tests of the complete IMP gate, use snapshots; the shared store lives in `tests/support/reference.py`.
 
 ### Documentation site
 
