@@ -1482,7 +1482,9 @@ fn operators_build_their_patches_from_bound_terms() {
             expected: term(&[0, 1, 0]),
             replacement: term(&[0, 1, 0, 0]),
         }])
-        .expect("one edit"),
+        .expect("one edit")
+        .pinned(&counter)
+        .expect("pins"),
         "the hand-built increment mutant of the validator tests"
     );
     let mutant = apply(&counter, &candidate.patch).expect("applies");

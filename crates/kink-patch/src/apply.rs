@@ -78,15 +78,25 @@ impl Mutant {
 
 /// Applies every edit of `patch` or none.
 ///
-/// Every edit is checked against the immutable baseline, then edits are
+/// Pins are checked first, in sentence order. Every edit is checked against the immutable baseline, then edits are
 /// checked against each other. The patched rule sentences are typed after
 /// all edits are assembled, and no output is published unless every check passes.
 ///
 /// # Errors
 ///
-/// Returns the first failure in canonical edit order. A failure carries only
+/// Returns the first pin failure, then the first failure in canonical edit order. A failure carries only
 /// its class and a diagnostic.
 pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure> {
+    if patch.is_pinned() {
+        for (at, pin) in patch.pins() {
+            let current = baseline.fingerprint(at)?;
+            if current != *pin {
+                return Err(stale(format!(
+                    "{at:?} has fingerprint {current}, not {pin}"
+                )));
+            }
+        }
+    }
     for edit in patch.edits() {
         preflight(baseline, edit)?;
     }

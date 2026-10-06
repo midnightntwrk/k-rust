@@ -1,7 +1,7 @@
 //! Mutation sites, selection policies and candidate folding.
 //!
 //! Sites are term positions of one [`Baseline`], identified by their
-//! [`TermRef`]; there are no site, candidate or mutant digests. Operators build
+//! [`TermRef`]; every candidate's patch pins its addressed sentences. Operators build
 //! a [`Patch`] from a selected origin, and [`Selection::fold`] checks that
 //! every edit targets a sentence of that origin. Equal patches fold into one
 //! candidate that keeps every origin, and a patch that does not apply is a
@@ -1037,6 +1037,18 @@ impl<'b> Selection<'b> {
                     ),
                 ));
             }
+            let patch = match patch.clone().pinned(self.baseline) {
+                Ok(pinned) => pinned,
+                Err(failure) => {
+                    let failure = rejected
+                        .iter()
+                        .find(|(other, _)| *other == patch)
+                        .map_or(failure, |(_, previous)| previous.clone());
+                    dispositions.push(CandidateDisposition::Rejected(failure.clone()));
+                    rejected.push((patch, failure));
+                    continue;
+                }
+            };
             if let Some(index) = candidates
                 .iter()
                 .position(|candidate| candidate.patch == patch)

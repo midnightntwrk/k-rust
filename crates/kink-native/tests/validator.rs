@@ -111,3 +111,42 @@ fn patch_failure_never_reaches_compilation() {
         other => panic!("expected a patch rejection, got {other:?}"),
     }
 }
+
+#[test]
+fn stale_fingerprint_is_rejected_before_compilation() {
+    let baseline = support::load("counter.k");
+    let at = TermRef::new(support::rule(&baseline, "COUNTER.increment"), [1]);
+    let expected = baseline.term(&at).expect("requires").clone();
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        at,
+        expected,
+        replacement: k_rust::kast::Term::Token {
+            token: "false".to_owned(),
+            sort: k_rust::kast::Sort::new("Bool"),
+        },
+    }])
+    .expect("patch")
+    .pinned(&baseline)
+    .expect("pins");
+    let text = std::fs::read_to_string(std::path::Path::new(support::DIR).join("counter.k"))
+        .expect("source");
+    let directory =
+        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("validator-stale-fingerprint");
+    std::fs::create_dir_all(&directory).expect("directory");
+    let path = directory.join("counter.k");
+    std::fs::write(
+        &path,
+        text.replace("counter(s(N), L)", "counter(s(s(N)), L)"),
+    )
+    .expect("variant");
+    let validator = NativeValidator::bind(
+        support::load_path(&path, "COUNTER"),
+        CompileOptions::default(),
+    );
+    match validator.validate(&patch) {
+        Err(MutantRejection::Patch(failure)) => {
+            assert_eq!(failure.kind(), PatchFailureKind::StalePrecondition)
+        }
+        other => panic!("expected a stale patch rejection, got {other:?}"),
+    }
+}

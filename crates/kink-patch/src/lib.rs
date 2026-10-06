@@ -3,8 +3,9 @@
 //! A [`Baseline`] is one immutable definition as `load_for_compilation`
 //! returns it, where rule bodies are KAST terms rather than bubbles. Every
 //! edit addresses that baseline by (module, sentence index, term path) and
-//! carries the baseline value it expects, so application needs no identity
-//! digests. Addresses are stable within one baseline only.
+//! carries the baseline value it expects. Selected patches also pin the version
+//! of every addressed sentence; application checks these fingerprints first.
+//! Addresses are stable within one baseline only.
 //!
 //! This crate performs local checks and name resolution only. Whether a
 //! mutant compiles is decided by k-rust `compile_loaded_definition` over
@@ -21,7 +22,9 @@
 mod apply;
 mod candidate;
 mod claims;
+mod digest;
 mod failure;
+mod fingerprint;
 mod sort;
 
 pub use apply::{Mutant, SentenceOrigin, apply};
@@ -31,7 +34,11 @@ pub use candidate::{
     SelectionPolicy, Site, SiteSelector, derive_sites, select,
 };
 pub use claims::{Claim, ClaimSupport, Withdrawal};
+pub use digest::{Sha256Digest, payload_digest, sha256};
 pub use failure::{PatchFailure, PatchFailureKind};
+pub use fingerprint::{
+    FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
+};
 
 use k_rust::definition::{Definition, Sentence};
 use k_rust::kast::Term;
@@ -40,6 +47,7 @@ use k_rust::outer::{
     LoadError, LoadOptions, LoadedDefinition, ResolvedSource, SourceResolver, load_for_compilation,
 };
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// One immutable loaded baseline. Mutants are always relative to it.
@@ -98,6 +106,23 @@ impl Baseline {
             at.sentence.index,
             &at.path.0,
         )
+    }
+
+    /// Returns the version of an existing baseline sentence.
+    ///
+    /// # Errors
+    ///
+    /// A missing sentence is stale; an unsupported payload is locally ill-formed.
+    pub fn fingerprint(&self, at: &SentenceRef) -> Result<SentenceFingerprint, PatchFailure> {
+        let sentence = self.sentence(at).ok_or_else(|| {
+            PatchFailure::new(
+                PatchFailureKind::StalePrecondition,
+                format!("{at:?} does not exist"),
+            )
+        })?;
+        SentenceFingerprint::of(sentence).map_err(|error| {
+            PatchFailure::new(PatchFailureKind::LocallyIllFormed, error.to_string())
+        })
     }
 
     /// The user's written sentences: located and outside the builtin catalog,
@@ -362,6 +387,8 @@ impl Edit {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Patch {
     edits: Vec<Edit>,
+    pins: BTreeMap<SentenceRef, SentenceFingerprint>,
+    pinned: bool,
 }
 
 impl Patch {
@@ -384,7 +411,83 @@ impl Patch {
                 .cmp(&(right.target(), right.rank()))
                 .then_with(|| format!("{left:?}").cmp(&format!("{right:?}")))
         });
-        Ok(Self { edits })
+        Ok(Self {
+            edits,
+            pins: BTreeMap::new(),
+            pinned: false,
+        })
+    }
+
+    /// Every existing sentence addressed by an edit or insertion anchor.
+    #[must_use]
+    pub fn addressed_sentences(&self) -> Vec<SentenceRef> {
+        let mut sentences = self
+            .written_sentences()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        for edit in &self.edits {
+            if let Edit::InsertSentence {
+                position: InsertPosition::Before(at) | InsertPosition::After(at),
+                ..
+            } = edit
+            {
+                sentences.insert(at.clone());
+            }
+        }
+        sentences.into_iter().collect()
+    }
+
+    /// Records the baseline version of every addressed sentence.
+    ///
+    /// # Errors
+    ///
+    /// Refuses missing or unsupported sentences and a stale existing pin.
+    pub fn pinned(mut self, baseline: &Baseline) -> Result<Self, PatchFailure> {
+        for at in self.addressed_sentences() {
+            let current = baseline.fingerprint(&at)?;
+            if let Some(pin) = self.pins.get(&at)
+                && *pin != current
+            {
+                return Err(PatchFailure::new(
+                    PatchFailureKind::StalePrecondition,
+                    format!("{at:?} has fingerprint {current}, not {pin}"),
+                ));
+            }
+            self.pins.insert(at, current);
+        }
+        self.pinned = true;
+        Ok(self)
+    }
+
+    /// Constructs a pinned patch with exact, unique coverage of its addresses.
+    ///
+    /// # Errors
+    ///
+    /// Refuses empty edits or missing, repeated, or extra pins.
+    pub fn with_pins(
+        edits: Vec<Edit>,
+        pins: Vec<(SentenceRef, SentenceFingerprint)>,
+    ) -> Result<Self, PatchModelError> {
+        let mut patch = Self::new(edits)?;
+        let count = pins.len();
+        patch.pins = pins.into_iter().collect();
+        if patch.pins.len() != count
+            || patch.pins.keys().cloned().collect::<Vec<_>>() != patch.addressed_sentences()
+        {
+            return Err(PatchModelError::PinMismatch);
+        }
+        patch.pinned = true;
+        Ok(patch)
+    }
+
+    #[must_use]
+    pub const fn pins(&self) -> &BTreeMap<SentenceRef, SentenceFingerprint> {
+        &self.pins
+    }
+
+    #[must_use]
+    pub const fn is_pinned(&self) -> bool {
+        self.pinned
     }
 
     #[must_use]
@@ -419,12 +522,16 @@ impl Patch {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PatchModelError {
     Empty,
+    PinMismatch,
 }
 
 impl fmt::Display for PatchModelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Empty => formatter.write_str("a patch has at least one edit"),
+            Self::PinMismatch => {
+                formatter.write_str("pins must cover addressed sentences exactly once")
+            }
         }
     }
 }

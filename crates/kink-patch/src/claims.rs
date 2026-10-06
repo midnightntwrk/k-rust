@@ -267,7 +267,11 @@ impl ClaimSupport {
                 }
             }
             edits.extend(removals);
-            withdrawal.patch = Some(Patch::new(edits).expect("a nonempty patch"));
+            withdrawal.patch = Some(
+                Patch::new(edits)
+                    .expect("a nonempty patch")
+                    .pinned(baseline)?,
+            );
         }
         Ok(withdrawal)
     }
