@@ -14,4 +14,6 @@ pub(crate) mod alpha;
 mod capture;
 mod cascade;
 
+#[cfg(feature = "z3")]
+mod smt_boundary;
 mod sort_injections;
