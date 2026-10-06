@@ -684,7 +684,8 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     // Invariant: each `find` scans candidate start indices of `chars` from `index` forward, or backward when `reverse`, and returns the first index holding a character of `needles` (when `any_char`) or the whole `needle`; the finite index range bounds the scan, O(`chars.len()` * `needle.len()`) for a substring search.
     let found = if any_char {
         if reverse {
-            (0..=index.min(chars.len().saturating_sub(1)))
+            // The candidates are the positions at or before `index` that hold a character.
+            (0..chars.len().min(index + 1))
                 .rev()
                 .find(|&i| needles.contains(chars[i]))
         } else {
@@ -837,6 +838,27 @@ mod tests {
         assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
         assert_eq!(int_powmod(int(0), int(0), int(-1)), Ok(int(0)));
         assert!(int_powmod(int(2), int(3), int(0)).is_err());
+    }
+
+    /// `rfindChar` scans the characters at or before its index, and an empty haystack has none.
+    #[test]
+    fn rfind_char_scans_only_existing_characters() {
+        let found = |haystack: &str, needles: &str, index: i64| {
+            let values = [
+                Value::String(haystack.into()),
+                Value::String(needles.into()),
+                Value::Int(int(index)),
+            ];
+            match string_find(&values, true, true) {
+                Ok(Value::Int(position)) => position,
+                other => panic!("rfindChar({haystack:?}, {needles:?}, {index}) gave {other:?}"),
+            }
+        };
+        assert_eq!(found("", "a", 0), int(-1));
+        assert_eq!(found("", "", 0), int(-1));
+        assert_eq!(found("ab", "b", 2), int(1));
+        assert_eq!(found("ab", "b", 0), int(-1));
+        assert_eq!(found("aba", "ab", 1), int(1));
     }
 
     /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
