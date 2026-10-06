@@ -260,6 +260,59 @@ fn validate_node(
     Ok(())
 }
 
+fn is_injection(pattern: &Pattern) -> bool {
+    matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == "inj")
+}
+
+/// The sort of `pattern` when its syntax fixes it: a variable, a domain value, an injection's
+/// target, or an application of a symbol without sort variables. `None` otherwise.
+fn determined_sort(definition: &BackendDefinition, pattern: &Pattern) -> Option<InternalSort> {
+    match pattern {
+        Pattern::Variable(var) => internal_sort(&var.sort),
+        Pattern::DomainValue { sort, .. } => internal_sort(sort),
+        Pattern::Application { symbol, .. } if symbol.name == "inj" => {
+            match symbol.sort_parameters.as_slice() {
+                [_, target] => internal_sort(target),
+                _ => None,
+            }
+        }
+        Pattern::Application { symbol, .. } => definition
+            .symbols()
+            .get(symbol.name.as_str())
+            .filter(|backend| {
+                backend.sort_variables.is_empty() && symbol.sort_parameters.is_empty()
+            })
+            .map(|backend| backend.result_sort.clone()),
+        _ => None,
+    }
+}
+
+/// Whether `pattern` is a sort injection in k-rust's normal form (TV-01 fix 1, review R1-F1):
+/// one argument, a proper subsort source (`strict_injection_sorts`), an argument whose sort is
+/// determined and equal to the source, and an argument that is not itself an injection. k-rust
+/// builds only such injections: `Term::injection` collapses a nested pair
+/// (`term.rs:893-907`), `inject_to_sort` returns the bare term when the sorts are equal
+/// (`matching/mod.rs:2342`, `builtin/substitution.rs:1172`). Internalization admits an identity
+/// injection (`check_subsort` is reflexive) and does not sort-check an injection's argument
+/// (`definition.rs:2474-2490`), so a test may write `inj{S,S}(t)`, which the matcher keeps
+/// apart from `t` although `inj{S,S}(t) = t` in K's semantics. Such a term is neither a value
+/// nor admissible test input.
+pub(crate) fn canonical_injection(definition: &BackendDefinition, pattern: &Pattern) -> bool {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return false;
+    };
+    let ([source, target], [argument]) = (symbol.sort_parameters.as_slice(), arguments.as_slice())
+    else {
+        return false;
+    };
+    symbol.name == "inj"
+        && strict_injection_sorts(definition, source, target)
+        && !is_injection(argument)
+        && internal_sort(source).is_some_and(|source| {
+            determined_sort(definition, argument).is_some_and(|sort| sort == source)
+        })
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StepPresence {
     Certain(Vec<Pattern>),
@@ -288,14 +341,19 @@ impl<'a> ObservationDecider<'a> {
             relations: BackendRelations::shared(definition, solver, initial_state),
         }
     }
+    /// Whether `term` is a value that no definition can change: variables, domain values with a
+    /// trusted injective codec, free constructors, and sort injections in k-rust's normal form
+    /// ([`canonical_injection`]). Anything else, including an identity or nested injection, is
+    /// not (TV-01 and its fix 1, review R1-F1).
     pub fn definition_independent(&self, term: &Pattern) -> bool {
         match term {
             Pattern::Variable(_) => true,
             Pattern::DomainValue { sort, value } => {
                 domain_value_identity_safe(self.definition, sort, value.as_bytes())
             }
-            Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
-                arguments.iter().all(|arg| self.definition_independent(arg))
+            Pattern::Application { arguments, .. } if is_injection(term) => {
+                canonical_injection(self.definition, term)
+                    && arguments.iter().all(|arg| self.definition_independent(arg))
             }
             Pattern::Application { symbol, arguments } => {
                 self.definition

@@ -14,7 +14,7 @@
 //! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`.
 //!
 //! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
-//! In either case its terminal term must be definition-independent (TV-01): every application is a free constructor or a sort injection, and every domain value has a trusted injective codec.
+//! In either case its terminal term must be definition-independent (TV-01): every application is a free constructor or a sort injection in k-rust's normal form (strict, well sorted, not nested; TV-01 fix 1), and every domain value has a trusted injective codec.
 //! An unevaluated function, anywhere head or uninterpreted application makes the path `SolverUnknown` before terminal classification.
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
@@ -62,7 +62,7 @@ use kink_pattern::{
 use crate::execution::{AdaptedExecution, ExecutionAdapterFailure, HaltClass, SteppedExecution};
 use crate::feasibility::LeafFeasibility;
 use crate::observation::AdaptedBranch;
-use crate::step_events::{ObservationDecider, StepObservation, StepPresence};
+use crate::step_events::{ObservationDecider, StepObservation, StepPresence, canonical_injection};
 
 /// Checks the definedness premise of a test-written initial constraint before execution.
 /// Only `\and`, `\or`, `\exists`, `\forall`, `\ceil`, term-level `\equals`, and `\in`
@@ -72,6 +72,10 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence};
 /// Non-total applications in negated positions fail closed using declared backend totality;
 /// constructors, injections and domain values remain admitted. This checks received syntax,
 /// before normalization can introduce or erase negations (TV-01, R2-F1/R3-F1).
+/// At any polarity, every sort injection must be in k-rust's normal form
+/// ([`canonical_injection`]): an identity, reversed, nested or ill-sorted injection is
+/// refused, because the matcher keeps `inj{S,S}(t)` apart from `t` and so runs a test the
+/// definition's semantics does not distinguish from a canonical one (TV-01 fix 1, R1-F1).
 /// Campaign admission maps failure through its existing baseline oracle refusal gate.
 pub fn validate_test_initial_state(
     backend: &mut Backend,
@@ -80,6 +84,16 @@ pub fn validate_test_initial_state(
     backend.with_solver(None, |definition, _| {
         let mut work = vec![(state, false)];
         while let Some((node, negated)) = work.pop() {
+            if let Pattern::Application { symbol, .. }
+            | Pattern::AssociativeApplication { symbol, .. } = node
+                && symbol.name == "inj"
+                && !canonical_injection(definition, node)
+            {
+                return Err(ExecutionAdapterFailure::InvalidState(format!(
+                    "test state contains a sort injection outside k-rust's normal form: {:?}",
+                    symbol.sort_parameters
+                )));
+            }
             if negated
                 && let Pattern::Application { symbol, .. }
                 | Pattern::AssociativeApplication { symbol, .. } = node

@@ -778,7 +778,9 @@ fn review_test_written_partial_conditions_are_not_refuted() {
 /// Input-boundary coverage: negation at arbitrary depth (including double negation),
 /// undeclared totality and missing symbols fail closed. Constructors, injections, domain
 /// values and declared-total functions remain admitted; a partial call outside negation
-/// does not match this guard (VI-T10 records that remaining premise question).
+/// does not match this guard (VI-T10 records that remaining premise question). Regression
+/// (TV-01 fix 1, R1-F1): the identity-injection row moved from admitted to refused, because
+/// only a normal-form injection is admitted (`injections_are_values_only_in_normal_form`).
 #[test]
 fn test_input_negations_require_declared_totality_at_any_depth() {
     let mut backend = Backend::new(
@@ -817,9 +819,11 @@ fn test_input_negations_require_declared_totality_at_any_depth() {
             r"\not{SortS{}}(\ceil{SortS{},SortS{}}(Lbltotal{}(Lblwrap{}(Lbla{}()))))",
             false,
         ),
+        // Moved by TV-01 fix 1 (review R1-F1), toward refusal: an identity injection is not
+        // k-rust normal form and is refused at any polarity (was admitted).
         (
             r"\not{SortS{}}(\ceil{SortS{},SortS{}}(inj{SortS{},SortS{}}(Lbla{}())))",
-            false,
+            true,
         ),
         (
             r#"\not{SortS{}}(\ceil{SortInt{},SortS{}}(\dv{SortInt{}}("0")))"#,
@@ -1024,5 +1028,196 @@ fn review_kept_calls_do_not_supply_terminals() {
                 .all(|(complete, _, terminal)| !complete && terminal.is_none()),
             "{label}: a guarded path is complete: {guarded:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------- TV-01 fix 1: identity injections
+
+/// `inj{From,To}(value)`.
+fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
+    k_rust::kompile::initial_configuration::kore_application(
+        "inj",
+        vec![kore_sort(from), kore_sort(to)],
+        vec![value],
+    )
+}
+
+/// TV-01 fix 1 (review R1-F1): a sort injection is a value, and admissible test input, only in
+/// k-rust's normal form: strict (a proper subsort source), one argument whose sort is the
+/// source, and not nested. The identity `inj{SortInt,SortInt}(7)`, the reversed
+/// `inj{SortVal,SortInt}`, the nested `inj{SortVal,SortKItem}(inj{SortInt,SortVal}(7))` and the
+/// ill-sorted `inj{SortInt,SortVal}(true)` and `inj{SortInt,SortVal}(wrap(7))` are none. Each
+/// row checks the decider's definition independence of the program and the input guard on the
+/// initial state holding it (refused exactly when not independent here, since every other
+/// application is a free constructor).
+#[test]
+fn injections_are_values_only_in_normal_form() {
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("unbound.k"),
+            "TV01TERMINAL",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("fixture compiles");
+    let seven = || support::int(7);
+    let truth = || Pattern::DomainValue {
+        sort: kore_sort("SortBool"),
+        value: "true".into(),
+    };
+    let done = |value: Pattern| support::app("Lbldone", vec![value]);
+    let check = |value: Pattern| support::app("Lblcheck", vec![value]);
+    let wrap = |value: Pattern| support::app("Lblwrap", vec![value]);
+    let rows = [
+        ("strict", done(inj("SortInt", "SortVal", seven())), true),
+        ("strict-ctor", done(wrap(seven())), true),
+        (
+            "strict-var",
+            done(inj("SortInt", "SortVal", int("X"))),
+            true,
+        ),
+        ("canonical-check", check(seven()), true),
+        ("identity", check(inj("SortInt", "SortInt", seven())), false),
+        (
+            "identity-under-strict",
+            done(inj(
+                "SortInt",
+                "SortVal",
+                inj("SortInt", "SortInt", seven()),
+            )),
+            false,
+        ),
+        (
+            "identity-val",
+            done(inj("SortVal", "SortVal", wrap(seven()))),
+            false,
+        ),
+        (
+            "reversed",
+            check(inj("SortVal", "SortInt", wrap(seven()))),
+            false,
+        ),
+        (
+            "ill-sorted-dv",
+            done(inj("SortInt", "SortVal", truth())),
+            false,
+        ),
+        (
+            "ill-sorted-ctor",
+            done(inj("SortInt", "SortVal", wrap(seven()))),
+            false,
+        ),
+        (
+            "ill-sorted-var",
+            done(inj("SortInt", "SortVal", support::var("V", "SortVal"))),
+            false,
+        ),
+    ];
+    let mut backend = backend(&side, "TV01TERMINAL");
+    for (label, program, expected) in rows {
+        let initial = support::initial_state(program.clone(), "SortProg");
+        let independent = backend
+            .with_solver(None, |definition, solver| {
+                let decider =
+                    kink_native::step_events::ObservationDecider::new(definition, solver, &initial);
+                Ok::<_, BackendError>(decider.definition_independent(&program))
+            })
+            .expect("backend definition");
+        let admitted = bridge::validate_test_initial_state(&mut backend, &initial).is_ok();
+        eprintln!("TV01-FIX1 {label}: independent={independent} admitted={admitted}");
+        assert_eq!(independent, expected, "{label}: definition independence");
+        assert_eq!(admitted, expected, "{label}: input admission");
+    }
+    // A nested pair: the program itself is well formed, the term under `kseq` is not normal.
+    let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
+    let nested_independent = backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                kink_native::step_events::ObservationDecider::new(definition, solver, &nested);
+            Ok::<_, BackendError>(decider.definition_independent(&nested))
+        })
+        .expect("backend definition");
+    assert!(!nested_independent, "a nested injection pair is not normal");
+    let nested_state = support::initial_state(
+        support::app("Lblhold", vec![support::app("LblListItem", vec![nested])]),
+        "SortProg",
+    );
+    assert!(
+        bridge::validate_test_initial_state(&mut backend, &nested_state).is_err(),
+        "a nested injection pair is refused as test input"
+    );
+}
+
+/// TV-01 fix 1 (review R1-F1), below the input guard: the baseline `check(7) => done(7)` leaves
+/// a test-written `check(inj{SortInt,SortInt}(7))` stuck. Its stuck term is not a value, so the
+/// guarded bridge gives an incomplete path with no terminal in both profiles (before the fix:
+/// a complete `Normal` terminal, compared against the mutant's `done(7)`).
+#[test]
+fn identity_injections_do_not_supply_terminals() {
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("unbound.k"),
+            "TV01TERMINAL",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("fixture compiles");
+    let sorts = kink_pattern::SymbolSorts::from_definition(
+        &k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
+            .expect("compiled KORE parses"),
+    );
+    let normal = |_: &Pattern| kink_pattern::ExecutionTerminalKind::Normal;
+    for (label, program, complete) in [
+        (
+            "identity",
+            support::app("Lblcheck", vec![inj("SortInt", "SortInt", support::int(7))]),
+            false,
+        ),
+        (
+            "canonical",
+            support::app("Lblcheck", vec![support::int(3)]),
+            true,
+        ),
+    ] {
+        let initial = support::initial_state(program, "SortProg");
+        let mut backend = backend(&side, "TV01TERMINAL");
+        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+            .execute(&mut backend, &initial, BUDGET)
+            .expect("event-free execution");
+        let halts = execution
+            .leaves()
+            .iter()
+            .map(|leaf| leaf.halt)
+            .collect::<Vec<_>>();
+        assert_eq!(halts, [HaltClass::Stuck], "{label}: the baseline is stuck");
+        let context = bridge::BridgeContext {
+            test_id: label,
+            classify: &normal,
+            sorts: &sorts,
+        };
+        let bridged = backend
+            .with_solver(None, |definition, solver| {
+                let decider =
+                    kink_native::step_events::ObservationDecider::new(definition, solver, &initial);
+                Ok::<_, BackendError>(bridge::paths_from_execution(
+                    &execution,
+                    &context,
+                    &|term| decider.definition_independent(term),
+                ))
+            })
+            .expect("backend definition")
+            .expect("guarded bridge");
+        let paths = bridged
+            .paths
+            .iter()
+            .map(|path| (path.complete, path.stop, path.execution_terminal.is_some()))
+            .collect::<Vec<_>>();
+        eprintln!("TV01-FIX1 bridge {label}: {paths:?}");
+        let expected = if complete {
+            (true, PathStop::Terminal, true)
+        } else {
+            (false, PathStop::SolverUnknown, false)
+        };
+        assert_eq!(paths, [expected], "{label}");
     }
 }

@@ -4327,6 +4327,259 @@ fn audit_vi_tv01_review_real_difference_still_kills() {
     });
 }
 
+// ---------------------------------------------------------------- TV-01 fix 1: identity injections
+
+/// `inj{From,To}(value)` written by a test.
+fn tv01_inj(from: &str, to: &str, value: Pattern) -> Pattern {
+    k_rust::kompile::initial_configuration::kore_application(
+        "inj",
+        vec![kore_sort(from), kore_sort(to)],
+        vec![value],
+    )
+}
+
+/// Runs the baseline rule `<rule>(7) => done(7)` (`check`, or `sel` with its owise rule
+/// `sel(_) => done(0)`) against the mutant `<rule>(X) => done(7) requires X <op> 7` on each
+/// (state, oracle) row, as its own one-test campaign in Full and FirstKill. The oracles are
+/// those of `tv01_audit` plus `fire`, a step event from `check(X)` to `done(V)` binding `V`.
+fn tv01_fix1_audit(
+    label: &str,
+    rule: &str,
+    op: &str,
+    rows: &[(&str, &str)],
+) -> Vec<((String, String, ScheduleMode), Tv01Audit)> {
+    let fixture = Tv01Terminal::new();
+    let baseline = fixture.validator.baseline();
+    let rule = format!("TV01TERMINAL.{rule}");
+    let patch = Patch::new(vec![
+        replaced(baseline, &rule, &[0, 0, 0], so_var("X", "Int")),
+        replaced(
+            baseline,
+            &rule,
+            &[1],
+            Term::apply(op, vec![so_var("X", "Int"), int_token(7)]),
+        ),
+    ])
+    .expect("patch");
+    let generation = fixed(baseline, &[(rule.as_str(), &[0])], label, &patch);
+    let observation = vec![StepEventSpec {
+        constructor: "fire".into(),
+        pre: support::k_config(
+            app("check", vec![support::var("X", "SortInt")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app("done", vec![support::var("V", "SortVal")]),
+            "SortProg",
+            "R",
+            "C2",
+        )),
+        payload: vec!["V".into()],
+    }];
+    let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+    let state_oracle = |projection| {
+        OracleDeclaration::new(CrashPolicy::CompareIdentity, Projection::State(projection))
+            .expect("oracle")
+    };
+    let oracle = |name: &str| match name {
+        "whole" => whole_term(),
+        "path" => state_oracle(StateProjection::TermPaths(vec![vec![0, 0, 0, 0, 0]])),
+        "exit" => state_oracle(StateProjection::ExitStop {
+            exit_code_cell: None,
+        }),
+        "fire" => binds(&vocabulary, "fire", 0, "V", "SortVal", false),
+        "fire-bind" => binds(&vocabulary, "fire", 0, "V", "SortVal", true),
+        _ => unreachable!("{name}"),
+    };
+    let program = |program: Pattern| support::initial_state(program, "SortProg");
+    let states = [
+        (
+            "inj-same",
+            program(app(
+                "check",
+                vec![tv01_inj("SortInt", "SortInt", support::int(7))],
+            )),
+        ),
+        (
+            "inj-same-done",
+            program(app(
+                "done",
+                vec![tv01_inj(
+                    "SortInt",
+                    "SortVal",
+                    tv01_inj("SortInt", "SortInt", support::int(7)),
+                )],
+            )),
+        ),
+        ("plain7", program(app("check", vec![support::int(7)]))),
+        ("plain3", program(app("check", vec![support::int(3)]))),
+        (
+            "sel-inj-same",
+            program(app(
+                "sel",
+                vec![tv01_inj("SortInt", "SortInt", support::int(7))],
+            )),
+        ),
+        ("sel-plain7", program(app("sel", vec![support::int(7)]))),
+        ("sel-plain3", program(app("sel", vec![support::int(3)]))),
+    ];
+    let mut measured = Vec::new();
+    for (id, oracle_name) in rows {
+        let state = &states
+            .iter()
+            .find(|(state_id, _)| state_id == id)
+            .expect("state")
+            .1;
+        let tests = [case(id, state.clone(), &[oracle(oracle_name)])];
+        let campaign = Campaign {
+            validator: &fixture.validator,
+            module: "TV01TERMINAL",
+            observation: &observation,
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let actual = match run_campaign(&campaign, &generation, mode) {
+                Ok(run) => {
+                    let [mutant] = run.mutants.as_slice() else {
+                        panic!("one mutant")
+                    };
+                    if mutant.report.status != MutantStatus::Killed {
+                        assert!(mutant.report.killing_test_ids.is_empty());
+                    }
+                    Tv01Audit::Ran(
+                        mutant
+                            .plan
+                            .tests
+                            .iter()
+                            .map(|test| format!("{:?}", test.run))
+                            .collect(),
+                        mutant.report.status,
+                    )
+                }
+                Err(error) => Tv01Audit::Refused(error.kind()),
+            };
+            eprintln!("TV01-FIX1 {label} {id} {oracle_name} {mode:?}: {actual:?}");
+            measured.push((((*id).to_owned(), (*oracle_name).to_owned(), mode), actual));
+        }
+    }
+    measured
+}
+
+const TV01_FIX1_ROWS: [(&str, &str); 13] = [
+    ("inj-same", "whole"),
+    ("inj-same", "path"),
+    ("inj-same", "exit"),
+    ("inj-same", "fire"),
+    ("inj-same", "fire-bind"),
+    ("inj-same-done", "whole"),
+    ("inj-same-done", "path"),
+    ("plain7", "whole"),
+    ("plain7", "exit"),
+    ("plain7", "fire"),
+    ("plain3", "whole"),
+    ("plain3", "exit"),
+    ("plain3", "fire"),
+];
+
+/// TV-01 fix 1 (review R1-F1): `check(X) => done(7) requires X ==K 7` is the baseline's
+/// `check(7) => done(7)` on every `Int`. A test-written identity injection
+/// `check(inj{SortInt,SortInt}(7))` is not k-rust normal form (k-rust never builds `inj{S,S}`),
+/// and the baseline matcher leaves it stuck while the mutant's `==K` reaches `done(7)`. Before
+/// the fix the stuck baseline term was a decided terminal (the decider admitted every `inj`):
+/// Compared([Distinguish]), Killed, in both profiles and schedules. A terminal is a value only
+/// if each injection in it is strict (proper subsort, arity 1), well sorted and not nested,
+/// so no row may be Killed. The canonical tests `check(7)` and `check(3)` agree.
+///
+/// Measured in both profiles and both schedules: every `inj-same*` row is refused
+/// (`BaselineOracleFailed`: the test input holds a non-canonical injection, and the baseline
+/// side's stuck terminal is not a value); every `plain*` row runs `[[Agree]]`, Survived.
+#[test]
+fn audit_vi_tv01_fix1_identity_injection_is_not_killed() {
+    with_stack(|| {
+        let measured = tv01_fix1_audit("tv01-fix1-eqk", "check", "_==K_", &TV01_FIX1_ROWS);
+        for ((id, oracle_name, mode), actual) in &measured {
+            assert!(
+                !matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
+                "{id} {oracle_name} {mode:?}: an identity injection kills: {actual:?}"
+            );
+            let expected = if id.starts_with("inj-same") {
+                Tv01Audit::Refused(CampaignFailureKind::BaselineOracleFailed)
+            } else {
+                Tv01Audit::Ran(vec!["Compared([Agree])".into()], MutantStatus::Survived)
+            };
+            assert_eq!(actual, &expected, "{id} {oracle_name} {mode:?}");
+        }
+    });
+}
+
+/// TV-01 fix 1: the same construction against an owise rule, which the terminal rule alone
+/// does not cover. On `sel(inj{SortInt,SortInt}(7))` the baseline's `sel(7)` does not match the
+/// non-canonical argument, so its owise rule gives the constructor term `done(0)`, while the
+/// mutant `sel(X) => done(7) requires X ==K 7` gives `done(7)`: two decided terminals that
+/// differ although the definitions agree on every `Int` (`inj{S,S}(x) = x`). Only refusing the
+/// non-canonical test input closes it. The canonical tests agree.
+///
+/// Measured in both profiles and both schedules: `sel-inj-same` is refused
+/// (`BaselineOracleFailed`); `sel-plain7` and `sel-plain3` run `[[Agree]]`, Survived.
+#[test]
+fn audit_vi_tv01_fix1_identity_injection_against_owise_is_not_killed() {
+    with_stack(|| {
+        let measured = tv01_fix1_audit(
+            "tv01-fix1-sel",
+            "sel",
+            "_==K_",
+            &[
+                ("sel-inj-same", "whole"),
+                ("sel-inj-same", "exit"),
+                ("sel-plain7", "whole"),
+                ("sel-plain3", "whole"),
+            ],
+        );
+        for ((id, oracle_name, mode), actual) in &measured {
+            assert!(
+                !matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
+                "{id} {oracle_name} {mode:?}: an identity injection kills: {actual:?}"
+            );
+            let expected = if id == "sel-inj-same" {
+                Tv01Audit::Refused(CampaignFailureKind::BaselineOracleFailed)
+            } else {
+                Tv01Audit::Ran(vec!["Compared([Agree])".into()], MutantStatus::Survived)
+            };
+            assert_eq!(actual, &expected, "{id} {oracle_name} {mode:?}");
+        }
+    });
+}
+
+/// TV-01 fix 1 control: with `requires X =/=K 7` the mutant really differs on `check(7)`, so
+/// the canonical rows still kill and the construction above is live.
+#[test]
+fn audit_vi_tv01_fix1_real_difference_still_kills() {
+    with_stack(|| {
+        let mut measured = tv01_fix1_audit(
+            "tv01-fix1-control",
+            "check",
+            "_=/=K_",
+            &[("plain7", "whole"), ("plain7", "exit")],
+        );
+        measured.extend(tv01_fix1_audit(
+            "tv01-fix1-sel-control",
+            "sel",
+            "_=/=K_",
+            &[("sel-plain7", "whole"), ("sel-plain3", "whole")],
+        ));
+        for ((id, oracle_name, mode), actual) in &measured {
+            assert!(
+                matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
+                "{id} {oracle_name} {mode:?}: control does not kill: {actual:?}"
+            );
+        }
+    });
+}
+
 // ---------------------------------------------------------------- State-observation coverage and granularity audits
 
 fn so_var(name: &str, sort: &str) -> Term {
