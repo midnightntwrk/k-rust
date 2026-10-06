@@ -63,7 +63,7 @@ A failed scheduled run shows only on the repository's Actions page; `gh run list
 
 The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence"); choose them by the contract a change affects.
 The reference-output cache (below) replays unchanged reference results, so a repeated run costs mostly the krust side.
-The gates build krust and the comparator with Cargo's default features, which download the Z3 release; `KRUST_GATE_Z3=system` builds them with `--no-default-features --features cli` instead, the same features linked to the Z3 the build environment provides (for example under `with-z3-static-4.16.0`).
+The gates build krust and the comparator with Cargo's default features, which download the Z3 release; `KRUST_GATE_Z3=system` builds them with `--no-default-features --features cli` instead, the same features linked to the Z3 the build environment provides (for example under `with-z3-static-4.16.0`); `scripts/backend-smoke.sh` follows the same selection when it builds krust itself (without `KRUST_BIN`).
 `KRUST_GATE_TARGET_DIR` and `KRUST_GATE_INVARIANT_CHECKS` (`scripts/reference-memory-guard.sh`) select the gate krust's target directory and its kompile invariant checks.
 
 | A change to | Run |

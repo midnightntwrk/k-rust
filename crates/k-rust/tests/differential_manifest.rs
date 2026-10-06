@@ -3665,3 +3665,57 @@ fn rpc_gate_request_states_do_not_read_the_callers_standard_input() {
         assert!(!call.contains("--stdin"), "{call}");
     }
 }
+
+/// `scripts/backend-smoke.sh`, when it builds krust itself (no `KRUST_BIN`), acquires Z3 as
+/// `KRUST_GATE_Z3` selects for the gates: `system` builds the same `cli` features without the
+/// release download, and the default keeps Cargo's default features.
+#[test]
+fn backend_smoke_builds_krust_with_the_gates_z3_selection() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (selection, without_download) in [
+        (Some("system"), true),
+        (Some("gh-release"), false),
+        (None, false),
+    ] {
+        let fixture = environment_fixture("backend-smoke");
+        let calls = fixture.join("calls");
+        write_environment_probe(
+            &fixture.join("cargo"),
+            "cargo",
+            r#"printf 'cargo %s\n' "$*" >>"$ENVIRONMENT_CALLS"; exit 3"#,
+        );
+        let path = format!(
+            "{}:{}",
+            fixture.display(),
+            std::env::var("PATH").expect("PATH")
+        );
+        let mut command = Command::new("bash");
+        command
+            .arg(workspace.join("scripts/backend-smoke.sh"))
+            .env("PATH", &path)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env_remove("KRUST_BIN")
+            .env_remove("KRUST_GATE_Z3")
+            .stdin(std::process::Stdio::null());
+        if let Some(selection) = selection {
+            command.env("KRUST_GATE_Z3", selection);
+        }
+        let output = command.output().expect("run backend smoke fixture");
+        let log = fs::read_to_string(&calls).unwrap_or_default();
+        fs::remove_dir_all(&fixture).expect("remove backend smoke fixture");
+        assert_ne!(output.status.code(), Some(0), "the stand-in cargo fails");
+        let cargo = log
+            .lines()
+            .find(|line| line.starts_with("cargo run "))
+            .unwrap_or_else(|| panic!("{selection:?}: no cargo run: {log}"));
+        assert_eq!(
+            cargo.contains(" --no-default-features --features cli "),
+            without_download,
+            "{selection:?}: {cargo}"
+        );
+        assert!(
+            cargo.contains(" -p k-rust --bin krust -- kcompile "),
+            "{cargo}"
+        );
+    }
+}

@@ -2,6 +2,9 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# For KRUST_GATE_Z3, the gates' choice of how the Z3 library is acquired (krust_gate_z3_args);
+# sourcing the file only sets variables and defines functions.
+source "$workspace/scripts/reference-memory-guard.sh"
 work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-backend-smoke.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
@@ -11,7 +14,8 @@ krust() {
   if [[ -n "${KRUST_BIN:-}" ]]; then
     "$KRUST_BIN" "$@"
   else
-    cargo run --quiet --locked --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- "$@"
+    cargo run --quiet --locked --manifest-path "$workspace/Cargo.toml" \
+      "${krust_gate_z3_args[@]}" -p k-rust --bin krust -- "$@"
   fi
 }
 

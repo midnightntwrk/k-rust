@@ -669,7 +669,9 @@ scripts/backend-smoke.sh
 ```
 
 Set `KRUST_BIN` to an existing CLI executable to run the gate without invoking Cargo.
-Without `KRUST_BIN`, the script builds and runs the CLI with the committed Cargo lockfile.
+Without `KRUST_BIN`, the script builds and runs the CLI with the committed Cargo lockfile, acquiring Z3 as
+`KRUST_GATE_Z3` selects for the reference gates (`system` links the Z3 the build environment provides instead of
+downloading the release; [Testing contracts](docs/testing.md#reference-gates-the-conformance-ratchet-and-coverage)).
 Its in-process flows also run on every push as the `backend_smoke_*` tests of `crates/k-rust/tests/cli.rs`;
 the nightly workflow runs the whole script, LLVM half included, with the release CLI.
 
