@@ -1,8 +1,9 @@
 //! Fail-closed native/reference KORE comparison for the complete IMP gate.
 //!
 //! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30).
-//! Its only exclusion beyond metadata and per-sentence alpha normalization is a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
+//! Beyond metadata and per-sentence alpha normalization, it excludes a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
 //! A projector-looking prefix is never sufficient.
+//! It also removes two declared k-rust differences from the reference, N33 and N37 ([`declared_differences`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -13,6 +14,8 @@ use k_rust::kore::ast::{
     Attributes, Module, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
 };
 use k_rust::kore::parser::parse_definition;
+
+mod declared_differences;
 
 const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
 const PROJECTOR_SEPARATOR: &str = "'Coln'";
@@ -86,11 +89,14 @@ pub fn run(
         compare_kore(&reference, &actual, &module_name, &policy)?
     };
     println!(
-        "PASS native KORE: reference={} native={} reference_projector_pairs={} native_projector_pairs={}",
+        "PASS native KORE: reference={} native={} reference_projector_pairs={} native_projector_pairs={} \
+         reference_injective_withheld={} native_transport_rewrites={}",
         report.reference_sentences,
         report.actual_sentences,
         report.reference_projector_pairs,
         report.actual_projector_pairs,
+        report.reference_injective_withheld,
+        report.native_transport_rewrites,
     );
     Ok(())
 }
@@ -120,6 +126,10 @@ pub struct ComparisonReport {
     pub reference_projector_pairs: usize,
     /// Number of removed, closed native projector pairs.
     pub actual_projector_pairs: usize,
+    /// Number of reference equation-head declarations whose `injective` was withheld (k-rust N33).
+    pub reference_injective_withheld: usize,
+    /// Number of native configuration-value transport sentences, alternatives, and reads removed or translated (k-rust N37).
+    pub native_transport_rewrites: usize,
 }
 
 /// A malformed input or a visible KORE comparison difference.
@@ -244,6 +254,10 @@ fn compare_modules(
     mut actual: Module,
     policy: &ComparePolicy,
 ) -> Result<ComparisonReport, CompareError> {
+    let native_transport_rewrites =
+        declared_differences::remove_configuration_value_transport(&reference, &mut actual)?;
+    let reference_injective_withheld =
+        declared_differences::withhold_reference_injective(&mut reference, &actual);
     normalize_module(&mut reference, policy)?;
     normalize_module(&mut actual, policy)?;
     validate_claims(&reference, "reference")?;
@@ -272,6 +286,8 @@ fn compare_modules(
         actual_sentences,
         reference_projector_pairs,
         actual_projector_pairs,
+        reference_injective_withheld,
+        native_transport_rewrites,
     })
 }
 
