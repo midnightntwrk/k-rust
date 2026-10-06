@@ -30,10 +30,12 @@
 //! measured the same way before it is unfolded, and the unfolding is built only when what it
 //! adds fits in the budget of its operation ([`UnfoldingBudget`]).
 //!
-//! Unfolding builds exactly what is measured ([`Expander`]): an argument is unfolded once, only
-//! when the alias keeps a copy of it, and moved into its last copy, so every node it builds is a
-//! node of the result, except the alias applications it enters, which the measure counts too,
-//! with the capture checks of the binders of the bodies it enters.
+//! Unfolding builds what is measured ([`Expander`]): an argument is unfolded once, only when the
+//! alias keeps a copy of it, and moved into its last copy, so every node it builds is a node of
+//! the result, except the alias applications it enters, which the measure counts too, with the
+//! capture checks of the binders of the bodies it enters. The measure counts each name as
+//! written; a binder renamed to avoid capture has a longer name, which the budget counts at its
+//! longest ([`Size::bound`]), so what is built never exceeds what is spent.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,12 +56,12 @@ use crate::definition::DefinitionError;
 /// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes
 /// with one-byte names, on a 64-bit target, so the limit, 2^22 (4,194,304), bounds the unfolded
 /// pattern of one operation to a few hundred MiB at worst, which the internal terms built from it
-/// and every later pass over them multiply. One thing is built larger than it is measured: a
-/// binder renamed to avoid capture gets `Alias` and an index added to its name, and the index
-/// grows with the number of binders of that base renamed in the operation, so a pattern whose
-/// binders, of one-byte names, are all renamed built up to about 3.5 times what it measured
-/// within the limit (3.0 times for 50,000 alias bodies of 16 occurrences each). Time grows
-/// with the size too: unfolding builds nothing it does not count, and the size also counts the
+/// and every later pass over them multiply. A binder renamed to avoid capture gets `Alias` and
+/// an index added to its name, so the size spent counts each name that renaming can lengthen at
+/// the longest index the operation can reach ([`Size::bound`]): what is built never exceeds what
+/// is spent. On renaming shapes the bound is within 10% of what is built; where a body's
+/// one-byte binders could be renamed but are not, it can count up to about 4 times what is built.
+/// Time grows with the size too: unfolding builds nothing it does not count, and the size also counts the
 /// capture checks at the binders of the alias bodies it enters, the one part of its work that is
 /// not proportional to what it builds. Each unit is visited or checked once, with map and set
 /// operations of logarithmic cost, whatever the number of free variables of the arguments. The
@@ -119,6 +121,11 @@ pub(crate) struct AliasDefinition {
 /// body, since an argument is unfolded once and then copied, so this part is built, and checked,
 /// once per entry, however many copies of the result are made.
 ///
+/// Both parts count each name as written. A binder of an alias body is renamed when it would
+/// capture a free variable of an argument, and the fresh name is longer than the written one;
+/// `renamed` counts the copies of the names that renaming can lengthen (each binder of a body and
+/// each variable such a binder binds), so that [`Size::bound`] can add the most they can grow.
+///
 /// The arithmetic saturates: a saturated size exceeds every budget.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Size {
@@ -127,6 +134,7 @@ pub(crate) struct Size {
     sorts: Vec<u64>,
     entered: u64,
     entered_sorts: Vec<u64>,
+    renamed: u64,
 }
 
 impl Size {
@@ -146,10 +154,41 @@ impl Size {
         }
     }
 
-    /// The whole size of a pattern, which has no parameters.
+    /// The whole size of a pattern, which has no parameters, with every name as written: what
+    /// its unfolding builds when it renames no binder.
     fn total(&self) -> u64 {
         self.constant.saturating_add(self.entered)
     }
+
+    /// An upper bound of what the unfolding of a pattern of this size builds, renamed binders
+    /// included, given `body_names`, the number of variable names of all the alias bodies.
+    ///
+    /// A renamed binder is named `{name}Alias{index}` ([`Expander::rename_to_avoid_capture`]),
+    /// so each of the `renamed` names grows by at most `Alias` and the digits of the largest index
+    /// the unfolding can reach. A base name's index only grows through one unfolding, and each
+    /// value below it was either taken by a renamed binder, of which there are at most
+    /// `renamed`, or rejected as the name of a variable already built, of which there are at most
+    /// `total` (each counts at least one unit), or of a variable of the body entered, of which
+    /// there are at most `body_names`. So every index is below the sum of the three.
+    fn bound(&self, body_names: impl FnOnce() -> u64) -> u64 {
+        let total = self.total();
+        if self.renamed == 0 {
+            return total;
+        }
+        let largest_index = self
+            .renamed
+            .saturating_add(total)
+            .saturating_add(body_names());
+        let growth = length("Alias").saturating_add(decimal_digits(largest_index));
+        total.saturating_add(self.renamed.saturating_mul(growth))
+    }
+}
+
+/// The number of decimal digits of `value`.
+fn decimal_digits(value: u64) -> u64 {
+    value
+        .checked_ilog10()
+        .map_or(1, |digits| u64::from(digits) + 1)
 }
 
 /// One part of a [`Size`]: a constant and a coefficient for each sort parameter.
@@ -518,6 +557,7 @@ impl<'a> Frame<'a> {
                 sorts: vec![0; alias.sort_parameters.len()],
                 entered: 0,
                 entered_sorts: vec![0; alias.sort_parameters.len()],
+                renamed: 0,
             },
             written: 0,
             applies_alias: false,
@@ -765,11 +805,19 @@ fn measure_node<'a>(
                 }
                 return Ok(None);
             }
+            // Any other variable of an alias body is bound by a binder of the body (verification
+            // refuses a free one), which renaming can lengthen.
+            if frame.alias.is_some() {
+                add_copies(&mut frame.unfolded.renamed, copies);
+            }
         }
         Pattern::Exists { variable, .. }
         | Pattern::Forall { variable, .. }
         | Pattern::Mu { variable, .. }
         | Pattern::Nu { variable, .. } => {
+            if frame.alias.is_some() {
+                add_copies(&mut frame.unfolded.renamed, copies);
+            }
             frame.binders += 1;
             frame.entered_binders += u64::from(copies > 0);
             frame.pending.push(Visit::Leave);
@@ -895,6 +943,10 @@ fn enter_body(
     body: &Size,
 ) {
     frame.unfolded.body().add_constant(copies, body.constant);
+    add_copies(
+        &mut frame.unfolded.renamed,
+        copies.saturating_mul(body.renamed),
+    );
     let mut part = frame.unfolded.entries();
     part.add_constant(entries, arity);
     part.add_constant(entries, body.entered);
@@ -1207,13 +1259,22 @@ pub(crate) fn expand_within<'p>(
     budget.spend(
         measurement
             .unfolded
-            .total()
+            .bound(|| body_names(aliases))
             .saturating_sub(measurement.written),
     )?;
     let mut expander = Expander::new(aliases);
     expander
         .expand(&mut Scope::pattern(), pattern, 0, false)
         .map(|(unfolded, _)| Cow::Owned(unfolded))
+}
+
+/// The number of variable names of the alias bodies ([`Layout::names`]), which [`Size::bound`]
+/// takes as the most names of alias bodies a fresh-name search can reject.
+fn body_names(aliases: &BTreeMap<String, AliasDefinition>) -> u64 {
+    aliases
+        .values()
+        .map(|alias| u64::try_from(alias.layout.names.len()).unwrap_or(u64::MAX))
+        .fold(0, u64::saturating_add)
 }
 
 /// The free variables of a pattern unfolding built, where unfolding asks for them: `None` when
@@ -1295,7 +1356,8 @@ impl Positions<'_> {
 
 /// Builds the unfolding of a pattern measured by [`unfolded_size`].
 ///
-/// It builds exactly what the measure counts. Arguments are unfolded once, before the body of
+/// It builds what the measure counts, a renamed binder's longer name within [`Size::bound`].
+/// Arguments are unfolded once, before the body of
 /// their alias is entered, and only when the alias keeps a copy ([`Size`]): an argument the body
 /// drops, or only uses under a binder that shadows its parameter, is never unfolded, so nothing
 /// it would have unfolded to is built, and the measurement has already checked it. The unfolded
@@ -2339,6 +2401,60 @@ mod tests {
         );
     }
 
+    /// Each unary connective and binder gives its child the child's own position in the body's
+    /// layout, also when the child's first part has subpatterns of its own. The child here is
+    /// `\and(\and(\top, \top), \exists(Y, \and(X, Y)))`: the binder over the parameter must be
+    /// renamed, since the argument has `Y` free. Given any other position, the child's parts are
+    /// laid over the wrong nodes, and the binder's range falls on a leaf of the first part, where
+    /// no occurrence of `X` lies, so the binder is kept and captures the argument's `Y`. (With a
+    /// first part of one child, as in the body test above, a child one position off lands the
+    /// binder on its own body, whose occurrences are the same.)
+    #[test]
+    fn binders_after_a_nested_sibling_under_every_unary_connective_avoid_capture() {
+        let child = r"\and{T}(\and{T}(\top{T}(), \top{T}()), \exists{T}(Y:T, \and{T}(X:T, Y:T)))";
+        let body = [
+            r"\not{T}(C)",
+            r"\next{T}(C)",
+            r"\ceil{T, T}(C)",
+            r"\floor{T, T}(C)",
+            r"\exists{T}(Z:T, C)",
+            r"\forall{T}(Z:T, C)",
+            r"\mu{}(@Z:T, C)",
+            r"\nu{}(@Z:T, C)",
+        ]
+        .join(", ")
+        .replace('C', child);
+        let aliases = aliases_of(&format!(
+            "[] module MAIN sort S{{}} []
+                alias every{{T}}(T) : T where every{{T}}(X:T) := \\or{{T}}({body}) []
+            endmodule []"
+        ));
+        let mut renamed = 0..;
+        let mut child = || {
+            let name = format!("YAlias{}", renamed.next().unwrap());
+            format!(
+                r"\and{{S{{}}}}(\and{{S{{}}}}(\top{{S{{}}}}(), \top{{S{{}}}}()), \exists{{S{{}}}}({name}:S{{}}, \and{{S{{}}}}(Y:S{{}}, {name}:S{{}})))"
+            )
+        };
+        let expected = [
+            format!(r"\not{{S{{}}}}({})", child()),
+            format!(r"\next{{S{{}}}}({})", child()),
+            format!(r"\ceil{{S{{}}, S{{}}}}({})", child()),
+            format!(r"\floor{{S{{}}, S{{}}}}({})", child()),
+            format!(r"\exists{{S{{}}}}(Z:S{{}}, {})", child()),
+            format!(r"\forall{{S{{}}}}(Z:S{{}}, {})", child()),
+            format!(r"\mu{{}}(@Z:S{{}}, {})", child()),
+            format!(r"\nu{{}}(@Z:S{{}}, {})", child()),
+        ]
+        .join(", ");
+        let application = parse_pattern("every{S{}}(Y:S{})").unwrap();
+        let expected = parse_pattern(&format!(r"\or{{S{{}}}}({expected})")).unwrap();
+        assert_eq!(
+            expand(&application, &aliases).map(Cow::into_owned),
+            Ok(expected)
+        );
+    }
+
     /// The free variables of an argument substituted under a binder are collected through every
     /// connective, from both sides of a binary one, and without the variables its own binders
     /// bind: the body's binder `Y` is renamed exactly when `Y` is free in the argument.
@@ -2445,6 +2561,14 @@ mod tests {
             .map(|measurement| measurement.unfolded.total())
     }
 
+    /// The bound of what unfolding `pattern` builds, renamed binders included ([`Size::bound`]).
+    fn bounded(pattern: &kore::Pattern, aliases: &BTreeMap<String, AliasDefinition>) -> u64 {
+        unfolded_size(Frame::pattern(pattern), aliases, &mut Measured::default())
+            .expect("the pattern should measure")
+            .unfolded
+            .bound(|| body_names(aliases))
+    }
+
     /// What unfolding `pattern`, which must measure without error, builds: the unfolded pattern,
     /// what it built besides (the alias applications it entered, and its capture checks), and the
     /// operations it counted on sets of free variables and fresh names.
@@ -2487,7 +2611,8 @@ mod tests {
     /// `expand` returns and the alias applications it enters: through parameters used several
     /// times or not at all, sort parameters, nested and associative applications, associative
     /// links that the alias drops, and binders that shadow a parameter. (Binders that need
-    /// renaming are left out: the fresh name is longer than the one measured.)
+    /// renaming are left out: the fresh name is longer than the one written, which
+    /// `an_unfolding_spends_at_least_what_its_renamed_binders_add` checks against the bound.)
     #[test]
     fn measures_the_size_of_the_unfolding_without_building_it() {
         let aliases = aliases_of(indoc! {r#"
@@ -3002,17 +3127,100 @@ mod tests {
             let pattern = parse_pattern(&source).unwrap();
             let measured = measured(&pattern, &aliases).unwrap();
             let (unfolded, entered, steps) = unfold(&pattern, &aliases);
-            // A renamed binder is longer than the one measured.
+            let built = size(&unfolded) + entered;
+            // A renamed binder is longer than written; the bound counts that too.
             if renames {
-                assert!(measured < size(&unfolded) + entered, "{shape}");
+                assert!(measured < built, "{shape}");
             } else {
-                assert_eq!(measured, size(&unfolded) + entered, "{shape}");
+                assert_eq!(measured, built, "{shape}");
             }
+            let bound = bounded(&pattern, &aliases);
+            assert!(built <= bound, "{shape}: built {built}, bound {bound}");
             if steps > measured {
                 exceeded.push(format!("{shape}: {steps} steps for {measured}"));
             }
         }
         assert!(exceeded.is_empty(), "{exceeded:#?}");
+    }
+
+    /// What an unfolding spends from its budget bounds what it adds, renamed binders included.
+    /// A renamed binder's name is its base name with `Alias` and an index appended, so the
+    /// binder and every variable it binds are built longer than they are written. An unfolding
+    /// is refused by a budget one unit smaller than what it adds, and spends no less than that
+    /// from a larger one. Shapes: one-byte binders, all renamed, nested in a body entered 8
+    /// times; a chain of renamed binders around an argument whose free variables spell the
+    /// first candidates, which pushes the indices furthest; and 2,000 bodies of 16 binders each.
+    #[test]
+    fn an_unfolding_spends_at_least_what_its_renamed_binders_add() {
+        let module = |aliases: String| {
+            aliases_of(&format!(
+                "[]\nmodule MAIN\n    sort S{{}} []\n{aliases}endmodule []\n"
+            ))
+        };
+        let alias = |name: &str, body: &str| {
+            format!("    alias {name}{{}}(S{{}}) : S{{}} where {name}{{}}(X:S{{}}) := {body} []\n")
+        };
+        let nested = |binders: usize| {
+            format!(
+                "{}X:S{{}}{}",
+                r"\exists{S{}}(Y:S{}, ".repeat(binders),
+                ")".repeat(binders)
+            )
+        };
+        let chain = (0..300)
+            .map(|index| {
+                let body = if index == 299 {
+                    r"\exists{S{}}(Y:S{}, X:S{})".to_owned()
+                } else {
+                    format!("\\exists{{S{{}}}}(Y:S{{}}, c{}{{}}(X:S{{}}))", index + 1)
+                };
+                alias(&format!("c{index}"), &body)
+            })
+            .collect::<String>();
+        let candidates = format!(
+            "\\and{{S{{}}}}(Y:S{{}}, {})",
+            (0..300)
+                .map(|index| format!("YAlias{index}:S{{}}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let cases = [
+            (
+                "nested binders all renamed, entered 8 times",
+                module(alias("c0", &nested(300))),
+                format!("\\and{{S{{}}}}({})", ["c0{}(Y:S{})"; 8].join(", ")),
+            ),
+            (
+                "renamed binders around candidates the argument spells",
+                module(chain),
+                format!("c0{{}}({candidates})"),
+            ),
+            (
+                "2,000 bodies of 16 renamed binders",
+                module(alias("c0", &nested(16))),
+                format!("\\and{{S{{}}}}({})", vec!["c0{}(Y:S{})"; 2_000].join(", ")),
+            ),
+        ];
+        for (shape, aliases, source) in cases {
+            let pattern = parse_pattern(&source).unwrap();
+            let (unfolded, entered, _) = unfold(&pattern, &aliases);
+            let added = size(&unfolded) + entered - size(&pattern);
+            let mut short = UnfoldingBudget {
+                available: added - 1,
+            };
+            assert!(
+                matches!(
+                    expand_within(&pattern, &aliases, &mut short),
+                    Err(DefinitionError::AliasUnfoldingTooLarge { .. })
+                ),
+                "{shape}: a budget of {} admitted an unfolding that adds {added}",
+                added - 1
+            );
+            let mut budget = UnfoldingBudget::new();
+            expand_within(&pattern, &aliases, &mut budget).expect("the unfolding fits the limit");
+            let spent = UNFOLDING_LIMIT - budget.available;
+            assert!(spent >= added, "{shape}: spent {spent} for {added}");
+        }
     }
 
     /// A renamed binder takes the next fresh name of its base name that no variable of its body

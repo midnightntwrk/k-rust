@@ -132,8 +132,13 @@ pub use crate::transition::{PatternDigest, TransitionId};
 pub enum SearchType {
     /// Configurations reached in exactly one semantic rewrite step.
     One,
-    /// Configurations whose `Stuck` step has no successor for any ground instance satisfying
-    /// the state's constraints. A depth bound is reported as an incomplete frontier instead.
+    /// The normal forms of the search's transition system: configurations whose `Stuck` step
+    /// has no successor for any ground instance satisfying the state's constraints.
+    ///
+    /// A depth bound `N` is part of that system: a configuration reached at depth `N` takes no
+    /// step, so it is a normal form of the bounded search and is reported as a result, without
+    /// a rewrite attempt. It is also reported as an [`IncompleteSearch::DepthBound`] entry,
+    /// since it may still have successors without the bound, so the result is not complete.
     Final,
     /// Every reachable configuration, including the initial configuration.
     Star,
