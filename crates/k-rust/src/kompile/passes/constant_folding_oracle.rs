@@ -322,6 +322,9 @@ enum Expect {
     /// The hook is undefined here (`#False` in its documentation, `Bottom` in the backend), so
     /// the fold must leave the application unfolded, as undefined, rather than produce a token.
     Undefined,
+    /// The value is defined and larger than the fold's result bound, so the fold must leave the
+    /// application unfolded as too large.
+    TooLarge,
     /// No oracle covers this case; the fold must still finish without panicking.
     Unchecked,
 }
@@ -508,9 +511,9 @@ fn any_int() -> BoxedStrategy<BigInt> {
     .boxed()
 }
 
-/// Values for an Int parameter the fold reads as a 32-bit unsigned bound: small ones, and the
-/// edges of that bound. `cheap` excludes the accepted edge `2^31 - 1`, for hooks whose result
-/// or intermediate value would then take gigabytes.
+/// Values for a natural-number Int parameter: small ones, negative ones, and the 32- and 64-bit
+/// edges. `cheap` excludes `2^31 - 1`, for hooks whose backend evaluation would then take
+/// gigabytes.
 fn parameter(cheap: bool) -> BoxedStrategy<BigInt> {
     let mut edges = vec![
         big(-1),
@@ -1083,24 +1086,39 @@ fn documented_expectation(hook: &str, arguments: &[Arg]) -> Option<Expect> {
     }
 }
 
-/// `floor(value / 2^index) mod 2^length`, computed by division rather than by bit operations.
-fn bit_range(value: &BigInt, index: usize, length: usize) -> BigInt {
-    let scale = pow2(u32::try_from(index).unwrap());
+/// `floor(value / 2^index)`, computed by division rather than by bit operations; an index of
+/// more bits than the value has leaves 0 or -1.
+fn floor_shift(value: &BigInt, index: &BigInt) -> BigInt {
+    let Some(index) = index
+        .to_u32()
+        .filter(|index| u64::from(*index) <= value.bits())
+    else {
+        return if value.is_negative() { big(-1) } else { big(0) };
+    };
+    let scale = pow2(index);
     let mut quotient = value / &scale;
     if value.is_negative() && !(value % &scale).is_zero() {
         quotient -= 1;
     }
-    let modulus = pow2(u32::try_from(length).unwrap());
+    quotient
+}
+
+/// `quotient mod 2^length` (`None` when that is larger than the fold's result bound), computed
+/// by division.
+fn residue(quotient: &BigInt, length: &BigInt) -> Option<BigInt> {
+    if !quotient.is_negative() && BigInt::from(quotient.bits()) <= *length {
+        return Some(quotient.clone());
+    }
+    let length = length
+        .to_u32()
+        .filter(|length| u64::from(*length) <= MAX_FOLDED_BITS)?;
+    let modulus = pow2(length);
     let remainder = quotient % &modulus;
-    if remainder.is_negative() {
+    Some(if remainder.is_negative() {
         remainder + modulus
     } else {
         remainder
-    }
-}
-
-fn int_parameter(value: &BigInt) -> Option<usize> {
-    value.to_usize().filter(|value| *value <= i32::MAX as usize)
+    })
 }
 
 fn search(hook: &str, haystack: &str, needles: &str, index: usize) -> i64 {
@@ -1258,26 +1276,29 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
     }
     match hook {
         "INT.bitRange" | "INT.signExtendBitRange" => {
-            let (Some(index), Some(length)) = (
-                int_parameter(arguments[1].int()),
-                int_parameter(arguments[2].int()),
-            ) else {
+            let (index, length) = (arguments[1].int(), arguments[2].int());
+            // `domains.md`: (I >>Int IDX) modInt (1 <<Int LEN), undefined for a negative shift.
+            if index.is_negative() || length.is_negative() {
                 return Expect::Undefined;
-            };
-            let unsigned = bit_range(arguments[0].int(), index, length);
+            }
+            let quotient = floor_shift(arguments[0].int(), index);
             if hook == "INT.bitRange" {
-                return value(Out::Int(unsigned));
+                return residue(&quotient, length)
+                    .map_or(Expect::TooLarge, |unsigned| value(Out::Int(unsigned)));
             }
             // `domains.md`: (bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1))) modInt
-            // (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1)), where a shift by -1 is undefined.
-            let Some(half) = length
-                .checked_sub(1)
-                .map(|bits| pow2(u32::try_from(bits).unwrap()))
-            else {
+            // (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1)), where a shift by -1 is undefined: the
+            // residue of I >>Int IDX in [-2^(LEN - 1), 2^(LEN - 1)).
+            if length.is_zero() {
                 return Expect::Undefined;
-            };
-            let modulus = pow2(u32::try_from(length).unwrap());
-            value(Out::Int((unsigned + &half) % modulus - half))
+            }
+            if BigInt::from(quotient.bits()) < *length {
+                return value(Out::Int(quotient));
+            }
+            let length = length.to_u32().unwrap();
+            let half = pow2(length - 1);
+            let shifted = residue(&(quotient + &half), &BigInt::from(length)).unwrap();
+            value(Out::Int(shifted - half))
         }
         "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => {
             let haystack = arguments[0].str();
@@ -1292,10 +1313,8 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
             let count = match hook {
                 "STRING.replaceAll" => usize::MAX,
                 "STRING.replaceFirst" => 1,
-                _ => match int_parameter(arguments[3].int()) {
-                    Some(count) => count,
-                    None => return Expect::Undefined,
-                },
+                _ if arguments[3].int().is_negative() => return Expect::Undefined,
+                _ => arguments[3].int().to_usize().unwrap_or(usize::MAX),
             };
             let (haystack, needle, replacement) =
                 (arguments[0].str(), arguments[1].str(), arguments[2].str());
@@ -1304,8 +1323,10 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
                 // the whole haystack, so an empty needle inserts the replacement `count` times
                 // in front; `replaceAll` counts the occurrences first, which for an empty needle
                 // does not terminate.
+                let bytes = (count as u128) * (replacement.len() as u128) + haystack.len() as u128;
                 return match hook {
                     "STRING.replaceAll" => Expect::Unchecked,
+                    _ if bytes * 8 > u128::from(MAX_FOLDED_BITS) => Expect::TooLarge,
                     _ => value(Out::Str(
                         format!("{}{haystack}", replacement.repeat(count)).into_bytes(),
                     )),
@@ -1435,11 +1456,7 @@ fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
 
 /// Cases where the fold leaves the application unfolded although the backend computes a value.
 fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
-    let beyond_bound = |argument: &Arg| *argument.int() > BigInt::from(i32::MAX);
     match hook {
-        // The fold reads exponents and shift amounts as at most 2^31 - 1 and rejects larger
-        // ones, where the backend still computes the results that stay small (0 >>Int 2^31).
-        "INT.pow" | "INT.shl" | "INT.shr" => beyond_bound(&arguments[1]),
         // `domains.md`: substrString is only defined on indices 0 <= start <= end <= length.
         // The backend clamps the others, the fold rejects them.
         "STRING.substr" => {
@@ -1550,6 +1567,12 @@ fn check_case(
             ));
         }
         (Expect::Undefined, Err(Unfolded::Undefined(_))) => tally.undefined += 1,
+        (Expect::TooLarge, Err(Unfolded::TooLarge(_))) => tally.too_large += 1,
+        (Expect::TooLarge, folded) => {
+            return Err(format!(
+                "the fold gives {folded:?} where the value is larger than the result bound"
+            ));
+        }
         // The fold does not compute with parameters above 2^31 - 1, defined or not.
         (Expect::Undefined, Err(Unfolded::Unsupported(_)))
             if arguments.iter().any(

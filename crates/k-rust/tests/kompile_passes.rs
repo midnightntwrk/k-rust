@@ -3278,20 +3278,13 @@ fn constant_folded_right_hand_side(source: &str) -> Term {
         .unwrap()
 }
 
-/// Constant folding replaces an application only by a token denoting its value. A shift by a
-/// negative amount is undefined (`domains.md`), and the fold does not compute shifts by more than
-/// 2^31 - 1; both stay as written for execution, and the definition still compiles.
+/// `I >>Int N` is the floor of I / 2^N for every natural N, so `0 >>Int N` folds to 0 however
+/// large N is. A shift by a negative amount is undefined (`domains.md`); no token denotes it, so
+/// it stays as written for execution, and the definition still compiles.
 #[test]
-fn leaves_shifts_it_does_not_compute_unfolded() {
+fn folds_right_shifts_by_any_natural_amount() {
     let control =
         include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/control.k");
-    assert_eq!(
-        constant_folded_right_hand_side(control),
-        Term::Token {
-            token: "0".into(),
-            sort: Sort::new("Int"),
-        }
-    );
     assert_eq!(
         constant_folded_right_hand_side(&control.replace("0 >>Int 2147483647", "8 >>Int 1")),
         Term::Token {
@@ -3299,17 +3292,29 @@ fn leaves_shifts_it_does_not_compute_unfolded() {
             sort: Sort::new("Int"),
         }
     );
-
-    let negative =
-        include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/test.k");
-    for value in ["-1", "2147483648", "4294967295", "4294967296"] {
-        let right = constant_folded_right_hand_side(&negative.replace("2147483648", value));
+    let shifted = include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/test.k");
+    for value in [
+        "2147483647",
+        "2147483648",
+        "4294967295",
+        "4294967296",
+        "18446744073709551616",
+    ] {
         assert_eq!(
-            Printer::new().print_term(&right),
-            format!("shrInt(#token(\"0\",\"Int\"),#token(\"{value}\",\"Int\"))"),
+            constant_folded_right_hand_side(&shifted.replace("2147483648", value)),
+            Term::Token {
+                token: "0".into(),
+                sort: Sort::new("Int"),
+            },
             "0 >>Int {value}"
         );
     }
+    assert_eq!(
+        Printer::new().print_term(&constant_folded_right_hand_side(
+            &shifted.replace("2147483648", "-1")
+        )),
+        r#"shrInt(#token("0","Int"),#token("-1","Int"))"#
+    );
 }
 
 /// A folded value is part of the emitted definition, so the fold writes none above 2^20 bits, the
