@@ -815,6 +815,47 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
     }
 }
 
+/// The I/O mode and the standard input are part of the initial configuration of a definition
+/// that declares `$IO` or `$STDIN`, so the two sides of an execution comparison are comparable
+/// only from the same values, and with real I/O a result would depend on the process's
+/// streams. Every run of the execution gate, program, search and any alike, therefore gives
+/// both krust and the reference krun `--io off` and an empty standard input (`</dev/null`).
+#[test]
+fn execution_gate_runs_both_sides_with_io_off_on_empty_input() {
+    let krust_invocations = execution_gate_krust_krun_invocations(EXECUTION_SCRIPT);
+    assert_eq!(
+        krust_invocations.len(),
+        3,
+        "one krust krun invocation each for the programs, the searches, and the any runs"
+    );
+    for invocation in krust_invocations {
+        assert!(
+            invocation.contains("--io off") && invocation.trim_end().ends_with("</dev/null"),
+            "a krust run of the execution gate must start with I/O off on empty input:\n{invocation}"
+        );
+    }
+    let reference_invocations = EXECUTION_SCRIPT
+        .split("run_reference_krun ")
+        .skip(1)
+        .filter_map(|call| {
+            let end = call.find("--output kore")?;
+            let rest = &call[end + "--output kore".len()..];
+            Some((&call[..end], rest.lines().next().unwrap_or_default()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reference_invocations.len(),
+        3,
+        "one reference krun invocation each for the programs, the searches, and the any runs"
+    );
+    for (invocation, redirection) in reference_invocations {
+        assert!(
+            invocation.contains("--io off") && redirection.trim() == "</dev/null",
+            "a reference run of the execution gate must start with I/O off on empty input:\n{invocation}--output kore{redirection}"
+        );
+    }
+}
+
 #[test]
 fn every_gate_rejects_unknown_cases_before_validating_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
