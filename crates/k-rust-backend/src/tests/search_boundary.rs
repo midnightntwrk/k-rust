@@ -1,9 +1,11 @@
 //! Boundary contracts of path search (`crate::search::search_paths`): what each budget bound,
-//! a cancelled request, and a state the search cannot explore leave in the result.
+//! a stop in each phase of a state's exploration, and a state the search cannot explore leave
+//! in the result.
 //!
 //! The definitions are chains of constructors, `a => b => c` with `c` stuck, so every state
 //! has exactly one successor (or none) and every path is the one through the chain: what a
-//! bound leaves behind is read off the depth.
+//! bound leaves behind is read off the depth. A stop is raised by a solver the first time a
+//! phase asks it about the function `g`, so the state chosen decides which phase sees it.
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
@@ -13,7 +15,7 @@ use crate::{
     rule::Predicate,
     search::{
         IncompleteSearch, PathSearchResult, SearchEnd, SearchOptions, SearchState, SearchType,
-        search_paths,
+        Truncation, search_paths,
     },
     simplify::SimplificationError,
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
@@ -23,10 +25,14 @@ use crate::{
     term::{Term, TermKind},
 };
 
-/// `a => b => c`, `m => macroed` and `p => q` ensuring `g(q) = q`, over constructors `a`, `b`,
-/// `c`, `m`, `p` and `q`, a macro symbol `macroed`, a total function `g` without equations, and
-/// `unsupported(\dv)`, an application of a hooked function whose hook the backend
-/// does not implement and which has no equations.
+/// `a => b => c`, `m => macroed`, `p => q` ensuring `g(q) = q`, and `t => c`, `t => macroed`,
+/// over constructors `a`, `b`, `c`, `m`, `p`, `q` and `t`, a macro symbol `macroed`, a total
+/// function `g` without equations, and `unsupported(\dv)`, an application of a hooked function
+/// whose hook the backend does not implement and which has no equations.
+///
+/// Two equations are guarded by `g(X) = X`, which nothing decides, so simplifying what they
+/// apply to asks the solver about `g`: `f(X) = c`, of a total function `f`, and `\ceil(pf(X))`,
+/// the definedness of a partial function `pf` without equations of its own.
 fn definition() -> BackendDefinition {
     let rule = |label: &str, left: &str, right: &str| {
         format!(
@@ -51,11 +57,24 @@ fn definition() -> BackendDefinition {
                 symbol p{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol q{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                symbol t{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                symbol pf{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), X:SortS{{}}), \top{{R}}()),
+                    \equals{{SortS{{}}, R}}(f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(c{{}}(), \top{{SortS{{}}}}()))
+                ) [label{{}}("f-c"), simplification{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), X:SortS{{}}), \top{{R}}()),
+                    \equals{{R, R}}(\ceil{{SortS{{}}, R}}(pf{{}}(X:SortS{{}})), \top{{R}}())
+                ) [label{{}}("pf-defined")]
                 hooked-symbol unsupported{{}}(SortV{{}}) : SortS{{}}
                     [function{{}}(), total{{}}(), hook{{}}("TEST.unimplemented")]
                 {a_b}
                 {b_c}
                 {m_macroed}
+                {t_c}
+                {t_macroed}
                 axiom{{}} \rewrites{{SortS{{}}}}(
                     \and{{SortS{{}}}}(p{{}}(), \top{{SortS{{}}}}()),
                     \and{{SortS{{}}}}(q{{}}(), \equals{{SortS{{}}, SortS{{}}}}(g{{}}(q{{}}()), q{{}}()))
@@ -64,6 +83,8 @@ fn definition() -> BackendDefinition {
         a_b = rule("a-b", "a{}()", "b{}()"),
         b_c = rule("b-c", "b{}()", "c{}()"),
         m_macroed = rule("m-macroed", "m{}()", "macroed{}()"),
+        t_c = rule("t-c", "t{}()", "c{}()"),
+        t_macroed = rule("t-macroed", "t{}()", "macroed{}()"),
     );
     let syntax = parse_definition(&source).expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
@@ -289,7 +310,10 @@ fn a_successor_with_a_surviving_macro_is_an_indeterminate_entry() {
 }
 
 /// A state whose constraints simplify to false has no instance: it is no result, it leaves no
-/// incomplete entry, and the search over it is complete.
+/// incomplete entry, and the search over it is complete. That holds at a depth bound too: a
+/// state with no instance has no successor that the bound could hide, so it is no `DepthBound`
+/// frontier, in the path search and in the state-set search alike. (Its definedness facts are
+/// empty, so the initial-state emptiness check does not refute it; the constraints do.)
 #[test]
 fn a_state_with_contradictory_constraints_is_no_result_and_leaves_nothing_behind() {
     let definition = definition();
@@ -300,10 +324,27 @@ fn a_state_with_contradictory_constraints_is_no_result_and_leaves_nothing_behind
             term(&definition, "c{}()"),
         )],
     };
-    let result = search_paths(&definition, initial, options(SearchType::Star, u64::MAX));
-    assert!(result.witnesses.is_empty(), "{result:?}");
-    assert!(result.incomplete.is_empty(), "{result:?}");
-    assert!(result.is_complete(), "{result:?}");
+    for search_type in [SearchType::Star, SearchType::Final] {
+        for max_depth in [0, u64::MAX] {
+            let case = format!("{search_type:?} to depth {max_depth}");
+            let result = search_paths(
+                &definition,
+                initial.clone(),
+                options(search_type, max_depth),
+            );
+            assert!(result.witnesses.is_empty(), "{case}: {result:?}");
+            assert!(result.incomplete.is_empty(), "{case}: {result:?}");
+            assert!(result.is_complete(), "{case}: {result:?}");
+            let states = crate::search::search_graph(
+                &definition,
+                initial.clone(),
+                options(search_type, max_depth),
+            );
+            assert!(states.states.is_empty(), "{case}: {states:?}");
+            assert!(states.incomplete.is_empty(), "{case}: {states:?}");
+            assert!(states.is_complete(), "{case}: {states:?}");
+        }
+    }
 }
 
 /// When simplifying a state fails, whether in its term or in its constraints, the state's
@@ -409,5 +450,321 @@ fn a_request_cancelled_midway_keeps_the_results_retained_before_it() {
     };
     assert_eq!(state_summary(state), ("p".to_owned(), 0));
     assert_eq!(cause, &StopCause::Cancelled);
+    assert_eq!(result.end, SearchEnd::Stopped(StopCause::Cancelled));
+}
+
+/// Whether some predicate of `predicates` mentions the symbol `g`.
+fn mentions_g(predicates: &[Predicate]) -> bool {
+    let mut mentions = false;
+    for predicate in predicates {
+        predicate.visit_terms(&mut |term| {
+            term.visit_symbols(&mut |symbol| mentions |= symbol.name.as_ref() == "g");
+        });
+    }
+    mentions
+}
+
+/// What a [`StopOnG`] solver raises the first time it is asked about `g`.
+enum Raise {
+    /// Cancel the request: a stop that ends the search.
+    Cancel(CancellationToken),
+    /// Arm a step deadline that has already passed: a stop that ends only the work observing
+    /// it. It stays armed until the solver is dropped, as a deadline a caller arms around a whole
+    /// search does.
+    Deadline(std::cell::RefCell<Option<crate::stop::DeadlineGuard>>),
+}
+
+/// A solver that raises a stop the first time it is asked about a predicate that mentions `g`
+/// and, like a solver that polls while it works, reports every raised stop from then on as its
+/// answer, so the stop arrives in the phase of the search that asked.
+struct StopOnG(Raise);
+
+const PASSED: crate::timeout::StepTimeoutMode =
+    crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO);
+
+impl StopOnG {
+    fn cancel(token: &CancellationToken) -> Self {
+        Self(Raise::Cancel(token.clone()))
+    }
+
+    fn deadline() -> Self {
+        Self(Raise::Deadline(std::cell::RefCell::new(None)))
+    }
+
+    fn observe(&self, predicates: &[&[Predicate]]) -> Stoppable<()> {
+        if predicates.iter().any(|predicates| mentions_g(predicates)) {
+            match &self.0 {
+                Raise::Cancel(token) => token.cancel(),
+                Raise::Deadline(armed) => {
+                    armed.borrow_mut().get_or_insert_with(|| {
+                        crate::stop::arm_deadline(std::time::Instant::now(), PASSED)
+                    });
+                }
+            }
+        }
+        crate::stop::check()
+    }
+}
+
+impl SmtSolver for StopOnG {
+    fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        self.observe(&[predicates])?;
+        Ok(Ok(Satisfiability::Sat))
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        self.observe(&[known, checked])?;
+        Ok(Ok(Validity::Contingent))
+    }
+}
+
+/// `term` under `constraints`, each a pair of terms stated equal.
+fn constrained(
+    definition: &BackendDefinition,
+    term_source: &str,
+    equal: &[(&str, &str)],
+) -> Pattern {
+    Pattern {
+        term: term(definition, term_source),
+        constraints: equal
+            .iter()
+            .map(|(left, right)| Predicate::Equals(term(definition, left), term(definition, right)))
+            .collect(),
+    }
+}
+
+/// A request cancelled during any phase of exploring a state lists that state, as it stood
+/// before the phase, as the one `Stopped` entry, retains no result, and ends the search. The
+/// phases are told apart by where the first question about `g` comes from: simplifying the
+/// constraint `f(c) = c` (the equation for `f` is guarded by `g(c) = c`), simplifying the term
+/// `pair(a, f(c))`, or deciding whether the initial state `pair(a, pf(c))` is empty, whose
+/// definedness fact `\ceil(pf(c))` only the guarded `\ceil` equation decides.
+#[test]
+fn a_request_cancelled_while_a_state_is_simplified_or_checked_stops_at_that_state() {
+    let definition = definition();
+    for (phase, initial) in [
+        (
+            "constraint simplification",
+            constrained(&definition, "a{}()", &[("f{}(c{}())", "c{}()")]),
+        ),
+        (
+            "term simplification",
+            pattern(&definition, "pair{}(a{}(), f{}(c{}()))"),
+        ),
+        (
+            "initial-state emptiness",
+            pattern(&definition, "pair{}(a{}(), pf{}(c{}()))"),
+        ),
+    ] {
+        let token = CancellationToken::new();
+        let solver = StopOnG::cancel(&token);
+        let result = token.scope(|| {
+            crate::search::search_paths_with_solver(
+                &definition,
+                initial.clone(),
+                options(SearchType::Star, u64::MAX),
+                &solver,
+            )
+        });
+        assert!(
+            token.is_cancelled(),
+            "{phase}: the solver was asked about g"
+        );
+        assert!(result.witnesses.is_empty(), "{phase}: {result:?}");
+        let [IncompleteSearch::Stopped { state, cause }] = result.incomplete.as_slice() else {
+            panic!("{phase}: expected one stopped entry, found {result:?}");
+        };
+        assert_eq!(state.depth, 0, "{phase}");
+        assert_eq!(state.pattern, initial, "{phase}");
+        assert_eq!(cause, &StopCause::Cancelled, "{phase}");
+        assert_eq!(
+            result.end,
+            SearchEnd::Stopped(StopCause::Cancelled),
+            "{phase}"
+        );
+    }
+}
+
+/// A stop while a state is externalised as a result leaves that result unknown. A cancellation
+/// ends the search there: the state is the one `Stopped` entry and is not stepped. A step
+/// deadline ends only the work that observed it: the state is still explored, so its step,
+/// which polls the same passed deadline, is listed too, and the search goes on to its end. The
+/// constraint `g(c) = c` is first asked about by the externalisation, which simplifies the
+/// result with the solver.
+#[test]
+fn a_stop_while_a_result_is_externalised_ends_the_search_only_when_it_ends_the_request() {
+    let definition = definition();
+    let initial = constrained(&definition, "a{}()", &[("g{}(c{}())", "c{}()")]);
+
+    let token = CancellationToken::new();
+    let solver = StopOnG::cancel(&token);
+    let result = token.scope(|| {
+        crate::search::search_paths_with_solver(
+            &definition,
+            initial.clone(),
+            options(SearchType::Star, u64::MAX),
+            &solver,
+        )
+    });
+    assert!(result.witnesses.is_empty(), "{result:?}");
+    let [IncompleteSearch::Stopped { state, cause }] = result.incomplete.as_slice() else {
+        panic!("expected one stopped entry, found {result:?}");
+    };
+    assert_eq!(state_summary(state), ("a".to_owned(), 0));
+    assert_eq!(cause, &StopCause::Cancelled);
+    assert_eq!(result.end, SearchEnd::Stopped(StopCause::Cancelled));
+
+    let solver = StopOnG::deadline();
+    let result = crate::search::search_paths_with_solver(
+        &definition,
+        initial,
+        options(SearchType::Star, u64::MAX),
+        &solver,
+    );
+    assert!(result.witnesses.is_empty(), "{result:?}");
+    let stopped = result
+        .incomplete
+        .iter()
+        .map(|entry| match entry {
+            IncompleteSearch::Stopped { state, cause } => (state_summary(state), cause.clone()),
+            other => panic!("expected only stopped entries, found {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    let a = ("a".to_owned(), 0);
+    assert_eq!(
+        stopped,
+        [
+            (a.clone(), StopCause::Deadline(PASSED)),
+            (a, StopCause::Deadline(PASSED))
+        ],
+        "the result's externalisation, then the state's step"
+    );
+    assert!(matches!(result.end, SearchEnd::Exhausted(_)), "{result:?}");
+    assert!(!result.is_complete());
+}
+
+/// A `Final` search externalises a stuck state as its result; a step deadline that passes
+/// there leaves that result unknown, lists the state as `Stopped`, and does not end the search,
+/// which ends exhausted. Only the stuck `c` asks the solver about `g(c) = c`: the states before
+/// it are not results.
+#[test]
+fn a_deadline_while_a_stuck_result_is_externalised_ends_only_that_result() {
+    let definition = definition();
+    let solver = StopOnG::deadline();
+    let result = crate::search::search_paths_with_solver(
+        &definition,
+        constrained(&definition, "a{}()", &[("g{}(c{}())", "c{}()")]),
+        options(SearchType::Final, u64::MAX),
+        &solver,
+    );
+    assert!(result.witnesses.is_empty(), "{result:?}");
+    let [IncompleteSearch::Stopped { state, cause }] = result.incomplete.as_slice() else {
+        panic!("expected one stopped entry, found {result:?}");
+    };
+    assert_eq!(state_summary(state), ("c".to_owned(), 2));
+    assert_eq!(cause, &StopCause::Deadline(PASSED));
+    assert!(matches!(result.end, SearchEnd::Exhausted(_)), "{result:?}");
+}
+
+/// The result bound of a pattern search reached on the last path the search holds: what is left
+/// is the matched state's own continuation. `b` can still step, so its successors are unexplored
+/// work and the search ends at the result bound; `c` cannot, under `Star` (it would be stepped
+/// and found stuck) or `Final` (it is stuck), so the search is exhausted at the bound and
+/// complete.
+#[test]
+fn a_result_bound_reached_on_the_last_path_ends_the_search_only_if_the_match_can_step() {
+    let definition = definition();
+    for (search_type, target, exhausted) in [
+        (SearchType::Star, "b{}()", false),
+        (SearchType::Star, "c{}()", true),
+        (SearchType::Final, "c{}()", true),
+    ] {
+        let result = crate::search::search_pattern_paths(
+            &definition,
+            pattern(&definition, "a{}()"),
+            &pattern(&definition, target),
+            SearchOptions {
+                max_results: Some(1),
+                ..options(search_type, u64::MAX)
+            },
+        );
+        let case = format!("{search_type:?} for {target}: {result:?}");
+        assert_eq!(result.matches.len(), 1, "{case}");
+        assert!(result.incomplete.is_empty(), "{case}");
+        if exhausted {
+            assert!(matches!(result.end, SearchEnd::Exhausted(_)), "{case}");
+            assert!(result.is_complete(), "{case}");
+        } else {
+            assert!(
+                matches!(
+                    result.end,
+                    SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+                ),
+                "{case}"
+            );
+            assert!(!result.is_complete(), "{case}");
+        }
+    }
+}
+
+/// A cancellation that a target-pattern match observes is listed with the matched state, whose
+/// exploration it does not end; the search ends at the next path's poll, which comes before
+/// anything else that path does. Here `t` has the successors `c` and `macroed` at the depth
+/// bound 1. Matching `c` against `X` with `g(X) = X` asks the solver about `g` and cancels the
+/// request; `c` is at the bound, so the next path is `macroed`, which the poll lists as
+/// `Stopped`, and the search ends `Stopped`. Were that path's surviving macro looked at first,
+/// it would be `Indeterminate` and the search would end exhausted, as if no cancellation came.
+#[test]
+fn a_cancellation_a_match_observes_stops_the_next_path_before_anything_else() {
+    let definition = definition();
+    let token = CancellationToken::new();
+    let solver = StopOnG::cancel(&token);
+    let target = Pattern {
+        term: term(&definition, "X:SortS{}"),
+        constraints: vec![Predicate::Equals(
+            term(&definition, "g{}(X:SortS{})"),
+            term(&definition, "X:SortS{}"),
+        )],
+    };
+    let result = token.scope(|| {
+        crate::search::search_pattern_paths_with_solver(
+            &definition,
+            pattern(&definition, "t{}()"),
+            &target,
+            options(SearchType::Plus, 1),
+            &solver,
+        )
+    });
+    assert!(result.matches.is_empty(), "{result:?}");
+    let entries = result
+        .incomplete
+        .iter()
+        .map(|entry| match entry {
+            IncompleteSearch::DepthBound(state) => ("depth bound", state_summary(state)),
+            IncompleteSearch::Stopped {
+                state,
+                cause: StopCause::Cancelled,
+            } => ("cancelled", state_summary(state)),
+            other => panic!("unexpected entry {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries,
+        [
+            ("depth bound", ("c".to_owned(), 1)),
+            ("cancelled", ("macroed".to_owned(), 1)),
+            ("cancelled", ("c".to_owned(), 1)),
+        ],
+        "the traversal's entries, then the match's"
+    );
     assert_eq!(result.end, SearchEnd::Stopped(StopCause::Cancelled));
 }
