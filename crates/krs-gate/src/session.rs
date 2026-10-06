@@ -32,14 +32,6 @@ fn required_string<'a>(request: &'a Value, key: &str) -> Result<&'a str, Box<dyn
         .ok_or_else(|| format!("request field `{key}` must be a string").into())
 }
 
-fn pattern_json(source: &str) -> Result<Value, Box<dyn Error>> {
-    let pattern = parse_pattern(source)?;
-    let source = kore_json::to_string(&pattern)?;
-    let mut deserializer = serde_json::Deserializer::from_str(&source);
-    deserializer.disable_recursion_limit();
-    Ok(Value::deserialize(&mut deserializer)?)
-}
-
 fn execute(
     backend: &mut Backend,
     request: &Value,
@@ -52,19 +44,15 @@ fn execute(
                 .ok_or("request field `max_depth` must be an unsigned integer or null")?,
         ),
     };
-    let max_simplification_iterations =
-        match request.get("max_simplification_iterations") {
-            None => ExecuteRequest::default().max_simplification_iterations,
-            Some(value) => usize::try_from(value.as_u64().ok_or(
+    let mut execute = ExecuteRequest::new(parse_pattern(required_string(request, "pattern")?)?);
+    execute.max_depth = max_depth;
+    if let Some(value) = request.get("max_simplification_iterations") {
+        execute.max_simplification_iterations =
+            usize::try_from(value.as_u64().ok_or(
                 "request field `max_simplification_iterations` must be an unsigned integer",
-            )?)?,
-        };
-    let mut result = backend.execute(ExecuteRequest {
-        state: pattern_json(required_string(request, "pattern")?)?,
-        max_depth,
-        max_simplification_iterations,
-        ..ExecuteRequest::default()
-    })?;
+            )?)?;
+    }
+    let mut result = backend.execute(execute)?;
     if !request
         .get("trace")
         .and_then(Value::as_bool)
@@ -125,12 +113,10 @@ fn search(
             })?)),
         }
     };
-    let result = backend.search(SearchRequest {
-        state: pattern_json(required_string(request, "pattern")?)?,
-        max_depth: limit("max_depth")?,
-        max_results: limit("max_results")?.map(usize::try_from).transpose()?,
-        ..SearchRequest::default()
-    })?;
+    let mut search = SearchRequest::new(parse_pattern(required_string(request, "pattern")?)?);
+    search.max_depth = limit("max_depth")?;
+    search.max_results = limit("max_results")?.map(usize::try_from).transpose()?;
+    let result = backend.search(search)?;
     if request.get("keep").is_some() {
         if result.states.len() != 1 {
             return Err(format!(

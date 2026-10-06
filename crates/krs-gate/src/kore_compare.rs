@@ -568,9 +568,12 @@ fn first_bound_occurrence(pattern: &Pattern, target: &Variable) -> Option<usize>
             Pattern::Exists { variable, body, .. }
             | Pattern::Forall { variable, body, .. }
             | Pattern::Mu { variable, body }
-            | Pattern::Nu { variable, body } => {
-                walk(body, target, position, shadowed || variable == target)
-            }
+            | Pattern::Nu { variable, body } => walk(
+                body,
+                target,
+                position,
+                shadowed || variable.as_ref() == target,
+            ),
             Pattern::String(_)
             | Pattern::Top { .. }
             | Pattern::Bottom { .. }
@@ -1081,7 +1084,7 @@ mod tests {
                     sort: Sort::Variable("R".to_owned()),
                 }),
                 right: Box::new(Pattern::Equals {
-                    operand_sort: sort(),
+                    operand_sort: Box::new(sort()),
                     result_sort: Sort::Variable("R".to_owned()),
                     left: Box::new(application(
                         name,
@@ -1206,10 +1209,10 @@ mod tests {
         );
         let prefix = |outer: Variable, inner: Variable| Pattern::Exists {
             sort: sort(),
-            variable: outer,
+            variable: Box::new(outer),
             body: Box::new(Pattern::Exists {
                 sort: sort(),
-                variable: inner,
+                variable: Box::new(inner),
                 body: Box::new(body.clone()),
             }),
         };
@@ -1235,10 +1238,10 @@ mod tests {
         };
         let prefix = |outer: Variable, inner: Variable, body: Pattern| Pattern::Exists {
             sort: sort(),
-            variable: outer,
+            variable: Box::new(outer),
             body: Box::new(Pattern::Exists {
                 sort: sort(),
-                variable: inner,
+                variable: Box::new(inner),
                 body: Box::new(body),
             }),
         };
@@ -1274,10 +1277,10 @@ mod tests {
         };
         let prefix = |outer: Variable, inner: Variable| Pattern::Exists {
             sort: sort(),
-            variable: outer,
+            variable: Box::new(outer),
             body: Box::new(Pattern::Exists {
                 sort: sort(),
-                variable: inner,
+                variable: Box::new(inner),
                 body: Box::new(Pattern::Variable(variable("Used"))),
             }),
         };
@@ -1334,7 +1337,7 @@ mod tests {
             };
             Pattern::Exists {
                 sort: sort(),
-                variable: variable.clone(),
+                variable: Box::new(variable.clone()),
                 body: Box::new(application(name, vec![Pattern::Variable(variable)])),
             }
         }
