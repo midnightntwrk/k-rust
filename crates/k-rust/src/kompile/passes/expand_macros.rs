@@ -2,7 +2,7 @@
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
 //! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Expander::shape", "Expander::measure", "Expander::settled_parts", "Identities::identify", "Chain::repeats"]
-//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = retries of applications whose rule set has a head fixing a sort parameter; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = applications recorded for a retry over the sentence: one per failed try of an application whose rule set has a head fixing a sort parameter, and one per macro-headed proper ancestor (at most h) of each retry that rewrites; G = nodes of the largest application recorded for a retry, at most N; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 //! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits", "KompileMacroMeasuredNodes", "KompileMacroSubjectWalks"]
 //!
 //! [[cost]]
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one sentence, some macro rule with a parametric head (typed in place)"
-//! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + Y x S)"
+//! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h + R + G))"
 //!
 //! [[cost]]
 //! mode = "Expander construction per module"
@@ -22,7 +22,9 @@
 //! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings.
 //! One walk finds the settled parts of the sentence (`Expander::settled_parts`), which are kept from the start, as the settled bindings of a rewrite's result are kept: expansion in place rebuilds nothing, and a settled part holds no application or token a rule could rewrite.
 //! Every other node is visited from its path, O(h), because the typing reports instances by path; its subject is read in place and moved out of the sentence for a rewrite, and only an application recorded for a retry is copied, since its retry compares it with the term then at its path.
-//! A retried application's children are measured anew (`Expander::measure`), since later rewrites may have changed them (Y x S).
+//! A record for a retry holds a copy of the application, and its retry finds the term at its path, compares it with the copy, measures its children anew (`Expander::measure`), since later rewrites may have changed them, and tries its rules: O(h + R + G) per record (Y x (h + R + G)).
+//! A retry that rewrites records its macro-headed ancestors, each found from the root, O(h^2) per such retry (W x h^2).
+//! These copies and measurements are not bounded by what the rewrites build: telling, without walking it, whether the term at a path is still the one recorded, and what its children's shapes are, would need the shape of every node kept at its path and updated along the path at each replacement, a redesign of the in-place expansion.
 //!
 //! An application is rewritten at its root in a loop (`Expander::expand_chain`, `Expander::try_rules`) until no rule applies, so a long chain of root rewrites takes no native stack.
 //! Without a parametric head, the result of a rewrite is expanded except where it copies a binding that the expansion of the subject's arguments found settled (`Known`): such a copy is kept as it is, so a rewrite visits (`KompileMacroExpansionVisits`) the nodes of the right side and the copies of unsettled bindings, O(P + U).

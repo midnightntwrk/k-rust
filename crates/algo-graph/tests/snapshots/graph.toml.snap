@@ -4952,7 +4952,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = retries of applications whose rule set has a head fixing a sort parameter; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = applications recorded for a retry over the sentence: one per failed try of an application whose rule set has a head fixing a sort parameter, and one per macro-headed proper ancestor (at most h) of each retry that rewrites; G = nodes of the largest application recorded for a retry, at most N; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
@@ -5067,7 +5067,7 @@ bound = "O((N + W x (P + U)) x R + K)"
 
 [[node.cost]]
 mode = "one sentence, some macro rule with a parametric head (typed in place)"
-bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + Y x S)"
+bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h + R + G))"
 
 [[node.cost]]
 mode = "Expander construction per module"
