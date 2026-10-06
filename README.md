@@ -66,8 +66,8 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
   - `../inspirations/midnightntwrk/k-rust-krs-main` (`k-rust`, a Cargo path dependency of `krs-k-rust`);
   - `../inspirations/runtimeverification/{wasm-semantics,evm-semantics,mir-semantics,imp-semantics}` (port and IMP authorities);
   - `../inspirations/runtimeverification/k` (K 7.1.337, for gates that need the K toolchain).
-- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the complete IMP gate's comparison layers, the Java reference runs, and every reference-snapshot refresh.
-  The IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates, and `--artifacts-only` IMP runs, replay recorded Java K results and need no K tool.
+- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the Java reference runs and every reference-snapshot refresh.
+  The complete IMP, IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates replay recorded K results and need no K tool.
   The KWasm, KEVM, and KMIR gates need it only with `--java-reference`.
 
 ### Workspace
@@ -116,7 +116,8 @@ By default a gate replays its snapshots and needs no K tool.
 A missing snapshot or any key difference fails closed and names `--refresh-reference`; a gate never falls back to running Java K and never skips the reference layer.
 To re-record, put the pinned K `bin` directory on `PATH` and run the gate with `--refresh-reference`: it runs Java K live and, only if every step passes, rewrites exactly the snapshots it measured.
 `--refresh-reference` rewrites snapshots and `--record` rewrites output pins; the two are independent and may be combined.
-The IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates, and the kompile tests of the complete IMP gate, use snapshots; the shared store lives in `tests/support/reference.py`.
+The complete IMP, IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates use snapshots; the shared store lives in `tests/support/reference.py`.
+The complete IMP gate also records its `kore-exec` proofs of the native build, keyed by the KORE that KRS built; `tests/imp/README.md` lists its snapshots and the cost of refreshing them.
 
 ### Documentation site
 
