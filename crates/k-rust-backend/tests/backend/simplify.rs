@@ -867,7 +867,7 @@ fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
             hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
                 [function{}(), hook{}("INT.pow")]
             hooked-symbol shl{}(SortInt{}, SortInt{}) : SortInt{}
-                [function{}(), total{}(), hook{}("INT.shl")]
+                [function{}(), hook{}("INT.shl")]
             hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
                 [function{}(), total{}(), hook{}("INT.gt")]
             hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
@@ -922,13 +922,13 @@ fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
             "{hook}"
         );
         // Term simplification keeps the dropped conjunct's definedness obligation: the
-        // `\ceil` of the partial `^Int` application (the total `<<Int` has none).
-        let obligations = if hook == "INT.pow" {
-            vec![Predicate::Ceil(input.clone())]
-        } else {
-            Vec::new()
-        };
-        assert_eq!(result.constraints(), obligations.as_slice(), "{hook}");
+        // `\ceil` of the application, since both hooks are partial (`domains.md` declares
+        // neither `total`: a negative exponent or shift amount has no value).
+        assert_eq!(
+            result.constraints(),
+            [Predicate::Ceil(input.clone())].as_slice(),
+            "{hook}"
+        );
         // The obligation holds: a result above the bound is reported only where the hook has
         // a value, so predicate simplification discharges the application's `\ceil`.
         assert_eq!(
