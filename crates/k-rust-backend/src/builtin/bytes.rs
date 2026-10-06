@@ -682,7 +682,9 @@ mod tests {
 
     /// A length the arguments' values set is computed up to `result_size_limit` of their sizes,
     /// with [`MAX_BYTES_RESULT_LEN`] as the floor, and refused beyond it before anything is
-    /// allocated: a length beyond the machine's memory aborted the process.
+    /// allocated: a length beyond the machine's memory aborted the process. Below the floor a
+    /// length is built however long: 2^28 bytes (a padding built in under a second) and the floor
+    /// itself, the largest memory a 32-bit address space holds (decided without allocating here).
     #[test]
     fn bytes_lengths_are_bounded_before_allocating() {
         let little = constructor("LbllittleEndianBytes", "SortEndianness");
@@ -712,8 +714,15 @@ mod tests {
             pad(&[bytes_term(b"abc"), integer(5), integer(1)], true),
             Ok(BuiltinResult::Value(bytes_term(b"\x01\x01abc")))
         );
-        // Relative to the arguments: twice their size, here 2^27 + 4 bytes (a 2^27-byte value and
-        // a 28-bit length), whatever the floor.
+        for length in [1_u64 << 28, MAX_BYTES_RESULT_LEN] {
+            assert_eq!(
+                bounded_length(&BigInt::from(length), 3),
+                Ok(usize::try_from(length).unwrap()),
+                "a Bytes result of length {length}"
+            );
+        }
+        // Relative to the arguments: twice their size, here the floor plus 4 bytes (a value of the
+        // floor's length and a small length and byte), whatever the floor.
         let arguments = MAX_BYTES_RESULT_LEN + 4;
         assert_eq!(
             bounded_length(&BigInt::from(2 * arguments), arguments),

@@ -751,20 +751,22 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The floor of the size bound on a `Bytes` result whose length is set by the value of an
 /// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see [`result_size_limit`]):
-/// 2^27 bytes, 128 MiB.
+/// 2^32 bytes, 4 GiB.
 ///
-/// A `Bytes` value costs time linear in its length to read and write, so the limit is memory, not
-/// conversion time: a hook application holds its argument, a copy and its result, so a value of
-/// this size stays within a few hundred MiB, while a length beyond the memory of the machine
-/// would abort the process when the allocation fails. The floor is far above what a semantics
-/// materialises in one step (EVM memory is gas-bounded to a few MiB), and the relative term lets
-/// a value the run built grow beyond it, step by step.
-pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 27;
+/// A `Bytes` value costs time linear in its length to build and to use (padding to 4 GiB takes
+/// seconds), so the limit is memory, not time: one application holds about three times its
+/// result (an argument copy, the result and the term built from it, about 12.6 GB at 4 GiB),
+/// and a length far beyond the machine's memory aborts the process when the allocation fails,
+/// or gets it killed while the bytes are written. 4 GiB is also the largest memory a 32-bit
+/// address space holds, so a semantics that models such a memory (a WebAssembly memory has at
+/// most 65536 pages of 64 KiB) never has a memory operation refused. The relative term lets a
+/// value the run built grow beyond it, step by step.
+pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 
 /// The floor of the size bound on the length of a `makeList` result, in elements (see
-/// [`result_size_limit`]): 2^24 elements, one 8-byte term reference each on a 64-bit host, the
-/// same 128 MiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason.
-pub const MAX_LIST_RESULT_LEN: u64 = 1 << 24;
+/// [`result_size_limit`]): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
+/// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason.
+pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
 
 /// The largest result a hook computes when the result's size is set by the value of an argument
 /// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its

@@ -219,26 +219,35 @@ fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    // The arguments, a length and one element, are small: the bound is the floor.
-    let Some(concrete_length) = length
-        .to_u64()
-        .filter(|length| *length <= MAX_LIST_RESULT_LEN)
-        .and_then(|length| usize::try_from(length).ok())
-    else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!(
-                    "a List result of length {} needs more than {MAX_LIST_RESULT_LEN} elements",
-                    describe_int(&length)
-                ),
-            },
-        ));
+    let concrete_length = match bounded_list_length(&length) {
+        Ok(length) => length,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     Ok(BuiltinResult::Value(Term::list(
         k_item_definition(),
         vec![value.clone(); concrete_length],
         None,
     )))
+}
+
+/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` above
+/// [`MAX_LIST_RESULT_LEN`]: the list exists, and the backend does not build it. The arguments, a
+/// length and one element, are small, so the bound is the floor.
+fn bounded_list_length(length: &BigInt) -> Result<usize, UnsupportedHookReason> {
+    debug_assert!(
+        length.sign() != Sign::Minus,
+        "makeList of a negative length is undefined, checked by the caller"
+    );
+    length
+        .to_u64()
+        .filter(|length| *length <= MAX_LIST_RESULT_LEN)
+        .and_then(|length| usize::try_from(length).ok())
+        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
+            detail: format!(
+                "a List result of length {} needs more than {MAX_LIST_RESULT_LEN} elements",
+                describe_int(length)
+            ),
+        })
 }
 
 fn range(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -658,9 +667,19 @@ mod tests {
     }
 
     /// `makeList` is refused above [`MAX_LIST_RESULT_LEN`] before anything is allocated: a
-    /// length beyond the machine's memory aborted the process.
+    /// length beyond the machine's memory aborted the process. Below it a length is built,
+    /// however long: 2^25 elements, about 0.3 GB and a second to build, and the floor itself, 4 GiB
+    /// of references (decided without allocating them here).
     #[test]
     fn make_length_is_bounded_before_allocating() {
+        for length in [1_u64 << 25, MAX_LIST_RESULT_LEN] {
+            assert_eq!(
+                bounded_list_length(&BigInt::from(length)),
+                Ok(usize::try_from(length).unwrap()),
+                "makeList({length}, x)"
+            );
+        }
+        assert!(bounded_list_length(&BigInt::from(MAX_LIST_RESULT_LEN + 1)).is_err());
         for length in [
             BigInt::from(MAX_LIST_RESULT_LEN + 1),
             BigInt::from(1_u64 << 40),
