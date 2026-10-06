@@ -80,11 +80,13 @@ fn unlocated_error(message: impl Into<String>) -> ResolveSemanticCastsError {
     }
 }
 
-/// Apply the KORE backend form of Java's `ResolveSemanticCasts` pass.
+/// Resolve the semantic casts of every rule, claim and context of `definition` into compiler
+/// sort metadata.
 ///
-/// The backend requests `skipSortPredicates = true`, so casts become compiler sort metadata but do
-/// not add redundant `isSort` side conditions. Casted variables retain their inferred sort in the
-/// public variable node as well.
+/// A cast adds no `isSort` side condition here: a variable the cast types matches only terms of
+/// its sort, and sort injection realizes the cast of any other operand (an injection, a
+/// projection or a rejection), so the condition would constrain nothing more. Casted variables
+/// retain their inferred sort in the public variable node as well.
 pub fn resolve_semantic_casts(
     definition: &Definition,
 ) -> Result<Definition, ResolveSemanticCastsError> {
@@ -143,8 +145,8 @@ pub fn resolve_semantic_casts_in_sentence(
 /// A cast adds `isS` of its operand only when `cast_condition` gives it a condition: a sort
 /// with a sort predicate, or `Bag`; a cast to any other sort adds nothing.
 ///
-/// This is Java's `ResolveSemanticCasts(false)` mode used for standalone patterns. Macro and
-/// alias sentences suppress predicates because their casts describe matching syntax rather than
+/// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
+/// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
     subsorts: &PartialOrder<Sort>,
