@@ -1399,8 +1399,6 @@ mod tests {
         ));
     }
 
-    /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
-    /// its base in either case; a `_` separator is neither.
     /// The radix "can be anywhere between 2 and 36" (`domains.md`), and both conversions are
     /// partial: outside that range they are undefined, and the fold leaves them for execution.
     #[test]
@@ -1428,6 +1426,8 @@ mod tests {
         ));
     }
 
+    /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
+    /// its base in either case; a `_` separator is neither.
     #[test]
     fn integer_parsing_accepts_only_signed_digits() {
         let parsed = |text: &str, radix| match parse_int(text, radix) {
