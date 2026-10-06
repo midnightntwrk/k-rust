@@ -1546,6 +1546,63 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     assert_eq!(result, [defined, first, second]);
 }
 
+/// Each conjunct may be simplified under the others, but not under conjuncts that were
+/// themselves simplified under it: the result must stay equivalent to the conjunction. Two
+/// conjuncts that restate one another (`X = v` and `v = X`, `X = Y` and `Y = X`) leave one of
+/// them, and two equalities on one variable (`X = f(Y)` and `X = v`) leave the variable
+/// constrained, beside the equality between its two values.
+#[test]
+fn conjuncts_that_restate_one_another_keep_the_conjunction_equivalent() {
+    let definition = definition("");
+    let x = term(&definition, "X:SortS{}");
+    let y = term(&definition, "Y:SortS{}");
+    let value = term(&definition, r#"\dv{SortS{}}("v")"#);
+    let applied = term(&definition, "f{}(Y:SortS{})");
+    let equates = |predicate: &Predicate, left: &Term, right: &Term| {
+        matches!(predicate, Predicate::Equals(first, second)
+            if (first == left && second == right) || (first == right && second == left))
+    };
+    let simplified = |predicates: Vec<Predicate>| {
+        simplify_predicates_with_solver(
+            &definition,
+            &predicates,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    for (left, right) in [(&x, &value), (&x, &y)] {
+        let result = simplified(vec![
+            Predicate::Equals(left.clone(), right.clone()),
+            Predicate::Equals(right.clone(), left.clone()),
+        ]);
+        assert!(
+            matches!(result.as_slice(), [only] if equates(only, left, right)),
+            "{result:?}"
+        );
+    }
+
+    let result = simplified(vec![
+        Predicate::Equals(x.clone(), applied.clone()),
+        Predicate::Equals(x.clone(), value.clone()),
+    ]);
+    assert_eq!(result.len(), 2, "{result:?}");
+    assert!(
+        result
+            .iter()
+            .any(|predicate| equates(predicate, &x, &value) || equates(predicate, &x, &applied)),
+        "X stays constrained: {result:?}"
+    );
+    assert!(
+        result
+            .iter()
+            .any(|predicate| equates(predicate, &applied, &value)),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn applies_simplification_rules_to_ml_predicates() {
     let syntax = parse_definition(
