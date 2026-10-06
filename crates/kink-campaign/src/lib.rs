@@ -12,6 +12,8 @@ mod oracle;
 pub use manifest::{CampaignManifest, ManifestError, ManifestInput, OperatorId, campaign_manifest};
 mod report;
 pub use report::{CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_report};
+mod replay;
+pub use replay::{ReplayDeclaration, ReplayOutcome, ReplayRefusal, replay};
 mod runner;
 
 pub use campaign::{
