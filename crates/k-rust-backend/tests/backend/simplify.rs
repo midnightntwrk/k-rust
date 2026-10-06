@@ -854,6 +854,84 @@ fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
     );
 }
 
+/// A hook application whose result is defined but above the backend's result size bound is
+/// not computed, and it is not an error either: the application still denotes its value, and the
+/// simplifier reaches it bottom-up whether or not the value is used, so a context that does not
+/// depend on it simplifies (`false andBool _` is `false`), and one that does keeps the
+/// application with a diagnostic.
+#[test]
+fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
+    let definition = definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), hook{}("INT.pow")]
+            hooked-symbol shl{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.shl")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            "#,
+    );
+    let beyond = 1u64 << 20;
+    for (hook, too_large) in [
+        (
+            "INT.pow",
+            format!(r#"pow{{}}(\dv{{SortInt{{}}}}("2"), \dv{{SortInt{{}}}}("{beyond}"))"#),
+        ),
+        (
+            "INT.shl",
+            format!(r#"shl{{}}(\dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("{beyond}"))"#),
+        ),
+    ] {
+        let input = term(&definition, &too_large);
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result
+                .expect("a result above the bound is not an error")
+                .term,
+            input,
+            "{hook}"
+        );
+        assert!(
+            matches!(
+                diagnostics.as_slice(),
+                [BackendDiagnostic::UnsupportedHookUnevaluated {
+                    hook: reported,
+                    reason: UnsupportedHookReason::ResultTooLarge { .. },
+                }] if reported == hook
+            ),
+            "{diagnostics:?}"
+        );
+
+        let guarded = term(
+            &definition,
+            &format!(
+                r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), gtInt{{}}({too_large}, \dv{{SortInt{{}}}}("0")))"#
+            ),
+        );
+        let (result, _) = diagnostic::collect(|| {
+            simplify(&definition, &guarded, SimplificationOptions::default())
+        });
+        let result = result.expect("a result above the bound is not an error");
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortBool{}}("false")"#),
+            "{hook}"
+        );
+        // The dropped conjunct keeps the definedness obligation of a partial hook's application
+        // (`^Int`), which holds; a `total` hook's (`<<Int`) has none.
+        let obligations = if hook == "INT.pow" {
+            vec![Predicate::Ceil(input)]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(result.constraints(), obligations.as_slice(), "{hook}");
+    }
+}
+
 #[test]
 fn unimplemented_hook_on_symbolic_arguments_stays_unevaluated() {
     let definition = definition("");

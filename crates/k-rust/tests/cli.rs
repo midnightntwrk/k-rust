@@ -3980,6 +3980,85 @@ fn krun_reaches_bottom_for_chr_of_a_surrogate() {
     );
 }
 
+/// `^Int` and `<<Int` results above the backend's result size bound are not computed, and a run
+/// that does not use them still ends with its value: such an application stays unevaluated with
+/// a warning wherever the simplifier reaches it, instead of halting the run. `i` hides the
+/// constants from the constant folder.
+#[test]
+fn krun_leaves_results_above_the_size_bound_unevaluated() {
+    const SOURCE: &str = r#"
+module BOUND
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "unused" | "branch" | "guard" | "used"
+  syntax KItem ::= r(K)
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  rule <k> unused => r(false andBool (2 ^Int i(1048576) >Int i(0))) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(1048576) #fi) </k>
+  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(1048576)) >Int i(0)
+  rule <k> guard => r(4) </k> [owise]
+  rule <k> used => r(2 ^Int 1048576) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.bound"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "BOUND",
+                "--syntax-module",
+                "BOUND",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        (
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let pow = r#"Lbl'UndsXor-'Int'Unds'{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("1048576"))"#;
+    let warned = |stderr: &str, hook: &str| {
+        stderr.contains(&format!("hook {hook} was left unevaluated"))
+            && stderr.contains("needs more than 1048576 bits")
+    };
+
+    let (stdout, stderr) = run("unused");
+    assert!(
+        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#),
+        "{stdout}"
+    );
+    assert!(warned(&stderr, "INT.pow"), "{stderr}");
+    let (stdout, _) = run("branch");
+    assert!(
+        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#),
+        "{stdout}"
+    );
+    let (stdout, _) = run("guard");
+    assert!(
+        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("4"))"#),
+        "{stdout}"
+    );
+    let (stdout, stderr) = run("used");
+    assert!(stdout.contains(pow), "{stdout}");
+    assert!(warned(&stderr, "INT.pow"), "{stderr}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

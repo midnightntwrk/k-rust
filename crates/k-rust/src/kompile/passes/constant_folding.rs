@@ -413,7 +413,7 @@ enum Unfolded {
 /// times a `String`'s UTF-8 length, a `Float`'s precision. A compile must not spend time or
 /// memory unrelated to the size of its input, and a folded token is part of the emitted
 /// definition, so a larger value is left for execution. The backend computes `^Int` and `<<Int`
-/// results up to the same bound, so the fold never writes one the backend would refuse.
+/// results up to the same bound, so the fold never writes one the backend would not compute.
 pub(crate) const MAX_FOLDED_BITS: u64 = k_rust_backend::builtin::MAX_INT_RESULT_BITS;
 
 /// The size of a value in the unit of `MAX_FOLDED_BITS`.

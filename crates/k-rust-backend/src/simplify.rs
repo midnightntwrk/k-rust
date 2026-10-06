@@ -3503,9 +3503,16 @@ fn simplify_root(
                 || definition.simplification_theory().contains_key(&index);
             let reason = match unsupported {
                 Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
-                // A value the definition leaves open stays an unevaluated application, which
-                // denotes it; no implementation could compute it.
-                Some(reason @ UnsupportedHookReason::Unspecified { .. }) => {
+                // The application denotes a value the backend does not compute, and stays as
+                // that unevaluated application: a value the definition leaves open (no
+                // implementation could compute it), or one above a result size bound (a
+                // resource limit, not a gap to fix). Arguments are simplified bottom-up whether
+                // or not their values are used, so an error here would fail a run on a subterm
+                // the semantics never consults (`false andBool B` is `false` for every `B`).
+                Some(
+                    reason @ (UnsupportedHookReason::Unspecified { .. }
+                    | UnsupportedHookReason::ResultTooLarge { .. }),
+                ) => {
                     diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
                         hook: hook.to_owned(),
                         reason,

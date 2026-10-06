@@ -82,7 +82,7 @@ The conformance driver retains LLVM output for its frontend comparison and accou
 
 A hook without an evaluator or applicable K equation must report an unsupported-hook error when every argument is constructor-like.
 Symbolic applications remain unevaluated.
-A `total` hook whose value the definition does not give on its arguments is not such a hook: the application stays unevaluated with the `UnsupportedHookUnevaluated` diagnostic, and no error ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
+Two outcomes are not such a gap and stay unevaluated with the `UnsupportedHookUnevaluated` diagnostic, and no error: a value the definition does not determine, which no implementation could compute ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)), and a value above a result size bound, a resource limit (`ResultTooLarge`, [Resource bounds](#resource-bounds)).
 This follows the missing-evaluator checks in `kore/src/Kore/Equation/EvaluationStrategy.hs` and the port's completion contract; an exclusion must not turn the unsupported outcome into a successful execution.
 
 Ordinary committed execution implements the console operations `IO.getc` and `IO.read` on descriptor 0 and `IO.putc` and `IO.write` on descriptors 1 and 2.
@@ -321,8 +321,10 @@ Non-termination is a property of one chain of rewrites of one subterm, so the co
 Inheriting the reduced budget keeps an expanding equation from resetting its own cap.
 Where the budget is exhausted, the retained configuration is still equal to the one being simplified, but it can be less simplified, and a step that needs the missing value may not be taken; the outcome on each surface, and the `SimplificationBudgetExhausted` diagnostic that marks this incompleteness, are specified in backend-port.md.
 
-`^Int` and `<<Int` compute a result of at most 2^20 bits (`MAX_INT_RESULT_BITS` in the backend's `builtin.rs`); a larger result is defined but not computed, and gives the unsupported-hook outcome of [Backend scope](#backend-scope) with the reason `ResultTooLarge` (an error when every argument is constructor-like, the application left unevaluated otherwise).
-The bound is on the result because an `Int` is held as its decimal domain value and converted on every hook application, which costs tens of milliseconds at 2^20 bits, seconds at 2^24 bits and does not end in practice at 2^32 bits; these two hooks are the only ones whose result can outgrow their arguments by more than a constant factor in one application.
+`^Int` and `<<Int` compute a result of at most 2^20 bits (`MAX_INT_RESULT_BITS` in the backend's `builtin.rs`); a larger result is defined but not computed: the application stays unevaluated with the `UnsupportedHookUnevaluated` diagnostic (reason `ResultTooLarge`), whatever its arguments, and is not an error.
+The unevaluated application denotes the value, so keeping it is sound, and since arguments are simplified before it is known whether their values are used, an error would fail runs whose result does not depend on the value (`false andBool B` is `false` for every `B`); where a step needs the value, that step is not taken and the application stays in the configuration.
+The bound keeps the cost of one hook application polynomial in the size of its arguments: these two hooks are the only `Int` hooks whose result is exponential in that size, since the exponent or shift amount is written in logarithmically many digits (a product has the size of its factors together).
+The constant comes from the cost of using the result: an `Int` is held as its decimal domain value and converted on every hook application, which costs tens of milliseconds at 2^20 bits, about a second at 2^22 bits and does not end in practice at 2^32 bits.
 Results that stay small are computed whatever the argument: `0 <<Int N`, `1 ^Int N`, `0 ^Int N` and `-1 ^Int N` for any natural `N`, and `>>Int` by any amount.
 
 Term readers and writers impose no nesting-depth cap: depth is not part of what a term means, so a fixed cap would reject well-formed input.

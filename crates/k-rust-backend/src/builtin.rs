@@ -112,13 +112,19 @@ pub enum UnsupportedHookReason {
     ArgumentOutOfRange {
         detail: String,
     },
+    /// The application has a value, larger than a result size bound (such as
+    /// [`MAX_INT_RESULT_BITS`]), that the backend does not compute. It is left unevaluated, a
+    /// term that denotes that value, and it is not an unsupported-hook error on constructor-like
+    /// arguments: the bound is a resource limit, not a missing implementation, and an error
+    /// would fail runs that never use the value.
     ResultTooLarge {
         detail: String,
     },
-    /// The hook is `total`, and its documentation gives it no value on these arguments: the
-    /// application denotes a value of its sort that the definition does not determine. It is
-    /// left unevaluated, and unlike the other reasons it is not an unsupported-hook error on
-    /// constructor-like arguments, since there is no value for an implementation to compute.
+    /// The definition does not determine the application's value: the hook is `total` and its
+    /// documentation gives no value on these arguments, or the definition's documents disagree
+    /// on whether a value exists. The application denotes whatever value the definition admits.
+    /// It is left unevaluated, and it is not an unsupported-hook error on constructor-like
+    /// arguments, since there is no value for an implementation to compute.
     Unspecified {
         detail: String,
     },
@@ -726,14 +732,19 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 }
 
 /// The largest integer result, in bits, that `^Int` and `<<Int` compute: 2^20 bits, 315,653
-/// decimal digits. A larger one is reported as too large (`ResultTooLarge`) instead of computed.
+/// decimal digits. A larger one is reported as too large (`ResultTooLarge`) instead of computed,
+/// and the application stays unevaluated.
 ///
-/// An `Int` is held as its decimal domain value and read back on every hook application, and
-/// converting between decimal and binary grows faster than linearly in the length: at 2^20 bits
-/// one conversion takes tens of milliseconds, at 2^24 bits seconds, at 2^32 bits it does not end
-/// in practice. These two hooks are the only ones whose result can exceed the size of their
-/// arguments by more than a constant factor in one application. The constant folder uses the
-/// same bound, so it never writes a value this backend would refuse to compute.
+/// The bound keeps the cost of one hook application polynomial in the size of its arguments.
+/// These two hooks are the only `Int` hooks whose result is exponential in that size: the
+/// exponent or shift amount is written in a number of digits logarithmic in its value. (A
+/// product has the size of its factors together, so a program that grows a value by
+/// multiplication pays in each step for what it has already built.) The constant is chosen from
+/// the cost of using the result: an `Int` is held as its decimal domain value and read back on
+/// every hook application, and converting between decimal and binary grows faster than linearly
+/// in the length: at 2^20 bits one conversion takes tens of milliseconds, at 2^22 bits about a
+/// second, at 2^32 bits it does not end in practice. The constant folder uses the same bound, so
+/// it never writes a value this backend would not compute.
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 20;
 
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
