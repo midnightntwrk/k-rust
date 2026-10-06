@@ -50,12 +50,12 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 |---|---|---|
 | Every push and pull request | `ci.yml` | formatting; the benchmark harness's syntax; the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate |
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
-| Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks, and `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend |
+| Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), and `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend |
 | Every week, or on demand | `differential.yml` | the reference differential gates of the manifest's `weekly` gate set |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
-The full portable suite follows the sources of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
-A push is compared with the commit before it and a pull request with its merge base; a new branch, a force push, or a previous commit missing from the clone runs every path-triggered check.
+The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
+A push is compared with the commit before it and a pull request with its merge base; a new branch, a force push, a previous commit missing from the clone, or a failing comparison runs every path-triggered check.
 A check that is not needed appears as a skipped job, which GitHub counts as passing for a required check.
 A failed scheduled run shows only on the repository's Actions page; `gh run list --workflow nightly.yml --limit 1` reads the latest one.
 

@@ -21,14 +21,20 @@ definition_paths=(
 )
 
 # The portable feature set compiles the `not(feature = "z3-inference")` side of k-rust, the
-# `not(feature = "z3")` side of the backend, and the WebAssembly bindings that ship it. Any
-# source of those crates (including the prelude and parser sources k-rust embeds), any manifest
+# `not(feature = "z3")` side of the backend, and the WebAssembly bindings that ship it, over the
+# KORE and regex crates they depend on. Any source or test of those crates (including the prelude
+# and parser sources k-rust embeds, and the `cfg(not(feature = "z3-inference"))` assertions in
+# k-rust's integration tests that only the full portable suite runs), any manifest
 # that selects features, and the nextest profile the suite runs under can change its result.
 portable_suite_paths=(
   '^crates/k-rust/src/'
+  '^crates/k-rust/tests/'
   '^crates/k-rust/builtin/'
   '^crates/k-rust/cparser/'
   '^crates/k-rust-backend/src/'
+  '^crates/k-rust-backend/tests/'
+  '^crates/k-rust-kore/src/'
+  '^crates/k-rust-regex/src/'
   '^crates/k-rust-wasm/'
   '^crates/[^/]+/Cargo\.toml$'
   '^Cargo\.(toml|lock)$'
@@ -128,7 +134,13 @@ esac
 
 # Without rename detection a moved file appears under both its old and its new path, so moving
 # a file out of a trigger path triggers too.
-mapfile -t changed < <(git_in diff --name-only --no-renames "$base" "$head")
+# NUL-separated names are not quoted, so a path with unusual characters still matches its
+# trigger; a failing diff runs every check rather than reporting no changes.
+names=$(mktemp)
+trap 'rm -f "$names"' EXIT
+git_in diff -z --name-only --no-renames "$base" "$head" > "$names" \
+  || run_everything "git diff between $base and $head failed"
+mapfile -d '' -t changed < "$names"
 echo "${#changed[@]} files changed between $base and $head" >&2
 
 for check in "${checks[@]}"; do
