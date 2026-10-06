@@ -2339,6 +2339,60 @@ mod tests {
         );
     }
 
+    /// Each unary connective and binder gives its child the child's own position in the body's
+    /// layout, also when the child's first part has subpatterns of its own. The child here is
+    /// `\and(\and(\top, \top), \exists(Y, \and(X, Y)))`: the binder over the parameter must be
+    /// renamed, since the argument has `Y` free. Given any other position, the child's parts are
+    /// laid over the wrong nodes, and the binder's range falls on a leaf of the first part, where
+    /// no occurrence of `X` lies, so the binder is kept and captures the argument's `Y`. (With a
+    /// first part of one child, as in the body test above, a child one position off lands the
+    /// binder on its own body, whose occurrences are the same.)
+    #[test]
+    fn binders_after_a_nested_sibling_under_every_unary_connective_avoid_capture() {
+        let child = r"\and{T}(\and{T}(\top{T}(), \top{T}()), \exists{T}(Y:T, \and{T}(X:T, Y:T)))";
+        let body = [
+            r"\not{T}(C)",
+            r"\next{T}(C)",
+            r"\ceil{T, T}(C)",
+            r"\floor{T, T}(C)",
+            r"\exists{T}(Z:T, C)",
+            r"\forall{T}(Z:T, C)",
+            r"\mu{}(@Z:T, C)",
+            r"\nu{}(@Z:T, C)",
+        ]
+        .join(", ")
+        .replace('C', child);
+        let aliases = aliases_of(&format!(
+            "[] module MAIN sort S{{}} []
+                alias every{{T}}(T) : T where every{{T}}(X:T) := \\or{{T}}({body}) []
+            endmodule []"
+        ));
+        let mut renamed = 0..;
+        let mut child = || {
+            let name = format!("YAlias{}", renamed.next().unwrap());
+            format!(
+                r"\and{{S{{}}}}(\and{{S{{}}}}(\top{{S{{}}}}(), \top{{S{{}}}}()), \exists{{S{{}}}}({name}:S{{}}, \and{{S{{}}}}(Y:S{{}}, {name}:S{{}})))"
+            )
+        };
+        let expected = [
+            format!(r"\not{{S{{}}}}({})", child()),
+            format!(r"\next{{S{{}}}}({})", child()),
+            format!(r"\ceil{{S{{}}, S{{}}}}({})", child()),
+            format!(r"\floor{{S{{}}, S{{}}}}({})", child()),
+            format!(r"\exists{{S{{}}}}(Z:S{{}}, {})", child()),
+            format!(r"\forall{{S{{}}}}(Z:S{{}}, {})", child()),
+            format!(r"\mu{{}}(@Z:S{{}}, {})", child()),
+            format!(r"\nu{{}}(@Z:S{{}}, {})", child()),
+        ]
+        .join(", ");
+        let application = parse_pattern("every{S{}}(Y:S{})").unwrap();
+        let expected = parse_pattern(&format!(r"\or{{S{{}}}}({expected})")).unwrap();
+        assert_eq!(
+            expand(&application, &aliases).map(Cow::into_owned),
+            Ok(expected)
+        );
+    }
+
     /// The free variables of an argument substituted under a binder are collected through every
     /// connective, from both sides of a binary one, and without the variables its own binders
     /// bind: the body's binder `Y` is renamed exactly when `Y` is free in the argument.
