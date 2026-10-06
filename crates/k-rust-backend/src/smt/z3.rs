@@ -1797,8 +1797,19 @@ mod tests {
         };
 
         // For a negative exponent, Z3's power of 3 is a fraction, whose integer part modulo 7 is
-        // 0, and its power of 2 is positive; neither is a K value, so neither is valid.
+        // 0, and its power of 2 is positive; neither is a K value, so neither is valid. Nested in
+        // another power, whose template names its base more than once, it is still no value.
         for (known, checked) in [
+            (
+                vec![negative.clone()],
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!("powmod{{}}(pow{{}}({}, {b}), {}, {})", dv(3), dv(1), dv(7)),
+                    ),
+                    int("0"),
+                ),
+            ),
             (
                 vec![negative.clone()],
                 Predicate::Equals(
@@ -1834,6 +1845,23 @@ mod tests {
         // base of magnitude 1 with any exponent.
         let nonnegative = Predicate::Not(Box::new(negative));
         for (known, checked) in [
+            (
+                vec![nonnegative.clone()],
+                less(
+                    &dv(0),
+                    &format!("pow{{}}(pow{{}}({}, {b}), {})", dv(2), dv(2)),
+                ),
+            ),
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!("pow{{}}(pow{{}}({}, {b}), {b})", dv(1)),
+                    ),
+                    int("1"),
+                ),
+            ),
             (
                 vec![nonnegative],
                 less(&dv(0), &format!("pow{{}}({}, {b})", dv(2))),

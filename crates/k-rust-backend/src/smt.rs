@@ -600,6 +600,7 @@ const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
 /// exists, a nonnegative exponent or a base of magnitude 1, and there `^` is that integer; outside
 /// it the power is an uninterpreted function of its operands, as a division by zero is. The
 /// function is Real-valued, as Z3's `^` is, so both branches and every context have its sort.
+/// The guard names each operand several times; `fill_placeholders` states each argument once.
 fn guard_powers(expression: &SExpr) -> (SExpr, bool) {
     match expression {
         SExpr::Atom(_) => (expression.clone(), false),
@@ -1188,30 +1189,95 @@ impl SmtSolver for NoSolver {
     }
 }
 
+/// The argument index that a template atom `#i` names, when it is a placeholder.
+fn placeholder(atom: &str) -> Option<usize> {
+    atom.strip_prefix('#')
+        .and_then(|index| index.parse::<usize>().ok())
+}
+
+/// The prefix of the name that states an argument named more than once in an `smt-hook`
+/// template (`fill_placeholders`).
+const HOOK_ARGUMENT: &str = "KRUST-HOOK-ARGUMENT-";
+
+/// The `smt-hook` template `expression` applied to the translations of its `arguments`.
+///
+/// A template is a function of its arguments, and one that names an argument several times
+/// names one value several times (`/Int` names each argument five times, the power guard of
+/// `guard_powers` its base four times). Written as a copy at every occurrence, a nesting of such
+/// hooks would be exponentially long in its depth; so an argument named more than once whose
+/// translation is not an atom is stated once, in a `let` around the template, and named by its
+/// binding. `let` denotes substitution, so the formula is the one the copies write. No binding
+/// captures a name: an argument's translation is closed (it binds every `let` name it uses), and
+/// the template names only its own bindings.
 fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, TranslationError> {
-    match expression {
-        SExpr::Atom(atom) => {
-            let Some(index) = atom
-                .strip_prefix('#')
-                .and_then(|index| index.parse::<usize>().ok())
-            else {
-                return Ok(expression.clone());
-            };
-            if index == 0 || index > arguments.len() {
-                return Err(TranslationError::PlaceholderOutOfBounds {
-                    placeholder: index,
-                    arguments: arguments.len(),
-                });
+    fn count(expression: &SExpr, uses: &mut [usize]) {
+        match expression {
+            SExpr::Atom(atom) => {
+                if let Some(slot) = placeholder(atom)
+                    .and_then(|index| index.checked_sub(1))
+                    .and_then(|index| uses.get_mut(index))
+                {
+                    *slot += 1;
+                }
             }
-            Ok(arguments[index - 1].clone())
+            SExpr::List(items) => items.iter().for_each(|item| count(item, uses)),
         }
-        SExpr::List(items) => Ok(SExpr::List(
-            items
-                .iter()
-                .map(|item| fill_placeholders(item, arguments))
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
     }
+    fn substitute(
+        expression: &SExpr,
+        arguments: &[SExpr],
+        names: &[Option<SExpr>],
+    ) -> Result<SExpr, TranslationError> {
+        match expression {
+            SExpr::Atom(atom) => {
+                let Some(index) = placeholder(atom) else {
+                    return Ok(expression.clone());
+                };
+                if index == 0 || index > arguments.len() {
+                    return Err(TranslationError::PlaceholderOutOfBounds {
+                        placeholder: index,
+                        arguments: arguments.len(),
+                    });
+                }
+                Ok(names[index - 1]
+                    .as_ref()
+                    .unwrap_or(&arguments[index - 1])
+                    .clone())
+            }
+            SExpr::List(items) => Ok(SExpr::List(
+                items
+                    .iter()
+                    .map(|item| substitute(item, arguments, names))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        }
+    }
+
+    let mut uses = vec![0; arguments.len()];
+    count(expression, &mut uses);
+    let names = arguments
+        .iter()
+        .zip(&uses)
+        .enumerate()
+        .map(|(index, (argument, uses))| {
+            (*uses > 1 && matches!(argument, SExpr::List(_)))
+                .then(|| SExpr::atom(format!("{HOOK_ARGUMENT}{}", index + 1)))
+        })
+        .collect::<Vec<_>>();
+    let body = substitute(expression, arguments, &names)?;
+    let bindings = names
+        .iter()
+        .zip(arguments)
+        .filter_map(|(name, argument)| {
+            name.as_ref()
+                .map(|name| SExpr::List(vec![name.clone(), argument.clone()]))
+        })
+        .collect::<Vec<_>>();
+    Ok(if bindings.is_empty() {
+        body
+    } else {
+        SExpr::application("let", vec![SExpr::List(bindings), body])
+    })
 }
 
 #[cfg(test)]
@@ -1329,6 +1395,69 @@ mod tests {
         assert!(applies_power(&SExpr::atom("^")));
         assert!(applies_power(&SExpr::parse("(mod (^ #1 #2) #3)").unwrap()));
         assert!(!applies_power(&SExpr::parse("(mod #1 #2)").unwrap()));
+    }
+
+    /// An `smt-hook` template that names an argument several times states it once, in a `let`,
+    /// so a nesting of such hooks translates to text linear in its depth, not exponential: a
+    /// power names its base four times and its exponent three times through its guard, and
+    /// `/Int`'s template in `domains.md` names each argument five times. An atom is written in
+    /// place.
+    #[test]
+    fn states_each_hook_argument_once_however_hooks_nest() {
+        const DEPTH: usize = 8;
+        const LEVEL: usize = 600;
+        let int = Sort::simple("SortInt");
+        let binary = |name: &str, template: SExpr| {
+            symbol(
+                name,
+                Some(SmtType::Hook(template)),
+                vec![int.clone(), int.clone()],
+                int.clone(),
+            )
+        };
+        let power = binary("power", SExpr::atom("^"));
+        let division = binary(
+            "division",
+            SExpr::parse(
+                "(ite (or (= 0 (mod #1 #2)) (>= #1 0)) (div #1 #2) \
+                 (ite (> #2 0) (+ (div #1 #2) 1) (- (div #1 #2) 1)))",
+            )
+            .unwrap(),
+        );
+        let plus = binary("plus", SExpr::atom("+"));
+        let x = Term::variable(Variable::new("X", int.clone()));
+        let y = Term::variable(Variable::new("Y", int.clone()));
+
+        for symbol in [&power, &division] {
+            let mut nested = x.clone();
+            for _ in 0..DEPTH {
+                nested = Term::application(symbol.clone(), Vec::new(), vec![nested, y.clone()]);
+            }
+            let text = TranslationState::new()
+                .translate_term(&nested)
+                .unwrap()
+                .to_string();
+            assert!(
+                text.len() <= DEPTH * LEVEL,
+                "{} nested {:?}: {} characters",
+                DEPTH,
+                symbol.name,
+                text.len()
+            );
+        }
+
+        let base = Term::application(plus, Vec::new(), vec![x, integer("1")]);
+        let translated = TranslationState::new()
+            .translate_term(&Term::application(power, Vec::new(), vec![base, y]))
+            .unwrap();
+        let name = "KRUST-HOOK-ARGUMENT-1";
+        assert_eq!(
+            translated.to_string(),
+            format!(
+                "(let (({name} (+ SMT-1 1))) (ite (or (>= SMT-2 0) (= {name} 1) (= {name} (- 1))) \
+                 (^ {name} SMT-2) (|KRUST-POWER-OUTSIDE-THE-INTEGERS| {name} SMT-2)))"
+            )
+        );
     }
 
     #[test]
