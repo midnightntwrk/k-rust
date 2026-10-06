@@ -58,6 +58,12 @@ if [ -n "${KDEP_EDIT:-}" ]; then echo edited >> "$required"; fi
 """
 
 
+def settle():
+    """Wait out the file system's timestamp granularity, so that files written before a run are
+    older than its start (ReferenceCache._closure_before refuses a closure file that is not)."""
+    time.sleep(0.05)
+
+
 class CacheFixture(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="reference-cache-test.")
@@ -366,6 +372,7 @@ class ClosureTests(CacheFixture):
             kdep.chmod(0o755)
         if not (work / "source.k").exists():
             (work / "source.k").write_text("required.k\n")
+            settle()
         return self.invocation(work=work, argv_extra=[*include_arguments, "source.k"],
                                closure="kdep", kdep=str(kdep))
 
@@ -376,11 +383,13 @@ class ClosureTests(CacheFixture):
         required.parent.mkdir()
         (self.work / "source.k").write_text(f"{required}\n")
         required.write_text("module A endmodule\n")
+        settle()
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "miss")
         self.reset_work()
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "hit")
         self.reset_work()
         required.write_text("module B endmodule\n")
+        settle()
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "miss",
                          "a changed required file invalidates the entry")
 
@@ -391,7 +400,7 @@ class ClosureTests(CacheFixture):
         required.parent.mkdir()
         (self.work / "source.k").write_text(f"{required}\n")
         required.write_text("module A endmodule\n")
-        time.sleep(0.05)
+        settle()
         tool = self.runner()
 
         def edit_while_running():
@@ -402,6 +411,7 @@ class ClosureTests(CacheFixture):
         self.assertEqual(first.status, "uncacheable")
         self.assertIn("changed while the tool ran", first.detail)
         self.reset_work()
+        settle()
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "miss")
         self.reset_work()
         self.assertEqual(self.cache().run(self.kompile(), self.runner()).status, "hit")
@@ -410,7 +420,7 @@ class ClosureTests(CacheFixture):
         inc = self.root / "inc"
         inc.mkdir()
         (inc / "required.k").write_text("module A endmodule\n")
-        time.sleep(0.05)
+        settle()
         invocation = self.searching_kompile(["-I", str(inc)])
         invocation.environment["KDEP_EDIT"] = "1"
         result = self.cache().run(invocation, self.runner())
@@ -425,13 +435,14 @@ class ClosureTests(CacheFixture):
         first.mkdir()
         second.mkdir()
         (second / "required.k").write_text("module A endmodule\n")
-        time.sleep(0.05)
+        settle()
         arguments = ["-I", str(first), "-I", str(second)]
         self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "miss")
         self.reset_work()
         self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "hit")
         self.reset_work()
         (first / "required.k").write_text("module B endmodule\n")
+        settle()
         self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status,
                          "miss", "a shadowing file invalidates the entry")
         # The same holds for a file next to the source, which the -I directories already
@@ -440,6 +451,7 @@ class ClosureTests(CacheFixture):
         self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "hit")
         self.reset_work()
         (self.work / "required.k").write_text("module C endmodule\n")
+        settle()
         self.assertEqual(self.cache().run(self.searching_kompile(arguments), self.runner()).status, "miss")
 
     def test_a_shadowing_file_that_appears_while_the_tool_runs_is_not_stored(self):
@@ -447,7 +459,7 @@ class ClosureTests(CacheFixture):
         first.mkdir()
         second.mkdir()
         (second / "required.k").write_text("module A endmodule\n")
-        time.sleep(0.05)
+        settle()
         tool = self.runner()
 
         def shadow_while_running():
@@ -467,7 +479,7 @@ class ClosureTests(CacheFixture):
             (work / "stale.txt").write_text("stale\n")
             (work / "source.k").write_text("required.k\n")
             (work / "required.k").write_text("module A endmodule\n")
-        time.sleep(0.05)
+        settle()
         self.assertEqual(self.cache().run(self.searching_kompile([]), self.runner()).status, "miss")
         result = self.cache(work=other).run(self.searching_kompile([], work=other),
                                             self.runner(work=other))

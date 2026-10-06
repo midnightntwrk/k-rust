@@ -423,6 +423,17 @@ def shadow_candidates(files: list[str], directories: list[str]) -> list[str]:
     return sorted(candidates)
 
 
+def filesystem_now_ns(directory: Path) -> int:
+    """A time no later than the timestamp of any file written from now on: the modification time
+    of a file created now, or the precise clock if that is earlier (or the file cannot be made)."""
+    now = time.time_ns()
+    try:
+        with tempfile.NamedTemporaryFile(prefix=".clock.", dir=directory) as stamp:
+            return min(now, os.fstat(stamp.fileno()).st_mtime_ns)
+    except OSError:
+        return now
+
+
 def stat_signature(st: os.stat_result) -> list[int]:
     return [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns]
 
@@ -867,13 +878,15 @@ class ReferenceCache:
 
         A closure file or an existing shadow candidate whose modification or status-change time
         is not before kdep started may have changed between kdep reading it and its digest being
-        taken, so such a state is refused.
+        taken, so such a state is refused. The start is read from the file system's own clock
+        (filesystem_now_ns), because the kernel stamps files from a coarse clock that can lag the
+        precise one: a write just after a precise reading could carry an earlier timestamp.
         """
         if invocation.closure != "kdep":
             raise CacheError(f"unknown closure kind {invocation.closure}")
         if not invocation.kdep:
             raise CacheError("no kdep executable for the closure")
-        started = time.time_ns()
+        started = filesystem_now_ns(self._ensure(self.root / "tmp"))
         files, directories = kdep_files(invocation.kdep, invocation.argv, invocation.cwd,
                                         invocation.environment)
         state = {}
