@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use indoc::indoc;
-use k_rust::definition::{ProductionItem, Sentence};
+use k_rust::definition::{Location, ProductionItem, Sentence};
 use k_rust::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
 };
+use k_rust::inner::{ConfigError, NoParseInput, ParseError};
 use k_rust::kast::TermSpan;
 use k_rust::outer::{
     LoadError, LoadOptions, ResolvedSource, load, load_with_options, load_with_prepared_base,
@@ -1184,16 +1185,87 @@ load_error_snapshot!(
     "MAIN"
 );
 
-load_error_snapshot!(
-    malformed_configuration,
-    indoc! {r#"
+/// A configuration bubble that does not scan is a configuration parse error of its module and
+/// source file, located at the first character the scanner cannot read rather than at the whole
+/// sentence, and the rendered message names the module and that character.
+///
+/// The parser's list of terminals it would have accepted is not pinned here: it is a function of
+/// the configuration grammar's full sort universe and is checked exactly on small grammars in
+/// `inner_parser.rs`. Only the two entries the K configuration syntax implies inside a cell body
+/// are required: a nested cell may open there, and `.K` is a K value.
+#[test]
+fn malformed_configuration() {
+    let entry = indoc! {r#"
         module MAIN
           configuration <k> @@@ </k>
         endmodule
-    "#},
-    [],
-    "MAIN"
-);
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("{required} was not found"));
+    let error = load(ResolvedSource::new("main.k", entry), "MAIN", &mut resolver).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "could not parse configuration in module \"MAIN\": \
+         Scanner error: unexpected character sequence '@'."
+    );
+    let LoadError::Configuration(ConfigError::Parse {
+        module,
+        source,
+        location,
+        error,
+    }) = error
+    else {
+        panic!("expected a configuration parse error, got {error:?}")
+    };
+    assert_eq!(module, "MAIN");
+    assert_eq!(source.as_deref(), Some("main.k"));
+    // The first `@` is the 21st character of line 2; the location spans that character only.
+    let at = entry.find('@').unwrap();
+    assert_eq!(at - entry.find("\n").unwrap(), 21);
+    assert_eq!(
+        location,
+        Some(Location {
+            start_line: 2,
+            start_column: 21,
+            end_line: 2,
+            end_column: 22,
+        })
+    );
+    let ParseError::NoParse {
+        position,
+        expected,
+        input,
+        previous,
+        span,
+    } = *error
+    else {
+        panic!("expected a no-parse error, got {error:?}")
+    };
+    assert_eq!(
+        input,
+        NoParseInput::UnrecognizedInput {
+            value: "@".to_owned()
+        }
+    );
+    assert_eq!(previous.as_deref(), Some(">"));
+    // `position` counts from the start of the bubble contents, which begin at `<k>`; `span` is
+    // the same character as an absolute range of the source.
+    assert_eq!(position, at - entry.find("<k>").unwrap());
+    assert_eq!(
+        span,
+        Some(TermSpan {
+            source: SourceId(0),
+            start: at,
+            end: at + 1,
+        })
+    );
+    for required in ["\"<\"", "\".K\""] {
+        assert!(
+            expected.iter().any(|terminal| terminal == required),
+            "{required} is missing from {expected:?}"
+        );
+    }
+}
 
 #[test]
 fn source_checks_precede_import_resolution() {
