@@ -329,9 +329,9 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                 .map(|character| u8::try_from(u32::from(character)).ok())
                 .collect::<Option<Vec<_>>>()
                 .map_or_else(
-                    // `String2Bytes` is total, but no byte is a code point above 255, and
-                    // the documentation does not say what such a character becomes.
-                    Spec::open,
+                    // `String2Bytes` is total, but no byte is a code point above 255, so the
+                    // documentation gives no value for such a string.
+                    Spec::unspecified,
                     |bytes| Spec::value(Bytes(bytes)),
                 ),
             Err(_) => Spec::open(),

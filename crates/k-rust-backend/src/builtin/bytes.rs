@@ -57,13 +57,21 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
+/// `String2Bytes` is the inverse of `Bytes2String`, which maps each byte to the code point of
+/// the same number. No byte maps to a code point above 255, and the hook is `total`, so on a
+/// string holding one its value is not given by the definition and the application is left
+/// unevaluated.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(bytes) = encode_8_bit(value) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: "String2Bytes of a string holding a code point above 255".into(),
+            },
+        ));
     };
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
@@ -649,6 +657,27 @@ mod tests {
             bytes_to_int(&[bytes_term(&[0xff, 0xfe]), big, unsigned]),
             Ok(BuiltinResult::Value(integer(65_534)))
         );
+    }
+
+    /// Every code point up to 255 is the byte of the same number; a string with a code point
+    /// above 255 has no byte sequence `Bytes2String` maps to it.
+    #[test]
+    fn string_to_bytes_above_255_is_unspecified() {
+        assert_eq!(
+            string_to_bytes(&[string_term("a\u{ff}")]),
+            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xff])))
+        );
+        for text in ["\u{100}", "a🦀"] {
+            assert!(
+                matches!(
+                    string_to_bytes(&[string_term(text)]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    ))
+                ),
+                "String2Bytes({text:?})"
+            );
+        }
     }
 
     #[test]
