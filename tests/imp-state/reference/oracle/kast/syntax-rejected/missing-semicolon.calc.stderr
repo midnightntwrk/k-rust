@@ -1,0 +1,5 @@
+[Error] Inner Parser: Parse error: unexpected end of file following token '1'.
+	Source({{root}}/tests/imp-state/corpus/rejected/syntax/missing-semicolon.calc)
+	Location(2,1,2,1)
+	2 |	
+	  .	^

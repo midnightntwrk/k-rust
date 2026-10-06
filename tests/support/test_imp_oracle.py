@@ -9,9 +9,8 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-from support import imp_oracle
 from support.imp_oracle import KAST, aggregate, compare_output, parse_accepted
 from support.pins import Ledger
 from support.report import Results
@@ -40,7 +39,6 @@ class ParseAcceptedTests(unittest.TestCase):
                 heat_cool=(0, 0), context_attributes=(), context_count=0,
             )
             raw_term = {"opaque": ["raw", "observation"], "order": 1}
-            tools = {"kast": "parse-tool", "kparse": "portable-tool"}
             for returncode, stdout, accepted in ((0, "opaque result", True), (0, " \n", False), (1, "opaque result", False)):
                 with self.subTest(returncode=returncode, stdout=stdout):
                     session = Mock()
@@ -53,14 +51,24 @@ class ParseAcceptedTests(unittest.TestCase):
                         subprocess.CompletedProcess([], 0, "opaque program", ""),
                         subprocess.CompletedProcess([], 0, "opaque JSON", ""),
                     ]
-                    with patch.object(imp_oracle, "run", side_effect=responses):
-                        if accepted:
-                            trees, unparsed = parse_accepted(spec, kast, session, tools, workspace, workspace)
-                            self.assertIs(trees["accepted.calc"], raw_term)
-                            self.assertEqual(unparsed, {"accepted.calc": "opaque program"})
-                        else:
-                            with self.assertRaisesRegex(RuntimeError, "kparse failed"):
-                                parse_accepted(spec, kast, session, tools, workspace, workspace)
+                    snapshot = Mock()
+                    snapshot.run.side_effect = responses
+                    if accepted:
+                        trees, unparsed = parse_accepted(spec, kast, session, snapshot, workspace, workspace)
+                        self.assertIs(trees["accepted.calc"], raw_term)
+                        self.assertEqual(unparsed, {"accepted.calc": "opaque program"})
+                        self.assertEqual(
+                            [call.args[:2] for call in snapshot.run.call_args_list],
+                            [
+                                ("kast/accepted/accepted.calc", "kast"),
+                                ("kparse/accepted/accepted.calc", "kparse"),
+                                ("kast-unparse/accepted/accepted.calc", "kast"),
+                                ("kast-reparse/accepted/accepted.calc", "kast"),
+                            ],
+                        )
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "kparse failed"):
+                            parse_accepted(spec, kast, session, snapshot, workspace, workspace)
 
 
 class CompareOutputTests(unittest.TestCase):

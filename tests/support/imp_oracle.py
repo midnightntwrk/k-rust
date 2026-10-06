@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tempfile
 from typing import Any, Mapping
@@ -19,8 +18,35 @@ from support.hashing import canonical_json, json_sha256, sha256_file, sha256_tex
 from support.lock import k_version
 from support.pins import Ledger
 from support.process import compact, run
+from support.reference import (
+    Key, Output, Snapshot, add_refresh_argument, json_without_members, repository_inputs,
+)
 from support.report import Results
 from support.tools import checkout_scratch, find_k_tool, k_version_matches, z3_environment
+
+
+TOOLS = ("kompile", "kast", "kparse", "krun")
+"""The Java K commands the oracle runs live under `--refresh-reference`."""
+
+DEFINITION_METADATA = (
+    "org.kframework.attributes.Source",
+    "org.kframework.attributes.Location",
+    "org.kframework.definition.Production",
+    "contentStartLine",
+    "contentStartColumn",
+    "digest",
+    "productionID",
+    "UNIQUE_ID",
+)
+"""Attribute names whose members the stored `parsed.json` and `compiled.json` omit.
+
+They are the metadata attributes krs-gate's `normalized_definition` removes
+(all but `syntaxModule`, which its reader still consults), and no structure
+check reads them, so the recorded definitions keep every module and sentence
+but none of the source locations or install paths.
+"""
+
+reduce_definition = json_without_members(DEFINITION_METADATA)
 
 
 @dataclass(frozen=True)
@@ -235,10 +261,10 @@ def verify_pins(spec: Spec, results: Results, pins: Ledger) -> None:
 
 
 def verify_tools(results: Results) -> dict[str, str]:
-    """Find and version-check the four Java K commands."""
+    """Find and version-check the four Java K commands for a live refresh."""
 
     tools: dict[str, str] = {}
-    for name in ("kompile", "kast", "kparse", "krun"):
+    for name in TOOLS:
         executable = find_k_tool(name)
         if executable is None:
             results.add(f"tool_{name}", "FAIL", "not found on PATH")
@@ -267,23 +293,39 @@ def compare_output(
         results.add(name, "PASS", detail)
 
 
-def compile_reference(spec: Spec, kompile: str, output: Path) -> subprocess.CompletedProcess[str]:
-    """Compile the gate's reference definition with its selected search mode."""
+def reference_key(spec: Spec) -> Key:
+    """The snapshot key: the oracle reads only its own and its inherited fixtures."""
 
-    return run(
+    files = fixture_files(spec)
+    if spec.inherited_layer is not None:
+        files.extend(spec.inherited_layer.directory / name for name in spec.inherited_layer.files)
+    return Key(tools=TOOLS, inputs=repository_inputs(files))
+
+
+def compile_reference(spec: Spec, k: Snapshot, output: Path) -> subprocess.CompletedProcess[str]:
+    """Compile the gate's reference definition with its selected search mode.
+
+    Only the `parsed.json` and `compiled.json` the structure checks read are stored.
+    """
+
+    return k.run(
+        "kompile/definition", "kompile",
         [
-            kompile, str(spec.source), "--main-module", spec.module,
+            str(spec.source), "--main-module", spec.module,
             "--syntax-module", spec.syntax_module, "--backend", "llvm",
             *(["--enable-search"] if spec.search is not None else []),
             "--emit-json", "--output-definition", str(output),
         ],
         timeout=300,
-        check=False,
+        outputs=(
+            Output(output / "parsed.json", reduce_definition),
+            Output(output / "compiled.json", reduce_definition),
+        ),
     )
 
 
 def parse_accepted(
-    spec: Spec, kast: KAST, session: krs_gate.Session, tools: Mapping[str, str], definition: Path, workspace: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, k: Snapshot, definition: Path, workspace: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Parse, unparse, and reparse the accepted corpus."""
 
@@ -291,10 +333,10 @@ def parse_accepted(
     unparsed: dict[str, str] = {}
     for path in sorted(spec.accepted.glob(f"*{spec.extension}")):
         command = [
-            tools["kast"], "--definition", str(definition), "--module", spec.module,
+            "--definition", str(definition), "--module", spec.module,
             "--sort", "Stmt", "--output", "json", str(path),
         ]
-        process = run(command, timeout=60, check=False)
+        process = k.run(f"kast/accepted/{path.name}", "kast", command, timeout=60)
         if process.returncode != 0:
             raise RuntimeError(f"accepted parse failed for {path.name}: {compact(process)}")
         term = read_term(session, kast, process.stdout)
@@ -302,19 +344,24 @@ def parse_accepted(
         if abstract != spec.expected_trees[path.name]:
             raise RuntimeError(f"wrong tree for {path.name}: {abstract!r}")
         trees[path.name] = term
-        portable = run(
-            [tools["kparse"], "--definition", str(definition), "--module", spec.module,
-             "--sort", "Stmt", str(path)],
-            timeout=60, check=False,
+        portable = k.run(
+            f"kparse/accepted/{path.name}", "kparse",
+            ["--definition", str(definition), "--module", spec.module, "--sort", "Stmt", str(path)],
+            timeout=60,
         )
         if portable.returncode != 0 or not portable.stdout.strip():
             raise RuntimeError(f"kparse failed for {path.name}: {compact(portable)}")
-        pretty = run(command[:-2] + ["program", str(path)], timeout=60, check=False)
+        pretty = k.run(
+            f"kast-unparse/accepted/{path.name}", "kast",
+            command[:-2] + ["program", str(path)], timeout=60,
+        )
         if pretty.returncode != 0:
             raise RuntimeError(f"unparse failed for {path.name}: {compact(pretty)}")
         roundtrip = workspace / f"roundtrip-{path.name}"
         roundtrip.write_text(pretty.stdout, encoding="utf-8")
-        reparsed = run(command[:-1] + [str(roundtrip)], timeout=60, check=False)
+        reparsed = k.run(
+            f"kast-reparse/accepted/{path.name}", "kast", command[:-1] + [str(roundtrip)], timeout=60,
+        )
         if reparsed.returncode != 0 or canonical_json(read_term(session, kast, reparsed.stdout)) != canonical_json(term):
             raise RuntimeError(f"parse/unparse/parse changed {path.name}: {compact(reparsed)}")
         unparsed[path.name] = pretty.stdout.strip()
@@ -322,12 +369,12 @@ def parse_accepted(
 
 
 def execute_case(
-    spec: Spec, krun: str, definition: Path, path: Path, initial_env: str = ".Map",
+    k: Snapshot, label: str, definition: Path, path: Path, initial_env: str = ".Map",
     *, statistics: bool = False, depth: int | None = None, search: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Execute one reference case with the gate's configuration."""
 
-    command = [krun, "--definition", str(definition)]
+    command = ["--definition", str(definition)]
     if statistics:
         command.append("--statistics")
     if search:
@@ -335,11 +382,11 @@ def execute_case(
     if depth is not None:
         command.extend(["--depth", str(depth)])
     command.extend(["--output", "json", f"-cENV={initial_env}", str(path)])
-    return run(command, timeout=60, check=False)
+    return k.run(label, "krun", command, timeout=60)
 
 
 def execute_accepted(
-    spec: Spec, kast: KAST, session: krs_gate.Session, krun: str, definition: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, k: Snapshot, definition: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Collect final and depth-indexed states for every accepted case."""
 
@@ -348,7 +395,7 @@ def execute_accepted(
     for name, expectation in spec.expected_executions.items():
         path = spec.accepted / name
         initial_env = str(expectation.get("initial_env", ".Map"))
-        process = execute_case(spec, krun, definition, path, initial_env, statistics=True)
+        process = execute_case(k, f"krun/final/{name}", definition, path, initial_env, statistics=True)
         if process.returncode != 0:
             raise RuntimeError(f"execution failed for {name}: {compact(process)}")
         match = re.search(r"\[(\d+) steps\]", process.stdout)
@@ -363,7 +410,7 @@ def execute_accepted(
 
     def snapshot(job: tuple[str, int, Path, str]) -> tuple[str, dict[str, Any]]:
         name, depth, path, initial_env = job
-        process = execute_case(spec, krun, definition, path, initial_env, depth=depth)
+        process = execute_case(k, f"krun/depth/{name}@{depth:03d}", definition, path, initial_env, depth=depth)
         if process.returncode != 0:
             raise RuntimeError(f"depth-{depth} execution failed for {name}: {compact(process)}")
         return f"{name}@{depth:03d}", read_term(session, kast, process.stdout)
@@ -377,7 +424,7 @@ def execute_accepted(
 
 
 def verify_search(
-    spec: Spec, search: BoundedSearch, kast: KAST, session: krs_gate.Session, krun: str, definition: Path
+    spec: Spec, search: BoundedSearch, kast: KAST, session: krs_gate.Session, k: Snapshot, definition: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Compare bounded search frontiers with direct execution."""
 
@@ -391,8 +438,10 @@ def verify_search(
 
     def frontier(job: tuple[str, int, Path, bool]) -> tuple[str, dict[str, Any], dict[str, Any], bool]:
         name, depth, path, nonterminating = job
-        ordinary = execute_case(spec, krun, definition, path, depth=depth)
-        searched = execute_case(spec, krun, definition, path, depth=depth, search=True)
+        ordinary = execute_case(k, f"krun/bounded/{name}@{depth:03d}", definition, path, depth=depth)
+        searched = execute_case(
+            k, f"krun/search/{name}@{depth:03d}", definition, path, depth=depth, search=True,
+        )
         if ordinary.returncode != 0 or searched.returncode != 0:
             raise RuntimeError(
                 f"bounded search failed for {name}@{depth}: ordinary={compact(ordinary)}, search={compact(searched)}"
@@ -414,7 +463,7 @@ def verify_search(
 
 
 def verify_rejections(
-    spec: Spec, kast: KAST, session: krs_gate.Session, tools: Mapping[str, str], definition: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, k: Snapshot, definition: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Check exact parser locations and stuck reference executions.
 
@@ -424,10 +473,11 @@ def verify_rejections(
 
     diagnostics: dict[str, str] = {}
     for path in sorted(spec.syntax_rejected.glob(f"*{spec.extension}")):
-        process = run(
-            [tools["kast"], "--definition", str(definition), "--module", spec.module,
+        process = k.run(
+            f"kast/syntax-rejected/{path.name}", "kast",
+            ["--definition", str(definition), "--module", spec.module,
              "--sort", "Stmt", "--output", "json", str(path)],
-            timeout=60, check=False,
+            timeout=60,
         )
         match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
         actual = tuple(map(int, match.groups())) if match else None
@@ -442,7 +492,9 @@ def verify_rejections(
     stuck: dict[str, Any] = {}
     expectations = spec.stuck_steps
     for name, steps in expectations.items():
-        process = execute_case(spec, tools["krun"], definition, spec.semantic_rejected / name, statistics=True)
+        process = execute_case(
+            k, f"krun/stuck/{name}", definition, spec.semantic_rejected / name, statistics=True,
+        )
         match = re.search(r"\[(\d+) steps\]", process.stdout)
         if process.returncode != 0 or match is None or int(match.group(1)) != steps:
             raise RuntimeError(f"stuck behavior differs for {name}: {compact(process)}")
@@ -454,34 +506,36 @@ def verify_rejections(
 
 
 def verify_division(
-    spec: Spec, division: DivisionCase, krun: str, definition: Path
+    spec: Spec, division: DivisionCase, k: Snapshot, definition: Path
 ) -> str:
-    """Require the LLVM division hook to abort with its exact message."""
+    """Require the LLVM division hook to abort with its exact message.
 
-    timeout = shutil.which("timeout")
-    if timeout is None:
-        raise RuntimeError("GNU timeout is required to contain the LLVM division hook abort")
-    process = run(
-        [timeout, "--signal=KILL", "8s", krun, "--definition", str(definition),
-         "--output", "json", "-cENV=.Map", str(spec.semantic_rejected / division.program)],
-        timeout=15, check=False,
+    A live run contains the abort with GNU `timeout`.
+    """
+
+    process = k.run(
+        f"krun/division/{division.program}", "krun",
+        ["--definition", str(definition), "--output", "json", "-cENV=.Map",
+         str(spec.semantic_rejected / division.program)],
+        timeout=15, prefix=("timeout", "--signal=KILL", "8s"),
     )
     if process.returncode == 0 or division.stderr not in process.stderr:
         raise RuntimeError(f"{division.program} behavior differs: {compact(process)}")
     return division.stderr
 
 
-def verify_induced_diagnostic(spec: Spec, kompile: str, workspace: Path) -> str | None:
+def verify_induced_diagnostic(spec: Spec, k: Snapshot, workspace: Path) -> str | None:
     """Require the authored syntax error at its pinned source location.
 
     Return the normalized diagnostic when the gate pins it.
     """
 
-    process = run(
-        [kompile, str(spec.induced), "--main-module", spec.induced_module,
+    process = k.run(
+        "kompile/induced-diagnostic", "kompile",
+        [str(spec.induced), "--main-module", spec.induced_module,
          "--syntax-module", spec.induced_module, "--backend", "llvm",
          "--output-definition", str(workspace / "induced-kompiled")],
-        timeout=120, check=False,
+        timeout=120,
     )
     match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
     actual = tuple(map(int, match.groups())) if match else None
@@ -494,15 +548,12 @@ def verify_induced_diagnostic(spec: Spec, kompile: str, workspace: Path) -> str 
 
 
 def reference_oracle(
-    spec: Spec, kast: KAST, session: krs_gate.Session, results: Results, tools: Mapping[str, str], pins: Ledger, workspace: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, results: Results, k: Snapshot, pins: Ledger, workspace: Path
 ) -> None:
     """Run the reference layers and retain every report line in gate order."""
 
-    if set(tools) != {"kompile", "kast", "kparse", "krun"}:
-        results.add("reference_oracle", "FAIL", "all four pinned K commands are required")
-        return
     definition = workspace / spec.compiled_dir
-    compiled_process = compile_reference(spec, tools["kompile"], definition)
+    compiled_process = compile_reference(spec, k, definition)
     if compiled_process.returncode != 0:
         results.add("reference_compile", "FAIL", compact(compiled_process))
         return
@@ -517,14 +568,14 @@ def reference_oracle(
         compare_output(results, pins, "definition_structure", "normalized_definition_sha256",
                        definition_hashes, f"{spec.definition_detail}; hashes={definition_hashes}")
 
-        trees, unparsed = parse_accepted(spec, kast, session, tools, definition, workspace)
+        trees, unparsed = parse_accepted(spec, kast, session, k, definition, workspace)
         tree_hash, unparse_hash = aggregate(trees), aggregate(unparsed)
         compare_output(results, pins, "parse_trees", "accepted_tree_aggregate_sha256",
                        tree_hash, f"{spec.trees_detail}; aggregate={tree_hash}")
         compare_output(results, pins, "unparse_roundtrip", "unparse_aggregate_sha256",
                        unparse_hash, f"all trees round-trip exactly; aggregate={unparse_hash}")
 
-        finals, trace = execute_accepted(spec, kast, session, tools["krun"], definition)
+        finals, trace = execute_accepted(spec, kast, session, k, definition)
         final_hash, trace_hash = aggregate(finals), aggregate(trace)
         compare_output(results, pins, "final_states", "final_state_aggregate_sha256",
                        final_hash, f"{spec.final_detail}; aggregate={final_hash}")
@@ -533,7 +584,7 @@ def reference_oracle(
 
         search = spec.search
         if search is not None:
-            searches, bounded = verify_search(spec, search, kast, session, tools["krun"], definition)
+            searches, bounded = verify_search(spec, search, kast, session, k, definition)
             search_hash, bounded_hash = aggregate(searches), aggregate(bounded)
             compare_output(
                 results, pins, "bounded_search", "bounded_search_sha256",
@@ -543,7 +594,7 @@ def reference_oracle(
                 f"bounds remain live; frontiers={search_hash}, nontermination={bounded_hash}",
             )
 
-        stuck, diagnostics = verify_rejections(spec, kast, session, tools, definition)
+        stuck, diagnostics = verify_rejections(spec, kast, session, k, definition)
         rejection_pin = spec.rejection_pin
         stuck_hash = aggregate(stuck)
         observed = {rejection_pin.stuck_key: stuck_hash}
@@ -553,12 +604,12 @@ def reference_oracle(
             observed[rejection_pin.diagnostics_key] = diagnostic_hash
             reported.append(f"diagnostics={diagnostic_hash}")
         if spec.division is not None:
-            division_error = verify_division(spec, spec.division, tools["krun"], definition)
+            division_error = verify_division(spec, spec.division, k, definition)
             observed[spec.division.pin_key] = sha256_text(division_error)
         compare_output(results, pins, "rejections", "rejection_sha256", observed,
                        f"{spec.rejection_detail}; {', '.join(reported)}")
 
-        induced = verify_induced_diagnostic(spec, tools["kompile"], workspace)
+        induced = verify_induced_diagnostic(spec, k, workspace)
         if induced is not None:
             induced_hash = sha256_text(induced)
             compare_output(results, pins, "definition_diagnostic", "induced_diagnostic_sha256",
@@ -570,19 +621,38 @@ def reference_oracle(
 
 
 def main(spec: Spec, kast: KAST) -> int:
-    """Run a strict IMP oracle and finish its ledger only after every check passes."""
+    """Run a strict IMP oracle and finish its ledger and snapshot only after every check passes.
+
+    The Java K observations come from the committed snapshot under
+    `reference/oracle`; `--refresh-reference` runs Java K live instead.
+    """
 
     parser = argparse.ArgumentParser(description=f"{spec.label} gate")
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
+    add_refresh_argument(parser)
     arguments = parser.parse_args()
     results = Results()
     pins = Ledger(spec.pins_path, record=arguments.record)
     binary = krs_gate.configured_or_build(checkout_scratch() / f"{spec.here.name}-root-target")
     verify_pins(spec, results, pins)
-    tools = verify_tools(results)
+    executables = verify_tools(results) if arguments.refresh_reference else None
     with krs_gate.Session(binary, environment=z3_environment()) as session:
         with tempfile.TemporaryDirectory(prefix=f"krs-{spec.here.name}-oracle-") as temporary:
-            reference_oracle(spec, kast, session, results, tools, pins, Path(temporary))
+            workspace = Path(temporary)
+            try:
+                k = Snapshot(
+                    spec.here / "reference" / "oracle", reference_key(spec), workspace=workspace,
+                    refresh=arguments.refresh_reference, executables=executables,
+                )
+            except GateError as error:
+                results.add("reference_snapshot", "FAIL", str(error))
+            else:
+                reference_oracle(spec, kast, session, results, k, pins, workspace)
+                if not results.failed:
+                    try:
+                        results.add("reference_snapshot", "PASS", k.finish())
+                    except GateError as error:
+                        results.add("reference_snapshot", "FAIL", str(error))
     if results.failed:
         print(f"\n{spec.label} FAILED")
         return 1

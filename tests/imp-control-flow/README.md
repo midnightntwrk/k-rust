@@ -1,8 +1,10 @@
 # Independent IMP control-flow oracle
 
 This directory freezes the external acceptance contract for the third explicit IMP vertical slice.
-The verifier must run the pinned K command-line tools and read their KAST JSON output through k-rust's reader in krs-gate.
-Oracle independence rests on Java K producing that output.
+The verifier reads the KAST JSON output of the pinned K command-line tools through k-rust's reader in krs-gate.
+Oracle independence rests on Java K having produced that output:
+by default the verifier replays the Java K results recorded in `reference/oracle/`,
+and `--refresh-reference` runs the pinned K tools live and re-records them.
 Neither the handwritten definition nor the corpus may import a KRS crate or KRS-generated artifact.
 
 `fixtures/imp.k` layers directly on `tests/imp-state/fixtures/calc.k` with an ordinary
@@ -94,6 +96,24 @@ Run exactly:
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 tests/imp-control-flow/verify.py
 ```
+
+By default the verifier needs no K tool.
+It replays the recorded Java K invocations in `reference/oracle/`, whose `manifest.toml` holds the snapshot key
+(the `Krs.lock` K version, the K tools, and the digest of every fixture and corpus file)
+and the digest of every stored file.
+The stored `parsed.json` and `compiled.json` keep every module and sentence but omit the metadata attributes
+(source locations, install paths, and production identifiers) that the normalized definition hashes remove.
+A changed fixture, corpus file, K version, or argument vector fails closed and names `--refresh-reference`;
+the verifier never falls back to running Java K.
+
+To re-record the snapshot, put the pinned K 7.1.337 `bin` directory on `PATH` and run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/imp-control-flow/verify.py --refresh-reference
+```
+
+The refresh reruns every recorded invocation live and rewrites `reference/oracle/` only when every check passes.
+`--record` rewrites output pins in `pins.json`; it is independent of `--refresh-reference`, and the two may be combined.
 
 On a disk-constrained host, set `KRS_IMP_CONTROL_FLOW_ORACLE_WORKERS=1` to serialize the
 same pinned checks and reduce simultaneous K scanner temporaries. The default

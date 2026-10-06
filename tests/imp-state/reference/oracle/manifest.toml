@@ -1,0 +1,1020 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kast", "kompile", "kparse", "krun"]
+
+[key.upstream]
+
+[key.inputs]
+"tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+"tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+"tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+"tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+"tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+"tests/imp-state/corpus/rejected/semantic/division-by-zero.calc" = "e9efbcd12b42c686ad1928615611df9347cbd784ee7fd52f3ca38638b60483b4"
+"tests/imp-state/corpus/rejected/semantic/type-error.calc" = "be2b36b54b2f8c5d5328c5eb4f6fba2348b208881f334d1aaf55e43e6c33ed0b"
+"tests/imp-state/corpus/rejected/semantic/undefined-variable.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+"tests/imp-state/corpus/rejected/syntax/missing-identifier.calc" = "2b81546cee333061cf47638bd99b40bb685865a7dc75446cad93658098d5c25d"
+"tests/imp-state/corpus/rejected/syntax/missing-semicolon.calc" = "9e26bf369911c45c243c684147b23fc9e1dcfcf257d299a1c632016a6fcd33f4"
+"tests/imp-state/fixtures/calc.k" = "bf0a9bd50ba8f36cc813804920032a21b073624aabab047b3d9e0f9fc38430f8"
+"tests/imp-state/fixtures/expr.k" = "a3140c3ecde1f1157278cbf48247cac255537bcd4443b16d247df58254925ce9"
+"tests/imp-state/fixtures/induced-definition-error.k" = "953ec2600fcd590fa53bdcc1bcf446aa617a099fa4e60e7ef1c6b4e6d61d82ba"
+
+[[invocation]]
+label = "kast-reparse/accepted/initial-environment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{work}}/roundtrip-initial-environment.calc"]
+returncode = 0
+stdout = "87e119cddb31caa08342fcd8f7aa99bb2cda1a247b179cf94f9913fea8d1adbf"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/roundtrip-initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-reparse/accepted/lookup-evaluation-order.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{work}}/roundtrip-lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "613d4942efeda3dbc509e48353cecd53d8df57548e07a41f40fefbd3a62673b2"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/roundtrip-lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-reparse/accepted/right-associated-sequence.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{work}}/roundtrip-right-associated-sequence.calc"]
+returncode = 0
+stdout = "5357e7a8e2d786a7d324d472f125b669b784436f33466ad5d2b1db3b97f3bdcd"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/roundtrip-right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-reparse/accepted/single-assignment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{work}}/roundtrip-single-assignment.calc"]
+returncode = 0
+stdout = "0de20db65f444f635bc686d68f37a8bb7f91c6992cd677109eba1f106324785c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/roundtrip-single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-reparse/accepted/update-existing.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{work}}/roundtrip-update-existing.calc"]
+returncode = 0
+stdout = "79a336c22f3c39c0bab9c3d0f194c1504193282b570c3752c17dc751579cd1b8"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/roundtrip-update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-unparse/accepted/initial-environment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "program", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-unparse/accepted/lookup-evaluation-order.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "program", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-unparse/accepted/right-associated-sequence.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "program", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-unparse/accepted/single-assignment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "program", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast-unparse/accepted/update-existing.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "program", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/accepted/initial-environment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "87e119cddb31caa08342fcd8f7aa99bb2cda1a247b179cf94f9913fea8d1adbf"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/accepted/lookup-evaluation-order.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "613d4942efeda3dbc509e48353cecd53d8df57548e07a41f40fefbd3a62673b2"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/accepted/right-associated-sequence.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "5357e7a8e2d786a7d324d472f125b669b784436f33466ad5d2b1db3b97f3bdcd"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/accepted/single-assignment.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "0de20db65f444f635bc686d68f37a8bb7f91c6992cd677109eba1f106324785c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/accepted/update-existing.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "79a336c22f3c39c0bab9c3d0f194c1504193282b570c3752c17dc751579cd1b8"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/syntax-rejected/missing-identifier.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/rejected/syntax/missing-identifier.calc"]
+returncode = 113
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "f7afdfa531005dd5b9f9f13b851967e83fd8052b7f77ea1c6b543e440800fac2"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/rejected/syntax/missing-identifier.calc" = "2b81546cee333061cf47638bd99b40bb685865a7dc75446cad93658098d5c25d"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/syntax-rejected/missing-semicolon.calc"
+argv = ["kast", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "--output", "json", "{{root}}/tests/imp-state/corpus/rejected/syntax/missing-semicolon.calc"]
+returncode = 113
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "f37dcc7ce860ee63ab40ac36caa713aa3d85bf690cfc705e58da5dd1935e60e7"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/rejected/syntax/missing-semicolon.calc" = "9e26bf369911c45c243c684147b23fc9e1dcfcf257d299a1c632016a6fcd33f4"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kompile/definition"
+argv = ["kompile", "{{root}}/tests/imp-state/fixtures/calc.k", "--main-module", "KRS-IMP-STATE-CALC", "--syntax-module", "KRS-IMP-STATE-CALC-SYNTAX", "--backend", "llvm", "--emit-json", "--output-definition", "{{work}}/calc-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/fixtures/calc.k" = "bf0a9bd50ba8f36cc813804920032a21b073624aabab047b3d9e0f9fc38430f8"
+
+[invocation.outputs]
+"{{work}}/calc-kompiled/compiled.json" = "c013a13bb6c6b522edb0ebefd8e7c9a90137a5d60818ebc53072dd52e1c72751"
+"{{work}}/calc-kompiled/parsed.json" = "8659013945e4c8408cf9742174a4fcf4ccc22a45d3a644e71450d094bb7db8bd"
+
+[[invocation]]
+label = "kompile/induced-diagnostic"
+argv = ["kompile", "{{root}}/tests/imp-state/fixtures/induced-definition-error.k", "--main-module", "KRS-IMP-STATE-INDUCED-DEFINITION-ERROR", "--syntax-module", "KRS-IMP-STATE-INDUCED-DEFINITION-ERROR", "--backend", "llvm", "--output-definition", "{{work}}/induced-kompiled"]
+returncode = 113
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "2d78da6447fa04f5ee3e84a1e89e59c22a76227b03d8ee4d8650b748574676f9"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/fixtures/induced-definition-error.k" = "953ec2600fcd590fa53bdcc1bcf446aa617a099fa4e60e7ef1c6b4e6d61d82ba"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kparse/accepted/initial-environment.calc"
+argv = ["kparse", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "58ea98a0bdbcf0894e30bcbf033dfa0e39129df465468367948defb389161538"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kparse/accepted/lookup-evaluation-order.calc"
+argv = ["kparse", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "2c3ab9f3b76e307e174c23a7a01b1b20a98bd4f35781adf46516fb584969a0aa"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kparse/accepted/right-associated-sequence.calc"
+argv = ["kparse", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "99495c260e6274da079d969fda6ba1a3b73bd880edb65f321a3c00fb2448260d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kparse/accepted/single-assignment.calc"
+argv = ["kparse", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "c4b879abdeaf322fe48f2399fc3ec64e97c035cbcdca3c22e09363fa10b07748"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kparse/accepted/update-existing.calc"
+argv = ["kparse", "--definition", "{{work}}/calc-kompiled", "--module", "KRS-IMP-STATE-CALC", "--sort", "Stmt", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "0c5c4df99f5e21c03f763cfd3013be286edfdd20c7969cbb5cac3d4ad75ac613"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@000"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "0", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "271fb20f77828b34ef5fac9aadca51437db61475a05690ea89f3d032b5802741"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@001"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "1", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "b82342acd654782feed9d707afdb492c2f44ade030a6becf08f9e71261eb9251"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@002"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "2", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "240a373fcb216813b9da4219e50bd07fc9e18554ab33407521a95e64232dafb0"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@003"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "3", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "54757d023cc557aa78adaabedf24255b33b6cdcb77697f5b0c9458a48402df77"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@004"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "4", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "9b854e594545c0af67e4d9f09491a00076e3ba3aa096dc49da1582b8a7150a0d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@005"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "5", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "5cb51338de32f98bb6c57b1f6d1f08344d8b5f009cffa3810f835b0da4a097a6"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@006"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "6", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "9c502bcf64d5d76ee7bb37be5bb2fcf1c4432551ff531675aedc5953a4a62dfb"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/initial-environment.calc@007"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "7", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "84c416ab1fb4724eb8eef230905e31a5402d0e2d19e3aa7424d2df92a2057756"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@000"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "0", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "49222fb17d1fa5d6771c5386b479518cd235a233e8a9e9a082660c9310bb96e6"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@001"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "1", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "86c519101269ebfea0eebb2dd446548f228854236bd66d93078bc3a6c2b4f4d9"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@002"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "2", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "ccb0850398d7866bc4208d224de79e178ea0e5218b0690c39296a5c3c0f1ed5d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@003"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "3", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "0f333bd54d7363b538be9cfcf9ade6c0df129363f6cf085ef53ccaa8b6f0a421"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@004"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "4", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "1a3bf3c813fcfaf8987580209e12b9f47f317c49a0d8d92ff168f563b38d40ae"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@005"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "5", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "8f401d541ad74fef286c306b4dd8879ee6437fae31e550c5f598945265dd0601"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@006"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "6", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "a61c0fef3d31c2f952995d9d13d2e9abcaa7f79ce57ca6bbef3fe7ee9f675101"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@007"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "7", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "814af82bba9cb0eacc662f5538dad24f14ce8c2b7ba4d8ea1daa8f476972b5e4"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@008"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "8", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "905d101824da49de2acf256fd87544c7743fdce59886beb11a7e34414731ad28"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@009"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "9", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "9b6b3d24c656fca3054b17e2f353c8e1bacea97dc88082a3abc52248f718514c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@010"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "10", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "696ccfddefe92dfae6d706f3eb436551e96425ddc2a0b79891fde402186fd0c5"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@011"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "11", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "8ce716182cc5fea6b51ea3f47fb97032ba0c799d4ff80e284808859a8b980f3a"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@012"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "12", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "9128ad3a7aa253f504ede1cca719ff2d76275415cc571256ce91fa3c0ebd4939"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@013"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "13", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "ce4c93e7e1da6db8f4a013e97b4fdec5d232b50347e8c82623b343986b8af6b5"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@014"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "14", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "1352f8aacd208164053d95f2a6cb2e9db1d33cd299c9a3122e071d926fc251e9"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/lookup-evaluation-order.calc@015"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "15", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "bd6c5d2f6bf6094cfa7f8cda128135f99b1defda067433477f1a738b9f83e34f"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@000"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "0", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "7b2b866f5f4006ca634c07381c708fa1ee595e318b449dbb0a19904485836505"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@001"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "1", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "0444600e8cc14464efe47c60e0e7fd3b05d38f634c8cbf7e6353f5c2dd31d05c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@002"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "2", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "5495bfa8683a6aeb2ad9cec04fa7cc130c2f96b53aa927b28433eb62c5850f72"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@003"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "3", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "e441aad5e03f04a0b403e0bf54451bca11093457ba5816b0c89e2352c8798e48"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@004"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "4", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "38879a87d6e3bbbb4c6b3296db55398441c309227d32bfd4197143b2a8f48ed1"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@005"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "5", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "a02d7e18c567aa88c907c610adcd80817c39be3a3e35c5b25feb48ccf81b15ce"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@006"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "6", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "d02b30e7eb02a119851f500819eefd4194ea91d3406bdf3e934dcf034bd4034d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@007"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "7", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "b4d31ebfd3feee7dc5a918b0da2b654f9b21259d6e5fd966acb342874ea54968"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@008"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "8", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "b0f5867cbf68402865f6e599389de34380fa3956563f458273c3018615236055"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@009"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "9", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "e3ff3f2db8a38bbd57ef2ec5e0a29530164603c028a462140a58daa50b106778"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@010"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "10", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "0df0477de1d4a0289ef69e621078f42249e791537385b5ecce18440ff70ea263"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@011"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "11", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "7a8c3f180e343d0f948e9e651524e86ed0b64bcc40edd3320acde6758e617e8d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@012"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "12", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "03e4c870c5040a61c975c8ef7c7a3c2bc3d2e1443e8383667edd856755a7c36f"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@013"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "13", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "6e59fc4c086fe48d3ad43994a660548d65faced9ea898309d3829585c98543aa"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/right-associated-sequence.calc@014"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "14", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "9c78929def26cf5a15d1169f6ed7c03cfd7ce7e77b2029175c9cc67fe8145c2d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/single-assignment.calc@000"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "0", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "6a74133a653e2a3ee640d068ff36b8a131c693109cd11021a36cdf87d5c8b8a9"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/single-assignment.calc@001"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "1", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "1cc010780a559612ac39488bfe25a979bf3d5f0c709cfdcd0fe1a5389522dd0d"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@000"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "0", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "85666d672fd0beaf68850943133ad430f8a54af54cdcbb838a17426e61b108d8"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@001"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "1", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "fa01aebf3e99eec9788a72dfddcd7a3b552b11edbe69e7ffacb117afe651bb78"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@002"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "2", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "97ad05631f66bbe904ecd48812663661e69c2ef56973185c4bb68ebbb9ca8b4a"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@003"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "3", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "dd03820ee1d463da8eea26acf08d25bbcafa0a4e91b80c50bc64c4afe0d24d65"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@004"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "4", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "fdedf436a16de07d7fcec9017590261c02ffb81374038637276576f27a689910"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@005"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "5", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "9d5b408ba271c435e90a18365db198d3481a1a98534823ab6cf8763bcd4e0070"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@006"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "6", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "93eabb037fcafff37726bfec4c653b189b74e80899d112455c62b0076ed50c0a"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@007"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "7", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "fbdad029b171bdf31e5192559858d8fb9a8ef605269ffad3ef8c90b67a05046c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@008"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "8", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "f27610d0cf77b1affbb942318cab824a26a4acb24dbb0f1c65dc219760e4efdc"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/depth/update-existing.calc@009"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--depth", "9", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "f5bae26954af56b5686f4c197d75bf6d9dae39777e71d0c49ae0cf379692f3ef"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/division/division-by-zero.calc"
+argv = ["timeout", "--signal=KILL", "8s", "krun", "--definition", "{{work}}/calc-kompiled", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/rejected/semantic/division-by-zero.calc"]
+returncode = -9
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "6e6ad8235e11b4752656aa5d76d3b312621422f96ffaed7c60ad92dfe90d8e47"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/rejected/semantic/division-by-zero.calc" = "e9efbcd12b42c686ad1928615611df9347cbd784ee7fd52f3ca38638b60483b4"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final/initial-environment.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=x |-> 41", "{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc"]
+returncode = 0
+stdout = "fcd7387d95b1e36f5547a339b89bf462d0e6e510dcf0eb64b2e986bc0ed59ce0"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/initial-environment.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final/lookup-evaluation-order.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc"]
+returncode = 0
+stdout = "3fef6128e8956cb678e230d56943d928760595fa7e40114869cd58a187e164e1"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/lookup-evaluation-order.calc" = "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final/right-associated-sequence.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc"]
+returncode = 0
+stdout = "1b22f76f4cc6996c2f7677e02533f2f2d3610b3039108092139a9fb00ed3755f"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/right-associated-sequence.calc" = "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final/single-assignment.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc"]
+returncode = 0
+stdout = "1ca3eb60a81e46366cd93e8ebe561e815f1df04928df624f834e24529517ed2f"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/single-assignment.calc" = "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/final/update-existing.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/accepted/update-existing.calc"]
+returncode = 0
+stdout = "38ac0b46d64fe2d1a0e139b2e44bb84f529a70bb3e3652960fc426eb112bd638"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/accepted/update-existing.calc" = "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/stuck/type-error.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/rejected/semantic/type-error.calc"]
+returncode = 0
+stdout = "674de4a077e8fe599fca80aa4957c691711d1fb5387d16fcf2feefa7a4d7be1c"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/rejected/semantic/type-error.calc" = "be2b36b54b2f8c5d5328c5eb4f6fba2348b208881f334d1aaf55e43e6c33ed0b"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "krun/stuck/undefined-variable.calc"
+argv = ["krun", "--definition", "{{work}}/calc-kompiled", "--statistics", "--output", "json", "-cENV=.Map", "{{root}}/tests/imp-state/corpus/rejected/semantic/undefined-variable.calc"]
+returncode = 0
+stdout = "05f2ef598b7069495d3bb699e03353069a2065d503e7c2bb89a85cbba206e3b6"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/imp-state/corpus/rejected/semantic/undefined-variable.calc" = "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298"
+
+[invocation.outputs]
