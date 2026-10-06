@@ -459,7 +459,7 @@ fn bytes_hooks_agree_with_a_byte_vector_model() {
 // ---------------------------------------------------------------------------------------------
 // STRING
 
-const STRING_HOOKS: [&str; 17] = [
+const STRING_HOOKS: [&str; 18] = [
     "STRING.eq",
     "STRING.ne",
     "STRING.lt",
@@ -470,6 +470,7 @@ const STRING_HOOKS: [&str; 17] = [
     "STRING.substr",
     "STRING.length",
     "STRING.find",
+    "STRING.rfind",
     "STRING.string2base",
     "STRING.base2string",
     "STRING.string2int",
@@ -526,7 +527,7 @@ fn string_case(draw: &mut Draw<'_>) -> Case {
                 draw.int(end, env),
             ]
         }
-        "STRING.find" => {
+        "STRING.find" | "STRING.rfind" => {
             let haystack = text_value(draw, 5);
             let haystack_units = units(&haystack);
             // A needle taken from the haystack half of the time, or a prefix of one of its
@@ -680,19 +681,26 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                 None => Spec::open(),
             }
         }
-        // The first occurrence at or after `index`, in code points; -1 if there is none. A
-        // negative `index` is not documented.
-        ("STRING.find", [Str(haystack), Str(needle), Int(start)]) => {
-            let Some(start) = start.to_usize() else {
-                return if start.is_negative() {
-                    Spec::open()
-                } else {
-                    Spec::value(Val::int(-1))
-                };
-            };
+        // The first occurrence at or after `index` (`find`), or the last at or before it
+        // (`rfind`), in code points; -1 if there is none. Every integer index is one: the
+        // candidates are the code point positions on that side of it.
+        ("STRING.find" | "STRING.rfind", [Str(haystack), Str(needle), Int(start)]) => {
             let units = units(haystack);
-            let found = (start..=units.len())
-                .find(|&from| (from..=units.len()).any(|to| units[from..to].concat() == *needle));
+            let occurs =
+                |from: usize| (from..=units.len()).any(|to| units[from..to].concat() == *needle);
+            let positions = (0..=units.len()).filter(|&from| {
+                let from = BigInt::from(from);
+                if hook == "STRING.find" {
+                    from >= *start
+                } else {
+                    from <= *start
+                }
+            });
+            let found = if hook == "STRING.find" {
+                positions.into_iter().find(|&from| occurs(from))
+            } else {
+                positions.into_iter().rfind(|&from| occurs(from))
+            };
             Spec::value(Val::int(found.map_or(-1, |found| found as i64)))
         }
         ("STRING.string2base", [Str(text), Int(base)]) => {

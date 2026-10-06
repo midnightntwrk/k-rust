@@ -18,12 +18,13 @@ An LLVM expected output does not define the behavior of a hook or of a definitio
 A hook's behavior is defined by the K source that declares it: `domains.md` for K's builtin hooks (see [Hook specification exceptions](#hook-specification-exceptions)), `substitution.md` for the `SUBSTITUTION` hooks, and blockchain-k-plugin `plugin/krypto.md` for the `[crypto]` hooks, at the revision `651a2db5` of the pinned KEVM and at `207ae512`, the revision the hook capability inventory records (the two agree on every hook this section describes, apart from the point productions noted below); a case that needs a hook neither pinned Kore engine evaluates stays `llvm-only` unless k-rust implements that hook as described below.
 The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations for the prelude and `[crypto]` hooks; the `SUBSTITUTION` hooks are classified by the `substitution_hooks_have_an_enforced_external_capability_classification` test beside it.
 
-Among the implemented hooks, four groups have no evaluator in either pinned Kore engine and no `rule` in their declaring K source that defines them.
+Among the implemented hooks, five groups have no evaluator in either pinned Kore engine and no `rule` in their declaring K source that defines them.
 (The other implemented hooks without a builtin evaluator in those engines, `STRING.ne`, `STRING.le`, `STRING.gt` and `STRING.ge`, are defined by `domains.md` rules in terms of `STRING.eq` and `STRING.lt`.)
 The console IO hooks `IO.getc`, `IO.putc`, `IO.read` and `IO.write` are evaluated only by ordinary execution (see the console paragraph below); Kore's IO module registers only `IO.logString` (`kore/src/Kore/Builtin/IO.hs`), and Booster has no IO builtin module.
 The `KRYPTO` hooks `bn128add`, `bn128mul`, `bn128ate`, `bn128valid`, `bn128g2valid`, `sha256raw` and `ripemd160raw` are declared in `plugin/krypto.md`; Kore's `Krypto` module registers none of them (`kore/src/Kore/Builtin/Krypto.hs`), and Booster has no `KRYPTO` builtin module.
 `SUBSTITUTION.substOne` is declared in `substitution.md`; Kore has no `SUBSTITUTION` builtin module (`kore/src/Kore/Builtin.hs`), and neither has Booster.
-k-rust implements these eight hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend.
+`STRING.rfind` (`rfindString`) is declared in `domains.md`; Kore's `String` module registers no `STRING.rfind` (`kore/src/Kore/Builtin/String/String.hs`), and Booster has no `STRING` builtin module.
+k-rust implements these nine hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend.
 Where the declaration gives no value, the result is undefined (`#Bottom`), as for other partial hooks.
 Where the value depends on a subterm the call cannot see, the application stays unevaluated.
 Such a subterm is a variable or an application of a non-constructor symbol, and it may denote any constructor term of its sort.
@@ -568,6 +569,14 @@ The hook contract is K's [`k-distribution/include/kframework/builtin/domains.md`
 Rust retains the specified behavior for all three operations.
 The [hook fixtures](../crates/k-rust/tests/fixtures/reference/hooks) and `execution.oracle-exception` entries in the differential manifest preserve separate Rust and Kore expectations for the two Kore deviations.
 Normalization N18 checks both expectations independently; when a pin fixes the deviation, refresh the reference evidence and remove that exception.
+
+## Hook values at the edges of their domains
+
+Where `domains.md` describes a hook's value without settling an edge of its domain, k-rust settles it from the description, the hook's attributes and the K equations `domains.md` gives, and the backend and the constant folder agree on the outcome (the fold leaves an application it does not compute for execution, see [Constant folding](#constant-folding)).
+A partial hook whose description gives no value of its result sort on some arguments is undefined there (`\bottom`).
+A `total` hook always has a value, so where its description gives none, the value exists but is not determined by the definition: the backend leaves such an application unevaluated, as a term denoting an unknown value of its sort, without reporting an unsupported hook, and the fold leaves it too; neither `\bottom` nor a chosen value is a consequence of the definition.
+
+- `findString(S, N, I)` is the first occurrence of `N` in `S` starting at or after code point `I`, and `rfindString(S, N, I)` the last one starting at or before it, -1 when there is none, for every integer `I`: a negative `I` searches `findString` from the start and gives `rfindString` no candidate, and an `I` past the end gives `findString` none and searches `rfindString` from the end. `findChar` and `rfindChar` follow, since their `domains.md` equations pass `I` to these two. (`find_searches_forward_from_any_index` and `rfind_searches_back_from_any_index` in [string.rs](../crates/k-rust-backend/src/builtin/string.rs), `searches_from_any_integer_index` in the fold.)
 
 ## ECDSA recovery on invalid input
 

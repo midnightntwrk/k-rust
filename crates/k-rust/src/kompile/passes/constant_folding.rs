@@ -828,21 +828,24 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     };
     let haystack = string_value(haystack)?;
     let needles = string_value(needles)?;
-    let index = unsigned_32(
-        &int_value(index)?,
-        if reverse {
-            "STRING.rfind"
-        } else {
-            "STRING.find"
-        },
-    )? as usize;
+    let index = int_value(index)?;
     let chars = haystack.chars().collect::<Vec<_>>();
-    if index > chars.len() {
-        return Err(Unfolded::Undefined(format!(
-            "Argument to hook STRING.{} out of range. Expected an index >= 0 and <= the length of the string to search.",
-            if reverse { "rfind" } else { "find" }
-        )));
-    }
+    // `findString(S, N, I)` is the first occurrence starting at or after index I, and
+    // `rfindString` the last starting at or before it, for every integer I (`domains.md`; the
+    // `findChar` and `rfindChar` equations pass I to them unchanged). A negative I therefore
+    // searches `find` from 0 and leaves `rfind` no candidate; an I past the end leaves `find`
+    // none and searches `rfind` from the end.
+    let index = if reverse {
+        if index.is_negative() {
+            return Ok(Value::Int((-1).into()));
+        }
+        saturating_usize(&index).min(chars.len())
+    } else {
+        if index > BigInt::from(chars.len()) {
+            return Ok(Value::Int((-1).into()));
+        }
+        saturating_usize(&index.max(BigInt::zero()))
+    };
     // Invariant: each `find` scans candidate start indices of `chars` from `index` forward, or backward when `reverse`, and returns the first index holding a character of `needles` (when `any_char`) or the whole `needle`; the finite index range bounds the scan, O(`chars.len()` * `needle.len()`) for a substring search.
     let found = if any_char {
         if reverse {
@@ -1061,6 +1064,43 @@ mod tests {
         assert_eq!(found("ab", "b", 2), int(1));
         assert_eq!(found("ab", "b", 0), int(-1));
         assert_eq!(found("aba", "ab", 1), int(1));
+    }
+
+    /// The search hooks find the first occurrence at or after their index, or the last at or
+    /// before it, for every integer index.
+    #[test]
+    fn searches_from_any_integer_index() {
+        let huge = BigInt::one() << 100u32;
+        let found = |hook: &str, haystack: &str, needles: &str, index: BigInt| {
+            let (reverse, any_char) = match hook {
+                "find" => (false, false),
+                "rfind" => (true, false),
+                "findChar" => (false, true),
+                _ => (true, true),
+            };
+            let values = [
+                Value::String(haystack.into()),
+                Value::String(needles.into()),
+                Value::Int(index),
+            ];
+            match string_find(&values, reverse, any_char) {
+                Ok(Value::Int(position)) => position,
+                other => panic!("{hook}({haystack:?}, {needles:?}) gave {other:?}"),
+            }
+        };
+        assert_eq!(found("find", "hello", "l", int(-5)), int(2));
+        assert_eq!(found("find", "hello", "", int(-1)), int(0));
+        assert_eq!(found("find", "hello", "", int(5)), int(5));
+        assert_eq!(found("find", "hello", "", int(6)), int(-1));
+        assert_eq!(found("find", "hello", "h", huge.clone()), int(-1));
+        assert_eq!(found("rfind", "hello", "l", int(100)), int(3));
+        assert_eq!(found("rfind", "hello", "", huge.clone()), int(5));
+        assert_eq!(found("rfind", "hello", "h", int(-1)), int(-1));
+        assert_eq!(found("rfind", "hello", "", -huge.clone()), int(-1));
+        assert_eq!(found("findChar", "hello", "ol", int(-3)), int(2));
+        assert_eq!(found("findChar", "hello", "ol", huge.clone()), int(-1));
+        assert_eq!(found("rfindChar", "hello", "he", huge.clone()), int(1));
+        assert_eq!(found("rfindChar", "hello", "he", int(-1)), int(-1));
     }
 
     /// An empty needle occurs at index 0 with the whole haystack after it, so each replacement

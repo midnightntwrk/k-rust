@@ -1121,16 +1121,26 @@ fn residue(quotient: &BigInt, length: &BigInt) -> Option<BigInt> {
     })
 }
 
-fn search(hook: &str, haystack: &str, needles: &str, index: usize) -> i64 {
+/// The first position at or after `index` (`findChar`), or the last at or before it (`rfind`,
+/// `rfindChar`), holding the needle or one of the needle characters; -1 if there is none. Every
+/// integer index is one: the candidates are the positions on that side of it.
+fn search(hook: &str, haystack: &str, needles: &str, index: &BigInt) -> i64 {
     let haystack = haystack.chars().collect::<Vec<_>>();
     let needle = needles.chars().collect::<Vec<_>>();
     let occurs_at = |position: usize| match hook {
         "STRING.rfind" => haystack[position..].starts_with(&needle),
         _ => position < haystack.len() && needle.contains(&haystack[position]),
     };
+    let mut positions = (0..=haystack.len()).filter(|&position| {
+        let position = BigInt::from(position);
+        match hook {
+            "STRING.findChar" => position >= *index,
+            _ => position <= *index,
+        }
+    });
     let found = match hook {
-        "STRING.findChar" => (index..haystack.len()).find(|&position| occurs_at(position)),
-        _ => (0..=index).rev().find(|&position| occurs_at(position)),
+        "STRING.findChar" => positions.find(|&position| occurs_at(position)),
+        _ => positions.rfind(|&position| occurs_at(position)),
     };
     found.map_or(-1, |position| position as i64)
 }
@@ -1300,15 +1310,15 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
             let shifted = residue(&(quotient + &half), &BigInt::from(length)).unwrap();
             value(Out::Int(shifted - half))
         }
-        "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => {
-            let haystack = arguments[0].str();
-            let Some(index) = character_index(haystack, arguments[2].int()) else {
-                return Expect::Undefined;
-            };
-            value(Out::Int(
-                search(hook, haystack, arguments[1].str(), index).into(),
-            ))
-        }
+        "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => value(Out::Int(
+            search(
+                hook,
+                arguments[0].str(),
+                arguments[1].str(),
+                arguments[2].int(),
+            )
+            .into(),
+        )),
         "STRING.replaceAll" | "STRING.replaceFirst" | "STRING.replace" => {
             let count = match hook {
                 "STRING.replaceAll" => usize::MAX,
@@ -1468,11 +1478,6 @@ fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
                 (Some(start), Some(end)) => start > end,
                 _ => true,
             }
-        }
-        // The documentation does not define a search from an index outside the string; the
-        // backend searches from the clamped index, the fold rejects it.
-        "STRING.find" | "STRING.rfind" => {
-            character_index(arguments[0].str(), arguments[2].int()).is_none()
         }
         // A surrogate code point is not a Unicode scalar value, so no string holds it as one
         // character; the backend substitutes U+FFFD, the fold rejects it.

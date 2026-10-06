@@ -26,7 +26,8 @@ pub(super) fn evaluate(
         "STRING.concat" => concatenate(arguments),
         "STRING.substr" => substring(arguments),
         "STRING.length" => length(arguments),
-        "STRING.find" => find(arguments),
+        "STRING.find" => find(arguments, false),
+        "STRING.rfind" => find(arguments, true),
         "STRING.string2base" => string_to_base(arguments),
         "STRING.base2string" => base_to_string(arguments),
         "STRING.string2int" => string_to_int(arguments),
@@ -108,8 +109,18 @@ fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     ))))
 }
 
-fn find(arguments: &[Term]) -> HookResult<BuiltinResult> {
-    expect_arity("STRING.find", arguments, 3)?;
+/// `findString(S, N, I)` is the first occurrence of N in S starting at or after code point I,
+/// and `rfindString(S, N, I)` the last starting at or before it, -1 when there is none; both are
+/// defined for every integer I (`domains.md`: "starting at a certain index"). A negative I
+/// searches `find` from 0 and leaves `rfind` nothing; an I past the end leaves `find` nothing
+/// and searches `rfind` from the end.
+fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
+    let hook = if reverse {
+        "STRING.rfind"
+    } else {
+        "STRING.find"
+    };
+    expect_arity(hook, arguments, 3)?;
     let Some((haystack, needle)) =
         read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
     else {
@@ -118,34 +129,42 @@ fn find(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(start) = read_int(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    if reverse && start.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Value(int_term(BigInt::from(-1))));
+    }
     let start = saturating_i64(&start);
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    // `boundary[offset]` holds when a unit of the haystack starts at `offset`; the end of the
-    // haystack is a boundary too. A match must start and end on a boundary, so it covers whole
-    // units of the haystack, and those units are exactly the units of the needle: the unit
-    // decomposition from a boundary depends only on the bytes that follow it.
+    // `starts[unit]` is the byte offset at which code point `unit` starts, and `boundary[offset]`
+    // holds when a unit of the haystack starts at `offset`; the end of the haystack is both. A
+    // match must start and end on a boundary, so it covers whole units of the haystack, and
+    // those units are exactly the units of the needle: the unit decomposition from a boundary
+    // depends only on the bytes that follow it.
+    let mut starts = code_point_units(haystack).collect::<Vec<_>>();
+    let units = starts.len();
+    starts.push(haystack.len());
     let mut boundary = vec![false; haystack.len() + 1];
-    boundary[haystack.len()] = true;
-    let mut units = 0_usize;
-    for offset in code_point_units(haystack) {
-        boundary[offset] = true;
-        units += 1;
+    for offset in &starts {
+        boundary[*offset] = true;
     }
-    let found = if needle.is_empty() {
-        (start <= units).then_some(start)
-    } else {
-        let mut found = None;
-        for (unit, offset) in code_point_units(haystack).enumerate().skip(start) {
-            if unit % 1024 == 0 {
-                crate::stop::check()?;
-            }
-            if haystack[offset..].starts_with(needle) && boundary[offset + needle.len()] {
-                found = Some(unit);
-                break;
-            }
-        }
-        found
+    let occurs_at = |unit: usize| {
+        let offset = starts[unit];
+        haystack[offset..].starts_with(needle) && boundary[offset + needle.len()]
     };
+    let candidates: Box<dyn Iterator<Item = usize>> = if reverse {
+        Box::new((0..=start.min(units)).rev())
+    } else {
+        Box::new(start.min(units + 1)..=units)
+    };
+    let mut found = None;
+    for (step, unit) in candidates.enumerate() {
+        if step % 1024 == 0 {
+            crate::stop::check()?;
+        }
+        if occurs_at(unit) {
+            found = Some(unit);
+            break;
+        }
+    }
     Ok(BuiltinResult::Value(int_term(BigInt::from(
         found
             .and_then(|index| i64::try_from(index).ok())
@@ -591,9 +610,18 @@ mod tests {
         );
     }
 
+    /// `findString` is the first occurrence starting at or after its index, whatever the index:
+    /// a negative one searches from 0, one past the end finds nothing.
     #[test]
-    fn find_keeps_domains_md_indices() {
-        for (needle, start, expected) in [("l", 1, 2), ("l", 3, 3), ("", 5, 5), ("", 6, -1)] {
+    fn find_searches_forward_from_any_index() {
+        for (needle, start, expected) in [
+            ("l", 1, 2),
+            ("l", 3, 3),
+            ("", 5, 5),
+            ("", 6, -1),
+            ("l", -5, 2),
+            ("", -1, 0),
+        ] {
             assert_eq!(
                 evaluate(
                     "STRING.find",
@@ -624,6 +652,52 @@ mod tests {
             evaluate(
                 "STRING.find",
                 vec![string_term("hello"), string_term("h"), int_term(beyond_i64),],
+            ),
+            BuiltinResult::Value(int_term(BigInt::from(-1)))
+        );
+    }
+
+    /// `rfindString` is the last occurrence starting at or before its index, whatever the index:
+    /// none for a negative one, the last in the string for one past the end.
+    #[test]
+    fn rfind_searches_back_from_any_index() {
+        let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
+        for (haystack, needle, start, expected) in [
+            ("hello", "l", BigInt::from(4), 3),
+            ("hello", "l", BigInt::from(2), 2),
+            ("hello", "l", BigInt::from(1), -1),
+            ("hello", "l", BigInt::from(100), 3),
+            ("hello", "l", beyond_i64.clone(), 3),
+            ("hello", "", BigInt::from(3), 3),
+            ("hello", "", beyond_i64.clone(), 5),
+            ("hello", "h", BigInt::from(-1), -1),
+            ("hello", "", -beyond_i64.clone(), -1),
+            ("a🦀é🦀", "🦀", BigInt::from(2), 1),
+            ("a🦀é🦀", "🦀", BigInt::from(3), 3),
+            ("", "", BigInt::from(0), 0),
+        ] {
+            assert_eq!(
+                evaluate(
+                    "STRING.rfind",
+                    vec![
+                        string_term(haystack),
+                        string_term(needle),
+                        int_term(start.clone())
+                    ],
+                ),
+                BuiltinResult::Value(int_term(expected.into())),
+                "rfindString({haystack:?}, {needle:?}, {start})"
+            );
+        }
+        // The lead byte of "é" alone is a unit of its own and does not occur inside "é".
+        assert_eq!(
+            evaluate(
+                "STRING.rfind",
+                vec![
+                    string_term("é"),
+                    string_term(vec![0xc3]),
+                    int_term(1.into())
+                ]
             ),
             BuiltinResult::Value(int_term(BigInt::from(-1)))
         );
