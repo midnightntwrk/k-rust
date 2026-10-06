@@ -3597,9 +3597,9 @@ endmodule
     }
 
     /// A request deeper than the largest stack the backend provides is refused with
-    /// `InsufficientStack` on every route before any pass over it runs. One term about 175,000
-    /// levels deep (a million in a release build) is held at a time; in a debug build the test
-    /// peaks under 300 MB of resident memory and takes a few seconds.
+    /// `InsufficientStack` on every route before any pass over it runs. One term about a million
+    /// levels deep (175,000 unoptimized) is held at a time; at opt-level 1 the test peaks at about
+    /// 1.3 GB of resident memory and takes about 12 s.
     #[test]
     fn requests_deeper_than_the_backend_provides_for_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3621,9 +3621,9 @@ endmodule
     /// A module whose axiom is a `\not` chain beyond what Node's main thread holds is added
     /// when the chain is a well-formed predicate and is the ordinary error of its fault when it
     /// is over a symbol the definition does not declare; a chain deeper than the backend
-    /// provides for is refused with `InsufficientStack`. One module of a few MB of text is held
-    /// at a time; in a debug build the test peaks under 300 MB of resident memory and takes a
-    /// few seconds.
+    /// provides for is refused with `InsufficientStack`. One module of up to about 15 MB of text
+    /// is held at a time; at opt-level 1 the test peaks at about 630 MB of resident memory and
+    /// takes a few seconds.
     #[test]
     fn deep_modules_are_loaded_or_ordinary_errors() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3772,9 +3772,9 @@ endmodule
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary
     /// conjunctions, so a wide request is deep inside the backend: 50,000 conjuncts execute on
     /// Node's main thread, and 200,000 execute as well where the backend provides the stack
-    /// for them (a release build) and are otherwise refused, never overflowing the thread. In a
-    /// debug build the requests take about 10 MB of text each, the test touches about 15 MB of
-    /// stack, and takes a few seconds.
+    /// for them (an optimized build) and are otherwise refused, never overflowing the thread.
+    /// The requests take about 10 MB of text each; at opt-level 1 the test peaks at about 300 MB
+    /// of resident memory and takes under a second.
     #[test]
     fn wide_conjunctions_execute_or_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
