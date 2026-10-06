@@ -1331,11 +1331,11 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
             if needle.is_empty() {
                 // `domains.md` defines `replace` by finding the needle at 0 and recursing on
                 // the whole haystack, so an empty needle inserts the replacement `count` times
-                // in front; `replaceAll` counts the occurrences first, which for an empty needle
-                // does not terminate.
+                // in front; `replaceAll` replaces `countAllOccurrences` copies, which has no value
+                // for an empty needle (below).
                 let bytes = (count as u128) * (replacement.len() as u128) + haystack.len() as u128;
                 return match hook {
-                    "STRING.replaceAll" => Expect::Unchecked,
+                    "STRING.replaceAll" => Expect::Unspecified,
                     _ if bytes * 8 > u128::from(MAX_FOLDED_BITS) => Expect::TooLarge,
                     _ => value(Out::Str(
                         format!("{}{haystack}", replacement.repeat(count)).into_bytes(),
@@ -1348,9 +1348,10 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
         "STRING.countAllOccurrences" => {
             let (haystack, needle) = (arguments[0].str(), arguments[1].str());
             if needle.is_empty() {
-                // `domains.md` counts by finding the needle and recursing on the rest, which for
-                // an empty needle does not terminate.
-                return Expect::Unchecked;
+                // `domains.md` counts by finding the needle and recursing on the rest: for an
+                // empty needle `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`,
+                // which no integer satisfies, and the hook is total.
+                return Expect::Unspecified;
             }
             value(Out::Int(replace(haystack, needle, "", usize::MAX).1.into()))
         }
