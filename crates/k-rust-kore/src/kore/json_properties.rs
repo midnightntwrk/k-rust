@@ -24,6 +24,7 @@ use crate::kore::{
     ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
     node::{PatternNode, PatternSource},
     printer::tests::streaming::pattern,
+    string::LiteralEncoding,
 };
 
 fn reference_sort(sort: &Sort) -> Value {
@@ -45,12 +46,17 @@ fn reference_patterns(patterns: &[Pattern]) -> Value {
     Value::Array(patterns.iter().map(reference_term).collect())
 }
 
-fn reference_bytes(value: &KoreString) -> String {
-    value
-        .as_bytes()
-        .iter()
-        .map(|&byte| char::from(byte))
-        .collect()
+/// The JSON string of a payload's code points: one per byte of a `Bytes` payload, the UTF-8 of
+/// any other (`string::LiteralEncoding`).
+fn reference_code_points(value: &KoreString, encoding: LiteralEncoding) -> String {
+    match encoding {
+        LiteralEncoding::Bytes => value
+            .as_bytes()
+            .iter()
+            .map(|&byte| char::from(byte))
+            .collect(),
+        LiteralEncoding::Utf8 => value.as_utf8().unwrap().to_owned(),
+    }
 }
 
 /// The term object of `pattern`, recursing once per level of the generator's bounded depth.
@@ -90,7 +96,10 @@ fn reference_term(pattern: &Pattern) -> Value {
         })
     };
     match pattern {
-        Pattern::String(value) => json!({ "tag": "String", "value": reference_bytes(value) }),
+        Pattern::String(value) => json!({
+            "tag": "String",
+            "value": reference_code_points(value, LiteralEncoding::Utf8),
+        }),
         Pattern::Variable(variable) => json!({
             "tag": match variable.kind {
                 VariableKind::Element => "EVar",
@@ -182,7 +191,7 @@ fn reference_term(pattern: &Pattern) -> Value {
         Pattern::DomainValue { sort, value } => json!({
             "tag": "DV",
             "sort": reference_sort(sort),
-            "value": reference_bytes(value),
+            "value": reference_code_points(value, LiteralEncoding::of_domain_value(sort)),
         }),
         Pattern::AssociativeApplication {
             associativity,
@@ -387,35 +396,46 @@ impl<'a, 'p> PatternSource<'a> for Owned<'p> {
     }
 }
 
-/// A generated pattern beside a string and a domain value holding arbitrary bytes, so every
-/// byte value reaches the encoders (the generator's own texts are UTF-8), and beside a set
-/// variable outside a fixpoint binder, which the generator does not build.
+/// A generated pattern beside a string and a domain value of arbitrary code points, a `Bytes`
+/// domain value holding arbitrary bytes, so every byte value and code point reaches the encoders
+/// (the generator's own texts are ASCII), and a set variable outside a fixpoint binder, which the
+/// generator does not build.
 fn generated() -> impl Strategy<Value = Pattern> {
     (
         pattern(),
-        prop::collection::vec(any::<u8>(), 0..8),
+        prop::collection::vec(any::<char>(), 0..8),
+        prop::collection::vec(any::<char>(), 0..8),
         prop::collection::vec(any::<u8>(), 0..8),
         "@[A-C][a-c0-9']{0,3}",
     )
-        .prop_map(|(pattern, string, value, set)| Pattern::Application {
-            symbol: Symbol {
-                name: "Root".into(),
-                sort_parameters: Vec::new(),
-            },
-            arguments: vec![
-                pattern,
-                Pattern::String(string.into()),
-                Pattern::DomainValue {
-                    sort: Sort::Variable("S".into()),
-                    value: value.into(),
+        .prop_map(
+            |(pattern, string, value, bytes, set)| Pattern::Application {
+                symbol: Symbol {
+                    name: "Root".into(),
+                    sort_parameters: Vec::new(),
                 },
-                Pattern::Variable(Variable {
-                    kind: VariableKind::Set,
-                    name: set,
-                    sort: Sort::Variable("S".into()),
-                }),
-            ],
-        })
+                arguments: vec![
+                    pattern,
+                    Pattern::String(string.into_iter().collect::<String>().into()),
+                    Pattern::DomainValue {
+                        sort: Sort::Variable("S".into()),
+                        value: value.into_iter().collect::<String>().into(),
+                    },
+                    Pattern::DomainValue {
+                        sort: Sort::Application {
+                            name: "SortBytes".into(),
+                            arguments: Vec::new(),
+                        },
+                        value: bytes.into(),
+                    },
+                    Pattern::Variable(Variable {
+                        kind: VariableKind::Set,
+                        name: set,
+                        sort: Sort::Variable("S".into()),
+                    }),
+                ],
+            },
+        )
 }
 
 /// The tags of every object in `value`, counted.

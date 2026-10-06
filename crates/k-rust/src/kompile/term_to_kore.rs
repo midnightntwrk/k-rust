@@ -714,26 +714,26 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                     .attributes_for(&SortHead::from(sort))
                     .and_then(|attributes| attributes.string(AttributeKey::Hook))
             });
+        // A `String` token's code points are stored as UTF-8 and a `Bytes` token's bytes as
+        // they are (`kore::string::LiteralEncoding`).
+        let invalid = |message| TermConversionError::InvalidToken {
+            sort: sort.clone(),
+            message,
+        };
         match hook {
-            Some("STRING.String") => self.unquote_token(token, sort),
+            Some("STRING.String") => kast::string::unquote_text(token)
+                .map(Into::into)
+                .map_err(invalid),
             Some("BYTES.Bytes") => token
                 .strip_prefix('b')
-                .ok_or_else(|| TermConversionError::InvalidToken {
-                    sort: sort.clone(),
-                    message: "expected a leading `b`".into(),
-                })
-                .and_then(|token| self.unquote_token(token, sort)),
+                .ok_or_else(|| invalid("expected a leading `b`".into()))
+                .and_then(|token| {
+                    kast::string::unquote_bytes(token)
+                        .map(Into::into)
+                        .map_err(invalid)
+                }),
             _ => Ok(token.into()),
         }
-    }
-
-    fn unquote_token(&self, token: &str, sort: &Sort) -> Result<KoreString, TermConversionError> {
-        kast::string::unquote_bytes(token)
-            .map(Into::into)
-            .map_err(|message| TermConversionError::InvalidToken {
-                sort: sort.clone(),
-                message,
-            })
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {

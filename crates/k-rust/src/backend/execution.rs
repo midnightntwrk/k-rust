@@ -652,13 +652,23 @@ fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
     )
 }
 
+/// The console bytes of a `String` buffer: each character is one byte, its code point, as
+/// `IO.write` writes it; `None` when a code point is above 255, which is no byte.
 fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> Option<Vec<u8>> {
     let PatternNode::DomainValue { sort, value } = pattern.node() else {
         return None;
     };
-    matches!(sort.as_ref(), KoreSort::Application { name, arguments }
+    if !matches!(sort.as_ref(), KoreSort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then(|| value.as_bytes().to_vec())
+    {
+        return None;
+    }
+    value
+        .as_utf8()
+        .ok()?
+        .chars()
+        .map(|character| u8::try_from(u32::from(character)).ok())
+        .collect()
 }
 
 impl Backend {
@@ -1485,7 +1495,7 @@ mod captured_stdout_tests {
     fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
         let output = stdout_cell(buffer(Term::domain_value(
             Sort::simple("SortString"),
-            vec![0, b'o', b'k', 255],
+            "\u{0}ok\u{ff}",
         )));
         let shared = app("wrap", vec![output]);
         let doubled = app("pair", vec![shared.clone(), shared]);

@@ -242,9 +242,12 @@ impl Parser<'_> {
         Ok(Pattern::String(value))
     }
 
-    fn string_value(&mut self) -> Result<KoreString, ParseError> {
+    fn string_value(
+        &mut self,
+        encoding: string::LiteralEncoding,
+    ) -> Result<KoreString, ParseError> {
         let token = self.expect(TokenKind::String)?;
-        string::unquote(token.text).map_err(|error| ParseError {
+        string::unquote_as(token.text, encoding).map_err(|error| ParseError {
             offset: token.offset + error.offset,
             message: error.message.into(),
         })
@@ -291,7 +294,7 @@ impl Parser<'_> {
         self.expect(TokenKind::MlDv)?;
         let sort = self.one_sort()?;
         self.expect(TokenKind::LParen)?;
-        let value = self.string_value()?;
+        let value = self.string_value(string::LiteralEncoding::of_domain_value(&sort))?;
         self.expect(TokenKind::RParen)?;
         Ok(Pattern::DomainValue { sort, value })
     }

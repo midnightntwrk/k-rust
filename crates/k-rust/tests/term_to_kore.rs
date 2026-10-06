@@ -387,7 +387,16 @@ fn decodes_string_and_bytes_token_syntax() {
                 token: r#""line\nα""#.into(),
                 sort: Sort::new("String"),
             },
-            "\\dv{SortString{}}(\"line\\n\\xce\\xb1\")",
+            "\\dv{SortString{}}(\"line\\n\\u03b1\")",
+        ),
+        // A `String` escape names a code point: `"\xe9"` and `"é"` are one value, and
+        // `"\xc3\xa9"` is two code points.
+        (
+            Term::Token {
+                token: r#""é\xe9\xc3\xa9""#.into(),
+                sort: Sort::new("String"),
+            },
+            "\\dv{SortString{}}(\"\\xe9\\xe9\\xc3\\xa9\")",
         ),
         (
             Term::Token {
@@ -395,6 +404,13 @@ fn decodes_string_and_bytes_token_syntax() {
                 sort: Sort::new("Bytes"),
             },
             "\\dv{SortBytes{}}(\"bytes!\")",
+        ),
+        (
+            Term::Token {
+                token: r#"b"\xe9""#.into(),
+                sort: Sort::new("Bytes"),
+            },
+            "\\dv{SortBytes{}}(\"\\xe9\")",
         ),
     ] {
         assert_eq!(

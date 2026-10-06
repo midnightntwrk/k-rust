@@ -29,6 +29,7 @@ use super::{
     ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
     lexical::{self, Problem},
     node::{PatternNode, PatternSource},
+    string::{LiteralEncoding, text_from_bytes},
 };
 
 pub const FORMAT: &str = "KORE";
@@ -403,7 +404,10 @@ fn pattern_fields<'a, S: PatternSource<'a>>(node: PatternNode<'a, S>) -> EncodeF
     match node {
         PatternNode::String(value) => smallvec![
             ("tag", EncodeTask::Static("String")),
-            ("value", string_task(json_string_value(&value))),
+            (
+                "value",
+                string_task(json_string_value(&value, LiteralEncoding::Utf8))
+            ),
         ],
         PatternNode::Variable(variable) => {
             let (kind, name, sort) = variable_tasks(variable);
@@ -565,11 +569,14 @@ fn pattern_fields<'a, S: PatternSource<'a>>(node: PatternNode<'a, S>) -> EncodeF
             ("first", EncodeTask::Pattern(left)),
             ("second", EncodeTask::Pattern(right)),
         ],
-        PatternNode::DomainValue { sort, value } => smallvec![
-            ("tag", EncodeTask::Static("DV")),
-            ("sort", EncodeTask::Sort(sort)),
-            ("value", string_task(json_string_value(&value))),
-        ],
+        PatternNode::DomainValue { sort, value } => {
+            let value = json_string_value(&value, LiteralEncoding::of_domain_value(&sort));
+            smallvec![
+                ("tag", EncodeTask::Static("DV")),
+                ("sort", EncodeTask::Sort(sort)),
+                ("value", string_task(value)),
+            ]
+        }
         PatternNode::AssociativeApplication {
             associativity,
             symbol,
@@ -769,20 +776,31 @@ enum PatternHead {
     Associative(Associativity, Symbol),
 }
 
-fn json_string_bytes(value: &str) -> KoreString {
-    KoreString::from(
-        value
-            .chars()
-            .map(|character| {
-                u8::try_from(u32::from(character))
-                    .expect("JSON KORE lexical validation limits strings to Latin-1")
-            })
-            .collect::<Vec<_>>(),
-    )
+/// The payload of a JSON string's code points stored by `encoding` (see [`LiteralEncoding`]).
+fn json_string_bytes(value: &str, encoding: LiteralEncoding) -> KoreString {
+    match encoding {
+        LiteralEncoding::Utf8 => KoreString::from(value),
+        LiteralEncoding::Bytes => KoreString::from(
+            value
+                .chars()
+                .map(|character| {
+                    u8::try_from(u32::from(character))
+                        .expect("JSON KORE lexical validation limits Bytes values to Latin-1")
+                })
+                .collect::<Vec<_>>(),
+        ),
+    }
 }
 
-fn json_string_value(value: &KoreString) -> String {
-    value.as_bytes().iter().copied().map(char::from).collect()
+/// The code points of a payload stored by `encoding`, as a JSON string.
+fn json_string_value(value: &KoreString, encoding: LiteralEncoding) -> String {
+    match encoding {
+        LiteralEncoding::Bytes => value.as_bytes().iter().copied().map(char::from).collect(),
+        LiteralEncoding::Utf8 => match value.as_utf8() {
+            Ok(text) => text.to_owned(),
+            Err(_) => text_from_bytes(value.as_bytes()),
+        },
+    }
 }
 
 fn variable(kind: VariableKind, name: String, sort: Sort) -> Variable {
@@ -804,11 +822,7 @@ fn pattern_head(node: Node) -> Result<(PatternHead, Vec<Node>), Error> {
     let tag = fields.string("tag")?;
     let mut children = Vec::new();
     let head = match tag.as_str() {
-        "String" => {
-            let value = fields.string("value")?;
-            require_lexical("string literal", &value, lexical::latin1_problems(&value))?;
-            PatternHead::String(value)
-        }
+        "String" => PatternHead::String(fields.string("value")?),
         "EVar" | "SVar" => {
             let kind = if tag == "EVar" {
                 VariableKind::Element
@@ -949,11 +963,15 @@ fn pattern_head(node: Node) -> Result<(PatternHead, Vec<Node>), Error> {
         "DV" => {
             let sort = build_sort(fields.required("sort")?)?;
             let value = fields.string("value")?;
-            require_lexical(
-                "domain value string",
-                &value,
-                lexical::latin1_problems(&value),
-            )?;
+            // A `Bytes` value's characters are its bytes' values; any other value is any
+            // sequence of code points.
+            if LiteralEncoding::of_domain_value(&sort) == LiteralEncoding::Bytes {
+                require_lexical(
+                    "domain value string",
+                    &value,
+                    lexical::latin1_problems(&value),
+                )?;
+            }
             PatternHead::DomainValue(sort, value)
         }
         "MultiOr" => {
@@ -1020,7 +1038,9 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
                 )
             };
             Ok(match self.head {
-                PatternHead::String(value) => Pattern::String(json_string_bytes(&value)),
+                PatternHead::String(value) => {
+                    Pattern::String(json_string_bytes(&value, LiteralEncoding::Utf8))
+                }
                 PatternHead::Variable(variable) => Pattern::Variable(variable),
                 PatternHead::Application(symbol) => Pattern::Application {
                     symbol,
@@ -1099,10 +1119,13 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
                     left: child(),
                     right: child(),
                 },
-                PatternHead::DomainValue(sort, value) => Pattern::DomainValue {
-                    sort,
-                    value: json_string_bytes(&value),
-                },
+                PatternHead::DomainValue(sort, value) => {
+                    let encoding = LiteralEncoding::of_domain_value(&sort);
+                    Pattern::DomainValue {
+                        sort,
+                        value: json_string_bytes(&value, encoding),
+                    }
+                }
                 PatternHead::MultiOr(associativity, sort) => {
                     let mut arguments = children;
                     let first = arguments.next().ok_or(Error::EmptyMultiOr)?;
@@ -1235,17 +1258,40 @@ mod tests {
         assert_eq!(from_str(&encoded).unwrap(), pattern);
     }
 
+    /// A `Bytes` value round-trips any bytes, one character per byte; any other value and a
+    /// string pattern round-trip any code points, beyond U+00FF too, as the KORE text does.
     #[test]
-    fn round_trips_arbitrary_string_bytes() {
-        let pattern = Pattern::DomainValue {
-            sort: Sort::Application {
-                name: "SortString".into(),
-                arguments: Vec::new(),
-            },
-            value: KoreString::from(vec![0xff, 0x80, 0x00, b'A']),
+    fn round_trips_arbitrary_bytes_and_code_points() {
+        let sort = |name: &str| Sort::Application {
+            name: name.into(),
+            arguments: Vec::new(),
         };
-        let encoded = to_string(&pattern).unwrap();
-        assert_eq!(from_str(&encoded).unwrap(), pattern);
+        for pattern in [
+            Pattern::DomainValue {
+                sort: sort("SortBytes"),
+                value: KoreString::from(vec![0xff, 0x80, 0x00, b'A']),
+            },
+            Pattern::DomainValue {
+                sort: sort("SortString"),
+                value: KoreString::from("\u{ff}\u{80}\0A≤Ā🙂"),
+            },
+            Pattern::String(KoreString::from("Ā≤")),
+        ] {
+            let encoded = to_string(&pattern).unwrap();
+            assert_eq!(from_str(&encoded).unwrap(), pattern, "{encoded}");
+        }
+        let string = to_string(&Pattern::DomainValue {
+            sort: sort("SortString"),
+            value: KoreString::from("é"),
+        })
+        .unwrap();
+        assert!(string.contains(r#""value":"é""#), "{string}");
+        let bytes = to_string(&Pattern::DomainValue {
+            sort: sort("SortBytes"),
+            value: KoreString::from(vec![0xe9]),
+        })
+        .unwrap();
+        assert!(bytes.contains(r#""value":"é""#), "{bytes}");
     }
 
     #[test]
@@ -1303,13 +1349,14 @@ mod tests {
                 json!({ "tag": "App", "name": "", "sorts": [], "args": [] }),
                 "Lexical error in app symbol : ",
             ),
+            // A `Bytes` value's characters are its bytes, so U+2264 is none.
             (
-                json!({ "tag": "DV", "sort": sort(), "value": "≤" }),
+                json!({
+                    "tag": "DV",
+                    "sort": { "tag": "SortApp", "name": "SortBytes", "args": [] },
+                    "value": "≤",
+                }),
                 "Lexical error in domain value string : ≤",
-            ),
-            (
-                json!({ "tag": "String", "value": "Ā" }),
-                "Lexical error in string literal : Ā",
             ),
             (
                 json!({ "tag": "Mu", "var": "X", "varSort": sort(), "arg": app("a") }),

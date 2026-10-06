@@ -4,12 +4,11 @@ use std::{fmt, sync::Arc};
 
 use smallvec::SmallVec;
 
-/// The byte sequence carried by a KORE string pattern.
-///
-/// Text KORE uses `\xNN` escapes for individual bytes and `\u`/`\U` escapes for Unicode
-/// scalar values encoded as UTF-8. Binary KORE carries the same bytes directly. Keeping the
-/// payload byte-oriented is necessary because concrete K strings may contain the result of a
-/// byte-counted `IO.read`, including incomplete or invalid UTF-8.
+/// The code points of a KORE string literal, stored as `string::LiteralEncoding` says: one byte
+/// per code point (the byte's value) for a domain value of `SortBytes`, and the UTF-8 encoding
+/// for every other literal. Each value has exactly one payload, so equal payloads are equal
+/// values. Every reader (text, JSON and binary KORE) stores a literal so; console input becomes a
+/// string through `string::text_from_bytes`.
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct KoreString(Arc<[u8]>);
 

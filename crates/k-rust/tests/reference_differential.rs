@@ -5029,7 +5029,7 @@ fn stdout_buffers(term: &Pattern) -> Vec<Vec<u8>> {
             && domain_value(unwrap_injections(mode), "SortString") == Some("off")
             && let Some(value) = stream_buffer(buffer)
         {
-            buffers.push(value.to_vec());
+            buffers.push(value);
         }
         work.extend(pattern_children(pattern).into_iter().rev());
     }
@@ -5090,7 +5090,7 @@ fn is_stream_descriptor(
         && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
 }
 
-fn stream_buffer(pattern: &Pattern) -> Option<&[u8]> {
+fn stream_buffer(pattern: &Pattern) -> Option<Vec<u8>> {
     let Pattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
         return None;
     };
@@ -5120,13 +5120,22 @@ fn stream_buffer(pattern: &Pattern) -> Option<&[u8]> {
     domain_value_bytes(unwrap_injections(&sequence_arguments[0]), "SortString")
 }
 
-fn domain_value_bytes<'a>(pattern: &'a Pattern, sort_name: &str) -> Option<&'a [u8]> {
+/// The console bytes of a `String` buffer: each character is one byte, its code point.
+fn domain_value_bytes(pattern: &Pattern, sort_name: &str) -> Option<Vec<u8>> {
     let Pattern::DomainValue { sort, value } = pattern else {
         return None;
     };
-    matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments }
+    if !matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then(|| value.as_bytes())
+    {
+        return None;
+    }
+    value
+        .as_utf8()
+        .ok()?
+        .chars()
+        .map(|character| u8::try_from(u32::from(character)).ok())
+        .collect()
 }
 
 #[test]

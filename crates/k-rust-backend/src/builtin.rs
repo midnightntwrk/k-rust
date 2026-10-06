@@ -443,9 +443,10 @@ fn io_read(
             UnsupportedHookReason::NotImplemented,
         ));
     };
+    // Each byte read is one character, the code point of its value, as for `IO.getc`.
     let bytes = execution.read(maximum);
     Ok(BuiltinResult::Value(inject_result(
-        Term::domain_value(Sort::builtin(BuiltinSort::String), bytes.to_vec()),
+        Term::domain_value(Sort::builtin(BuiltinSort::String), console_text(bytes)),
         result_sort,
     )))
 }
@@ -507,12 +508,36 @@ fn io_write(
     if !sort.is_builtin(BuiltinSort::String) {
         return Ok(BuiltinResult::NotApplicable);
     }
+    // Each character is written as one byte, its code point, as `IO.putc` writes one; a code
+    // point above 255 has no byte.
+    let Some(bytes) = value.as_utf8().ok().and_then(console_bytes) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: "IO.write of a code point above 255, which is no byte".into(),
+            },
+        ));
+    };
     let unit = io_k_unit("IO.write", result_sort, definition);
     if !matches!(unit, BuiltinResult::Value(_)) {
         return Ok(unit);
     }
-    execution.append("IO.write", descriptor, Arc::<[u8]>::from(value.as_bytes()));
+    execution.append("IO.write", descriptor, Arc::<[u8]>::from(bytes));
     Ok(unit)
+}
+
+/// The `String` of console bytes: K's console hooks are POSIX operations on characters, and
+/// `IO.getc` and `IO.putc` read and write one character as one byte, its code point; `IO.read`
+/// and `IO.write` read and write a string of such characters, so each byte is the code point of
+/// its value and back. (`domains.md` supports exactly the code points up to 255 in strings.)
+pub(crate) fn console_text(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| char::from(*byte)).collect()
+}
+
+/// The console bytes of `text` (see [`console_text`]), `None` when a code point is above 255.
+fn console_bytes(text: &str) -> Option<Vec<u8>> {
+    text.chars()
+        .map(|character| u8::try_from(u32::from(character)).ok())
+        .collect()
 }
 
 fn io_k_unit(

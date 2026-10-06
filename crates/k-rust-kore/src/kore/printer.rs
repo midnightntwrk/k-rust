@@ -714,8 +714,9 @@ fn expand<'a, S: PatternSource<'a>>(stack: &mut Vec<SyntaxTask<'a, S>>, task: Sy
                 right,
             } => two_sorted(stack, "\\in", operand_sort, result_sort, vec![left, right]),
             N::DomainValue { sort, value } => {
+                let encoding = string::LiteralEncoding::of_domain_value(&sort);
                 stack.push(SyntaxTask::Text(
-                    format!("}}({})", string::quote(&value)).into(),
+                    format!("}}({})", string::quote_as(&value, encoding)).into(),
                 ));
                 stack.push(SyntaxTask::Sort(sort));
                 stack.push(SyntaxTask::Text("\\dv{".into()));

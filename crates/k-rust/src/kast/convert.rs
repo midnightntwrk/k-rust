@@ -135,7 +135,9 @@ impl<'a> Converter<'a> {
             Pattern::DomainValue { sort, value } => {
                 let sort = self.sort(sort)?;
                 let token = match self.sort_hooks.get(&sort.name).map(String::as_str) {
-                    Some("STRING.String") => string::quote_bytes(value.as_bytes()),
+                    Some("STRING.String") => {
+                        string::quote(&crate::kore::string::text_from_bytes(value.as_bytes()))
+                    }
                     Some("BYTES.Bytes") => format!("b{}", string::quote_bytes(value.as_bytes())),
                     _ => value.as_utf8().map(str::to_owned).map_err(|_| {
                         ConversionError(format!(

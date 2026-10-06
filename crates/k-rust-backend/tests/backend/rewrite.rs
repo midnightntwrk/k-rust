@@ -10196,7 +10196,8 @@ fn console_write_and_putc_preserve_hook_order_and_exact_bytes() {
     assert_eq!(leaf.io.transcript().len(), 2);
     assert_eq!(leaf.io.transcript()[0].hook, "IO.write");
     assert_eq!(leaf.io.transcript()[0].descriptor, 1);
-    assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), "hé".as_bytes());
+    // Each character is one byte, its code point (`é` is U+00E9), as `putc` writes 255 as one.
+    assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), [b'h', 0xe9]);
     assert_eq!(leaf.io.transcript()[1].hook, "IO.putc");
     assert_eq!(leaf.io.transcript()[1].descriptor, 2);
     assert_eq!(leaf.io.transcript()[1].bytes.as_ref(), [255]);
@@ -10280,10 +10281,11 @@ fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     let TermKind::Injection { term, .. } = short.leaves[0].pattern.term.kind() else {
         panic!("read result was not injected: {short:#?}");
     };
+    // Each byte read is one character, the code point of its value.
     assert!(matches!(
         term.kind(),
         TermKind::DomainValue { value, .. }
-            if value.as_bytes() == [0xff, 0x80, 0x00, b'A']
+            if value.as_utf8() == Ok("\u{ff}\u{80}\u{0}A")
     ));
     assert_eq!(short.leaves[0].io.cursor(), 4);
 
@@ -10316,7 +10318,7 @@ fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     };
     assert!(matches!(
         term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_bytes() == [0xc3]
+        TermKind::DomainValue { value, .. } if value.as_utf8() == Ok("\u{c3}")
     ));
     assert_eq!(first.leaves[0].io.cursor(), 1);
 
@@ -10334,9 +10336,38 @@ fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     };
     assert!(matches!(
         term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_bytes() == [0xa9]
+        TermKind::DomainValue { value, .. } if value.as_utf8() == Ok("\u{a9}")
     ));
     assert_eq!(second.leaves[0].io.cursor(), 2);
+}
+
+/// `IO.write` writes each character as one byte, its code point, as `IO.putc` writes one; a code
+/// point above 255 is no byte, and the write is the unsupported-hook outcome `IO.putc` gives a
+/// value above 255.
+#[test]
+fn console_write_of_a_code_point_above_255_is_unsupported() {
+    let definition = console_io_definition("");
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("a\u0101"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one console leaf: {result:#?}");
+    };
+    assert!(
+        matches!(
+            &leaf.halt_reason,
+            HaltReason::Simplification(SimplificationError::UnsupportedHook { hook, .. })
+                if hook == "IO.write"
+        ),
+        "{leaf:#?}"
+    );
+    assert!(leaf.io.transcript().is_empty());
 }
 
 #[test]

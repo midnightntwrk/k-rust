@@ -260,7 +260,8 @@ fn indexes_domain_values_without_losing_bytes() {
     assert_eq!(
         rule_index(&definition, &term).cells(),
         &[
-            CellIndex::Value(KoreString::from(vec![0xff])),
+            // The literal's code point U+00FF, stored as UTF-8 as every non-`Bytes` value is.
+            CellIndex::Value(KoreString::from("\u{ff}")),
             CellIndex::Anything
         ]
     );

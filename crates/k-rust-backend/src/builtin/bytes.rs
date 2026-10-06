@@ -69,18 +69,15 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// reading makes both `total` conversions total and mutually inverse, while UTF-8 decoding
 /// leaves `Bytes2String` without a value on invalid sequences whatever strings are supported.
 /// The hook is `total`, so on a string holding a code point above 255 its value is not given by
-/// the definition and the application is left unevaluated. A stored byte that starts no UTF-8
-/// sequence is the code point of its own value.
+/// the definition and the application is left unevaluated.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
-    let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
+    let Some(value) = super::string::read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if !sort.is_builtin(BuiltinSort::String) {
-        return Ok(BuiltinResult::NotApplicable);
-    }
-    let Some(bytes) = super::string::code_points(value.as_bytes())
-        .map(|unit| u8::try_from(super::string::code_point_number(unit)).ok())
+    let Some(bytes) = value
+        .chars()
+        .map(|character| u8::try_from(u32::from(character)).ok())
         .collect::<Option<Vec<_>>>()
     else {
         return Ok(BuiltinResult::Unsupported(
@@ -94,7 +91,7 @@ fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 fn decode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.decodeBytes", arguments, 2)?;
-    let Some(encoding) = read_string(&arguments[0]) else {
+    let Some(encoding) = super::string::read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(bytes) = read_bytes(&arguments[1]) else {
@@ -115,7 +112,8 @@ fn decode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 fn encode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.encodeBytes", arguments, 2)?;
-    let Some((encoding, contents)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
+    let Some((encoding, contents)) =
+        super::string::read_string(&arguments[0]).zip(super::string::read_string(&arguments[1]))
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -350,15 +348,6 @@ pub(super) fn read_bytes(term: &Term) -> Option<Vec<u8>> {
         return None;
     }
     Some(value.as_bytes().to_vec())
-}
-
-fn read_string(term: &Term) -> Option<&str> {
-    let TermKind::DomainValue { sort, value } = term.kind() else {
-        return None;
-    };
-    sort.is_builtin(BuiltinSort::String)
-        .then(|| value.as_utf8().ok())
-        .flatten()
 }
 
 /// A concrete `Int` argument as a position: `Some(None)` when it is negative or beyond every
@@ -865,13 +854,18 @@ mod tests {
             string_to_bytes(&[string_term("a\u{ff}")]),
             Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xff])))
         );
-        // A stored byte outside UTF-8 is the code point of its value.
+        // Each code point up to 255 is the byte of its value, `é` (U+00E9) included.
+        assert_eq!(
+            string_to_bytes(&[string_term("aé\u{ff}")]),
+            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xe9, 0xff])))
+        );
+        // A payload that is not UTF-8 is no `String` value.
         assert_eq!(
             string_to_bytes(&[Term::domain_value(
                 Sort::builtin(BuiltinSort::String),
                 vec![b'a', 0xe9, 0xff]
             )]),
-            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xe9, 0xff])))
+            Ok(BuiltinResult::NotApplicable)
         );
         for text in ["\u{100}", "a🦀"] {
             assert!(

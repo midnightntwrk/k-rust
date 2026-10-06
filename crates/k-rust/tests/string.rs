@@ -1,7 +1,8 @@
-// Cases ported from pyk and expanded to pin reference KORE string behavior.
+// A KORE string literal is a sequence of code points (`kore-syntax.md`): `\xhh` is U+00hh. A
+// `KoreString` stores them in UTF-8, or one byte per code point for a `Bytes` domain value.
 
 use k_rust::kore::ast::KoreString;
-use k_rust::kore::string::{quote, unquote};
+use k_rust::kore::string::{LiteralEncoding, quote, quote_as, unquote, unquote_as};
 
 #[test]
 fn unquotes_kore_escapes() {
@@ -15,17 +16,20 @@ fn unquotes_kore_escapes() {
         (r#""\r""#, b"\r".to_vec()),
         (r#""\\""#, b"\\".to_vec()),
         (r#""\"""#, b"\"".to_vec()),
-        (r#""\x80""#, vec![0x80]),
+        (r#""\x80""#, "\u{80}".as_bytes().to_vec()),
+        (r#""\xe9""#, "é".as_bytes().to_vec()),
         (r#""\x0f""#, vec![0x0f]),
         (r#""\x0F""#, vec![0x0f]),
         (r#""\u03b1""#, "α".as_bytes().to_vec()),
         (r#""\u03B1""#, "α".as_bytes().to_vec()),
         (r#""\U0001f642""#, "🙂".as_bytes().to_vec()),
         (r#""\U0001F642""#, "🙂".as_bytes().to_vec()),
-        (r#""\x80\x80""#, vec![0x80, 0x80]),
+        (r#""\x80\x80""#, "\u{80}\u{80}".as_bytes().to_vec()),
+        (r#""\xc3\xa9""#, "Ã©".as_bytes().to_vec()),
+        (r#""\u00e9""#, "é".as_bytes().to_vec()),
         (
             r#""a\u03b1\x80\U0001f642b""#,
-            ["aα".as_bytes(), &[0x80], "🙂b".as_bytes()].concat(),
+            "aα\u{80}🙂b".as_bytes().to_vec(),
         ),
     ];
 
@@ -44,9 +48,10 @@ fn quotes_using_the_canonical_kore_form() {
         ("", "\"\""),
         ("plain ASCII", r#""plain ASCII""#),
         ("\"\\\n\r\t\u{c}", r#""\"\\\n\r\t\f""#),
-        ("\u{0}\u{f}\u{80}\u{ff}", r#""\x00\x0f\xc2\x80\xc3\xbf""#),
-        ("α", r#""\xce\xb1""#),
-        ("🙂", r#""\xf0\x9f\x99\x82""#),
+        ("\u{0}\u{f}\u{80}\u{ff}", r#""\x00\x0f\x80\xff""#),
+        ("é", r#""\xe9""#),
+        ("α", r#""\u03b1""#),
+        ("🙂", r#""\U0001f642""#),
     ];
 
     for (input, expected) in cases {
@@ -70,12 +75,34 @@ fn round_trips_unicode_scalar_values() {
     }
 }
 
+/// A `Bytes` literal stores one byte per code point, every byte and an embedded NUL included;
+/// a code point above U+00FF names no byte.
 #[test]
-fn round_trips_invalid_utf8_and_embedded_nul() {
+fn round_trips_every_byte_and_embedded_nul_of_a_bytes_literal() {
     let value = KoreString::from(vec![0xff, 0x80, 0x00, b'A']);
-    let encoded = quote(&value);
+    let encoded = quote_as(&value, LiteralEncoding::Bytes);
     assert_eq!(encoded, r#""\xff\x80\x00A""#);
-    assert_eq!(unquote(&encoded).unwrap(), value);
+    assert_eq!(unquote_as(&encoded, LiteralEncoding::Bytes).unwrap(), value);
+    assert_eq!(
+        unquote_as(r#""\u00e9""#, LiteralEncoding::Bytes).unwrap(),
+        KoreString::from(vec![0xe9])
+    );
+    for input in [r#""\u0100""#, r#""\U0001f642""#, "\"α\""] {
+        assert!(
+            unquote_as(input, LiteralEncoding::Bytes).is_err(),
+            "expected {input:?} to fail"
+        );
+    }
+}
+
+/// A payload stored as UTF-8 that is not UTF-8 (built by hand, not by a reader) is written with
+/// each stray byte as the code point of its value.
+#[test]
+fn quotes_a_stray_byte_as_its_code_point() {
+    assert_eq!(
+        quote(&KoreString::from(vec![0xff, b'A', 0xc3, 0xa9])),
+        r#""\xffA\xe9""#
+    );
 }
 
 #[test]

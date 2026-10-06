@@ -4093,6 +4093,64 @@ fn krun_leaves_chr_of_a_surrogate_unevaluated() {
     );
 }
 
+/// A `String` is a sequence of code points, and a K escape names one: `"é"` and `"\xe9"` are
+/// one value, and `"\xc3\xa9"` is the two code points U+00C3 U+00A9. KORE literals are code
+/// points too, so a result is written with `\xhh` only for a code point up to U+00FF, and a
+/// `Bytes` value with `\xhh` for each byte. `s` hides the constants from the constant folder.
+#[test]
+fn krun_reads_and_writes_strings_as_code_points() {
+    const SOURCE: &str = r#"
+module POINTS
+  imports DOMAINS
+  imports BYTES
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "same" | "two" | "joined" | "bytes"
+  syntax KItem ::= r(K)
+  syntax String ::= s(String) [function, total]
+  rule s(S) => S
+  rule <k> same => r(s("é") ==String s("\xe9")) </k>
+  rule <k> two => r(lengthString(s("\xc3\xa9"))) </k>
+  rule <k> joined => r(s("é") +String s("\u0101") +String s("\xc3")) </k>
+  rule <k> bytes => r(String2Bytes(s("é\xc3"))) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.points"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "POINTS",
+                "--syntax-module",
+                "POINTS",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    for (program, value) in [
+        ("same", r#"\dv{SortBool{}}("true")"#),
+        ("two", r#"\dv{SortInt{}}("2")"#),
+        ("joined", r#"\dv{SortString{}}("\xe9\u0101\xc3")"#),
+        ("bytes", r#"\dv{SortBytes{}}("\xe9\xc3")"#),
+    ] {
+        let stdout = run(program);
+        assert!(stdout.contains(value), "{program}: {stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `countAllOccurrences(S, "")` and `replaceAll(S, "", R)` have no value the definition
 /// determines (`domains.md`'s equations give `count = 1 + count` for an empty needle), so a run
 /// ends with the application unevaluated and a warning, instead of applying those equations
