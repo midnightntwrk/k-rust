@@ -2267,9 +2267,13 @@ mod tests {
             r"\in{T, T}(B, B)",
             r"\mu{}(@Z:T, B)",
             r"\forall{T}(Z:T, B)",
+            r"\equals{T, T}(B, B)",
+            r"\rewrites{T}(B, B)",
             r"\iff{T}(\mu{}(@Y:T, @Y:T), \nu{}(@Y:T, \and{T}(X:T, @Y:T)))",
             r"\iff{T}(\nu{}(@Y:T, \and{T}(X:T, @Y:T)), \mu{}(@Y:T, @Y:T))",
             r"\bottom{T}()",
+            r"\top{T}()",
+            r#"\dv{T}("text")"#,
             r#"str{}("text")"#,
         ]
         .join(", ")
@@ -2306,12 +2310,24 @@ mod tests {
             format!(r"\mu{{}}(@Z:S{{}}, {})", kept_and_renamed()),
             format!(r"\forall{{S{{}}}}(Z:S{{}}, {})", kept_and_renamed()),
             format!(
+                r"\equals{{S{{}}, S{{}}}}({}, {})",
+                kept_and_renamed(),
+                kept_and_renamed()
+            ),
+            format!(
+                r"\rewrites{{S{{}}}}({}, {})",
+                kept_and_renamed(),
+                kept_and_renamed()
+            ),
+            format!(
                 r"\iff{{S{{}}}}(\mu{{}}(@Y:S{{}}, @Y:S{{}}), \nu{{}}(@YAlias0:S{{}}, \and{{S{{}}}}({argument}, @YAlias0:S{{}})))"
             ),
             format!(
                 r"\iff{{S{{}}}}(\nu{{}}(@YAlias1:S{{}}, \and{{S{{}}}}({argument}, @YAlias1:S{{}})), \mu{{}}(@Y:S{{}}, @Y:S{{}}))"
             ),
             r"\bottom{S{}}()".to_owned(),
+            r"\top{S{}}()".to_owned(),
+            r#"\dv{S{}}("text")"#.to_owned(),
             r#"str{}("text")"#.to_owned(),
         ]
         .join(", ");
