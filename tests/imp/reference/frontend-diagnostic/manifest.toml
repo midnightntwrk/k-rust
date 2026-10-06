@@ -1,0 +1,23 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kompile"]
+
+[key.upstream]
+imp = "683a773418add3bcae8ded47c2b24e94494e1988"
+
+[key.inputs]
+"emitted/definition.k" = "6829e5cdecf4a041d28361c5eac0c1b301637d220fe8b2e5497168fbb5a8afcd"
+
+[[invocation]]
+label = "kompile/induced-spec-error"
+argv = ["kompile", "{{work}}/spec.k", "-I", "{{work}}", "-I", "{{external}}/inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics", "--main-module", "KRS-IMP-DIAGNOSTIC-SPEC", "--syntax-module", "KRS-IMP-DIAGNOSTIC-SPEC", "--backend", "llvm", "--output-definition", "{{work}}/out"]
+returncode = 113
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "78cf4d470031268a5f14cc2256265cdd923dd24b39ca118daeefc58038ea548c"
+
+[invocation.inputs]
+"{{work}}/spec.k" = "1d76054e608826bdd326697c1c505d8d8de779c1c3cf257ecf5937f929a90d04"
+
+[invocation.outputs]

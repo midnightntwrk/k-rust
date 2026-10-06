@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Map one induced K frontend Location through sources.json, without guessing."""
+"""Map one induced K frontend Location through sources.json, without guessing.
+
+With `--frontend`, the induced `kompile` failure replays the reference
+snapshot `tests/imp/reference/frontend-diagnostic`, keyed by the digests of the
+emitted `definition.k` and of the mutated spec; `--refresh-reference` runs
+`kompile` live instead.
+"""
 
 from __future__ import annotations
 
@@ -11,14 +17,30 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-from support import GateError, krs_gate  # noqa: E402
+from support import ROOT, GateError, krs_gate  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
+from support.pins import load_json, table  # noqa: E402
+from support.reference import (  # noqa: E402
+    Key, Snapshot, add_refresh_argument, add_staging_argument, live_tools, snapshot_directory,
+)
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
-from support.process import run  # noqa: E402
 
 
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
 EMITTED_CLAIMS = 20
+REFERENCE = ROOT / "tests/imp/reference/frontend-diagnostic"
+IMP_PINS = ROOT / "tests/imp/pins.json"
+
+
+def frontend_key(definition: Path) -> Key:
+    """The snapshot key: the upstream IMP revision and the emitted definition the spec requires."""
+
+    revisions = table(load_json(IMP_PINS).get("revisions"), "pins.revisions")
+    return Key(
+        tools=("kompile",),
+        upstream={"imp": str(table(revisions.get("imp"), "revisions.imp").get("commit"))},
+        inputs={"emitted/definition.k": definition},
+    )
 
 
 def exact_mapping(
@@ -38,9 +60,14 @@ def main() -> int:
     parser.add_argument("--authored", type=Path, required=True)
     parser.add_argument("--source-relative-path", required=True)
     parser.add_argument("--token", required=True)
-    parser.add_argument("--kompile")
+    parser.add_argument(
+        "--frontend", action="store_true",
+        help="also require K's frontend Location for an induced spec failure",
+    )
     parser.add_argument("--module")
     parser.add_argument("--verification-definition", type=Path)
+    add_refresh_argument(parser)
+    add_staging_argument(parser)
     arguments = parser.parse_args()
     spec = arguments.spec.read_bytes()
     gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
@@ -52,16 +79,16 @@ def main() -> int:
     start, end = int(generated["start_byte"]), int(generated["end_byte"])
     artifact_line = generated["start_line"]
     artifact_column = generated["start_column"]
-    if not arguments.kompile:
+    if not arguments.frontend:
         print(json.dumps({
             "artifact_generated_location": [artifact_line, artifact_column],
             "authored_range": origin,
         }, sort_keys=True))
         return 0
     if not arguments.module:
-        raise GateError("--module is required with --kompile")
+        raise GateError("--module is required with --frontend")
     if arguments.verification_definition is None:
-        raise GateError("--verification-definition is required with --kompile")
+        raise GateError("--verification-definition is required with --frontend")
     verification_definition = arguments.verification_definition.resolve()
     if not verification_definition.joinpath("imp-verification.k").is_file():
         raise GateError("verification definition lacks imp-verification.k")
@@ -92,19 +119,26 @@ def main() -> int:
     generated_start = len(spec_header) + claim_start
     line = broken[:generated_start].count(b"\n") + 1
     column = generated_start - broken.rfind(b"\n", 0, generated_start)
+    refresh = arguments.refresh_reference
     with tempfile.TemporaryDirectory(prefix="krs-imp-frontend-diagnostic-") as temporary:
         temporary = Path(temporary)
         (temporary / "execution.k").write_bytes(execution)
         broken_path = temporary / "spec.k"
         broken_path.write_bytes(broken)
-        process = run(
-            [arguments.kompile, broken_path, "-I", temporary,
+        k = Snapshot(
+            snapshot_directory(REFERENCE, refresh, arguments.reference_staging),
+            frontend_key(temporary / "execution.k"), workspace=temporary, refresh=refresh,
+            executables=live_tools(("kompile",)) if refresh else None,
+        )
+        process = k.run(
+            "kompile/induced-spec-error", "kompile",
+            [broken_path, "-I", temporary,
              "-I", verification_definition, "--main-module", spec_module,
              "--syntax-module", spec_module, "--backend", "llvm",
              "--output-definition", temporary / "out"],
             timeout=180,
-            check=False,
         )
+        k.finish()
     locations = [tuple(map(int, match.groups())) for match in LOCATION.finditer(process.stderr)]
     if process.returncode == 0 or not any(location[:2] == (line, column) for location in locations):
         raise GateError("K frontend failure did not select the exact induced generated range")

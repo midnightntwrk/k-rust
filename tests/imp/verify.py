@@ -120,10 +120,8 @@ class Context:
     corpus: dict[str, Any]
     workspace: Path
     target: Path
-    live_java: bool = True
-    """Whether a layer that runs Java K live runs: a refresh, or IMP.8."""
     refresh: bool = False
-    """Whether the run refreshes the reference snapshots."""
+    """Whether the run refreshes the reference snapshots, running Java K live."""
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     snapshots: list[Snapshot | Promotion] = field(default_factory=list)
@@ -160,15 +158,15 @@ class Context:
         return ["--refresh-reference", STAGING_OPTION, os.fspath(staged)]
 
 
-def required_tools(live_java: bool) -> tuple[str, ...]:
+def required_tools(refresh: bool) -> tuple[str, ...]:
     """The executables IMP.1 requires for the layers that will run.
 
-    IMP.2 always runs its LSP probes; Java K and the solver are required only
-    when a layer runs them live. IMP.2's kompile tests replay a recorded
-    snapshot unless the run refreshes it.
+    IMP.2 always runs its LSP probes. Every K invocation of IMP.2 and
+    IMP.4-IMP.8 replays a recorded snapshot, so the K tools and the solver are
+    required only by a refresh.
     """
 
-    return (*BASE_TOOLS, *LSP_TOOLS, *(JAVA_TOOLS if live_java else ()))
+    return (*BASE_TOOLS, *LSP_TOOLS, *(JAVA_TOOLS if refresh else ()))
 
 
 @dataclass(frozen=True)
@@ -248,7 +246,7 @@ def phase_preflight(context: Context) -> str:
         "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
         "k_rust": str(lock.value("k_rust", "commit")),
     }
-    if context.live_java:
+    if context.refresh:
         # The K source checkout qualifies only the live toolchain.
         checkouts["k"] = ROOT.parent / "inspirations/runtimeverification/k"
         expected["k"] = lock.k_commit()
@@ -263,8 +261,8 @@ def phase_preflight(context: Context) -> str:
         if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
             raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
 
-    context.tools = {name: executable(name) for name in required_tools(context.live_java)}
-    if context.live_java:
+    context.tools = {name: executable(name) for name in required_tools(context.refresh)}
+    if context.refresh:
         verify_java_tools(context.tools)
     context.environment = z3_environment()
     msrv = run(["rustc", f"+{lock.msrv()}", "--version"], timeout=30).stdout.strip()
@@ -272,7 +270,7 @@ def phase_preflight(context: Context) -> str:
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
     native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
     lock.require_stable_at_least_msrv(native_rust)
-    java = "live Java K" if context.live_java else "recorded Java K (no K tools required)"
+    java = "live Java K (refresh)" if context.refresh else "recorded Java K (no K tools required)"
     return (
         f"external checkouts and files, corpus, tools, {java}, KRS schema {lock.krs_ir_schema()}, "
         f"MSRV {lock.msrv()}, and {native_rust}"
@@ -819,9 +817,9 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
             "--sources", artifacts.paths / "sources.json",
             "--authored", HERE / "rust-definition/src/claims.rs",
             "--source-relative-path", "src/claims.rs", "--token", "bool::and",
-            "--kompile", context.tools["kompile"], "--module", MODULE,
-            "--verification-definition", ROOT.parent
-            / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics",
+            "--frontend", "--module", MODULE,
+            "--verification-definition", UPSTREAM_DEFINITION,
+            *context.child_snapshot("frontend-diagnostic"),
         ],
     ]
     # Each probe owns its Cargo target and scratch directories. Reports keep
@@ -928,10 +926,8 @@ def main() -> int:
     passed: set[str] = set()
     artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
-        # IMP.8 still runs Java K live; every other K invocation replays a snapshot.
         context = Context(
             pins, corpus, Path(temporary), arguments.target_dir.resolve(),
-            live_java=arguments.refresh_reference or not arguments.artifacts_only,
             refresh=arguments.refresh_reference,
         )
         context.target.mkdir(parents=True, exist_ok=True)

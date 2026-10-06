@@ -28,7 +28,7 @@ class InputPinTests(unittest.TestCase):
 
 
 class PreflightToolTests(unittest.TestCase):
-    def test_java_tools_are_required_only_when_a_layer_runs_them_live(self) -> None:
+    def test_java_tools_are_required_only_by_a_refresh(self) -> None:
         replay = verify.required_tools(False)
         live = verify.required_tools(True)
         for name in verify.JAVA_TOOLS:
