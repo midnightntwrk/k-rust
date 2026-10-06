@@ -1068,8 +1068,9 @@ mod tests {
         assert_eq!(found("aba", "ab", 1), int(1));
     }
 
-    /// `substrString` is folded on `0 <= start <= end <= length`, empty ranges included; it is
-    /// `total`, and `domains.md` gives it no value on other indices, so those stay unfolded.
+    /// `chrChar` is folded on every code point outside the surrogates. Whether a String holds
+    /// a surrogate code point the definition does not settle, so that value is unspecified; a
+    /// number that is no code point has no character.
     #[test]
     fn folds_chr_only_on_code_points_outside_the_surrogates() {
         for (code_point, expected) in [(0x41, "A"), (0xd7ff, "\u{d7ff}"), (0xe000, "\u{e000}")] {
@@ -1094,6 +1095,8 @@ mod tests {
         }
     }
 
+    /// `substrString` is folded on `0 <= start <= end <= length`, empty ranges included; it is
+    /// `total`, and `domains.md` gives it no value on other indices, so those stay unfolded.
     #[test]
     fn folds_substrings_only_on_valid_indices() {
         let substring = |start: BigInt, end: BigInt| {
