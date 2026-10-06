@@ -279,21 +279,35 @@ fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(value.to_string())))
 }
 
-/// `chrChar(N)` is the string of the one code point N. A String value holds no surrogate code
-/// point (KORE string literals cannot write one) and no number outside the code points, so
-/// `chrChar` of one has no value: it is undefined (the hook is partial).
+/// `chrChar(N)` is the string of the one code point N. A number outside the code points
+/// `[0, 0x10FFFF]` is no character, so `chrChar` of one has no value: it is undefined (the hook
+/// is partial).
+///
+/// A surrogate code point (U+D800 to U+DFFF) is left `Unspecified`: K's string syntax writes one
+/// (`\uFFFF` is "a code point between 0x0000 and 0xffff"), and KORE's string literals, in which
+/// every `String` domain value is written, cannot. The definition does not settle whether a
+/// String holds one, so neither a value nor `\bottom` follows from it; the unevaluated
+/// application denotes whichever it is.
 fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.chr", arguments, 1)?;
     // A symbolic code point may be valid on some instances and invalid on others.
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(value) = value.to_u32() else {
+    let Some(value) = value.to_u32().filter(|value| *value <= 0x10ffff) else {
         return Ok(BuiltinResult::Bottom);
     };
-    Ok(char::from_u32(value)
-        .map(|value| string_term(value.to_string()))
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    Ok(char::from_u32(value).map_or_else(
+        || {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "chrChar({value}): a surrogate code point, which K's string syntax writes \
+                     and KORE's string literals cannot"
+                ),
+            })
+        },
+        |value| BuiltinResult::Value(string_term(value.to_string())),
+    ))
 }
 
 /// `ordChar(S)` is the number of the one code point of S, undefined for any other length. A
@@ -615,15 +629,18 @@ mod tests {
         }
     }
 
-    /// No String holds a surrogate code point or a number outside the code points as a
-    /// character, so `chrChar` of one is undefined; `ordChar(chrChar(N)) == N` wherever it is
-    /// defined.
+    /// A number outside the code points is no character, so `chrChar` of one is undefined.
+    /// Whether a String holds a surrogate code point the definition does not settle (K's string
+    /// syntax writes one, KORE's literals cannot), so `chrChar` of one stays unevaluated as
+    /// `Unspecified`. `ordChar(chrChar(N)) == N` wherever `chrChar(N)` is computed.
     #[test]
-    fn chr_of_a_surrogate_or_a_non_code_point_is_undefined() {
+    fn chr_of_a_surrogate_is_unspecified_and_of_a_non_code_point_undefined() {
         for code_point in [0xd800, 0xdbff, 0xdc00, 0xdfff] {
-            assert_eq!(
-                evaluate("STRING.chr", vec![int_term(code_point.into())]),
-                BuiltinResult::Bottom,
+            assert!(
+                matches!(
+                    evaluate("STRING.chr", vec![int_term(code_point.into())]),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
                 "chrChar({code_point})"
             );
         }

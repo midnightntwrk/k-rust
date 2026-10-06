@@ -3560,8 +3560,9 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
         ));
     }
 
-    // No String holds a number outside the code points, or a surrogate code point (KORE string
-    // literals cannot), as a character, so `chrChar` of one is undefined and stays as written.
+    // A number outside the code points is no character (undefined), and whether a String holds a
+    // surrogate code point the definition does not settle (unspecified): the fold computes
+    // neither, and `chrChar` of one stays as written.
     for codepoint in ["-1", "1114112", "55296", "57343"] {
         let right = constant_folded_right_hand_side(&source(codepoint));
         assert_eq!(

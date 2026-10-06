@@ -770,11 +770,13 @@ fn string_chr(value: BigInt) -> Result<Value, Unfolded> {
                 .into(),
         );
     };
+    // Whether a String holds a surrogate the definition does not settle: K's string syntax
+    // writes one, KORE's string literals cannot.
     let Some(value) = char::from_u32(value) else {
-        return Err(
-            "Argument to hook STRING.chr is a surrogate code point. Expected a Unicode scalar value."
-                .into(),
-        );
+        return Err(Unfolded::Unspecified(format!(
+            "chrChar({value}) is a surrogate code point, which K's string syntax writes and \
+             KORE's string literals cannot"
+        )));
     };
     Ok(Value::String(value.to_string()))
 }
@@ -1068,6 +1070,30 @@ mod tests {
 
     /// `substrString` is folded on `0 <= start <= end <= length`, empty ranges included; it is
     /// `total`, and `domains.md` gives it no value on other indices, so those stay unfolded.
+    #[test]
+    fn folds_chr_only_on_code_points_outside_the_surrogates() {
+        for (code_point, expected) in [(0x41, "A"), (0xd7ff, "\u{d7ff}"), (0xe000, "\u{e000}")] {
+            assert!(
+                matches!(string_chr(int(code_point)), Ok(Value::String(text)) if text == expected),
+                "chrChar({code_point})"
+            );
+        }
+        // Whether a String holds a surrogate the definition does not settle: unspecified.
+        for code_point in [0xd800, 0xdfff] {
+            assert!(
+                matches!(string_chr(int(code_point)), Err(Unfolded::Unspecified(_))),
+                "chrChar({code_point})"
+            );
+        }
+        // A number outside the code points is no character: undefined.
+        for code_point in [-1, 0x11_0000] {
+            assert!(
+                matches!(string_chr(int(code_point)), Err(Unfolded::Undefined(_))),
+                "chrChar({code_point})"
+            );
+        }
+    }
+
     #[test]
     fn folds_substrings_only_on_valid_indices() {
         let substring = |start: BigInt, end: BigInt| {

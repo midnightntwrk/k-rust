@@ -3946,11 +3946,12 @@ fn krun_executes_hook_edges_to_the_backend_results() {
     assert_eq!(strings, vec![""], "{stdout}");
 }
 
-/// No String holds a surrogate code point, so `chrChar(55296)` is undefined and the rule that
-/// builds it has an undefined result: the run ends in `\bottom` and names the refuted
-/// definedness of the application.
+/// Whether a String holds a surrogate code point the definition does not settle (K's string
+/// syntax writes one, KORE's literals cannot), so `chrChar(55296)` is neither a value nor
+/// undefined: the run keeps the application unevaluated, with a warning, rather than ending in
+/// `\bottom`.
 #[test]
-fn krun_reaches_bottom_for_chr_of_a_surrogate() {
+fn krun_leaves_chr_of_a_surrogate_unevaluated() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -3971,11 +3972,16 @@ fn krun_reaches_bottom_for_chr_of_a_surrogate() {
 
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(stdout, "\\bottom{SortGeneratedTopCell{}}()\n");
+    assert!(
+        stdout.contains("LblchrChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int{}(")
+            && stdout.contains(r#"\dv{SortInt{}}("55296")"#)
+            && !stdout.contains("\\bottom"),
+        "{stdout}"
+    );
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("applied with an undefined result")
-            && stderr.contains(r#"(\dv{SortInt{}}("55296"))"#),
+        stderr.contains("hook STRING.chr was left unevaluated")
+            && stderr.contains("the definition does not determine its value"),
         "{stderr}"
     );
 }

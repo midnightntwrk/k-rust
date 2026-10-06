@@ -733,14 +733,15 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             )
         }
         ("STRING.int2string", [Int(value)]) => Spec::value(Str(value.to_string().into_bytes())),
-        // A string holding the one code point; no String holds a surrogate (KORE string
-        // literals cannot) or a number outside the code points, so those are undefined.
-        ("STRING.chr", [Int(value)]) => Spec::partial(
-            value
-                .to_u32()
-                .and_then(char::from_u32)
-                .map(|character| Str(character.to_string().into_bytes())),
-        ),
+        // A string holding the one code point. A number outside the code points is undefined;
+        // whether a String holds a surrogate the definition does not settle (K's string syntax
+        // writes one, KORE's literals cannot), so a surrogate is unspecified.
+        ("STRING.chr", [Int(value)]) => match value.to_u32().filter(|value| *value <= 0x10ffff) {
+            None => Spec::bottom(),
+            Some(value) => char::from_u32(value).map_or_else(Spec::unspecified, |character| {
+                Spec::value(Str(character.to_string().into_bytes()))
+            }),
+        },
         ("STRING.ord", [Str(text)]) => match units(text).as_slice() {
             [unit] => match std::str::from_utf8(unit) {
                 Ok(character) => {
