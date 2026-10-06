@@ -605,10 +605,13 @@ fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
         (old_s, s) = (s.clone(), old_s - q * s);
     }
     if old_r.abs() != BigInt::one() {
-        None
-    } else {
-        Some(((old_s % &modulus) + &modulus) % modulus)
+        return None;
     }
+    // `old_s * a` is congruent to `old_r`, which is 1 or -1; for -1 the inverse is `-old_s`.
+    if old_r.is_negative() {
+        old_s = -old_s;
+    }
+    Some(((old_s % &modulus) + &modulus) % modulus)
 }
 
 fn string_chr(value: BigInt) -> Result<Value, String> {
@@ -794,4 +797,23 @@ fn sort_mentions(sort: &Sort, parameter: &Sort) -> bool {
             .parameters
             .iter()
             .any(|argument| sort_mentions(argument, parameter))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int(value: i64) -> BigInt {
+        BigInt::from(value)
+    }
+
+    /// A negative base ends the Euclidean recursion on a remainder of -1, so its inverse is the
+    /// negated Bezout coefficient: -1 * 4 = -4 and -2 * 3 = -6 are both 1 modulo 5 and 7.
+    #[test]
+    fn powmod_inverts_negative_bases() {
+        assert_eq!(int_powmod(int(-1), int(-1), int(5)), Ok(int(4)));
+        assert_eq!(int_powmod(int(-2), int(-1), int(7)), Ok(int(3)));
+        assert_eq!(int_powmod(int(-2), int(-3), int(7)), Ok(int(6)));
+        assert_eq!(int_powmod(int(3), int(-1), int(7)), Ok(int(5)));
+    }
 }
