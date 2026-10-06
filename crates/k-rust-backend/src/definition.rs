@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
-//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
+//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
 //! variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
 //! counters = []
 //! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
@@ -833,10 +833,12 @@ pub enum DefinitionError {
     MalformedCollection(String),
     MalformedAlias(String),
     AliasCycle(Vec<String>),
-    /// Unfolding the aliases of a request pattern, or of the axioms of a definition, would add
-    /// `added` to the size of what is unfolded (`alias::Size`: its pattern and sort nodes and the
-    /// bytes of their names), more than the `available` part of the limit
-    /// (`alias::UNFOLDING_LIMIT`) that its operation has left.
+    /// Unfolding the aliases of a request pattern, or of the axioms of a definition or of a
+    /// module added to it, would add `added` to the size of what is unfolded (`alias::Size`: its
+    /// pattern and sort nodes and the bytes of their names), more than the `available` part of
+    /// the budget of the operation that supplied them that is left: the larger of
+    /// `alias::UNFOLDING_LIMIT` and `alias::UNFOLDING_FACTOR` times the size of the patterns that
+    /// operation supplied.
     AliasUnfoldingTooLarge {
         added: u64,
         available: u64,
@@ -984,8 +986,9 @@ impl fmt::Display for DefinitionError {
             Self::AliasUnfoldingTooLarge { added, available } => {
                 write!(
                     formatter,
-                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of the limit of {} on what alias unfolding may add",
-                    crate::alias::UNFOLDING_LIMIT
+                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of what alias unfolding may add: the larger of {} and {} times the size of the patterns supplied by the operation that unfolds them",
+                    crate::alias::UNFOLDING_LIMIT,
+                    crate::alias::UNFOLDING_FACTOR
                 )
             }
             Self::MacroOrAliasInImplication(symbol) => {
@@ -1336,8 +1339,25 @@ impl BackendDefinition {
         definition: &kore::Definition,
         main_module: &str,
     ) -> Result<Self, DefinitionError> {
+        Self::internalize_with_added(definition, main_module, &BTreeSet::new())
+    }
+
+    /// Internalizes `definition` at `main_module`, where each module named in `added` was added
+    /// to the definition by an operation of its own after the rest of it was given
+    /// ([`crate::session::BackendSession::add_module`]).
+    ///
+    /// Unfolding the aliases of an axiom is charged to the operation that supplied the axiom:
+    /// the axioms of the modules given with the definition share one budget relative to their
+    /// size, and those of each added module one relative to that module's own size
+    /// (`alias::UnfoldingBudget`), so what an addition may make the backend build is bounded by
+    /// what it sent, however large the definition it extends.
+    pub(crate) fn internalize_with_added(
+        definition: &kore::Definition,
+        main_module: &str,
+        added: &BTreeSet<&str>,
+    ) -> Result<Self, DefinitionError> {
         let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
-        Self::internalize_canonical(definition, main_module)
+        Self::internalize_canonical(definition, main_module, added)
     }
 
     /// Internalizes a definition and orders semantic rewrites by their stable identifiers.
@@ -1391,6 +1411,7 @@ impl BackendDefinition {
     fn internalize_canonical(
         definition: &kore::Definition,
         main_module: &str,
+        added: &BTreeSet<&str>,
     ) -> Result<Self, DefinitionError> {
         let mut module_map = BTreeMap::new();
         for module in &definition.modules {
@@ -1435,6 +1456,7 @@ impl BackendDefinition {
                 definition,
                 &module_map,
                 main_module,
+                added,
                 &ordered,
                 &alias_heights,
                 declared,
@@ -1458,6 +1480,7 @@ impl BackendDefinition {
         definition: &kore::Definition,
         module_map: &BTreeMap<&str, &kore::Module>,
         main_module: &str,
+        added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
         alias_heights: &BTreeMap<String, usize>,
         declared: usize,
@@ -1578,6 +1601,7 @@ impl BackendDefinition {
             Self::internalize_axioms(
                 module_map,
                 main_module,
+                added,
                 ordered,
                 sorts,
                 symbols,
@@ -1589,11 +1613,14 @@ impl BackendDefinition {
 
     /// The definition of the modules `ordered`, whose declarations have been read into `sorts`,
     /// `symbols`, and `aliases` and verified with its axioms and claims, built from those axioms
-    /// and claims. Its patterns and sorts are at most `deepest` levels deep.
+    /// and claims. Its patterns and sorts are at most `deepest` levels deep. The modules named in
+    /// `added` were each added by an operation of their own ([`Self::internalize_with_added`]).
     #[deny(clippy::wildcard_enum_match_arm)]
+    #[allow(clippy::too_many_arguments)]
     fn internalize_axioms(
         module_map: &BTreeMap<&str, &kore::Module>,
         main_module: &str,
+        added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
         sorts: BTreeMap<Name, SortInfo>,
         symbols: BTreeMap<Name, Arc<Symbol>>,
@@ -1614,10 +1641,29 @@ impl BackendDefinition {
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
-        // The axioms of a definition are unfolded together, within one budget.
-        let mut unfolding = UnfoldingBudget::new();
+        // Unfolding is charged to the operation that supplied each axiom: the axioms of the
+        // modules given with the definition are unfolded together, within one budget relative to
+        // their size, and those of each added module within one relative to its own size.
+        let (added_modules, given_modules): (Vec<&kore::Module>, Vec<&kore::Module>) = ordered
+            .iter()
+            .copied()
+            .partition(|module| added.contains(module.name.as_str()));
+        let mut given_unfolding = UnfoldingBudget::for_modules(&given_modules);
+        let mut added_unfolding = added_modules
+            .into_iter()
+            .map(|module| {
+                (
+                    module.name.as_str(),
+                    UnfoldingBudget::for_modules(&[module]),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
+            let unfolding = match added_unfolding.get_mut(module.name.as_str()) {
+                Some(budget) => budget,
+                None => &mut given_unfolding,
+            };
             for &index in &rule_orders[module.name.as_str()] {
                 let sentence = &module.sentences[index];
                 let (target, parameters, pattern, attributes, expand) = match sentence {
@@ -1650,7 +1696,7 @@ impl BackendDefinition {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     pattern: if expand {
-                        expand_aliases_within(pattern, &aliases, &mut unfolding)?.into_owned()
+                        expand_aliases_within(pattern, &aliases, unfolding)?.into_owned()
                     } else {
                         (**pattern).clone()
                     },
@@ -4824,6 +4870,89 @@ mod tests {
             definition.internalize_pattern(&pattern, &[]),
             Err(DefinitionError::AliasUnfoldingTooLarge { .. })
         ));
+    }
+
+    /// A closed alias applied by many axioms unfolds to a copy of its body at each application,
+    /// as the alias of a priority group's rules does in every rule of a later group: an unfolding
+    /// that grows with the product of the axioms and the body, not exponentially. A definition
+    /// whose axioms add more than the floor `UNFOLDING_LIMIT` (12 copies of a body of about
+    /// 360,000 units), but less than `UNFOLDING_FACTOR` times the definition's own size, loads.
+    #[test]
+    fn loads_a_closed_alias_applied_by_many_axioms_beyond_the_floor() {
+        const DISJUNCTS: usize = 40_000;
+        const RULES: usize = 12;
+        let mut source = String::from(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol pair{}(S{}, S{}) : S{} [constructor{}()]
+                symbol a{}() : S{} [constructor{}()]
+        "#});
+        let body = vec!["pair{}(a{}(), a{}())"; DISJUNCTS].join(", ");
+        source.push_str(&format!(
+            "    alias earlier{{}}() : S{{}} where earlier{{}}() := \\or{{S{{}}}}({body}) []\n"
+        ));
+        for rule in 0..RULES {
+            source.push_str(&format!(
+                "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(earlier{{}}()), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later{rule}\")]\n"
+            ));
+        }
+        source.push_str("endmodule []\n");
+        let definition = parse_definition(&source).expect("the definition should parse");
+
+        let loaded = BackendDefinition::internalize(&definition, "MAIN")
+            .expect("an unfolding within a multiple of the definition's size should load");
+        assert_eq!(loaded.classified_axioms().len(), RULES);
+    }
+
+    /// A definition's budget is `UNFOLDING_FACTOR` times its own size as written, each axiom,
+    /// claim, and alias body counted once, and no more: one axiom that applies a closed alias of
+    /// about 360,000 units 40 times, more than 32 times the definition's size, is refused before
+    /// anything is built, with exactly that budget available.
+    #[test]
+    fn refuses_a_definition_whose_unfolding_exceeds_a_multiple_of_its_size() {
+        const DISJUNCTS: usize = 40_000;
+        const APPLICATIONS: usize = 40;
+        let mut source = String::from(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol pair{}(S{}, S{}) : S{} [constructor{}()]
+                symbol a{}() : S{} [constructor{}()]
+        "#});
+        let body = vec!["pair{}(a{}(), a{}())"; DISJUNCTS].join(", ");
+        source.push_str(&format!(
+            "    alias earlier{{}}() : S{{}} where earlier{{}}() := \\or{{S{{}}}}({body}) []\n"
+        ));
+        let applications = vec!["earlier{}()"; APPLICATIONS].join(", ");
+        source.push_str(&format!(
+            "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(\\or{{S{{}}}}({applications})), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later\")]\n"
+        ));
+        source.push_str("endmodule []\n");
+        let definition = parse_definition(&source).expect("the definition should parse");
+        let written = definition.modules[0]
+            .sentences
+            .iter()
+            .map(|sentence| match sentence {
+                kore::Sentence::AliasDeclaration { right, .. } => crate::alias::size(right),
+                kore::Sentence::Axiom { pattern, .. } => crate::alias::size(pattern),
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SortDeclaration { .. }
+                | kore::Sentence::SymbolDeclaration { .. }
+                | kore::Sentence::Claim { .. } => 0,
+            })
+            .sum::<u64>();
+        let budget = crate::alias::UNFOLDING_FACTOR * written;
+        assert!(budget > crate::alias::UNFOLDING_LIMIT);
+
+        match BackendDefinition::internalize(&definition, "MAIN") {
+            Err(DefinitionError::AliasUnfoldingTooLarge { added, available }) => {
+                assert_eq!(available, budget);
+                assert!(added > available);
+            }
+            Ok(_) => panic!("an unfolding beyond a multiple of the definition's size loaded"),
+            Err(error) => panic!("unexpected error: {error:?}"),
+        }
     }
 
     /// An alias argument that the alias keeps no copy of is not unfolded at all: an axiom and a
