@@ -86,6 +86,34 @@ symbol = "Counter::KompileMacroExpansionVisits"
 
 [[node]]
 kind = "observation"
+id = "KompileMacroMeasuredNodes"
+provenance = "table"
+area = "kompile"
+name = "KompileMacroMeasuredNodes"
+table = "Counter::ALL"
+registry_name = "kompile.macro_measured_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileMacroMeasuredNodes"
+
+[[node]]
+kind = "observation"
+id = "KompileMacroSubjectWalks"
+provenance = "table"
+area = "kompile"
+name = "KompileMacroSubjectWalks"
+table = "Counter::ALL"
+registry_name = "kompile.macro_subject_walks"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileMacroSubjectWalks"
+
+[[node]]
+kind = "observation"
 id = "KompileOwiseCompetitorScans"
 provenance = "table"
 area = "kompile"
@@ -8916,6 +8944,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "kompile.macros.expand"
 to = "KompileMacroExpansionVisits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.macros.expand"
+to = "KompileMacroMeasuredNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.macros.expand"
+to = "KompileMacroSubjectWalks"
 provenance = "declared"
 
 [[edge]]

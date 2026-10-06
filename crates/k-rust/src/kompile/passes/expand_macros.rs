@@ -3,7 +3,7 @@
 //! name = "macro expansion by indexed structural matching"
 //! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Chain::repeats"]
 //! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
-//! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits"]
+//! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits", "KompileMacroMeasuredNodes", "KompileMacroSubjectWalks"]
 //!
 //! [[cost]]
 //! mode = "one sentence, no macro rule with a parametric head"
@@ -1220,6 +1220,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         grown: &mut usize,
         chain: &mut Chain,
     ) -> Result<Option<BTreeSet<usize>>, Diagnostic> {
+        measure::bump(Counter::KompileMacroSubjectWalks);
         let subject = site.term(path).clone();
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -2195,13 +2196,17 @@ impl Chain {
             .checkpoint
             .as_ref()
             .is_some_and(|(stored, count, stored_depth)| {
-                *count == applied && *stored_depth == depth && stored == subject
+                *count == applied && *stored_depth == depth && {
+                    measure::bump(Counter::KompileMacroSubjectWalks);
+                    stored == subject
+                }
             })
         {
             return true;
         }
         self.steps += 1;
         if self.steps >= self.power {
+            measure::bump(Counter::KompileMacroSubjectWalks);
             self.checkpoint = Some((subject.clone(), applied, depth));
             self.power = self.power.saturating_mul(2);
             self.steps = 0;
@@ -2244,9 +2249,11 @@ fn with_stack<T>(red_zone: usize, work: impl FnOnce() -> T) -> T {
 )]
 fn term_depth(term: &Term) -> usize {
     let mut deepest = 0;
+    let mut visited = 0;
     let mut pending = vec![(term, 1)];
-    // Invariant: `deepest` is the greatest depth of a term visited so far, and `pending` holds every unvisited child of a visited term with its depth; each iteration visits one term.
+    // Invariant: `deepest` is the greatest depth of the `visited` terms visited so far, and `pending` holds every unvisited child of a visited term with its depth; each iteration visits one term.
     while let Some((term, depth)) = pending.pop() {
+        visited += 1;
         if depth > deepest {
             deepest = depth;
         }
@@ -2269,6 +2276,7 @@ fn term_depth(term: &Term) -> usize {
             pending.push((child, depth + 1));
         }
     }
+    measure::add(Counter::KompileMacroMeasuredNodes, visited);
     deepest
 }
 
