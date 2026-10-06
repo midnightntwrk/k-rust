@@ -14,4 +14,9 @@ pub(crate) mod alpha;
 mod capture;
 mod cascade;
 
+mod proof_boundary;
+mod recover_boundary;
+mod search_boundary;
+#[cfg(feature = "z3")]
+mod smt_boundary;
 mod sort_injections;

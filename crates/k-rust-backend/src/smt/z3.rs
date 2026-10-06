@@ -121,6 +121,9 @@ pub struct Z3Solver {
     prelude_signal: PreludeSignal,
     #[cfg(test)]
     uncached_solve_count: Arc<AtomicUsize>,
+    /// The timeout of every Z3 check this solver (and its clones) ran, in order.
+    #[cfg(test)]
+    attempt_timeouts: Arc<Mutex<Vec<u32>>>,
 }
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
@@ -225,8 +228,27 @@ impl Z3Solver {
             prelude_signal: PreludeSignal::default(),
             #[cfg(test)]
             uncached_solve_count: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            attempt_timeouts: Arc::new(Mutex::new(Vec::new())),
         };
         Ok(solver)
+    }
+
+    #[cfg(test)]
+    fn record_attempt(&self, timeout: u32) {
+        self.attempt_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(timeout);
+    }
+
+    /// The timeouts of the Z3 checks run so far, in order, one per attempt.
+    #[cfg(test)]
+    pub(crate) fn attempt_timeouts(&self) -> Vec<u32> {
+        self.attempt_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// How the prelude failed, once a check found it failed.
@@ -350,6 +372,8 @@ impl Z3Solver {
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);
             solver.set_params(&parameters);
+            #[cfg(test)]
+            self.record_attempt(timeout);
             solver.from_string(script);
             match measured_check(&solver) {
                 SatResult::Sat => return Ok(Satisfiability::Sat),
@@ -403,6 +427,8 @@ impl Z3Solver {
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);
             solver.set_params(&parameters);
+            #[cfg(test)]
+            self.record_attempt(timeout);
             solver.from_string(query.base());
             match measured_check(&solver) {
                 SatResult::Sat => {

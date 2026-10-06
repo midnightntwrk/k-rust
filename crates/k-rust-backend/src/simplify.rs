@@ -735,21 +735,22 @@ impl UnshadowedAssumptions {
 }
 
 fn predicate_conjunct_index(predicates: &[Predicate]) -> FxHashSet<Predicate> {
-    fn insert(predicate: &Predicate, index: &mut FxHashSet<Predicate>) {
-        if let Predicate::And(conjuncts) = predicate {
-            for conjunct in conjuncts {
-                insert(conjunct, index);
-            }
-        } else {
-            index.insert(predicate.clone());
-        }
-    }
-
     let mut index = FxHashSet::default();
     for predicate in predicates {
-        insert(predicate, &mut index);
+        insert_conjuncts(predicate, &mut index);
     }
     index
+}
+
+/// Insert the conjuncts of `predicate`: itself, or those of a nested `And`.
+fn insert_conjuncts(predicate: &Predicate, index: &mut FxHashSet<Predicate>) {
+    if let Predicate::And(conjuncts) = predicate {
+        for conjunct in conjuncts {
+            insert_conjuncts(conjunct, index);
+        }
+    } else {
+        index.insert(predicate.clone());
+    }
 }
 
 fn simplify_predicates_with_budget(
@@ -770,6 +771,12 @@ fn simplify_predicates_with_budget(
     let known_index = predicate_conjunct_index(known_predicates);
     let mut all_assumptions = known_index.clone();
     all_assumptions.extend(conjunct_index.iter().cloned());
+    // Each conjunct is simplified under the known predicates and the other conjuncts as they
+    // stand when its turn comes: the earlier ones already simplified, the later ones as given.
+    // A conjunct replaced by a form equivalent to it under the rest of the current conjunction
+    // leaves the conjunction equivalent, so every round is. Simplifying each conjunct under the
+    // others as given is not: in `X = 1 ∧ 1 = X` each equality is discharged by the other,
+    // and `X = 1` is lost.
     let mut assumptions = known_predicates.to_vec();
     let additional_positions = conjuncts
         .iter()
@@ -785,40 +792,53 @@ fn simplify_predicates_with_budget(
         .collect::<Vec<_>>();
     let mut known_equalities = Vec::new();
     collect_conjunctive_equalities(known_predicates, &mut known_equalities);
-    let mut all_equalities = known_equalities;
-    let additional_equality_positions = conjuncts
+    let known_equalities = owned_equalities(known_equalities);
+    // The equalities of each additional conjunct as it currently stands.
+    let mut conjunct_equalities = conjuncts
         .iter()
         .enumerate()
         .map(|(index, predicate)| {
-            additional_positions[index]?;
-            let Predicate::Equals(left, right) = predicate else {
-                return None;
-            };
-            let position = all_equalities.len();
-            all_equalities.push((left, right));
-            Some(position)
+            if additional_positions[index].is_none() {
+                return Vec::new();
+            }
+            let mut equalities = Vec::new();
+            collect_conjunctive_equalities(std::slice::from_ref(predicate), &mut equalities);
+            owned_equalities(equalities)
         })
         .collect::<Vec<_>>();
-    let full_path_condition =
-        PathConditionReplacements::from_equalities(all_equalities.iter().copied());
-    let mut simplified = Vec::with_capacity(conjuncts.len());
-    for (index, predicate) in conjuncts.iter().enumerate() {
-        let excluded = additional_positions[index]
-            .map(|position| std::mem::replace(&mut assumptions[position], Predicate::True));
-        let result = {
-            let excluded_path_condition = additional_equality_positions[index].map(|excluded| {
-                PathConditionReplacements::from_equalities(
-                    all_equalities
+    let path_condition_excluding = |conjunct_equalities: &[Vec<(Term, Term)>],
+                                    excluded: Option<usize>| {
+        PathConditionReplacements::from_equalities(
+            known_equalities
+                .iter()
+                .chain(
+                    conjunct_equalities
                         .iter()
                         .enumerate()
-                        .filter_map(|(position, equality)| {
-                            (position != excluded).then_some(*equality)
-                        }),
+                        .filter(|(position, _)| Some(*position) != excluded)
+                        .flat_map(|(_, equalities)| equalities.iter()),
                 )
-            });
-            let path_condition = excluded_path_condition
-                .as_ref()
-                .unwrap_or(&full_path_condition);
+                .map(|(left, right)| (left, right)),
+        )
+    };
+    // The path condition of every current equality, rebuilt only after one of them changed.
+    let mut full_path_condition = None;
+    // The conjunct parts of the additional conjuncts simplified so far.
+    let mut simplified_conjuncts = FxHashSet::default();
+    let mut simplified = Vec::with_capacity(conjuncts.len());
+    for (index, predicate) in conjuncts.iter().enumerate() {
+        // The conjunct is not an assumption of its own simplification.
+        if let Some(position) = additional_positions[index] {
+            assumptions[position] = Predicate::True;
+        }
+        let result = {
+            let excluded_path_condition = (!conjunct_equalities[index].is_empty())
+                .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
+            let path_condition = match &excluded_path_condition {
+                Some(path_condition) => path_condition,
+                None => full_path_condition
+                    .get_or_insert_with(|| path_condition_excluding(&conjunct_equalities, None)),
+            };
             let assumptions = PredicateAssumptions {
                 terms: TermAssumptions {
                     predicates: &assumptions,
@@ -837,11 +857,27 @@ fn simplify_predicates_with_budget(
                 active_conditions,
                 solver,
             )
-        };
-        if let (Some(position), Some(excluded)) = (additional_positions[index], excluded) {
-            assumptions[position] = excluded;
+        }?;
+        if let Some(position) = additional_positions[index] {
+            assumptions[position] = result.clone();
+            insert_conjuncts(&result, &mut simplified_conjuncts);
+            if result != *predicate {
+                let mut equalities = Vec::new();
+                collect_conjunctive_equalities(std::slice::from_ref(&result), &mut equalities);
+                let equalities = owned_equalities(equalities);
+                if equalities != conjunct_equalities[index] {
+                    conjunct_equalities[index] = equalities;
+                    full_path_condition = None;
+                }
+                // The original conjuncts are distinct, so the replaced one remains an
+                // assumption only as a part of a simplified conjunct.
+                if !simplified_conjuncts.contains(predicate) {
+                    all_assumptions.remove(predicate);
+                }
+                insert_conjuncts(&result, &mut all_assumptions);
+            }
         }
-        simplified.push(result?);
+        simplified.push(result);
     }
     let mut simplified = if violates_finite_constructor_domain(definition, &simplified) {
         vec![Predicate::False]
@@ -2983,6 +3019,13 @@ impl PathConditionReplacements {
             || (!self.replacements.is_empty()
                 && term_contains_replacement_original(term, &self.replacements))
     }
+}
+
+fn owned_equalities(equalities: Vec<(&Term, &Term)>) -> Vec<(Term, Term)> {
+    equalities
+        .into_iter()
+        .map(|(left, right)| (left.clone(), right.clone()))
+        .collect()
 }
 
 fn collect_conjunctive_equalities<'a>(
