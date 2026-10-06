@@ -129,10 +129,63 @@ def cfg_test_lines(path):
     return lines
 
 
+# Macros that expand each argument twice, into two branches of which only one runs at a call
+# site. The instrumented build keeps one coverage region per source span, so an argument's
+# lines carry the count of whichever copy the compiler kept, not of the copy that ran.
+# `smallvec![a, b, ...]` pushes the arguments when they fit the inline capacity and otherwise
+# builds `SmallVec::from_vec(vec![a, b, ...])`; the kept copy is the second, so the argument
+# lines of a call within capacity report 0 however often the call runs. The line that names
+# the macro carries the call's own count, so only the lines after it are left out.
+DUPLICATING_MACROS = ("smallvec",)
+
+
+def unmeasured_lines(text):
+    """1-based lines of `text` (blanked) that line coverage cannot measure.
+
+    These are the lines after the first line of a list-form call of a `DUPLICATING_MACROS`
+    macro, up to the line of its closing delimiter. That last line is included when it holds
+    argument text before the delimiter and only closing punctuation after it; text after the
+    call, such as a method call on its result, has regions of its own. The repeat form
+    `m![elem; n]` expands its operands once, so it is not left out.
+    """
+    closing = {"[": "]", "(": ")", "{": "}"}
+    names = "|".join(re.escape(name) for name in DUPLICATING_MACROS)
+    lines = set()
+    for match in re.finditer(rf"(?<![\w])(?:{names})\s*!\s*([\[({{])", text):
+        depth = 0
+        repeat = False
+        end = None
+        for j in range(match.start(1), len(text)):
+            ch = text[j]
+            if ch in "[({":
+                depth += 1
+            elif ch in "])}":
+                depth -= 1
+                if depth == 0:
+                    end = j
+                    break
+            elif ch == ";" and depth == 1:
+                repeat = True
+        if end is None or repeat or text[end] != closing[match.group(1)]:
+            continue
+        first = _line(text, match.start())
+        last = _line(text, end)
+        line_start = text.rfind("\n", 0, end) + 1
+        line_end = text.find("\n", end)
+        line_end = len(text) if line_end < 0 else line_end
+        before = text[line_start:end].strip()
+        after = text[end + 1 : line_end]
+        if not (before and re.fullmatch(r"[\s)\]},;]*", after)):
+            last -= 1
+        lines.update(range(first + 1, last + 1))
+    return lines
+
+
 class Workspace:
     def __init__(self, root):
         self.root = root
         self._masks = {}
+        self._unmeasured = {}
 
     def test_mask(self, rel):
         """None when the whole file is test code, else the set of its test lines."""
@@ -145,6 +198,22 @@ class Workspace:
                 except FileNotFoundError:
                     self._masks[rel] = None
         return self._masks[rel]
+
+    def unmeasured(self, rel):
+        """The lines of a file that line coverage cannot measure (`unmeasured_lines`)."""
+        if rel not in self._unmeasured:
+            try:
+                text = _blanked(os.path.join(self.root, rel))
+            except FileNotFoundError:
+                text = ""
+            self._unmeasured[rel] = frozenset(unmeasured_lines(text))
+        return self._unmeasured[rel]
+
+    def excluded(self, rel):
+        """None when the whole file is test code, else the lines the report leaves out: the
+        file's test lines and its unmeasured lines."""
+        mask = self.test_mask(rel)
+        return None if mask is None else mask | self.unmeasured(rel)
 
     @functools.lru_cache(maxsize=None)
     def items(self, rel):

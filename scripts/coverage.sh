@@ -57,6 +57,13 @@ set -euo pipefail
 # A line counts when it appears in the llvm-cov export of a binary built for a suite, including
 # a test binary that ran no test; the denominator is the union over both suites.
 #
+# Lines that line coverage cannot measure are left out of every count, and summary.md says how
+# many. They are the argument lines of a multi-line `smallvec![...]` call: the macro expands
+# each argument twice, into the inline pushes and into a `from_vec(vec![...])` fallback, and
+# the instrumented build keeps one region per source span, the fallback's. A call within the
+# inline capacity therefore reports its argument lines at 0 however often it runs. The line
+# naming the macro carries the call's own count (scripts/coverage/source.py, DUPLICATING_MACROS).
+#
 # Line coverage says what ran, not what was checked. A line that one test alone executes may
 # be asserted by none, and a line that exactly two tests execute is unique to neither. Card
 # site spans come from a brace-matching scanner (scripts/coverage/source.py), not a

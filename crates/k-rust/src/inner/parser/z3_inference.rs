@@ -4439,6 +4439,12 @@ mod tests {
     /// over that variable an ambiguity of `id(V)` and `b{sort}(id(V))` under the bracket
     /// `b{sort} : S{sort} ::= "(" S{sort} ")"`: one reading, whose alternatives fix `Q` to
     /// different sorts, as the bracket instances of a parametric production do.
+    /// Optionally (`kernel`), `K`, `KItem` and `Bag` are sorts of the grammar, unrelated to one
+    /// another except that `Some(true)` puts `KItem` below `K`, and `q` has a second parameter
+    /// `F` that occurs in none of its items: every sort of the parameter domain types `q`'s tree
+    /// for `F`, so where the three are unrelated each of them meets one top preference and only
+    /// the rank of `ranked_top_preferences` separates the vectors, as in
+    /// `a_phantom_parameter_is_one_parse_instantiated_at_k`.
     struct ConformanceProblem {
         grammar: Grammar,
         term: Rc<PackedTerm>,
@@ -4459,6 +4465,7 @@ mod tests {
         parametric: Option<(usize, usize)>,
         shared: Option<bool>,
         bracketed: &[(usize, usize)],
+        kernel: Option<bool>,
     ) -> ConformanceProblem {
         // Sorts `S0..S{n-1}`, and `K` above all of them when `top` is `None`, which also turns
         // on the `K` preferences of `seed_model`.
@@ -4490,6 +4497,22 @@ mod tests {
             semantic.extend((0..sort_count).map(|index| (sort(index), Sort::new("K"))));
             Sort::new("K")
         };
+        if let Some(kitem_below_k) = kernel {
+            for (name, terminal) in [("K", "k"), ("KItem", "i"), ("Bag", "b")] {
+                grammar
+                    .add(
+                        Sort::new(name),
+                        vec![ProductionItem::Terminal(terminal.into())],
+                        Some(Label::new(terminal)),
+                        false,
+                        false,
+                    )
+                    .unwrap();
+            }
+            if kitem_below_k {
+                semantic.insert((Sort::new("KItem"), Sort::new("K")));
+            }
+        }
         let mut syntactic = oriented(extra_syntactic);
         syntactic.extend(semantic.iter().cloned());
         *grammar.subsort_relations = semantic.clone();
@@ -4632,7 +4655,7 @@ mod tests {
         }
         if let Some((result, second)) = parametric {
             // `{P} R ::= "q" P P`, instantiated at `R` in the grammar; the inference encodes `P`
-            // as a formal parameter.
+            // as a formal parameter. With `kernel`, `{P, F} R ::= "q" P P`, where `F` is free.
             let index = grammar.productions.len();
             grammar
                 .add(
@@ -4648,9 +4671,16 @@ mod tests {
                 )
                 .unwrap();
             let parameter = Sort::new("P");
+            let mut parameters = vec![parameter.clone()];
+            let mut substitution = BTreeMap::from([(parameter.clone(), sort(result))]);
+            if kernel.is_some() {
+                let free = Sort::new("F");
+                parameters.push(free.clone());
+                substitution.insert(free.clone(), free);
+            }
             grammar.productions[index].parametric_origin = Some(ParametricOrigin {
                 label: Some(Label::new("q")),
-                parameters: vec![parameter.clone()],
+                parameters,
                 result: sort(result),
                 items: vec![
                     ProductionItem::Terminal("q".into()),
@@ -4664,7 +4694,7 @@ mod tests {
                     },
                 ],
                 attributes: Default::default(),
-                substitution: BTreeMap::from([(parameter, sort(result))]),
+                substitution,
             });
             term = PackedTerm::production(index, vec![term, variable(second)], Default::default());
         }
@@ -5128,6 +5158,7 @@ mod tests {
                 parametric,
                 None,
                 &[],
+                None,
             );
             let expected = brute_force_maximal(&problem).unwrap();
             let perturbation = |random_seed, reverse_disjuncts, full_disjunction| Perturbation {
@@ -5178,8 +5209,10 @@ mod tests {
         /// duplicate, so the candidate set the inference applies is `Problem.candidates`. Checked on the generated problems of
         /// `maximal_models_conform_to_brute_force_maximum` that carry the parametric production,
         /// optionally the shared `id` subterm whose parameter decides which alternatives are
-        /// live, and optionally bracketed copies of alternatives (the same reading under other
-        /// sort constraints), under the same perturbations.
+        /// live, optionally bracketed copies of alternatives (the same reading under other
+        /// sort constraints), and, without the shared subterm, optionally the kernel sorts with a
+        /// free parameter, whose instances tie on the top-preference count wherever the order
+        /// leaves `K`, `KItem` and `Bag` unrelated, under the same perturbations.
         #[test]
         fn admissible_parameters_conform_to_brute_force(
             sort_count in 3usize..6,
@@ -5192,8 +5225,14 @@ mod tests {
             parametric in (0usize..8, 0usize..3),
             shared in proptest::option::of(proptest::bool::ANY),
             bracketed in proptest::collection::vec((0usize..3, 0usize..8), 0..3),
+            kernel in proptest::option::of(proptest::bool::ANY),
             seeds in (1u32..1000, 1u32..1000),
         ) {
+            // The brute force checks every vector of the domain, `|domain|^parameters`. The
+            // kernel sorts add three sorts and a parameter, which with the `id` parameters of
+            // `shared` makes that tens of thousands of solver checks for one typing, so the
+            // kernel sorts are generated only without `shared`.
+            let kernel = kernel.filter(|_| shared.is_none());
             let problem = conformance_problem(
                 sort_count,
                 &semantic,
@@ -5205,6 +5244,7 @@ mod tests {
                 Some(parametric),
                 shared,
                 &bracketed,
+                kernel,
             );
             for perturbation in [
                 Perturbation { random_seed: None, reverse_disjuncts: false, full_disjunction: false },
@@ -5273,6 +5313,7 @@ mod tests {
             None,
             Some(true),
             &[],
+            None,
         );
         let (parameters, models) = recorded_models(
             &problem,
@@ -5335,6 +5376,7 @@ mod tests {
             None,
             Some(true),
             &[(0, 0)],
+            None,
         );
         let (parameters, models) = recorded_models(
             &problem,
@@ -5481,6 +5523,7 @@ mod tests {
             None,
             Some(true),
             &[],
+            None,
         )
     }
 
@@ -5969,6 +6012,7 @@ endmodule
                 parametric,
                 None,
                 &[],
+                None,
             );
             let OrderConstraintCalls {
                 encoding,

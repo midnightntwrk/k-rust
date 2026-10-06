@@ -625,37 +625,37 @@ pub(in crate::inner) mod configuration {
     ]);
 }
 
-/// Whether both member rows receive productions only for a role with terms, and their subsort columns state, for `role`, only kernel positions the role grants.
-/// `KItem ::= S` requires a sort strictly below `KItem` ([`SortRole::has_implicit_kitem_subsort`]), and `S ::= KBott`, `S ::= KConfigVar` and `S ::= #KVariable` require a sort a variable stands at ([`SortRole::admits_variables`]).
-///
-/// A generated subsort is an inclusion the grammar's sort order relies on. One that the role
-/// denies places a sort where it cannot lie, and together with the definition's own subsorts it
-/// can close a cycle, in which no term can be given a sort.
-const fn member_rows_are_granted(role: SortRole) -> bool {
-    let rule = rule_member_productions(role);
-    let configuration = configuration::configuration_member_productions(role);
-    let rule_has_productions = rule.predicate
-        || rule.projection
-        || rule.kitem_subsort
-        || rule.bottom_subsort
-        || rule.casts
-        || rule.bracket;
-    #[cfg(not(feature = "z3-inference"))]
-    let rule_has_productions = rule_has_productions || rule.rule_scaffold;
-    let configuration_has_productions = configuration.bracket
-        || configuration.kitem_subsort
-        || configuration.variable_subsorts
-        || configuration.casts;
-    (!rule.kitem_subsort || role.has_implicit_kitem_subsort())
-        && (!configuration.kitem_subsort || role.has_implicit_kitem_subsort())
-        && (!rule.bottom_subsort || role.admits_variables())
-        && (!configuration.variable_subsorts || role.admits_variables())
-        && (role.has_terms() || !(rule_has_productions || configuration_has_productions))
-}
-
 /// Every role's rows of both member tables require terms and state only granted kernel positions:
 /// a row that violates either condition does not compile.
 const _: () = {
+    /// Whether both member rows receive productions only for a role with terms, and their subsort columns state, for `role`, only kernel positions the role grants.
+    /// `KItem ::= S` requires a sort strictly below `KItem` ([`SortRole::has_implicit_kitem_subsort`]), and `S ::= KBott`, `S ::= KConfigVar` and `S ::= #KVariable` require a sort a variable stands at ([`SortRole::admits_variables`]).
+    ///
+    /// A generated subsort is an inclusion the grammar's sort order relies on. One that the role
+    /// denies places a sort where it cannot lie, and together with the definition's own subsorts it
+    /// can close a cycle, in which no term can be given a sort.
+    const fn member_rows_are_granted(role: SortRole) -> bool {
+        let rule = rule_member_productions(role);
+        let configuration = configuration::configuration_member_productions(role);
+        let rule_has_productions = rule.predicate
+            || rule.projection
+            || rule.kitem_subsort
+            || rule.bottom_subsort
+            || rule.casts
+            || rule.bracket;
+        #[cfg(not(feature = "z3-inference"))]
+        let rule_has_productions = rule_has_productions || rule.rule_scaffold;
+        let configuration_has_productions = configuration.bracket
+            || configuration.kitem_subsort
+            || configuration.variable_subsorts
+            || configuration.casts;
+        (!rule.kitem_subsort || role.has_implicit_kitem_subsort())
+            && (!configuration.kitem_subsort || role.has_implicit_kitem_subsort())
+            && (!rule.bottom_subsort || role.admits_variables())
+            && (!configuration.variable_subsorts || role.admits_variables())
+            && (role.has_terms() || !(rule_has_productions || configuration_has_productions))
+    }
+
     let mut index = 0;
     while index < KernelSort::ALL.len() {
         assert!(
@@ -1241,7 +1241,7 @@ mod tests {
         );
     }
 
-    /// The runtime twin of the `const` assertion over [`member_rows_are_granted`]: no row of either member table grants a production to a role without terms or states a kernel position the sort's role denies.
+    /// The runtime twin of the `const` assertion over `member_rows_are_granted`: no row of either member table grants a production to a role without terms or states a kernel position the sort's role denies.
     /// A label, an argument sequence and a token spelling are not K items, so `KLabel`, `KList` and `KString` receive no `KItem ::= S`.
     #[test]
     fn member_rows_require_terms_and_state_only_granted_kernel_positions() {

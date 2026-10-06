@@ -1,9 +1,0 @@
----
-source: crates/k-rust/tests/outer_loader.rs
-description: "main.k:\n\nmodule PRESENT endmodule\n\nRequired sources:\n\n{}\n\nMain module: MISSING"
----
-DefinitionResolution(
-    MissingMainModule(
-        "MISSING",
-    ),
-)

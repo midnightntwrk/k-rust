@@ -13,6 +13,9 @@ scripts/coverage/runner.sh laid out. Writes WORK/export/SUITE.pickle:
   binary that wrote no profile);
 - `tests` (with --per-test): for each (binary id, test name), the production lines that the
   test's processes executed, as (file, sorted line array) pairs;
+- `unmeasured`: the (file, line) pairs of production code that some export reported but that
+  line coverage cannot measure (`source.unmeasured_lines`), which `lines` and `tests` leave
+  out;
 - `problems`: profiles whose binary is unknown and merges or exports that failed.
 
 Profiles are grouped by the binary ID that each one records, because one test directory holds
@@ -54,17 +57,22 @@ def profile_binary_id(path):
     return path, (ids[0] if ids else None)
 
 
-def production_lines(lcov_text, hits_only):
-    """{rel: {line: count}} (or {rel: set of lines} when hits_only) over production lines."""
+def production_lines(lcov_text, hits_only, unmeasured=None):
+    """{rel: {line: count}} (or {rel: set of lines} when hits_only) over production lines.
+
+    Test lines and the lines that line coverage cannot measure (`source.unmeasured_lines`) are
+    left out; the latter are added to `unmeasured`, a set of (rel, line), when one is given.
+    """
     out = {}
     current = None
     mask = None
+    rel = None
     prefix = ROOT.rstrip("/") + "/"
     for line in lcov_text.splitlines():
         if line.startswith("SF:"):
             path = line[3:]
             rel = path[len(prefix) :] if path.startswith(prefix) else None
-            mask = WORKSPACE.test_mask(rel) if rel and rel.startswith("crates/") else None
+            mask = WORKSPACE.excluded(rel) if rel and rel.startswith("crates/") else None
             if mask is None:
                 current = None
             else:
@@ -73,6 +81,12 @@ def production_lines(lcov_text, hits_only):
             number, count = line[3:].split(",")[:2]
             number = int(number)
             if number in mask:
+                if (
+                    unmeasured is not None
+                    and number in WORKSPACE.unmeasured(rel)
+                    and number not in WORKSPACE.test_mask(rel)
+                ):
+                    unmeasured.add((rel, number))
                 continue
             count = int(count)
             if hits_only:
@@ -83,13 +97,13 @@ def production_lines(lcov_text, hits_only):
     return out
 
 
-def export(profdata, objects, hits_only):
+def export(profdata, objects, hits_only, unmeasured=None):
     command = [f"{LLVM}/llvm-cov", "export", "-format=lcov", "-skip-functions", f"-instr-profile={profdata}"]
     command += [objects[0]] + [f"-object={o}" for o in objects[1:]] + [IGNORE]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         return None, result.stderr.strip()[:400]
-    return production_lines(result.stdout, hits_only), None
+    return production_lines(result.stdout, hits_only, unmeasured), None
 
 
 def merge(inputs, output):
@@ -121,15 +135,16 @@ def binary_work(task):
         profdata = os.path.join(directory, f"{key}.profdata")
         error = merge(inputs, profdata)
         if error:
-            return key, None, f"merge of {key} failed: {error}"
+            return key, None, set(), f"merge of {key} failed: {error}"
     else:
         profdata = os.path.join(directory, "empty.profdata")
-    lines, error = export(profdata, [path], hits_only=False)
+    unmeasured = set()
+    lines, error = export(profdata, [path], hits_only=False, unmeasured=unmeasured)
     if error and not inputs and "no coverage data found" in error:
         # A test binary whose tests are all compiled out, as `#![cfg(feature = "cli")]` files
         # are in the portable build, has no instrumented code of its own.
-        return key, {}, None
-    return key, lines, (f"export of {key} failed: {error}" if error else None)
+        return key, {}, set(), None
+    return key, lines, unmeasured, (f"export of {key} failed: {error}" if error else None)
 
 
 def test_work(task):
@@ -192,11 +207,13 @@ def main():
         empty_profile(directory)
         tasks = [(identity, d["path"], groups.get(identity, []), directory) for identity, d in binaries.items()]
         lines = {}
-        for identity, found, error in pool.imap_unordered(binary_work, tasks):
+        unmeasured = set()
+        for identity, found, left_out, error in pool.imap_unordered(binary_work, tasks):
             if error:
                 problems.append(error)
             if found is not None:
                 lines[binaries[identity]["binary_id"]] = found
+            unmeasured |= left_out
         print(f"{suite}: {len(profiles)} profiles from {len(groups)} of {len(binaries)} binaries", flush=True)
 
         tests = {}
@@ -227,7 +244,10 @@ def main():
 
     described = {d["binary_id"]: d for d in binaries.values() if d["binary_id"] in lines}
     with open(os.path.join(work, "export", f"{suite}.pickle"), "wb") as handle:
-        pickle.dump({"binaries": described, "lines": lines, "tests": tests, "problems": problems}, handle)
+        pickle.dump(
+            {"binaries": described, "lines": lines, "unmeasured": unmeasured, "tests": tests, "problems": problems},
+            handle,
+        )
     for problem in problems[:20]:
         print(f"{suite}: {problem}", file=sys.stderr)
     if len(problems) > 20:

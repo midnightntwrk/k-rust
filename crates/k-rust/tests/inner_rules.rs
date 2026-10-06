@@ -4082,7 +4082,8 @@ fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<
 /// the conformance driver uses (`ktest.mak` passes `--type-inference-mode checked`): every rule
 /// is inferred by both the portable and the Z3 engine and the definition is rejected when they
 /// disagree. So a rule on which the two engines disagree fails the suite even when no test
-/// names it, and the failure lists each test that failed in the rerun. The rerun is a child
+/// names it. The failure message starts with the name of each test that failed in the rerun,
+/// so a test report shows them, and then gives the rerun's whole output. The rerun is a child
 /// process, which owns the environment variable, so no other test observes it.
 #[cfg(feature = "z3-inference")]
 #[test]
@@ -4096,11 +4097,46 @@ fn every_rule_test_passes_under_checked_inference() {
         .env("KRUST_TYPE_INFERENCE_MODE", "checked")
         .output()
         .expect("the test binary re-runs itself");
-    assert!(
-        output.status.success(),
-        "inner_rules fails under KRUST_TYPE_INFERENCE_MODE=checked:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
+    if output.status.success() {
+        return;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let failed = failed_tests(&stdout);
+    let summary = if failed.is_empty() {
+        format!(
+            "the rerun under KRUST_TYPE_INFERENCE_MODE=checked exited with {} without reporting a failed test",
+            output.status
+        )
+    } else {
+        format!(
+            "{} inner_rules test(s) fail under KRUST_TYPE_INFERENCE_MODE=checked: {}",
+            failed.len(),
+            failed.join(", ")
+        )
+    };
+    panic!(
+        "{summary}\n\nrerun output:\n{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The tests a libtest run reports as failed, from its `test NAME ... FAILED` lines, in order.
+#[cfg(feature = "z3-inference")]
+fn failed_tests(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("test ")?.strip_suffix(" ... FAILED"))
+        .collect()
+}
+
+/// `failed_tests` reads the names of the failed tests and nothing else from a libtest report.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn the_failed_tests_of_a_rerun_are_read_from_its_report() {
+    let report = "\nrunning 3 tests\ntest a_rule_parses ... ok\ntest semcast2_is_accepted_end_to_end ... FAILED\ntest other::case ... FAILED\n\nfailures:\n\n---- semcast2_is_accepted_end_to_end stdout ----\ntest x ... FAILED inside a panic message\n\nfailures:\n    semcast2_is_accepted_end_to_end\n    other::case\n\ntest result: FAILED. 1 passed; 2 failed; 0 ignored\n";
+    assert_eq!(
+        failed_tests(report),
+        ["semcast2_is_accepted_end_to_end", "other::case"]
     );
 }
 

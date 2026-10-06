@@ -16,7 +16,8 @@ Reads WORK/export/SUITE.pickle (collect.py) for each suite and the algorithm gra
 
 A line counts when llvm-cov reports it for some binary that was built for these suites; the
 denominator is the union over all of them. Test code (files under tests/, src/tests/,
-`*_tests.rs`, `tests.rs`, `test_support.rs` and `#[cfg(test)]` items) is excluded.
+`*_tests.rs`, `tests.rs`, `test_support.rs` and `#[cfg(test)]` items) is excluded, and so are
+the lines line coverage cannot measure (`source.unmeasured_lines`), which summary.md counts.
 """
 
 import collections
@@ -61,10 +62,12 @@ def main():
     per_test = {}  # suite -> {(binary id, test): set of (rel, line)}
     binaries = {}
     problems = []
+    unmeasured = set()  # (rel, line) left out because line coverage cannot measure them
     for suite in suites:
         with open(os.path.join(work, "export", f"{suite}.pickle"), "rb") as handle:
             data = pickle.load(handle)
         problems += [f"{suite}: {p}" for p in data["problems"]]
+        unmeasured |= data["unmeasured"]
         binaries[suite] = data["binaries"]
         for binary_id, files in data["lines"].items():
             kind = data["binaries"][binary_id]["kind"]
@@ -83,6 +86,7 @@ def main():
 
     # Totals and per crate.
     totals = {"lines": len(all_lines), **{c: len(hits[c]) for c in columns}}
+    totals["unmeasured lines left out"] = len(unmeasured)
     for suite, tests in per_test.items():
         union = {(rel, line) for found in tests.values() for rel, lines in found for line in lines}
         totals[f"{suite} per-test union"] = len(union)
@@ -97,6 +101,12 @@ def main():
     with open(os.path.join(out, "summary.md"), "w") as handle:
         handle.write("# Line coverage of production code\n\n")
         handle.write(f"{len(hits['all'])} of {len(all_lines)} lines executed ({percent(len(hits['all']), len(all_lines))}%).\n\n")
+        handle.write(
+            f"{len(unmeasured)} further lines are left out of every count: the argument lines of "
+            "multi-line calls of macros that expand each argument twice "
+            "(`DUPLICATING_MACROS` in scripts/coverage/source.py), whose counts are those of a "
+            "copy that need not have run. The line naming the macro carries the call's count.\n\n"
+        )
         handle.write("| crate | lines | " + " | ".join(f"{c} %" for c in columns) + " | unexecuted |\n")
         handle.write("|---|---|" + "---|" * len(columns) + "---|\n")
         rows = [("**total**", all_lines)] + sorted(by_crate.items(), key=lambda item: -len(item[1]))

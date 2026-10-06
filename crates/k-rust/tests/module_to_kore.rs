@@ -3111,44 +3111,73 @@ fn compile_error(source: &str, module: &str) -> (u32, String) {
     (location.start_line, errors[0].message.clone())
 }
 
+/// One test per case of a check: `case_tests! { module => check { name: (arguments), ... } }`
+/// defines `mod module` with a `#[test] fn name` calling `super::check(arguments)` for each case,
+/// so each case runs and is reported on its own, and a filter on `module` selects them all.
+/// Items after the cases, such as a test of a case of another shape, go into the module too.
+macro_rules! case_tests {
+    (
+        $module:ident => $check:ident { $($case:ident: ($($argument:expr),* $(,)?),)* }
+        $($item:item)*
+    ) => {
+        mod $module {
+            $(
+                #[test]
+                fn $case() {
+                    super::$check($($argument),*);
+                }
+            )*
+            $($item)*
+        }
+    };
+}
+
 /// B4 of the generated-input experiment: a hook names the builtin implementation of a function,
 /// so a hooked production that declares a non-function symbol is rejected at the production,
 /// before emission writes a declaration the backend cannot interpret.
-#[test]
-fn a_hook_on_a_declared_non_function_symbol_is_a_located_error() {
-    for (attributes, line) in [
-        // The reproducer: a constructor.
-        ("[hook(BOOL.and)]", 3),
-        // A macro production.
-        ("[macro, hook(BOOL.and)]", 3),
-        // A labelled bracket, declared in the syntax module.
-        ("[bracket, symbol(paren), hook(BOOL.and)]", 3),
-    ] {
-        let operator = if attributes.contains("bracket") {
-            r#""(" Foo ")""#
-        } else {
-            r#"Foo "~" Foo"#
-        };
-        let source = format!(
-            "module MAIN\n  syntax Foo ::= \"a\"\n  syntax Foo ::= {operator} {attributes}\nendmodule\n"
-        );
-        let (start_line, message) = compile_error(&source, "MAIN");
-        assert_eq!(start_line, line, "{attributes}: {message}");
-        assert!(
-            message.contains("hook(BOOL.and)") && message.contains("not a function"),
-            "{attributes}: {message}"
-        );
-    }
-    // A labelled token production declares a symbol too.
-    let (start_line, message) = compile_error(
-        indoc! {r#"
-            module MAIN
-              syntax Tok ::= r"[x-z]+" [token, symbol(tok), hook(BOOL.and)]
-            endmodule
-        "#},
-        "MAIN",
+///
+/// `Foo` gets an operator with `attributes`, and the error is reported at line `line`.
+fn assert_hooked_operator_is_a_located_error(attributes: &str, line: u32) {
+    let operator = if attributes.contains("bracket") {
+        r#""(" Foo ")""#
+    } else {
+        r#"Foo "~" Foo"#
+    };
+    let source = format!(
+        "module MAIN\n  syntax Foo ::= \"a\"\n  syntax Foo ::= {operator} {attributes}\nendmodule\n"
     );
-    assert_eq!(start_line, 2, "{message}");
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, line, "{attributes}: {message}");
+    assert!(
+        message.contains("hook(BOOL.and)") && message.contains("not a function"),
+        "{attributes}: {message}"
+    );
+}
+
+case_tests! {
+    a_hook_on_a_declared_non_function_symbol_is_a_located_error =>
+        assert_hooked_operator_is_a_located_error {
+        // The reproducer: a constructor.
+        constructor: ("[hook(BOOL.and)]", 3),
+        // A macro production.
+        macro_production: ("[macro, hook(BOOL.and)]", 3),
+        // A labelled bracket, declared in the syntax module.
+        labelled_bracket: ("[bracket, symbol(paren), hook(BOOL.and)]", 3),
+    }
+
+    /// A labelled token production declares a symbol too.
+    #[test]
+    fn labelled_token_production() {
+        let (start_line, message) = super::compile_error(
+            indoc::indoc! {r#"
+                module MAIN
+                  syntax Tok ::= r"[x-z]+" [token, symbol(tok), hook(BOOL.and)]
+                endmodule
+            "#},
+            "MAIN",
+        );
+        assert_eq!(start_line, 2, "{message}");
+    }
 }
 
 /// The hooked productions the backend can interpret, and those emission declares no hooked
@@ -3238,21 +3267,24 @@ fn an_owise_macro_axiom_states_no_priority_beside_owise() {
 
 /// Every sort of K items is below `KItem` and `K` in the order the rule grammar admits terms by,
 /// so a term of the result sort stands at a `K` argument and an associativity attribute on such a
-/// production decides the nesting: the generated-input reproducer compiles and loads.
-#[test]
-fn associativity_attributes_on_a_k_argument_compile_and_load() {
-    for (production, attribute) in [
-        (r#"Ty "~" K"#, "left"),
-        (r#"K "~" Ty"#, "right"),
-        (r#"Ty "~" K"#, "non-assoc"),
-        (r#"Ty "~" KItem"#, "left"),
-    ] {
-        assert_compiles_and_loads(
-            &format!(
-                "module MAIN\n  imports BYTES\n  syntax Ty ::= Cmd \"|\" Cmd\n      | {production} [symbol(s8), {attribute}]\n  syntax Cmd ::= pair25(Cmd, Bytes)\nendmodule\n"
-            ),
-            "MAIN",
-        );
+/// production decides the nesting: the generated-input reproducer, `production` with
+/// `attribute`, compiles and loads.
+fn assert_associativity_on_a_k_argument_compiles_and_loads(production: &str, attribute: &str) {
+    assert_compiles_and_loads(
+        &format!(
+            "module MAIN\n  imports BYTES\n  syntax Ty ::= Cmd \"|\" Cmd\n      | {production} [symbol(s8), {attribute}]\n  syntax Cmd ::= pair25(Cmd, Bytes)\nendmodule\n"
+        ),
+        "MAIN",
+    );
+}
+
+case_tests! {
+    associativity_attributes_on_a_k_argument_compile_and_load =>
+        assert_associativity_on_a_k_argument_compiles_and_loads {
+        left: (r#"Ty "~" K"#, "left"),
+        right: (r#"K "~" Ty"#, "right"),
+        non_assoc: (r#"Ty "~" K"#, "non-assoc"),
+        left_at_a_kitem_argument: (r#"Ty "~" KItem"#, "left"),
     }
 }
 
@@ -3392,41 +3424,52 @@ fn an_associativity_attribute_effective_in_no_importing_module_is_a_located_erro
 /// reads below the `owise` rank 255; any other `priority` or `simplification` value is an error
 /// at the sentence whose emitted rules it would rank. 255 itself would rank a rule beside the
 /// `owise` rules that must yield to it.
-#[test]
-fn a_priority_that_names_no_rank_is_a_located_error() {
+///
+/// `rule` is rejected at its line.
+fn assert_rule_priority_names_no_rank(rule: &str) {
     let rules = "module MAIN\n  syntax Foo ::= \"a\" [symbol(a)] | \"b\" [symbol(b)] | f(Foo) [function, symbol(f)]\n  rule {rule}\nendmodule\n";
-    for rule in [
-        "a => b [priority(300)]",
-        "a => b [priority(255)]",
-        "a => b [priority(-1)]",
-        "a => b [priority(abc)]",
-        "a => b [priority(5.0)]",
-        "f(X) => X [priority(256)]",
-        "f(a) => b [simplification(300)]",
-        "f(a) => b [simplification(255)]",
-        "f(a) => b [simplification(abc)]",
-    ] {
-        let (start_line, message) = compile_error(&rules.replace("{rule}", rule), "MAIN");
-        assert_eq!(start_line, 3, "{rule}: {message}");
-        assert!(message.contains("Invalid value for"), "{rule}: {message}");
+    let (start_line, message) = compile_error(&rules.replace("{rule}", rule), "MAIN");
+    assert_eq!(start_line, 3, "{rule}: {message}");
+    assert!(message.contains("Invalid value for"), "{rule}: {message}");
+}
+
+/// A context and a strict production give their priority to the rules they generate: `sentences`
+/// are rejected at line `line`.
+fn assert_generated_rule_priority_names_no_rank(sentences: &str, line: u32) {
+    let source =
+        format!("module MAIN\n  imports INT\n  {sentences}\n  syntax KResult ::= Int\nendmodule\n");
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, line, "{sentences}: {message}");
+    assert!(message.contains("priority"), "{sentences}: {message}");
+}
+
+case_tests! {
+    a_priority_that_names_no_rank_is_a_located_error => assert_rule_priority_names_no_rank {
+        above_owise: ("a => b [priority(300)]"),
+        the_owise_rank: ("a => b [priority(255)]"),
+        negative: ("a => b [priority(-1)]"),
+        not_a_number: ("a => b [priority(abc)]"),
+        not_an_integer: ("a => b [priority(5.0)]"),
+        above_owise_on_a_function_rule: ("f(X) => X [priority(256)]"),
+        simplification_above_owise: ("f(a) => b [simplification(300)]"),
+        simplification_at_the_owise_rank: ("f(a) => b [simplification(255)]"),
+        simplification_not_a_number: ("f(a) => b [simplification(abc)]"),
     }
-    // A context and a strict production give their priority to the rules they generate.
-    for (sentences, line) in [
-        (
+
+    #[test]
+    fn on_a_context() {
+        super::assert_generated_rule_priority_names_no_rank(
             "syntax Foo ::= g(Int) [seqstrict, symbol(g)]\n  context g(HOLE) [priority(300)]",
             4,
-        ),
-        (
+        );
+    }
+
+    #[test]
+    fn on_a_strict_production() {
+        super::assert_generated_rule_priority_names_no_rank(
             "syntax Foo ::= g(Int) [strict, symbol(g), priority(abc)]",
             3,
-        ),
-    ] {
-        let source = format!(
-            "module MAIN\n  imports INT\n  {sentences}\n  syntax KResult ::= Int\nendmodule\n"
         );
-        let (start_line, message) = compile_error(&source, "MAIN");
-        assert_eq!(start_line, line, "{sentences}: {message}");
-        assert!(message.contains("priority"), "{sentences}: {message}");
     }
 }
 
@@ -3470,26 +3513,40 @@ readable_priorities_and_macro_priorities_compile_and_load! {
 /// every definition has, so a module stating these productions declares no symbol of its own for
 /// them: importing `KSEQ`, or a module that imports it, compiles, and a module stating the same
 /// productions itself compiles, loads, and its `.K` and `~>` are the prelude's sequence.
-#[test]
-fn k_sequence_productions_declare_no_symbol_of_their_own() {
-    let declares_sequence_symbol =
-        |kore: &str| kore.contains("Lbl'Hash'EmptyK{") || kore.contains("Lbl'Hash'KSequence{");
-    let own = "module MAIN\n  syntax K ::= \".K\" [symbol(#EmptyK)] | \".\" [symbol(#EmptyK)]\n  syntax K ::= K \"~>\" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]\n  syntax KItem ::= \"go\" | \"done\"\n  rule <k> go => .K ~> done ... </k>\nendmodule\n";
-    let artifacts = assert_compiles_and_loads(own, "MAIN");
-    assert!(!declares_sequence_symbol(&artifacts.definition_kore));
-    assert!(!declares_sequence_symbol(&artifacts.syntax_definition_kore));
-    for module in ["KSEQ", "KSEQ-SYMBOLIC", "K"] {
-        let source =
-            format!("module MAIN\n  imports {module}\n  syntax Foo ::= \"a\"\nendmodule\n");
-        let artifacts = compile_for_backend(&source, "MAIN")
-            .unwrap_or_else(|error| panic!("importing {module} should compile: {error:?}"));
-        assert!(
-            !declares_sequence_symbol(&artifacts.definition_kore),
-            "{module}"
-        );
-        assert!(
-            !declares_sequence_symbol(&artifacts.syntax_definition_kore),
-            "{module}"
-        );
+fn declares_sequence_symbol(kore: &str) -> bool {
+    kore.contains("Lbl'Hash'EmptyK{") || kore.contains("Lbl'Hash'KSequence{")
+}
+
+/// A module importing `module` compiles and declares no sequence symbol of its own.
+fn assert_importing_declares_no_sequence_symbol(module: &str) {
+    let source = format!("module MAIN\n  imports {module}\n  syntax Foo ::= \"a\"\nendmodule\n");
+    let artifacts = compile_for_backend(&source, "MAIN")
+        .unwrap_or_else(|error| panic!("importing {module} should compile: {error:?}"));
+    assert!(
+        !declares_sequence_symbol(&artifacts.definition_kore),
+        "{module}"
+    );
+    assert!(
+        !declares_sequence_symbol(&artifacts.syntax_definition_kore),
+        "{module}"
+    );
+}
+
+case_tests! {
+    k_sequence_productions_declare_no_symbol_of_their_own =>
+        assert_importing_declares_no_sequence_symbol {
+        importing_kseq: ("KSEQ"),
+        importing_kseq_symbolic: ("KSEQ-SYMBOLIC"),
+        importing_k: ("K"),
+    }
+
+    #[test]
+    fn stated_by_the_main_module() {
+        let own = "module MAIN\n  syntax K ::= \".K\" [symbol(#EmptyK)] | \".\" [symbol(#EmptyK)]\n  syntax K ::= K \"~>\" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]\n  syntax KItem ::= \"go\" | \"done\"\n  rule <k> go => .K ~> done ... </k>\nendmodule\n";
+        let artifacts = super::assert_compiles_and_loads(own, "MAIN");
+        assert!(!super::declares_sequence_symbol(&artifacts.definition_kore));
+        assert!(!super::declares_sequence_symbol(
+            &artifacts.syntax_definition_kore
+        ));
     }
 }
