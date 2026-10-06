@@ -667,6 +667,43 @@ mod tests {
         }
     }
 
+    /// `String2Id` (`STRING.string2token`) is the token of the application's sort whose text is
+    /// the string, and `Id2String` (`STRING.token2string`) reads a token's text back; without the
+    /// result sort, or on a string the hook cannot read, the application is not decided.
+    #[test]
+    fn string2token_builds_a_token_of_the_result_sort() {
+        let id = Sort::simple("SortId");
+        for text in ["x", "_42"] {
+            let token =
+                super::evaluate("STRING.string2token", &[string_term(text)], Some(&id)).unwrap();
+            assert_eq!(
+                token,
+                BuiltinResult::Value(Term::domain_value(id.clone(), text)),
+                "String2Id({text:?})"
+            );
+            let BuiltinResult::Value(token) = token else {
+                unreachable!()
+            };
+            assert_eq!(
+                evaluate("STRING.token2string", vec![token]),
+                BuiltinResult::Value(string_term(text)),
+                "Id2String(String2Id({text:?}))"
+            );
+        }
+        assert_eq!(
+            evaluate("STRING.string2token", vec![string_term("x")]),
+            BuiltinResult::NotApplicable
+        );
+        let symbolic = Term::variable(crate::term::Variable::new(
+            "S",
+            Sort::builtin(BuiltinSort::String),
+        ));
+        assert_eq!(
+            super::evaluate("STRING.string2token", &[symbolic], Some(&id)).unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
+
     /// A symbolic code point may be valid on some instances, so `chrChar` of it is not decided.
     #[test]
     fn chr_of_a_symbolic_code_point_is_undecided() {

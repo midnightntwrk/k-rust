@@ -3344,6 +3344,45 @@ fn leaves_results_above_the_result_bound_unfolded() {
     );
 }
 
+/// `String2Id` (`STRING.string2token`) of a literal folds to the token of the result sort whose
+/// text is the string, and `Id2String` (`STRING.token2string`) of a token to its text.
+#[test]
+fn folds_string_and_token_conversions() {
+    let source = |right: &str| {
+        format!(
+            r#"
+            module MAIN
+              syntax String [hook(STRING.String)]
+              syntax Id [token]
+              syntax Id ::= "idResult" [function, symbol(idResult)]
+              syntax String ::= "stringResult" [function, symbol(stringResult)]
+              syntax Id ::= String2Id(String) [function, total, hook(STRING.string2token), symbol(String2Id)]
+              syntax String ::= Id2String(Id) [function, total, hook(STRING.token2string), symbol(Id2String)]
+              {right}
+            endmodule
+            "#
+        )
+    };
+    assert_eq!(
+        constant_folded_right_hand_side(&source(
+            r#"rule idResult => String2Id(#token("\"_42\"", "String"))"#
+        )),
+        Term::Token {
+            token: "_42".into(),
+            sort: Sort::new("Id"),
+        }
+    );
+    assert_eq!(
+        constant_folded_right_hand_side(&source(
+            r#"rule stringResult => Id2String(#token("x", "Id"))"#
+        )),
+        Term::Token {
+            token: r#""x""#.into(),
+            sort: Sort::new("String"),
+        }
+    );
+}
+
 /// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and
 /// `STRING.directionality` whose meaning `domains.md` does not give, stay as written.
 #[test]
