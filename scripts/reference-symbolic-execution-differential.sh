@@ -90,7 +90,7 @@ reference_announce_krust_gate_build
     --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 )
 krust=$krust_gate_binary
-reference_comparator=$(reference_build_comparator "$workspace")
+reference_comparator=$(reference_build_comparator "$workspace" "${krust_gate_z3_args[@]}")
 reference_cache_begin "$work"
 
 # One comparison, by the comparator test binary built once above.

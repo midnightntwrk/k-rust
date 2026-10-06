@@ -96,6 +96,180 @@ fn every_gate_builds_krust_with_the_gate_cargo_arguments() {
     }
 }
 
+/// `KRUST_GATE_Z3` selects how Z3 is acquired for every Rust build a gate makes, so the
+/// comparator builds carry the guard's Z3 arguments as the krust builds do (through
+/// `krust_gate_cargo_args`, checked above): `reference_build_comparator` receives
+/// `krust_gate_z3_args` or the whole `krust_gate_cargo_args`, and a direct `cargo test` names
+/// `krust_gate_z3_args`.
+#[test]
+fn every_gate_builds_the_comparator_with_the_gate_z3_selection() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut comparator_builds = 0;
+    for script in [
+        "scripts/conformance-ratchet.sh",
+        "scripts/reference-differential.sh",
+        "scripts/reference-kast-differential.sh",
+        "scripts/reference-non-imp-execution-differential.sh",
+        "scripts/reference-proof-differential.sh",
+        "scripts/reference-rpc-differential.sh",
+        "scripts/reference-mir-execution-differential.sh",
+        SYMBOLIC_EXECUTION_SCRIPT_PATH,
+    ] {
+        let text = fs::read_to_string(workspace.join(script)).expect("read gate script");
+        for needle in ["reference_build_comparator \"$workspace\"", "cargo test "] {
+            for (start, _) in text.match_indices(needle) {
+                let command = shell_command_at(&text, start);
+                comparator_builds += 1;
+                assert!(
+                    command.contains("\"${krust_gate_z3_args[@]}\"")
+                        || command.contains("\"${krust_gate_cargo_args[@]}\""),
+                    "{script} builds the comparator without the gate's Z3 selection:\n{command}"
+                );
+            }
+        }
+    }
+    assert!(
+        comparator_builds >= 6,
+        "the gates no longer build the comparator"
+    );
+}
+
+/// Run `script` (case arguments `cases`) against fake reference tools and a fake `cargo` that
+/// records its arguments, with `KRUST_GATE_Z3` set to `selection` (unset for `None`); returns the
+/// exit status, the recorded cargo argument lines and the standard error.
+fn gate_cargo_calls(
+    script: &str,
+    cases: &[&str],
+    selection: Option<&str>,
+) -> (Option<i32>, Vec<String>, String) {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("gate-z3");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let calls = fixture.join("calls");
+    let cargo_calls = fixture.join("cargo-calls");
+    for tool in ["kompile", "kore-parser", "kore-exec", "krun", "kmir-python"] {
+        let prologue = match tool {
+            "kompile" => FAKE_KOMPILE_PROLOGUE,
+            "kmir-python" => ": >\"$4\"\n",
+            _ => "",
+        };
+        write_environment_probe(&fixture.join(tool), tool, prologue);
+    }
+    let target = fake_gate_rust_toolchain(&fixture, "", "");
+    let comparator = fixture.join("comparator");
+    write_environment_probe(
+        &fixture.join("cargo"),
+        "cargo",
+        &format!(
+            r#"
+printf '%s\n' "$*" >>{cargo_calls:?}
+if [[ "$1" == test && " $* " == *" --no-run "* ]]; then
+  printf '{{"reason":"compiler-artifact","target":{{"name":"reference_differential"}},"profile":{{"test":true}},"executable":"%s"}}\n' {comparator:?}
+fi
+"#
+        ),
+    );
+    let mir_checkout = fixture.join("mir-semantics");
+    for pinned in [
+        "kmir/src/kmir/kdist/mir-semantics/kmir.md",
+        "kmir/src/tests/integration/data/exec-smir/main-a-b-c/main-a-b-c.smir.json",
+    ] {
+        let path = mir_checkout.join(pinned);
+        fs::create_dir_all(path.parent().unwrap()).expect("create fake MIR checkout");
+        fs::write(path, "").expect("write fake MIR input");
+    }
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut command = Command::new("bash");
+    command
+        .arg(workspace.join(script))
+        .args(cases)
+        .env("PATH", &path)
+        .env("ENVIRONMENT_CALLS", &calls)
+        .env("K_CHECKOUT", &k_checkout)
+        .env("K_KOMPILE", fixture.join("kompile"))
+        .env("K_KORE_PARSER", fixture.join("kore-parser"))
+        .env("K_KORE_EXEC", fixture.join("kore-exec"))
+        .env("K_KRUN", fixture.join("krun"))
+        .env("KMIR_PYTHON", fixture.join("kmir-python"))
+        .env("MIR_SEMANTICS_CHECKOUT", &mir_checkout)
+        .env("KRUST_GATE_TARGET_DIR", &target)
+        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+    match selection {
+        Some(value) => command.env("KRUST_GATE_Z3", value),
+        None => command.env_remove("KRUST_GATE_Z3"),
+    };
+    let output = command.output().expect("run gate fixture");
+    let recorded = fs::read_to_string(&cargo_calls)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    fs::remove_dir_all(fixture).expect("remove gate fixture");
+    (
+        output.status.code(),
+        recorded,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// `KRUST_GATE_Z3=system` gives every cargo call of a gate `--no-default-features --features
+/// cli`, the default features without z3-sys's release download; unset, the gates build Cargo's
+/// default features as CI does; any other value is refused before any build.
+#[test]
+fn gate_cargo_calls_follow_the_z3_selection() {
+    for (script, cases, calls) in [
+        (SYMBOLIC_EXECUTION_SCRIPT_PATH, &["symbolic-owise"][..], 2),
+        (
+            "scripts/reference-mir-execution-differential.sh",
+            &[][..],
+            3,
+        ),
+    ] {
+        let (status, system, stderr) = gate_cargo_calls(script, cases, Some("system"));
+        assert_eq!(
+            status,
+            Some(0),
+            "{script} with KRUST_GATE_Z3=system: {stderr}"
+        );
+        assert_eq!(system.len(), calls, "{script}: {system:#?}");
+        for call in &system {
+            assert_eq!(
+                call.matches("--no-default-features --features cli").count(),
+                1,
+                "{script} cargo call without the system Z3 selection: {call}"
+            );
+        }
+
+        for selection in [None, Some("gh-release")] {
+            let (status, default, stderr) = gate_cargo_calls(script, cases, selection);
+            assert_eq!(status, Some(0), "{script} with {selection:?}: {stderr}");
+            assert_eq!(default.len(), calls, "{script}: {default:#?}");
+            for call in &default {
+                assert!(
+                    !call.contains("--no-default-features"),
+                    "{script} with {selection:?} must build the default features: {call}"
+                );
+            }
+        }
+
+        let (status, rejected, stderr) = gate_cargo_calls(script, cases, Some("download"));
+        assert_eq!(status, Some(2), "{script}: {stderr}");
+        assert!(
+            stderr.contains("KRUST_GATE_Z3 must be gh-release or system"),
+            "{script}: {stderr}"
+        );
+        assert!(
+            rejected.is_empty(),
+            "{script} built before refusing: {rejected:#?}"
+        );
+    }
+}
+
 #[test]
 fn differential_manifest_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
