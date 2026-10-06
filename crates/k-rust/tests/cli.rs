@@ -5471,6 +5471,134 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A hand-written KORE definition for the `kore-*` servers: `a => f(a)`, `b => c`, and the
+/// function equation `f(a) = b`, so `a` executes to `c` in two steps through the equation.
+fn kore_rpc_definition() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kore-rpc/definition.kore")
+}
+
+#[test]
+fn kore_simplify_applies_the_function_equations_of_the_definition() {
+    let (root, _) = fixture();
+    let simplify = |pattern: &str| {
+        let path = root.join("pattern.kore");
+        fs::write(&path, pattern).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-simplify")
+            .arg(kore_rpc_definition())
+            .args(["--module", "MAIN", "--pattern"])
+            .arg(&path)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{pattern}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    // The equation `f(a) = b` applies; no equation defines `f(c)`, which stays as it is.
+    assert_eq!(simplify("f{}(a{}())\n"), "b{}()\n");
+    assert_eq!(simplify("f{}(c{}())\n"), "f{}(c{}())\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A `kore-rpc` server stopped when the test ends, whether it passes or not.
+struct KoreRpcServer(std::process::Child);
+
+impl Drop for KoreRpcServer {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn kore_rpc_serves_execute_and_simplify_on_an_ephemeral_port() {
+    use std::{
+        io::{BufRead, BufReader},
+        net::TcpStream,
+        time::Duration,
+    };
+
+    let mut server = KoreRpcServer(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-rpc")
+            .arg(kore_rpc_definition())
+            .args(["--module", "MAIN", "--server-port", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    // Port 0 asks the system for a free port; the server announces the address it bound.
+    let mut announcement = String::new();
+    BufReader::new(server.0.stderr.take().unwrap())
+        .read_line(&mut announcement)
+        .unwrap();
+    let address = announcement
+        .strip_prefix("KORE JSON-RPC listening on ")
+        .unwrap_or_else(|| panic!("no listening address in {announcement:?}"))
+        .trim();
+    let port = address.rsplit_once(':').unwrap().1.parse::<u16>().unwrap();
+    assert_ne!(port, 0, "{announcement}");
+
+    let stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut request = |request: serde_json::Value| {
+        writeln!(writer, "{request}").unwrap();
+        let mut response = String::new();
+        reader.read_line(&mut response).unwrap();
+        serde_json::from_str::<serde_json::Value>(&response)
+            .unwrap_or_else(|error| panic!("{error}: {response:?}"))
+    };
+    let constant =
+        |name: &str| serde_json::json!({ "tag": "App", "name": name, "sorts": [], "args": [] });
+    let state = |term: serde_json::Value| serde_json::json!({ "format": "KORE", "version": 1, "term": term });
+
+    // `a` rewrites to `f(a)`, which the equation simplifies to `b`, which rewrites to `c`.
+    let executed = request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "execute",
+        "params": { "state": state(constant("a")) },
+    }));
+    assert_eq!(executed["id"], 1, "{executed}");
+    assert_eq!(executed["result"]["reason"], "stuck", "{executed}");
+    assert_eq!(executed["result"]["depth"], 2, "{executed}");
+    assert_eq!(
+        executed["result"]["state"]["term"]["term"],
+        constant("c"),
+        "{executed}"
+    );
+
+    // A second request on the same connection: the equation `f(a) = b`.
+    let simplified = request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "simplify",
+        "params": {
+            "state": state(serde_json::json!({
+                "tag": "App", "name": "f", "sorts": [], "args": [constant("a")]
+            })),
+        },
+    }));
+    assert_eq!(simplified["id"], 2, "{simplified}");
+    assert_eq!(
+        simplified["result"]["state"]["term"],
+        constant("b"),
+        "{simplified}"
+    );
+    drop(server);
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

@@ -1,0 +1,20 @@
+[]
+module MAIN
+    sort SortS{} []
+    symbol a{}() : SortS{} [constructor{}(), functional{}()]
+    symbol b{}() : SortS{} [constructor{}(), functional{}()]
+    symbol c{}() : SortS{} [constructor{}(), functional{}()]
+    symbol f{}(SortS{}) : SortS{} [function{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, a{}()), \top{R}())),
+        \equals{SortS{}, R}(f{}(X0:SortS{}), \and{SortS{}}(b{}(), \top{SortS{}}()))
+    ) [label{}("f-of-a")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(a{}(), \top{SortS{}}()),
+        \and{SortS{}}(f{}(a{}()), \top{SortS{}}())
+    ) [label{}("a-to-f-of-a")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(b{}(), \top{SortS{}}()),
+        \and{SortS{}}(c{}(), \top{SortS{}}())
+    ) [label{}("b-to-c")]
+endmodule []
