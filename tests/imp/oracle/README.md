@@ -16,7 +16,8 @@ KAST output must be read and normalized through k-rust's readers in krs-gate.
    The policies must enumerate selected modules, name maps and identities, known attributes, structured attribute-value mappings, and flattened sentence origins.
    Unknown structure must fail before behavior comparison.
 2. Construct `behavior.Route` values from the compiled source definitions and the pin's term-policy side tables.
-   Construct a `BehaviorPlan` from the checked corpus manifest and call `behavior.compare_behavior(kast=..., krun=..., gate=..., reference=..., actual=..., plan=...)`.
+   Construct a `BehaviorPlan` from the checked corpus manifest and call `behavior.compare_behavior(k=..., workspace=..., gate=..., reference=..., actual=..., plan=...)`.
+   `k` is the reference snapshot (`support.reference.Snapshot`) that replays or refreshes every `kast` and `krun` invocation; `workspace` must be a new directory inside the snapshot's workspace.
    The comparison must use one session for `kast.normalize` with the `behavior` variant and `kast.frontier` with the `search_set` action.
 3. Construct one `proofs.ProofCase` per invocation with explicit `ProofBounds(depth, branching_allowed)`.
    The proof runner must own and terminate each complete process group on timeout.
@@ -47,7 +48,7 @@ without copying source files, and IMP.6 pins their counts in
 - division by zero as a `FailureCase` with the exact frozen
   `[hook_INT_tdiv]: Division by zero: 1 / 0` fragment.
 
-The LLVM failure routes require `prlimit`.
+A live (refresh) run of the LLVM failure routes requires `prlimit`.
 They restore an unlimited soft address-space limit only for the LLVM interpreter because its collector reserves a sparse 2 TiB virtual region; the root gate may keep every resident-memory-heavy route under a soft `RLIMIT_AS` ceiling.
 
 Each case has both its upstream module and KRS module.

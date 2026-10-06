@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -22,20 +23,31 @@ class BehaviorTests(unittest.TestCase):
     def test_llvm_route_lifts_only_the_address_space_limit(self) -> None:
         with patch("support.tools.shutil.which", return_value="/usr/bin/prlimit"):
             self.assertEqual(
-                behavior._without_address_space_limit(["krun", "program.imp"]),
-                [
-                    "/usr/bin/prlimit",
-                    "--as=unlimited",
-                    "--",
-                    "krun",
-                    "program.imp",
-                ],
+                behavior._without_address_space_limit(True), ("prlimit", "--as=unlimited", "--"),
             )
 
-    def test_llvm_route_requires_prlimit(self) -> None:
+    def test_live_llvm_route_requires_prlimit_and_replay_does_not(self) -> None:
         with patch("support.tools.shutil.which", return_value=None):
             with self.assertRaisesRegex(GateError, "required executable is unavailable: prlimit"):
-                behavior._without_address_space_limit(["krun"])
+                behavior._without_address_space_limit(True)
+            self.assertEqual(
+                behavior._without_address_space_limit(False), ("prlimit", "--as=unlimited", "--"),
+            )
+
+    def test_failure_route_wraps_krun_in_timeout_and_prlimit(self) -> None:
+        k = Mock(refresh=False)
+        route = behavior.Route(Path("/work/failure-kompiled"), {})
+        behavior._execute(
+            k, "krun-failure/reference/fail.imp", route, Path("/work/fail.imp"), ("ENV=.Map",), 60,
+            kill_after=8, unlimited_address_space=True,
+        )
+        k.run.assert_called_once_with(
+            "krun-failure/reference/fail.imp", "krun",
+            ["--definition", "/work/failure-kompiled", "--output", "json", "-cENV=.Map", "/work/fail.imp"],
+            timeout=15,
+            prefix=("timeout", "--signal=KILL", "8s", "prlimit", "--as=unlimited", "--"),
+            streams={"stderr": behavior.reduce_kore_exec_log},
+        )
 
     def test_hook_abort_precedes_secondary_wrapper_parse_error(self) -> None:
         stderr = (
@@ -60,7 +72,7 @@ class BehaviorTests(unittest.TestCase):
             time.sleep(next(calls) / 200000)
             return subprocess.CompletedProcess([], returncode, term, stderr)
 
-        def fake_parse(_kast, route, _module, _sort, path, _timeout):
+        def fake_parse(_k, _label, route, _module, _sort, path, _timeout):
             if path.name.startswith("reject"):
                 return subprocess.CompletedProcess(
                     [], 1, "", "Parse error: unexpected token Location(1,2,1,3)"
@@ -69,10 +81,10 @@ class BehaviorTests(unittest.TestCase):
             side = "actual" if route is actual and name in differing else "same"
             return completed(f"{name}:{side}")
 
-        def fake_unparse(_kast, _route, _module, _sort, path, _timeout):
+        def fake_unparse(_k, _label, _route, _module, _sort, path, _timeout):
             return subprocess.CompletedProcess([], 0, path.name, "")
 
-        def fake_execute(_krun, _route, path, _configurations, _timeout, *, depth=None, search=False, **_options):
+        def fake_execute(_k, _label, _route, path, _configurations, _timeout, *, depth=None, search=False, **_options):
             if path.name.startswith("fail"):
                 return subprocess.CompletedProcess([], 134, "", "[hook_INT_tdiv]: Division by zero")
             state = f"{path.name}:{depth}"
@@ -101,10 +113,11 @@ class BehaviorTests(unittest.TestCase):
             patch.multiple(behavior, _parse=fake_parse, _unparse=fake_unparse, _execute=fake_execute),
             patch.dict(os.environ, {"KRS_IMP_ORACLE_WORKERS": str(workers)}),
             patch.object(behavior.krs_gate, "Session") as create_session,
+            tempfile.TemporaryDirectory() as temporary,
         ):
             create_session.return_value.__enter__.return_value = session
             summary = behavior.compare_behavior(
-                kast="kast", krun="krun", gate=Path("gate"),
+                k=Mock(), workspace=Path(temporary) / "krs-imp-behavior", gate=Path("gate"),
                 reference=reference, actual=actual, plan=plan,
             )
         self.assertEqual(create_session.call_count, 1)

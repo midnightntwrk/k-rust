@@ -1,0 +1,1 @@
+{"format":"KAST","version":4,"term":{"node":"KApply","label":{"node":"KLabel","name":"add","params":[]},"arity":2,"args":[{"node":"KApply","label":{"node":"KLabel","name":"neg","params":[]},"arity":1,"args":[{"node":"KToken","sort":{"node":"KSort","name":"Int","params":[]},"token":"1"}]},{"node":"KToken","sort":{"node":"KSort","name":"Int","params":[]},"token":"2"}]}}

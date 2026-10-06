@@ -121,7 +121,7 @@ class Context:
     workspace: Path
     target: Path
     live_java: bool = True
-    """Whether a layer that runs Java K live runs: a refresh, or IMP.6-IMP.8."""
+    """Whether a layer that runs Java K live runs: a refresh, or IMP.7-IMP.8."""
     refresh: bool = False
     """Whether the run refreshes the reference snapshots."""
     tools: dict[str, str] = field(default_factory=dict)
@@ -725,8 +725,13 @@ def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
         raise GateError("oracle behavior manifest adapter is missing")
     reference_policy, actual_policy = policy_adapter(context.pins["behavior"])
     plan = adapter(ROOT, context.corpus, context.pins["behavior"])
+    # Corpus files and generated inputs are keyed by their argument digests;
+    # both compiled definitions are keyed through their sources.
+    k = context.snapshot(
+        "behavior", ("kast", "krun"), source_inputs(definitions.actual_execution_k),
+    )
     summary = behavior.compare_behavior(
-        kast=context.tools["kast"], krun=context.tools["krun"],
+        k=k, workspace=context.workspace / "behavior",
         gate=context.target / "release/krs-gate",
         reference=behavior.Route(
             definitions.reference,
@@ -909,7 +914,7 @@ def main() -> int:
     passed: set[str] = set()
     artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
-        # IMP.6-IMP.8 still run Java K live; every other K invocation replays a snapshot.
+        # IMP.7 and IMP.8 still run Java K live; every other K invocation replays a snapshot.
         context = Context(
             pins, corpus, Path(temporary), arguments.target_dir.resolve(),
             live_java=arguments.refresh_reference or not arguments.artifacts_only,

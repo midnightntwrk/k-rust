@@ -1,0 +1,6 @@
+[Error] Inner Parser: Parse error: unexpected end of file following token
+'else'.
+	Source({{root}}/tests/imp-control-flow/corpus/rejected/syntax/missing-else-body.imp)
+	Location(2,1,2,1)
+	2 |	
+	  .	^

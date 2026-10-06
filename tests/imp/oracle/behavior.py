@@ -3,6 +3,11 @@
 This runner consumes the IMP-owned expression corpus and the existing
 IMP state, IMP control flow, and IMP static semantics corpus paths. It does not copy their inputs or import
 their verifiers.
+
+Every `kast` and `krun` invocation of both routes goes through one reference
+snapshot (`support.reference`): a default run replays the recorded Java K
+results, and only `--refresh-reference` runs Java K live. The KRS normalization
+and comparison of those results always runs live.
 """
 
 from __future__ import annotations
@@ -11,13 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import subprocess
-import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
 from support import GateError, krs_gate
 from support.hashing import json_sha256
 from support.parallel import settle_all, worker_count
-from support.process import compact, run
+from support.process import compact
+from support.reference import Snapshot, reduce_kore_exec_log
 from support.tools import executable, z3_environment
 
 
@@ -118,18 +123,24 @@ class BehaviorSummary:
     evidence_sha256: str
 
 
-def _without_address_space_limit(command: Sequence[str]) -> list[str]:
-    """Permit the LLVM runtime's sparse semispace without lifting RAM limits."""
+def _without_address_space_limit(live: bool) -> tuple[str, ...]:
+    """The wrapper that permits the LLVM runtime's sparse semispace without lifting RAM limits.
 
-    return [executable("prlimit"), "--as=unlimited", "--", *command]
+    A live run requires `prlimit`; replay starts no process.
+    """
+
+    if live:
+        executable("prlimit")
+    return ("prlimit", "--as=unlimited", "--")
 
 
 def _parse(
-    kast: str, route: Route, module: str, sort: str, path: Path, timeout: int
+    k: Snapshot, label: str, route: Route, module: str, sort: str, path: Path, timeout: int
 ) -> subprocess.CompletedProcess[str]:
-    return run(
+    return k.run(
+        label,
+        "kast",
         [
-            kast,
             "--definition",
             str(route.definition),
             "--module",
@@ -141,14 +152,16 @@ def _parse(
             str(path),
         ],
         timeout=timeout,
-        check=False,
     )
 
 
-def _unparse(kast: str, route: Route, module: str, sort: str, path: Path, timeout: int) -> subprocess.CompletedProcess[str]:
-    return run(
+def _unparse(
+    k: Snapshot, label: str, route: Route, module: str, sort: str, path: Path, timeout: int
+) -> subprocess.CompletedProcess[str]:
+    return k.run(
+        label,
+        "kast",
         [
-            kast,
             "--definition",
             str(route.definition),
             "--module",
@@ -160,12 +173,12 @@ def _unparse(kast: str, route: Route, module: str, sort: str, path: Path, timeou
             str(path),
         ],
         timeout=timeout,
-        check=False,
     )
 
 
 def _execute(
-    krun: str,
+    k: Snapshot,
+    label: str,
     route: Route,
     path: Path,
     configurations: Sequence[str],
@@ -178,7 +191,7 @@ def _execute(
 ) -> subprocess.CompletedProcess[str]:
     # krun parses with the syntax/main modules frozen into the compiled
     # definition; unlike kast, it has no --module option.
-    command = [krun, "--definition", str(route.definition)]
+    command = ["--definition", str(route.definition)]
     if search:
         command.append("--search")
     if depth is not None:
@@ -186,16 +199,19 @@ def _execute(
     command.extend(["--output", "json"])
     command.extend(f"-c{configuration}" for configuration in configurations)
     command.append(str(path))
+    prefix: tuple[str, ...] = ()
     if unlimited_address_space:
         # The pinned LLVM runtime reserves a sparse 2 TiB region for two
         # aligned 1 TiB semispaces. RLIMIT_AS measures that reservation, not
         # resident memory, so only this LLVM route may restore the inherited
         # unlimited soft address-space limit.
-        command = _without_address_space_limit(command)
+        prefix = _without_address_space_limit(k.refresh)
     if kill_after is not None:
-        command = [executable("timeout"), "--signal=KILL", f"{kill_after}s", *command]
+        prefix = ("timeout", "--signal=KILL", f"{kill_after}s", *prefix)
         timeout = kill_after + 7
-    return run(command, timeout=timeout, check=False)
+    return k.run(
+        label, "krun", command, timeout=timeout, prefix=prefix, streams={"stderr": reduce_kore_exec_log},
+    )
 
 
 def _normalized_output(
@@ -238,8 +254,8 @@ def _diagnostic_range(stderr: str) -> tuple[int, int, int, int]:
 
 def compare_behavior(
     *,
-    kast: str,
-    krun: str,
+    k: Snapshot,
+    workspace: Path,
     gate: Path,
     reference: Route,
     actual: Route,
@@ -247,6 +263,9 @@ def compare_behavior(
 ) -> BehaviorSummary:
     """Run the complete checked corpus against both source definitions.
 
+    `k` replays or refreshes the `kast` and `krun` invocations; `workspace` is
+    a new directory inside the snapshot's workspace for the generated
+    execution and reparse inputs, so their paths are stored as placeholders.
     Every frontend and backend invocation of the plan is independent of every
     other case, so all of them run in one pool bounded by
     ``KRS_IMP_ORACLE_WORKERS``. The comparison then walks the plan serially in
@@ -258,89 +277,101 @@ def compare_behavior(
     timeout = plan.timeout_seconds
     sides = ((reference, "reference"), (actual, "actual"))
 
-    with tempfile.TemporaryDirectory(prefix="krs-imp-behavior-") as temporary:
-        workspace = Path(temporary)
-        jobs: list[Callable[[], Any]] = []
+    workspace.mkdir(parents=True, exist_ok=False)
+    jobs: list[Callable[[], Any]] = []
 
-        def job(call: Callable[[], Any]) -> int:
-            jobs.append(call)
-            return len(jobs) - 1
+    def job(call: Callable[[], Any]) -> int:
+        jobs.append(call)
+        return len(jobs) - 1
 
-        def parse_chain(case: ParseCase) -> dict[str, Any]:
-            # Each frontend's unparse output is reparsed by that same frontend;
-            # the reparse depends only on this case's own unparse.
-            modules = (case.reference_module, case.actual_module)
-            parsed = [
-                _parse(kast, route, module, case.sort, case.path, timeout)
-                for (route, _), module in zip(sides, modules)
-            ]
-            unparsed = [
-                _unparse(kast, route, module, case.sort, case.path, timeout)
-                for (route, _), module in zip(sides, modules)
-            ]
-            reparsed = None
-            if all(process.returncode == 0 for process in unparsed):
-                reparsed = []
-                for index, ((route, _), module, process) in enumerate(
-                    zip(sides, modules, unparsed)
-                ):
-                    path = workspace / f"{index}-{case.name}"
-                    path.write_text(process.stdout, encoding="utf-8")
-                    reparsed.append(_parse(kast, route, module, case.sort, path, timeout))
-            return {"parsed": parsed, "unparsed": unparsed, "reparsed": reparsed}
-
-        parse_jobs = [job(lambda case=case: parse_chain(case)) for case in plan.parse_cases]
-
-        execution_jobs = []
-        for case in plan.execution_cases:
-            execution_path = case.path
-            if case.input_text is not None:
-                execution_path = workspace / f"execution-{case.name}.imp"
-                execution_path.write_text(case.input_text, encoding="utf-8")
-
-            def execute(route: Route, path: Path = execution_path, case: ExecutionCase = case, **options: Any):
-                return lambda: _execute(krun, route, path, case.configurations, timeout, **options)
-
-            execution_jobs.append({
-                "full": [job(execute(route)) for route, _ in sides]
-                if case.run_to_completion else None,
-                "depths": [
-                    [job(execute(route, depth=depth)) for route, _ in sides]
-                    for depth in case.depths
-                ],
-                "searches": [
-                    [job(execute(route, depth=depth, search=True)) for route, _ in sides]
-                    for depth in case.search_depths
-                ],
-            })
-
-        rejection_jobs = [
-            [
-                job(lambda route=route, module=module, case=case: _parse(
-                    kast, route, module, case.sort, case.path, timeout
-                ))
-                for route, module in ((reference, case.reference_module), (actual, case.actual_module))
-            ]
-            for case in plan.rejection_cases
+    def parse_chain(case: ParseCase) -> dict[str, Any]:
+        # Each frontend's unparse output is reparsed by that same frontend;
+        # the reparse depends only on this case's own unparse.
+        modules = (case.reference_module, case.actual_module)
+        parsed = [
+            _parse(k, f"kast/{side}/{case.name}", route, module, case.sort, case.path, timeout)
+            for (route, side), module in zip(sides, modules)
         ]
-
-        failure_jobs = [
-            [
-                job(lambda route=route, case=case: _execute(
-                    krun,
-                    Route(route.failure_definition or route.definition, route.term_policy),
-                    case.path,
-                    case.configurations,
-                    timeout,
-                    kill_after=8,
-                    unlimited_address_space=True,
-                ))
-                for route, _ in sides
-            ]
-            for case in plan.failure_cases
+        unparsed = [
+            _unparse(k, f"kast-unparse/{side}/{case.name}", route, module, case.sort, case.path, timeout)
+            for (route, side), module in zip(sides, modules)
         ]
+        reparsed = None
+        if all(process.returncode == 0 for process in unparsed):
+            reparsed = []
+            for index, ((route, side), module, process) in enumerate(
+                zip(sides, modules, unparsed)
+            ):
+                path = workspace / f"{index}-{case.name}"
+                path.write_text(process.stdout, encoding="utf-8")
+                reparsed.append(
+                    _parse(k, f"kast-reparse/{side}/{case.name}", route, module, case.sort, path, timeout)
+                )
+        return {"parsed": parsed, "unparsed": unparsed, "reparsed": reparsed}
 
-        results = settle_all(jobs, worker_limit)
+    parse_jobs = [job(lambda case=case: parse_chain(case)) for case in plan.parse_cases]
+
+    execution_jobs = []
+    for case in plan.execution_cases:
+        execution_path = case.path
+        if case.input_text is not None:
+            execution_path = workspace / f"execution-{case.name}.imp"
+            execution_path.write_text(case.input_text, encoding="utf-8")
+
+        def execute(
+            label: str, route: Route, path: Path = execution_path, case: ExecutionCase = case, **options: Any
+        ):
+            return lambda: _execute(k, label, route, path, case.configurations, timeout, **options)
+
+        execution_jobs.append({
+            "full": [job(execute(f"krun/{side}/{case.name}", route)) for route, side in sides]
+            if case.run_to_completion else None,
+            "depths": [
+                [
+                    job(execute(f"krun-depth/{side}/{case.name}@{depth:03d}", route, depth=depth))
+                    for route, side in sides
+                ]
+                for depth in case.depths
+            ],
+            "searches": [
+                [
+                    job(execute(
+                        f"krun-search/{side}/{case.name}@{depth:03d}", route, depth=depth, search=True,
+                    ))
+                    for route, side in sides
+                ]
+                for depth in case.search_depths
+            ],
+        })
+
+    rejection_jobs = [
+        [
+            job(lambda route=route, side=side, module=module, case=case: _parse(
+                k, f"kast-rejected/{side}/{case.name}", route, module, case.sort, case.path, timeout
+            ))
+            for (route, side), module in zip(sides, (case.reference_module, case.actual_module))
+        ]
+        for case in plan.rejection_cases
+    ]
+
+    failure_jobs = [
+        [
+            job(lambda route=route, side=side, case=case: _execute(
+                k,
+                f"krun-failure/{side}/{case.name}",
+                Route(route.failure_definition or route.definition, route.term_policy),
+                case.path,
+                case.configurations,
+                timeout,
+                kill_after=8,
+                unlimited_address_space=True,
+            ))
+            for route, side in sides
+        ]
+        for case in plan.failure_cases
+    ]
+
+    results = settle_all(jobs, worker_limit)
 
     with krs_gate.Session(gate, environment=z3_environment()) as session:
         evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
