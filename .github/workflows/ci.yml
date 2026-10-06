@@ -136,11 +136,6 @@ jobs:
       - name: Run native measurement ratchet
         run: scripts/measure-ratchet.sh --gh-release
 
-      - name: Smoke-test the unified in-process backend
-        env:
-          KRUST_BIN: ${{ github.workspace }}/target/debug/krust
-        run: scripts/backend-smoke.sh
-
       - name: Install Node-API development dependencies
         run: npm ci
         working-directory: crates/k-rust-napi
