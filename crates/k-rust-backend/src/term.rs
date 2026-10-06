@@ -16,7 +16,8 @@
 //!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
 //! invariant = """\
 //! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
-//! shared: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
+//! shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else \
+//! reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
 //! calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) \
 //! is structural equality of the kind, and Ord for Term is the derived order on the kind. \
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
@@ -65,6 +66,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    fmt,
     hash::{Hash, Hasher},
     sync::{Arc, OnceLock},
 };
@@ -747,10 +749,26 @@ impl TermAttributes {
     }
 }
 
-#[derive(Debug)]
 struct TermData {
     attributes: TermAttributes,
     kind: TermKind,
+    /// Debug builds only: whether `definedness::check_ceil_free` found this node and every node
+    /// below it without a definedness obligation of their own. Set only by
+    /// [`Term::mark_ceil_free_checked`] and read only by that check; no attribute, hash, equality
+    /// or order reads it.
+    #[cfg(debug_assertions)]
+    ceil_free_checked: std::sync::atomic::AtomicBool,
+}
+
+/// The fields every build has, so that a term prints the same in every build.
+impl fmt::Debug for TermData {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TermData")
+            .field("attributes", &self.attributes)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1544,7 +1562,31 @@ impl Term {
             }
         };
         measure::bump(Counter::TermConstructed);
-        Self(Arc::new(TermData { attributes, kind }))
+        Self(Arc::new(TermData {
+            attributes,
+            kind,
+            #[cfg(debug_assertions)]
+            ceil_free_checked: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
+    /// Debug builds only: whether `definedness::check_ceil_free` has checked this node and every
+    /// node below it.
+    #[cfg(debug_assertions)]
+    pub(crate) fn ceil_free_checked(&self) -> bool {
+        self.0
+            .ceil_free_checked
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Debug builds only: record that `definedness::check_ceil_free` found this node and every
+    /// node below it without a definedness obligation of their own. The mark only spares a later
+    /// check the walk, so a thread that does not see it yet checks the node again.
+    #[cfg(debug_assertions)]
+    pub(crate) fn mark_ceil_free_checked(&self) {
+        self.0
+            .ceil_free_checked
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

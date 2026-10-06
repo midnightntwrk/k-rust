@@ -166,19 +166,35 @@ fn ceil_term_walk(
 ///
 /// The walk without the shortcut returns nothing for `term` exactly when no node of `term` has
 /// an obligation of its own, since its result is the deduplicated list of all of them. So this
-/// asserts that of every node.
+/// asserts that of every node, and once all of them passed marks them
+/// (`Term::mark_ceil_free_checked`). A marked node and every node below it passed already, so the
+/// check does not walk it again: each node is walked by the check once, and a descent that skips
+/// the same subterm at every level (a list a recursive equation consumes) stays linear. A node is
+/// not checked again under another definition: the attribute is a function of the term, and
+/// `ceilFree_sound` holds for every definition.
 #[cfg(debug_assertions)]
 fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
+    if term.ceil_free_checked() {
+        return;
+    }
     let mut obligations = Vec::new();
     let mut children = Vec::new();
     let mut unchecked = vec![term];
+    let mut passed = Vec::new();
     while let Some(node) = unchecked.pop() {
+        if node.ceil_free_checked() {
+            continue;
+        }
         let after = ceil_term_node(definition, node, &mut obligations, &mut children);
         assert!(
             obligations.is_empty() && after.is_empty(),
             "a ceil_free term has definedness obligations: {term:?}"
         );
         unchecked.append(&mut children);
+        passed.push(node);
+    }
+    for node in passed {
+        node.mark_ceil_free_checked();
     }
 }
 
@@ -966,6 +982,38 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// Debug builds: the check of a skipped `ceil_free` subterm marks every node it walked, so a
+    /// later skip of any of them, such as the tail of a list a recursive equation consumes one
+    /// level at a time, does not walk it again; a term built over a checked one is checked only
+    /// down to it.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_ceil_free_check_walks_each_node_once() {
+        let definition = definition("");
+        let wrap = |term: Term| {
+            definition
+                .internalize_term(&parse_pattern("wrap{}(X:SortS{})").unwrap(), &[])
+                .map(|application| {
+                    let TermKind::Application { symbol, .. } = application.kind() else {
+                        panic!("wrap should be an application");
+                    };
+                    Term::application(symbol.clone(), Vec::new(), vec![term])
+                })
+                .unwrap()
+        };
+        let leaf = definition
+            .internalize_term(&parse_pattern(r#"\dv{SortS{}}("v")"#).unwrap(), &[])
+            .unwrap();
+        let inner = wrap(wrap(leaf.clone()));
+        let outer = wrap(inner.clone());
+        assert!(!inner.ceil_free_checked() && !leaf.ceil_free_checked());
+        assert_eq!(ceil_term(&definition, &inner), Vec::new());
+        assert!(inner.ceil_free_checked() && leaf.ceil_free_checked());
+        assert!(!outer.ceil_free_checked());
+        assert_eq!(ceil_term(&definition, &outer), Vec::new());
+        assert!(outer.ceil_free_checked());
     }
 
     fn definition(extra_axioms: &str) -> BackendDefinition {
