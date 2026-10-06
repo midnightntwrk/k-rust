@@ -1239,7 +1239,7 @@ bound = "O(p + o log^2 o + v log o): every node it visits is built once, as outp
 
 [[node.cost]]
 mode = "definition load (measure_aliases)"
-bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D), D the written size of the axioms, claims and alias bodies of the loaded modules"
+bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D) for the modules given with the definition, D the written size of their axioms, claims and alias bodies, plus max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * M) for each module added later (BackendSession::add_module), M that size for the added module alone"
 
 [[node]]
 kind = "algorithm"
@@ -1406,6 +1406,11 @@ symbol = "BackendDefinition::internalize"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definition.rs"
 symbol = "BackendDefinition::internalize"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_with_added"
 
 [[node.sites]]
 crate = "k-rust-backend"

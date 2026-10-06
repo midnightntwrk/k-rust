@@ -13,7 +13,7 @@
 //!
 //! [[cost]]
 //! mode = "definition load (measure_aliases)"
-//! bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D), D the written size of the axioms, claims and alias bodies of the loaded modules"
+//! bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the modules, then one expand call per axiom, whose builds together exceed the axioms by at most max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * D) for the modules given with the definition, D the written size of their axioms, claims and alias bodies, plus max(UNFOLDING_LIMIT, UNFOLDING_FACTOR * M) for each module added later (BackendSession::add_module), M that size for the added module alone"
 //! ```
 //!
 //! Capture-avoiding alias unfolding, measured before it is built; no counter; the loops are the
@@ -47,10 +47,11 @@ use k_rust_kore::measure::{self, Algorithm};
 
 use crate::definition::DefinitionError;
 
-/// The least that unfolding aliases may add to the size ([`Size`]) of the patterns of one
-/// operation, one request pattern or every axiom of a definition being loaded together, however
-/// small they are: an operation's budget ([`UnfoldingBudget`]) is the larger of this floor and
-/// [`UNFOLDING_FACTOR`] times the size of what it was given.
+/// The least that unfolding aliases may add to the size ([`Size`]) of the patterns one operation
+/// supplies, however small they are: one request pattern, the axioms of the modules a definition
+/// is given with, or those of one module added to it later. An operation's budget
+/// ([`UnfoldingBudget`]) is the larger of this floor and [`UNFOLDING_FACTOR`] times the size of
+/// what it supplied.
 ///
 /// The size counts what unfolding builds: each pattern and sort node and each byte of the names
 /// they own, of the unfolded pattern and of each alias application it enters, plus one unit for
@@ -355,8 +356,9 @@ impl UnfoldingBudget {
         }
     }
 
-    /// The budget of loading `modules`, whose axioms are unfolded together: their input is every
-    /// axiom, claim, and alias body they declare, each counted once as written.
+    /// The budget of loading `modules`, supplied by one operation, whose axioms are unfolded
+    /// together: their input is every axiom, claim, and alias body they declare, each counted
+    /// once as written.
     pub(crate) fn for_modules(modules: &[&kore::Module]) -> Self {
         let input = modules
             .iter()

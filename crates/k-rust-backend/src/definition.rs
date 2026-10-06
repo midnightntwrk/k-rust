@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
-//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
+//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
 //! variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
 //! counters = []
 //! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
@@ -833,11 +833,12 @@ pub enum DefinitionError {
     MalformedCollection(String),
     MalformedAlias(String),
     AliasCycle(Vec<String>),
-    /// Unfolding the aliases of a request pattern, or of the axioms of a definition, would add
-    /// `added` to the size of what is unfolded (`alias::Size`: its pattern and sort nodes and the
-    /// bytes of their names), more than the `available` part of its operation's budget that is
-    /// left: the larger of `alias::UNFOLDING_LIMIT` and `alias::UNFOLDING_FACTOR` times the size
-    /// of the patterns the operation unfolds.
+    /// Unfolding the aliases of a request pattern, or of the axioms of a definition or of a
+    /// module added to it, would add `added` to the size of what is unfolded (`alias::Size`: its
+    /// pattern and sort nodes and the bytes of their names), more than the `available` part of
+    /// the budget of the operation that supplied them that is left: the larger of
+    /// `alias::UNFOLDING_LIMIT` and `alias::UNFOLDING_FACTOR` times the size of the patterns that
+    /// operation supplied.
     AliasUnfoldingTooLarge {
         added: u64,
         available: u64,
@@ -985,7 +986,7 @@ impl fmt::Display for DefinitionError {
             Self::AliasUnfoldingTooLarge { added, available } => {
                 write!(
                     formatter,
-                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of what alias unfolding may add: the larger of {} and {} times the size of the patterns unfolded",
+                    "Unfolding the aliases would add {added} nodes and name bytes, more than the {available} left of what alias unfolding may add: the larger of {} and {} times the size of the patterns supplied by the operation that unfolds them",
                     crate::alias::UNFOLDING_LIMIT,
                     crate::alias::UNFOLDING_FACTOR
                 )
@@ -1338,8 +1339,25 @@ impl BackendDefinition {
         definition: &kore::Definition,
         main_module: &str,
     ) -> Result<Self, DefinitionError> {
+        Self::internalize_with_added(definition, main_module, &BTreeSet::new())
+    }
+
+    /// Internalizes `definition` at `main_module`, where each module named in `added` was added
+    /// to the definition by an operation of its own after the rest of it was given
+    /// ([`crate::session::BackendSession::add_module`]).
+    ///
+    /// Unfolding the aliases of an axiom is charged to the operation that supplied the axiom:
+    /// the axioms of the modules given with the definition share one budget relative to their
+    /// size, and those of each added module one relative to that module's own size
+    /// (`alias::UnfoldingBudget`), so what an addition may make the backend build is bounded by
+    /// what it sent, however large the definition it extends.
+    pub(crate) fn internalize_with_added(
+        definition: &kore::Definition,
+        main_module: &str,
+        added: &BTreeSet<&str>,
+    ) -> Result<Self, DefinitionError> {
         let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
-        Self::internalize_canonical(definition, main_module)
+        Self::internalize_canonical(definition, main_module, added)
     }
 
     /// Internalizes a definition and orders semantic rewrites by their stable identifiers.
@@ -1393,6 +1411,7 @@ impl BackendDefinition {
     fn internalize_canonical(
         definition: &kore::Definition,
         main_module: &str,
+        added: &BTreeSet<&str>,
     ) -> Result<Self, DefinitionError> {
         let mut module_map = BTreeMap::new();
         for module in &definition.modules {
@@ -1437,6 +1456,7 @@ impl BackendDefinition {
                 definition,
                 &module_map,
                 main_module,
+                added,
                 &ordered,
                 &alias_heights,
                 declared,
@@ -1460,6 +1480,7 @@ impl BackendDefinition {
         definition: &kore::Definition,
         module_map: &BTreeMap<&str, &kore::Module>,
         main_module: &str,
+        added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
         alias_heights: &BTreeMap<String, usize>,
         declared: usize,
@@ -1580,6 +1601,7 @@ impl BackendDefinition {
             Self::internalize_axioms(
                 module_map,
                 main_module,
+                added,
                 ordered,
                 sorts,
                 symbols,
@@ -1591,11 +1613,14 @@ impl BackendDefinition {
 
     /// The definition of the modules `ordered`, whose declarations have been read into `sorts`,
     /// `symbols`, and `aliases` and verified with its axioms and claims, built from those axioms
-    /// and claims. Its patterns and sorts are at most `deepest` levels deep.
+    /// and claims. Its patterns and sorts are at most `deepest` levels deep. The modules named in
+    /// `added` were each added by an operation of their own ([`Self::internalize_with_added`]).
     #[deny(clippy::wildcard_enum_match_arm)]
+    #[allow(clippy::too_many_arguments)]
     fn internalize_axioms(
         module_map: &BTreeMap<&str, &kore::Module>,
         main_module: &str,
+        added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
         sorts: BTreeMap<Name, SortInfo>,
         symbols: BTreeMap<Name, Arc<Symbol>>,
@@ -1616,11 +1641,29 @@ impl BackendDefinition {
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
-        // The axioms of a definition are unfolded together, within one budget relative to the
-        // size of the modules loaded.
-        let mut unfolding = UnfoldingBudget::for_modules(ordered);
+        // Unfolding is charged to the operation that supplied each axiom: the axioms of the
+        // modules given with the definition are unfolded together, within one budget relative to
+        // their size, and those of each added module within one relative to its own size.
+        let (added_modules, given_modules): (Vec<&kore::Module>, Vec<&kore::Module>) = ordered
+            .iter()
+            .copied()
+            .partition(|module| added.contains(module.name.as_str()));
+        let mut given_unfolding = UnfoldingBudget::for_modules(&given_modules);
+        let mut added_unfolding = added_modules
+            .into_iter()
+            .map(|module| {
+                (
+                    module.name.as_str(),
+                    UnfoldingBudget::for_modules(&[module]),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
+            let unfolding = match added_unfolding.get_mut(module.name.as_str()) {
+                Some(budget) => budget,
+                None => &mut given_unfolding,
+            };
             for &index in &rule_orders[module.name.as_str()] {
                 let sentence = &module.sentences[index];
                 let (target, parameters, pattern, attributes, expand) = match sentence {
@@ -1653,7 +1696,7 @@ impl BackendDefinition {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     pattern: if expand {
-                        expand_aliases_within(pattern, &aliases, &mut unfolding)?.into_owned()
+                        expand_aliases_within(pattern, &aliases, unfolding)?.into_owned()
                     } else {
                         (**pattern).clone()
                     },

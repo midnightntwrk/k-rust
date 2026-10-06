@@ -3,7 +3,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt,
     sync::{Arc, Mutex},
@@ -97,7 +97,11 @@ impl BackendSession {
         if let Some(definition) = definitions.get(canonical) {
             return Ok(Arc::clone(definition));
         }
-        let definition = Arc::new(BackendDefinition::internalize(&self.syntax, canonical)?);
+        let definition = Arc::new(BackendDefinition::internalize_with_added(
+            &self.syntax,
+            canonical,
+            &self.added_modules(),
+        )?);
         definitions.insert(canonical.to_owned(), Arc::clone(&definition));
         Ok(definition)
     }
@@ -190,7 +194,13 @@ impl BackendSession {
         module.name = module_id.clone();
         let mut syntax = self.syntax.clone();
         syntax.modules.push(module);
-        let definition = Arc::new(BackendDefinition::internalize(&syntax, &module_id)?);
+        // The added module is budgeted for what it supplies, not for the definition it extends
+        // (`BackendDefinition::internalize_with_added`).
+        let mut added = self.added_modules();
+        added.insert(&module_id);
+        let definition = Arc::new(BackendDefinition::internalize_with_added(
+            &syntax, &module_id, &added,
+        )?);
 
         self.syntax = syntax;
         self.definitions
@@ -203,6 +213,12 @@ impl BackendSession {
             self.module_aliases.insert(source_name, module_id.clone());
         }
         Ok(module_id)
+    }
+
+    /// The names, in `syntax`, of the modules added through [`Self::add_module`], each supplied
+    /// by an operation of its own after the definition the session was created with.
+    fn added_modules(&self) -> BTreeSet<&str> {
+        self.added_sources.keys().map(String::as_str).collect()
     }
 }
 
@@ -390,5 +406,118 @@ mod tests {
             rule_count(&session.definition(Some("EXTENSION")).unwrap()),
             4
         );
+    }
+    /// The disjuncts of `big`, a closed nullary alias of about 360,000 units declared by the base
+    /// of [`alias_session`], as the alias of a priority group collects the left-hand sides of its
+    /// rules.
+    const BIG_DISJUNCTS: usize = 40_000;
+
+    /// A rewrite axiom of sort `S` labelled `label` that applies `big` once, under `\not`, as each
+    /// rule of a later priority group does.
+    fn applying_big(label: &str) -> String {
+        format!(
+            "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(big{{}}()), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"{label}\")]\n"
+        )
+    }
+
+    /// A session over module `BASE`, which declares `big` and has `rules` axioms applying it.
+    fn alias_session(rules: usize) -> BackendSession {
+        let mut base = String::from(
+            "[]\nmodule BASE\n    sort S{} []\n    symbol pair{}(S{}, S{}) : S{} [constructor{}()]\n    symbol a{}() : S{} [constructor{}()]\n",
+        );
+        let body = vec!["pair{}(a{}(), a{}())"; BIG_DISJUNCTS].join(", ");
+        base.push_str(&format!(
+            "    alias big{{}}() : S{{}} where big{{}}() := \\or{{S{{}}}}({body}) []\n"
+        ));
+        for rule in 0..rules {
+            base.push_str(&applying_big(&format!("BASE.R{rule}")));
+        }
+        base.push_str("endmodule []\n");
+        BackendSession::new(parse_definition(&base).unwrap(), "BASE")
+    }
+
+    /// A module `name` importing `import` with `rules` axioms applying `big`.
+    fn module_applying_big(name: &str, import: &str, rules: usize) -> String {
+        let mut module = format!("module {name}\n    import {import} []\n");
+        for rule in 0..rules {
+            module.push_str(&applying_big(&format!("{name}.R{rule}")));
+        }
+        module.push_str("endmodule []");
+        module
+    }
+
+    fn add(session: &mut BackendSession, source: &str) -> Result<String, SessionError> {
+        session.add_module(source, parse_module(source).unwrap(), true)
+    }
+
+    /// A module of a few kilobytes added to a session is budgeted for what it supplies: only the
+    /// floor `UNFOLDING_LIMIT`, however large the definition it extends. A chain of 18 aliases,
+    /// each applying the next twice, applied twice by one axiom, adds about 7.9 million units, so
+    /// it is refused before it is built, although 32 times the base's size (about 11.5 million)
+    /// would cover it.
+    #[test]
+    fn a_small_added_module_gets_only_the_floor_whatever_the_definition_it_extends() {
+        let mut session = alias_session(0);
+        session.definition(None).expect("the base loads");
+        const LENGTH: usize = 18;
+        let mut added = String::from("module NEW\n    import BASE []\n");
+        for index in 0..LENGTH {
+            let body = if index + 1 == LENGTH {
+                "pair{}(X:S{}, X:S{})".to_owned()
+            } else {
+                let next = index + 1;
+                format!("pair{{}}(al{next}{{}}(X:S{{}}), al{next}{{}}(X:S{{}}))")
+            };
+            added.push_str(&format!(
+                "    alias al{index}{{}}(S{{}}) : S{{}} where al{index}{{}}(X:S{{}}) := {body} []\n"
+            ));
+        }
+        added.push_str("    axiom{} \\rewrites{S{}}(\\and{S{}}(\\not{S{}}(pair{}(al0{}(X:S{}), al0{}(X:S{}))), pair{}(X:S{}, a{}())), a{}()) [label{}(\"NEW.R\")]\n");
+        added.push_str("endmodule []");
+        assert!(added.len() < 2_000);
+
+        match add(&mut session, &added) {
+            Err(SessionError::Definition(DefinitionError::AliasUnfoldingTooLarge {
+                added,
+                available,
+            })) => {
+                assert!(added > available);
+                assert_eq!(available, crate::alias::UNFOLDING_LIMIT);
+            }
+            result => {
+                panic!("a 2 KB module with an exponential unfolding was not refused: {result:?}")
+            }
+        }
+    }
+
+    /// The axioms of the definition a session was created with are charged to that definition's
+    /// own budget, not to a module added to it: a small module extends a base whose own unfolding
+    /// (12 copies of `big`, about 4.3 million units) exceeds the floor.
+    #[test]
+    fn a_small_module_extends_a_definition_whose_unfolding_exceeds_the_floor() {
+        let mut session = alias_session(12);
+        assert_eq!(rule_count(&session.definition(None).unwrap()), 12);
+        let id = add(&mut session, &module_applying_big("NEW", "BASE", 1)).unwrap();
+        assert_eq!(rule_count(&session.definition(Some(&id)).unwrap()), 13);
+    }
+
+    /// Each added module keeps a budget of its own, also when a later addition imports it: two
+    /// modules that each apply `big` 7 times (about 2.5 million units each, more than the floor
+    /// together) are both added, while one that applies it 12 times, though `big` is the base's,
+    /// is refused, since what it makes the backend build is out of proportion to what it sent.
+    #[test]
+    fn each_added_module_is_budgeted_for_its_own_axioms() {
+        let mut session = alias_session(0);
+        add(&mut session, &module_applying_big("FIRST", "BASE", 7)).unwrap();
+        let second = add(&mut session, &module_applying_big("SECOND", "FIRST", 7)).unwrap();
+        assert_eq!(rule_count(&session.definition(Some(&second)).unwrap()), 14);
+
+        match add(&mut session, &module_applying_big("THIRD", "BASE", 12)) {
+            Err(SessionError::Definition(DefinitionError::AliasUnfoldingTooLarge {
+                available,
+                ..
+            })) => assert!(available <= crate::alias::UNFOLDING_LIMIT),
+            result => panic!("12 copies of the base's alias were not refused: {result:?}"),
+        }
     }
 }
