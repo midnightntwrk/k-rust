@@ -350,6 +350,34 @@ def load_reference_pins(workspace, k_checkout):
     return json.loads(completed.stdout)["reference"]
 
 
+def previous_case_seconds(paths):
+    """The latest recorded seconds of each case in earlier results files, oldest file first."""
+    seconds = {}
+    for path in paths:
+        try:
+            with open(path, "rb") as source:
+                document = tomllib.load(source)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        for row in document.get("case", []):
+            value = row.get("seconds")
+            if isinstance(row.get("name"), str) and isinstance(value, (int, float)):
+                seconds[row["name"]] = float(value)
+    return seconds
+
+
+def longest_first(cases, previous_seconds):
+    """The (name, kind) cases ordered for submission to the worker pool.
+
+    Without earlier measurements the order is unchanged. With them, the slowest cases start first
+    so that no long case starts last and runs alone while the other workers idle; unmeasured
+    cases count as the slowest. The order changes which cases run concurrently, not any verdict.
+    """
+    if not previous_seconds:
+        return list(cases)
+    return sorted(cases, key=lambda item: (-previous_seconds.get(item[0], math.inf), item[0]))
+
+
 def output_excerpt(text):
     return "\n".join(text.splitlines()[:DIFF_LINES])
 
@@ -2636,6 +2664,8 @@ def main():
     ap.add_argument("--merge", help="replace the cases of --results by the cases found in this results file, then postprocess")
     ap.add_argument("--reference-cache", choices=reference_cache.MODES, default="off",
                     help="reference-output cache mode; the caller must have checked the pins")
+    ap.add_argument("--previous-results", action="append", default=[], metavar="RESULTS",
+                    help="earlier results.toml files, oldest first; cases start longest first by their latest seconds")
     a = ap.parse_args()
     BISON_PARSER_ONLY = a.bison_parsers
 
@@ -2802,6 +2832,8 @@ def main():
             SOURCE_TREE_DIGEST = k_trees_digest(SRC_TREE)
         except (RuntimeError, ValueError, OSError) as error:
             ap.error(f"cannot open the reference-output cache: {error}")
+
+    cases = longest_first(cases, previous_case_seconds(a.previous_results))
 
     done = []
     t0 = time.monotonic()

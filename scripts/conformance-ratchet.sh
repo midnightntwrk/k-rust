@@ -293,7 +293,6 @@ if [[ "$all" == true ]]; then
   fi
 fi
 
-cargo_target_dir=${CARGO_TARGET_DIR:-"$workspace/target"}
 krust=${CONFORMANCE_KRUST:-}
 if [[ -z "$krust" ]]; then
   command -v cargo >/dev/null || die "cargo is required to build krust"
@@ -307,18 +306,10 @@ fi
 
 test_binary=${CONFORMANCE_TEST_BINARY:-}
 if [[ -z "$test_binary" ]]; then
-  echo "[conformance] building the reference comparison test binary"
-  cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
-    -p k-rust --test reference_differential --no-run
-  newest_time=0
-  for candidate in "$cargo_target_dir"/debug/deps/reference_differential-*; do
-    [[ -x "$candidate" && "$candidate" != *.d ]] || continue
-    candidate_time=$(stat -c %Y "$candidate")
-    if ((candidate_time > newest_time)); then
-      newest_time=$candidate_time
-      test_binary=$candidate
-    fi
-  done
+  # Release, beside the gate krust: a definition.kore mismatch report on a large definition
+  # takes minutes in a debug build and runs into the driver's comparator timeout.
+  echo "[conformance] building the release reference comparison test binary"
+  test_binary=$(reference_build_comparator "$workspace" --release "${krust_gate_cargo_args[@]}")
 fi
 [[ -x "$test_binary" ]] || die "reference comparison test binary is not executable: $test_binary"
 
@@ -352,6 +343,23 @@ logs="$run_dir/logs"
 mkdir "$logs"
 export REFERENCE_CACHE_LOG=${REFERENCE_CACHE_LOG:-"$run_dir/reference-cache.jsonl"}
 
+# The latest case seconds of earlier runs order this run longest first (scripts/conformance/run.py).
+mapfile -t previous_results < <(python3 - "$runs_dir" <<'PY'
+import pathlib, re, sys
+runs = []
+for path in pathlib.Path(sys.argv[1]).glob("*/results.toml"):
+    match = re.match(r"([0-9]+)-", path.parent.name)
+    if match:
+        runs.append((int(match.group(1)), str(path)))
+for _, path in sorted(runs)[-5:]:
+    print(path)
+PY
+)
+previous_results_args=()
+for previous in "${previous_results[@]}"; do
+  previous_results_args+=(--previous-results "$previous")
+done
+
 driver_args=(
   --workspace "$workspace"
   --k-bin "$k_bin"
@@ -364,6 +372,7 @@ driver_args=(
   --expectations "$expectations"
   --jobs "$jobs"
   --reference-cache "$reference_cache_mode"
+  "${previous_results_args[@]}"
   --cases "${selected[@]}"
 )
 driver_command=("$driver")
