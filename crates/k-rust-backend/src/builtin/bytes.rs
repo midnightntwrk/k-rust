@@ -5,7 +5,10 @@ use num_traits::{ToPrimitive, Zero};
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity, int_term, read_int};
+use super::{
+    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, TARGET_RESULT_BYTES, UnsupportedHookReason,
+    describe_int, expect_arity, int_term, read_int, result_size_limit,
+};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -57,13 +60,34 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
+/// `String2Bytes` is the inverse of `Bytes2String`. `domains.md` names no encoding for the pair
+/// (it names one only for `encodeBytes`/`decodeBytes`, which take one); this backend reads it as
+/// mapping each byte to the code point of the same number, its chosen reading. Totality does
+/// not decide between readings: under this one `String2Bytes` has no value above 255, under
+/// UTF-8 decoding `Bytes2String` has none on an invalid sequence. What decides is the module's
+/// statement that only the first 256 code points are supported: on exactly those strings this
+/// reading makes both `total` conversions total and mutually inverse, while UTF-8 decoding
+/// leaves `Bytes2String` without a value on invalid sequences whatever strings are supported.
+/// The hook is `total`, so on a string holding a code point above 255 its value is not given by
+/// the definition and the application is left unevaluated. A stored byte that starts no UTF-8
+/// sequence is the code point of its own value.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(bytes) = encode_8_bit(value) else {
-        return Ok(BuiltinResult::Bottom);
+    if !sort.is_builtin(BuiltinSort::String) {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    let Some(bytes) = super::string::code_points(value.as_bytes())
+        .map(|unit| u8::try_from(super::string::code_point_number(unit)).ok())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: "String2Bytes of a string holding a code point above 255".into(),
+            },
+        ));
     };
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
@@ -158,6 +182,10 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(slice)))
 }
 
+/// `replaceAtBytes(DEST, INDEX, SRC)` replaces the bytes of `DEST` in `[INDEX, INDEX + N)`, N the
+/// length of `SRC`; it is `#False` when that range is not inside `DEST`, that is unless
+/// `0 <= INDEX` and `INDEX + N <= lengthBytes(DEST)`, as for `substrBytes`. An empty `SRC` at an
+/// index past the end is therefore undefined, and at the end it changes nothing.
 fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.replaceAt", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
@@ -172,9 +200,6 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(replacement) = read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if replacement.is_empty() {
-        return Ok(BuiltinResult::Value(bytes_term(&bytes)));
-    }
     let Some(end) = index.checked_add(replacement.len()) else {
         return Ok(BuiltinResult::Bottom);
     };
@@ -201,12 +226,13 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
         return Ok(BuiltinResult::Bottom);
     };
-    let Some(length) = length.to_usize() else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {length}"),
-            },
-        ));
+    // The length, an `Int` and a byte value: `result_size_limit` of their sizes, in bytes.
+    let arguments = (bytes.len() as u64)
+        .saturating_add(length.bits().div_ceil(8))
+        .saturating_add(1);
+    let length = match bounded_length(&length, arguments) {
+        Ok(length) => length,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     let additional = length.saturating_sub(bytes.len());
     if left && additional != 0 {
@@ -245,28 +271,43 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(&left)))
 }
 
+/// `Int2Bytes(LENGTH, I, E)` is the `LENGTH`-byte two's complement of `I` in byte order `E`. No
+/// `Bytes` has a negative length and the hook is `total`, so for a negative `LENGTH` its value is
+/// not given by the definition and the application is left unevaluated.
 fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.int2bytes", arguments, 3)?;
-    let length = match read_nonnegative_len(&arguments[0]) {
-        Ok(Some(length)) => length,
-        Ok(None) => return Ok(BuiltinResult::NotApplicable),
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
-    };
-    let Some(value) = read_int(&arguments[1]) else {
+    if let Some(length) = read_int(&arguments[0])
+        && length.sign() == Sign::Minus
+    {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "Int2Bytes with the negative length {}",
+                    describe_int(&length)
+                ),
+            },
+        ));
+    }
+    let Some((length, value)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(endianness) = read_endianness(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut current = value.clone();
-    let mut bytes = Vec::with_capacity(length);
-    for index in 0..length {
-        if index % 1024 == 0 {
-            crate::stop::check()?;
-        }
-        bytes.push((&current & BigInt::from(0xff_u16)).to_u8().unwrap());
-        current >>= 8;
-    }
+    // The length and the value, two `Int`s: `result_size_limit` of their sizes, in bytes.
+    let arguments = length
+        .bits()
+        .div_ceil(8)
+        .saturating_add(value.bits().div_ceil(8));
+    let length = match bounded_length(&length, arguments) {
+        Ok(length) => length,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
+    };
+    // The low `length` bytes of the two's complement of `value`, least significant first: its
+    // shortest two's-complement bytes, truncated or extended with its sign.
+    let mut bytes = value.to_signed_bytes_le();
+    let sign = if value.sign() == Sign::Minus { 0xff } else { 0 };
+    bytes.resize(length, sign);
     if matches!(endianness, Endianness::Big) {
         bytes.reverse();
     }
@@ -327,20 +368,33 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
     read_int(term).map(|value| value.to_usize())
 }
 
-fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookReason> {
-    let Some(value) = read_int(term) else {
-        return Ok(None);
-    };
-    if value.sign() == Sign::Minus {
-        Ok(Some(0))
-    } else {
-        value
-            .to_usize()
-            .map(Some)
-            .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {value}"),
-            })
-    }
+/// A nonnegative `length` as the length of a result built from arguments of total size
+/// `arguments` bytes, or `ResultTooLarge` above [`bytes_length_limit`] on this target: the value
+/// exists, and the backend does not build it.
+fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedHookReason> {
+    debug_assert!(
+        length.sign() != Sign::Minus,
+        "callers reject a negative length"
+    );
+    let limit = bytes_length_limit(arguments, TARGET_RESULT_BYTES);
+    length
+        .to_u64()
+        .filter(|length| *length <= limit)
+        .and_then(|length| usize::try_from(length).ok())
+        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
+            detail: format!(
+                "a Bytes result of length {} needs more than {limit} bytes",
+                describe_int(length)
+            ),
+        })
+}
+
+/// The longest `Bytes` result built from arguments of total size `arguments` bytes, on a target
+/// where one result may take at most `target` bytes ([`TARGET_RESULT_BYTES`]): their
+/// `result_size_limit` with the floor [`MAX_BYTES_RESULT_LEN`], and at most `target`.
+const fn bytes_length_limit(arguments: u64, target: u64) -> u64 {
+    let limit = result_size_limit(MAX_BYTES_RESULT_LEN, arguments);
+    if limit < target { limit } else { target }
 }
 
 /// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
@@ -389,13 +443,6 @@ pub(super) fn bytes_term(bytes: &[u8]) -> Term {
 
 fn string_term(value: impl Into<String>) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
-}
-
-fn encode_8_bit(value: &str) -> Option<Vec<u8>> {
-    value
-        .chars()
-        .map(|character| u8::try_from(character as u32).ok())
-        .collect()
 }
 
 fn decode_8_bit(bytes: &[u8]) -> String {
@@ -458,6 +505,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::builtin::target_result_bytes;
     use crate::term::{Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
@@ -598,6 +646,18 @@ mod tests {
             replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"x")]),
             Ok(BuiltinResult::Bottom)
         );
+        // An empty replacement range is inside `abc` at 0 to 3, and not after it.
+        assert_eq!(
+            replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"")]),
+            Ok(BuiltinResult::Value(bytes_term(b"abc")))
+        );
+        for index in [4, 100] {
+            assert_eq!(
+                replace_at(&[bytes_term(b"abc"), integer(index), bytes_term(b"")]),
+                Ok(BuiltinResult::Bottom),
+                "replaceAtBytes(abc, {index}, .Bytes)"
+            );
+        }
     }
 
     #[test]
@@ -605,7 +665,10 @@ mod tests {
         let large_length = BigInt::from(1_u8) << usize::BITS;
         let length = int_term(large_length.clone());
         let expected = BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
-            detail: format!("length {large_length}"),
+            detail: format!(
+                "a Bytes result of length a {}-bit integer needs more than {MAX_BYTES_RESULT_LEN} bytes",
+                large_length.bits()
+            ),
         });
 
         assert_eq!(
@@ -626,6 +689,84 @@ mod tests {
         );
     }
 
+    /// A length the arguments' values set is computed up to `result_size_limit` of their sizes,
+    /// with [`MAX_BYTES_RESULT_LEN`] as the floor, and refused beyond it before anything is
+    /// allocated: a length beyond the machine's memory aborted the process. Below the floor a
+    /// length is built however long: 2^28 bytes (a padding built in under a second) and the floor
+    /// itself, the largest memory a 32-bit address space holds (decided without allocating here).
+    #[test]
+    fn bytes_lengths_are_bounded_before_allocating() {
+        let little = constructor("LbllittleEndianBytes", "SortEndianness");
+        let refused = |result: HookResult<BuiltinResult>| {
+            matches!(
+                result,
+                Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                ))
+            )
+        };
+        let floor = BigInt::from(MAX_BYTES_RESULT_LEN);
+        for length in [&floor + 1u8, BigInt::from(1_u64 << 40)] {
+            let length = int_term(length);
+            for left in [false, true] {
+                assert!(
+                    refused(pad(&[bytes_term(b"abc"), length.clone(), integer(1)], left)),
+                    "pad (left: {left}) to {length:?}"
+                );
+            }
+            assert!(
+                refused(int_to_bytes(&[length.clone(), integer(1), little.clone()])),
+                "Int2Bytes({length:?}, 1, LE)"
+            );
+        }
+        assert_eq!(
+            pad(&[bytes_term(b"abc"), integer(5), integer(1)], true),
+            Ok(BuiltinResult::Value(bytes_term(b"\x01\x01abc")))
+        );
+        for length in [1_u64 << 28, MAX_BYTES_RESULT_LEN] {
+            assert_eq!(
+                bounded_length(&BigInt::from(length), 3),
+                Ok(usize::try_from(length).unwrap()),
+                "a Bytes result of length {length}"
+            );
+        }
+        // Relative to the arguments: twice their size, here the floor plus 4 bytes (a value of the
+        // floor's length and a small length and byte), whatever the floor.
+        let arguments = MAX_BYTES_RESULT_LEN + 4;
+        assert_eq!(
+            bounded_length(&BigInt::from(2 * arguments), arguments),
+            Ok(usize::try_from(2 * arguments).unwrap())
+        );
+        assert!(bounded_length(&BigInt::from(2 * arguments + 1), arguments).is_err());
+        assert_eq!(
+            bounded_length(&floor, 3),
+            Ok(usize::try_from(MAX_BYTES_RESULT_LEN).unwrap())
+        );
+    }
+
+    /// On a 32-bit target, whose largest allocation is 2^31 - 1 bytes and whose whole memory is at
+    /// most 4 GiB, a `Bytes` result is at most a quarter of that allocation, 512 MiB, whatever its
+    /// arguments: the floor of 4 GiB would let a length past `isize::MAX` reach the allocator,
+    /// which panics. On a 64-bit target the floor and the relative term bind first.
+    #[test]
+    fn bytes_lengths_are_bounded_by_what_the_target_can_allocate() {
+        let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
+        assert_eq!(thirty_two, 1 << 29);
+        assert_eq!(bytes_length_limit(3, thirty_two), 1 << 29);
+        assert_eq!(bytes_length_limit(1 << 30, thirty_two), 1 << 29);
+        let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
+        assert_eq!(sixty_four, 1 << 61);
+        assert_eq!(bytes_length_limit(3, sixty_four), MAX_BYTES_RESULT_LEN);
+        assert_eq!(
+            bytes_length_limit(MAX_BYTES_RESULT_LEN, sixty_four),
+            2 * MAX_BYTES_RESULT_LEN
+        );
+        assert_eq!(
+            TARGET_RESULT_BYTES,
+            target_result_bytes(isize::MAX.unsigned_abs() as u64)
+        );
+    }
+
     #[test]
     fn integer_conversions_match_twos_complement_and_endianness() {
         let little = constructor("LbllittleEndianBytes", "SortEndianness");
@@ -641,6 +782,27 @@ mod tests {
             int_to_bytes(&[integer(2), integer(-2), big.clone()]),
             Ok(BuiltinResult::Value(bytes_term(&[0xff, 0xfe])))
         );
+        // Sign extension, truncation to the low bytes, and an empty result.
+        assert_eq!(
+            int_to_bytes(&[integer(4), integer(-2), little.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[0xfe, 0xff, 0xff, 0xff])))
+        );
+        assert_eq!(
+            int_to_bytes(&[integer(3), integer(255), big.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[0, 0, 0xff])))
+        );
+        assert_eq!(
+            int_to_bytes(&[integer(1), integer(0x1234), little.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[0x34])))
+        );
+        assert_eq!(
+            int_to_bytes(&[integer(1), integer(-129), little.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[0x7f])))
+        );
+        assert_eq!(
+            int_to_bytes(&[integer(0), integer(-1), big.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[])))
+        );
         assert_eq!(
             bytes_to_int(&[bytes_term(&[0xff, 0xfe]), big.clone(), signed]),
             Ok(BuiltinResult::Value(integer(-2)))
@@ -649,6 +811,58 @@ mod tests {
             bytes_to_int(&[bytes_term(&[0xff, 0xfe]), big, unsigned]),
             Ok(BuiltinResult::Value(integer(65_534)))
         );
+    }
+
+    /// Under the byte-per-code-point reading of the pair (this backend's chosen reading; see
+    /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
+    /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
+    #[test]
+    fn string_to_bytes_above_255_is_unspecified() {
+        assert_eq!(
+            string_to_bytes(&[string_term("a\u{ff}")]),
+            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xff])))
+        );
+        // A stored byte outside UTF-8 is the code point of its value.
+        assert_eq!(
+            string_to_bytes(&[Term::domain_value(
+                Sort::builtin(BuiltinSort::String),
+                vec![b'a', 0xe9, 0xff]
+            )]),
+            Ok(BuiltinResult::Value(bytes_term(&[b'a', 0xe9, 0xff])))
+        );
+        for text in ["\u{100}", "a🦀"] {
+            assert!(
+                matches!(
+                    string_to_bytes(&[string_term(text)]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    ))
+                ),
+                "String2Bytes({text:?})"
+            );
+        }
+    }
+
+    /// No `Bytes` value has a negative length, so `Int2Bytes` with one has no value the
+    /// definition gives; a zero length is the empty `Bytes`.
+    #[test]
+    fn int_to_bytes_with_a_negative_length_is_unspecified() {
+        let little = constructor("LbllittleEndianBytes", "SortEndianness");
+        assert_eq!(
+            int_to_bytes(&[integer(0), integer(5), little.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[])))
+        );
+        for length in [-1, -8] {
+            assert!(
+                matches!(
+                    int_to_bytes(&[integer(length), integer(5), little.clone()]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    ))
+                ),
+                "Int2Bytes({length}, 5, LE)"
+            );
+        }
     }
 
     #[test]

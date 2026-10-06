@@ -28,7 +28,7 @@ use proptest::{
 };
 use serde_json::json;
 
-use super::Folder;
+use super::{Folder, MAX_FOLDED_BITS, Unfolded};
 use crate::{
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
@@ -288,6 +288,19 @@ enum Out {
 }
 
 impl Out {
+    /// The size of the value in the unit of the fold's result bound.
+    fn bits(&self) -> u64 {
+        match self {
+            Self::Bool(_) => 1,
+            Self::Int(value) => value.bits(),
+            Self::Str(bytes) => 8 * bytes.len() as u64,
+            Self::Float(Fl::B32(_)) => 24,
+            Self::Float(Fl::B64(_)) => 53,
+            Self::FloatToken(token) => float_parts(token).map_or(0, |parts| u64::from(parts.1)),
+            Self::Id(text) => 8 * text.len() as u64,
+        }
+    }
+
     fn same(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Bool(a), Self::Bool(b)) => a == b,
@@ -307,8 +320,14 @@ enum Expect {
     /// The hook is defined here and has this value.
     Value(Out),
     /// The hook is undefined here (`#False` in its documentation, `Bottom` in the backend), so
-    /// the fold must report an error rather than produce a token.
+    /// the fold must leave the application unfolded, as undefined, rather than produce a token.
     Undefined,
+    /// The value is defined and larger than the fold's result bound, so the fold must leave the
+    /// application unfolded as too large.
+    TooLarge,
+    /// The hook is `total` and its documentation gives no value here (the backend leaves it
+    /// `Unspecified`), so the fold must leave the application unfolded as unspecified.
+    Unspecified,
     /// No oracle covers this case; the fold must still finish without panicking.
     Unchecked,
 }
@@ -495,9 +514,9 @@ fn any_int() -> BoxedStrategy<BigInt> {
     .boxed()
 }
 
-/// Values for an Int parameter the fold reads as a 32-bit unsigned bound: small ones, and the
-/// edges of that bound. `cheap` excludes the accepted edge `2^31 - 1`, for hooks whose result
-/// or intermediate value would then take gigabytes.
+/// Values for a natural-number Int parameter: small ones, negative ones, and the 32- and 64-bit
+/// edges. `cheap` excludes `2^31 - 1`, for hooks whose backend evaluation would then take
+/// gigabytes.
 fn parameter(cheap: bool) -> BoxedStrategy<BigInt> {
     let mut edges = vec![
         big(-1),
@@ -999,6 +1018,9 @@ fn backend_expectation(
             decode_backend(&value, result).map(Expect::Value).map(Some)
         }
         Ok(BuiltinResult::Bottom) => Ok(Some(Expect::Undefined)),
+        Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
+            Ok(Some(Expect::Unspecified))
+        }
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented
             | UnsupportedHookReason::ArgumentOutOfRange { .. }
@@ -1013,12 +1035,6 @@ fn backend_expectation(
         ) => Ok(None),
         other => Err(format!("unexpected backend outcome {other:?}")),
     }
-}
-
-fn character_index(text: &str, value: &BigInt) -> Option<usize> {
-    value
-        .to_usize()
-        .filter(|index| *index <= text.chars().count())
 }
 
 /// The documented syntax of `String2Int`: a nonempty sequence of decimal digits, optionally
@@ -1070,36 +1086,61 @@ fn documented_expectation(hook: &str, arguments: &[Arg]) -> Option<Expect> {
     }
 }
 
-/// `floor(value / 2^index) mod 2^length`, computed by division rather than by bit operations.
-fn bit_range(value: &BigInt, index: usize, length: usize) -> BigInt {
-    let scale = pow2(u32::try_from(index).unwrap());
+/// `floor(value / 2^index)`, computed by division rather than by bit operations; an index of
+/// more bits than the value has leaves 0 or -1.
+fn floor_shift(value: &BigInt, index: &BigInt) -> BigInt {
+    let Some(index) = index
+        .to_u32()
+        .filter(|index| u64::from(*index) <= value.bits())
+    else {
+        return if value.is_negative() { big(-1) } else { big(0) };
+    };
+    let scale = pow2(index);
     let mut quotient = value / &scale;
     if value.is_negative() && !(value % &scale).is_zero() {
         quotient -= 1;
     }
-    let modulus = pow2(u32::try_from(length).unwrap());
+    quotient
+}
+
+/// `quotient mod 2^length` (`None` when that is larger than the fold's result bound), computed
+/// by division.
+fn residue(quotient: &BigInt, length: &BigInt) -> Option<BigInt> {
+    if !quotient.is_negative() && BigInt::from(quotient.bits()) <= *length {
+        return Some(quotient.clone());
+    }
+    let length = length
+        .to_u32()
+        .filter(|length| u64::from(*length) <= MAX_FOLDED_BITS)?;
+    let modulus = pow2(length);
     let remainder = quotient % &modulus;
-    if remainder.is_negative() {
+    Some(if remainder.is_negative() {
         remainder + modulus
     } else {
         remainder
-    }
+    })
 }
 
-fn int_parameter(value: &BigInt) -> Option<usize> {
-    value.to_usize().filter(|value| *value <= i32::MAX as usize)
-}
-
-fn search(hook: &str, haystack: &str, needles: &str, index: usize) -> i64 {
+/// The first position at or after `index` (`findChar`), or the last at or before it (`rfind`,
+/// `rfindChar`), holding the needle or one of the needle characters; -1 if there is none. Every
+/// integer index is one: the candidates are the positions on that side of it.
+fn search(hook: &str, haystack: &str, needles: &str, index: &BigInt) -> i64 {
     let haystack = haystack.chars().collect::<Vec<_>>();
     let needle = needles.chars().collect::<Vec<_>>();
     let occurs_at = |position: usize| match hook {
         "STRING.rfind" => haystack[position..].starts_with(&needle),
         _ => position < haystack.len() && needle.contains(&haystack[position]),
     };
+    let mut positions = (0..=haystack.len()).filter(|&position| {
+        let position = BigInt::from(position);
+        match hook {
+            "STRING.findChar" => position >= *index,
+            _ => position <= *index,
+        }
+    });
     let found = match hook {
-        "STRING.findChar" => (index..haystack.len()).find(|&position| occurs_at(position)),
-        _ => (0..=index).rev().find(|&position| occurs_at(position)),
+        "STRING.findChar" => positions.find(|&position| occurs_at(position)),
+        _ => positions.rfind(|&position| occurs_at(position)),
     };
     found.map_or(-1, |position| position as i64)
 }
@@ -1245,54 +1286,57 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
     }
     match hook {
         "INT.bitRange" | "INT.signExtendBitRange" => {
-            let (Some(index), Some(length)) = (
-                int_parameter(arguments[1].int()),
-                int_parameter(arguments[2].int()),
-            ) else {
+            let (index, length) = (arguments[1].int(), arguments[2].int());
+            // `domains.md`: (I >>Int IDX) modInt (1 <<Int LEN), undefined for a negative shift.
+            if index.is_negative() || length.is_negative() {
                 return Expect::Undefined;
-            };
-            let unsigned = bit_range(arguments[0].int(), index, length);
+            }
+            let quotient = floor_shift(arguments[0].int(), index);
             if hook == "INT.bitRange" {
-                return value(Out::Int(unsigned));
+                return residue(&quotient, length)
+                    .map_or(Expect::TooLarge, |unsigned| value(Out::Int(unsigned)));
             }
             // `domains.md`: (bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1))) modInt
-            // (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1)), where a shift by -1 is undefined.
-            let Some(half) = length
-                .checked_sub(1)
-                .map(|bits| pow2(u32::try_from(bits).unwrap()))
-            else {
+            // (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1)), where a shift by -1 is undefined: the
+            // residue of I >>Int IDX in [-2^(LEN - 1), 2^(LEN - 1)).
+            if length.is_zero() {
                 return Expect::Undefined;
-            };
-            let modulus = pow2(u32::try_from(length).unwrap());
-            value(Out::Int((unsigned + &half) % modulus - half))
+            }
+            if BigInt::from(quotient.bits()) < *length {
+                return value(Out::Int(quotient));
+            }
+            let length = length.to_u32().unwrap();
+            let half = pow2(length - 1);
+            let shifted = residue(&(quotient + &half), &BigInt::from(length)).unwrap();
+            value(Out::Int(shifted - half))
         }
-        "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => {
-            let haystack = arguments[0].str();
-            let Some(index) = character_index(haystack, arguments[2].int()) else {
-                return Expect::Undefined;
-            };
-            value(Out::Int(
-                search(hook, haystack, arguments[1].str(), index).into(),
-            ))
-        }
+        "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => value(Out::Int(
+            search(
+                hook,
+                arguments[0].str(),
+                arguments[1].str(),
+                arguments[2].int(),
+            )
+            .into(),
+        )),
         "STRING.replaceAll" | "STRING.replaceFirst" | "STRING.replace" => {
             let count = match hook {
                 "STRING.replaceAll" => usize::MAX,
                 "STRING.replaceFirst" => 1,
-                _ => match int_parameter(arguments[3].int()) {
-                    Some(count) => count,
-                    None => return Expect::Undefined,
-                },
+                _ if arguments[3].int().is_negative() => return Expect::Undefined,
+                _ => arguments[3].int().to_usize().unwrap_or(usize::MAX),
             };
             let (haystack, needle, replacement) =
                 (arguments[0].str(), arguments[1].str(), arguments[2].str());
             if needle.is_empty() {
                 // `domains.md` defines `replace` by finding the needle at 0 and recursing on
                 // the whole haystack, so an empty needle inserts the replacement `count` times
-                // in front; `replaceAll` counts the occurrences first, which for an empty needle
-                // does not terminate.
+                // in front; `replaceAll` replaces `countAllOccurrences` copies, which has no value
+                // for an empty needle (below).
+                let bytes = (count as u128) * (replacement.len() as u128) + haystack.len() as u128;
                 return match hook {
-                    "STRING.replaceAll" => Expect::Unchecked,
+                    "STRING.replaceAll" => Expect::Unspecified,
+                    _ if bytes * 8 > u128::from(MAX_FOLDED_BITS) => Expect::TooLarge,
                     _ => value(Out::Str(
                         format!("{}{haystack}", replacement.repeat(count)).into_bytes(),
                     )),
@@ -1304,9 +1348,10 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
         "STRING.countAllOccurrences" => {
             let (haystack, needle) = (arguments[0].str(), arguments[1].str());
             if needle.is_empty() {
-                // `domains.md` counts by finding the needle and recursing on the rest, which for
-                // an empty needle does not terminate.
-                return Expect::Unchecked;
+                // `domains.md` counts by finding the needle and recursing on the rest: for an
+                // empty needle `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`,
+                // which no integer satisfies, and the hook is total.
+                return Expect::Unspecified;
             }
             value(Out::Int(replace(haystack, needle, "", usize::MAX).1.into()))
         }
@@ -1406,59 +1451,12 @@ fn libm_model(hook: &str, arguments: &[Arg]) -> Option<Fl> {
     Some(in_format(first, operation(first.as_f64(), second)))
 }
 
-/// Cases whose result the hook's documentation leaves open, so that neither evaluator is wrong.
-fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
-    match hook {
-        // `rootFloat(-0.0, 2)`: a k-th root of a negative zero is +0 for even k, while
-        // `sqrtFloat`, which `domains.md` defines as `rootFloat(F, 2)`, is -0 under IEEE 754.
-        "FLOAT.root" => {
-            standard_float(arguments[0].float())
-                .is_some_and(|value| value.as_f64() == 0.0 && value.as_f64().is_sign_negative())
-                && (arguments[1].int() % BigInt::from(2)).is_zero()
-        }
-        _ => false,
-    }
-}
-
-/// Cases where the fold reports an error although the backend computes a value.
-fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
-    let beyond_bound = |argument: &Arg| *argument.int() > BigInt::from(i32::MAX);
-    match hook {
-        // The fold reads exponents and shift amounts as at most 2^31 - 1 and rejects larger
-        // ones, where the backend still computes the results that stay small (0 >>Int 2^31).
-        "INT.pow" | "INT.shl" | "INT.shr" => beyond_bound(&arguments[1]),
-        // `domains.md`: substrString is only defined on indices 0 <= start <= end <= length.
-        // The backend clamps the others, the fold rejects them.
-        "STRING.substr" => {
-            let text = arguments[0].str();
-            match (
-                character_index(text, arguments[1].int()),
-                character_index(text, arguments[2].int()),
-            ) {
-                (Some(start), Some(end)) => start > end,
-                _ => true,
-            }
-        }
-        // The documentation does not define a search from an index outside the string; the
-        // backend searches from the clamped index, the fold rejects it.
-        "STRING.find" | "STRING.rfind" => {
-            character_index(arguments[0].str(), arguments[2].int()).is_none()
-        }
-        // A surrogate code point is not a Unicode scalar value, so no string holds it as one
-        // character; the backend substitutes U+FFFD, the fold rejects it.
-        "STRING.chr" => arguments[0]
-            .int()
-            .to_u32()
-            .is_some_and(|code| (0xd800..=0xdfff).contains(&code)),
-        _ => false,
-    }
-}
-
 #[derive(Default, Debug)]
 struct Tally {
     values: usize,
     undefined: usize,
-    refused: usize,
+    too_large: usize,
+    unspecified: usize,
     unchecked: usize,
 }
 
@@ -1497,7 +1495,6 @@ fn check_case(
             }
             documented
         }
-        None if ambiguous(hook, arguments) => Expect::Unchecked,
         None => backend.unwrap_or_else(|| model_expectation(hook, arguments)),
     };
 
@@ -1516,20 +1513,40 @@ fn check_case(
             }
             tally.values += 1;
         }
-        (Expect::Value(expected), Err(message)) => {
-            if !fold_may_refuse(hook, arguments) {
-                return Err(format!(
-                    "the fold reports {message:?} where the oracle gives {expected:?}"
-                ));
-            }
-            tally.refused += 1;
+        // The fold writes no value larger than its own bound, which the backend may compute.
+        (Expect::Value(expected), Err(Unfolded::TooLarge(_)))
+            if expected.bits() > MAX_FOLDED_BITS =>
+        {
+            tally.too_large += 1;
+        }
+        (Expect::Value(expected), Err(unfolded)) => {
+            return Err(format!(
+                "the fold leaves {unfolded:?} where the oracle gives {expected:?}"
+            ));
         }
         (Expect::Undefined, Ok(folded)) => {
             return Err(format!(
                 "the fold gives {folded:?} where the hook is undefined"
             ));
         }
-        (Expect::Undefined, Err(_)) => tally.undefined += 1,
+        (Expect::Undefined, Err(Unfolded::Undefined(_))) => tally.undefined += 1,
+        (Expect::TooLarge, Err(Unfolded::TooLarge(_))) => tally.too_large += 1,
+        (Expect::Unspecified, Err(Unfolded::Unspecified(_))) => tally.unspecified += 1,
+        (Expect::Unspecified, folded) => {
+            return Err(format!(
+                "the fold gives {folded:?} where the hook's value is unspecified"
+            ));
+        }
+        (Expect::TooLarge, folded) => {
+            return Err(format!(
+                "the fold gives {folded:?} where the value is larger than the result bound"
+            ));
+        }
+        (Expect::Undefined, Err(unfolded)) => {
+            return Err(format!(
+                "the fold leaves {unfolded:?} where the hook is undefined"
+            ));
+        }
         (Expect::Unchecked, _) => tally.unchecked += 1,
     }
     Ok(())
@@ -1598,8 +1615,8 @@ fn constant_folding_agrees_with_the_backend_hooks() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Without MPFR the fold rejects every `FLOAT` hook (and the `STRING` conversions to and from
-/// `Float`) instead of folding them; the other hooks are compared as with MPFR.
+/// Without MPFR the fold leaves every `FLOAT` hook (and the `STRING` conversions to and from
+/// `Float`) unfolded; the other hooks are compared as with MPFR.
 #[cfg(not(feature = "mpfr-folding"))]
 #[test]
 fn constant_folding_agrees_with_the_backend_hooks() {
@@ -1625,12 +1642,13 @@ fn constant_folding_agrees_with_the_backend_hooks() {
             })
             .map(|argument| argument.token())
             .collect::<Vec<_>>();
-        let error = folder
+        let unfolded = folder
             .try_fold(&Label::new(label(hook)), &tokens)
             .expect_err(hook);
         assert!(
-            error.contains("requires the native MPFR implementation"),
-            "{hook}: {error}"
+            matches!(&unfolded, Unfolded::Unsupported(message)
+                if message.contains("requires the native MPFR implementation")),
+            "{hook}: {unfolded:?}"
         );
     }
 }

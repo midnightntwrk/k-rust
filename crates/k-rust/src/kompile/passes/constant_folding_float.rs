@@ -26,7 +26,7 @@ use rug::{
     ops::Pow,
 };
 
-use super::{Value, int_value, string_value};
+use super::{MAX_FOLDED_BITS, Unfolded, Value, int_value, string_value, too_large};
 
 #[derive(Clone, Debug)]
 pub(super) struct KFloat {
@@ -35,13 +35,14 @@ pub(super) struct KFloat {
 }
 
 impl KFloat {
-    pub(super) fn parse(token: &str) -> Result<Self, String> {
-        if !is_float_syntax(token) {
-            return Err(format!("invalid Float token {token:?}"));
+    pub(super) fn parse(token: &str) -> Result<Self, Unfolded> {
+        if !k_rust_backend::builtin::is_float_syntax(token) {
+            return Err(format!("invalid Float token {token:?}").into());
         }
         let (text, precision, exponent_bits) = parse_parts(token)?;
         validate_context(precision, exponent_bits)
             .map_err(|_| format!("invalid Float token {token:?}"))?;
+        check_precision(precision)?;
         match text {
             "Infinity" => Ok(Self::special(precision, exponent_bits, Special::Infinity)),
             "-Infinity" => Ok(Self::special(
@@ -58,6 +59,11 @@ impl KFloat {
                 Self::from_rounded(value, exponent_bits, direction)
             }
         }
+    }
+
+    /// The size of the value in the unit of `MAX_FOLDED_BITS`: its precision.
+    pub(super) fn bits(&self) -> u64 {
+        u64::from(self.value.prec())
     }
 
     pub(super) fn token(&self) -> String {
@@ -84,7 +90,7 @@ impl KFloat {
         format!("{value}p{}x{}", self.value.prec(), self.exponent_bits)
     }
 
-    fn format(&self, format: &str) -> Result<String, String> {
+    fn format(&self, format: &str) -> Result<String, Unfolded> {
         if self.value.is_nan() {
             return Ok("NaN".into());
         }
@@ -108,6 +114,9 @@ impl KFloat {
             if length < 0 {
                 return Err("invalid MPFR Float format".into());
             }
+            if (length as u64).saturating_mul(8) > MAX_FOLDED_BITS {
+                return Err(too_large("STRING.floatFormat", (length as u64) * 8));
+            }
             let mut buffer = vec![0u8; length as usize + 1];
             let written = mpfr::snprintf(
                 buffer.as_mut_ptr().cast(),
@@ -118,21 +127,22 @@ impl KFloat {
             if written < 0 || written != length {
                 return Err("MPFR could not format the Float consistently".into());
             }
-            CStr::from_bytes_with_nul(&buffer)
+            Ok(CStr::from_bytes_with_nul(&buffer)
                 .map_err(|error| error.to_string())?
                 .to_str()
                 .map(str::to_owned)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?)
         }
     }
 
-    fn context_matches(&self, other: &Self, hook: &str) -> Result<(), String> {
+    fn context_matches(&self, other: &Self, hook: &str) -> Result<(), Unfolded> {
         if self.value.prec() == other.value.prec() && self.exponent_bits == other.exponent_bits {
             Ok(())
         } else {
-            Err(format!(
-                "Arguments to hook {hook} do not match in exponent bits and precision."
-            ))
+            Err(
+                format!("Arguments to hook {hook} do not match in exponent bits and precision.")
+                    .into(),
+            )
         }
     }
 
@@ -147,7 +157,7 @@ impl KFloat {
         mut value: Float,
         exponent_bits: u32,
         direction: Ordering,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unfolded> {
         limit_exponent(&mut value, exponent_bits, direction)?;
         Ok(Self {
             value,
@@ -162,7 +172,10 @@ impl KFloat {
         }
     }
 
-    fn unary_round(&self, operation: impl FnOnce(&mut Float) -> Ordering) -> Result<Self, String> {
+    fn unary_round(
+        &self,
+        operation: impl FnOnce(&mut Float) -> Ordering,
+    ) -> Result<Self, Unfolded> {
         let mut value = self.value.clone();
         let direction = operation(&mut value);
         Self::from_rounded(value, self.exponent_bits, direction)
@@ -173,20 +186,20 @@ impl KFloat {
         other: &Self,
         hook: &str,
         operation: impl FnOnce(&Float, &Float) -> (Float, Ordering),
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unfolded> {
         self.context_matches(other, hook)?;
         let (value, direction) = operation(&self.value, &other.value);
         Self::from_rounded(value, self.exponent_bits, direction)
     }
 }
 
-pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, String>> {
+pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unfolded>> {
     match hook {
         "STRING.float2string" => unary_float(values, |a| Ok(Value::String(a.token()))),
         "STRING.floatFormat" => float_format(values),
         "STRING.string2float" => match values {
             [value] => Some(string_value(value).and_then(KFloat::parse).map(Value::Float)),
-            _ => Some(Err("constant-folding hook expected one argument".into())),
+            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected one argument".into()))),
         },
         "FLOAT.precision" => unary_float(values, |a| Ok(Value::Int(a.value.prec().into()))),
         "FLOAT.exponentBits" => {
@@ -294,13 +307,21 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Str
                 a.unary_round(|value| value.root_i_round(root, Round::Nearest))
                     .map(Value::Float)
             })),
-            _ => Some(Err("constant-folding hook expected Float and Int".into())),
+            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected Float and Int".into()))),
         },
         "FLOAT.round" => round_float(values),
         "FLOAT.int2float" => int_to_float(values),
         "FLOAT.float2int" => unary_float(values, |a| {
-            let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| "Argument to hook FLOAT.float2int cannot be rounded to an integer.".to_owned())?.0;
-            BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())
+            // A finite value below 2^e has an integer part of at most e bits.
+            if let Some(exponent) = a.value.get_exp()
+                && i64::from(exponent) > MAX_FOLDED_BITS as i64
+            {
+                return Err(too_large("FLOAT.float2int", exponent));
+            }
+            // Total, and NaN and the infinities have no nearest integer: the definition gives
+            // no value there.
+            let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| Unfolded::Unspecified("Float2Int of NaN or an infinity has no nearest integer.".into()))?.0;
+            Ok(BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())?)
         }),
         "FLOAT.maxValue" => extreme_value(values, true),
         "FLOAT.minValue" => extreme_value(values, false),
@@ -310,20 +331,24 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Str
 
 fn unary_float(
     values: &[Value],
-    operation: impl FnOnce(&KFloat) -> Result<Value, String>,
-) -> Option<Result<Value, String>> {
+    operation: impl FnOnce(&KFloat) -> Result<Value, Unfolded>,
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value)] => operation(value),
-        _ => Err("constant-folding hook expected one Float argument".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected one Float argument".into(),
+        )),
     })
 }
 
-fn float_format(values: &[Value]) -> Option<Result<Value, String>> {
+fn float_format(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value), format] => string_value(format)
             .and_then(|format| value.format(format))
             .map(Value::String),
-        _ => Err("constant-folding hook expected Float and String".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Float and String".into(),
+        )),
     })
 }
 
@@ -331,26 +356,30 @@ fn binary_float(
     values: &[Value],
     hook: &str,
     operation: impl FnOnce(&Float, &Float) -> (Float, Ordering),
-) -> Option<Result<Value, String>> {
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(a), Value::Float(b)] => a.binary(b, hook, operation).map(Value::Float),
-        _ => Err("constant-folding hook expected two Float arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Float arguments".into(),
+        )),
     })
 }
 
 fn compare_float(
     values: &[Value],
     predicate: impl FnOnce(Option<Ordering>) -> bool,
-) -> Option<Result<Value, String>> {
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(a), Value::Float(b)] => {
             Ok(Value::Bool(predicate(a.value.partial_cmp(&b.value))))
         }
-        _ => Err("constant-folding hook expected two Float arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Float arguments".into(),
+        )),
     })
 }
 
-fn round_float(values: &[Value]) -> Option<Result<Value, String>> {
+fn round_float(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value), precision, exponent] => {
             context(precision, exponent).and_then(|(precision, exponent_bits)| {
@@ -359,11 +388,13 @@ fn round_float(values: &[Value]) -> Option<Result<Value, String>> {
                 KFloat::from_rounded(value, exponent_bits, direction).map(Value::Float)
             })
         }
-        _ => Err("constant-folding hook expected Float, Int, Int".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Float, Int, Int".into(),
+        )),
     })
 }
 
-fn int_to_float(values: &[Value]) -> Option<Result<Value, String>> {
+fn int_to_float(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [integer, precision, exponent] => int_value(integer).and_then(|integer| {
             let (precision, exponent_bits) = context(precision, exponent)?;
@@ -372,11 +403,13 @@ fn int_to_float(values: &[Value]) -> Option<Result<Value, String>> {
             let (value, direction) = Float::with_val_round(precision, integer, Round::Nearest);
             KFloat::from_rounded(value, exponent_bits, direction).map(Value::Float)
         }),
-        _ => Err("constant-folding hook expected Int, Int, Int".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Int, Int, Int".into(),
+        )),
     })
 }
 
-fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, String>> {
+fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [precision, exponent] => {
             context(precision, exponent).and_then(|(precision, exponent_bits)| {
@@ -395,26 +428,42 @@ fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, String
                 }))
             })
         }
-        _ => Err("constant-folding hook expected two Int arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Int arguments".into(),
+        )),
     })
 }
 
-fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), String> {
-    let precision = int_value(precision)?
-        .to_u32()
-        .ok_or_else(|| "Float precision is outside the supported range".to_owned())?;
-    let exponent = int_value(exponent)?
-        .to_u32()
-        .ok_or_else(|| "Float exponent bits are outside the supported range".to_owned())?;
-    validate_context(precision, exponent)
+fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), Unfolded> {
+    let precision = int_value(precision)?.to_u32().ok_or_else(|| {
+        Unfolded::Unsupported("Float precision is outside the supported range".into())
+    })?;
+    let exponent = int_value(exponent)?.to_u32().ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent bits are outside the supported range".into())
+    })?;
+    validate_context(precision, exponent)?;
+    check_precision(precision)?;
+    Ok((precision, exponent))
 }
 
-fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), String> {
+/// A precision the fold computes with: the value it describes has that many bits.
+fn check_precision(precision: u32) -> Result<(), Unfolded> {
+    if u64::from(precision) > MAX_FOLDED_BITS {
+        return Err(too_large("FLOAT", precision));
+    }
+    Ok(())
+}
+
+fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolded> {
     if precision > i32::MAX as u32 || precision > float::prec_max() {
-        return Err("Float precision is outside the supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float precision is outside the supported range".into(),
+        ));
     }
     if exponent > i32::MAX as u32 {
-        return Err("Float exponent bits are outside the supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float exponent bits are outside the supported range".into(),
+        ));
     }
     if precision < 2 || exponent < 2 {
         return Err("Float precision and exponent bits must both be at least 2.".into());
@@ -423,31 +472,37 @@ fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), String>
     Ok((precision, exponent))
 }
 
-fn exponent_limits(bits: u32) -> Result<(i32, i32), String> {
+fn exponent_limits(bits: u32) -> Result<(i32, i32), Unfolded> {
     let maximum = 1i32
         .checked_shl(bits.saturating_sub(1))
         .filter(|maximum| *maximum > 0)
-        .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
+        .ok_or_else(|| Unfolded::Unsupported("Float exponent bits are too large".into()))?;
     let minimum = 1i32
         .checked_sub(maximum)
-        .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
+        .ok_or_else(|| Unfolded::Unsupported("Float exponent bits are too large".into()))?;
     Ok((minimum, maximum))
 }
 
-fn context_exponent_limits(precision: u32, exponent_bits: u32) -> Result<(i32, i32, i32), String> {
+fn context_exponent_limits(
+    precision: u32,
+    exponent_bits: u32,
+) -> Result<(i32, i32, i32), Unfolded> {
     let (minimum, maximum) = exponent_limits(exponent_bits)?;
-    let precision = i32::try_from(precision)
-        .map_err(|_| "Float precision is outside the supported range".to_owned())?;
-    let normal_minimum = minimum
-        .checked_add(2)
-        .ok_or_else(|| "Float exponent range is outside the supported range".to_owned())?;
-    let subnormal_minimum = normal_minimum
-        .checked_sub(precision - 1)
-        .ok_or_else(|| "Float exponent range is outside the supported range".to_owned())?;
+    let precision = i32::try_from(precision).map_err(|_| {
+        Unfolded::Unsupported("Float precision is outside the supported range".into())
+    })?;
+    let normal_minimum = minimum.checked_add(2).ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent range is outside the supported range".into())
+    })?;
+    let subnormal_minimum = normal_minimum.checked_sub(precision - 1).ok_or_else(|| {
+        Unfolded::Unsupported("Float exponent range is outside the supported range".into())
+    })?;
     // K's BigFloat validates contexts against MPFR's active default range, not its wider platform limit.
     let (allowed_minimum, allowed_maximum) = (float::exp_min(), float::exp_max());
     if subnormal_minimum < allowed_minimum || maximum > allowed_maximum {
-        return Err("Float exponent range is outside MPFR's supported range".into());
+        return Err(Unfolded::Unsupported(
+            "Float exponent range is outside MPFR's supported range".into(),
+        ));
     }
     Ok((normal_minimum, subnormal_minimum, maximum))
 }
@@ -456,56 +511,19 @@ fn limit_exponent(
     value: &mut Float,
     exponent_bits: u32,
     direction: Ordering,
-) -> Result<(), String> {
+) -> Result<(), Unfolded> {
     let (normal_minimum, subnormal_minimum, maximum) =
         context_exponent_limits(value.prec(), exponent_bits)?;
     let direction = value
         .clamp_exp(direction, Round::Nearest, subnormal_minimum, maximum)
-        .ok_or_else(|| "Float exponent range is outside MPFR's supported range".to_owned())?;
+        .ok_or_else(|| {
+            Unfolded::Unsupported("Float exponent range is outside MPFR's supported range".into())
+        })?;
     value.subnormalize_round(normal_minimum, direction, Round::Nearest);
     Ok(())
 }
 
-/// Whether `token` is in the lexical syntax of the `Float` sort (`domains.md`, FLOAT-SYNTAX):
-/// `[+-]?[0-9]+(.[0-9]*)?` or `.[0-9]+` with an optional exponent, `[+-]?Infinity`, or `NaN`,
-/// each with an optional `f`/`d` or `p<digits>x<digits>` suffix. MPFR's own parser accepts more,
-/// such as surrounding spaces, `inf`, `nan` and `@`-exponents.
-fn is_float_syntax(token: &str) -> bool {
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    let body = match token
-        .rsplit_once(['x', 'X'])
-        .and_then(|(rest, exponent_bits)| Some((rest.rsplit_once(['p', 'P'])?, exponent_bits)))
-    {
-        Some(((body, precision), exponent_bits)) if digits(precision) && digits(exponent_bits) => {
-            body
-        }
-        _ => token.strip_suffix(['f', 'F', 'd', 'D']).unwrap_or(token),
-    };
-    if body == "NaN" || body.strip_prefix(['+', '-']).unwrap_or(body) == "Infinity" {
-        return true;
-    }
-    let (mantissa, exponent) = match body.split_once(['e', 'E']) {
-        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
-        None => (body, None),
-    };
-    let exponent_ok = exponent
-        .is_none_or(|exponent| digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)));
-    let mantissa_ok = match mantissa.strip_prefix('.') {
-        Some(fraction) => digits(fraction),
-        None => {
-            let unsigned = mantissa.strip_prefix(['+', '-']).unwrap_or(mantissa);
-            match unsigned.split_once('.') {
-                Some((whole, fraction)) => {
-                    digits(whole) && (fraction.is_empty() || digits(fraction))
-                }
-                None => digits(unsigned),
-            }
-        }
-    };
-    mantissa_ok && exponent_ok
-}
-
-fn parse_parts(token: &str) -> Result<(&str, u32, u32), String> {
+fn parse_parts(token: &str) -> Result<(&str, u32, u32), Unfolded> {
     if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
         && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
     {
@@ -526,7 +544,7 @@ fn parse_parts(token: &str) -> Result<(&str, u32, u32), String> {
     }
 }
 
-fn validate_mpfr_format(format: &str) -> Result<(), String> {
+fn validate_mpfr_format(format: &str) -> Result<(), Unfolded> {
     let bytes = format.as_bytes();
     let mut index = 0;
     let mut conversions = 0;
@@ -773,7 +791,7 @@ mod tests {
             "1p24x32",
         ] {
             assert_eq!(
-                KFloat::parse(token).unwrap_err(),
+                KFloat::parse(token).unwrap_err().message(),
                 format!("invalid Float token {token:?}")
             );
         }
@@ -787,10 +805,73 @@ mod tests {
         assert_eq!(special.exponent_bits, 30);
     }
 
+    /// `rootFloat(F, N)` is the Nth root: the even root of -0 is +0 and the odd root -0, so
+    /// `sqrtFloat(-0.0)`, which `domains.md` defines as `rootFloat(F, 2)`, is +0.
+    #[test]
+    fn roots_negative_zero_by_the_parity_of_the_degree() {
+        let root = |degree: i64| match evaluate(
+            "FLOAT.root",
+            &[Value::Float(float("-0.0")), Value::Int(degree.into())],
+        ) {
+            Some(Ok(Value::Float(value))) => value.token(),
+            other => panic!("rootFloat(-0.0, {degree}) gave {other:?}"),
+        };
+        assert_eq!(root(2), "0e+00p53x11");
+        assert_eq!(root(4), "0e+00p53x11");
+        assert_eq!(root(3), "-0e+00p53x11");
+    }
+
+    /// `Float2Int` is total, and NaN and the infinities have no nearest integer, so its value
+    /// there is not given and the application stays.
+    #[test]
+    fn leaves_float2int_of_nan_and_infinities_unfolded() {
+        for token in ["NaN", "Infinity", "-Infinityf"] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.float2int", &[Value::Float(float(token))]),
+                    Some(Err(Unfolded::Unspecified(_)))
+                ),
+                "Float2Int({token})"
+            );
+        }
+        assert_eq!(
+            folded_int("FLOAT.float2int", vec![Value::Float(float("-2.5"))]),
+            BigInt::from(-2)
+        );
+    }
+
+    /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build
+    /// it or a token names it.
+    #[test]
+    fn leaves_floats_above_the_result_bound_unfolded() {
+        let int = |value: i64| Value::Int(value.into());
+        let converted = |precision: i64| {
+            int_to_float(&[int(1), int(precision), int(11)]).expect("Int2Float has an evaluator")
+        };
+        assert!(converted(1 << 20).is_ok());
+        assert!(matches!(
+            converted((1 << 20) + 1),
+            Err(Unfolded::TooLarge(_))
+        ));
+        assert!(KFloat::parse("1.5p1048576x11").is_ok());
+        assert!(matches!(
+            KFloat::parse("1.5p1048577x11"),
+            Err(Unfolded::TooLarge(_))
+        ));
+        let huge = KFloat::parse("1e400000p53x30").unwrap();
+        assert!(matches!(
+            evaluate("FLOAT.float2int", &[Value::Float(huge)]),
+            Some(Err(Unfolded::TooLarge(_)))
+        ));
+    }
+
     #[test]
     fn rejects_invalid_operation_contexts() {
         let context_error = |precision: i64, exponent: i64| {
-            context(&Value::Int(precision.into()), &Value::Int(exponent.into())).unwrap_err()
+            context(&Value::Int(precision.into()), &Value::Int(exponent.into()))
+                .unwrap_err()
+                .message()
+                .to_owned()
         };
 
         assert_eq!(

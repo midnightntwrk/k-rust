@@ -38,6 +38,9 @@ enum Comparison {
 
 impl KFloat {
     fn parse(hook: &str, token: &str) -> HookResult<Self> {
+        if !is_float_syntax(token) {
+            return Err(invalid_token(hook, token).into());
+        }
         let (text, precision, exponent_bits) = parse_parts(hook, token)?;
         match (precision, exponent_bits) {
             (24, 8) => parse_f32(text)
@@ -120,10 +123,13 @@ impl KFloat {
         }
     }
 
-    fn sqrt(self) -> Self {
+    /// `rootFloat(x, 2)`, the root of degree 2: IEEE 754 rootn(x, 2), which is squareRoot
+    /// except that the even root of -0 is +0. (`sqrtFloat` is the K rule `rootFloat(F, 2)`.)
+    fn second_root(self) -> Self {
+        // `value == 0.0` holds for either zero.
         match self {
-            Self::Binary32(value) => Self::Binary32(value.sqrt()),
-            Self::Binary64(value) => Self::Binary64(value.sqrt()),
+            Self::Binary32(value) => Self::Binary32(if value == 0.0 { 0.0 } else { value.sqrt() }),
+            Self::Binary64(value) => Self::Binary64(if value == 0.0 { 0.0 } else { value.sqrt() }),
         }
     }
 
@@ -254,7 +260,7 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     }
-    Ok(BuiltinResult::Value(float_term(value.sqrt())))
+    Ok(BuiltinResult::Value(float_term(value.second_root())))
 }
 
 fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -299,10 +305,16 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(value
-        .round_to_integer()
-        .map(int_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    // `Float2Int` is total; NaN and the infinities have no nearest integer, so the definition
+    // does not give its value there.
+    Ok(value.round_to_integer().map_or_else(
+        || {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: "Float2Int of NaN or an infinity, which has no nearest integer".into(),
+            })
+        },
+        |integer| BuiltinResult::Value(int_term(integer)),
+    ))
 }
 
 fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -403,6 +415,46 @@ fn read_float(hook: &str, term: &Term) -> HookResult<Option<KFloat>> {
 
 fn float_term(value: KFloat) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::Float), value.token())
+}
+
+/// Whether `token` is in the lexical syntax of the `Float` sort (`domains.md`, FLOAT-SYNTAX):
+/// `[+-]?[0-9]+(.[0-9]*)?` or `.[0-9]+` with an optional exponent, `[+-]?Infinity`, or `NaN`,
+/// each with an optional `f`/`d` or `p<digits>x<digits>` suffix. A Float domain value denotes the
+/// element its string names in that syntax, so a string outside it (`inf`, `-.5`, ` 1.0`) names
+/// none, although general float parsers accept such spellings.
+pub fn is_float_syntax(token: &str) -> bool {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let body = match token
+        .rsplit_once(['x', 'X'])
+        .and_then(|(rest, exponent_bits)| Some((rest.rsplit_once(['p', 'P'])?, exponent_bits)))
+    {
+        Some(((body, precision), exponent_bits)) if digits(precision) && digits(exponent_bits) => {
+            body
+        }
+        _ => token.strip_suffix(['f', 'F', 'd', 'D']).unwrap_or(token),
+    };
+    if body == "NaN" || body.strip_prefix(['+', '-']).unwrap_or(body) == "Infinity" {
+        return true;
+    }
+    let (mantissa, exponent) = match body.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (body, None),
+    };
+    let exponent_ok = exponent
+        .is_none_or(|exponent| digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)));
+    let mantissa_ok = match mantissa.strip_prefix('.') {
+        Some(fraction) => digits(fraction),
+        None => {
+            let unsigned = mantissa.strip_prefix(['+', '-']).unwrap_or(mantissa);
+            match unsigned.split_once('.') {
+                Some((whole, fraction)) => {
+                    digits(whole) && (fraction.is_empty() || digits(fraction))
+                }
+                None => digits(unsigned),
+            }
+        }
+    };
+    mantissa_ok && exponent_ok
 }
 
 fn parse_parts<'a>(hook: &str, token: &'a str) -> HookResult<(&'a str, u32, u32)> {

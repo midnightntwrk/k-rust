@@ -1,7 +1,7 @@
 <k>
-  ListItem ( "hello" )
-  ListItem ( "ello" )
-  ListItem ( "" )
+  ListItem ( substrString ( "hello" , -2 , 3 ) )
+  ListItem ( substrString ( "hello" , 1 , 10 ) )
+  ListItem ( substrString ( "hello" , 3 , 1 ) )
   ListItem ( 2 )
   ListItem ( 3 )
   ListItem ( 5 )

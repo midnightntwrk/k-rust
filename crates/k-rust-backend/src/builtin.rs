@@ -109,8 +109,30 @@ pub enum BuiltinResult {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnsupportedHookReason {
     NotImplemented,
-    ArgumentOutOfRange { detail: String },
-    ResultTooLarge { detail: String },
+    ArgumentOutOfRange {
+        detail: String,
+    },
+    /// The application has a value, larger than a result size bound (such as
+    /// [`MAX_INT_RESULT_BITS`]), that the backend does not compute. Term simplification leaves
+    /// it unevaluated, a term that denotes that value, without an unsupported-hook error on
+    /// constructor-like arguments, so that a subterm whose value is never used fails nothing. A
+    /// run never decides a condition over one and never ends stuck or final on one: the step or
+    /// search match that would is the unsupported-hook error
+    /// (`simplify::refuse_results_above_the_size_bound`).
+    ///
+    /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
+    /// so the simplifier takes the application's `\ceil` to hold.
+    ResultTooLarge {
+        detail: String,
+    },
+    /// The definition does not determine the application's value: the hook is `total` and its
+    /// documentation gives no value on these arguments, or the definition's documents disagree
+    /// on whether a value exists. The application denotes whatever value the definition admits.
+    /// It is left unevaluated, and it is not an unsupported-hook error on constructor-like
+    /// arguments, since there is no value for an implementation to compute.
+    Unspecified {
+        detail: String,
+    },
 }
 
 impl fmt::Display for UnsupportedHookReason {
@@ -120,6 +142,12 @@ impl fmt::Display for UnsupportedHookReason {
                 .write_str("no evaluator in this backend and no equations in the definition"),
             Self::ArgumentOutOfRange { detail } | Self::ResultTooLarge { detail } => {
                 formatter.write_str(detail)
+            }
+            Self::Unspecified { detail } => {
+                write!(
+                    formatter,
+                    "the definition does not determine its value: {detail}"
+                )
             }
         }
     }
@@ -236,6 +264,7 @@ fn evaluate_with_context(
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
+pub use float::is_float_syntax;
 
 pub fn evaluate_hook(
     hook: &str,
@@ -707,25 +736,159 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-/// The largest integer result, in bits, that `^Int` and `<<Int` compute (512 MiB); a larger
-/// one is reported as too large instead of exhausting memory.
-const MAX_INT_RESULT_BITS: u64 = 1 << 32;
+/// The floor of the size bound on the `Int` results of `^Int` and `<<Int`, in bits (see
+/// [`result_size_limit`]): 2^24 bits, 5,050,446 decimal digits. A result above its bound is
+/// reported as too large (`ResultTooLarge`) instead of computed, and the application stays
+/// unevaluated.
+///
+/// The floor is where a refused result could not be used in reasonable time anyway. An `Int` is
+/// held as its decimal domain value and read back on every hook application on it, and reading
+/// decimal grows quadratically in the length (num-bigint 0.4.8, release build): about 1.3 s at
+/// 2^22 bits and 4.8 s at 2^23 bits, which a run can afford a few times, but 20 s at 2^24 bits,
+/// 71 s at 2^25 bits, and days at 2^32 bits. Computing and writing the value cost less (0.6 s
+/// and 1.7 s at 2^24 bits).
+pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
+
+/// The floor of the size bound on a `Bytes` result whose length is set by the value of an
+/// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see [`result_size_limit`]):
+/// 2^32 bytes, 4 GiB.
+///
+/// A `Bytes` value costs time linear in its length to build and to use (padding to 4 GiB takes
+/// seconds), so the limit is memory, not time: one application holds about three times its
+/// result (an argument copy, the result and the term built from it, about 12.6 GB at 4 GiB),
+/// and a length far beyond the machine's memory aborts the process when the allocation fails,
+/// or gets it killed while the bytes are written. 4 GiB is also the largest memory a 32-bit
+/// address space holds, so on a 64-bit host a semantics that models such a memory (a
+/// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
+/// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
+/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_RESULT_BYTES`].
+pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
+
+/// The floor of the size bound on the length of a `makeList` result, in elements (see
+/// [`result_size_limit`]): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
+/// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason, and at most
+/// [`TARGET_RESULT_BYTES`] of references.
+pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
+
+/// The most memory, in bytes, that one `Bytes` or `List` result whose length an argument's value
+/// sets may take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB,
+/// on a 32-bit target, and 2^61 bytes on a 64-bit one, where the floors bind first.
+pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
+
+// Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
+// do not build there: the target term binds below both floors.
+const _: () = assert!(
+    usize::BITS != 32
+        || (TARGET_RESULT_BYTES == 1 << 29
+            && TARGET_RESULT_BYTES < MAX_BYTES_RESULT_LEN
+            && TARGET_RESULT_BYTES / 4 < MAX_LIST_RESULT_LEN)
+);
+
+/// The most memory one result may take on a target whose largest allocation is
+/// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
+///
+/// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
+/// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB). One
+/// application holds about three times its result (see [`MAX_BYTES_RESULT_LEN`]), so a result
+/// of a quarter of the largest allocation keeps those copies within three eighths of the address
+/// space, with room for the rest of the run, and each one far from the allocation limit.
+pub(crate) const fn target_result_bytes(largest_allocation: u64) -> u64 {
+    largest_allocation.saturating_add(1) / 4
+}
+
+/// The largest result a hook computes when the result's size is set by the value of an argument
+/// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
+/// arguments and the `floor` of the result's unit: `max(floor, 2 * arguments)`.
+///
+/// The bound keeps the cost of one hook application polynomial in the size of its arguments, so
+/// it refuses only a result that is large relative to them: one that the exponent or length,
+/// written in a number of digits logarithmic in its value, makes exponentially larger than what
+/// the run already holds. Within twice the arguments' size a result is at most what one `*Int`
+/// makes from the same values (`Y *Int Y`), and `*Int` is not bounded: a program that grows a
+/// value by multiplication pays in each step for what it already built, so `Y <<Int 1`,
+/// `Y ^Int 1` and `Y ^Int 2` are computed whatever the size of `Y`, as `Y *Int 2` and
+/// `Y *Int Y` are.
+pub(crate) const fn result_size_limit(floor: u64, arguments: u64) -> u64 {
+    let relative = arguments.saturating_mul(2);
+    if relative > floor { relative } else { floor }
+}
+
+/// How the bit length of `|base| ^Int exponent` compares with `bound`, decided without computing
+/// the power where possible.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PowerSize {
+    Fits,
+    TooLarge,
+    /// Not decided without computing the power.
+    Undecided,
+}
+
+/// For `|base| >= 2` and `exponent >= 1`: whether `|base| ^Int exponent` has at most `bound` bits.
+///
+/// A positive integer `x` has `floor(log2 x) + 1` bits, so the power fits exactly when
+/// `exponent * log2 |base| < bound`. For a power of two that product is the integer
+/// `exponent * (bits - 1)`. Otherwise it is estimated in `f64` from the base's leading 64 bits:
+/// once the minimum length `(bits - 1) * exponent + 1` is within the bound, the product is below
+/// `2 * bound`, and the estimate's error (the truncated low bits, below `2^-62` in the
+/// logarithm, and a few rounding steps, each relative to `2^-52`, in the logarithm, the product
+/// and the bound's conversion) is below `bound * 2^-48`, far below the margin
+/// `max(10^-6, bound * 2^-40)`. Only an estimate within that margin of the bound is left
+/// `Undecided`, which no product of a base that is not a power of two and an exponent reaches
+/// exactly, since its logarithm is irrational.
+fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
+    let magnitude = base.magnitude();
+    let bits = magnitude.bits();
+    let Some(minimum) = (bits - 1)
+        .checked_mul(exponent)
+        .and_then(|minimum| minimum.checked_add(1))
+    else {
+        return PowerSize::TooLarge;
+    };
+    if minimum > bound {
+        return PowerSize::TooLarge;
+    }
+    if magnitude.trailing_zeros() == Some(bits - 1) {
+        // |base| = 2^(bits - 1): the power is 2^((bits - 1) * exponent), of `minimum` bits.
+        return PowerSize::Fits;
+    }
+    let dropped = bits.saturating_sub(64);
+    let leading = (magnitude >> dropped)
+        .to_u64()
+        .expect("at most 64 leading bits");
+    // An estimate whose error the margin covers (above).
+    let product = exponent as f64 * ((leading as f64).log2() + dropped as f64);
+    let bound = bound as f64;
+    let margin = (bound * 2f64.powi(-40)).max(1e-6);
+    if product < bound - margin {
+        PowerSize::Fits
+    } else if product >= bound + margin {
+        PowerSize::TooLarge
+    } else {
+        PowerSize::Undecided
+    }
+}
 
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    int_pow_within(arguments, MAX_INT_RESULT_BITS)
+}
+
+/// `^Int` with `floor` as the floor of its result bound (`result_size_limit`).
+///
+/// `domains.md` describes `^Int` as "the exponentiation of two integers", of sort `Int`, and does
+/// not declare it `total`. For a negative exponent `-n`, `b ^Int -n` is the integer `1 / b^n`
+/// exactly when `|b| = 1`: the powers of 1 and -1 have a value for every exponent, and those of
+/// any other base (0, or a magnitude of at least 2) have no integer value there, so the
+/// application is undefined.
+fn int_pow_within(arguments: &[Term], floor: u64) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if exponent.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
-    }
-    if exponent.is_zero() || base.is_one() {
+    if base.is_one() {
         return Ok(BuiltinResult::Value(int_term(BigInt::one())));
     }
-    if base.is_zero() {
-        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
-    }
     if base == -BigInt::one() {
+        // The parity of the two's complement, also for a negative exponent.
         let odd = (&exponent & BigInt::one()).is_one();
         return Ok(BuiltinResult::Value(int_term(if odd {
             -BigInt::one()
@@ -733,38 +896,52 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             BigInt::one()
         })));
     }
-    let Some(mut exponent) = exponent.to_u64() else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
-                ),
-            },
-        ));
-    };
-    if base
-        .bits()
-        .checked_mul(exponent)
-        .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
-    {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
-                ),
-            },
-        ));
+    if exponent.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
     }
+    if exponent.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::one())));
+    }
+    if base.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
+    }
+    let limit = result_size_limit(floor, base.bits().saturating_add(exponent.bits()));
+    // Described only when refused, by the operands' sizes (`describe_int`).
+    let too_large = |base: String| {
+        Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "{base} ^Int {} needs more than {limit} bits",
+                    describe_int(&exponent)
+                ),
+            },
+        ))
+    };
+    let Some(mut remaining) = exponent.to_u64() else {
+        return too_large(describe_int(&base));
+    };
+    let size = power_size(&base, remaining, limit);
+    if size == PowerSize::TooLarge {
+        return too_large(describe_int(&base));
+    }
+    // The base is squared in place below; an undecided size is checked after computing.
+    let undecided_base = (size == PowerSize::Undecided).then(|| describe_int(&base));
     let mut result = BigInt::one();
-    while exponent != 0 {
+    while remaining != 0 {
         crate::stop::check()?;
-        if exponent & 1 == 1 {
+        if remaining & 1 == 1 {
             result *= &base;
         }
-        exponent >>= 1;
-        if exponent != 0 {
+        remaining >>= 1;
+        if remaining != 0 {
             base = &base * &base;
         }
+    }
+    // Only an `Undecided` size gets here above the bound.
+    if let Some(base) = undecided_base
+        && result.bits() > limit
+    {
+        return too_large(base);
     }
     Ok(BuiltinResult::Value(int_term(result)))
 }
@@ -782,14 +959,22 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::Bottom);
     }
     let modulus = modulus.abs();
-    let (base, exponent) = if exponent.sign() == Sign::Minus {
-        let Some(inverse) = modular_inverse(&base, &modulus)? else {
+    // `A ^%Int B C` is `(A ^Int B) mod C`. For a negative exponent the power is an integer only
+    // for a base of 1 or -1 (`int_pow_within`), and otherwise undefined, and so is the remainder.
+    if exponent.sign() == Sign::Minus {
+        if !base.magnitude().is_one() {
             return Ok(BuiltinResult::Bottom);
+        }
+        let odd = (&exponent & BigInt::one()).is_one();
+        let power = if base.sign() == Sign::Minus && odd {
+            -BigInt::one()
+        } else {
+            BigInt::one()
         };
-        (inverse, -exponent)
-    } else {
-        (base, exponent)
-    };
+        return Ok(BuiltinResult::Value(int_term(
+            euclidean_modulus(power, modulus).expect("non-zero modulus"),
+        )));
+    }
     let mut base = euclidean_modulus(base, modulus.clone()).expect("non-zero modulus");
     let mut exponent = exponent;
     let mut result = BigInt::one();
@@ -806,24 +991,6 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(int_term(result % modulus)))
 }
 
-fn modular_inverse(value: &BigInt, modulus: &BigInt) -> HookResult<Option<BigInt>> {
-    let (mut old_r, mut r) = (value.clone(), modulus.clone());
-    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
-    while !r.is_zero() {
-        crate::stop::check()?;
-        let quotient = &old_r / &r;
-        (old_r, r) = (r.clone(), old_r - &quotient * r);
-        (old_s, s) = (s.clone(), old_s - quotient * s);
-    }
-    if old_r.abs() != BigInt::one() {
-        return Ok(None);
-    }
-    if old_r.sign() == Sign::Minus {
-        old_s = -old_s;
-    }
-    Ok(euclidean_modulus(old_s, modulus.clone()))
-}
-
 fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.log2", arguments, 1)?;
     let Some(value) = read_int(&arguments[0]) else {
@@ -838,6 +1005,17 @@ fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinResult> {
+    int_shift_within(hook, arguments, right, MAX_INT_RESULT_BITS)
+}
+
+/// `<<Int` (or `>>Int`, when `right`) with `floor` as the floor of a left shift's result bound
+/// (`result_size_limit`).
+fn int_shift_within(
+    hook: &str,
+    arguments: &[Term],
+    right: bool,
+    floor: u64,
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -847,10 +1025,15 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
         return Ok(BuiltinResult::Bottom);
     }
     let shifts_left = !right;
+    let limit = result_size_limit(floor, value.bits().saturating_add(amount.bits()));
     let too_large = || {
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!("{value} {}Int {amount}", if right { ">>" } else { "<<" }),
+                detail: format!(
+                    "{} <<Int {} needs more than {limit} bits",
+                    describe_int(&value),
+                    describe_int(&amount)
+                ),
             },
         ))
     };
@@ -859,7 +1042,7 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
         && amount
             .to_u64()
             .and_then(|amount| amount.checked_add(value.bits()))
-            .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
+            .is_none_or(|bits| bits > limit)
     {
         return too_large();
     }
@@ -1104,6 +1287,20 @@ pub(super) fn bool_term(value: bool) -> Term {
 
 pub(super) fn int_term(value: BigInt) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
+}
+
+/// An integer operand as a refusal or diagnostic message shows it: in decimal when it has at most
+/// 64 bits, otherwise by its size, so that a message about a value too large to compute does not
+/// cost the decimal rendering of its operands, which grows faster than linearly in their length.
+pub(crate) fn describe_int(value: &BigInt) -> String {
+    let bits = value.bits();
+    if bits <= 64 {
+        value.to_string()
+    } else if value.sign() == Sign::Minus {
+        format!("a negative {bits}-bit integer")
+    } else {
+        format!("a {bits}-bit integer")
+    }
 }
 
 pub(super) fn expect_arity(hook: &str, arguments: &[Term], expected: usize) -> HookResult<()> {
@@ -1492,6 +1689,213 @@ mod tests {
         );
     }
 
+    /// `A ^%Int B C` is `(mod (^ A B) C)` (its `smt-hook`, through which the backend states such
+    /// terms to the SMT solver): the Euclidean remainder, in [0, |C|) whatever the signs of the
+    /// power and of C. Zero C is undefined.
+    #[test]
+    fn powmod_is_the_euclidean_remainder_of_the_power() {
+        let powmod = |base: i64, exponent: i64, modulus: i64| {
+            evaluate_hook(
+                "INT.powmod",
+                &[
+                    int_term(BigInt::from(base)),
+                    int_term(BigInt::from(exponent)),
+                    int_term(BigInt::from(modulus)),
+                ],
+            )
+        };
+        for (base, exponent, modulus, expected) in [
+            (-2, 3, 5, 2),
+            (-2, 3, -5, 2),
+            (2, 3, -5, 3),
+            (-1, 1, 5, 4),
+            (-3, 2, 5, 4),
+            // A negative exponent: the powers of 1 and -1, reduced likewise.
+            (-1, -1, 5, 4),
+            (-1, -3, -7, 6),
+            (-1, -2, 7, 1),
+            (1, -5, 7, 1),
+            (1, -1, 1, 0),
+        ] {
+            assert_eq!(
+                powmod(base, exponent, modulus),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "{base} ^%Int {exponent} {modulus}"
+            );
+        }
+        assert_eq!(powmod(2, 3, 0), Ok(Ok(BuiltinResult::Bottom)));
+    }
+
+    /// From one-word arguments, a result of exactly `MAX_INT_RESULT_BITS` bits is computed and
+    /// one more bit is reported as too large, for `^Int` and `<<Int` alike.
+    #[test]
+    fn int_results_are_computed_up_to_the_result_bound() {
+        let bound = BigInt::from(MAX_INT_RESULT_BITS);
+        let too_large = |result: Stoppable<Result<BuiltinResult, BuiltinError>>| {
+            matches!(
+                result,
+                Ok(Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                )))
+            )
+        };
+        for amount in [&bound - 1u8, bound.clone()] {
+            let shifted = evaluate_hook(
+                "INT.shl",
+                &[int_term(BigInt::one()), int_term(amount.clone())],
+            );
+            let powered = evaluate_hook(
+                "INT.pow",
+                &[int_term(BigInt::from(2)), int_term(amount.clone())],
+            );
+            if amount < bound {
+                let expected = Ok(Ok(BuiltinResult::Value(int_term(
+                    BigInt::one() << amount.to_usize().unwrap(),
+                ))));
+                assert_eq!(shifted, expected, "1 <<Int {amount}");
+                assert_eq!(powered, expected, "2 ^Int {amount}");
+            } else {
+                assert!(too_large(shifted), "1 <<Int {amount}");
+                assert!(too_large(powered), "2 ^Int {amount}");
+            }
+        }
+    }
+
+    /// A refusal names an operand above 64 bits by its size, not its digits: the message of a
+    /// result too large to compute must not cost the decimal rendering of its operands, which
+    /// grows faster than linearly in their length (and was paid on every evaluation of `^Int`).
+    #[test]
+    fn a_refusal_describes_large_operands_by_their_size() {
+        let base = num_traits::pow(BigInt::from(3), 200_000);
+        let bits = base.bits();
+        let amount = BigInt::from(1_u64 << 40);
+        for (hook, operator) in [("INT.pow", "^Int"), ("INT.shl", "<<Int")] {
+            let refused = evaluate_hook(hook, &[int_term(base.clone()), int_term(amount.clone())]);
+            let Ok(Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                detail,
+            }))) = refused
+            else {
+                panic!("{hook}: {refused:?}");
+            };
+            assert!(
+                detail.starts_with(&format!("a {bits}-bit integer {operator} 1099511627776 ")),
+                "{hook}: {detail}"
+            );
+            assert!(detail.len() < 120, "{hook}: {detail}");
+        }
+        assert_eq!(describe_int(&BigInt::from(-5)), "-5");
+        assert_eq!(
+            describe_int(&-(BigInt::one() << 64u32)),
+            "a negative 65-bit integer"
+        );
+    }
+
+    /// A result is refused only when it is large relative to its arguments
+    /// (`result_size_limit`): within twice their size it is computed whatever the floor, as
+    /// `*Int` computes `Y *Int Y`; from small arguments the floor applies. A floor of 64 bits
+    /// stands for `MAX_INT_RESULT_BITS` here.
+    #[test]
+    fn results_are_bounded_relative_to_their_arguments() {
+        let floor = 64;
+        let value = |result: HookResult<BuiltinResult>| match result {
+            Ok(BuiltinResult::Value(term)) => read_int(&term),
+            _ => None,
+        };
+        let refused = |result: HookResult<BuiltinResult>| {
+            matches!(
+                result,
+                Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                ))
+            )
+        };
+        let pow = |base: &BigInt, exponent: u64| {
+            int_pow_within(
+                &[int_term(base.clone()), int_term(BigInt::from(exponent))],
+                floor,
+            )
+        };
+        let shl = |value: &BigInt, amount: u64| {
+            int_shift_within(
+                "INT.shl",
+                &[int_term(value.clone()), int_term(BigInt::from(amount))],
+                false,
+                floor,
+            )
+        };
+        // A 100-bit value, above the floor, as `*Int` can build one.
+        let y = (BigInt::one() << 99u32) + 12_345u32;
+        assert_eq!(value(pow(&y, 1)), Some(y.clone()));
+        // 200 bits, within 2 * (100 + 2); 300 bits is not.
+        assert_eq!(value(pow(&y, 2)), Some(&y * &y));
+        assert!(refused(pow(&y, 3)));
+        assert_eq!(value(shl(&y, 1)), Some(&y << 1u32));
+        // 214 bits is exactly 2 * (100 + 7), 7 being the length of the shift amount.
+        assert_eq!(value(shl(&y, 114)), Some(&y << 114u32));
+        assert!(refused(shl(&y, 115)));
+        // From one- and two-bit arguments, the floor.
+        assert_eq!(value(shl(&BigInt::one(), 63)), Some(BigInt::one() << 63u32));
+        assert!(refused(shl(&BigInt::one(), 64)));
+        assert_eq!(
+            value(pow(&BigInt::from(2), 63)),
+            Some(BigInt::one() << 63u32)
+        );
+        assert!(refused(pow(&BigInt::from(2), 64)));
+        assert!(refused(pow(&BigInt::from(3), 41)));
+        assert_eq!(
+            value(pow(&BigInt::from(3), 40)),
+            Some(num_traits::pow(BigInt::from(3), 40))
+        );
+        assert_eq!(result_size_limit(64, 10), 64);
+        assert_eq!(result_size_limit(64, 33), 66);
+        assert_eq!(result_size_limit(64, u64::MAX), u64::MAX);
+    }
+
+    /// The size of a power is decided before it is computed, so a power above the bound is
+    /// never computed only to be refused (`3 ^Int 700000` has at least 700,001 bits, below a
+    /// bound of 2^20 bits, and in fact 1,109,474, above it); and the decision agrees with the
+    /// exact length.
+    #[test]
+    fn power_size_is_decided_before_computing() {
+        let bound = 1 << 20;
+        for (base, exponent, expected) in [
+            (3, 700_000, PowerSize::TooLarge),
+            (-3, 700_000, PowerSize::TooLarge),
+            (3, 600_000, PowerSize::Fits),
+            (2, bound, PowerSize::TooLarge),
+            (2, bound - 1, PowerSize::Fits),
+            (-2, bound - 1, PowerSize::Fits),
+            (4, bound / 2, PowerSize::TooLarge),
+            (4, bound / 2 - 1, PowerSize::Fits),
+        ] {
+            assert_eq!(
+                power_size(&BigInt::from(base), exponent, bound),
+                expected,
+                "{base} ^Int {exponent}"
+            );
+        }
+        // log2 of 3 * 2^199 + 12345 is about 200.585: 5227 * 200.585 < 2^20 < 5228 * 200.585,
+        // and both exponents pass the minimum-length check (200 * 5228 + 1 < 2^20).
+        let large_base = (BigInt::from(3) << 199u32) + 12_345u32;
+        assert_eq!(power_size(&large_base, 5_228, bound), PowerSize::TooLarge);
+        assert_eq!(power_size(&large_base, 5_227, bound), PowerSize::Fits);
+        // Against the exact length, for small bounds: a decided answer is never wrong.
+        for bound in [8u64, 63, 64, 65, 200, 1000] {
+            for base in 2u32..300 {
+                for exponent in 1u32..80 {
+                    let bits = BigInt::from(base).pow(exponent).bits();
+                    match power_size(&BigInt::from(base), u64::from(exponent), bound) {
+                        PowerSize::Fits => assert!(bits <= bound, "{base}^{exponent} {bound}"),
+                        PowerSize::TooLarge => assert!(bits > bound, "{base}^{exponent} {bound}"),
+                        PowerSize::Undecided => {
+                            panic!("{base}^{exponent} against {bound} left undecided")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// `domains.md`: shifting by a negative quantity is `#False`, in either direction and
     /// whatever the shifted value; it is not a shift the other way.
     #[test]
@@ -1710,13 +2114,43 @@ mod tests {
                 exponent_bits: 8,
             }))
         );
-        assert_eq!(
-            evaluate_hook("FLOAT.sign", &[float_term("not-a-float")]),
-            Ok(Err(BuiltinError::InvalidFloatToken {
-                hook: "FLOAT.sign".into(),
-                token: "not-a-float".into(),
-            }))
-        );
+        // A Float domain value names an element in FLOAT-SYNTAX only; spellings that general
+        // float parsers also read name none.
+        for token in [
+            "not-a-float",
+            "inf",
+            "inff",
+            "-infinity",
+            "nan",
+            "-NaN",
+            "-.5",
+            " 1.0",
+            "1.0 ",
+            "1e",
+            "0x1p3",
+        ] {
+            assert_eq!(
+                evaluate_hook("FLOAT.sign", &[float_term(token)]),
+                Ok(Err(BuiltinError::InvalidFloatToken {
+                    hook: "FLOAT.sign".into(),
+                    token: token.into(),
+                })),
+                "{token:?}"
+            );
+        }
+        for (token, negative) in [
+            ("+Infinity", false),
+            ("-Infinityf", true),
+            ("-0.5e-3d", true),
+            (".5p24x8", false),
+            ("7.", false),
+        ] {
+            assert_eq!(
+                evaluate_hook("FLOAT.sign", &[float_term(token)]),
+                Ok(Ok(BuiltinResult::Value(bool_term(negative)))),
+                "{token:?}"
+            );
+        }
 
         let symbolic = Term::variable(Variable::new("F", Sort::simple("SortFloat")));
         assert_eq!(
@@ -1782,8 +2216,11 @@ mod tests {
         }
     }
 
+    /// `rootFloat(F, 2)` is the root of degree 2, IEEE 754 rootn(F, 2): the square root, except
+    /// that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
+    /// `rootFloat(F, 2)`). Other degrees are not implemented.
     #[test]
-    fn float_root_uses_native_ieee_square_root_only_for_degree_two() {
+    fn float_root_of_degree_two_is_the_ieee_even_root() {
         let cases = [
             ("4.0f", "2.00000000e+00p24x8"),
             ("2.0", "1.4142135623730951e+00p53x11"),
@@ -1792,7 +2229,8 @@ mod tests {
             ("Infinityf", "Infinityp24x8"),
             ("-Infinity", "NaNp53x11"),
             ("0.0", "0e+00p53x11"),
-            ("-0.0f", "-0e+00p24x8"),
+            ("-0.0f", "0e+00p24x8"),
+            ("-0.0", "0e+00p53x11"),
         ];
         for (value, expected) in cases {
             assert_eq!(
@@ -1964,20 +2402,28 @@ mod tests {
         }
 
         let float_to_int_cases = [
-            ("10.5", Some(10)),
-            ("11.5", Some(12)),
-            ("-10.5f", Some(-10)),
-            ("1.40129846e-45p24x8", Some(0)),
-            ("Infinity", None),
-            ("NaNf", None),
+            ("10.5", 10),
+            ("11.5", 12),
+            ("-10.5f", -10),
+            ("1.40129846e-45p24x8", 0),
         ];
         for (value, expected) in float_to_int_cases {
-            let expected = expected.map_or(BuiltinResult::Bottom, |expected| {
-                BuiltinResult::Value(int_term(BigInt::from(expected)))
-            });
             assert_eq!(
                 evaluate_hook("FLOAT.float2int", &[float_term(value)]),
-                Ok(Ok(expected)),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "float2int({value})"
+            );
+        }
+        // `Float2Int` is total, and NaN and the infinities have no nearest integer: the value
+        // there is not given by the definition.
+        for value in ["Infinity", "-Infinityf", "NaNf", "NaN"] {
+            assert!(
+                matches!(
+                    evaluate_hook("FLOAT.float2int", &[float_term(value)]),
+                    Ok(Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    )))
+                ),
                 "float2int({value})"
             );
         }
@@ -2012,7 +2458,7 @@ mod tests {
             ("INT.ediv", &[-5, -3][..], 2),
             ("INT.emod", &[-5, -3][..], 1),
             ("INT.pow", &[2, 10][..], 1_024),
-            ("INT.powmod", &[3, -1, 7][..], 5),
+            ("INT.powmod", &[-1, -1, 7][..], 6),
             ("INT.log2", &[1_024][..], 10),
             ("INT.and", &[6, 3][..], 2),
             ("INT.or", &[4, 3][..], 7),
@@ -2035,6 +2481,33 @@ mod tests {
         );
     }
 
+    /// `b ^Int -n` is the integer `1 / b^n` exactly when `|b| = 1`, so the powers of 1 and -1
+    /// have values for every exponent (and those of other bases are undefined, in
+    /// `undefined_integer_operations_are_bottom`).
+    #[test]
+    fn unit_bases_have_a_power_for_every_exponent() {
+        for (base, exponent, expected) in [
+            (1, -1, 1),
+            (1, -7, 1),
+            (-1, -1, -1),
+            (-1, -2, 1),
+            (-1, -3, -1),
+            (-1, 0, 1),
+            (1, 0, 1),
+        ] {
+            assert_eq!(
+                evaluate_int("INT.pow", &[base, exponent]),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "{base} ^Int {exponent}"
+            );
+        }
+        let huge = -(BigInt::one() << 100u32) - 1u8;
+        assert_eq!(
+            evaluate_hook("INT.pow", &[int_term(-BigInt::one()), int_term(huge)]),
+            Ok(Ok(BuiltinResult::Value(int_term(-BigInt::one()))))
+        );
+    }
+
     #[test]
     fn undefined_integer_operations_are_bottom() {
         assert_eq!(
@@ -2046,6 +2519,14 @@ mod tests {
             Ok(Ok(BuiltinResult::Bottom))
         );
         assert_eq!(
+            evaluate_int("INT.pow", &[0, -1]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
+            evaluate_int("INT.pow", &[-3, -2]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
             evaluate_int("INT.log2", &[0]),
             Ok(Ok(BuiltinResult::Bottom))
         );
@@ -2053,6 +2534,15 @@ mod tests {
             evaluate_int("INT.powmod", &[2, -1, 4]),
             Ok(Ok(BuiltinResult::Bottom))
         );
+        // `(A ^Int B) mod C` has no value where `A ^Int B` has none, even where A is invertible
+        // modulo C.
+        for (base, exponent, modulus) in [(3, -1, 7), (2, -1, 7), (-2, -3, 7), (0, -1, 5)] {
+            assert_eq!(
+                evaluate_int("INT.powmod", &[base, exponent, modulus]),
+                Ok(Ok(BuiltinResult::Bottom)),
+                "{base} ^%Int {exponent} {modulus}"
+            );
+        }
     }
 
     #[test]

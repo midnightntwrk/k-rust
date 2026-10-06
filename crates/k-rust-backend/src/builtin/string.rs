@@ -26,7 +26,8 @@ pub(super) fn evaluate(
         "STRING.concat" => concatenate(arguments),
         "STRING.substr" => substring(arguments),
         "STRING.length" => length(arguments),
-        "STRING.find" => find(arguments),
+        "STRING.find" => find(arguments, false),
+        "STRING.rfind" => find(arguments, true),
         "STRING.string2base" => string_to_base(arguments),
         "STRING.base2string" => base_to_string(arguments),
         "STRING.string2int" => string_to_int(arguments),
@@ -68,6 +69,11 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
+/// `substrString(S, START, END)` is the code points of S in `[START..END)` when
+/// `0 <= START <= END <= lengthString(S)`. `domains.md` declares it `total` but says it is "only
+/// defined on valid indices", so outside them it has a value the definition does not give: the
+/// application is left unevaluated (`Unspecified`). Valid indices include `START == END`, which
+/// the `domains.md` equations of `replaceFirst`, `findChar` and `countAllOccurrences` use.
 fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.substr", arguments, 3)?;
     let Some(value) = read_string_bytes(&arguments[0]) else {
@@ -76,25 +82,36 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let start = saturating_i64(&start);
-    let end = saturating_i64(&end);
-    let start_unit = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    let count = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
-    let end_unit = start_unit.saturating_add(count);
-    // Unit indices past the end clamp to the end of the value.
-    let mut start_index = value.len();
-    let mut end_index = value.len();
-    for (unit, offset) in code_point_units(value).enumerate() {
-        if unit == start_unit {
-            start_index = offset;
-        }
-        if unit == end_unit {
-            end_index = offset;
-            break;
+    // The byte offsets at which code points `start` and `end` begin, the end of the value
+    // being where the code point after the last would begin; scanning stops at `end`.
+    let mut offsets = (None, None);
+    if start.sign() != Sign::Minus
+        && start <= end
+        && let (Some(start), Some(end)) = (start.to_usize(), end.to_usize())
+    {
+        let boundaries = code_point_units(value).chain(std::iter::once(value.len()));
+        for (unit, offset) in boundaries.enumerate() {
+            if unit == start {
+                offsets.0 = Some(offset);
+            }
+            if unit == end {
+                offsets.1 = Some(offset);
+                break;
+            }
         }
     }
+    let (Some(start_offset), Some(end_offset)) = offsets else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "substrString from {start} to {end} on a string of length {}, outside the valid indices 0 <= start <= end <= length",
+                    code_point_units(value).count()
+                ),
+            },
+        ));
+    };
     Ok(BuiltinResult::Value(string_term(
-        value[start_index..end_index].to_vec(),
+        value[start_offset..end_offset].to_vec(),
     )))
 }
 
@@ -108,8 +125,18 @@ fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     ))))
 }
 
-fn find(arguments: &[Term]) -> HookResult<BuiltinResult> {
-    expect_arity("STRING.find", arguments, 3)?;
+/// `findString(S, N, I)` is the first occurrence of N in S starting at or after code point I,
+/// and `rfindString(S, N, I)` the last starting at or before it, -1 when there is none; both are
+/// defined for every integer I (`domains.md`: "starting at a certain index"). A negative I
+/// searches `find` from 0 and leaves `rfind` nothing; an I past the end leaves `find` nothing
+/// and searches `rfind` from the end.
+fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
+    let hook = if reverse {
+        "STRING.rfind"
+    } else {
+        "STRING.find"
+    };
+    expect_arity(hook, arguments, 3)?;
     let Some((haystack, needle)) =
         read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
     else {
@@ -118,34 +145,42 @@ fn find(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(start) = read_int(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    if reverse && start.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Value(int_term(BigInt::from(-1))));
+    }
     let start = saturating_i64(&start);
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    // `boundary[offset]` holds when a unit of the haystack starts at `offset`; the end of the
-    // haystack is a boundary too. A match must start and end on a boundary, so it covers whole
-    // units of the haystack, and those units are exactly the units of the needle: the unit
-    // decomposition from a boundary depends only on the bytes that follow it.
+    // `starts[unit]` is the byte offset at which code point `unit` starts, and `boundary[offset]`
+    // holds when a unit of the haystack starts at `offset`; the end of the haystack is both. A
+    // match must start and end on a boundary, so it covers whole units of the haystack, and
+    // those units are exactly the units of the needle: the unit decomposition from a boundary
+    // depends only on the bytes that follow it.
+    let mut starts = code_point_units(haystack).collect::<Vec<_>>();
+    let units = starts.len();
+    starts.push(haystack.len());
     let mut boundary = vec![false; haystack.len() + 1];
-    boundary[haystack.len()] = true;
-    let mut units = 0_usize;
-    for offset in code_point_units(haystack) {
-        boundary[offset] = true;
-        units += 1;
+    for offset in &starts {
+        boundary[*offset] = true;
     }
-    let found = if needle.is_empty() {
-        (start <= units).then_some(start)
-    } else {
-        let mut found = None;
-        for (unit, offset) in code_point_units(haystack).enumerate().skip(start) {
-            if unit % 1024 == 0 {
-                crate::stop::check()?;
-            }
-            if haystack[offset..].starts_with(needle) && boundary[offset + needle.len()] {
-                found = Some(unit);
-                break;
-            }
-        }
-        found
+    let occurs_at = |unit: usize| {
+        let offset = starts[unit];
+        haystack[offset..].starts_with(needle) && boundary[offset + needle.len()]
     };
+    let candidates: Box<dyn Iterator<Item = usize>> = if reverse {
+        Box::new((0..=start.min(units)).rev())
+    } else {
+        Box::new(start.min(units + 1)..=units)
+    };
+    let mut found = None;
+    for (step, unit) in candidates.enumerate() {
+        if step % 1024 == 0 {
+            crate::stop::check()?;
+        }
+        if occurs_at(unit) {
+            found = Some(unit);
+            break;
+        }
+    }
     Ok(BuiltinResult::Value(int_term(BigInt::from(
         found
             .and_then(|index| i64::try_from(index).ok())
@@ -191,9 +226,8 @@ fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let base = match read_base(&base) {
-        Ok(base) => base,
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
+    let Some(base) = read_base(&base) else {
+        return Ok(BuiltinResult::Bottom);
     };
     Ok(parse_integer(value, base)
         .map(int_term)
@@ -219,9 +253,8 @@ fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let base = match read_base(&base) {
-        Ok(base) => base,
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
+    let Some(base) = read_base(&base) else {
+        return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))
 }
@@ -244,38 +277,77 @@ fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(value.to_string())))
 }
 
+/// `chrChar(N)` is the string of the one code point N. A number outside the code points
+/// `[0, 0x10FFFF]` is no character, so `chrChar` of one has no value: it is undefined (the hook
+/// is partial).
+///
+/// A surrogate code point (U+D800 to U+DFFF) is left `Unspecified`: K's string syntax writes one
+/// (`\uFFFF` is "a code point between 0x0000 and 0xffff"), and KORE's string literals, in which
+/// every `String` domain value is written, cannot. The definition does not settle whether a
+/// String holds one, so neither a value nor `\bottom` follows from it; the unevaluated
+/// application denotes whichever it is.
 fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.chr", arguments, 1)?;
     // A symbolic code point may be valid on some instances and invalid on others.
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(value) = value.to_u32() else {
+    let Some(value) = value.to_u32().filter(|value| *value <= 0x10ffff) else {
         return Ok(BuiltinResult::Bottom);
     };
-    if (0xd800..=0xdfff).contains(&value) {
-        return Ok(BuiltinResult::Value(string_term('\u{fffd}'.to_string())));
-    }
-    Ok(char::from_u32(value)
-        .map(|value| string_term(value.to_string()))
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    Ok(char::from_u32(value).map_or_else(
+        || {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "chrChar({value}): a surrogate code point, which K's string syntax writes \
+                     and KORE's string literals cannot"
+                ),
+            })
+        },
+        |value| BuiltinResult::Value(string_term(value.to_string())),
+    ))
 }
 
+/// `ordChar(S)` is the number of the one code point of S, undefined for any other length. A
+/// stored byte that starts no UTF-8 sequence is one code point (`code_point_units`): the one a
+/// `\xNN` escape writes, which both K's string syntax and the KORE language specification make
+/// U+00NN, so its number is the byte's value.
 fn ord(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.ord", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut characters = value.chars();
-    let Some(character) = characters.next() else {
+    let mut units = code_point_units(value);
+    let (Some(start), None) = (units.next(), units.next()) else {
         return Ok(BuiltinResult::Bottom);
     };
-    if characters.next().is_some() {
-        return Ok(BuiltinResult::Bottom);
-    }
+    debug_assert_eq!(start, 0);
     Ok(BuiltinResult::Value(int_term(BigInt::from(
-        character as u32,
+        code_point_number(value),
     ))))
+}
+
+/// The number of the code point that the bytes of one unit (`code_point_units`) store.
+pub(super) fn code_point_number(unit: &[u8]) -> u32 {
+    match std::str::from_utf8(unit) {
+        Ok(character) => u32::from(
+            character
+                .chars()
+                .next()
+                .expect("a unit holds one code point"),
+        ),
+        Err(_) => u32::from(unit[0]),
+    }
+}
+
+/// The stored bytes of each code point of a `String` value (see `code_point_units`).
+pub(super) fn code_points(value: &[u8]) -> impl Iterator<Item = &[u8]> + '_ {
+    let mut starts = code_point_units(value).peekable();
+    std::iter::from_fn(move || {
+        let start = starts.next()?;
+        let end = starts.peek().copied().unwrap_or(value.len());
+        Some(&value[start..end])
+    })
 }
 
 fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -303,12 +375,11 @@ fn string_to_token(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult
     )))
 }
 
-fn read_base(base: &BigInt) -> Result<u32, UnsupportedHookReason> {
-    base.to_u32()
-        .filter(|base| (2..=36).contains(base))
-        .ok_or_else(|| UnsupportedHookReason::ArgumentOutOfRange {
-            detail: format!("base {base} is outside 2..36"),
-        })
+/// The radix of `String2Base` and `Base2String`. `domains.md` says it "can be anywhere between 2
+/// and 36" and gives the digits of exactly those radixes; both hooks are partial, so outside that
+/// range there is no conversion the definition describes, and the application is undefined.
+fn read_base(base: &BigInt) -> Option<u32> {
+    base.to_u32().filter(|base| (2..=36).contains(base))
 }
 
 fn saturating_i64(value: &BigInt) -> i64 {
@@ -371,7 +442,7 @@ mod tests {
 
     #[test]
     fn a_character_is_one_code_point_long() {
-        for code_point in [233, 0xd800, 0x1f980] {
+        for code_point in [233, 0xd7ff, 0xe000, 0x1f980] {
             let BuiltinResult::Value(character) =
                 evaluate("STRING.chr", vec![int_term(code_point.into())])
             else {
@@ -510,15 +581,11 @@ mod tests {
         );
     }
 
+    /// `substrString` has its value on `0 <= start <= end <= length`, including empty ranges, and
+    /// a value the definition leaves open elsewhere, so it is left unevaluated there.
     #[test]
-    fn substr_follows_kore_take_and_drop() {
-        for (start, end, expected) in [
-            (-2, 3, "hello"),
-            (1, 10, "ello"),
-            (3, 1, ""),
-            (-3, -1, "he"),
-            (0, 0, ""),
-        ] {
+    fn substr_is_unspecified_outside_valid_indices() {
+        for (start, end, expected) in [(0, 0, ""), (5, 5, ""), (1, 3, "el"), (0, 5, "hello")] {
             assert_eq!(
                 evaluate(
                     "STRING.substr",
@@ -532,38 +599,60 @@ mod tests {
                 "substrString(hello, {start}, {end})"
             );
         }
-
         let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
-        assert_eq!(
-            evaluate(
-                "STRING.substr",
-                vec![
-                    string_term("hello"),
-                    int_term(-&beyond_i64),
-                    int_term(beyond_i64.clone()),
-                ],
-            ),
-            BuiltinResult::Value(string_term("hello"))
-        );
-        assert_eq!(
-            evaluate(
-                "STRING.substr",
-                vec![
-                    string_term("hello"),
-                    int_term(beyond_i64.clone()),
-                    int_term(beyond_i64),
-                ],
-            ),
-            BuiltinResult::Value(string_term(""))
-        );
+        for (start, end) in [
+            (BigInt::from(-2), BigInt::from(3)),
+            (BigInt::from(1), BigInt::from(10)),
+            (BigInt::from(3), BigInt::from(1)),
+            (BigInt::from(-3), BigInt::from(-1)),
+            (BigInt::from(6), BigInt::from(6)),
+            (-&beyond_i64, beyond_i64.clone()),
+            (beyond_i64.clone(), beyond_i64.clone()),
+        ] {
+            assert!(
+                matches!(
+                    evaluate(
+                        "STRING.substr",
+                        vec![
+                            string_term("hello"),
+                            int_term(start.clone()),
+                            int_term(end.clone())
+                        ],
+                    ),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "substrString(hello, {start}, {end})"
+            );
+        }
     }
 
+    /// A number outside the code points is no character, so `chrChar` of one is undefined.
+    /// Whether a String holds a surrogate code point the definition does not settle (K's string
+    /// syntax writes one, KORE's literals cannot), so `chrChar` of one stays unevaluated as
+    /// `Unspecified`. `ordChar(chrChar(N)) == N` wherever `chrChar(N)` is computed.
     #[test]
-    fn chr_replaces_surrogates_and_rejects_out_of_range() {
-        assert_eq!(
-            evaluate("STRING.chr", vec![int_term(55296.into())]),
-            BuiltinResult::Value(string_term("\u{fffd}"))
-        );
+    fn chr_of_a_surrogate_is_unspecified_and_of_a_non_code_point_undefined() {
+        for code_point in [0xd800, 0xdbff, 0xdc00, 0xdfff] {
+            assert!(
+                matches!(
+                    evaluate("STRING.chr", vec![int_term(code_point.into())]),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "chrChar({code_point})"
+            );
+        }
+        for code_point in [0, 0xd7ff, 0xe000, 0x10ffff] {
+            let BuiltinResult::Value(character) =
+                evaluate("STRING.chr", vec![int_term(code_point.into())])
+            else {
+                panic!("chrChar({code_point}) is defined");
+            };
+            assert_eq!(
+                evaluate("STRING.ord", vec![character]),
+                BuiltinResult::Value(int_term(code_point.into())),
+                "ordChar(chrChar({code_point}))"
+            );
+        }
         assert_eq!(
             evaluate("STRING.chr", vec![int_term((-1).into())]),
             BuiltinResult::Bottom
@@ -575,6 +664,67 @@ mod tests {
         assert_eq!(
             evaluate("STRING.chr", vec![int_term(0x1f980.into())]),
             BuiltinResult::Value(string_term("🦀"))
+        );
+    }
+
+    /// A stored byte that starts no UTF-8 sequence is the code point of the same number, the one
+    /// a `\xNN` escape writes; a string of more or fewer than one code point has no `ordChar`.
+    #[test]
+    fn ord_of_a_raw_byte_is_its_value() {
+        for (bytes, expected) in [(vec![0xe9], 233), (vec![0x80], 128), (vec![0xff], 255)] {
+            assert_eq!(
+                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                BuiltinResult::Value(int_term(BigInt::from(expected))),
+                "ordChar({bytes:x?})"
+            );
+        }
+        assert_eq!(
+            evaluate("STRING.ord", vec![string_term("é")]),
+            BuiltinResult::Value(int_term(BigInt::from(233)))
+        );
+        for bytes in [vec![0xff, 0xfe], vec![0xff, b'a'], vec![]] {
+            assert_eq!(
+                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                BuiltinResult::Bottom,
+                "ordChar({bytes:x?})"
+            );
+        }
+    }
+
+    /// `String2Id` (`STRING.string2token`) is the token of the application's sort whose text is
+    /// the string, and `Id2String` (`STRING.token2string`) reads a token's text back; without the
+    /// result sort, or on a string the hook cannot read, the application is not decided.
+    #[test]
+    fn string2token_builds_a_token_of_the_result_sort() {
+        let id = Sort::simple("SortId");
+        for text in ["x", "_42"] {
+            let token =
+                super::evaluate("STRING.string2token", &[string_term(text)], Some(&id)).unwrap();
+            assert_eq!(
+                token,
+                BuiltinResult::Value(Term::domain_value(id.clone(), text)),
+                "String2Id({text:?})"
+            );
+            let BuiltinResult::Value(token) = token else {
+                unreachable!()
+            };
+            assert_eq!(
+                evaluate("STRING.token2string", vec![token]),
+                BuiltinResult::Value(string_term(text)),
+                "Id2String(String2Id({text:?}))"
+            );
+        }
+        assert_eq!(
+            evaluate("STRING.string2token", vec![string_term("x")]),
+            BuiltinResult::NotApplicable
+        );
+        let symbolic = Term::variable(crate::term::Variable::new(
+            "S",
+            Sort::builtin(BuiltinSort::String),
+        ));
+        assert_eq!(
+            super::evaluate("STRING.string2token", &[symbolic], Some(&id)).unwrap(),
+            BuiltinResult::NotApplicable
         );
     }
 
@@ -591,9 +741,18 @@ mod tests {
         );
     }
 
+    /// `findString` is the first occurrence starting at or after its index, whatever the index:
+    /// a negative one searches from 0, one past the end finds nothing.
     #[test]
-    fn find_keeps_domains_md_indices() {
-        for (needle, start, expected) in [("l", 1, 2), ("l", 3, 3), ("", 5, 5), ("", 6, -1)] {
+    fn find_searches_forward_from_any_index() {
+        for (needle, start, expected) in [
+            ("l", 1, 2),
+            ("l", 3, 3),
+            ("", 5, 5),
+            ("", 6, -1),
+            ("l", -5, 2),
+            ("", -1, 0),
+        ] {
             assert_eq!(
                 evaluate(
                     "STRING.find",
@@ -629,18 +788,73 @@ mod tests {
         );
     }
 
+    /// `rfindString` is the last occurrence starting at or before its index, whatever the index:
+    /// none for a negative one, the last in the string for one past the end.
     #[test]
-    fn bases_outside_two_through_thirty_six_are_unsupported() {
+    fn rfind_searches_back_from_any_index() {
+        let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
+        for (haystack, needle, start, expected) in [
+            ("hello", "l", BigInt::from(4), 3),
+            ("hello", "l", BigInt::from(2), 2),
+            ("hello", "l", BigInt::from(1), -1),
+            ("hello", "l", BigInt::from(100), 3),
+            ("hello", "l", beyond_i64.clone(), 3),
+            ("hello", "", BigInt::from(3), 3),
+            ("hello", "", beyond_i64.clone(), 5),
+            ("hello", "h", BigInt::from(-1), -1),
+            ("hello", "", -beyond_i64.clone(), -1),
+            ("a🦀é🦀", "🦀", BigInt::from(2), 1),
+            ("a🦀é🦀", "🦀", BigInt::from(3), 3),
+            ("", "", BigInt::from(0), 0),
+        ] {
+            assert_eq!(
+                evaluate(
+                    "STRING.rfind",
+                    vec![
+                        string_term(haystack),
+                        string_term(needle),
+                        int_term(start.clone())
+                    ],
+                ),
+                BuiltinResult::Value(int_term(expected.into())),
+                "rfindString({haystack:?}, {needle:?}, {start})"
+            );
+        }
+        // The lead byte of "é" alone is a unit of its own and does not occur inside "é".
+        assert_eq!(
+            evaluate(
+                "STRING.rfind",
+                vec![
+                    string_term("é"),
+                    string_term(vec![0xc3]),
+                    int_term(1.into())
+                ]
+            ),
+            BuiltinResult::Value(int_term(BigInt::from(-1)))
+        );
+    }
+
+    /// The radix "can be anywhere between 2 and 36" (`domains.md`), and both hooks are partial:
+    /// outside that range the conversion is undefined, in both directions.
+    #[test]
+    fn bases_outside_two_through_thirty_six_are_undefined() {
         for (hook, value) in [
-            ("STRING.string2base", string_term("ff")),
+            ("STRING.string2base", string_term("11")),
             ("STRING.base2string", int_term(255.into())),
         ] {
-            for base in [1, 37] {
+            for base in [-2_i64, 0, 1, 37, 1 << 40] {
                 assert_eq!(
                     evaluate(hook, vec![value.clone(), int_term(base.into())]),
-                    BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
-                        detail: format!("base {base} is outside 2..36"),
-                    }),
+                    BuiltinResult::Bottom,
+                    "{hook} base {base}"
+                );
+            }
+            for base in [2, 36] {
+                assert!(
+                    matches!(
+                        evaluate(hook, vec![value.clone(), int_term(base.into())]),
+                        BuiltinResult::Value(_)
+                    ),
                     "{hook} base {base}"
                 );
             }
@@ -669,5 +883,18 @@ mod tests {
         }
         assert_eq!(to_base("f_f", 16), BuiltinResult::Bottom);
         assert_eq!(to_base("12", 2), BuiltinResult::Bottom);
+        // A radix numeral carries the sign of `String2Int`'s syntax, so that `String2Base` reads
+        // back every `Base2String`, negative ones included.
+        assert_eq!(
+            to_base("+fF", 16),
+            BuiltinResult::Value(int_term(255.into()))
+        );
+        assert_eq!(
+            to_base("-z", 36),
+            BuiltinResult::Value(int_term((-35).into()))
+        );
+        for text in ["+", "-", "+-1", "--1", "1-"] {
+            assert_eq!(to_base(text, 16), BuiltinResult::Bottom, "{text:?}");
+        }
     }
 }

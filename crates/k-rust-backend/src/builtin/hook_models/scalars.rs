@@ -72,14 +72,14 @@ fn text(draw: &mut Draw<'_>, env: &mut Env, most: usize) -> Term {
 }
 
 /// A numeral-like string: an optional sign and digits of several bases, sometimes with a
-/// character no base accepts.
+/// character no base accepts, such as a `_` separator.
 fn numeral(draw: &mut Draw<'_>) -> Vec<u8> {
     let mut value = Vec::new();
     if draw.chance(3) {
         value.push(draw.pick(b"-+"));
     }
     for _ in 0..draw.below(5) {
-        value.push(draw.pick(b"0179afzAFZ -."));
+        value.push(draw.pick(b"0179afzAFZ -._"));
     }
     if draw.chance(1) {
         value.extend(draw.pick(&PIECES));
@@ -317,25 +317,27 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
     use Val::{Bytes, Int, Str, Tag};
     match (hook, arguments) {
         ("BYTES.empty", []) => Spec::value(Bytes(Vec::new())),
-        // Each byte is the code point of the same number.
+        // Each byte is the code point of the same number (the chosen reading; `domains.md` names
+        // no encoding for the pair).
         ("BYTES.bytes2string", [Bytes(bytes)]) => Spec::value(Str(bytes
             .iter()
             .map(|byte| char::from(*byte))
             .collect::<String>()
             .into_bytes())),
-        ("BYTES.string2bytes", [Str(text)]) => match std::str::from_utf8(text) {
-            Ok(text) => text
-                .chars()
-                .map(|character| u8::try_from(u32::from(character)).ok())
-                .collect::<Option<Vec<_>>>()
-                .map_or_else(
-                    // `String2Bytes` is total, but no byte is a code point above 255, and
-                    // the documentation does not say what such a character becomes.
-                    Spec::open,
-                    |bytes| Spec::value(Bytes(bytes)),
-                ),
-            Err(_) => Spec::open(),
-        },
+        // The code point of each unit, a raw byte standing for U+00NN, as one byte.
+        ("BYTES.string2bytes", [Str(text)]) => units(text)
+            .into_iter()
+            .map(|unit| match std::str::from_utf8(unit) {
+                Ok(character) => u8::try_from(u32::from(character.chars().next().unwrap())).ok(),
+                Err(_) => Some(unit[0]),
+            })
+            .collect::<Option<Vec<_>>>()
+            .map_or_else(
+                // `String2Bytes` is total, but no byte is a code point above 255, so the
+                // documentation gives no value for such a string.
+                Spec::unspecified,
+                |bytes| Spec::value(Bytes(bytes)),
+            ),
         ("BYTES.decodeBytes", [Str(encoding), Bytes(bytes)]) => {
             match decode_text(std::str::from_utf8(encoding).unwrap(), bytes) {
                 Some(text) => Spec::partial(text.map(|text| Str(text.into_bytes()))),
@@ -388,9 +390,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                     bytes[index..index + source.len()].copy_from_slice(source);
                     Spec::value(Bytes(bytes))
                 }
-                // An empty source replaces nothing; whether an index past the end is then
-                // valid is not documented.
-                None if source.is_empty() && index.is_positive() => Spec::open(),
+                // `#False` unless the replaced range lies inside the value, an empty one too.
                 None => Spec::bottom(),
             }
         }
@@ -412,8 +412,8 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
         ("BYTES.concat", [Bytes(left), Bytes(right)]) => {
             Spec::value(Bytes(left.iter().chain(right).copied().collect()))
         }
-        // The value modulo 256^length (two's complement, truncated), in the byte order. The
-        // documentation gives no meaning to a negative length.
+        // The value modulo 256^length (two's complement, truncated), in the byte order. No
+        // Bytes has a negative length, and the hook is total: that value is unspecified.
         ("BYTES.int2bytes", [Int(length), Int(value), Tag(order)]) => match length.to_usize() {
             Some(length) => {
                 let modulus = BigInt::from(1_u8) << (8 * length);
@@ -428,6 +428,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                 }
                 Spec::value(Bytes(bytes))
             }
+            None if length.is_negative() => Spec::unspecified(),
             None => Spec::open(),
         },
         ("BYTES.bytes2int", [Bytes(bytes), Tag(order), Tag(signedness)]) => {
@@ -459,7 +460,7 @@ fn bytes_hooks_agree_with_a_byte_vector_model() {
 // ---------------------------------------------------------------------------------------------
 // STRING
 
-const STRING_HOOKS: [&str; 17] = [
+const STRING_HOOKS: [&str; 18] = [
     "STRING.eq",
     "STRING.ne",
     "STRING.lt",
@@ -470,6 +471,7 @@ const STRING_HOOKS: [&str; 17] = [
     "STRING.substr",
     "STRING.length",
     "STRING.find",
+    "STRING.rfind",
     "STRING.string2base",
     "STRING.base2string",
     "STRING.string2int",
@@ -526,7 +528,7 @@ fn string_case(draw: &mut Draw<'_>) -> Case {
                 draw.int(end, env),
             ]
         }
-        "STRING.find" => {
+        "STRING.find" | "STRING.rfind" => {
             let haystack = text_value(draw, 5);
             let haystack_units = units(&haystack);
             // A needle taken from the haystack half of the time, or a prefix of one of its
@@ -668,8 +670,8 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             Spec::value(Str(left.iter().chain(right).copied().collect()))
         }
         ("STRING.length", [Str(value)]) => Spec::value(Val::int(units(value).len())),
-        // `[startIndex..endIndex)`, defined on valid indices. The symbol is also declared
-        // total, so outside them the documentation is contradictory and the result is open.
+        // `[startIndex..endIndex)` on valid indices `0 <= start <= end <= length`. The symbol
+        // is declared total, so outside them it has a value the documentation does not give.
         ("STRING.substr", [Str(value), Int(start), Int(end)]) => {
             let units = units(value);
             match at_most(end, units.len())
@@ -677,28 +679,36 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                 .filter(|(end, start)| start <= end)
             {
                 Some((end, start)) => Spec::value(Str(units[start..end].concat())),
-                None => Spec::open(),
+                None => Spec::unspecified(),
             }
         }
-        // The first occurrence at or after `index`, in code points; -1 if there is none. A
-        // negative `index` is not documented.
-        ("STRING.find", [Str(haystack), Str(needle), Int(start)]) => {
-            let Some(start) = start.to_usize() else {
-                return if start.is_negative() {
-                    Spec::open()
-                } else {
-                    Spec::value(Val::int(-1))
-                };
-            };
+        // The first occurrence at or after `index` (`find`), or the last at or before it
+        // (`rfind`), in code points; -1 if there is none. Every integer index is one: the
+        // candidates are the code point positions on that side of it.
+        ("STRING.find" | "STRING.rfind", [Str(haystack), Str(needle), Int(start)]) => {
             let units = units(haystack);
-            let found = (start..=units.len())
-                .find(|&from| (from..=units.len()).any(|to| units[from..to].concat() == *needle));
+            let occurs =
+                |from: usize| (from..=units.len()).any(|to| units[from..to].concat() == *needle);
+            let positions = (0..=units.len()).filter(|&from| {
+                let from = BigInt::from(from);
+                if hook == "STRING.find" {
+                    from >= *start
+                } else {
+                    from <= *start
+                }
+            });
+            let found = if hook == "STRING.find" {
+                positions.into_iter().find(|&from| occurs(from))
+            } else {
+                positions.into_iter().rfind(|&from| occurs(from))
+            };
             Spec::value(Val::int(found.map_or(-1, |found| found as i64)))
         }
         ("STRING.string2base", [Str(text), Int(base)]) => {
             match base.to_u32().filter(|base| (2..=36).contains(base)) {
                 Some(base) => textual(text, Spec::partial(read_numeral(text, base).map(Int))),
-                None => Spec::open(),
+                // The radix "can be anywhere between 2 and 36"; the hook is partial.
+                None => textual(text, Spec::bottom()),
             }
         }
         // Letters of either case, chosen consistently by the backend.
@@ -711,7 +721,7 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                         Str(lower.into_bytes()),
                     ])
                 }
-                None => Spec::open(),
+                None => Spec::bottom(),
             }
         }
         // A nonempty sequence of digits optionally prefixed by a sign.
@@ -725,24 +735,23 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             )
         }
         ("STRING.int2string", [Int(value)]) => Spec::value(Str(value.to_string().into_bytes())),
-        // A string holding the one code point; a surrogate has no UTF-8 form, and what it
-        // becomes is not documented.
-        ("STRING.chr", [Int(value)]) => match value.to_u32() {
-            Some(0xd800..=0xdfff) => Spec::open(),
-            value => Spec::partial(
-                value
-                    .and_then(char::from_u32)
-                    .map(|character| Str(character.to_string().into_bytes())),
-            ),
+        // A string holding the one code point. A number outside the code points is undefined;
+        // whether a String holds a surrogate the definition does not settle (K's string syntax
+        // writes one, KORE's literals cannot), so a surrogate is unspecified.
+        ("STRING.chr", [Int(value)]) => match value.to_u32().filter(|value| *value <= 0x10ffff) {
+            None => Spec::bottom(),
+            Some(value) => char::from_u32(value).map_or_else(Spec::unspecified, |character| {
+                Spec::value(Str(character.to_string().into_bytes()))
+            }),
         },
         ("STRING.ord", [Str(text)]) => match units(text).as_slice() {
             [unit] => match std::str::from_utf8(unit) {
                 Ok(character) => {
                     Spec::value(Val::int(u32::from(character.chars().next().unwrap())))
                 }
-                // A byte outside UTF-8 is a code point of the stored string, but which
-                // number `ordChar` gives it is not documented.
-                Err(_) => Spec::open(),
+                // A byte outside UTF-8 is a code point of the stored string, the one a `\xNN`
+                // escape writes: U+00NN.
+                Err(_) => Spec::value(Val::int(unit[0])),
             },
             _ => textual(text, Spec::bottom()),
         },

@@ -3,11 +3,35 @@ Lbl'-LT-'generatedTop'-GT-'{}(
     kseq{}(
       inj{SortList{}, SortKItem{}}(
         Lbl'Unds'List'Unds'{}(
-          LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("hello"))),
+          LblListItem{}(
+            inj{SortString{}, SortKItem{}}(
+              LblsubstrString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'Int'Unds'Int{}(
+                \dv{SortString{}}("hello"),
+                \dv{SortInt{}}("-2"),
+                \dv{SortInt{}}("3")
+              )
+            )
+          ),
           Lbl'Unds'List'Unds'{}(
-            LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("ello"))),
+            LblListItem{}(
+              inj{SortString{}, SortKItem{}}(
+                LblsubstrString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'Int'Unds'Int{}(
+                  \dv{SortString{}}("hello"),
+                  \dv{SortInt{}}("1"),
+                  \dv{SortInt{}}("10")
+                )
+              )
+            ),
             Lbl'Unds'List'Unds'{}(
-              LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}(""))),
+              LblListItem{}(
+                inj{SortString{}, SortKItem{}}(
+                  LblsubstrString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'Int'Unds'Int{}(
+                    \dv{SortString{}}("hello"),
+                    \dv{SortInt{}}("3"),
+                    \dv{SortInt{}}("1")
+                  )
+                )
+              ),
               Lbl'Unds'List'Unds'{}(
                 LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))),
                 Lbl'Unds'List'Unds'{}(

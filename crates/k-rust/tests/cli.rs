@@ -3974,14 +3974,34 @@ fn reference_hook_string_index_boundaries_follow_domains_md() {
             value.parse::<i64>().ok()
         })
         .collect::<Vec<_>>();
-    let integer = Regex::new(r#"\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The list's Int items, as opposed to the Int arguments of the substrString applications.
+    let integer =
+        Regex::new(r#"inj\{SortInt\{\}, SortKItem\{\}\}\(\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)\)"#)
+            .unwrap();
     let actual = integer
-        .captures_iter(&String::from_utf8(output.stdout).unwrap())
-        .take(expected.len())
+        .captures_iter(&stdout)
         .map(|captures| captures[1].parse::<i64>().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(expected, vec![2, 3, 5, -1, 0]);
     assert_eq!(actual, expected);
+
+    // substrString outside its valid indices has a value `domains.md` does not give, so it stays
+    // unevaluated with the indices it was given.
+    let substring = Regex::new(
+        r#"LblsubstrString[^{]*\{\}\(\s*\\dv\{SortString\{\}\}\(\"hello\"\),\s*\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\),\s*\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#,
+    )
+    .unwrap();
+    let unevaluated = substring
+        .captures_iter(&stdout)
+        .map(|captures| {
+            (
+                captures[1].parse::<i64>().unwrap(),
+                captures[2].parse::<i64>().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(unevaluated, vec![(-2, 3), (1, 10), (3, 1)], "{stdout}");
 }
 
 #[test]
@@ -4020,7 +4040,7 @@ fn krun_executes_hook_edges_to_the_backend_results() {
         .collect::<Vec<_>>();
     let ints = int_value
         .captures_iter(&stdout)
-        .take(4)
+        .take(2)
         .map(|captures| captures[1].parse::<i64>().unwrap())
         .collect::<Vec<_>>();
     let strings = string_value
@@ -4029,8 +4049,249 @@ fn krun_executes_hook_edges_to_the_backend_results() {
         .collect::<Vec<_>>();
 
     assert_eq!(bools, vec![false, false, false], "{stdout}");
-    assert_eq!(ints, vec![1, 1, 65_533, 0], "{stdout}");
-    assert_eq!(strings, vec!["he"], "{stdout}");
+    assert_eq!(ints, vec![1, 1], "{stdout}");
+    assert_eq!(strings, vec![""], "{stdout}");
+}
+
+/// Whether a String holds a surrogate code point the definition does not settle (K's string
+/// syntax writes one, KORE's literals cannot), so `chrChar(55296)` is neither a value nor
+/// undefined: the run keeps the application unevaluated, with a warning, rather than ending in
+/// `\bottom`.
+#[test]
+fn krun_leaves_chr_of_a_surrogate_unevaluated() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("hook-boundaries.k").to_str().unwrap(),
+            "--main-module",
+            "HOOK-BOUNDARIES",
+            "--syntax-module",
+            "HOOK-BOUNDARIES-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("surrogate.hooks").to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("LblchrChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int{}(")
+            && stdout.contains(r#"\dv{SortInt{}}("55296")"#)
+            && !stdout.contains("\\bottom"),
+        "{stdout}"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("hook STRING.chr was left unevaluated")
+            && stderr.contains("the definition does not determine its value"),
+        "{stderr}"
+    );
+}
+
+/// `^Int` and `<<Int` results above the backend's result size bound are not computed. A run
+/// that does not use them still ends with its value (the application is left unevaluated with a
+/// warning wherever the simplifier reaches it, and a discarded one leaves no definedness
+/// condition), and so does one whose condition over them the solver decides, or one that
+/// carries the application through a step and then drops it. A run halts with the
+/// unsupported-hook error naming the bound instead of branching on a condition over one that
+/// the solver cannot decide (`<<Int` has no interpreted SMT encoding, so `shl` would otherwise
+/// end in both `pos` and the unreachable `nonpos`), or of ending in a configuration that holds
+/// one. A result within the bound is computed (`computed`, 2^20 + 1 bits from one-word
+/// arguments, under the 2^24-bit floor). `i` hides the constants from the constant folder.
+#[test]
+fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
+    const SOURCE: &str = r#"
+module BOUND
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
+               | "computed"
+  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  rule <k> unused => r(false andBool (2 ^Int i(16777216) >Int i(0))) </k>
+  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(16777216) #fi) </k>
+  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
+  rule <k> guard => r(4) </k> [owise]
+  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
+  rule <k> decided => r(4) </k> [owise]
+  rule <k> dropped => g(1 <<Int i(16777217)) </k>
+  rule <k> g(_) => r(9) </k>
+  rule <k> used => r(2 ^Int 16777216) </k>
+  rule <k> shl => f(1 <<Int i(16777217)) </k>
+  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
+  rule <k> f(X) => r(pos) </k> requires X >Int 0
+  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.bound"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "BOUND",
+                "--syntax-module",
+                "BOUND",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let warned = |stderr: &str, hook: &str| {
+        stderr.contains(&format!("hook {hook} was left unevaluated"))
+            && stderr.contains("needs more than 16777216 bits")
+    };
+    let halted = |stderr: &str, hook: &str| {
+        stderr.contains(&format!(
+            "unsupported hook '{hook}' on constructor-like arguments"
+        )) && stderr.contains("needs more than 16777216 bits")
+    };
+    let item = |value: &str| {
+        format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+    };
+
+    for (program, hook) in [("unused", "INT.pow"), ("unusedshl", "INT.shl")] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        // The dropped application is defined, so no definedness condition remains.
+        assert!(
+            stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#)
+                && !stdout.contains("\\ceil"),
+            "{program}: {stdout}"
+        );
+        assert!(warned(&stderr, hook), "{program}: {stderr}");
+    }
+    for (program, value) in [
+        ("branch", "7"),
+        ("guard", "4"),
+        ("decided", "1"),
+        ("dropped", "9"),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(&item(value)), "{program}: {stdout}");
+    }
+    // A result above 2^20 bits but within the 2^24-bit floor is computed.
+    let (success, stdout, stderr) = run("computed");
+    assert!(success, "computed: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))"#)
+            && !stderr.contains("left unevaluated"),
+        "computed: {stdout}{stderr}"
+    );
+    for (program, hook) in [("used", "INT.pow"), ("shl", "INT.shl")] {
+        let (success, stdout, stderr) = run(program);
+        assert!(!success, "{program}: {stdout}{stderr}");
+        assert!(halted(&stderr, hook), "{program}: {stderr}");
+        assert!(
+            !stdout.contains("\\or") && !stdout.contains("nonpos") && !stdout.contains("Lblpos"),
+            "{program}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A search pattern's condition over a `<<Int` result above the size bound is not decided by
+/// the solver reading the hook as an arbitrary function: the search reports the state as
+/// incomplete with the unsupported-hook error instead of a solution (no reachable state has
+/// `X <=Int 0`). A pattern that only binds the value reports it. A condition the solver decides
+/// over a `^Int` result above the bound (`^Int` has an interpreted SMT encoding) is decided: the
+/// state is a solution of `X >Int 0` and not of `X <=Int 0`. `i` hides the shift amount and the
+/// exponent from the constant folder.
+#[test]
+fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
+    const SOURCE: &str = r#"
+module SEARCH-BOUND
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "go" | "power"
+  syntax KItem ::= f(Int) | "done"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  rule <k> go => f(1 <<Int i(16777217)) </k>
+  rule <k> power => f(2 ^Int i(16777217)) </k>
+  rule <k> f(_) => done </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let input = root.join("go.search");
+    fs::write(&input, "go").unwrap();
+    let power = root.join("power.search");
+    fs::write(&power, "power").unwrap();
+    let search_from = |input: &Path, pattern: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "SEARCH-BOUND",
+                "--syntax-module",
+                "SEARCH-BOUND",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--search-all",
+                "--pattern",
+                pattern,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let search = |pattern: &str| search_from(&input, pattern);
+    for (condition, solution) in [("X >Int 0", true), ("X <=Int 0", false)] {
+        let (success, stdout, stderr) =
+            search_from(&power, &format!("<k> f(X) </k> requires {condition}"));
+        assert!(success, "{condition}: {stdout}{stderr}");
+        assert!(!stderr.contains("UnsupportedHook"), "{condition}: {stderr}");
+        assert_eq!(stdout.contains("VarX"), solution, "{condition}: {stdout}");
+    }
+    for condition in ["X <=Int 0", "X >Int 0"] {
+        let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
+        assert!(!success, "{condition}: {stdout}{stderr}");
+        assert!(!stdout.contains("VarX"), "{condition}: {stdout}");
+        assert!(
+            stderr.contains(r#"UnsupportedHook { hook: "INT.shl", reason: ResultTooLarge"#),
+            "{condition}: {stderr}"
+        );
+    }
+    let (success, stdout, stderr) = search("<k> f(X) </k>");
+    assert!(success, "{stdout}{stderr}");
+    assert!(
+        stdout.contains("VarX:SortInt{}") && stdout.contains(r#"\dv{SortInt{}}("16777217")"#),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -6304,6 +6565,61 @@ fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
         assert_eq!(verdict("ground"), "disproved", "{case}: {stdout}");
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+const NEGATIVE_POWER: &str = r#"
+module NEGPOW
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= gm(Int)
+  syntax KItem ::= "yes" | "no"
+  rule <k> gm(B) => yes </k> requires 3 ^%Int B 7 ==Int 0
+  rule <k> gm(_) => no </k> [owise]
+endmodule
+module NEGPOW-SPEC
+  imports NEGPOW
+  claim [negative]: <k> gm(B) => yes </k> requires B <Int 0
+  claim [minus-one]: <k> gm(B) => no </k> requires B ==Int -1
+endmodule
+"#;
+
+/// `3 ^%Int B 7` is undefined for every negative `B` (no integer is `3 ^Int B`), so `gm(B)` takes
+/// the `owise` rule there, and the claim that it reaches `yes` for every negative `B` is false:
+/// its instance at `-1` reaches `no`. The solver's own power is a fraction there, whose integer
+/// part modulo 7 is 0; the claim must not be proven from that value.
+#[test]
+fn kprove_proves_nothing_from_a_power_where_no_integer_is_its_value() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NEGATIVE_POWER).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "NEGPOW-SPEC",
+            "--definition-module",
+            "NEGPOW",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim NEGPOW-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(verdict("negative"), "proven", "{stdout}");
+    assert_eq!(verdict("minus-one"), "proven", "{stdout}");
+    fs::remove_dir_all(root).unwrap();
 }
 
 const APART_COLLECTIONS: &str = r#"

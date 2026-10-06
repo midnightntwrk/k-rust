@@ -800,6 +800,152 @@ fn unimplemented_hook_on_constructor_like_arguments_is_an_error() {
     assert!(message.contains("TEST.missing"), "{message}");
 }
 
+/// A `total` hook whose value the definition does not give on its arguments, such as
+/// `substrString` outside its valid indices, is not an unsupported hook: the application denotes
+/// that value and stays as it is, with a diagnostic, and a context that does not depend on the
+/// value still simplifies (`false andBool _` is `false`).
+#[test]
+fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol substr{}(SortString{}, SortInt{}, SortInt{}) : SortString{}
+                [function{}(), total{}(), hook{}("STRING.substr")]
+            hooked-symbol eqString{}(SortString{}, SortString{}) : SortBool{}
+                [function{}(), total{}(), hook{}("STRING.eq")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            "#,
+    );
+    let unspecified =
+        r#"substr{}(\dv{SortString{}}("hello"), \dv{SortInt{}}("3"), \dv{SortInt{}}("1"))"#;
+    let input = term(&definition, unspecified);
+
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+
+    assert_eq!(
+        result.expect("an unspecified value is not an error").term,
+        input
+    );
+    assert!(
+        matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UnsupportedHookUnevaluated {
+                hook,
+                reason: UnsupportedHookReason::Unspecified { .. },
+            }] if hook == "STRING.substr"
+        ),
+        "{diagnostics:?}"
+    );
+
+    let guarded = term(
+        &definition,
+        &format!(
+            r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), eqString{{}}({unspecified}, \dv{{SortString{{}}}}("x")))"#
+        ),
+    );
+    let (result, _) =
+        diagnostic::collect(|| simplify(&definition, &guarded, SimplificationOptions::default()));
+    assert_eq!(
+        result.expect("an unspecified value is not an error").term,
+        term(&definition, r#"\dv{SortBool{}}("false")"#)
+    );
+}
+
+/// A hook application whose result is defined but above the backend's result size bound is
+/// not computed, and it is not an error either: the application still denotes its value, and the
+/// simplifier reaches it bottom-up whether or not the value is used, so a context that does not
+/// depend on it simplifies (`false andBool _` is `false`), and one that does keeps the
+/// application with a diagnostic.
+#[test]
+fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
+    let definition = definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), hook{}("INT.pow")]
+            hooked-symbol shl{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), hook{}("INT.shl")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            "#,
+    );
+    let beyond = 1u64 << 24;
+    for (hook, too_large) in [
+        (
+            "INT.pow",
+            format!(r#"pow{{}}(\dv{{SortInt{{}}}}("2"), \dv{{SortInt{{}}}}("{beyond}"))"#),
+        ),
+        (
+            "INT.shl",
+            format!(r#"shl{{}}(\dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("{beyond}"))"#),
+        ),
+    ] {
+        let input = term(&definition, &too_large);
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result
+                .expect("a result above the bound is not an error")
+                .term,
+            input,
+            "{hook}"
+        );
+        assert!(
+            matches!(
+                diagnostics.as_slice(),
+                [BackendDiagnostic::UnsupportedHookUnevaluated {
+                    hook: reported,
+                    reason: UnsupportedHookReason::ResultTooLarge { .. },
+                }] if reported == hook
+            ),
+            "{diagnostics:?}"
+        );
+
+        let guarded = term(
+            &definition,
+            &format!(
+                r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), gtInt{{}}({too_large}, \dv{{SortInt{{}}}}("0")))"#
+            ),
+        );
+        let (result, _) = diagnostic::collect(|| {
+            simplify(&definition, &guarded, SimplificationOptions::default())
+        });
+        let result = result.expect("a result above the bound is not an error");
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortBool{}}("false")"#),
+            "{hook}"
+        );
+        // Term simplification keeps the dropped conjunct's definedness obligation: the
+        // `\ceil` of the application, since both hooks are partial (`domains.md` declares
+        // neither `total`: a negative exponent or shift amount has no value).
+        assert_eq!(
+            result.constraints(),
+            [Predicate::Ceil(input.clone())].as_slice(),
+            "{hook}"
+        );
+        // The obligation holds: a result above the bound is reported only where the hook has
+        // a value, so predicate simplification discharges the application's `\ceil`.
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &Predicate::Ceil(input),
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("a result above the bound is not an error"),
+            Predicate::True,
+            "{hook}"
+        );
+    }
+}
+
 #[test]
 fn unimplemented_hook_on_symbolic_arguments_stays_unevaluated() {
     let definition = definition("");

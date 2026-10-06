@@ -9,8 +9,8 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
-    int_term, read_int, values_differ,
+    BuiltinResult, HookResult, MAX_LIST_RESULT_LEN, TARGET_RESULT_BYTES, UnsupportedHookReason,
+    bool_term, describe_int, expect_arity, expect_sort, int_term, read_int, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -219,18 +219,48 @@ fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let Some(concrete_length) = length.to_usize() else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {length}"),
-            },
-        ));
+    let concrete_length = match bounded_list_length(&length) {
+        Ok(length) => length,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     Ok(BuiltinResult::Value(Term::list(
         k_item_definition(),
         vec![value.clone(); concrete_length],
         None,
     )))
+}
+
+/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` above
+/// [`list_length_limit`] on this target: the list exists, and the backend does not build it.
+/// The arguments, a length and one element, are small, so the bound is the floor.
+fn bounded_list_length(length: &BigInt) -> Result<usize, UnsupportedHookReason> {
+    debug_assert!(
+        length.sign() != Sign::Minus,
+        "makeList of a negative length is undefined, checked by the caller"
+    );
+    let limit = list_length_limit(TARGET_RESULT_BYTES, size_of::<Term>() as u64);
+    length
+        .to_u64()
+        .filter(|length| *length <= limit)
+        .and_then(|length| usize::try_from(length).ok())
+        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
+            detail: format!(
+                "a List result of length {} needs more than {limit} elements",
+                describe_int(length)
+            ),
+        })
+}
+
+/// The longest `makeList` result on a target where one result may take at most `target` bytes
+/// ([`TARGET_RESULT_BYTES`]) and an element, one term reference, takes `reference` bytes:
+/// [`MAX_LIST_RESULT_LEN`], and at most `target / reference`.
+const fn list_length_limit(target: u64, reference: u64) -> u64 {
+    let references = target / reference;
+    if MAX_LIST_RESULT_LEN < references {
+        MAX_LIST_RESULT_LEN
+    } else {
+        references
+    }
 }
 
 fn range(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -403,6 +433,7 @@ fn update_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtin::target_result_bytes;
     use crate::term::Variable;
 
     fn definition() -> Arc<ListDefinition> {
@@ -637,13 +668,64 @@ mod tests {
         let length = BigInt::from(1_u8) << usize::BITS;
 
         assert_eq!(
-            make(&[int_term(length.clone()), item("x")]),
+            make(&[int_term(length), item("x")]),
             Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge {
-                    detail: format!("length {length}"),
+                    detail: format!(
+                        "a List result of length a 65-bit integer needs more than \
+                         {MAX_LIST_RESULT_LEN} elements"
+                    ),
                 }
             ))
         );
+    }
+
+    /// On a 32-bit target a `makeList` result is at most 512 MiB of 4-byte references, 2^27
+    /// elements (see `bytes_lengths_are_bounded_by_what_the_target_can_allocate`); on a 64-bit
+    /// target the floor binds first.
+    #[test]
+    fn make_length_is_bounded_by_what_the_target_can_allocate() {
+        let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
+        assert_eq!(list_length_limit(thirty_two, 4), 1 << 27);
+        let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
+        assert_eq!(list_length_limit(sixty_four, 8), MAX_LIST_RESULT_LEN);
+    }
+
+    /// `makeList` is refused above [`MAX_LIST_RESULT_LEN`] before anything is allocated: a
+    /// length beyond the machine's memory aborted the process. Below it a length is built,
+    /// however long: 2^25 elements, about 0.3 GB and a second to build, and the floor itself, 4 GiB
+    /// of references (decided without allocating them here).
+    #[test]
+    fn make_length_is_bounded_before_allocating() {
+        for length in [1_u64 << 25, MAX_LIST_RESULT_LEN] {
+            assert_eq!(
+                bounded_list_length(&BigInt::from(length)),
+                Ok(usize::try_from(length).unwrap()),
+                "makeList({length}, x)"
+            );
+        }
+        assert!(bounded_list_length(&BigInt::from(MAX_LIST_RESULT_LEN + 1)).is_err());
+        for length in [
+            BigInt::from(MAX_LIST_RESULT_LEN + 1),
+            BigInt::from(1_u64 << 40),
+        ] {
+            assert!(
+                matches!(
+                    make(&[int_term(length.clone()), item("x")]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::ResultTooLarge { .. }
+                    ))
+                ),
+                "makeList({length}, x)"
+            );
+        }
+        assert!(matches!(
+            make(&[integer(3), item("x")]),
+            Ok(BuiltinResult::Value(list)) if matches!(
+                list.kind(),
+                TermKind::List { heads, rest: None, .. } if heads.len() == 3
+            )
+        ));
     }
 
     #[test]

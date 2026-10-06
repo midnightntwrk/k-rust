@@ -104,14 +104,14 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
         TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
-        simplify_result_pattern,
+        simplify_result_pattern, stuck,
     },
     rule::Predicate,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_predicates_with_solver, simplify_with_solver,
+        refuse_results_above_the_size_bound, simplify_predicates_with_solver, simplify_with_solver,
     },
-    smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
+    smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     stop::{self, Stop, StopCause, Stoppable},
     substitution::{Substitution, compose, substitute},
     transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
@@ -1278,7 +1278,7 @@ fn step_search_state(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ),
-        QueuedStateKind::Remaining(None) => Ok(RewriteResult::Stuck(pattern.clone())),
+        QueuedStateKind::Remaining(None) => stuck(definition, pattern),
         QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
     })
 }
@@ -2476,16 +2476,45 @@ fn match_pattern_with_variables(
     match predicates_truth(&constraints) {
         Truth::False => return Ok(Ok(None)),
         Truth::True => {}
-        Truth::Unknown if retain_unknown => {}
-        // A stop leaves the match without an answer; it is returned, never read as a match.
         Truth::Unknown => {
-            match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
-                Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
-                Ok(Satisfiability::Sat) => {}
-                Ok(Satisfiability::Unknown(reason)) => {
-                    return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+            // A stop leaves the match without an answer; it is returned, never read as a match.
+            if !retain_unknown {
+                match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
+                    Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
+                    Ok(Satisfiability::Sat) => {}
+                    Ok(Satisfiability::Unknown(reason)) => {
+                        return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+                    }
+                    Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
                 }
-                Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
+            }
+            // The match would be reported under a condition neither the simplifier nor the
+            // solver decided. Over an application whose result is above a size bound that
+            // report rests on the solver reading the hook as an arbitrary function, as a rule
+            // condition would (`simplify::refuse_results_above_the_size_bound`): the match is
+            // the unsupported-hook error instead, unless the solver proves the constraints that
+            // hold one on every instance. A refutation above is sound and still gives no match;
+            // the substitution may bind such an application, which decides nothing.
+            if let Err(error) = refuse_results_above_the_size_bound(definition, None, &constraints)?
+            {
+                return Ok(
+                    match decide_refused_constraints(
+                        definition,
+                        solver,
+                        facts.as_known(),
+                        constraints,
+                        &substitution,
+                    )? {
+                        RefusedConstraints::Valid(constraints) => Ok(Some(PatternMatch {
+                            substitution,
+                            constraints,
+                        })),
+                        RefusedConstraints::Refuted => Ok(None),
+                        RefusedConstraints::Undecided => {
+                            Err(PatternMatchError::Simplification(error))
+                        }
+                    },
+                );
             }
         }
     }
@@ -2494,6 +2523,59 @@ fn match_pattern_with_variables(
         substitution,
         constraints,
     })))
+}
+
+/// What the solver decides of the constraints of a match condition that hold an application
+/// above a result size bound ([`decide_refused_constraints`]).
+enum RefusedConstraints {
+    /// They hold on every instance that satisfies the rest: the match condition is the rest.
+    Valid(Vec<Predicate>),
+    /// They hold on no such instance: there is no match.
+    Refuted,
+    /// Neither, or the solver did not answer: the match rests on the refused value.
+    Undecided,
+}
+
+/// Decide the constraints of a match condition that hold an application above a result size
+/// bound, under the subject's decided `facts`, the rest of the condition and the match's
+/// `substitution`.
+///
+/// A constraint that the solver proves on every instance of the rest decides nothing about the
+/// refused value that the instance does not already establish, so the condition without it is
+/// equivalent on the subject's instances, and it holds no refused application. A refuted one
+/// leaves the match no instance. Anything else, including a missing solver or an unknown answer,
+/// leaves the match resting on the value the backend did not compute.
+fn decide_refused_constraints(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    facts: &[Predicate],
+    constraints: Vec<Predicate>,
+    substitution: &Substitution,
+) -> Stoppable<RefusedConstraints> {
+    let mut refused = Vec::new();
+    let mut rest = Vec::new();
+    for constraint in constraints {
+        if refuse_results_above_the_size_bound(definition, None, std::slice::from_ref(&constraint))?
+            .is_err()
+        {
+            refused.push(constraint);
+        } else {
+            rest.push(constraint);
+        }
+    }
+    let mut known = facts.to_vec();
+    known.extend(rest.iter().cloned());
+    Ok(
+        match solver.check_predicates(&known, substitution, &refused)? {
+            Ok(Validity::Valid) => RefusedConstraints::Valid(rest),
+            Ok(Validity::Refuted | Validity::InconsistentGroundTruth) => {
+                RefusedConstraints::Refuted
+            }
+            Ok(Validity::Contingent | Validity::Unknown(_)) | Err(_) => {
+                RefusedConstraints::Undecided
+            }
+        },
+    )
 }
 
 /// Whether `facts ∧ constraints` is satisfiable together with `substitution`.

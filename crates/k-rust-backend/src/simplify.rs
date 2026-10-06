@@ -1667,7 +1667,11 @@ fn simplify_predicate_with_budget(
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
-                with_simplification_constraints(simplified.conditions.into_predicates(), unchanged)
+                let defined = size_bound_refusal(definition, &simplified.term)?.is_some();
+                with_simplification_constraints(
+                    simplified.conditions.into_predicates(),
+                    if defined { Predicate::True } else { unchanged },
+                )
             } else {
                 // The expansion supplies the definedness of the subterms as sibling conjuncts,
                 // and a conditional ceil equation on the parent is decided under them only by
@@ -1947,6 +1951,158 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
         Some(InjectionEquality::Distinct | InjectionEquality::Unknown) | None => {
             Predicate::Equals(left, right)
         }
+    }
+}
+
+/// The reason a hook's evaluator gives when `term`, a hooked application on constructor-like
+/// arguments, has a result above a result size bound (`ResultTooLarge`); `None` for any other
+/// term or outcome. An evaluator reports `ResultTooLarge` only where the hook has a value, so
+/// such an application is defined: its `\ceil` holds although the value is not computed.
+fn size_bound_refusal(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> SimplifyResult<Option<UnsupportedHookReason>> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    if symbol.attributes.hook.is_none()
+        || !arguments
+            .iter()
+            .all(|argument| argument.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    Ok(
+        match evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)? {
+            BuiltinResult::Unsupported(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
+                Some(reason)
+            }
+            _ => None,
+        },
+    )
+}
+
+/// Fail with the unsupported-hook error of the first application in `term` or `predicates` whose
+/// result is above a result size bound ([`UnsupportedHookReason::ResultTooLarge`]).
+///
+/// Term simplification leaves such an application unevaluated without an error, so that a
+/// subterm the simplification discards (`false andBool B`) neither costs nor fails anything,
+/// and a state may carry one through steps that do not depend on its value. Its value is
+/// determined but not computed, though, so a rule condition over it that the solver cannot
+/// decide would let rules fire whose conditions are false (a branch the semantics does not
+/// have), and a final configuration holding it would read as the semantics' answer. A rule
+/// attempt checks the conditions it would carry (`rewrite::apply`), a search-pattern match the
+/// condition it would report (`search`), and a step that finds the state stuck checks the state
+/// (`rewrite::stuck`); each halts the state with the error. A condition the solver decided is not
+/// carried and so never reaches this check.
+///
+/// The `\ceil` of such an application is not a use of its value: it holds
+/// (`size_bound_refusal`), and term simplification leaves it as the obligation of a discarded
+/// partial subterm (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
+///
+/// Only subterms that are not `evaluated` are visited: an `evaluated` term is built from
+/// constructors and domain values, or is certified a normal form, and neither holds such an
+/// application. A state that is a value costs one look at its root.
+pub(crate) fn refuse_results_above_the_size_bound(
+    definition: &BackendDefinition,
+    term: Option<&Term>,
+    predicates: &[Predicate],
+) -> Stoppable<Result<(), SimplificationError>> {
+    let scan = || -> SimplifyResult<()> {
+        let mut pending = term.into_iter().cloned().collect::<Vec<_>>();
+        for predicate in predicates {
+            push_predicate_terms(definition, predicate, &mut pending)?;
+        }
+        while let Some(term) = pending.pop() {
+            if term.attributes().evaluated {
+                continue;
+            }
+            if let Some(reason) = size_bound_refusal(definition, &term)? {
+                let TermKind::Application { symbol, .. } = term.kind() else {
+                    unreachable!("only a hooked application is refused");
+                };
+                return Err(SimplificationError::UnsupportedHook {
+                    hook: symbol
+                        .attributes
+                        .hook
+                        .as_deref()
+                        .expect("a hooked application")
+                        .to_owned(),
+                    reason,
+                    term: term.clone(),
+                }
+                .into());
+            }
+            push_children(&term, &mut pending);
+        }
+        Ok(())
+    };
+    scan().layered()
+}
+
+/// Push the terms `predicate` carries onto `pending`, except the term of a `\ceil` that is itself
+/// an application above a result size bound, whose `\ceil` holds.
+fn push_predicate_terms(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    pending: &mut Vec<Term>,
+) -> SimplifyResult<()> {
+    match predicate {
+        Predicate::Ceil(term) => {
+            if size_bound_refusal(definition, term)?.is_none() {
+                pending.push(term.clone());
+            }
+        }
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            push_predicate_terms(definition, inner, pending)?;
+        }
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            for predicate in inner {
+                push_predicate_terms(definition, predicate, pending)?;
+            }
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            push_predicate_terms(definition, left, pending)?;
+            push_predicate_terms(definition, right, pending)?;
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => predicate.visit_terms(&mut |term| pending.push(term.clone())),
+    }
+    Ok(())
+}
+
+/// Push the immediate subterms of `term` onto `pending`.
+fn push_children(term: &Term, pending: &mut Vec<Term>) {
+    match term.kind() {
+        TermKind::Application { arguments, .. } => pending.extend(arguments.iter().cloned()),
+        TermKind::And(left, right) => pending.extend([left.clone(), right.clone()]),
+        TermKind::Injection { term, .. } => pending.push(term.clone()),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                pending.extend([key.clone(), value.clone()]);
+            }
+            pending.extend(rest.iter().cloned());
+        }
+        TermKind::List { heads, rest, .. } => {
+            pending.extend(heads.iter().cloned());
+            if let Some((middle, tails)) = rest {
+                pending.push(middle.clone());
+                pending.extend(tails.iter().cloned());
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            pending.extend(elements.iter().cloned());
+            pending.extend(rest.iter().cloned());
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
 }
 
@@ -3582,6 +3738,24 @@ fn simplify_root(
                 || definition.simplification_theory().contains_key(&index);
             let reason = match unsupported {
                 Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
+                // The application denotes a value the backend does not compute, and stays as
+                // that unevaluated application: a value the definition leaves open (no
+                // implementation could compute it), or one above a result size bound (a
+                // resource limit, not a gap to fix). Arguments are simplified bottom-up whether
+                // or not their values are used, so an error here would fail a run on a subterm
+                // the semantics never consults (`false andBool B` is `false` for every `B`). A
+                // run never decides a condition over the second kind, nor ends stuck on it; see
+                // `refuse_results_above_the_size_bound`.
+                Some(
+                    reason @ (UnsupportedHookReason::Unspecified { .. }
+                    | UnsupportedHookReason::ResultTooLarge { .. }),
+                ) => {
+                    diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
+                        hook: hook.to_owned(),
+                        reason,
+                    });
+                    None
+                }
                 Some(reason) => Some(reason),
                 None => Some(UnsupportedHookReason::ArgumentOutOfRange {
                     detail: "the evaluator did not reduce constructor-like arguments".into(),
