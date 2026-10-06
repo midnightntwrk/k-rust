@@ -1402,3 +1402,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "json_properties.rs"]
+mod properties;
