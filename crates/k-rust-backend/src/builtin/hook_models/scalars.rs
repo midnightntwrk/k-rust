@@ -412,8 +412,8 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
         ("BYTES.concat", [Bytes(left), Bytes(right)]) => {
             Spec::value(Bytes(left.iter().chain(right).copied().collect()))
         }
-        // The value modulo 256^length (two's complement, truncated), in the byte order. The
-        // documentation gives no meaning to a negative length.
+        // The value modulo 256^length (two's complement, truncated), in the byte order. No
+        // Bytes has a negative length, and the hook is total: that value is unspecified.
         ("BYTES.int2bytes", [Int(length), Int(value), Tag(order)]) => match length.to_usize() {
             Some(length) => {
                 let modulus = BigInt::from(1_u8) << (8 * length);
@@ -428,6 +428,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                 }
                 Spec::value(Bytes(bytes))
             }
+            None if length.is_negative() => Spec::unspecified(),
             None => Spec::open(),
         },
         ("BYTES.bytes2int", [Bytes(bytes), Tag(order), Tag(signedness)]) => {

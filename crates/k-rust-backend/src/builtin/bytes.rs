@@ -253,8 +253,20 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(&left)))
 }
 
+/// `Int2Bytes(LENGTH, I, E)` is the `LENGTH`-byte two's complement of `I` in byte order `E`. No
+/// `Bytes` has a negative length and the hook is `total`, so for a negative `LENGTH` its value is
+/// not given by the definition and the application is left unevaluated.
 fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.int2bytes", arguments, 3)?;
+    if let Some(length) = read_int(&arguments[0])
+        && length.sign() == Sign::Minus
+    {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: format!("Int2Bytes with the negative length {length}"),
+            },
+        ));
+    }
     let length = match read_nonnegative_len(&arguments[0]) {
         Ok(Some(length)) => length,
         Ok(None) => return Ok(BuiltinResult::NotApplicable),
@@ -335,20 +347,22 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
     read_int(term).map(|value| value.to_usize())
 }
 
+/// A concrete nonnegative `Int` argument as a length (`None` when it is not a concrete `Int`);
+/// one beyond `usize` is too large to build.
 fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookReason> {
     let Some(value) = read_int(term) else {
         return Ok(None);
     };
-    if value.sign() == Sign::Minus {
-        Ok(Some(0))
-    } else {
-        value
-            .to_usize()
-            .map(Some)
-            .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
-                detail: format!("length {value}"),
-            })
-    }
+    debug_assert!(
+        value.sign() != Sign::Minus,
+        "callers reject a negative length"
+    );
+    value
+        .to_usize()
+        .map(Some)
+        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
+            detail: format!("length {value}"),
+        })
 }
 
 /// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
@@ -676,6 +690,28 @@ mod tests {
                     ))
                 ),
                 "String2Bytes({text:?})"
+            );
+        }
+    }
+
+    /// No `Bytes` value has a negative length, so `Int2Bytes` with one has no value the
+    /// definition gives; a zero length is the empty `Bytes`.
+    #[test]
+    fn int_to_bytes_with_a_negative_length_is_unspecified() {
+        let little = constructor("LbllittleEndianBytes", "SortEndianness");
+        assert_eq!(
+            int_to_bytes(&[integer(0), integer(5), little.clone()]),
+            Ok(BuiltinResult::Value(bytes_term(&[])))
+        );
+        for length in [-1, -8] {
+            assert!(
+                matches!(
+                    int_to_bytes(&[integer(length), integer(5), little.clone()]),
+                    Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    ))
+                ),
+                "Int2Bytes({length}, 5, LE)"
             );
         }
     }
