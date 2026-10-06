@@ -72,14 +72,14 @@ fn text(draw: &mut Draw<'_>, env: &mut Env, most: usize) -> Term {
 }
 
 /// A numeral-like string: an optional sign and digits of several bases, sometimes with a
-/// character no base accepts.
+/// character no base accepts, such as a `_` separator.
 fn numeral(draw: &mut Draw<'_>) -> Vec<u8> {
     let mut value = Vec::new();
     if draw.chance(3) {
         value.push(draw.pick(b"-+"));
     }
     for _ in 0..draw.below(5) {
-        value.push(draw.pick(b"0179afzAFZ -."));
+        value.push(draw.pick(b"0179afzAFZ -._"));
     }
     if draw.chance(1) {
         value.extend(draw.pick(&PIECES));
