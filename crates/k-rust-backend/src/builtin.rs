@@ -735,21 +735,35 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-/// The largest integer result, in bits, that `^Int` and `<<Int` compute: 2^20 bits, 315,653
-/// decimal digits. A larger one is reported as too large (`ResultTooLarge`) instead of computed,
-/// and the application stays unevaluated.
+/// The floor of the size bound on the `Int` results of `^Int` and `<<Int`, in bits (see
+/// [`result_size_limit`]): 2^20 bits, 315,653 decimal digits. A result above its bound is
+/// reported as too large (`ResultTooLarge`) instead of computed, and the application stays
+/// unevaluated.
 ///
-/// The bound keeps the cost of one hook application polynomial in the size of its arguments.
-/// These two hooks are the only `Int` hooks whose result is exponential in that size: the
-/// exponent or shift amount is written in a number of digits logarithmic in its value. (A
-/// product has the size of its factors together, so a program that grows a value by
-/// multiplication pays in each step for what it has already built.) The constant is chosen from
-/// the cost of using the result: an `Int` is held as its decimal domain value and read back on
-/// every hook application, and converting between decimal and binary grows faster than linearly
-/// in the length: at 2^20 bits one conversion takes tens of milliseconds, at 2^22 bits about a
-/// second, at 2^32 bits it does not end in practice. The constant folder uses the same bound, so
-/// it never writes a value this backend would not compute.
+/// The constant is chosen from the cost of using the result: an `Int` is held as its decimal
+/// domain value and read back on every hook application, and converting between decimal and
+/// binary grows faster than linearly in the length: at 2^20 bits one conversion takes tens of
+/// milliseconds, at 2^22 bits about a second, at 2^32 bits it does not end in practice. The
+/// constant folder uses the same bound, so it never writes a value this backend would not
+/// compute.
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 20;
+
+/// The largest result a hook computes when the result's size is set by the value of an argument
+/// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
+/// arguments and the `floor` of the result's unit: `max(floor, 2 * arguments)`.
+///
+/// The bound keeps the cost of one hook application polynomial in the size of its arguments, so
+/// it refuses only a result that is large relative to them: one that the exponent or length,
+/// written in a number of digits logarithmic in its value, makes exponentially larger than what
+/// the run already holds. Within twice the arguments' size a result is at most what one `*Int`
+/// makes from the same values (`Y *Int Y`), and `*Int` is not bounded: a program that grows a
+/// value by multiplication pays in each step for what it already built, so `Y <<Int 1`,
+/// `Y ^Int 1` and `Y ^Int 2` are computed whatever the size of `Y`, as `Y *Int 2` and
+/// `Y *Int Y` are.
+pub(crate) const fn result_size_limit(floor: u64, arguments: u64) -> u64 {
+    let relative = arguments.saturating_mul(2);
+    if relative > floor { relative } else { floor }
+}
 
 /// How the bit length of `|base| ^Int exponent` compares with `bound`, decided without computing
 /// the power where possible.
@@ -768,12 +782,12 @@ enum PowerSize {
 /// `exponent * (bits - 1)`. Otherwise it is estimated in `f64` from the base's leading 64 bits:
 /// once the minimum length `(bits - 1) * exponent + 1` is within the bound, the product is below
 /// `2 * bound`, and the estimate's error (the truncated low bits, below `2^-62` in the
-/// logarithm, and a few rounding steps relative to `2^-52`) is far below `ESTIMATE_MARGIN`.
-/// Only an estimate within that margin of the bound is left `Undecided`, which no product of a
-/// base that is not a power of two and an exponent reaches exactly, since its logarithm is
-/// irrational.
+/// logarithm, and a few rounding steps, each relative to `2^-52`, in the logarithm, the product
+/// and the bound's conversion) is below `bound * 2^-48`, far below the margin
+/// `max(10^-6, bound * 2^-40)`. Only an estimate within that margin of the bound is left
+/// `Undecided`, which no product of a base that is not a power of two and an exponent reaches
+/// exactly, since its logarithm is irrational.
 fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
-    const ESTIMATE_MARGIN: f64 = 1e-6;
     let magnitude = base.magnitude();
     let bits = magnitude.bits();
     let Some(minimum) = (bits - 1)
@@ -793,12 +807,13 @@ fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
     let leading = (magnitude >> dropped)
         .to_u64()
         .expect("at most 64 leading bits");
-    // An estimate whose error the margin covers (above); the bound, far below 2^52, is exact.
+    // An estimate whose error the margin covers (above).
     let product = exponent as f64 * ((leading as f64).log2() + dropped as f64);
     let bound = bound as f64;
-    if product < bound - ESTIMATE_MARGIN {
+    let margin = (bound * 2f64.powi(-40)).max(1e-6);
+    if product < bound - margin {
         PowerSize::Fits
-    } else if product >= bound + ESTIMATE_MARGIN {
+    } else if product >= bound + margin {
         PowerSize::TooLarge
     } else {
         PowerSize::Undecided
@@ -806,6 +821,11 @@ fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
 }
 
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    int_pow_within(arguments, MAX_INT_RESULT_BITS)
+}
+
+/// `^Int` with `floor` as the floor of its result bound (`result_size_limit`).
+fn int_pow_within(arguments: &[Term], floor: u64) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -827,12 +847,13 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
             BigInt::one()
         })));
     }
+    let limit = result_size_limit(floor, base.bits().saturating_add(exponent.bits()));
     // Described only when refused, by the operands' sizes (`describe_int`).
     let too_large = |base: String| {
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "{base} ^Int {} needs more than {MAX_INT_RESULT_BITS} bits",
+                    "{base} ^Int {} needs more than {limit} bits",
                     describe_int(&exponent)
                 ),
             },
@@ -841,7 +862,7 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(mut exponent_bits) = exponent.to_u64() else {
         return too_large(describe_int(&base));
     };
-    let size = power_size(&base, exponent_bits, MAX_INT_RESULT_BITS);
+    let size = power_size(&base, exponent_bits, limit);
     if size == PowerSize::TooLarge {
         return too_large(describe_int(&base));
     }
@@ -860,7 +881,7 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     }
     // Only an `Undecided` size gets here above the bound.
     if let Some(base) = undecided_base
-        && result.bits() > MAX_INT_RESULT_BITS
+        && result.bits() > limit
     {
         return too_large(base);
     }
@@ -936,6 +957,17 @@ fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinResult> {
+    int_shift_within(hook, arguments, right, MAX_INT_RESULT_BITS)
+}
+
+/// `<<Int` (or `>>Int`, when `right`) with `floor` as the floor of a left shift's result bound
+/// (`result_size_limit`).
+fn int_shift_within(
+    hook: &str,
+    arguments: &[Term],
+    right: bool,
+    floor: u64,
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -945,11 +977,12 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
         return Ok(BuiltinResult::Bottom);
     }
     let shifts_left = !right;
+    let limit = result_size_limit(floor, value.bits().saturating_add(amount.bits()));
     let too_large = || {
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "{} <<Int {} needs more than {MAX_INT_RESULT_BITS} bits",
+                    "{} <<Int {} needs more than {limit} bits",
                     describe_int(&value),
                     describe_int(&amount)
                 ),
@@ -961,7 +994,7 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
         && amount
             .to_u64()
             .and_then(|amount| amount.checked_add(value.bits()))
-            .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
+            .is_none_or(|bits| bits > limit)
     {
         return too_large();
     }
@@ -1644,6 +1677,67 @@ mod tests {
             describe_int(&-(BigInt::one() << 64u32)),
             "a negative 65-bit integer"
         );
+    }
+
+    /// A result is refused only when it is large relative to its arguments
+    /// (`result_size_limit`): within twice their size it is computed whatever the floor, as
+    /// `*Int` computes `Y *Int Y`; from small arguments the floor applies. A floor of 64 bits
+    /// stands for `MAX_INT_RESULT_BITS` here.
+    #[test]
+    fn results_are_bounded_relative_to_their_arguments() {
+        let floor = 64;
+        let value = |result: HookResult<BuiltinResult>| match result {
+            Ok(BuiltinResult::Value(term)) => read_int(&term),
+            _ => None,
+        };
+        let refused = |result: HookResult<BuiltinResult>| {
+            matches!(
+                result,
+                Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                ))
+            )
+        };
+        let pow = |base: &BigInt, exponent: u64| {
+            int_pow_within(
+                &[int_term(base.clone()), int_term(BigInt::from(exponent))],
+                floor,
+            )
+        };
+        let shl = |value: &BigInt, amount: u64| {
+            int_shift_within(
+                "INT.shl",
+                &[int_term(value.clone()), int_term(BigInt::from(amount))],
+                false,
+                floor,
+            )
+        };
+        // A 100-bit value, above the floor, as `*Int` can build one.
+        let y = (BigInt::one() << 99u32) + 12_345u32;
+        assert_eq!(value(pow(&y, 1)), Some(y.clone()));
+        // 200 bits, within 2 * (100 + 2); 300 bits is not.
+        assert_eq!(value(pow(&y, 2)), Some(&y * &y));
+        assert!(refused(pow(&y, 3)));
+        assert_eq!(value(shl(&y, 1)), Some(&y << 1u32));
+        // 214 bits is exactly 2 * (100 + 7), 7 being the length of the shift amount.
+        assert_eq!(value(shl(&y, 114)), Some(&y << 114u32));
+        assert!(refused(shl(&y, 115)));
+        // From one- and two-bit arguments, the floor.
+        assert_eq!(value(shl(&BigInt::one(), 63)), Some(BigInt::one() << 63u32));
+        assert!(refused(shl(&BigInt::one(), 64)));
+        assert_eq!(
+            value(pow(&BigInt::from(2), 63)),
+            Some(BigInt::one() << 63u32)
+        );
+        assert!(refused(pow(&BigInt::from(2), 64)));
+        assert!(refused(pow(&BigInt::from(3), 41)));
+        assert_eq!(
+            value(pow(&BigInt::from(3), 40)),
+            Some(num_traits::pow(BigInt::from(3), 40))
+        );
+        assert_eq!(result_size_limit(64, 10), 64);
+        assert_eq!(result_size_limit(64, 33), 66);
+        assert_eq!(result_size_limit(64, u64::MAX), u64::MAX);
     }
 
     /// The size of a power is decided before it is computed, so a power above the bound is
