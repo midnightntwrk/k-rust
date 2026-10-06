@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/rule_cell_content.rs
+expression: digest
+---
+axioms: 1, bytes: 771, sha256: 7271202150d35beb49386a947c8d039ddc791cce2312a3198a09a672112c0a8f
