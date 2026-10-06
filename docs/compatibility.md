@@ -448,8 +448,9 @@ An [`overload(_)` family](https://github.com/runtimeverification/k/blob/4a46d123
 ## Anywhere heads in equation arguments
 
 A function rule whose left-hand side contains an anywhere production is emitted as a function equation whose argument pattern contains that production's symbol, declared `anywhere` and, when its anywhere equations can identify applications with different arguments, neither `constructor` nor `injective` ([Anywhere rules](#anywhere-rules)).
-The pinned reference `kore-parser --verify` rejects such a definition with `Found invalid subterm in argument of function equation`: it admits in an equation argument only applications of `constructor` symbols, sort injections, symbols declared both `anywhere` and `injective`, and the concatenation, element and unit symbols of the builtin collections.
-No declaration Rust could emit meets that check and stays true. `constructor` and `injective` both state that equal applications have equal arguments, the symbol is not a sort injection, and it is not a collection symbol.
+Such a sentence is a valid KORE axiom: the validity conditions of the KORE language ([`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity)) concern declarations, scoping and sort agreement, and none restricts the symbols that may occur in an axiom's argument pattern.
+The pinned reference `kore-parser --verify` additionally checks the shape of equations and rejects such a definition with `Found invalid subterm in argument of function equation`: it admits in an equation argument only applications of `constructor` symbols, sort injections, symbols declared both `anywhere` and `injective`, and the concatenation, element and unit symbols of the builtin collections.
+No declaration Rust could emit meets that check and stays true. Semantic attributes must correspond to axioms of the definition ([`docs/kore-syntax.md`, "Attributes"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#attributes)), and `constructor` and `injective` both state that equal applications have equal arguments, which the anywhere equations below falsify; the symbol is not a sort injection, and it is not a collection symbol.
 In FUN (`pl-tutorial/2_languages/3_fun/1_untyped/1_environment`) the anywhere rule `F P = E => F = fun P -> E` equates `(f x) = e` with `f = fun x -> e`, and `[E1,E2,Es|T] => [E1|[E2,Es|T]]` equates two `[_|_]` applications with different arguments, so the equations of `names`, `exps` (argument `X:Name = E and Bs`) and `getMatching` (argument `[H | T]`) cannot be accepted by the check under any true declaration.
 
 Such an equation is still a sentence of a consistent theory, and Rust evaluates it as the rule specifies.
@@ -461,7 +462,7 @@ A value that equals an instance only through an anywhere equation, such as the b
 
 The `verifier-anywhere-argument` exclusion covers exactly this rejection: a `kore-verify` step whose first diagnostic is `Found invalid subterm in argument of function equation:`.
 The conformance driver records a `kore-verify` rejection as its own step after all other steps of the case and still runs the `definition.kore` comparison, so the exclusion leaves the comparison and every program step of the case ranked.
-Its limit is the verifier's: it reports only the first rejected sentence, so a later, different rejection of the same definition stays hidden until the first is resolved. The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
+Its limit is the verifier's: it reports only the first rejected sentence, so a later, different rejection of the same definition stays hidden until the first is resolved. For FUN this was checked by verifying again after deleting each reported axiom: exactly the `exps`, `names` and `getMatching` equations above are rejected, and the rest of the definition verifies. The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
 
 ## Concrete rewrite instantiation
 
