@@ -13,7 +13,7 @@
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
 //! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes",
-//!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::set",
+//!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::set", "order_collection",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
 //!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
 //!     "equal_nodes", "order_nodes"]
@@ -29,9 +29,10 @@
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
 //! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
 //! children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a \
-//! Map kind: after merging the entries of a same-definition rest, it verifies nondecreasing (key, \
-//! value) order or sorts, retaining repeated keys and bindings. Only Term::set builds a Set kind: \
-//! after merging the elements of a same-definition rest, it sorts and retains repeated elements. \
+//! Map kind: after merging the entries of a same-definition rest, it puts them in nondecreasing \
+//! (key, value) order with order_collection, retaining repeated keys and bindings. Only Term::set \
+//! builds a Set kind: after merging the elements of a same-definition rest, it orders them the \
+//! same way and retains repeated elements. \
 //! Allocation synthesizes shape from the completed kind and every immediate child: a repeated \
 //! map key or set element anywhere below a term excludes constructor_like and \
 //! concrete_after_normalization; a collision root also excludes structural evaluated. \
@@ -780,6 +781,54 @@ impl fmt::Debug for TermData {
 #[derive(Clone, Debug)]
 pub struct Term(Arc<TermData>);
 
+/// The most items of a run that [`order_collection`] places by binary search rather than by a
+/// general sort: few enough that the rotations stay a small multiple of one pass over the items,
+/// and enough for the runs a single insertion, concatenation or update of a collection produces.
+const SHORT_RUN: usize = 8;
+
+/// Put the entries of a map or the elements of a set in nondecreasing order, as `slice::sort`
+/// does, with the comparisons that order requires.
+///
+/// A constructor cannot trust its caller's order, so it compares each adjacent pair once
+/// (`n - 1` comparisons) to find the longest ordered prefix and check the rest. Ordered items
+/// stop there. Two ordered runs one of which has at most [`SHORT_RUN`] items, the shape that a
+/// hook inserting or updating one binding hands over, take one binary search per item of the
+/// short run and a rotation of the items it passes. Any other shape is sorted. The order is total
+/// and items that compare equal are equal, so the result is the vector a sort gives.
+///
+/// Cost: `n - 1` comparisons for ordered items; for two runs with a short one, at most `n - 1 +
+/// SHORT_RUN x (log2 n + 1)` comparisons and `SHORT_RUN x n` moves, where a general sort detects
+/// the runs over all items again and merges them; otherwise those of the sort.
+fn order_collection<T: Ord>(items: &mut [T]) {
+    let Some(descent) = items.windows(2).position(|pair| pair[0] > pair[1]) else {
+        return;
+    };
+    let split = descent + 1;
+    let length = items.len();
+    let short_prefix = split <= SHORT_RUN;
+    if (short_prefix || length - split <= SHORT_RUN)
+        && items[split..].windows(2).all(|pair| pair[0] <= pair[1])
+    {
+        if short_prefix {
+            // Invariant: `items[index + 1..]` is ordered; each item of the prefix, last first,
+            // moves in front of the first item it precedes there.
+            for index in (0..split).rev() {
+                let position = items[index + 1..].partition_point(|item| item < &items[index]);
+                items[index..=index + position].rotate_left(1);
+            }
+        } else {
+            // Invariant: `items[..index]` is ordered; each item of the suffix moves behind the
+            // last item it does not precede there.
+            for index in split..length {
+                let position = items[..index].partition_point(|item| item <= &items[index]);
+                items[position..=index].rotate_right(1);
+            }
+        }
+        return;
+    }
+    items.sort();
+}
+
 impl Term {
     pub fn and(left: Self, right: Self) -> Self {
         Self::new(TermKind::And(left, right))
@@ -957,9 +1006,7 @@ impl Term {
             None => (Vec::new(), None),
         };
         entries.extend(nested_entries);
-        if !entries.windows(2).all(|pair| pair[0] <= pair[1]) {
-            entries.sort();
-        }
+        order_collection(&mut entries);
         if entries.is_empty()
             && let Some(rest) = rest
         {
@@ -1041,7 +1088,7 @@ impl Term {
             None => (Vec::new(), None),
         };
         elements.extend(nested_elements);
-        elements.sort();
+        order_collection(&mut elements);
         if elements.is_empty()
             && let Some(rest) = rest
         {
@@ -2913,6 +2960,98 @@ mod tests {
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")
+    }
+
+    /// An item that counts the comparisons made on it.
+    struct Counted<'a> {
+        value: u32,
+        comparisons: &'a Cell<usize>,
+    }
+
+    impl PartialEq for Counted<'_> {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == Ordering::Equal
+        }
+    }
+
+    impl Eq for Counted<'_> {}
+
+    impl PartialOrd for Counted<'_> {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for Counted<'_> {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.comparisons.set(self.comparisons.get() + 1);
+            self.value.cmp(&other.value)
+        }
+    }
+
+    /// One item inserted before or after `n` ordered ones, the entries a hook that adds one
+    /// binding to a map hands to `Term::map`, is ordered with the `n` comparisons that check the
+    /// order and a binary search, not with a general sort's run detection and merge. The item
+    /// belongs at the far end, where a merge passes every other item.
+    #[test]
+    fn order_collection_places_one_inserted_item_by_binary_search() {
+        const ITEMS: u32 = 4096;
+        let comparisons = Cell::new(0);
+        let counted = |value| Counted {
+            value,
+            comparisons: &comparisons,
+        };
+        let bound = ITEMS as usize + ITEMS.ilog2() as usize + 1;
+        for inserted_first in [true, false] {
+            let mut items = (1..=ITEMS)
+                .map(|value| counted(2 * value))
+                .collect::<Vec<_>>();
+            if inserted_first {
+                items.insert(0, counted(2 * ITEMS + 1));
+            } else {
+                items.push(counted(1));
+            }
+            comparisons.set(0);
+            order_collection(&mut items);
+            let made = comparisons.get();
+            let values = items.iter().map(|item| item.value).collect::<Vec<_>>();
+            assert!(values.is_sorted(), "inserted first: {inserted_first}");
+            assert_eq!(values.len(), ITEMS as usize + 1);
+            assert!(
+                made <= bound,
+                "inserted first: {inserted_first}: {made} comparisons, bound {bound}"
+            );
+        }
+    }
+
+    proptest::proptest! {
+        /// `order_collection` leaves the vector a sort leaves: on arbitrary items, and on an
+        /// ordered run with a short run (shorter or longer than `SHORT_RUN`) before or after it,
+        /// with repeated items.
+        #[test]
+        fn order_collection_agrees_with_sort(
+            arbitrary in proptest::collection::vec(0u8..16, 0..40),
+            mut run in proptest::collection::vec(0u8..64, 0..64),
+            short in proptest::collection::vec(0u8..64, 0..12),
+            short_first in proptest::prelude::any::<bool>(),
+        ) {
+            let mut items = arbitrary.clone();
+            order_collection(&mut items);
+            let mut expected = arbitrary;
+            expected.sort();
+            proptest::prop_assert_eq!(items, expected);
+
+            run.sort();
+            let mut items = if short_first {
+                short.iter().chain(&run).copied().collect::<Vec<_>>()
+            } else {
+                run.iter().chain(&short).copied().collect::<Vec<_>>()
+            };
+            let mut expected = items.clone();
+            expected.sort();
+            order_collection(&mut items);
+            proptest::prop_assert_eq!(items, expected);
+        }
     }
 
     /// Runs `compare` on a 256 KiB thread over three chains of 20,000 free-constructor
