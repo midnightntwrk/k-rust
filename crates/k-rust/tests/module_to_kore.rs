@@ -1088,18 +1088,6 @@ module_snapshot!(
 );
 
 module_snapshot!(
-    a_labelled_token_production_is_neither_a_constructor_nor_in_no_confusion,
-    r#"
-        module MAIN
-          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
-          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
-          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
-        endmodule
-    "#,
-    "MAIN"
-);
-
-module_snapshot!(
     emits_one_path_and_all_path_reachability_claims,
     r#"
         module MAIN [all-path]
@@ -2132,6 +2120,8 @@ fn disjointness_binds_phantom_symbol_parameters_independently() {
     assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
 }
 
+// The snapshot also shows that a labelled token production is not a constructor: `strLit` and
+// `idLit` carry no `constructor` attribute and appear in no no-confusion axiom.
 module_snapshot!(
     labelled_token_productions_contribute_only_top_to_no_junk,
     r#"

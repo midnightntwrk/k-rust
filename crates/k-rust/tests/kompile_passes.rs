@@ -10794,12 +10794,37 @@ fn a_non_recursive_macro_expands_at_the_bottom_of_a_deep_term() {
     expected.clear();
 }
 
-/// A terminating `macro-rec` recursion over a deep input expands: reversing a list of 3000
-/// elements makes 3000 recursive rewrites and adds 1500 levels to the accumulator, more than
-/// the fixed growth allowance but less than the depth of the input.
+/// The depth `macro-rec` rewrites may add along a path of any input, however shallow: the
+/// expansion pass's `MIN_RECURSIVE_GROWTH`, which is private to it. Its divergence diagnostic
+/// states the bound, and `a_terminating_macro_rec_recursion_over_a_deep_input_expands` checks
+/// that it is this one, so a change to the pass's bound fails that test instead of leaving its
+/// input too shallow to exceed the bound.
+const MIN_RECURSIVE_GROWTH: usize = 1_000;
+
+/// A terminating `macro-rec` recursion over a deep input expands. Reversing a list of `LENGTH`
+/// elements makes `LENGTH` recursive rewrites; once the accumulator is the deeper argument, each
+/// rewrite adds a level, `LENGTH / 2` in all. That is more than the fixed growth allowance but
+/// less than the depth of the input, so the expansion succeeds only because the allowance rises
+/// to the input's depth.
 #[test]
 fn a_terminating_macro_rec_recursion_over_a_deep_input_expands() {
-    const LENGTH: usize = 3_000;
+    // 50 levels of growth beyond the fixed allowance. The growth is exact, so any excess tells
+    // the input-depth allowance from the fixed one, and 50 levels leave room for a change of a
+    // few levels in how depth is counted. The expansion's cost grows much faster than the
+    // length, so the input is no longer than that.
+    const LENGTH: usize = 2 * MIN_RECURSIVE_GROWTH + 100;
+    let (_, message) = macro_expansion_error(indoc! {r#"
+        module MAIN
+          syntax Foo ::= "t" [macro-rec] | s(Foo) | "c"
+          rule t => s(t)
+          rule c => t
+        endmodule
+    "#});
+    assert!(
+        message.contains(&format!("the larger of {MIN_RECURSIVE_GROWTH} and")),
+        "the fixed growth allowance is no longer {MIN_RECURSIVE_GROWTH}; size LENGTH from the new one: {message}"
+    );
+
     let input = || {
         application(
             "rev",

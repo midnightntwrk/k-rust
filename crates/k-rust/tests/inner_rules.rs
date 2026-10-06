@@ -732,14 +732,6 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
     assert!(body.contains("=>ite("), "{body}");
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn polymorphic_rhs_overload_branch_parameters_agree_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "polymorphic_rhs_keeps_overload_branch_parameters_independent",
-    );
-}
-
 /// The two well-sorted readings, `capGas … => ite{Gas}(…)` and `capInt … => ite{Int}(…)`, give
 /// every variable the same sort, so they are one maximal typing and differ only in the overload
 /// and in the instantiation of `ite`'s parameter. The typing does not choose between them and
@@ -791,14 +783,6 @@ fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
         assert!(!body.contains("capGas"), "{body}");
         assert!(body.contains("=>ite("), "{body}");
     }
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn one_maximal_typing_split_by_overload_and_parameter_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3",
-    );
 }
 
 /// The body of the one rule `resolve_rule_bubbles` resolved in `definition`'s main module.
@@ -861,12 +845,6 @@ fn cgascap_is_left_to_z3_in_the_portable_build() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn cgascap_without_the_prelude_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference("cgascap_is_left_to_z3_in_the_portable_build");
-}
-
 /// `lam(0 => 0)(0)` reads as `lam1` over a rewrite or as `lam2` over a pattern and a body
 /// (the shape of the prelude's `#fun2` and `#fun3`). The rule has no variable, so both trees
 /// share the empty typing; they instantiate different parametric productions and lower to
@@ -913,14 +891,6 @@ fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "preferred_reading_among_parameter_instantiations_is_left_to_z3",
-    );
-}
-
 /// `pick(pick(0))` over `pick1 [prefer]` (`{S} S ::= pick(S)`) and `pick2` (`{S1, S2} S1 ::=
 /// pick(S2)`): every reading shares the empty typing and the readings differ only in which
 /// parametric production each `pick` instantiates and at which sort. One parameter vector
@@ -963,14 +933,6 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn nested_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "nested_preferred_reading_among_parameter_instantiations_is_left_to_z3",
-    );
-}
-
 /// `pick(0)` over `pick1 [prefer]` and `pick2`: `pick1{Int}(0)` and `pick2{Int, S2}(0)` share
 /// the empty typing. Placing `pick2`'s free argument parameter at `K` keeps both readings, so
 /// the parameter preference chooses only `pick2`'s instantiation and `prefer` takes `pick1`.
@@ -1009,14 +971,6 @@ fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading()
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn flat_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading",
-    );
-}
-
 /// `pickB [prefer]` has the result sort `Bool`, which no parameter vector places under the
 /// `Int` the rule's right-hand side expects, so its reading is ill-sorted under every vector
 /// and is dropped before `prefer` could take it; `pick2{Int, K}(0)` is the rule.
@@ -1037,14 +991,6 @@ fn preferred_reading_ill_sorted_under_every_parameter_vector_is_dropped() {
         &resolve_rule_bubbles(&lowered(source)).expect("the well-sorted reading is the rule"),
     );
     assert_eq!(body, r#"trigger(.KList)=>pick2(#token("0","Int"))"#);
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn preferred_reading_ill_sorted_under_every_parameter_vector_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "preferred_reading_ill_sorted_under_every_parameter_vector_is_dropped",
-    );
 }
 
 #[test]
@@ -1308,12 +1254,6 @@ fn semcast2_is_accepted_end_to_end() {
     assert!(check_rhs_variables(&[sentence], StructuralCheckOptions::default()).is_empty());
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn semcast2_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference("semcast2_is_accepted_end_to_end");
-}
-
 #[test]
 fn reference_canonicalizes_an_eighty_operand_casted_chain_without_truncation() {
     fn assert_cast_operand(term: &Term, index: usize) {
@@ -1434,14 +1374,6 @@ fn semcast3_and_semcast4_take_their_one_well_sorted_reading() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn semcast3_and_semcast4_reading_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "semcast3_and_semcast4_take_their_one_well_sorted_reading",
-    );
-}
-
 /// Resolves the one rule of `source` and returns its body after `resolve_semantic_casts`,
 /// asserting that every occurrence of `X` carries `Small`.
 fn assert_every_x_is_small_after_resolving_casts(name: &str, source: &str, occurrences: usize) {
@@ -1491,14 +1423,6 @@ fn semantic_cast_after_the_narrowing_occurrence_keeps_the_inferred_sort() {
     assert_every_x_is_small_after_resolving_casts("foo(X) ~> bar(X:Big)", &source, 2);
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn semantic_cast_after_the_narrowing_occurrence_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "semantic_cast_after_the_narrowing_occurrence_keeps_the_inferred_sort",
-    );
-}
-
 /// As above with the ambiguous `a(X)`, decided in both builds: only `aS` is well-sorted, with X
 /// at Small.
 #[test]
@@ -1508,14 +1432,6 @@ fn semantic_cast_after_an_ambiguous_narrowing_occurrence_keeps_the_inferred_sort
         "rule a(X) ~> bar(X:Big) => .K",
     );
     assert_every_x_is_small_after_resolving_casts("a(X) ~> bar(X:Big)", &source, 2);
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn semantic_cast_after_an_ambiguous_narrowing_occurrence_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "semantic_cast_after_an_ambiguous_narrowing_occurrence_keeps_the_inferred_sort",
-    );
 }
 
 /// The strict cast is the exact annotation: `X::Big` gives X all of Big, so the occurrence in
@@ -3675,6 +3591,9 @@ fn artifact_digest(name: &str, text: &str) -> ArtifactDigest {
 
 /// The embedded prelude is inside the portable boundary: an empty main module with the prelude
 /// loads in either build, under either backend's module exclusion, to the same definition.
+/// Checked inference (`every_rule_test_passes_under_checked_inference`) runs the portable
+/// decision beside Z3 on every forest of the prelude and fails on any disagreement, so the
+/// equality is also tested rule by rule.
 #[test]
 fn the_standard_prelude_loads_to_the_same_definition_in_both_builds() {
     for excluded in ["concrete", "symbolic"] {
@@ -3696,16 +3615,6 @@ fn the_standard_prelude_loads_to_the_same_definition_in_both_builds() {
             insta::assert_debug_snapshot!("standard_prelude_definition", digest);
         });
     }
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn the_standard_prelude_agrees_under_checked_inference() {
-    // Checked mode runs the portable decision beside Z3 on every forest of the prelude and fails
-    // on any disagreement, so the equality above is also tested rule by rule.
-    assert_test_passes_under_checked_inference(
-        "the_standard_prelude_loads_to_the_same_definition_in_both_builds",
-    );
 }
 
 fn load_with_prelude(
@@ -4169,28 +4078,12 @@ fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<
         .collect()
 }
 
-/// Re-run one test of this binary under the hidden `checked` inference mode, which the
-/// conformance driver uses (`ktest.mak` passes `--type-inference-mode checked`): every rule is
-/// inferred by both the portable and the Z3 engine and the definition is rejected when they
-/// disagree. The child process owns the environment variable, so no other test observes it.
-#[cfg(feature = "z3-inference")]
-fn assert_test_passes_under_checked_inference(test_name: &str) {
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "--nocapture", test_name])
-        .env("KRUST_TYPE_INFERENCE_MODE", "checked")
-        .output()
-        .expect("the test binary re-runs itself");
-    assert!(
-        output.status.success(),
-        "{test_name} fails under KRUST_TYPE_INFERENCE_MODE=checked:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-/// Every test of this binary also passes under checked inference, so a rule on which the two
-/// engines disagree fails the suite even when no test names it. The only tests not rerun are
-/// the `*_under_checked_inference` tests, this one included: each already runs its subject
-/// under checked inference in a child process.
+/// Every other test of this binary also passes under the hidden `checked` inference mode, which
+/// the conformance driver uses (`ktest.mak` passes `--type-inference-mode checked`): every rule
+/// is inferred by both the portable and the Z3 engine and the definition is rejected when they
+/// disagree. So a rule on which the two engines disagree fails the suite even when no test
+/// names it, and the failure lists each test that failed in the rerun. The rerun is a child
+/// process, which owns the environment variable, so no other test observes it.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn every_rule_test_passes_under_checked_inference() {
@@ -4199,7 +4092,7 @@ fn every_rule_test_passes_under_checked_inference() {
         return;
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--skip", "under_checked_inference"])
+        .args(["--skip", "every_rule_test_passes_under_checked_inference"])
         .env("KRUST_TYPE_INFERENCE_MODE", "checked")
         .output()
         .expect("the test binary re-runs itself");
@@ -4219,6 +4112,11 @@ fn reference_withconfig_function_rule_casts_the_variable_at_the_function_sort() 
     // Reduced from regression-new/issue-1436 (test.k:20); configuration-composition
     // (config-comp.k:40), unification-lemmas2 (with-config.k:30) and fun-llvm (fun-test.k:58)
     // have the same shape: a function rule whose rewrite sits under `#withConfig`.
+    // A node expected at `#RuleBody` is a rule body just as one at `#RuleContent` is, and a
+    // function rule's rewrite has the function's result sort, so the `#withConfig` production
+    // bounds its rewrite child by the function sort exactly as `#RuleContent` does for a bare
+    // rewrite; under checked inference (`every_rule_test_passes_under_checked_inference`) both
+    // engines must instantiate the rewrite at Int.
     let source = include_str!("fixtures/reference/inner/withconfig-fn/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts the function rule with a configuration context");
@@ -4227,18 +4125,6 @@ fn reference_withconfig_function_rule_casts_the_variable_at_the_function_sort() 
         [
             "#withConfig(`foo(_)_TEST_Int_Int`(#token(\"0\",\"Int\"))=>#SemanticCastToInt(I),`<bar>`(#noDots(.KList),#SemanticCastToInt(I),#noDots(.KList))) requires #token(\"true\",\"Bool\")"
         ]
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn withconfig_function_rule_agrees_under_checked_inference() {
-    // A node expected at `#RuleBody` is a rule body just as one at `#RuleContent` is, and a
-    // function rule's rewrite has the function's result sort, so the `#withConfig` production
-    // bounds its rewrite child by the function sort exactly as `#RuleContent` does for a bare
-    // rewrite; both engines must instantiate the rewrite at Int.
-    assert_test_passes_under_checked_inference(
-        "reference_withconfig_function_rule_casts_the_variable_at_the_function_sort",
     );
 }
 
@@ -4261,19 +4147,15 @@ fn reference_function_rule_without_configuration_casts_the_variable_at_the_funct
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn function_rule_without_configuration_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "reference_function_rule_without_configuration_casts_the_variable_at_the_function_sort",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
 fn reference_bare_variable_alias_body_is_cast_to_k() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
     // parsed.txt: context alias #SemanticCastToK(HERE) requires isFoo(#SemanticCastToK(HOLE)) [label(foo), ...]
     // Reduced from regression-new/context-alias-3 (test.k:7): the rule body is a bare variable,
     // which K's rule grammar reaches through `#RuleBody ::= K` (kast.md:343).
+    // The bare body HERE stands at the `K` nonterminal of K's `#RuleBody ::= K` production, so
+    // it is bounded by K, and K is also the largest sort a variable can have; one solution, cast
+    // to K, on which both engines agree under checked inference
+    // (`every_rule_test_passes_under_checked_inference`).
     let source = include_str!("fixtures/reference/inner/alias-bare-variable/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a context alias whose body is a bare variable");
@@ -4281,15 +4163,6 @@ fn reference_bare_variable_alias_body_is_cast_to_k() {
         rule_like_texts(&loaded, "test.k"),
         ["#SemanticCastToK(HERE) requires isFoo(#SemanticCastToK(HOLE))"]
     );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn bare_variable_alias_body_agrees_under_checked_inference() {
-    // The bare body HERE stands at the `K` nonterminal of K's `#RuleBody ::= K` production, so
-    // it is bounded by K, and K is also the largest sort a variable can have; one solution,
-    // cast to K.
-    assert_test_passes_under_checked_inference("reference_bare_variable_alias_body_is_cast_to_k");
 }
 
 #[cfg(feature = "z3-inference")]
@@ -4309,14 +4182,6 @@ fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn alias_variable_under_a_production_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "reference_alias_variable_under_a_production_is_cast_at_the_argument_sort",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
 fn reference_exists_binder_variable_is_inferred_at_k() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
     // parsed.txt: rule `foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists(#SemanticCastToK(Y),#Equals(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token("true","Bool") ensures #token("true","Bool")
@@ -4324,6 +4189,11 @@ fn reference_exists_binder_variable_is_inferred_at_k() {
     // ktest-fail step of that case whose verdict differs from the reference. parsed.txt omits
     // the inferred sort parameters of #Exists and #Equals, and so does the loaded rule; the casts
     // to K fix them at {K,K} when sort injection instantiates them.
+    // Variables and sort parameters range over the sorts a term can have: of the parser's own
+    // sorts only K, KItem and KLabel are among them, while KList is the sort of argument lists,
+    // so the bound variable Y and the sort parameters of #Exists and #Equals never range over
+    // KList; one maximal model, at K, on which both engines agree under checked inference
+    // (`every_rule_test_passes_under_checked_inference`).
     let source = include_str!("fixtures/reference/inner/exists-binder/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts the existential over a fresh variable");
@@ -4333,16 +4203,6 @@ fn reference_exists_binder_variable_is_inferred_at_k() {
             "`foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists(#SemanticCastToK(Y),#Equals(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token(\"true\",\"Bool\")"
         ]
     );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn exists_binder_variable_agrees_under_checked_inference() {
-    // Variables and sort parameters range over the sorts a term can have: of the parser's own
-    // sorts only K, KItem and KLabel are among them, while KList is the sort of argument lists,
-    // so the bound variable Y and the sort parameters of #Exists and #Equals never range over
-    // KList; one maximal model, at K.
-    assert_test_passes_under_checked_inference("reference_exists_binder_variable_is_inferred_at_k");
 }
 
 #[cfg(feature = "z3-inference")]
@@ -4396,6 +4256,12 @@ fn reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k() {
     // regression-new/checks checkStrictBOOLInclusion.k, verbatim: `rule mytrue myand B2 => B2`
     // under the llvm module set. Both engines instantiate the top #KRewrite at K, the sort the
     // portable engine assigns; k-rust renders the parameter.
+    // Host ratchet run 20: with the Z3 domain restricted to real sorts (3769711) the seed model
+    // still prefers K for the #KRewrite parameter, but the maximality climb over the real
+    // variables re-reads every constant from an unconstrained model and the parameter came back
+    // as KItem, which checked mode reported against the portable engine's K. The parameter
+    // preference of the seed must survive the climb; checked inference
+    // (`every_rule_test_passes_under_checked_inference`) reruns this test.
     let source = include_str!("fixtures/reference/inner/strict-bool-inclusion/test.k");
     let loaded = load_with_prelude_for_llvm(source, "test.k", "CHECKSTRICTBOOLINCLUSION")
         .expect("the reference accepts the strictness definition");
@@ -4413,19 +4279,6 @@ fn reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn top_rewrite_over_a_bare_variable_agrees_under_checked_inference() {
-    // Host ratchet run 20: with the Z3 domain restricted to real sorts (3769711) the seed model
-    // still prefers K for the #KRewrite parameter, but the maximality climb over the real
-    // variables re-reads every constant from an unconstrained model and the parameter came back
-    // as KItem, which checked mode reported against the portable engine's K. The parameter
-    // preference of the seed must survive the climb.
-    assert_test_passes_under_checked_inference(
-        "reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
 fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sort() {
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/llvm, verbatim, exit 0)
     // parsed.txt: rule `foo()_TEST_Foo`(.KList)=>`bar()_TEST_Foo`(.KList) requires #token("true","Bool") ensures #token("true","Bool") [anywhere, ..., priority(20)]
@@ -4434,6 +4287,11 @@ fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sor
     // rewrite has the left-hand side's sort regardless of the production: the `#RuleContent`
     // node bounds its rewrite child by the sort of `foo()`, and the rewrite is instantiated at
     // Foo, as the portable engine's anywhere bound already does.
+    // Host ratchet runs 16 to 26 (issue-2909-allow-anywhere-haskell/llvm, kompile step): the Z3
+    // engine bounded only the rewrite's right-hand side by the anywhere left-hand side and left
+    // the #KRewrite parameter at the seed's K, while the portable engine bound the rewrite itself
+    // by the left-hand side's sort (Foo); checked inference
+    // (`every_rule_test_passes_under_checked_inference`) reruns this test.
     let source = include_str!("fixtures/reference/inner/anywhere-nullary/test.k");
     let loaded = load_with_prelude_for_llvm(source, "test.k", "TEST")
         .expect("the reference accepts the anywhere rule over a nullary constructor");
@@ -4443,18 +4301,6 @@ fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sor
             "`foo()_TEST_Foo`(.KList)=>`bar()_TEST_Foo`(.KList) requires #token(\"true\",\"Bool\")",
             "`foo()_TEST_Foo`(.KList)=>`baz()_TEST_Foo`(.KList) requires #token(\"true\",\"Bool\")",
         ]
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn anywhere_rule_over_a_nullary_constructor_agrees_under_checked_inference() {
-    // Host ratchet runs 16 to 26 (issue-2909-allow-anywhere-haskell/llvm, kompile step): the Z3
-    // engine bounded only the rewrite's right-hand side by the anywhere left-hand side and left
-    // the #KRewrite parameter at the seed's K, while the portable engine and the reference bound
-    // the rewrite itself by the left-hand side's sort (Foo).
-    assert_test_passes_under_checked_inference(
-        "reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sort",
     );
 }
 
@@ -4471,14 +4317,6 @@ fn reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort() {
     assert_eq!(
         rule_like_texts(&loaded, "test.k"),
         ["#token(\"1\",\"Int\")=>#token(\"2\",\"Int\") requires #token(\"true\",\"Bool\")"]
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn anywhere_rule_over_a_token_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort",
     );
 }
 
@@ -4513,14 +4351,6 @@ fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn nullary_function_with_a_parametric_instance_result_sort_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
 fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0)
     // parsed.txt: rule `testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`{64}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{256}(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p256","MInt{256}")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`{256}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int"))))))) requires #token("true","Bool") ensures #token("true","Bool")
@@ -4546,14 +4376,6 @@ fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width()
             "`testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p256\",\"MInt{256}\")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\"))))))) requires #token(\"true\",\"Bool\")",
             "`testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\"))),#token(\"0p64\",\"MInt{64}\"))) requires #token(\"true\",\"Bool\")",
         ]
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn parametric_result_in_a_placeholder_slot_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width",
     );
 }
 
@@ -4855,14 +4677,6 @@ fn kitem_argument_rewrite_inside_a_bracket_is_decided_by_sort_inference() {
     assert_rule_resolution_snapshot!(source);
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn kitem_argument_rewrite_inside_a_bracket_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "kitem_argument_rewrite_inside_a_bracket_is_decided_by_sort_inference",
-    );
-}
-
 // A parenthesized rewrite has one derivation per bracket that reaches its position: here the
 // `Int` bracket under `foo` and the `K` bracket under the `foo(...)` label application, which
 // are distinct rewrites (of sort `Int` and of sort `K`). The forest is ambiguous but
@@ -4877,14 +4691,6 @@ fn argument_rewrite_inside_a_bracket_is_decided_by_sort_inference() {
         endmodule
     "#};
     assert_rule_resolution_snapshot!(source);
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn argument_rewrite_inside_a_bracket_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "argument_rewrite_inside_a_bracket_is_decided_by_sort_inference",
-    );
 }
 
 #[test]
@@ -5101,22 +4907,6 @@ fn strict_cast_at_the_inner_terms_own_sort_selects_the_same_term() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn strict_cast_rejection_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "strict_cast_rejects_an_inner_term_of_a_proper_subsort",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn strict_cast_at_the_inner_terms_own_sort_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "strict_cast_at_the_inner_terms_own_sort_selects_the_same_term",
-    );
-}
-
 // Ambiguous monomorphic forests decided by the maximal typings of their trees. One reduced
 // fixture per class of ambiguity the embedded prelude has; each snapshot is recorded by the
 // z3-inference build and asserted unchanged by the portable build, and each fixture reruns
@@ -5190,22 +4980,6 @@ rule_snapshot!(
         endmodule
     "#
 );
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn ambiguity_classes_agree_under_checked_inference() {
-    for test in [
-        "ambiguity_class_lookup_eliminated_by_the_variable_sort",
-        "ambiguity_class_overload_with_one_well_sorted_alternative",
-        "ambiguity_class_brackets_lowering_to_one_term",
-        "ambiguity_class_grouping_decided_by_the_maximal_typing",
-        "ambiguity_class_overload_decided_by_a_strict_cast",
-        "incomparable_maximal_typings_are_reported_as_ambiguity",
-        "a_dominating_typing_still_selects_one_parse",
-    ] {
-        assert_test_passes_under_checked_inference(test);
-    }
-}
 
 // `prefer`/`avoid` between maximal trees that diverge at several positions (the frontier step of
 // the post-inference filter). Reduced from pl-tutorial kool-typed-static.md:358, `rule
@@ -5285,14 +5059,6 @@ fn avoided_constructor_at_one_of_two_divergence_points_is_dropped() {
     assert_eq!(body, CLASS_TYPE_READING);
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn avoided_constructor_at_one_of_two_divergence_points_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "avoided_constructor_at_one_of_two_divergence_points_is_dropped",
-    );
-}
-
 // Both engines rank maximal typings in the subsort order, where `Id` and `Type` are
 // incomparable, so without an attribute nothing decides and `prefer` keeps the `class` reading.
 //
@@ -5312,22 +5078,6 @@ fn preferred_constructor_at_one_of_two_divergence_points_is_kept() {
     let body = resolved_rule_body(&class_constructor_source(", prefer"))
         .expect("prefer on class decides between the two maximal trees");
     assert_eq!(body, CLASS_ID_READING);
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn constructor_without_prefer_or_avoid_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous",
-    );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn preferred_constructor_agrees_under_checked_inference() {
-    assert_test_passes_under_checked_inference(
-        "preferred_constructor_at_one_of_two_divergence_points_is_kept",
-    );
 }
 
 // `f : A ::= B` and `g : B ::= A` are a legal pair of constructors: they make the chain relation
@@ -5447,17 +5197,6 @@ fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
     assert_eq!(&source[span.start..span.end].trim_end(), &"q 1");
 }
 
-#[cfg(feature = "z3-inference")]
-#[test]
-fn constructor_cycle_agrees_under_checked_inference() {
-    for test in [
-        "constructor_cycle_leaves_an_ambiguous_rule_to_inference",
-        "constructor_cycle_makes_a_rule_over_its_sorts_a_cyclic_forest",
-    ] {
-        assert_test_passes_under_checked_inference(test);
-    }
-}
-
 // Without single-nonterminal productions both orders agree. The two readings of `a(X, Y)`
 // differ at the left-hand application and at the right-hand variables' sorts.
 fn two_applications_source(k_attribute: &str, int_attribute: &str) -> String {
@@ -5493,17 +5232,6 @@ fn maximal_tree_avoided_at_one_of_two_divergence_points_is_dropped() {
         resolved_rule_body(&two_applications_source("", ", avoid")).unwrap(),
         APPLICATION_K_READING
     );
-}
-
-#[cfg(feature = "z3-inference")]
-#[test]
-fn maximal_trees_avoided_at_the_frontier_agree_under_checked_inference() {
-    for test in [
-        "maximal_trees_avoided_at_every_divergence_point_stay_ambiguous",
-        "maximal_tree_avoided_at_one_of_two_divergence_points_is_dropped",
-    ] {
-        assert_test_passes_under_checked_inference(test);
-    }
 }
 
 #[test]
