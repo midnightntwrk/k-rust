@@ -732,3 +732,63 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         input_addresses: Vec::new(),
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::kompile::stage_harness::{rendered_changes, run_to_stage};
+
+    /// A strict argument is evaluated before the production applies, in any order: `strict`
+    /// gives every argument a context, `strict(2)` only the second, and the contexts carry no
+    /// condition beyond the production's own (`true`). `seqstrict` evaluates the arguments
+    /// left to right, so the context of an argument also requires every argument before it to
+    /// be a result already. The stage adds these contexts and changes nothing else.
+    #[test]
+    fn strict_positions_become_one_context_each_and_seqstrict_orders_them() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | plus(Exp, Exp) [strict, symbol(plus)]
+               | sel(Exp, Exp) [strict(2), symbol(sel)]
+               | seq(Exp, Exp, Exp) [seqstrict, symbol(seq)]
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve strictness",
+        );
+        let (mut added, removed) = rendered_changes(&run);
+        added.sort();
+        let truth = r#"#token("true","Bool")"#;
+        let unconditional = format!("`_andBool_`({truth},{truth})");
+        let mut expected = vec![
+            format!(
+                "context plus(#SemanticCastToExp(HOLE),#SemanticCastToExp(K1)) requires {unconditional}"
+            ),
+            format!(
+                "context plus(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE)) requires {unconditional}"
+            ),
+            format!(
+                "context sel(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE)) requires {unconditional}"
+            ),
+            format!(
+                "context seq(#SemanticCastToExp(HOLE),#SemanticCastToExp(K1),#SemanticCastToExp(K2)) requires {unconditional}"
+            ),
+            format!(
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE),#SemanticCastToExp(K2)) requires `_andBool_`(isKResult(K0),{truth})"
+            ),
+            format!(
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(K1),#SemanticCastToExp(HOLE)) requires `_andBool_`(`_andBool_`(isKResult(K0),isKResult(K1)),{truth})"
+            ),
+        ];
+        expected.sort();
+        assert_eq!(added, expected);
+        assert_eq!(removed, Vec::<String>::new());
+    }
+}

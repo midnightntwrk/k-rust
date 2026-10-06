@@ -1965,3 +1965,85 @@ fn sentence_error(message: impl Into<String>, sentence: &Sentence) -> Concretize
         )],
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::{
+        definition::Sentence,
+        kast::Term,
+        kompile::stage_harness::{labelled, render, run_to_stage},
+    };
+
+    /// A rule mentions only the cells it reads or writes; it applies to the whole
+    /// configuration, whose other cells it leaves as they are. Concretization states this:
+    /// the rule is placed under every ancestor cell up to the generated top cell (which the
+    /// fresh-constant stage put above the user's top cell, beside the counter), each cell is a
+    /// fixed-arity application of its production, and a cell the rule does not mention is
+    /// matched by a variable and rebuilt unchanged. No cell-bag abstraction (`#cells`,
+    /// `#dots`, `#noDots`) remains in any sentence.
+    #[test]
+    fn rules_are_completed_to_the_whole_configuration_with_unmentioned_cells_kept() {
+        let run = run_to_stage(
+            r#"
+module INT
+endmodule
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Id ::= r"[a-z]+" [token]
+              | freshId(Int) [function, freshGenerator, symbol(freshId)]
+  syntax Exp ::= Int | Id | "go" [symbol(go)] | done(Id) [symbol(done)]
+  configuration <t> <k> go </k> <s> 0 </s> </t>
+  rule <k> go => done(!X:Id) </k> [label(fresh)]
+  rule <s> 0 => 1 </s> [label(state)]
+endmodule
+"#,
+            "concretize cells",
+        );
+        let output = run.output();
+        assert_eq!(
+            render(labelled(output, "MAIN", "fresh")[0]),
+            r#"rule `<generatedTop>`(`<t>`(`<k>`(go(.KList)=>done(freshId(`_+Int_`(#Fresh,#token("0","Int"))))),_DotVar1),`<generatedCounter>`(#Fresh=>`_+Int_`(#Fresh,#token("1","Int")))) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+        assert_eq!(
+            render(labelled(output, "MAIN", "state")[0]),
+            r#"rule `<generatedTop>`(`<t>`(_DotVar1,`<s>`(#token("0","Int")=>#token("1","Int"))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+
+        fn abstractions(term: &Term, found: &mut Vec<String>) {
+            match term {
+                Term::Apply { label, arguments } => {
+                    if matches!(label.name.as_str(), "#cells" | "#dots" | "#noDots") {
+                        found.push(label.name.clone());
+                    }
+                    arguments
+                        .iter()
+                        .for_each(|argument| abstractions(argument, found));
+                }
+                Term::Annotated { term, .. } => abstractions(term, found),
+                Term::Rewrite { left, right } => {
+                    abstractions(left, found);
+                    abstractions(right, found);
+                }
+                Term::As { pattern, alias } => {
+                    abstractions(pattern, found);
+                    abstractions(alias, found);
+                }
+                Term::Sequence(items) => items.iter().for_each(|item| abstractions(item, found)),
+                Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+            }
+        }
+        for module in &output.modules {
+            for sentence in &module.local_sentences {
+                if let Sentence::Rule { .. } | Sentence::Claim { .. } = &**sentence {
+                    let mut found = Vec::new();
+                    for (_, term) in sentence.terms() {
+                        abstractions(term, &mut found);
+                    }
+                    assert!(found.is_empty(), "{found:?} in {}", render(sentence));
+                }
+            }
+        }
+    }
+}

@@ -2389,3 +2389,46 @@ mod tests {
         assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidSmtLemma);
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::kompile::stage_harness::{labelled, render, rendered_changes, run_to_stage};
+
+    /// A `macro` production is notation: every application of it in the other sentences is
+    /// replaced by its rule's right-hand side, instantiated, until no application is left, so
+    /// an expansion that yields macro applications (`twice(b)` gives `dup(dup(b))`) is expanded
+    /// again, inside and out. The stage changes only the sentences that apply a macro; the macro
+    /// rules themselves stay, unchanged.
+    #[test]
+    fn macro_applications_are_replaced_by_their_expansion_to_a_fixed_point() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | pair(Exp, Exp) [symbol(pair)]
+               | dup(Exp) [macro, symbol(dup)] | twice(Exp) [macro, symbol(twice)]
+  rule dup(E) => pair(E, E)
+  rule twice(E) => dup(dup(E))
+  configuration <k> a </k>
+  rule <k> a => twice(b) </k> [label(use)]
+endmodule
+"#,
+            "expand macros",
+        );
+        let (added, removed) = rendered_changes(&run);
+        assert_eq!(
+            removed,
+            [
+                r#"rule `<k>`(#noDots(.KList),a(.KList)=>twice(b(.KList)),#noDots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#
+            ]
+        );
+        assert_eq!(
+            added,
+            [
+                r#"rule `<k>`(#noDots(.KList),a(.KList)=>pair(pair(b(.KList),b(.KList)),pair(b(.KList),b(.KList))),#noDots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#
+            ]
+        );
+        assert_eq!(render(labelled(run.output(), "MAIN", "use")[0]), added[0]);
+    }
+}

@@ -2763,7 +2763,40 @@ mod tests {
 /// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
 #[cfg(test)]
 mod stage_tests {
-    use crate::kompile::stage_harness::run_to_stage;
+    use crate::kompile::stage_harness::{labelled, render, run_to_stage};
+
+    /// In KORE an argument has exactly the sort its symbol declares; a K term of a strict
+    /// subsort stands there through the injection `inj{Sub, Super}`. So the stage wraps every
+    /// argument whose sort is strictly below the declared sort in one injection between those
+    /// two sorts, and leaves an argument of the declared sort alone: `V:Val` under `pair(Exp,
+    /// Exp)` becomes `inj{Val,Exp}(V)`, `E:Exp` stays, and the `Exp` term in the `<k>` cell,
+    /// whose content is a `KItem`, is injected into `KItem`. (The stage also states the rule as
+    /// one rewrite of the whole configuration, as a KORE rewrite axiom has it.)
+    #[test]
+    fn a_subsort_argument_is_injected_into_the_declared_sort_and_only_then() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Val ::= "v" [symbol(v)]
+  syntax Exp ::= Val | pair(Exp, Exp) [symbol(pair)]
+  configuration <k> v </k>
+  rule <k> pair(V:Val, E) => pair(E, V) </k> [label(swap)]
+endmodule
+"#,
+            "add sort injections",
+        );
+        let before = labelled(&run.input, "MAIN", "swap");
+        let after = labelled(run.output(), "MAIN", "swap");
+        assert_eq!(
+            render(before[0]),
+            r#"rule `<generatedTop>`(`<k>`(pair(V,E)=>pair(E,V)),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+        assert_eq!(
+            render(after[0]),
+            r#"rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(inj{Val,Exp}(V),E))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(pair(E,inj{Val,Exp}(V)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+    }
 
     /// `isS(X)` holds exactly when `X` is a term of sort `S`: a sort predicate is decided by its
     /// argument's sort. A rule that makes it read the configuration (here through a function

@@ -1037,3 +1037,82 @@ fn error_from(message: String) -> ResolveFreshConstantsError {
         diagnostics: vec![plain_error(message)],
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::kompile::stage_harness::{labelled, render, rendered_changes, run_to_stage};
+
+    /// `!X:S` denotes a value of `S` no earlier step has produced (K's user manual,
+    /// `freshGenerator` attribute). The stage draws it from a counter cell the configuration
+    /// gains for the purpose: the `n`-th fresh variable of a rule is the sort's generator
+    /// applied to `counter + n`, and the rule advances the counter by the number of values it
+    /// draws, so two variables of one step, and the values of two steps, never coincide.
+    #[test]
+    fn fresh_variables_are_distinct_counter_offsets_and_the_rule_advances_the_counter() {
+        let run = run_to_stage(
+            r#"
+module INT
+endmodule
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Id ::= r"[a-z]+" [token]
+              | freshId(Int) [function, freshGenerator, symbol(freshId)]
+  syntax Exp ::= Int | Id | "go" [symbol(go)] | pair(Id, Id) [symbol(pair)]
+  configuration <t> <k> go </k> <s> 0 </s> </t>
+  rule <k> go => pair(!X:Id, !Y:Id) </k> [label(fresh)]
+endmodule
+"#,
+            "resolve fresh constants",
+        );
+        assert_eq!(
+            render(labelled(run.output(), "MAIN", "fresh")[0]),
+            r#"rule #cells(`<k>`(#noDots(.KList),go(.KList)=>pair(freshId(`_+Int_`(#Fresh,#token("0","Int"))),freshId(`_+Int_`(#Fresh,#token("1","Int")))),#noDots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token("2","Int")),#noDots(.KList))) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+        // The counter cell starts at 0 and sits beside the user's top cell under a generated top.
+        let (added, _) = rendered_changes(&run);
+        for generated in [
+            "syntax GeneratedCounterCell ::= <generatedCounter>(Int)",
+            "syntax GeneratedTopCell ::= <generatedTop>(TCell, GeneratedCounterCell)",
+            r#"rule initGeneratedCounterCell(.KList)=>`<generatedCounter>`(#noDots(.KList),#token("0","Int"),#noDots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#,
+            r#"rule initGeneratedTopCell(.KList)=>`<generatedTop>`(#noDots(.KList),#cells(initTCell(.KList),initGeneratedCounterCell(.KList)),#noDots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#,
+        ] {
+            assert!(
+                added.iter().any(|sentence| sentence == generated),
+                "{generated}\n{added:#?}"
+            );
+        }
+    }
+
+    /// A local function's fresh closure variable reaches this stage as an argument of the
+    /// lifted function's application in the enclosing rule (`resolve local functions`), so the
+    /// rule that applies the function draws the value, once, at the call.
+    #[test]
+    fn a_fresh_argument_of_a_lifted_local_function_is_drawn_by_the_calling_rule() {
+        let run = run_to_stage(
+            r#"
+module INT
+endmodule
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+              | plus(Int, Int) [function, symbol(plus)]
+              | freshInt(Int) [function, freshGenerator, symbol(freshInt)]
+  syntax KItem ::= "go" [symbol(go)]
+  configuration <k> go </k>
+  rule <k> go => #fun(Y => plus(Y, !X:Int))(1) ...</k> [label(go)]
+endmodule
+"#,
+            "resolve fresh constants",
+        );
+        assert_eq!(
+            render(labelled(&run.input, "MAIN", "go")[0]),
+            r#"rule `<k>`(#noDots(.KList),go(.KList)=>`#lambda__`(#token("1","Int"),!X),#dots(.KList)) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+        assert_eq!(
+            render(labelled(run.output(), "MAIN", "go")[0]),
+            r#"rule #cells(`<k>`(#noDots(.KList),go(.KList)=>`#lambda__`(#token("1","Int"),freshInt(`_+Int_`(#Fresh,#token("0","Int")))),#dots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token("1","Int")),#noDots(.KList))) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+    }
+}

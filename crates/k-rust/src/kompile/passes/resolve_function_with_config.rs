@@ -603,3 +603,76 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         input_addresses: Vec::new(),
     }
 }
+
+/// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
+#[cfg(test)]
+mod stage_tests {
+    use crate::{
+        definition::{ProductionItem, Sentence},
+        kompile::stage_harness::{module, run_to_stage},
+    };
+
+    /// A function equation is applied without the configuration, so a function whose value
+    /// depends on it (an equation written `[[ f() => V ]] <s> V </s>`) receives the whole
+    /// configuration as an extra argument, and so must every function whose equations call
+    /// it, directly or through others: the backward closure of the configuration readers over
+    /// the call graph. The functions the pipeline hands this stage include the ones lifted
+    /// from local functions, so a lifted `#fun` that calls a reader is in the closure too,
+    /// and a function that reaches no reader keeps its arity.
+    #[test]
+    fn every_function_that_can_reach_a_configuration_reader_receives_the_configuration() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Int ::= reader() [function, symbol(reader)]
+               | caller() [function, symbol(caller)]
+               | plain() [function, symbol(plain)]
+  syntax KItem ::= "go" [symbol(go)] | done(Int) [symbol(done)]
+  configuration <t> <k> go </k> <s> 0 </s> </t>
+  rule [[ reader() => V ]] <s> V </s>
+  rule caller() => reader()
+  rule plain() => 1
+  rule <k> go => done(#fun(X => caller())(plain())) </k> [label(go)]
+endmodule
+"#,
+            "resolve function configuration",
+        );
+        let arguments = |definition, label: &str| {
+            module(definition, "MAIN")
+                .local_sentences
+                .iter()
+                .find_map(|sentence| {
+                    let Sentence::Production {
+                        label: Some(production),
+                        items,
+                        ..
+                    } = &**sentence
+                    else {
+                        return None;
+                    };
+                    (production.name == label).then(|| {
+                        items
+                            .iter()
+                            .filter_map(|item| match item {
+                                ProductionItem::NonTerminal { sort, .. } => Some(sort.to_string()),
+                                ProductionItem::Terminal(_)
+                                | ProductionItem::RegexTerminal { .. } => None,
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .unwrap_or_else(|| panic!("no production {label}"))
+        };
+        for (label, before, after) in [
+            ("reader", &[][..], &["GeneratedTopCell"][..]),
+            ("caller", &[], &["GeneratedTopCell"]),
+            ("#lambda__", &["K"], &["K", "GeneratedTopCell"]),
+            ("plain", &[], &[]),
+        ] {
+            assert_eq!(arguments(&run.input, label), before, "{label} before");
+            assert_eq!(arguments(run.output(), label), after, "{label} after");
+        }
+    }
+}
