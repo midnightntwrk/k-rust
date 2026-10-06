@@ -622,36 +622,51 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let overloads = views
             .overloads(term_module)
             .map_err(|error| plain_error(error.to_string()))?;
-        let all = definition
+        let selected = definition
             .sentences(macro_module)
             .into_iter()
             .enumerate()
             .filter_map(|(id, sentence)| {
-                macro_rule(id, sentence, productions).map(|rule| (sentence, rule))
+                macro_rule_recursion(sentence, productions)
+                    .map(|recursive| (id, sentence, recursive))
             })
-            .map(|(_, rule)| Ok(rule))
-            .collect::<Result<Vec<_>, Diagnostic>>()?;
-        let priorities = all
+            .collect::<Vec<_>>();
+        // Building a macro rule copies its sentence and projects its body, and typing a
+        // parametric head walks the rule: each is a recursion as deep as the rule, so they run
+        // with stack for the deepest macro rule, measured without recursion.
+        let rules_depth = selected
             .iter()
-            .map(|rule| macro_priority(rule.sentence.attributes()))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
-        let parametric = all.iter().any(|(rule, _)| {
-            matches!(rule.left.unannotated(), Term::Apply { label, .. }
-                if production_parameters(productions, label).is_some())
-        });
-        let mut typer = None;
-        if parametric {
-            // A typing view that cannot be built leaves every instance open.
-            let macro_typer =
-                SentenceTyper::new(definition, &definition.module(macro_module).name).ok();
-            for (rule, _) in &mut all {
-                rule.head_instance = macro_typer
-                    .as_ref()
-                    .and_then(|typer| head_instance(typer, productions, rule));
+            .map(|(_, sentence, _)| sentence_depth(sentence))
+            .max()
+            .unwrap_or(0);
+        let (mut all, typer) = with_stack(walk_zone(rules_depth), || {
+            let all = selected
+                .into_iter()
+                .map(|(id, sentence, recursive)| macro_rule(id, sentence, recursive))
+                .collect::<Vec<_>>();
+            let priorities = all
+                .iter()
+                .map(|rule| macro_priority(rule.sentence.attributes()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
+            let parametric = all.iter().any(|(rule, _)| {
+                matches!(rule.left.unannotated(), Term::Apply { label, .. }
+                    if production_parameters(productions, label).is_some())
+            });
+            let mut typer = None;
+            if parametric {
+                // A typing view that cannot be built leaves every instance open.
+                let macro_typer =
+                    SentenceTyper::new(definition, &definition.module(macro_module).name).ok();
+                for (rule, _) in &mut all {
+                    rule.head_instance = macro_typer
+                        .as_ref()
+                        .and_then(|typer| head_instance(typer, productions, rule));
+                }
+                typer = SentenceTyper::new(definition, &definition.module(term_module).name).ok();
             }
-            typer = SentenceTyper::new(definition, &definition.module(term_module).name).ok();
-        }
+            Ok::<_, Diagnostic>((all, typer))
+        })?;
         all.sort_by_key(|(_, priority)| *priority);
         let mut macros = BTreeMap::<LabelHead, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
@@ -1958,11 +1973,9 @@ fn head_instance(
     )
 }
 
-fn macro_rule(
-    id: usize,
-    sentence: &Sentence,
-    productions: &ProductionCatalog<'_>,
-) -> Option<MacroRule> {
+/// Whether `sentence` is a macro rule and, if it is, whether it is recursive (`macro-rec` or
+/// `alias-rec`, on the rule or on the production at the root of its left-hand side).
+fn macro_rule_recursion(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> Option<bool> {
     let Sentence::Rule {
         body, attributes, ..
     } = sentence
@@ -1970,8 +1983,8 @@ fn macro_rule(
         return None;
     };
     // Whether the rule is a macro rule depends only on its attributes and on the production at
-    // the root of its left-hand side, so the left side is projected only for a macro rule: the
-    // other rules of the module, of any size or depth, are not walked.
+    // the root of its left-hand side, so the other rules of the module, of any size or depth,
+    // are not walked.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"
@@ -1990,20 +2003,29 @@ fn macro_rule(
     {
         return None;
     }
-    let left = rewrite_projection(body, false);
-    let recursive = attributes.has(AttributeKey::MacroRec)
-        || attributes.has(AttributeKey::AliasRec)
-        || production_attributes.is_some_and(|attributes| {
-            attributes.has(AttributeKey::MacroRec) || attributes.has(AttributeKey::AliasRec)
-        });
-    Some(MacroRule {
+    Some(
+        attributes.has(AttributeKey::MacroRec)
+            || attributes.has(AttributeKey::AliasRec)
+            || production_attributes.is_some_and(|attributes| {
+                attributes.has(AttributeKey::MacroRec) || attributes.has(AttributeKey::AliasRec)
+            }),
+    )
+}
+
+/// The macro rule `sentence`, which [`macro_rule_recursion`] accepts, with its two sides
+/// projected out of its body. Copying and projecting recurse over the rule's depth.
+fn macro_rule(id: usize, sentence: &Sentence, recursive: bool) -> MacroRule {
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!("only rules are macro rules")
+    };
+    MacroRule {
         id,
         sentence: sentence.clone(),
-        left,
+        left: rewrite_projection(body, false),
         right: rewrite_projection(body, true),
         recursive,
         head_instance: None,
-    })
+    }
 }
 
 /// The root of a rule body's left-hand side without its annotations: the root of
@@ -2163,6 +2185,18 @@ fn stack_zone(input_depth: usize) -> usize {
 
 #[cfg(target_family = "wasm")]
 fn stack_zone(_: usize) -> usize {
+    0
+}
+
+/// The stack that must remain for a recursive walk over a term `depth` deep that adds no depth
+/// (a copy, a projection, a typing), with a factor of two to spare.
+#[cfg(not(target_family = "wasm"))]
+fn walk_zone(depth: usize) -> usize {
+    2 * STACK_PER_LEVEL * depth
+}
+
+#[cfg(target_family = "wasm")]
+fn walk_zone(_: usize) -> usize {
     0
 }
 

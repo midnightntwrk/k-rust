@@ -4824,6 +4824,92 @@ fn macro_rules_are_selected_without_walking_the_left_sides_of_other_rules() {
     assert_eq!(printed, "go(.KList)");
 }
 
+/// Prepares `source`'s module `MAIN` with `deep_rule` added, and expands the program `mgo`
+/// through the macro rule `mgo => go` on a thread of 2 MiB of stack; returns the printed result.
+fn expand_mgo_beside(source: &str, deep_rule: Sentence) -> String {
+    let mut definition = parsed(source);
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(std::sync::Arc::new(deep_rule));
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("KItem"),
+        "mgo",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let expanded = MacroExpansionDefinition::prepare(&definition)
+                .unwrap()
+                .expand_program("MAIN", program, &Sort::new("KItem"))
+                .unwrap();
+            Printer::new().print_term(expanded.term())
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish")
+}
+
+/// The expander of a program copies and projects every macro rule of the program's module,
+/// recursively, before it expands anything; a macro rule of any depth is prepared on a thread
+/// of 2 MiB of stack, here one whose right-hand side is 100,000 levels deep, beside the macro
+/// the program uses.
+#[test]
+fn macro_rules_of_any_depth_are_prepared_on_a_small_stack() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | done(Nat) [symbol(done)]
+                         | "mgo" [macro, symbol(mgo)] | "mdeep" [macro, symbol(mdeep)]
+          rule mgo => go
+        endmodule
+    "#};
+    let deep = (0..100_000).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let deep_rule = rule(
+        rewrite(
+            application("mdeep", Vec::new()),
+            application("done", vec![deep]),
+        ),
+        Attributes::default(),
+    );
+    assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// A macro rule whose head is parametric is also typed when the expander is built, to fix the
+/// instance of its head; that typing walks the rule recursively, and runs on the stack measured
+/// for the deepest macro rule. The typing view is quadratic in the depth of a rule, so the rule
+/// here is 2,000 levels deep, enough for its typing to overflow 2 MiB in an unoptimized build.
+#[test]
+fn parametric_macro_rules_of_any_depth_are_typed_on_a_small_stack() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | "mgo" [macro, symbol(mgo)]
+          syntax {S} S ::= "mp(" S ")" [macro, symbol(mp)]
+          rule mgo => go
+        endmodule
+    "#};
+    let variable = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Nat")),
+    };
+    let deep = (0..2_000).fold(variable.clone(), |term, _| application("s", vec![term]));
+    let deep_rule = rule(
+        rewrite(application("mp", vec![variable]), deep),
+        Attributes::default(),
+    );
+    assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;
