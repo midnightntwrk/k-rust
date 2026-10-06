@@ -170,6 +170,43 @@ fn a_depth_bound_steps_no_state_at_the_bound_and_reports_each_path_reaching_it()
     assert!(result.is_complete(), "{result:?}");
 }
 
+/// A `Final` search returns the normal forms of the bounded search: a state at the depth bound
+/// takes no step, so it is a result, and since it may still have successors without the bound,
+/// it is also a `DepthBound` entry and the search is incomplete. That holds for a state that is
+/// a normal form without the bound too (`c` at depth 2), since the search does not step it to
+/// find out; and it holds without stepping: `m` at the bound 0 is no `Indeterminate` entry for
+/// the macro its step would produce.
+#[test]
+fn a_final_search_reports_each_state_at_the_depth_bound_as_a_result_and_a_frontier() {
+    let definition = definition();
+    for (initial, max_depth, reached) in [
+        ("a{}()", 0, ("a", 0)),
+        ("a{}()", 1, ("b", 1)),
+        ("a{}()", 2, ("c", 2)),
+        ("m{}()", 0, ("m", 0)),
+    ] {
+        let result = search_paths(
+            &definition,
+            pattern(&definition, initial),
+            options(SearchType::Final, max_depth),
+        );
+        let case = format!("{initial} to depth {max_depth}: {result:?}");
+        assert_eq!(witnesses(&result), owned(&[reached]), "{case}");
+        assert_eq!(depth_bounded(&result), owned(&[reached]), "{case}");
+        assert_eq!(result.incomplete.len(), 1, "{case}");
+        assert!(matches!(result.end, SearchEnd::Exhausted(_)), "{case}");
+        assert!(!result.is_complete(), "{case}");
+    }
+    // Without a bound the one normal form is `c`, and the search is complete.
+    let result = search_paths(
+        &definition,
+        pattern(&definition, "a{}()"),
+        options(SearchType::Final, u64::MAX),
+    );
+    assert_eq!(witnesses(&result), owned(&[("c", 2)]));
+    assert!(result.is_complete(), "{result:?}");
+}
+
 /// A zero breadth bound is exceeded by the initial path itself: nothing is explored, the
 /// initial state is the whole reported frontier, and the search ends at the breadth bound.
 #[test]
