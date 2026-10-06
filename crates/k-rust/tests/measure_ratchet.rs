@@ -242,9 +242,15 @@ fn reversal(length: usize) -> Term {
 /// `REVERSAL_SOURCE`, prepared for macro expansion as compilation prepares it, with the rule
 /// `c => wrap(nil)` replaced by `c => wrap(reversal(length))`.
 fn reversal_definition(length: usize) -> Definition {
+    definition_wrapping(REVERSAL_SOURCE, reversal(length))
+}
+
+/// `source`, prepared for macro expansion as compilation prepares it, with the rule
+/// `c => wrap(nil)` replaced by `c => wrap(right)`.
+fn definition_wrapping(source: &str, right: Term) -> Definition {
     let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
     let loaded = load(
-        ResolvedSource::new("reversal.k", REVERSAL_SOURCE),
+        ResolvedSource::new("reversal.k", source),
         "MAIN",
         &mut resolver,
     )
@@ -252,7 +258,7 @@ fn reversal_definition(length: usize) -> Definition {
     .into_definition();
     let resolved = resolve_semantic_casts(&loaded).unwrap();
     let mut definition = propagate_macro_attributes(&resolved).unwrap();
-    let mut replaced = false;
+    let mut right = Some(right);
     for sentence in definition
         .modules
         .iter_mut()
@@ -276,15 +282,17 @@ fn reversal_definition(length: usize) -> Definition {
         *sentence = std::sync::Arc::new(Sentence::Rule {
             body: Term::Rewrite {
                 left: left.clone(),
-                right: Box::new(application("wrap", vec![reversal(length)])),
+                right: Box::new(application(
+                    "wrap",
+                    vec![right.take().expect("one rule for c")],
+                )),
             },
             requires: requires.clone(),
             ensures: ensures.clone(),
             attributes: attributes.clone(),
         });
-        replaced = true;
     }
-    assert!(replaced, "the rule for c should be replaced");
+    assert!(right.is_none(), "the rule for c should be replaced");
     definition
 }
 
@@ -352,6 +360,141 @@ fn recursive_macro_expansion_visits_grow_linearly() {
             at_100.get(Counter::KompileMacroExpansionVisits)
         );
     }
+}
+
+/// Two `macro-rec` recursions over cons lists that carry a list of n elements along: `rev`
+/// reverses it into an accumulator (the subject's depth falls and then rises), and `drop` counts
+/// a numeral down beside it (every subject is as deep as the list). `{parametric}` stands for an
+/// optional parametric macro, whose presence makes expansion type each sentence and expand it in
+/// place.
+const CARRYING_SOURCE: &str = r#"
+module MAIN
+  syntax Elem ::= "a" [symbol(a)]
+  syntax List ::= "nil" [symbol(nil)] | cons(Elem, List) [symbol(cons)]
+                | rev(List, List) [macro-rec, symbol(rev)]
+                | drop(List, Nat) [macro-rec, symbol(drop)]
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax Foo ::= "c" [symbol(c)] | wrap(List) [symbol(wrap)]
+  {parametric}
+  rule rev(cons(X, L), A) => rev(L, cons(X, A))
+  rule rev(nil, A) => A
+  rule drop(L, s(N)) => drop(L, N)
+  rule drop(L, z) => L
+  rule c => wrap(nil)
+endmodule
+"#;
+
+/// `drop(cons(a, ... cons(a, nil)), s(... s(z)))` over `length` elements and `length / 2`
+/// successors.
+fn countdown(length: usize) -> Term {
+    let Term::Apply { mut arguments, .. } = reversal(length) else {
+        unreachable!("a reversal is an application")
+    };
+    let mut numeral = application("z", Vec::new());
+    for _ in 0..length / 2 {
+        numeral = application("s", vec![numeral]);
+    }
+    arguments[1] = numeral;
+    application("drop", arguments)
+}
+
+/// The work of expanding `input` in a rule and as a program of `CARRYING_SOURCE`, with a
+/// parametric macro in the module when `typed`.
+fn expand_carrying(input: &Term, typed: bool) -> (Snapshot, Snapshot) {
+    let parametric = if typed {
+        "syntax {S} S ::= idm(S) [macro, symbol(idm)]\n  rule idm(X) => X"
+    } else {
+        ""
+    };
+    let source = CARRYING_SOURCE.replace("{parametric}", parametric);
+    let definition = definition_wrapping(&source, input.clone());
+    let (expanded, in_rule) = measured(|| expand_macros(&definition));
+    expanded.expect("the recursion in a rule should expand");
+    let (expanded, in_program) = measured(|| {
+        expand_macros_in_term(
+            &definition,
+            "MAIN",
+            ParsedProgram::from_term(input.clone()),
+            &Sort::new("List"),
+        )
+    });
+    let _expanded = expanded.expect("the recursion in a program should expand");
+    (in_rule, in_program)
+}
+
+/// The work counters of `expand_carrying` for both recursions at `length` elements, with
+/// their names and the number of rewrites each makes.
+fn carrying_work(length: usize, typed: bool) -> Vec<(String, usize, Snapshot)> {
+    let mut work = Vec::new();
+    for (name, input, rewrites) in [
+        ("rev", reversal(length), length + 1),
+        ("drop", countdown(length), length / 2 + 1),
+    ] {
+        let (in_rule, in_program) = expand_carrying(&input, typed);
+        work.push((format!("{name} of {length} in a rule"), rewrites, in_rule));
+        work.push((
+            format!("{name} of {length} in a program"),
+            rewrites,
+            in_program,
+        ));
+    }
+    work
+}
+
+/// Asserts that every counter of `counters` grows at most linearly from 100 to 200 elements in
+/// each of `carrying_work`'s expansions, and stays within `per_element` per element plus
+/// `slack`; the subject walks, copies of a chain's checkpoint at its powers of two and
+/// comparisons with them, stay within twice the binary logarithm of the rewrites plus `slack`.
+fn assert_carrying_work_is_linear(typed: bool, counters: &[(Counter, usize)], slack: usize) {
+    let at_100 = carrying_work(100, typed);
+    let at_200 = carrying_work(200, typed);
+    for (name, rewrites, delta) in at_100.iter().chain(&at_200) {
+        eprintln!("{name}: {:?}", nonzero(delta));
+        assert_eq!(
+            delta.get(Counter::KompileMacroApplications),
+            *rewrites as u64,
+            "{name}"
+        );
+        let length = if name.contains(" of 100 ") { 100 } else { 200 };
+        for (counter, per_element) in counters {
+            assert!(
+                delta.get(*counter) <= (per_element * length + slack) as u64,
+                "{name}: {} = {}",
+                counter.name(),
+                delta.get(*counter)
+            );
+        }
+        let logarithm = usize::BITS - rewrites.leading_zeros();
+        assert!(
+            delta.get(Counter::KompileMacroSubjectWalks) <= u64::from(2 * logarithm) + 4,
+            "{name}: {} subject walks",
+            delta.get(Counter::KompileMacroSubjectWalks)
+        );
+    }
+    for ((name, _, at_100), (_, _, at_200)) in at_100.iter().zip(&at_200) {
+        for (counter, _) in counters {
+            assert!(
+                at_200.get(*counter) <= 2 * at_100.get(*counter) + slack as u64,
+                "{name}: {} = {} at 200 elements",
+                counter.name(),
+                at_200.get(*counter)
+            );
+        }
+    }
+}
+
+/// A `macro-rec` rewrite reads the depths of its subject, result and bindings from what the
+/// expansion that built them recorded, and compares a subject with the chain's checkpoint only
+/// when their recorded fingerprints agree, so the nodes walked to measure terms grow linearly in
+/// n and the subject walks logarithmically. Measuring the bindings of every rewrite makes the
+/// measured nodes grow with n squared, and comparing every equally deep subject makes the
+/// countdown walk its subject on every rewrite.
+#[test]
+fn recursive_macro_rewrites_measure_and_compare_linearly() {
+    // Measured 6n + 61 nodes (rev) and 7.5n + 61 (drop) in a rule and 10 fewer in a program:
+    // three depth measurements of the input, for the stack the expansion is given and for its
+    // growth allowance. Subject walks: 5 to 7, the checkpoints and no comparison.
+    assert_carrying_work_is_linear(false, &[(Counter::KompileMacroMeasuredNodes, 8)], 64);
 }
 
 // ---------- parser ----------
