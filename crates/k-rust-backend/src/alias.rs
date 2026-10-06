@@ -237,7 +237,7 @@ fn length(name: &str) -> u64 {
 }
 
 /// The size of `pattern` as written ([`Size`]), with a work list.
-fn size(pattern: &kore::Pattern) -> u64 {
+pub(crate) fn size(pattern: &kore::Pattern) -> u64 {
     let mut total = 0_u64;
     let mut pending = vec![pattern];
     // Each pop pushes only proper subpatterns of the popped one, so the loop terminates.

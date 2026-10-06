@@ -4905,6 +4905,56 @@ mod tests {
         assert_eq!(loaded.classified_axioms().len(), RULES);
     }
 
+    /// A definition's budget is `UNFOLDING_FACTOR` times its own size as written, each axiom,
+    /// claim, and alias body counted once, and no more: one axiom that applies a closed alias of
+    /// about 360,000 units 40 times, more than 32 times the definition's size, is refused before
+    /// anything is built, with exactly that budget available.
+    #[test]
+    fn refuses_a_definition_whose_unfolding_exceeds_a_multiple_of_its_size() {
+        const DISJUNCTS: usize = 40_000;
+        const APPLICATIONS: usize = 40;
+        let mut source = String::from(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol pair{}(S{}, S{}) : S{} [constructor{}()]
+                symbol a{}() : S{} [constructor{}()]
+        "#});
+        let body = vec!["pair{}(a{}(), a{}())"; DISJUNCTS].join(", ");
+        source.push_str(&format!(
+            "    alias earlier{{}}() : S{{}} where earlier{{}}() := \\or{{S{{}}}}({body}) []\n"
+        ));
+        let applications = vec!["earlier{}()"; APPLICATIONS].join(", ");
+        source.push_str(&format!(
+            "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(\\or{{S{{}}}}({applications})), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later\")]\n"
+        ));
+        source.push_str("endmodule []\n");
+        let definition = parse_definition(&source).expect("the definition should parse");
+        let written = definition.modules[0]
+            .sentences
+            .iter()
+            .map(|sentence| match sentence {
+                kore::Sentence::AliasDeclaration { right, .. } => crate::alias::size(right),
+                kore::Sentence::Axiom { pattern, .. } => crate::alias::size(pattern),
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SortDeclaration { .. }
+                | kore::Sentence::SymbolDeclaration { .. }
+                | kore::Sentence::Claim { .. } => 0,
+            })
+            .sum::<u64>();
+        let budget = crate::alias::UNFOLDING_FACTOR * written;
+        assert!(budget > crate::alias::UNFOLDING_LIMIT);
+
+        match BackendDefinition::internalize(&definition, "MAIN") {
+            Err(DefinitionError::AliasUnfoldingTooLarge { added, available }) => {
+                assert_eq!(available, budget);
+                assert!(added > available);
+            }
+            Ok(_) => panic!("an unfolding beyond a multiple of the definition's size loaded"),
+            Err(error) => panic!("unexpected error: {error:?}"),
+        }
+    }
+
     /// An alias argument that the alias keeps no copy of is not unfolded at all: an axiom and a
     /// request that wrap the 64-alias chain in `drop`, which ignores its parameter, or in
     /// `shadow`, which only uses it under a binder that shadows it, load and internalize at
