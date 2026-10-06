@@ -4971,6 +4971,11 @@ symbol = "Expander::expand_arguments"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::instantiate"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Expander::substitute"
 
 [[node.sites]]
