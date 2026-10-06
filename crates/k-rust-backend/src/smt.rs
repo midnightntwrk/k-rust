@@ -180,8 +180,9 @@ impl<'a> SExprParser<'a> {
 /// A partial function translated as a total SMT operation is not an over-approximation: an atom
 /// over an undefined term denotes `\bottom` in K and some value in SMT. It is `Approximate` for
 /// the purpose of reading a model; `Unsat` stays conclusive for it only under the definedness
-/// premise that `SmtSolver::check_predicates` documents.
-/// SMT hook translations, SMT lemma axioms and the user prelude are trusted.
+/// premise that `translation_exactness` documents.
+/// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
+/// is read as itself only where an integer is its value (`guard_powers`).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Exactness {
     Approximate,
@@ -255,16 +256,30 @@ impl TranslationState {
                 Some(SmtType::Lib(name)) => {
                     self.translate_application(name, arguments, Exactness::Approximate)
                 }
-                Some(SmtType::Hook(SExpr::Atom(name))) => {
+                Some(SmtType::Hook(SExpr::Atom(name))) if name != POWER => {
                     self.translate_application(name, arguments, symbol_exactness(symbol))
                 }
                 Some(SmtType::Hook(expression)) => {
                     self.approximate(symbol_exactness(symbol));
+                    let template = match expression {
+                        SExpr::Atom(name) => SExpr::application(
+                            name.clone(),
+                            (1..=arguments.len())
+                                .map(|index| SExpr::atom(format!("#{index}")))
+                                .collect(),
+                        ),
+                        SExpr::List(_) => expression.clone(),
+                    };
+                    let (template, guarded) = guard_powers(&template);
+                    if guarded {
+                        // The power's value outside the integers is an uninterpreted function.
+                        self.approximate(Exactness::Approximate);
+                    }
                     let arguments = arguments
                         .iter()
                         .map(|argument| self.translate_term(argument))
                         .collect::<Result<Vec<_>, _>>()?;
-                    fill_placeholders(expression, &arguments)
+                    fill_placeholders(&template, &arguments)
                 }
             },
             TermKind::DomainValue { sort, value }
@@ -565,6 +580,80 @@ impl TranslationState {
     }
 }
 
+/// The SMT-LIB power operation as an `smt-hook` names it.
+const POWER: &str = "^";
+
+/// The uninterpreted function that stands for a power where no integer is its value
+/// (`guard_powers`), declared in the prelude of a definition whose `smt-hook`s use [`POWER`].
+const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
+
+/// `expression` with every binary power `(^ a b)` read as
+/// `(ite (or (>= b 0) (= a 1) (= a (- 1))) (^ a b) (KRUST-POWER-OUTSIDE-THE-INTEGERS a b))`, and
+/// whether it had one.
+///
+/// An `smt-hook` is trusted to state its hook's operation wherever the hook has a value; where
+/// the hook has none, the solver must not decide anything that depends on a value. SMT-LIB's own
+/// partial operations leave such a value unconstrained (`div` and `mod` by zero), so a validity
+/// answer holds for whatever it is. Z3's `^` on two integers does not: it is the real power,
+/// which has a value (`(^ 2 (- 1))` is `1/2`, and `mod` reads its integer part, 0) exactly where
+/// no integer is the power and `^Int` is undefined. The guard is the set where an integer power
+/// exists, a nonnegative exponent or a base of magnitude 1, and there `^` is that integer; outside
+/// it the power is an uninterpreted function of its operands, as a division by zero is. The
+/// function is Real-valued, as Z3's `^` is, so both branches and every context have its sort.
+fn guard_powers(expression: &SExpr) -> (SExpr, bool) {
+    match expression {
+        SExpr::Atom(_) => (expression.clone(), false),
+        SExpr::List(items) => {
+            let mut guarded = false;
+            let items = items
+                .iter()
+                .map(|item| {
+                    let (item, inner) = guard_powers(item);
+                    guarded |= inner;
+                    item
+                })
+                .collect::<Vec<_>>();
+            match items.as_slice() {
+                [SExpr::Atom(operator), base, exponent] if operator == POWER => {
+                    let integer = |value: &str| SExpr::atom(value);
+                    let condition = SExpr::application(
+                        "or",
+                        vec![
+                            SExpr::application(">=", vec![exponent.clone(), integer("0")]),
+                            SExpr::application("=", vec![base.clone(), integer("1")]),
+                            SExpr::application(
+                                "=",
+                                vec![base.clone(), SExpr::application("-", vec![integer("1")])],
+                            ),
+                        ],
+                    );
+                    let outside = SExpr::application(
+                        POWER_OUTSIDE_THE_INTEGERS,
+                        vec![base.clone(), exponent.clone()],
+                    );
+                    (
+                        SExpr::application(
+                            "ite",
+                            vec![condition, SExpr::List(items.clone()), outside],
+                        ),
+                        true,
+                    )
+                }
+                _ => (SExpr::List(items), guarded),
+            }
+        }
+    }
+}
+
+/// Whether `expression` applies [`POWER`], so that its translation uses
+/// [`POWER_OUTSIDE_THE_INTEGERS`].
+fn applies_power(expression: &SExpr) -> bool {
+    match expression {
+        SExpr::Atom(name) => name == POWER,
+        SExpr::List(items) => items.iter().any(applies_power),
+    }
+}
+
 /// `Approximate` for a symbol whose SMT operation does not denote it exactly: an `smtlib`
 /// symbol is an uninterpreted function, and a partial function is a total SMT operation that
 /// has a value where the function has none.
@@ -655,6 +744,13 @@ impl SmtPrelude {
             })
             .map(|(name, info)| format!("(declare-sort {} {})", quote(name), info.parameters.len()))
             .collect::<Vec<_>>();
+        if definition.symbols().values().any(|symbol| {
+            matches!(&symbol.attributes.smt, Some(SmtType::Hook(expression)) if applies_power(expression))
+        }) {
+            declarations.push(format!(
+                "(declare-fun {POWER_OUTSIDE_THE_INTEGERS} (Int Int) Real)"
+            ));
+        }
         for symbol in definition.symbols().values() {
             let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
                 continue;
@@ -1178,6 +1274,61 @@ mod tests {
                 .to_string(),
             "(ite (< -5 0) (- 0 -5) -5)"
         );
+    }
+
+    /// Every power of an `smt-hook`, written as the hook's operation or inside its expression, is
+    /// read as itself only where an integer is its value, and as an uninterpreted function
+    /// elsewhere; the uninterpreted part makes the translation approximate even for a total
+    /// symbol.
+    #[test]
+    fn reads_a_power_as_itself_only_where_an_integer_is_its_value() {
+        let int = Sort::simple("SortInt");
+        let power = symbol(
+            "power",
+            Some(SmtType::Hook(SExpr::atom("^"))),
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        );
+        let power_modulo = symbol(
+            "powerModulo",
+            Some(SmtType::Hook(SExpr::parse("(mod (^ #1 #2) #3)").unwrap())),
+            vec![int.clone(), int.clone(), int.clone()],
+            int.clone(),
+        );
+        let exponent = Term::variable(Variable::new("B", int));
+        let guarded = |base: &str, exponent: &str| {
+            format!(
+                "(ite (or (>= {exponent} 0) (= {base} 1) (= {base} (- 1))) (^ {base} {exponent}) \
+                 (|KRUST-POWER-OUTSIDE-THE-INTEGERS| {base} {exponent}))"
+            )
+        };
+
+        let mut translation = TranslationState::new();
+        let translated = translation
+            .translate_term(&Term::application(
+                power,
+                Vec::new(),
+                vec![integer("2"), exponent.clone()],
+            ))
+            .unwrap();
+        assert_eq!(translated.to_string(), guarded("2", "SMT-1"));
+        assert_eq!(translation.exactness(), Exactness::Approximate);
+
+        let mut translation = TranslationState::new();
+        let translated = translation
+            .translate_term(&Term::application(
+                power_modulo,
+                Vec::new(),
+                vec![integer("3"), exponent, integer("7")],
+            ))
+            .unwrap();
+        assert_eq!(
+            translated.to_string(),
+            format!("(mod {} 7)", guarded("3", "SMT-1"))
+        );
+        assert!(applies_power(&SExpr::atom("^")));
+        assert!(applies_power(&SExpr::parse("(mod (^ #1 #2) #3)").unwrap()));
+        assert!(!applies_power(&SExpr::parse("(mod #1 #2)").unwrap()));
     }
 
     #[test]

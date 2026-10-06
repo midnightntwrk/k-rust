@@ -6448,6 +6448,61 @@ fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
     }
 }
 
+const NEGATIVE_POWER: &str = r#"
+module NEGPOW
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= gm(Int)
+  syntax KItem ::= "yes" | "no"
+  rule <k> gm(B) => yes </k> requires 3 ^%Int B 7 ==Int 0
+  rule <k> gm(_) => no </k> [owise]
+endmodule
+module NEGPOW-SPEC
+  imports NEGPOW
+  claim [negative]: <k> gm(B) => yes </k> requires B <Int 0
+  claim [minus-one]: <k> gm(B) => no </k> requires B ==Int -1
+endmodule
+"#;
+
+/// `3 ^%Int B 7` is undefined for every negative `B` (no integer is `3 ^Int B`), so `gm(B)` takes
+/// the `owise` rule there, and the claim that it reaches `yes` for every negative `B` is false:
+/// its instance at `-1` reaches `no`. The solver's own power is a fraction there, whose integer
+/// part modulo 7 is 0; the claim must not be proven from that value.
+#[test]
+fn kprove_proves_nothing_from_a_power_where_no_integer_is_its_value() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NEGATIVE_POWER).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "NEGPOW-SPEC",
+            "--definition-module",
+            "NEGPOW",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim NEGPOW-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(verdict("negative"), "proven", "{stdout}");
+    assert_eq!(verdict("minus-one"), "proven", "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 const APART_COLLECTIONS: &str = r#"
 module APART
   imports INT

@@ -1762,4 +1762,102 @@ mod tests {
             )]))))
         );
     }
+
+    /// The solver decides nothing about `^Int` or `^%Int` from a value where no integer is the
+    /// power (a negative exponent of a base other than 1 and -1), and still decides what holds for
+    /// the integer powers.
+    #[test]
+    fn decides_nothing_from_a_power_where_no_integer_is_its_value() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow"), smt-hook{}("^")]
+                hooked-symbol powmod{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.powmod"), smt-hook{}("(mod (^ #1 #2) #3)")]
+                hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+        let less = |left: &str, right: &str| {
+            Predicate::Term(term(&definition, &format!("lt{{}}({left}, {right})")))
+        };
+        let b = "B:SortInt{}";
+        let dv = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let negative = less(b, &dv(0));
+        let validity = |known: &[Predicate], checked: Predicate| {
+            solver.check_predicates(known, &Substitution::new(), &[checked])
+        };
+
+        // For a negative exponent, Z3's power of 3 is a fraction, whose integer part modulo 7 is
+        // 0, and its power of 2 is positive; neither is a K value, so neither is valid.
+        for (known, checked) in [
+            (
+                vec![negative.clone()],
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!("powmod{{}}({}, {b}, {})", dv(3), dv(7)),
+                    ),
+                    int("0"),
+                ),
+            ),
+            (
+                vec![negative.clone()],
+                less(&dv(0), &format!("pow{{}}({}, {b})", dv(2))),
+            ),
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!("powmod{{}}({}, {}, {})", dv(2), dv(-1), dv(7)),
+                    ),
+                    int("0"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                validity(&known, checked.clone()),
+                Ok(Ok(Validity::Contingent)),
+                "{checked:?} under {known:?}"
+            );
+        }
+        // Where an integer is the power, the solver still reads it: a nonnegative exponent, and a
+        // base of magnitude 1 with any exponent.
+        let nonnegative = Predicate::Not(Box::new(negative));
+        for (known, checked) in [
+            (
+                vec![nonnegative],
+                less(&dv(0), &format!("pow{{}}({}, {b})", dv(2))),
+            ),
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({}, {})", dv(1), dv(-1))),
+                    int("1"),
+                ),
+            ),
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({}, {})", dv(-1), dv(-3))),
+                    int("-1"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                validity(&known, checked.clone()),
+                Ok(Ok(Validity::Valid)),
+                "{checked:?} under {known:?}"
+            );
+        }
+    }
 }
