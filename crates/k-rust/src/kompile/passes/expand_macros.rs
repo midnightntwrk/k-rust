@@ -1969,7 +1969,9 @@ fn macro_rule(
     else {
         return None;
     };
-    let left = rewrite_projection(body, false);
+    // Whether the rule is a macro rule depends only on its attributes and on the production at
+    // the root of its left-hand side, so the left side is projected only for a macro rule: the
+    // other rules of the module, of any size or depth, are not walked.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"
@@ -1977,7 +1979,7 @@ fn macro_rule(
     let production_attributes = if attributes.has(AttributeKey::Simplification) {
         None
     } else {
-        match left.unannotated() {
+        match left_root(body) {
             Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
             _ => None,
         }
@@ -1988,6 +1990,7 @@ fn macro_rule(
     {
         return None;
     }
+    let left = rewrite_projection(body, false);
     let recursive = attributes.has(AttributeKey::MacroRec)
         || attributes.has(AttributeKey::AliasRec)
         || production_attributes.is_some_and(|attributes| {
@@ -2001,6 +2004,25 @@ fn macro_rule(
         recursive,
         head_instance: None,
     })
+}
+
+/// The root of a rule body's left-hand side without its annotations: the root of
+/// `rewrite_projection(body, false).unannotated()`, found by stepping through the annotations
+/// and the rewrites above it rather than by projecting the body.
+fn left_root(body: &Term) -> &Term {
+    let mut term = body;
+    loop {
+        match term {
+            Term::Annotated { term: inner, .. } => term = inner,
+            Term::Rewrite { left, .. } => term = left,
+            Term::InjectedLabel(_)
+            | Term::As { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. } => return term,
+        }
+    }
 }
 
 fn rewrite_projection(term: &Term, right: bool) -> Term {

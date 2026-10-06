@@ -4764,6 +4764,66 @@ fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() 
     assert_eq!(printed, r#"f(#token("true","Bool"))"#);
 }
 
+/// Whether a rule is a macro rule follows from its attributes and from the production at the
+/// root of its left-hand side, so selecting the macro rules does not walk the rest of the other
+/// rules: beside an ordinary rule whose left-hand side is 100,000 levels deep, a program is
+/// expanded through a macro on a thread of 2 MiB of stack.
+#[test]
+fn macro_rules_are_selected_without_walking_the_left_sides_of_other_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | done(Nat) [symbol(done)]
+                         | "mgo" [macro, symbol(mgo)]
+          rule mgo => go
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let deep = (0..100_000).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(std::sync::Arc::new(Sentence::Rule {
+            body: rewrite(
+                application("done", vec![deep]),
+                application("go", Vec::new()),
+            ),
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        }));
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("KItem"),
+        "mgo",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    let printed = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let expanded = MacroExpansionDefinition::prepare(&definition)
+                .unwrap()
+                .expand_program("MAIN", program, &Sort::new("KItem"))
+                .unwrap();
+            Printer::new().print_term(expanded.term())
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
+    assert_eq!(printed, "go(.KList)");
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;
