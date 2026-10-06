@@ -32,6 +32,7 @@ case ${KRUST_GATE_INVARIANT_CHECKS:-1} in
     ;;
 esac
 # The release binary that `cargo build --release "${krust_gate_cargo_args[@]}"` writes.
+# shellcheck disable=SC2034  # the gate scripts that source this file execute it
 krust_gate_binary="$krust_gate_target_dir/release/krust"
 
 reference_announce_krust_gate_build() {
