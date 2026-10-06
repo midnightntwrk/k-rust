@@ -343,6 +343,14 @@ Where no `prefer` or `avoid` separates the readings, Rust reports the ambiguity 
 In `issue-2287-simpl-rules-in-kprovex`, the claim `<k> c => 2 #And n +Int n </k>` of `a5-spec.k` reads as `(2 #And n) +Int n` and as `2 #And (n +Int n)`: both are well-sorted, the claim has no variables, and no priority, `prefer`, or `avoid` relates `_+Int_` and `#And`, so the claim is ambiguous.
 The two readings have different KORE and different proof behavior; a specification that means one of them states it with brackets.
 
+## Grammar scope of token precedence
+
+A regular-expression terminal is one lexeme, and the `prec(N)` attribute orders lexemes when the scanner must choose between tokens of equal length (K user manual, "`prec` attribute"); two token productions with the same regular expression and different precedences therefore give one lexeme two contradictory orders, and Rust rejects that grammar ("Inconsistent token precedence detected.").
+Rust judges each module's grammar in the view its own imports give it: a sentence denotes in the syntax its own module sees, and the main module's grammar is checked even when the module has no rules.
+A module that imports `INT-SYNTAX` and declares `syntax Foo ::= r"[0-9]+" [token]` is rejected; a module that declares the same production and imports nothing is accepted, since `Int`'s `[0-9]+` (with `prec(2)`) is not in its view, and a program or pattern written in it reads `12` as `Foo`.
+The pinned K frontend rejects the second definition as well (`checks/invalidPrec.k`), naming `Int`'s token from domains.md, which reaches the main module only through modules compilation adds to it (configuration support), not through the definition's imports.
+Rust does not count those modules as part of the syntax the definition's author declared; the conformance expectations record that recipe as `compiler-added-grammar`.
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.

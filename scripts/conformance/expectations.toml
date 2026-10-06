@@ -63,6 +63,11 @@ decided_by = "docs/compatibility.md#anywhere-heads-in-equation-arguments"
 meaning = "The reference KORE verifier rejects a function equation whose argument contains an anywhere head without `injective`; the port withholds the attribute because an anywhere equation of that head identifies applications with different arguments, and the equation is consistent and evaluated as specified because its argument is normal on every instance."
 
 [[category]]
+id = "compiler-added-grammar"
+decided_by = "docs/compatibility.md#grammar-scope-of-token-precedence"
+meaning = "The reference judges the main module's grammar together with modules that compilation adds to it and rejects a conflict that only those modules create; the port judges each module's syntax in the view its own imports give it."
+
+[[category]]
 id = "declined-capability"
 decided_by = "docs/compatibility.md#cli-scope"
 meaning = "The step needs a K CLI capability outside krust's interface (K-only flags, inputs, or outputs); the driver has no krust equivalent to translate to."
@@ -297,7 +302,10 @@ accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The accepted whole-case compile measurement matches. Earlier investigation recorded a checkFuncWithContext.k rejection mismatch and scanner-precedence behavior in invalidPrec.k; these do not describe the accepted result. Both toolchains reject the undeclared MInt{32} width in checkMIntLiteral.k."
+reason = "The accepted whole-case compile measurement matches. Earlier investigation recorded a checkFuncWithContext.k rejection mismatch; it does not describe the accepted result. Both toolchains reject the undeclared MInt{32} width in checkMIntLiteral.k. invalidPrec.k is the one recipe excluded below."
+step_exclusions = [
+  { step = "kompile", out = "invalidPrec.k.out", exclusion = "compiler-added-grammar", reason = "invalidPrec.k declares `syntax Foo ::= r\"[0-9]+\" [token]` in a module that imports nothing. The reference rejects it for an inconsistent precedence with Int's `[0-9]+` (prec 2), which only modules added by compilation bring into the main module; in the module's own view there is no conflict, and the port rejects the same production beside `imports INT-SYNTAX` (docs/compatibility.md#grammar-scope-of-token-precedence)." },
+]
 
 [[case]]
 name = "concrete-function"

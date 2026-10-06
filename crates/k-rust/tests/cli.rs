@@ -11168,6 +11168,40 @@ fn kcompile_claims_initializers_of_disjoint_literal_collections_total() {
     }
 }
 
+/// A token production conflicts with `Int`'s identical lexeme only in a view that contains
+/// both: the upstream `checks/invalidPrec.k` module, which imports nothing, compiles, and the
+/// same production beside `imports INT-SYNTAX` is rejected (docs/compatibility.md, "Grammar
+/// scope of token precedence").
+#[test]
+fn kcompile_judges_token_precedence_in_the_module_s_own_view() {
+    for (imports, accepted) in [("", true), ("  imports INT-SYNTAX\n", false)] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            format!(
+                "module INVALIDPREC\n{imports}  syntax Foo ::= r\"[0-9]+\" [token]\nendmodule\n"
+            ),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(&definition)
+            .args(["--main-module", "INVALIDPREC", "--output-directory"])
+            .arg(root.join("compiled"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), accepted, "{imports:?}: {stderr}");
+        assert_eq!(
+            stderr.contains("Inconsistent token precedence detected."),
+            !accepted,
+            "{imports:?}: {stderr}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
     let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")
