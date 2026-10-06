@@ -6,8 +6,8 @@ use num_traits::{ToPrimitive, Zero};
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, UnsupportedHookReason, describe_int,
-    expect_arity, int_term, read_int, result_size_limit,
+    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, TARGET_RESULT_BYTES, UnsupportedHookReason,
+    describe_int, expect_arity, int_term, read_int, result_size_limit,
 };
 use crate::term::{Sort, Term, TermKind};
 
@@ -369,14 +369,14 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
 }
 
 /// A nonnegative `length` as the length of a result built from arguments of total size
-/// `arguments` bytes, or `ResultTooLarge` above their `result_size_limit`
-/// ([`MAX_BYTES_RESULT_LEN`]): the value exists, and the backend does not build it.
+/// `arguments` bytes, or `ResultTooLarge` above [`bytes_length_limit`] on this target: the value
+/// exists, and the backend does not build it.
 fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
     );
-    let limit = result_size_limit(MAX_BYTES_RESULT_LEN, arguments);
+    let limit = bytes_length_limit(arguments, TARGET_RESULT_BYTES);
     length
         .to_u64()
         .filter(|length| *length <= limit)
@@ -387,6 +387,14 @@ fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedH
                 describe_int(length)
             ),
         })
+}
+
+/// The longest `Bytes` result built from arguments of total size `arguments` bytes, on a target
+/// where one result may take at most `target` bytes ([`TARGET_RESULT_BYTES`]): their
+/// `result_size_limit` with the floor [`MAX_BYTES_RESULT_LEN`], and at most `target`.
+const fn bytes_length_limit(arguments: u64, target: u64) -> u64 {
+    let limit = result_size_limit(MAX_BYTES_RESULT_LEN, arguments);
+    if limit < target { limit } else { target }
 }
 
 /// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
@@ -497,6 +505,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::builtin::target_result_bytes;
     use crate::term::{Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
@@ -732,6 +741,29 @@ mod tests {
         assert_eq!(
             bounded_length(&floor, 3),
             Ok(usize::try_from(MAX_BYTES_RESULT_LEN).unwrap())
+        );
+    }
+
+    /// On a 32-bit target, whose largest allocation is 2^31 - 1 bytes and whose whole memory is at
+    /// most 4 GiB, a `Bytes` result is at most a quarter of that allocation, 512 MiB, whatever its
+    /// arguments: the floor of 4 GiB would let a length past `isize::MAX` reach the allocator,
+    /// which panics. On a 64-bit target the floor and the relative term bind first.
+    #[test]
+    fn bytes_lengths_are_bounded_by_what_the_target_can_allocate() {
+        let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
+        assert_eq!(thirty_two, 1 << 29);
+        assert_eq!(bytes_length_limit(3, thirty_two), 1 << 29);
+        assert_eq!(bytes_length_limit(1 << 30, thirty_two), 1 << 29);
+        let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
+        assert_eq!(sixty_four, 1 << 61);
+        assert_eq!(bytes_length_limit(3, sixty_four), MAX_BYTES_RESULT_LEN);
+        assert_eq!(
+            bytes_length_limit(MAX_BYTES_RESULT_LEN, sixty_four),
+            2 * MAX_BYTES_RESULT_LEN
+        );
+        assert_eq!(
+            TARGET_RESULT_BYTES,
+            target_result_bytes(isize::MAX.unsigned_abs() as u64)
         );
     }
 

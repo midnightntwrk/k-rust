@@ -758,15 +758,43 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// result (an argument copy, the result and the term built from it, about 12.6 GB at 4 GiB),
 /// and a length far beyond the machine's memory aborts the process when the allocation fails,
 /// or gets it killed while the bytes are written. 4 GiB is also the largest memory a 32-bit
-/// address space holds, so a semantics that models such a memory (a WebAssembly memory has at
-/// most 65536 pages of 64 KiB) never has a memory operation refused. The relative term lets a
-/// value the run built grow beyond it, step by step.
+/// address space holds, so on a 64-bit host a semantics that models such a memory (a
+/// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
+/// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
+/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_RESULT_BYTES`].
 pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 
 /// The floor of the size bound on the length of a `makeList` result, in elements (see
 /// [`result_size_limit`]): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
-/// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason.
+/// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason, and at most
+/// [`TARGET_RESULT_BYTES`] of references.
 pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
+
+/// The most memory, in bytes, that one `Bytes` or `List` result whose length an argument's value
+/// sets may take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB,
+/// on a 32-bit target, and 2^61 bytes on a 64-bit one, where the floors bind first.
+pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
+
+// Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
+// do not build there: the target term binds below both floors.
+const _: () = assert!(
+    usize::BITS != 32
+        || (TARGET_RESULT_BYTES == 1 << 29
+            && TARGET_RESULT_BYTES < MAX_BYTES_RESULT_LEN
+            && TARGET_RESULT_BYTES / 4 < MAX_LIST_RESULT_LEN)
+);
+
+/// The most memory one result may take on a target whose largest allocation is
+/// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
+///
+/// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
+/// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB). One
+/// application holds about three times its result (see [`MAX_BYTES_RESULT_LEN`]), so a result
+/// of a quarter of the largest allocation keeps those copies within three eighths of the address
+/// space, with room for the rest of the run, and each one far from the allocation limit.
+pub(crate) const fn target_result_bytes(largest_allocation: u64) -> u64 {
+    largest_allocation.saturating_add(1) / 4
+}
 
 /// The largest result a hook computes when the result's size is set by the value of an argument
 /// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
