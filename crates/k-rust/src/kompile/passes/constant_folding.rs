@@ -585,11 +585,15 @@ fn int_sign_extend_bit_range(
     }
 }
 fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, String> {
-    if modulus <= BigInt::zero() {
-        return Err("Argument to hook INT.powmod is invalid. Modulus must be positive and negative exponents are only allowed when value and modulus are relatively prime.".into());
+    const INVALID: &str = "Argument to hook INT.powmod is invalid. Modulus must be nonzero and negative exponents are only allowed when value and modulus are relatively prime.";
+    if modulus.is_zero() {
+        return Err(INVALID.into());
     }
+    // `^%Int` is `(A ^Int B) mod C` (its `smt-hook`): the Euclidean remainder, which lies in
+    // [0, |C|) and is therefore the same for C and -C.
+    let modulus = modulus.abs();
     if exponent.is_negative() {
-        let inverse = modular_inverse(a, modulus.clone()).ok_or_else(|| "Argument to hook INT.powmod is invalid. Modulus must be positive and negative exponents are only allowed when value and modulus are relatively prime.".to_owned())?;
+        let inverse = modular_inverse(a, modulus.clone()).ok_or_else(|| INVALID.to_owned())?;
         Ok(inverse.modpow(&(-exponent), &modulus))
     } else {
         Ok(a.modpow(&exponent, &modulus))
@@ -815,5 +819,16 @@ mod tests {
         assert_eq!(int_powmod(int(-2), int(-1), int(7)), Ok(int(3)));
         assert_eq!(int_powmod(int(-2), int(-3), int(7)), Ok(int(6)));
         assert_eq!(int_powmod(int(3), int(-1), int(7)), Ok(int(5)));
+    }
+
+    /// The Euclidean remainder modulo -C is the remainder modulo C, so a negative modulus folds
+    /// like its absolute value; only a zero modulus is undefined.
+    #[test]
+    fn powmod_reduces_by_the_magnitude_of_a_negative_modulus() {
+        assert_eq!(int_powmod(int(2), int(3), int(-5)), Ok(int(3)));
+        assert_eq!(int_powmod(int(-2), int(3), int(-5)), Ok(int(2)));
+        assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
+        assert_eq!(int_powmod(int(0), int(0), int(-1)), Ok(int(0)));
+        assert!(int_powmod(int(2), int(3), int(0)).is_err());
     }
 }
