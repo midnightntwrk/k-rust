@@ -872,6 +872,113 @@ fn expands_named_lexical_references() {
     );
 }
 
+fn lexical(name: &str, regex: &str) -> Sentence {
+    Sentence::SyntaxLexical {
+        name: name.into(),
+        regex: regex.into(),
+        attributes: Attributes::default(),
+    }
+}
+
+/// A grammar whose only production is a `Tok` token matching `regex`, under `lexicals`.
+fn token_grammar(lexicals: &[(&str, &str)], regex: &str) -> Result<Grammar, ParseError> {
+    let mut token_attributes = Attributes::default();
+    token_attributes.insert("token", serde_json::json!(""));
+    let mut sentences = lexicals
+        .iter()
+        .map(|(name, regex)| lexical(name, regex))
+        .collect::<Vec<_>>();
+    sentences.push(production(
+        "Tok",
+        vec![ProductionItem::regex(regex)],
+        None,
+        token_attributes,
+    ));
+    Grammar::from_sentences(&sentences)
+}
+
+/// `parser.lower.regex`: a named reference inside a bounded repetition is inlined and keeps
+/// its bounds, so the token language is exactly the bounded repetition of the named language.
+#[test]
+fn expands_named_lexical_references_under_bounded_repetitions() {
+    let digit = [("Digit", "[0-9]")];
+    for (regex, accepted, rejected) in [
+        ("{Digit}{3}", &["123"][..], &["12", "1234", "a23"][..]),
+        ("{Digit}{2,}", &["12", "1234567"][..], &["1", "1a"][..]),
+        ("{Digit}{2,3}", &["12", "123"][..], &["1", "1234"][..]),
+    ] {
+        let grammar = token_grammar(&digit, regex).unwrap();
+        for input in accepted {
+            assert_eq!(
+                grammar.parse(&Sort::new("Tok"), input).ok(),
+                Some(Term::Token {
+                    token: (*input).into(),
+                    sort: Sort::new("Tok"),
+                }),
+                "{regex} should accept {input:?}"
+            );
+        }
+        for input in rejected {
+            assert!(
+                grammar.parse(&Sort::new("Tok"), input).is_err(),
+                "{regex} should reject {input:?}"
+            );
+        }
+    }
+}
+
+/// `parser.lower.regex`: a name used twice along different paths is not a cycle; only a name
+/// that reaches itself is, and the diagnostic spells the reference chain from the token.
+#[test]
+fn named_lexical_expansion_rejects_only_recursive_and_undefined_names() {
+    let shared = [("D", "[0-9]"), ("Pair", "{D}{D}")];
+    let grammar = token_grammar(&shared, "{Pair}-{D}{1,}").unwrap();
+    assert!(grammar.parse(&Sort::new("Tok"), "12-345").is_ok());
+    assert!(grammar.parse(&Sort::new("Tok"), "1-2").is_err());
+
+    for (lexicals, regex, culprit, message) in [
+        (
+            &[("A", "x{B}"), ("B", "({A})?")][..],
+            "{A}",
+            "{A}",
+            "recursive lexical reference: A -> B -> A",
+        ),
+        (
+            &[("C", "{C}")][..],
+            "y{C}{2,}",
+            "{C}",
+            "recursive lexical reference: C -> C",
+        ),
+        (
+            &[("D", "[0-9]"), ("E", "{D}{2,3}{E}")][..],
+            "{D}{E}",
+            "{E}",
+            "recursive lexical reference: E -> E",
+        ),
+        (
+            &[("Ok", "z"), ("Outer", "{Ok}{1,}{Missing}")][..],
+            "{Outer}",
+            "{Missing}",
+            "undefined lexical identifier \"Missing\"",
+        ),
+        (
+            &[][..],
+            "{Missing}{2}",
+            "{Missing}",
+            "undefined lexical identifier \"Missing\"",
+        ),
+    ] {
+        assert_eq!(
+            token_grammar(lexicals, regex).err(),
+            Some(ParseError::InvalidRegex {
+                regex: culprit.into(),
+                message: message.into(),
+            }),
+            "{lexicals:?} with token {regex}"
+        );
+    }
+}
+
 #[test]
 fn scanner_prefers_the_longer_terminal() {
     let grammar = Grammar::from_sentences(&[
