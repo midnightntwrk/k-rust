@@ -761,3 +761,280 @@ fn undecided_live_occurrences_are_no_witness() {
         assert_eq!(result.failure, Some(stop), "{id}");
     }
 }
+
+// ---------------------------------------------------------------- SO-09 close-out audits
+
+/// Attack (a) of the k-rust 927b9ce6 intake (VI-03F deliverable 4, T-DIAG): a request cancelled
+/// before its operation starts. With Z3, k-rust's entry poll answers `Err("Request cancelled")`
+/// instead of leaves; without Z3 the run returns `Cancelled` leaves. Either way a zero
+/// wall-clock budget is a timeout on every adapter entry point, never an adapter failure
+/// (Error) and never a complete path, even for counter `t1`, which terminates in three steps:
+/// the event-free run and the stepped run bridge to no path with collection `TimeLimit`, and
+/// the unobserved run reports `timed_out`. Identical in both profiles.
+#[test]
+fn audit_so_prestart_cancel_is_timeout_on_every_adapter_run() {
+    let validator = counter_validator();
+    let baseline = validator.compile_baseline().expect("counter.k compiles");
+    let zero = ExecutionBudget {
+        time: Duration::ZERO,
+        ..BUDGET
+    };
+    let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+    let mut backend = Backend::new(
+        &baseline.artifacts().definition_kore,
+        "COUNTER",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let sorts = symbol_sorts(&baseline);
+    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    let context = BridgeContext {
+        test_id: "t1",
+        classify: &normal,
+        sorts: &sorts,
+    };
+
+    let execution = adapter
+        .execute(&mut backend, &t1(), zero)
+        .expect("a pre-start cancel is not an adapter failure");
+    assert!(execution.timed_out());
+    let bridged = kink_native::bridge::paths_from_execution(&execution, &context, &|_| true)
+        .expect("a timed-out run bridges");
+    assert!(bridged.paths.is_empty());
+    assert_eq!(bridged.collection.stop, CollectionStop::TimeLimit);
+
+    let specs = vec![step_support::counter(true).remove(0)];
+    let stepped = adapter
+        .execute_steps(&mut backend, &t1(), zero)
+        .expect("a pre-start cancel is not an adapter failure")
+        .expect("no step-run failure");
+    assert!(stepped.adapted.timed_out());
+    assert!(stepped.states.is_empty());
+    let observation = StepObservation::new(&mut backend, specs).expect("declarations validate");
+    let bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&t1()));
+            Ok::<_, k_rust::backend::BackendError>(
+                paths_from_steps(&context, &stepped, &observation, &decider)
+                    .expect("a timed-out run bridges"),
+            )
+        })
+        .expect("decider");
+    assert!(bridged.paths.is_empty());
+    assert_eq!(bridged.collection.stop, CollectionStop::TimeLimit);
+
+    let unobserved = adapter
+        .execute_unobserved(&mut backend, &t1(), zero)
+        .expect("a pre-start cancel is not an adapter failure");
+    assert!(unobserved.timed_out);
+}
+
+/// Attack (c) of the k-rust 927b9ce6 intake (T-DIAG): a leaf carrying `RuleConditionFailed`
+/// (new in k-rust 7d3d8e69) is never complete. `rulecondfail.k`'s `f(X) => 1 requires X
+/// +Float 1.0 >Float 0.0`; the mutant writes the literal `1.0f`, so the condition's
+/// `FLOAT.add` meets mismatched formats, the equation stays unapplied, and k-rust attaches
+/// `RuleConditionFailed { failure: Builtin(MismatchedFloatFormats) }`. Measured in both
+/// profiles: every mutant leaf of `run(2.0)` and `done(f(2.0))` carries it, every path of both
+/// bridges is incomplete `BackendLimit` (collection `BackendLimit`), and no leaf is discarded.
+/// The baseline's runs are complete (`halt`), so the difference is visible only as Unknown.
+#[test]
+fn audit_so_rule_condition_failed_leaf_is_never_complete() {
+    use k_rust::backend::BackendDiagnosticOutput;
+    let validator =
+        NativeValidator::bind(support::load("rulecondfail.k"), CompileOptions::default());
+    let at = TermRef::new(
+        support::rule(validator.baseline(), "RULECONDFAIL.f"),
+        [1, 0, 1],
+    );
+    let literal = validator.baseline().term(&at).expect("the literal").clone();
+    assert_eq!(
+        literal,
+        Term::Token {
+            token: "1.0".into(),
+            sort: KastSort::new("Float"),
+        }
+    );
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        expected: literal,
+        at,
+        replacement: Term::Token {
+            token: "1.0f".into(),
+            sort: KastSort::new("Float"),
+        },
+    }])
+    .expect("patch");
+    let baseline = validator
+        .compile_baseline()
+        .expect("rulecondfail.k compiles");
+    let mutant = validator.validate(&patch).expect("the mutant compiles");
+    let float = Pattern::DomainValue {
+        sort: kore_sort("SortFloat"),
+        value: "2.0".into(),
+    };
+    let programs = [
+        kore_application("Lblrun", Vec::new(), vec![float.clone()]),
+        kore_application(
+            "Lbldone",
+            Vec::new(),
+            vec![kore_application("Lblf", Vec::new(), vec![float])],
+        ),
+    ];
+    let sorts = symbol_sorts(&baseline);
+    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    for (label, side) in [("baseline", &baseline), ("mutant", &mutant)] {
+        for program in &programs {
+            let state = support::initial_state(program.clone(), "SortProg");
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                "RULECONDFAIL",
+                BackendOptions::default(),
+            )
+            .expect("backend");
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+            let execution = adapter
+                .execute(&mut backend, &state, BUDGET)
+                .expect("execution adapts");
+            let stepped = adapter
+                .execute_steps(&mut backend, &state, BUDGET)
+                .expect("execution adapts")
+                .expect("step run");
+            let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
+                leaf.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic,
+                        BackendDiagnosticOutput::RuleConditionFailed { .. }
+                    )
+                })
+            };
+            let context = BridgeContext {
+                test_id: "rcf",
+                classify: &normal,
+                sorts: &sorts,
+            };
+            let observation =
+                StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
+            let (event_free, steps) = backend
+                .with_solver(None, |definition, solver| {
+                    let decider = ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    Ok::<_, k_rust::backend::BackendError>((
+                        kink_native::bridge::paths_from_execution(&execution, &context, &|term| {
+                            decider.definition_independent(term)
+                        })
+                        .expect("bridges"),
+                        paths_from_steps(&context, &stepped, &observation, &decider)
+                            .expect("steps bridge"),
+                    ))
+                })
+                .expect("decider");
+            let rows = event_free
+                .paths
+                .iter()
+                .chain(&steps.paths)
+                .map(|path| (path.complete, path.stop))
+                .collect::<Vec<_>>();
+            eprintln!(
+                "SO-09 (c) {label} {program:?}: leaves {:?}; paths {rows:?}; collections {:?} {:?}",
+                execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| (leaf.halt, failed(leaf)))
+                    .collect::<Vec<_>>(),
+                event_free.collection.stop,
+                steps.collection.stop,
+            );
+            if label == "mutant" {
+                assert!(execution.leaves().iter().all(failed), "{program:?}");
+                assert!(
+                    execution
+                        .leaves()
+                        .iter()
+                        .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
+                );
+                assert!(!rows.is_empty());
+                assert!(
+                    rows.iter()
+                        .all(|row| *row == (false, PathStop::BackendLimit)),
+                    "{program:?}: {rows:?}"
+                );
+                assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
+                assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
+            } else {
+                assert!(!execution.leaves().iter().any(failed));
+                assert!(rows.iter().all(|row| *row == (true, PathStop::Terminal)));
+            }
+        }
+    }
+}
+
+/// Attack (f) of the k-rust 927b9ce6 intake (T-EXACT, T-DIAG): every `StopCause` and
+/// `InsufficientStack` ends in a non-complete stop. The match below is exhaustive over
+/// `StopCause` at 927b9ce6 (no wildcard: a new variant fails to compile here) and mirrors the
+/// facade's `stopped_halt_reason` (`k-rust/src/backend/mod.rs`): a stopped leaf is `Cancelled`
+/// (Cancelled), `Timeout` (Deadline) or `SimplificationError` (StackExhausted), and a failed
+/// solver prelude fails the operation. Each published halt maps to an incomplete path stop or a
+/// contract violation, never to a complete leaf; each cause that fails an operation, and
+/// `DefinitionError::InsufficientStack` (a refused request, published as a `BackendError`),
+/// is an adapter `Backend` failure or a declaration `Internalization` failure, never a value.
+#[test]
+fn audit_so_every_stop_cause_is_a_non_complete_stop() {
+    use k_rust::backend::{BackendError, HaltReasonOutput};
+    use k_rust_backend::stop::{PreludeFailure, StopCause};
+    use k_rust_backend::timeout::StepTimeoutMode;
+    use kink_native::bridge::halt_stop;
+    use kink_native::execution::ExecutionAdapterFailure;
+    use kink_native::step_events::StepObservationError;
+    fn published(cause: &StopCause) -> Option<HaltReasonOutput> {
+        match cause {
+            StopCause::Cancelled => Some(HaltReasonOutput::Cancelled),
+            StopCause::Deadline(_) => Some(HaltReasonOutput::Timeout),
+            StopCause::StackExhausted => Some(HaltReasonOutput::SimplificationError),
+            StopCause::SolverPrelude(_) => None,
+        }
+    }
+    let causes = [
+        StopCause::Cancelled,
+        StopCause::Deadline(StepTimeoutMode::Manual(Duration::from_millis(1))),
+        StopCause::Deadline(StepTimeoutMode::MovingAverage(Duration::from_millis(1))),
+        StopCause::StackExhausted,
+        StopCause::SolverPrelude(PreludeFailure::Inconsistent),
+        StopCause::SolverPrelude(PreludeFailure::Unknown("unknown".into())),
+    ];
+    for cause in causes {
+        if let Some(output) = published(&cause) {
+            let halt = HaltClass::from_output(output);
+            match halt_stop(halt) {
+                Ok(Some(stop)) => assert!(
+                    !matches!(
+                        stop,
+                        PathStop::Terminal | PathStop::Stuck | PathStop::UndefinedStep
+                    ),
+                    "{cause:?}: {stop:?}"
+                ),
+                Ok(None) => panic!("{cause:?}: {halt:?} may be a complete leaf"),
+                Err(_) => {}
+            }
+        }
+        assert!(matches!(
+            ExecutionAdapterFailure::from(cause.clone()),
+            ExecutionAdapterFailure::Backend(_)
+        ));
+        assert!(matches!(
+            StepObservationError::from(cause),
+            StepObservationError::Internalization(_)
+        ));
+    }
+    let refused = || BackendError("InsufficientStack { depth: 1, required: 2, limit: 1 }".into());
+    assert!(matches!(
+        ExecutionAdapterFailure::from(refused()),
+        ExecutionAdapterFailure::Backend(_)
+    ));
+    assert!(matches!(
+        StepObservationError::from(refused()),
+        StepObservationError::Internalization(_)
+    ));
+}

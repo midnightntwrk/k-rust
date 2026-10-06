@@ -1764,3 +1764,604 @@ mod position_rows {
         );
     }
 }
+
+// ---------------------------------------------------------------- SO-09 close-out audits
+
+/// The bridged paths of `state` on `side`, with `specs` validated and decided by `side`'s own
+/// decider (the baseline's, in these single-definition rows).
+fn bridged_for(
+    side: &ValidatedDefinition,
+    module: &str,
+    state: &Pattern,
+    specs: Vec<StepEventSpec>,
+) -> (kink_native::bridge::BridgedPaths, Backend) {
+    let execution = run_steps(side, module, state);
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        module,
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let observation = StepObservation::new(&mut backend, specs).expect("declarations validate");
+    let sorts = SymbolSorts::from_definition(
+        &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
+    );
+    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    let bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(state));
+            Ok::<_, k_rust::backend::BackendError>(
+                paths_from_steps(
+                    &BridgeContext {
+                        test_id: "audit",
+                        classify: &normal,
+                        sorts: &sorts,
+                    },
+                    &execution,
+                    &observation,
+                    &decider,
+                )
+                .expect("steps bridge"),
+            )
+        })
+        .expect("decider");
+    (bridged, backend)
+}
+
+/// A one-arm plan over `constructors` joined by `relation`, without payload clauses.
+fn chain_plan(
+    vocabulary: &kink_pattern::EventVocabulary,
+    constructors: &[&str],
+    relation: kink_pattern::Relation,
+) -> kink_pattern::PatternPlan {
+    kink_pattern::PatternPlan::new(
+        vocabulary,
+        Vec::new(),
+        vec![kink_pattern::PatternArm {
+            atoms: constructors
+                .iter()
+                .map(|constructor| kink_pattern::Atom {
+                    constructor: (*constructor).into(),
+                    payload: Vec::new(),
+                })
+                .collect(),
+            relations: vec![relation; constructors.len() - 1],
+        }],
+        None,
+    )
+    .expect("plan")
+}
+
+fn whole_step(constructor: &str, pre: Pattern, post: Pattern, payload: &[&str]) -> StepEventSpec {
+    StepEventSpec {
+        constructor: constructor.into(),
+        pre: support::k_config(pre, "SortProg", "R", "C"),
+        post: Some(support::k_config(post, "SortProg", "R2", "C2")),
+        payload: payload.iter().map(|name| (*name).into()).collect(),
+    }
+}
+
+/// SO-AT3: a Conditional event at a NextEvent gap. `nextgap.k` runs `go(B)` to `mid(B)`, then
+/// `mid(B) => fin requires B`, then `fin => halt`. Under Z3 the run splits into the path that
+/// reaches `halt` (path condition B) and a stuck remainder at `mid(B)` (not B). On the first,
+/// `goMid` (step 0) and `finHalt` (step 2) are Certain and `midFin` (step 1, declared on
+/// `mid(true)`) is Conditional{B = true}. `goMid NextEvent finHalt` must skip the Conditional
+/// event, so its only candidate is indeterminate and the plan is Unknown: never Match (the
+/// skip needs the event's absence, which no instance of that path has) and never NoMatch. The
+/// controls decide: `goMid EventuallyAfter finHalt` and `midFin NextEvent finHalt` (whose
+/// Conditional relation is feasible on that path) are Match. Without Z3 the condition is
+/// undecided: one Indeterminate leaf at `mid(B)` after `goMid`, so every plan is Unknown.
+#[test]
+fn audit_so_at3_conditional_event_at_a_next_event_gap_is_unknown() {
+    use kink_pattern::{PatternOutcome, Relation};
+    let validator = NativeValidator::bind(support::load("nextgap.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("nextgap compiles");
+    let bool_var = || support::var("B", "SortBool");
+    let truth = Pattern::DomainValue {
+        sort: kore_sort("SortBool"),
+        value: "true".into(),
+    };
+    let specs = vec![
+        whole_step(
+            "goMid",
+            app("Lblgo", vec![bool_var()]),
+            app("Lblmid", vec![bool_var()]),
+            &[],
+        ),
+        whole_step(
+            "midFin",
+            app("Lblmid", vec![truth]),
+            app("Lblfin", vec![]),
+            &[],
+        ),
+        whole_step(
+            "finHalt",
+            app("Lblfin", vec![]),
+            app("Lblhalt", vec![]),
+            &[],
+        ),
+    ];
+    let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+    let state = support::initial_state(
+        app("Lblgo", vec![support::var("X", "SortBool")]),
+        "SortProg",
+    );
+    let (bridged, mut backend) = bridged_for(&side, "NEXTGAP", &state, specs);
+    let events = bridged
+        .paths
+        .iter()
+        .map(|path| {
+            path.events
+                .iter()
+                .map(|event| (event.constructor.clone(), event.presence.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    eprintln!(
+        "SO-AT3 events: {events:?}; collection {:?}",
+        bridged.collection
+    );
+    let context = kink_pattern::EvaluationContext {
+        test_id: "audit".into(),
+        bounds: BUDGET.bounds(),
+        vocabulary: vocabulary.clone(),
+        symbol_sorts: SymbolSorts::from_definition(
+            &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
+        ),
+    };
+    let outcomes = backend
+        .with_solver(None, |definition, solver| {
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
+            Ok::<_, k_rust::backend::BackendError>(
+                [
+                    (["goMid", "finHalt"], Relation::NextEvent),
+                    (["goMid", "finHalt"], Relation::EventuallyAfter),
+                    (["midFin", "finHalt"], Relation::NextEvent),
+                ]
+                .map(|(constructors, relation)| {
+                    kink_pattern::evaluate_with(
+                        &context,
+                        &chain_plan(&vocabulary, &constructors, relation),
+                        &bridged.paths,
+                        &bridged.collection,
+                        None,
+                        kink_pattern::EvaluationOptions {
+                            stable_path_keys: true,
+                            search_policy: kink_pattern::SearchPolicy::Exhaustive,
+                            input_error: false,
+                        },
+                        &relations,
+                    )
+                    .expect("evaluation")
+                    .outcome
+                }),
+            )
+        })
+        .expect("relations");
+    eprintln!("SO-AT3 outcomes: {outcomes:?}");
+    let conditional = |relations: Vec<TermRelation>| EventPresence::Conditional(relations);
+    if cfg!(feature = "z3") {
+        assert!(events.contains(&vec![
+            ("goMid".to_owned(), EventPresence::Certain),
+            (
+                "midFin".to_owned(),
+                conditional(vec![TermRelation {
+                    left: support::var("X", "SortBool"),
+                    right: Pattern::DomainValue {
+                        sort: kore_sort("SortBool"),
+                        value: "true".into(),
+                    },
+                }])
+            ),
+            ("finHalt".to_owned(), EventPresence::Certain),
+        ]));
+        assert_eq!(
+            outcomes,
+            [
+                PatternOutcome::Unknown,
+                PatternOutcome::Match,
+                PatternOutcome::Match
+            ]
+        );
+    } else {
+        assert_eq!(events, [vec![("goMid".to_owned(), EventPresence::Certain)]]);
+        assert_eq!(outcomes, [PatternOutcome::Unknown; 3]);
+    }
+}
+
+/// SO-AT7 (documented as intended, README 4.3 and SO-R2): a whole-transition `memoryLoad`
+/// (`seq(load(addr(A), V), P) -> P`) fires on guardedmem's `loadFault` step when the
+/// continuation P is itself `fault`, because that step has the same (pre, post) as a successful
+/// load. W certifies "the step went to its continuation", not "the operation succeeded". The
+/// same faulting load before `halt` emits nothing, and a successful load before `fault` emits
+/// the same event. Ground, so identical in both profiles.
+#[test]
+fn audit_so_at7_whole_load_fires_on_a_fault_continuation() {
+    let program = |address: i64, continuation: &str| {
+        support::initial_state(
+            app(
+                "Lblseq",
+                vec![
+                    app(
+                        "Lblload",
+                        vec![app("Lbladdr", vec![support::int(address)]), support::int(7)],
+                    ),
+                    app(continuation, vec![]),
+                ],
+            ),
+            "SortProg",
+        )
+    };
+    let presences = |address, continuation| {
+        event_presences(
+            "guardedmem.k",
+            "GUARDEDMEM",
+            &program(address, continuation),
+            step_support::guardedmem(true),
+        )
+    };
+    assert_eq!(presences(-1, "Lblfault"), [certain(&["memoryLoad"])]);
+    assert_eq!(presences(-1, "Lblhalt"), [Vec::new()]);
+    assert_eq!(presences(1, "Lblfault"), [certain(&["memoryLoad"])]);
+}
+
+/// Attack (b) of the k-rust 927b9ce6 intake (decision D-B, T-UNSAT): steps from a state whose
+/// path condition holds a partial `/Int` under a negation. `partialstep.k`'s `same(X, Y)` steps
+/// to `halt` where `X /Int Y <=Int X /Int Y` holds and otherwise (owise) to `other(X, Y)`, then to
+/// `done(Y)`; `pos(X, Y)` likewise under `X /Int Y >Int 0`. The owise path has the K instances
+/// Y = 0 (the division is undefined there); for `same` it has no other. Read with `/Int` total
+/// and without the definedness inside the negation, its condition would be refuted, and every
+/// event on it Absent. Measured with Z3: on the owise path `otherZero` (`other(A, 0)`) and
+/// `doneZero` (`other(A, B) -> done(0)`) are Conditional{Y = 0}, never Absent, the leaf is kept
+/// (not discarded), and the relation query at the instance Y = 0 is not Unsat (it is Unknown:
+/// `/Int` does not translate exactly). `same`'s applied path (condition Y =/=Int 0) refutes
+/// Y = 0 and decides Y = 1. Without Z3 each run is one Indeterminate leaf at the initial state:
+/// no step, no event, and no Unsat (the path is `SolverUnknown`, so no query is decided).
+#[test]
+fn audit_so_partial_condition_events_are_never_refuted() {
+    use kink_pattern::Feasibility::{Sat, Unknown, Unsat};
+    let validator =
+        NativeValidator::bind(support::load("partialstep.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("partialstep compiles");
+    let int = |name: &str| support::var(name, "SortInt");
+    let specs = vec![
+        whole_step(
+            "toOther",
+            app("Lblsame", vec![int("A"), int("B")]),
+            app("Lblother", vec![int("A"), int("B")]),
+            &["B"],
+        ),
+        whole_step(
+            "toOther",
+            app("Lblpos", vec![int("A"), int("B")]),
+            app("Lblother", vec![int("A"), int("B")]),
+            &["B"],
+        ),
+        bare_spec(
+            support::k_config(
+                app("Lblother", vec![int("A"), support::int(0)]),
+                "SortProg",
+                "R",
+                "C",
+            ),
+            &["A"],
+        ),
+        whole_step(
+            "doneZero",
+            app("Lblother", vec![int("A"), int("B")]),
+            app("Lbldone", vec![support::int(0)]),
+            &["A"],
+        ),
+    ];
+    let y_is = |value| {
+        vec![TermRelation {
+            left: int("Y"),
+            right: support::int(value),
+        }]
+    };
+    for head in ["Lblsame", "Lblpos"] {
+        let state = support::initial_state(app(head, vec![int("X"), int("Y")]), "SortProg");
+        let stepped = run_steps(&side, "PARTIALSTEP", &state);
+        assert!(
+            stepped.adapted.leaves().iter().all(|leaf| leaf.feasibility
+                != kink_native::feasibility::LeafFeasibility::Unsat
+                && kink_native::bridge::discarded(leaf).is_none()),
+            "{head}: a leaf is refuted"
+        );
+        let (bridged, mut backend) = bridged_for(&side, "PARTIALSTEP", &state, specs.clone());
+        let rows = backend
+            .with_solver(None, |definition, solver| {
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
+                Ok::<_, k_rust::backend::BackendError>(
+                    bridged
+                        .paths
+                        .iter()
+                        .map(|path| {
+                            (
+                                path.events
+                                    .iter()
+                                    .map(|event| {
+                                        (event.constructor.clone(), event.presence.clone())
+                                    })
+                                    .collect::<Vec<_>>(),
+                                relations.feasible(path, &y_is(0)),
+                                relations.feasible(path, &y_is(1)),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .expect("relations");
+        eprintln!("SO-09 (b) {head}: {rows:?}");
+        if cfg!(feature = "z3") {
+            let zero = || EventPresence::Conditional(y_is(0));
+            let owise = (
+                vec![
+                    ("toOther".to_owned(), EventPresence::Certain),
+                    ("tick".to_owned(), zero()),
+                    ("doneZero".to_owned(), zero()),
+                ],
+                Unknown,
+                Unknown,
+            );
+            let expected = if head == "Lblsame" {
+                vec![(Vec::new(), Unsat, Sat), owise]
+            } else {
+                vec![(Vec::new(), Unknown, Unknown), owise]
+            };
+            assert_eq!(rows, expected, "{head}");
+        } else {
+            assert_eq!(rows, [(Vec::new(), Unknown, Unknown)], "{head}");
+        }
+        assert!(
+            rows.iter()
+                .filter(|(events, ..)| events.len() > 1)
+                .all(|(_, at_zero, _)| *at_zero != Unsat),
+            "{head}: the owise path's K instance is refuted"
+        );
+    }
+}
+
+/// Hand-written KORE (the VI-06 AT13 definition, `feasibility.rs`): `tag` is an `anywhere`
+/// head without a declared `function` (`HeadRole::EquationHead`), with equations collapsing
+/// `tag(s(z))` to `tag(z)` and to `tag(s(s(z)))`; `f` is a partial function and `g` a total one
+/// with `g(z) = z`; `pair` is a free constructor and plays the configuration here.
+const EQUATION_HEADS: &str = r#"[]
+    module MAIN
+        sort SortNat{} []
+        symbol Lblz{}() : SortNat{} [constructor{}(), functional{}()]
+        symbol Lbls{}(SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+        symbol Lblpair{}(SortNat{}, SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+        symbol Lbltag{}(SortNat{}) : SortNat{} [functional{}(), injective{}(), anywhere{}()]
+        symbol Lblf{}(SortNat{}) : SortNat{} [function{}()]
+        symbol Lblg{}(SortNat{}) : SortNat{} [function{}(), functional{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+            ),
+            \equals{SortNat{}, R}(
+                Lbltag{}(X0:SortNat{}),
+                \and{SortNat{}}(Lbltag{}(Lblz{}()), \top{SortNat{}}())
+            )
+        ) [label{}("t1"), anywhere{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+            ),
+            \equals{SortNat{}, R}(
+                Lbltag{}(X0:SortNat{}),
+                \and{SortNat{}}(Lbltag{}(Lbls{}(Lbls{}(Lblz{}()))), \top{SortNat{}}())
+            )
+        ) [label{}("t2"), anywhere{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lblz{}()), \top{R}())
+            ),
+            \equals{SortNat{}, R}(
+                Lblg{}(X0:SortNat{}),
+                \and{SortNat{}}(Lblz{}(), \top{SortNat{}}())
+            )
+        ) [label{}("g-z")]
+    endmodule []"#;
+
+/// A real-prefix path with predicate `\top`, so relations and queries are asked at all.
+fn top_path(sort: &str) -> PathInput {
+    PathInput {
+        test_id: "audit".into(),
+        path_ordinal: 0,
+        path_key: None,
+        complete: true,
+        stop: kink_pattern::PathStop::Terminal,
+        execution_stop: kink_pattern::ExecutionStop::Terminal,
+        execution_terminal: None,
+        events: Vec::new(),
+        path_predicate: Pattern::Top {
+            sort: kore_sort(sort),
+        },
+        equivalences: Vec::new(),
+        inequalities: Vec::new(),
+    }
+}
+
+/// Attack (d) of the k-rust 927b9ce6 intake (AT13 at the step level): an `anywhere` head
+/// (`HeadRole::EquationHead`) in a decoded state. The walk never decomposes or clashes a
+/// non-free head, so a declaration whose pattern meets `tag(..)` with another `tag(..)` or with a
+/// free constructor is Undecided, never Absent; a repeated variable bound to two different
+/// `tag` applications goes to the shared relation, which is Indeterminate (Undecided) unless
+/// k-rust decomposes both as normal on every instance (`tag(z)` against `tag(s(s(z)))`: both
+/// normal, Unequal, Absent); identical applications are Equal by identity (Certain); and a
+/// payload bound to a `tag` application is Certain but not definition independent, so a
+/// `with_bindings` slot over it is Unknown (SO-D4). Same in both profiles (no solver query).
+#[test]
+fn audit_so_equation_heads_stay_undecided_in_steps() {
+    let mut backend =
+        Backend::new(EQUATION_HEADS, "MAIN", BackendOptions::default()).expect("backend");
+    let nat = |name: &str| support::var(name, "SortNat");
+    let z = || app("Lblz", vec![]);
+    let s = |value| app("Lbls", vec![value]);
+    let tag = |value| app("Lbltag", vec![value]);
+    let pair = |left, right| app("Lblpair", vec![left, right]);
+    let initial = pair(nat("X"), nat("Y"));
+    let spec = |pre: Pattern, payload: &[&str]| StepEventSpec {
+        constructor: "probe".into(),
+        pre,
+        post: None,
+        payload: payload.iter().map(|name| (*name).into()).collect(),
+    };
+    let rows = [
+        (spec(pair(tag(z()), nat("P")), &[]), pair(tag(s(z())), z())),
+        (spec(pair(s(nat("N")), nat("P")), &[]), pair(tag(z()), z())),
+        (spec(pair(tag(nat("N")), nat("P")), &[]), pair(z(), z())),
+        (
+            spec(pair(nat("V"), nat("V")), &[]),
+            pair(tag(s(z())), tag(z())),
+        ),
+        (
+            spec(pair(nat("V"), nat("V")), &[]),
+            pair(tag(nat("X")), tag(z())),
+        ),
+        (
+            spec(pair(nat("V"), nat("V")), &[]),
+            pair(tag(z()), tag(s(s(z())))),
+        ),
+        (
+            spec(pair(nat("V"), nat("V")), &[]),
+            pair(tag(nat("X")), tag(nat("X"))),
+        ),
+        (spec(pair(nat("P"), nat("Q")), &["P"]), pair(tag(z()), z())),
+    ];
+    let (presences, independent) = backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial));
+            let path = top_path("SortNat");
+            Ok::<_, k_rust::backend::BackendError>((
+                rows.iter()
+                    .map(|(spec, state)| decider.classify_step(spec, state, None, &path))
+                    .collect::<Vec<_>>(),
+                [tag(z()), tag(nat("X")), s(z())].map(|term| decider.definition_independent(&term)),
+            ))
+        })
+        .expect("decider");
+    eprintln!("SO-09 (d): {presences:?} {independent:?}");
+    assert_eq!(
+        presences,
+        [
+            StepPresence::Undecided,
+            StepPresence::Undecided,
+            StepPresence::Undecided,
+            StepPresence::Undecided,
+            StepPresence::Undecided,
+            StepPresence::Absent,
+            StepPresence::Certain(Vec::new()),
+            StepPresence::Certain(vec![tag(z())]),
+        ]
+    );
+    assert_eq!(independent, [false, false, true]);
+}
+
+/// Attack (e) of the k-rust 927b9ce6 intake (T-CLASH, T-FREE): k-rust's unification evidence is
+/// re-checked by kink's own criteria in the shared relations. Free constructors clash
+/// (`s(X)` against `z`: Unequal) and a variable below free constructors is an occurs-check
+/// clash (`X` against `s(X)`: Unequal). A k-rust `HeadClash` between an `EquationHead` normal
+/// form and a constructor (`tag(z)` against `s(z)`, `tag(z)` against `z`) is not accepted: kink
+/// requires both roots free (or free against an injection), so it is Indeterminate; nor is a
+/// cycle through a non-free head (`X` against `tag(s(X))`, `X` against `g(s(X))`). Sort
+/// injections with incomparable sources (`subsort_steps.k`: `inj{Small,Large}(a)` against
+/// `inj{Other,Large}(b)`) give k-rust's sort evidence, which kink never counts as a clash
+/// (Indeterminate; the step walk decides that pair itself, by `free_top`, in
+/// `injections_match_modulo_subsorts`). `ArgumentLengthsDiffer` is not expressible: both sides
+/// internalize against one symbol table, which checks arity first. Exactness (a solver Sat
+/// counts only when `translation_exactness` is `Exact`) is pinned by `feasibility.rs`
+/// `solver_sat_counts_only_for_the_exact_relation_query` and `symbolic.rs`
+/// `z3_sat_on_abstracted_query_is_not_a_witness`. Same in both profiles.
+#[test]
+fn audit_so_unification_evidence_is_rechecked_by_kink() {
+    use RelationDecision::{Indeterminate, Unequal};
+    let mut backend =
+        Backend::new(EQUATION_HEADS, "MAIN", BackendOptions::default()).expect("backend");
+    let nat = |name: &str| support::var(name, "SortNat");
+    let z = || app("Lblz", vec![]);
+    let s = |value| app("Lbls", vec![value]);
+    let tag = |value| app("Lbltag", vec![value]);
+    let g = |value| app("Lblg", vec![value]);
+    let initial = app("Lblpair", vec![nat("X"), nat("Y")]);
+    let heads = backend
+        .with_solver(None, |definition, solver| {
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&initial));
+            let path = top_path("SortNat");
+            Ok::<_, k_rust::backend::BackendError>(
+                [
+                    (s(nat("X")), z()),
+                    (nat("X"), s(nat("X"))),
+                    (tag(z()), s(z())),
+                    (tag(z()), z()),
+                    (nat("X"), tag(s(nat("X")))),
+                    (nat("X"), g(s(nat("X")))),
+                ]
+                .map(|(left, right)| relations.relate(&path, &[], &left, &right)),
+            )
+        })
+        .expect("relations");
+    eprintln!("SO-09 (e) heads: {heads:?}");
+    assert_eq!(
+        heads,
+        [
+            Unequal,
+            Unequal,
+            Indeterminate,
+            Indeterminate,
+            Indeterminate,
+            Indeterminate
+        ]
+    );
+
+    let validator =
+        NativeValidator::bind(support::load("subsort_steps.k"), CompileOptions::default());
+    let side = validator
+        .compile_baseline()
+        .expect("subsort fixture compiles");
+    let inj = |source: &str, value| {
+        k_rust::kompile::initial_configuration::kore_application(
+            "inj",
+            vec![kore_sort(source), kore_sort("SortLarge")],
+            vec![value],
+        )
+    };
+    let initial = support::initial_state(
+        app("Lblstep", vec![support::var("L", "SortLarge")]),
+        "SortProg",
+    );
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "SUBSORT'Unds'STEPS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let sorts = backend
+        .with_solver(None, |definition, solver| {
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&initial));
+            let path = top_path("SortGeneratedTopCell");
+            Ok::<_, k_rust::backend::BackendError>(
+                [
+                    (
+                        inj("SortSmall", app("Lbla", vec![])),
+                        inj("SortOther", app("Lblb", vec![])),
+                    ),
+                    (inj("SortSmall", app("Lbla", vec![])), app("Lblc", vec![])),
+                ]
+                .map(|(left, right)| relations.relate(&path, &[], &left, &right)),
+            )
+        })
+        .expect("relations");
+    eprintln!("SO-09 (e) sorts: {sorts:?}");
+    assert_eq!(sorts, [Indeterminate, Unequal]);
+}

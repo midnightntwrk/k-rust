@@ -6378,3 +6378,517 @@ fn audit_so_identical_executions_keep_canonical_paths() {
         );
     });
 }
+
+// ---------------------------------------------------------------- SO-09 close-out audits
+
+/// Every compared row of `run`'s only mutant, with `Failed`/skipped tests as `None`.
+fn so_rows(run: &kink_campaign::CampaignRun) -> Vec<Option<Vec<OracleOutcome>>> {
+    run.mutants[0]
+        .plan
+        .tests
+        .iter()
+        .map(|test| match &test.run {
+            TestRun::Compared(row) => Some(row.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// scopeforge's `startA` as the existential `start(X) => pair(X, ?Y)`, with `startB` deleted;
+/// with `requires ?Y =/=K X` the mutant relates `start` to `pair` exactly as the baseline's two
+/// constant rules do (equivalent on every ground instance), without it the relation differs.
+fn so_scopeforge_patch(baseline: &Baseline, with_requires: bool) -> Patch {
+    let x = so_var("X", "Ab");
+    let y = so_var("?Y", "Ab");
+    let mut edits = vec![replaced(
+        baseline,
+        "SCOPEFORGE.startA",
+        &[0],
+        Term::Rewrite {
+            left: Box::new(Term::apply("start", vec![x.clone()])),
+            right: Box::new(Term::apply("pair", vec![x.clone(), y.clone()])),
+        },
+    )];
+    if with_requires {
+        edits.push(replaced(
+            baseline,
+            "SCOPEFORGE.startA",
+            &[2],
+            Term::apply("_=/=K_", vec![y, x]),
+        ));
+    }
+    edits.push(Edit::DeleteSentence {
+        at: support::rule(baseline, "SCOPEFORGE.startB"),
+    });
+    Patch::new(edits).expect("patch")
+}
+
+fn so_pair_spec(name: &str, first: Pattern, second: Pattern) -> StepEventSpec {
+    StepEventSpec {
+        constructor: name.into(),
+        pre: support::k_config(
+            app("start", vec![support::var("X", "SortAb")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app("pair", vec![first, second]),
+            "SortPair",
+            "R",
+            "C2",
+        )),
+        payload: vec!["X".into()],
+    }
+}
+
+/// SO-08 review 1, probe R1-P1, pinned (its recommendation): the identical-relation mutant of
+/// `scopeforge.k` against an ADMITTED baseline. After SO-08 the certificate no longer stands
+/// behind `audit_vi_scope_names_do_not_capture_stable_variables`, whose baselines are refused, so
+/// this is the committed check that the existential mutant's pattern slots are evaluated and do
+/// not distinguish. Ground tests `start(a)` and `start(b)`; W declarations from `start(X)` to
+/// each constant pair (on the mutant they meet `pair(a, ?Y)` under `?Y =/=K a`: relation
+/// `EqualIf`, then `feasible` Unsat (Absent) or Sat (Conditional)) and to `pair(Y, Z)` with
+/// payload `Z`. Measured in both profiles: the equivalent mutant's sides are Unknown on every
+/// slot of both tests (status Unknown); the control without the `requires` (a real difference:
+/// `pair(a, a)` becomes reachable) is Unknown where the mutant's existential decides nothing and
+/// Agree elsewhere. No Distinguish either way.
+#[test]
+fn audit_so_scopeforge_existential_relation_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("scopeforge.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let a = || app("a", vec![]);
+        let b = || app("b", vec![]);
+        let observation = vec![
+            so_pair_spec("pAA", a(), a()),
+            so_pair_spec("pAB", a(), b()),
+            so_pair_spec("pBA", b(), a()),
+            so_pair_spec("pBB", b(), b()),
+            StepEventSpec {
+                constructor: "second".into(),
+                pre: support::k_config(
+                    app("start", vec![support::var("X", "SortAb")]),
+                    "SortProg",
+                    "R",
+                    "C",
+                ),
+                post: Some(support::k_config(
+                    app(
+                        "pair",
+                        vec![support::var("Y", "SortAb"), support::var("Z", "SortAb")],
+                    ),
+                    "SortPair",
+                    "R",
+                    "C2",
+                )),
+                payload: vec!["Z".into()],
+            },
+        ];
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        let oracles = [
+            binds(&vocabulary, "pAA", 0, "A", "SortAb", false),
+            binds(&vocabulary, "pAB", 0, "A", "SortAb", false),
+            binds(&vocabulary, "pBA", 0, "A", "SortAb", false),
+            binds(&vocabulary, "pBB", 0, "A", "SortAb", false),
+            binds(&vocabulary, "pAB", 0, "A", "SortAb", true),
+            binds(&vocabulary, "second", 0, "A", "SortAb", true),
+            binds(&vocabulary, "second", 0, "A", "SortAb", false),
+        ];
+        let tests = [
+            case(
+                "start-a",
+                support::initial_state(app("start", vec![a()]), "SortProg"),
+                &oracles,
+            ),
+            case(
+                "start-b",
+                support::initial_state(app("start", vec![b()]), "SortProg"),
+                &oracles,
+            ),
+        ];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "SCOPEFORGE",
+            observation: &observation,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for with_requires in [true, false] {
+            let patch = so_scopeforge_patch(baseline, with_requires);
+            let generation = fixed(
+                baseline,
+                &[("SCOPEFORGE.startA", &[0]), ("SCOPEFORGE.startB", &[0])],
+                "existential",
+                &patch,
+            );
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, mode).expect("admitted");
+                eprintln!(
+                    "SO-09 scopeforge requires={with_requires} {mode:?}: {:?} {:?}",
+                    so_rows(&run),
+                    run.mutants[0].report.status
+                );
+                let expected = if with_requires {
+                    vec![Some(vec![U; 7]); 2]
+                } else {
+                    vec![
+                        Some(vec![U, U, A, A, U, U, A]),
+                        Some(vec![A, A, U, U, A, U, A]),
+                    ]
+                };
+                assert_eq!(so_rows(&run), expected, "requires={with_requires} {mode:?}");
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+            }
+        }
+    });
+}
+
+/// SO-08 review 1, probe R1-P2, pinned: `conflate.k`'s narrowing `goPos`/`goNeg` against the
+/// merged unguarded `go` (identical on every ground instance), with Match-only existence plans
+/// over pre-state declarations, so that an incomplete symbolic baseline could be admitted by a
+/// Match. Measured in both profiles: the symbolic test's baseline is refused
+/// (`BaselineOracleFailed`); the ground test is `[A, A, A]`, Survived.
+#[test]
+fn audit_so_conflated_merge_with_match_plans_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let patch = Patch::new(vec![
+            replaced(baseline, "CONFLATE.goPos", &[1], ei_bool(true)),
+            Edit::DeleteSentence {
+                at: support::rule(baseline, "CONFLATE.goNeg"),
+            },
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("CONFLATE.goPos", &[1]), ("CONFLATE.goNeg", &[1])],
+            "merge",
+            &patch,
+        );
+        let seq_pre = |op: Pattern| {
+            support::k_config(
+                app("seq", vec![op, support::var("P", "SortProg")]),
+                "SortProg",
+                "R",
+                "C",
+            )
+        };
+        let observation = vec![
+            StepEventSpec {
+                constructor: "goAny".into(),
+                pre: seq_pre(app("go", vec![support::var("B", "SortBox")])),
+                post: None,
+                payload: vec!["B".into()],
+            },
+            StepEventSpec {
+                constructor: "goC".into(),
+                pre: seq_pre(app(
+                    "go",
+                    vec![app("c", vec![support::var("N", "SortInt")])],
+                )),
+                post: None,
+                payload: vec!["N".into()],
+            },
+            StepEventSpec {
+                constructor: "chk2".into(),
+                pre: seq_pre(app("check2", vec![support::var("J", "SortInt")])),
+                post: None,
+                payload: vec!["J".into()],
+            },
+        ];
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        let oracles = [
+            binds(&vocabulary, "goAny", 0, "A", "SortBox", false),
+            binds(&vocabulary, "goC", 0, "A", "SortInt", false),
+            binds(&vocabulary, "chk2", 0, "A", "SortInt", false),
+        ];
+        for (name, program) in [
+            (
+                "sym",
+                ei_program(
+                    vec![
+                        app("go", vec![support::var("X", "SortBox")]),
+                        app("check2", vec![support::var("Y", "SortInt")]),
+                    ],
+                    app("done", vec![]),
+                ),
+            ),
+            (
+                "ground",
+                ei_program(
+                    vec![
+                        app("go", vec![app("c", vec![support::int(3)])]),
+                        app("check2", vec![support::int(4)]),
+                    ],
+                    app("done", vec![]),
+                ),
+            ),
+        ] {
+            let tests = [case(name, program, &oracles)];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "CONFLATE",
+                observation: &observation,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let result = run_campaign(&campaign, &generation, ScheduleMode::Full);
+            eprintln!(
+                "SO-09 conflate {name}: {:?}",
+                result
+                    .as_ref()
+                    .map(|run| (so_rows(run), run.mutants[0].report.status))
+                    .map_err(|failure| failure.kind())
+            );
+            if name == "sym" {
+                assert_eq!(
+                    result.expect_err("refused").kind(),
+                    CampaignFailureKind::BaselineOracleFailed
+                );
+            } else {
+                let run = result.expect("admitted");
+                assert_survived(&run, &[vec![A, A, A]]);
+            }
+        }
+    });
+}
+
+/// `memoryWrite` bound at an address, then the same constructor at that address `relation`
+/// later (a plan that repeats a constructor, README 5.4).
+fn so_repeated(
+    vocabulary: &EventVocabulary,
+    constructor: &str,
+    relation: Relation,
+) -> OracleDeclaration {
+    let plan = PatternPlan::new(
+        vocabulary,
+        vec![("A".into(), kore_sort("SortInt"))],
+        vec![PatternArm {
+            atoms: [MatchMode::Bind, MatchMode::Use]
+                .into_iter()
+                .map(|mode| Atom {
+                    constructor: constructor.into(),
+                    payload: vec![PayloadClause {
+                        position: 0,
+                        mode,
+                        variable: "A".into(),
+                    }],
+                })
+                .collect(),
+            relations: vec![relation],
+        }],
+        None,
+    )
+    .expect("plan");
+    OracleDeclaration::new(
+        CrashPolicy::CompareIdentity,
+        Projection::Pattern {
+            plan,
+            with_bindings: false,
+        },
+    )
+    .expect("oracle")
+}
+
+/// SO-AT8, the repeated-constructor row: J1's stutter (`audit_so_j1_write_stutter`: AS5's
+/// guard split plus an unlabelled priority-40 copy of `write` that rewrites
+/// `write(addr(A), 5)` to `write(addr(A), 6)`) under a plan that repeats `memoryWrite` at one
+/// address, by `EventuallyAfter` and by `NextEvent`. Under W the stutter's post-state is not the
+/// continuation, so each side has one write event and both plans Agree (Survived). Under P the
+/// stutter adds a write event at the same address, so both plans go from NoMatch to Match and
+/// the mutant is Killed by both ground tests. That kill is legitimate: the mutant's execution
+/// passes through the extra configuration `write(addr(A), 6)`, and README 5.4 states that a plan
+/// repeating a constructor is not invariant under a stutter. Ground, so identical in both
+/// profiles.
+#[test]
+fn audit_so_at8_repeated_constructor_plan_under_a_stutter() {
+    with_stack(|| {
+        for whole in [true, false] {
+            let mut guarded = Guarded::new();
+            guarded.observation = step_support::guardedmem(whole);
+            let baseline = guarded.validator.baseline();
+            let write = support::rule(baseline, "GUARDEDMEM.write");
+            let oracles = [
+                so_repeated(
+                    &guarded.vocabulary,
+                    "memoryWrite",
+                    Relation::EventuallyAfter,
+                ),
+                so_repeated(&guarded.vocabulary, "memoryWrite", Relation::NextEvent),
+            ];
+            let tests = [
+                case(
+                    "ground-zero",
+                    int_program(0, 5, support::int(0), 7),
+                    &oracles,
+                ),
+                case(
+                    "ground-one",
+                    int_program(1, 5, support::int(1), 7),
+                    &oracles,
+                ),
+            ];
+            let left = term(baseline, "GUARDEDMEM.write", &[0, 0]);
+            let v = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 1]);
+            let right = ei_substitute(
+                &left,
+                &v,
+                &Term::apply("_+Int_", vec![v.clone(), int_token(1)]),
+            );
+            let mut bump = unlabelled_copy(baseline, "GUARDEDMEM.write");
+            if let k_rust::definition::Sentence::Rule { body, requires, .. } = &mut bump {
+                *body = Term::Rewrite {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+                *requires = Term::apply("_==Int_", vec![v, int_token(5)]);
+            }
+            bump.attributes_mut().set(
+                AttributeKey::Priority,
+                serde_json::Value::String("40".into()),
+            );
+            let mut edits = ei_guard_split(baseline);
+            edits.push(Edit::InsertSentence {
+                position: InsertPosition::After(write),
+                ordinal: 1,
+                sentence: bump,
+            });
+            let patch = Patch::new(edits).expect("patch");
+            let generation = fixed(baseline, &[("GUARDEDMEM.write", &[1])], "j1", &patch);
+            let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+                .expect("campaign");
+            eprintln!(
+                "SO-09 AT8 whole={whole}: {:?} {:?} {:?}",
+                outcomes(&run),
+                run.mutants[0].report.status,
+                run.mutants[0].report.killing_test_ids
+            );
+            if whole {
+                assert_survived(&run, &[vec![A, A], vec![A, A]]);
+            } else {
+                assert_eq!(outcomes(&run), [vec![D, D], vec![D, D]]);
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+                assert_eq!(
+                    run.mutants[0].report.killing_test_ids,
+                    ["ground-zero", "ground-one"]
+                );
+            }
+        }
+    });
+}
+
+/// Attack (c) of the k-rust 927b9ce6 intake through the runner: `rulecondfail.k`'s mutant that
+/// writes `f`'s literal as `1.0f` leaves `f(2.0)` unevaluated with a `RuleConditionFailed`
+/// diagnostic on every leaf (`bridge.rs` `audit_so_rule_condition_failed_leaf_is_never_complete`).
+/// The baseline runs `run(2.0)` to `halt`; the mutant's paths are `BackendLimit`, so its final
+/// state and its `run(X) -> done(1)` whole-transition slot are Unknown, never a Distinguish
+/// against the baseline's `halt` and Match. Ground, identical in both profiles; Full and
+/// FirstKill alike.
+#[test]
+fn audit_so_rule_condition_failed_mutant_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("rulecondfail.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let literal = Term::Token {
+            token: "1.0f".into(),
+            sort: Sort::new("Float"),
+        };
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "RULECONDFAIL.f",
+            &[1, 0, 1],
+            literal,
+        )])
+        .expect("patch");
+        let generation = fixed(baseline, &[("RULECONDFAIL.f", &[1])], "literal", &patch);
+        let float = Pattern::DomainValue {
+            sort: kore_sort("SortFloat"),
+            value: "2.0".into(),
+        };
+        let observation = vec![StepEventSpec {
+            constructor: "ranOne".into(),
+            pre: support::k_config(
+                app("run", vec![support::var("X", "SortFloat")]),
+                "SortProg",
+                "R",
+                "C",
+            ),
+            post: Some(support::k_config(
+                app("done", vec![support::int(1)]),
+                "SortProg",
+                "R",
+                "C2",
+            )),
+            payload: vec!["X".into()],
+        }];
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        let oracles = [
+            whole_term(),
+            binds(&vocabulary, "ranOne", 0, "F", "SortFloat", false),
+        ];
+        let tests = [case(
+            "run-two",
+            support::initial_state(app("run", vec![float]), "SortProg"),
+            &oracles,
+        )];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "RULECONDFAIL",
+            observation: &observation,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run = run_campaign(&campaign, &generation, mode).expect("admitted");
+            eprintln!(
+                "SO-09 (c) campaign {mode:?}: {:?} {:?}",
+                outcomes(&run),
+                run.mutants[0].report.status
+            );
+            assert_eq!(outcomes(&run), [vec![U, U]]);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        }
+    });
+}
+
+/// Attacks (a) and (f) of the k-rust 927b9ce6 intake at the campaign boundary. A stop cause or
+/// `InsufficientStack` that fails an operation reaches the runner as an adapter `Backend`
+/// failure, which is `Failed(Infrastructure)` (never a compared value); a stop published on a
+/// leaf is an incomplete path (`bridge.rs` `audit_so_every_stop_cause_is_a_non_complete_stop`).
+/// A pre-start cancel is not expressible for a mutant alone: one budget bounds both sides, so a
+/// zero budget stops the baseline first, and admission refuses the failed baseline run
+/// (`BaselineError`, as for any baseline that does not finish) before any mutant runs. A
+/// mutant's own watchdog stop is `Timeout` (`end_to_end.rs`
+/// `nonterminating_mutant_is_a_timeout`). Identical in both profiles.
+#[test]
+fn audit_so_prestart_cancel_never_reaches_a_mutant_verdict() {
+    use kink_campaign::ExecutionFailureKind;
+    use kink_native::execution::ExecutionAdapterFailure;
+    assert_eq!(
+        ExecutionFailureKind::from(&ExecutionAdapterFailure::Backend(
+            "Request cancelled".into()
+        )),
+        ExecutionFailureKind::Infrastructure
+    );
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), false);
+        let tests = &fixture.tests[..1];
+        let mut campaign = fixture.campaign(tests);
+        campaign.budget = ExecutionBudget {
+            time: Duration::ZERO,
+            ..BUDGET
+        };
+        let failure = run_campaign(&campaign, &generation, ScheduleMode::Full)
+            .expect_err("the baseline does not finish");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+    });
+}
