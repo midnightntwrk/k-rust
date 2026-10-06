@@ -4280,8 +4280,17 @@ endmodule
         let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
         assert!(!success, "{condition}: {stdout}{stderr}");
         assert!(!stdout.contains("VarX"), "{condition}: {stdout}");
+        // The incomplete entry is described, not dumped: the reason, the refused application
+        // and the state in KORE, and the state's depth.
         assert!(
-            stderr.contains(r#"UnsupportedHook { hook: "INT.shl", reason: ResultTooLarge"#),
+            stderr.contains(
+                "unsupported hook 'INT.shl' on constructor-like arguments: 1 <<Int 16777217 needs more than"
+            ) && stderr.contains("in the state at depth 1:")
+                && stderr.contains(r#"Lbl'Unds-LT--LT-'Int'Unds'{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777217"))"#),
+            "{condition}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("TermData") && !stderr.contains("SearchState"),
             "{condition}: {stderr}"
         );
     }

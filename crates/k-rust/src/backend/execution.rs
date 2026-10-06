@@ -31,7 +31,7 @@ use k_rust_backend::{
     fresh::RequestNames,
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
-        HaltReason, Pattern,
+        HaltReason, IndeterminateReason, Pattern,
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status, execute_with_solver,
     },
@@ -44,7 +44,7 @@ use k_rust_backend::{
         BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationError,
         SimplificationOptions, simplify_pattern_with_solver,
     },
-    smt::SmtSolver,
+    smt::{SmtError, SmtSolver, TranslationError},
     stop::StopCause,
     term::{Sort, Term, TermKind, Variable},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
@@ -748,7 +748,8 @@ fn run_backend_with_solver(
             search_incomplete_disposition(incomplete) == IncompleteDisposition::Failure
         }) {
             return Err(io::Error::other(format!(
-                "in-process backend search was incomplete: {incomplete:?}"
+                "in-process backend search was incomplete: {}",
+                describe_incomplete_search(incomplete)
             ))
             .into());
         }
@@ -838,13 +839,10 @@ fn run_backend_with_solver(
             | HaltReason::BreadthBound => false,
         })
     {
+        let result_sort = leaf.pattern.term.sort();
         let reason = match &leaf.halt_reason {
-            HaltReason::Simplification(
-                error @ SimplificationError::UnsupportedHook { term, .. },
-            ) => {
-                let application = KorePrinter::pretty(100).print_pattern(&externalize::term(term));
-                format!("{error}\n{application}")
-            }
+            HaltReason::Simplification(error) => describe_simplification_error(error, &result_sort),
+            HaltReason::Indeterminate(reason) => describe_indeterminate(reason, &result_sort),
             reason @ HaltReason::Stopped(_)
             | reason @ HaltReason::Stuck
             | reason @ HaltReason::Trivial { .. }
@@ -853,9 +851,7 @@ fn run_backend_with_solver(
             | reason @ HaltReason::CutPointRule { .. }
             | reason @ HaltReason::TerminalRule { .. }
             | reason @ HaltReason::DepthBound
-            | reason @ HaltReason::BreadthBound
-            | reason @ HaltReason::Indeterminate(_)
-            | reason @ HaltReason::Simplification(_) => format!("{reason:?}"),
+            | reason @ HaltReason::BreadthBound => format!("{reason:?}"),
         };
         return Err(io::Error::other(format!(
             "in-process backend halted at depth {}: {reason}",
@@ -1079,6 +1075,195 @@ enum IncompleteDisposition {
 
 /// Classify one state a search left unexplored.
 #[deny(clippy::wildcard_enum_match_arm)]
+/// A reader's account of a search entry left incomplete: the reason, the terms it names and the
+/// state's configuration, each term printed in KORE, and the state's depth. The entry's `Debug`
+/// form spells out term internals (attributes, hashes, whole symbol declarations at every node),
+/// which are not part of the reason and grow with the state far faster than its KORE does.
+fn describe_incomplete_search(incomplete: &IncompleteSearch) -> String {
+    let (state, reason) = match incomplete {
+        IncompleteSearch::DepthBound(state) => (state, "the depth bound was reached".to_owned()),
+        IncompleteSearch::BreadthBound(states) => {
+            return format!(
+                "the breadth bound was exceeded with {} states at the frontier",
+                states.len()
+            );
+        }
+        IncompleteSearch::Indeterminate { state, reason } => (
+            state,
+            describe_indeterminate(reason, &state.pattern.term.sort()),
+        ),
+        IncompleteSearch::Stopped { state, cause } => (state, cause.to_string()),
+        IncompleteSearch::Simplification { state, error } => (
+            state,
+            describe_simplification_error(error, &state.pattern.term.sort()),
+        ),
+        IncompleteSearch::Match {
+            state, remainder, ..
+        } => (
+            state,
+            format!(
+                "the match of the target pattern left an undecided remainder:{}",
+                describe_equalities(remainder)
+            ),
+        ),
+        IncompleteSearch::Smt { state, error } => (
+            state,
+            format!("the solver failed: {}", describe_smt_error(error)),
+        ),
+    };
+    format!(
+        "{reason}\nin the state at depth {}:\n{}",
+        state.depth,
+        KorePrinter::pretty(100).print_pattern(&externalize::constrained_pattern(&state.pattern))
+    )
+}
+
+/// A simplification failure with the term or predicate it names printed in KORE; a predicate is
+/// printed at the sort of the pattern it constrains.
+fn describe_simplification_error(error: &SimplificationError, sort: &Sort) -> String {
+    match error {
+        SimplificationError::UnsupportedHook { term, .. } => format!(
+            "{error}\n{}",
+            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
+        ),
+        SimplificationError::IterationLimit { limit, term } => format!(
+            "simplification reached its limit of {limit} iterations on\n{}",
+            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
+        ),
+        SimplificationError::PredicateIterationLimit { limit, predicate } => format!(
+            "simplification reached its limit of {limit} iterations on the predicate\n{}",
+            describe_predicate(predicate, sort)
+        ),
+        SimplificationError::SmtPredicate { predicate, error } => format!(
+            "the solver failed ({}) on the predicate\n{}",
+            describe_smt_error(error),
+            describe_predicate(predicate, sort)
+        ),
+        SimplificationError::Smt { rule_id, error } => format!(
+            "the solver failed on rule {rule_id}: {}",
+            describe_smt_error(error)
+        ),
+        SimplificationError::Builtin(_)
+        | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::TopEquationOutsideConjunction { .. }
+        | SimplificationError::InvalidBuiltinResultSymbol { .. } => error.to_string(),
+    }
+}
+
+/// Why a rewrite step could not decide its successors, with the terms and predicates it names
+/// printed in KORE at the sort of the state.
+fn describe_indeterminate(reason: &IndeterminateReason, sort: &Sort) -> String {
+    match reason {
+        IndeterminateReason::SurvivingMacroOrAlias { symbol } => {
+            format!("the macro or alias symbol {symbol} survived into an executable term")
+        }
+        IndeterminateReason::Match {
+            rule_id, remainder, ..
+        } => format!(
+            "rule {rule_id} matched with an undecided remainder:{}",
+            describe_equalities(remainder)
+        ),
+        IndeterminateReason::Instantiation {
+            rule_id,
+            missing_variables,
+        } => format!(
+            "rule {rule_id} leaves {} uninstantiated in concrete execution",
+            missing_variables
+                .iter()
+                .map(|variable| externalize::external_variable_name(&variable.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        IndeterminateReason::Requires {
+            rule_id,
+            predicates,
+        } => format!(
+            "the requires clause of rule {rule_id} is undecided:{}",
+            describe_predicates(predicates, sort)
+        ),
+        IndeterminateReason::Smt { rule_id, error } => format!(
+            "the solver failed on rule {rule_id}: {}",
+            describe_smt_error(error)
+        ),
+        IndeterminateReason::Remainder {
+            rule_ids,
+            predicates,
+            satisfiability,
+        } => format!(
+            "the remainder of rules {} is undecided ({}):{}",
+            rule_ids.join(", "),
+            match satisfiability {
+                Ok(satisfiability) => format!("{satisfiability:?}"),
+                Err(error) => describe_smt_error(error),
+            },
+            describe_predicates(predicates, sort)
+        ),
+    }
+}
+
+/// A solver failure; a term a translation failure names is printed in KORE.
+fn describe_smt_error(error: &SmtError) -> String {
+    match error {
+        SmtError::Translation(TranslationError::NonBooleanAnd(term)) => format!(
+            "a term conjunction that is not Boolean cannot be translated: {}",
+            KorePrinter::compact().print_pattern(&externalize::term(term))
+        ),
+        SmtError::Translation(TranslationError::SmtLemmaSurplusMappings { rule_id, terms }) => {
+            format!(
+                "the smt-lemma {rule_id} maps surplus terms: {}",
+                terms
+                    .iter()
+                    .map(|term| KorePrinter::compact().print_pattern(&externalize::term(term)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        SmtError::Translation(TranslationError::SmtLemmaSurplusPredicates {
+            rule_id,
+            predicates,
+        }) => format!(
+            "the smt-lemma {rule_id} has surplus predicates: {}",
+            predicates.len()
+        ),
+        SmtError::Translation(
+            translation @ (TranslationError::PlaceholderOutOfBounds { .. }
+            | TranslationError::UnsupportedPredicate(_)
+            | TranslationError::ParametricSort(_)
+            | TranslationError::MissingSmtLemmaVariable { .. }),
+        ) => format!("{translation:?}"),
+        error @ (SmtError::Unavailable
+        | SmtError::Unknown(_)
+        | SmtError::InconsistentGroundTruth
+        | SmtError::MissingModel
+        | SmtError::MissingModelValue(_)
+        | SmtError::InvalidModelValue { .. }) => format!("{error:?}"),
+    }
+}
+
+fn describe_predicate(predicate: &Predicate, sort: &Sort) -> String {
+    KorePrinter::pretty(100).print_pattern(&externalize::ml_pattern(predicate, sort))
+}
+
+fn describe_predicates(predicates: &[Predicate], sort: &Sort) -> String {
+    predicates
+        .iter()
+        .map(|predicate| format!("\n{}", describe_predicate(predicate, sort)))
+        .collect()
+}
+
+fn describe_equalities(equalities: &[(Term, Term)]) -> String {
+    equalities
+        .iter()
+        .map(|(left, right)| {
+            format!(
+                "\n{} = {}",
+                KorePrinter::compact().print_pattern(&externalize::term(left)),
+                KorePrinter::compact().print_pattern(&externalize::term(right))
+            )
+        })
+        .collect()
+}
+
 fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDisposition {
     match incomplete {
         IncompleteSearch::DepthBound(_) => IncompleteDisposition::UserLimit,
