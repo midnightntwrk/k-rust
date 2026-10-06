@@ -1,7 +1,7 @@
 version = 1
 
 # Manual real-semantics certification protocol (no CI job):
-# Run every command below after a change to frontend, definition, kompile, or KORE emission behavior.
+# Run the command of every [[gate]] below whose run is "certification" after a change to frontend, definition, kompile, or KORE emission behavior.
 # The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
 # Record each named case's pass/fail result, wall time, and peak RSS in the change description.
 # Each Java-backed script re-executes its complete process tree in one user systemd scope before doing work.
@@ -11,26 +11,141 @@ version = 1
 # REFERENCE_DIFFERENTIAL_MEMORY_KIB independently controls the reference JVM's virtual memory and is unset by default.
 # Raise any hard ceiling only after measuring current machine headroom.
 #
-# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner
-# scripts/reference-differential.sh fun-int-list-config
-# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4
-# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence
-# scripts/reference-kast-differential.sh wasm mir evm-equivalence
-# scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries
-# scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution
-# scripts/reference-proof-differential.sh mini-proof
-# scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof
-# scripts/reference-rpc-differential.sh imp
-# scripts/reference-rpc-differential.sh bounded-search
-# scripts/reference-rpc-differential.sh trivial-result-rpc
-# scripts/reference-mir-execution-differential.sh
-# scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise
-# scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs
-#
 # PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):
-#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)
+#   1. the certification gate commands below that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)
 #   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)
 #   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh
+
+# Gate sets: each [[gate]] is one command and the cases it runs, and this list is the only record of
+# which gate runs which case. `run = "certification"` gates are the manual protocol above;
+# `run = "weekly"` gates are the steps of .github/workflows/differential.yml, which must run exactly
+# their `command`. Every runnable case of a coverage section is named by a gate command or carries
+# `manual = "<reason>"` saying why no gate runs it (crates/k-rust/tests/differential_manifest.rs).
+
+[[gate]]
+name = "compile-light"
+run = "certification"
+command = "scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner"
+
+[[gate]]
+name = "compile-fun-int-list-config"
+run = "certification"
+command = "scripts/reference-differential.sh fun-int-list-config"
+
+[[gate]]
+name = "compile-imp-and-casts"
+run = "certification"
+command = "scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4"
+
+[[gate]]
+name = "compile-real-semantics"
+run = "certification"
+command = "REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence"
+
+[[gate]]
+name = "kast-real-semantics"
+run = "certification"
+command = "scripts/reference-kast-differential.sh wasm mir evm-equivalence"
+
+[[gate]]
+name = "execution-imp"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries"
+
+[[gate]]
+name = "execution-light"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution"
+
+[[gate]]
+name = "proof-mini"
+run = "certification"
+command = "scripts/reference-proof-differential.sh mini-proof"
+
+[[gate]]
+name = "proof"
+run = "certification"
+command = "scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof"
+
+[[gate]]
+name = "rpc-imp"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh imp"
+
+[[gate]]
+name = "rpc-bounded-search"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh bounded-search"
+
+[[gate]]
+name = "rpc-trivial-result"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh trivial-result-rpc"
+
+[[gate]]
+name = "mir-execution"
+run = "certification"
+command = "scripts/reference-mir-execution-differential.sh"
+
+[[gate]]
+name = "symbolic"
+run = "certification"
+command = "scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise"
+
+[[gate]]
+name = "conformance-ratchet"
+run = "certification"
+command = "scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs"
+
+[[gate]]
+name = "compile-regression"
+run = "certification"
+command = "scripts/reference-differential.sh hook-namespaces-whitespace star-cell-heating star-cell-heating-set star-cell-map-nested-set owise-ignored-competitors exists-anon let-list-binder casted-chain softpref softpos wordstack wordstack-fn gas3 rwpref rwpref-variable anywhere2"
+
+[[gate]]
+name = "kast-imp"
+run = "certification"
+command = "scripts/reference-kast-differential.sh imp"
+
+[[gate]]
+name = "execution-cli"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh io exit star-cell-map-nested-set"
+
+[[gate]]
+name = "proof-imp"
+run = "certification"
+command = "scripts/reference-proof-differential.sh imp"
+
+[[gate]]
+name = "symbolic-collections"
+run = "certification"
+command = "scripts/reference-symbolic-execution-differential.sh symbolic-collection-frames collection-and-injection-narrowing injected-variable-narrowing"
+
+[[gate]]
+name = "weekly-compile"
+run = "weekly"
+command = "scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config owise-functions owise"
+
+[[gate]]
+name = "weekly-kast"
+run = "weekly"
+command = "scripts/reference-kast-differential.sh bounded-search-local crypto-local collections-local bytes-local deep-config-local deep-term-local macro-runtime-local hooked-namespaces-local star-cell-config-local owise-functions-local parametric-cast-local mini-proof-local wasm-shaped-lists-local"
+
+[[gate]]
+name = "weekly-execution"
+run = "weekly"
+command = "scripts/reference-non-imp-execution-differential.sh crypto collections bytes-ops deep-config macro-runtime bounded-search deep-term"
+
+[[gate]]
+name = "weekly-proof"
+run = "weekly"
+command = "scripts/reference-proof-differential.sh mini-proof"
+
+[[gate]]
+name = "weekly-rpc"
+run = "weekly"
+command = "scripts/reference-rpc-differential.sh bounded-search"
 
 [normalisations]
 
@@ -1300,6 +1415,7 @@ programs = [
 name = "star-cell-heating-set"
 requires = ["reference-toolchain"]
 constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
+manual = "The execution gate compiles the reference with the pinned Haskell backend, whose kompile rejects the fixture's [anywhere] rule. Under --allow-anywhere-haskell, which drops that rule and which the gate cannot pass, the pinned krun completes both programs (no program builds a _[_] term, so the rule is never reachable), while k-rust ends them in an undefined step (docs/compatibility.md#set-concatenation-is-nilpotent). Running it needs a per-case reference kompile option and an execution oracle exception; until then krun_completes_star_cell_heating_with_one_or_two_cells in crates/k-rust/tests/cli.rs pins k-rust's result for two.pgm."
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
 main-module = "STAR-CELL-HEATING-SET"
 syntax-module = "STAR-CELL-HEATING-SYNTAX"

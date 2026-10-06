@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env, fs,
     io::Write,
     path::Path,
@@ -4276,6 +4276,11 @@ fn executed_kore_matches_the_reference_backend() {
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
     let definition = definition.as_deref().map(Path::new);
+    let krust = implication_krust();
+    let oracle = definition.map(|definition| ImplicationOracle {
+        krust: &krust,
+        definition,
+    });
     // N26: an any-strategy port result is compared as a member of the reference all-strategy
     // result set; the exclusions are about reference leaves, which membership already tolerates.
     let strategy = env::var("K_DIFFERENTIAL_STRATEGY");
@@ -4285,38 +4290,87 @@ fn executed_kore_matches_the_reference_backend() {
             "K_DIFFERENTIAL_STRATEGY=any cannot be combined with K_DIFFERENTIAL_ORACLE_EXCLUSION"
                 .into(),
         ),
-        (Ok("any"), Err(_)) => compare_execution_any_membership(
-            &reference, &actual, definition, &module,
-        )
-        .map(|unpaired| {
-            let total = execution_disjuncts(&reference).len();
-            println!(
-                "any-strategy: {} of {total} reference leaves reached",
-                total - unpaired
-            );
-        }),
+        (Ok("any"), Err(_)) => {
+            compare_execution_any_membership(&reference, &actual, oracle, &module).map(|unpaired| {
+                let total = execution_disjuncts(&reference).len();
+                println!(
+                    "any-strategy: {} of {total} reference leaves reached",
+                    total - unpaired
+                );
+            })
+        }
         (Ok("all") | Err(_), Ok("gotstuck")) => {
             let stop_path = env::var("K_DIFFERENTIAL_STOP_LEAVES")
                 .expect("K_DIFFERENTIAL_STOP_LEAVES is required for the gotstuck exclusion");
             let stop_source = fs::read_to_string(stop_path).unwrap();
             let stop_leaves = normalize_execution_pattern(parse_pattern(&stop_source).unwrap());
-            compare_execution_modulo_gotstuck(
-                &reference,
-                &actual,
-                &stop_leaves,
-                definition,
-                &module,
-            )
+            compare_execution_modulo_gotstuck(&reference, &actual, &stop_leaves, oracle, &module)
         }
         (Ok("all") | Err(_), Ok(exclusion)) => {
             Err(format!("unknown oracle exclusion: {exclusion}"))
         }
         (Ok("all") | Err(_), Err(_)) => {
-            compare_execution_modulo_implication(&reference, &actual, definition, &module)
+            compare_execution_modulo_implication(&reference, &actual, oracle, &module)
         }
         (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
     result.unwrap_or_else(|error| panic!("{error}"));
+}
+
+/// N10: the execution gate refuses an oracle exception whose committed k-rust expectation the
+/// comparator accepts against the recorded reference result, because then the exception excuses
+/// nothing. Both are committed files, so this is checked on every push, not only when the gate runs
+/// the reference. The gate compares them as `executed_kore_matches_the_reference_backend` does
+/// without an initial pattern; here no definition is at hand, so the implication oracle (N15) is
+/// unavailable. A term that pairs with no disjunct of the other side is a difference with or
+/// without it, but two results that pair only through it cannot be told apart here and fail.
+#[test]
+fn committed_execution_oracle_exceptions_are_not_equivalent() {
+    let manifest = include_str!("../../../scripts/reference-differential.toml")
+        .parse::<toml::Value>()
+        .expect("valid differential TOML");
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |value: &toml::Value| {
+        let value = value.as_str().expect("oracle exception file");
+        let relative = value
+            .strip_prefix("${workspace}/")
+            .unwrap_or_else(|| panic!("{value} is not a workspace file"));
+        let path = workspace.join(relative);
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        normalize_execution_pattern_with(
+            parse_pattern(&source).unwrap_or_else(|error| panic!("{relative}: {error:?}")),
+            &GeneratedNames::shapes(),
+        )
+    };
+    let mut checked = 0;
+    for entry in manifest["execution"].as_array().expect("execution cases") {
+        let name = entry["name"].as_str().expect("execution case name");
+        let module = entry["main-module"]
+            .as_str()
+            .expect("execution main module");
+        for exception in entry
+            .get("oracle-exception")
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let program = exception["program"].as_str().expect("exception program");
+            let reference = read(&exception["reference"]);
+            let expected = read(&exception["expected"]);
+            match compare_execution_modulo_implication(&reference, &expected, None, module) {
+                Ok(()) => panic!(
+                    "committed oracle exception expectations for {name}:{program} are equivalent"
+                ),
+                Err(error) if error.contains("K_DIFFERENTIAL_DEFINITION is not set") => panic!(
+                    "committed oracle exception expectations for {name}:{program} differ only in \
+                     constraints the implication oracle must decide: {error}"
+                ),
+                Err(_) => checked += 1,
+            }
+        }
+    }
+    assert!(checked > 0, "no execution oracle exception was checked");
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -5383,18 +5437,15 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     }
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
-    let previous = env::var_os("K_RUST_KRUST");
-    // SAFETY: the differential tests run single-threaded per process invocation of this test;
-    // the variable is restored below.
-    unsafe { env::set_var("K_RUST_KRUST", &oracle) };
-    let result =
-        compare_execution_modulo_implication(&reference, &actual, Some(&definition), "TEST");
-    unsafe {
-        match previous {
-            Some(value) => env::set_var("K_RUST_KRUST", value),
-            None => env::remove_var("K_RUST_KRUST"),
-        }
-    }
+    let result = compare_execution_modulo_implication(
+        &reference,
+        &actual,
+        Some(ImplicationOracle {
+            krust: &oracle,
+            definition: &definition,
+        }),
+        "TEST",
+    );
     result.expect("the aligned bijection pairs the remainders");
     let calls = fs::read_to_string(&calls).unwrap();
     assert!(
@@ -6308,26 +6359,26 @@ fn flatten_collection(symbol: &Symbol, mut pattern: Pattern, output: &mut Vec<Pa
 fn compare_execution_modulo_implication(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
-    compare_execution_disjuncts(reference, actual, definition, module, None)
+    compare_execution_disjuncts(reference, actual, oracle, module, None)
 }
 
 fn compare_execution_modulo_gotstuck(
     reference: &Pattern,
     actual: &Pattern,
     stop_leaves: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
-    compare_execution_disjuncts(reference, actual, definition, module, Some(stop_leaves))
+    compare_execution_disjuncts(reference, actual, oracle, module, Some(stop_leaves))
 }
 
 fn compare_execution_disjuncts(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
     expected_unpaired_actual: Option<&Pattern>,
 ) -> Result<(), String> {
@@ -6347,7 +6398,7 @@ fn compare_execution_disjuncts(
         &reference_disjuncts,
         &actual_disjuncts,
         PairingDriver::Reference,
-        definition,
+        oracle,
         module,
     )?;
     let unpaired_actual = paired_actual
@@ -6391,7 +6442,7 @@ fn compare_execution_disjuncts(
 fn compare_execution_any_membership(
     reference: &Pattern,
     actual: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<usize, String> {
     let reference_disjuncts = execution_disjuncts(reference);
@@ -6403,7 +6454,7 @@ fn compare_execution_any_membership(
         &actual_disjuncts,
         &reference_disjuncts,
         PairingDriver::Actual,
-        definition,
+        oracle,
         module,
     )?;
     Ok(paired_reference.iter().filter(|paired| !**paired).count())
@@ -6424,7 +6475,7 @@ fn pair_disjuncts(
     driving: &[&Pattern],
     pool: &[&Pattern],
     driver: PairingDriver,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<Vec<bool>, String> {
     let mut paired = vec![false; pool.len()];
@@ -6451,7 +6502,7 @@ fn pair_disjuncts(
             reference_disjunct,
             &reference_constraints,
             actual_disjunct,
-            definition,
+            oracle,
             module,
         )?;
     }
@@ -6472,7 +6523,7 @@ fn compare_paired_constraints(
     reference_disjunct: &Pattern,
     reference_constraints: &[Pattern],
     actual_disjunct: &Pattern,
-    definition: Option<&Path>,
+    oracle: Option<ImplicationOracle>,
     module: &str,
 ) -> Result<(), String> {
     let (actual_term, _) = split_constrained(actual_disjunct);
@@ -6496,7 +6547,7 @@ fn compare_paired_constraints(
             return Ok(());
         }
     }
-    let Some(definition) = definition else {
+    let Some(oracle) = oracle else {
         return Err(format!(
             "constraints differ for paired disjunct {}; K_DIFFERENTIAL_DEFINITION is not set",
             split_constrained(reference_disjunct).0
@@ -6504,7 +6555,7 @@ fn compare_paired_constraints(
     };
     let mut last_error = None;
     for candidate in &candidates {
-        match prove_implication_both_ways(reference_disjunct, candidate, definition, module) {
+        match prove_implication_both_ways(oracle, reference_disjunct, candidate, module) {
             Ok(()) => return Ok(()),
             Err(error) => last_error = Some(error),
         }
@@ -6814,17 +6865,31 @@ fn is_predicate_pattern(pattern: &Pattern) -> bool {
     }
 }
 
-fn prove_implication_both_ways(
-    reference: &Pattern,
-    actual: &Pattern,
-    definition: &Path,
-    module: &str,
-) -> Result<(), String> {
-    let krust = env::var_os("K_RUST_KRUST")
+/// What the implication fallback (N15) runs: the `krust` executable that proves the claims, and
+/// the definition it proves them in. Both are explicit so a test can substitute a fake `krust`
+/// without touching the process environment, which every concurrently running test reads.
+#[derive(Clone, Copy)]
+struct ImplicationOracle<'a> {
+    krust: &'a Path,
+    definition: &'a Path,
+}
+
+/// The `krust` executable the execution comparison proves implications with: `K_RUST_KRUST`,
+/// else the one Cargo built for this test, else `target/release/krust`.
+fn implication_krust() -> std::path::PathBuf {
+    env::var_os("K_RUST_KRUST")
         .map(std::path::PathBuf::from)
         .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
-        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"));
-    prove_implication_both_ways_with(&krust, reference, actual, definition, module)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"))
+}
+
+fn prove_implication_both_ways(
+    oracle: ImplicationOracle,
+    reference: &Pattern,
+    actual: &Pattern,
+    module: &str,
+) -> Result<(), String> {
+    prove_implication_both_ways_with(oracle.krust, reference, actual, oracle.definition, module)
 }
 
 fn prove_implication_both_ways_with(
@@ -7344,31 +7409,33 @@ fn compare_stripped_definitions(
             "{} attributes",
             reference.name
         );
-        let reference_sentences = reference
+        let reference_canonical = reference
             .sentences
             .iter()
             .map(canonical_sentence)
             .collect::<Vec<_>>();
-        let actual_sentences = actual
+        let actual_canonical = actual
             .sentences
             .iter()
             .map(canonical_sentence)
             .collect::<Vec<_>>();
-        let reference_sentences = multiset(reference_sentences);
-        let actual_sentences = multiset(actual_sentences);
+        let reference_sentences = multiset(reference_canonical.clone());
+        let actual_sentences = multiset(actual_canonical.clone());
         if reference_sentences != actual_sentences {
             let missing = count_differences(&reference_sentences, &actual_sentences);
             let extra = count_differences(&actual_sentences, &reference_sentences);
-            let missing_ids = difference_ids(
-                &missing,
+            let reference_side = ReportSide::new(
+                &reference_canonical,
                 &reference.sentences,
                 &raw_reference.modules[module_index].sentences,
             );
-            let extra_ids = difference_ids(
-                &extra,
+            let actual_side = ReportSide::new(
+                &actual_canonical,
                 &actual.sentences,
                 &raw_actual.modules[module_index].sentences,
             );
+            let missing_ids = difference_ids(&missing, &reference_side);
+            let extra_ids = difference_ids(&extra, &actual_side);
             panic!(
                 "{} sentence multiset differs: reference={}, actual={} ({}); missing={} {:?}, extra={} {:?}\n{}\n{}\nmissing summaries:\n{}\nextra summaries:\n{}",
                 reference.name,
@@ -7383,37 +7450,55 @@ fn compare_stripped_definitions(
                     missing.first().map(String::as_str),
                     extra.first().map(String::as_str)
                 ),
-                paired_difference_context(
-                    &missing,
-                    &extra,
-                    &reference.sentences,
-                    &actual.sentences,
-                    &raw_reference.modules[module_index].sentences,
-                    &raw_actual.modules[module_index].sentences,
-                ),
-                difference_summaries(
-                    &missing,
-                    &reference.sentences,
-                    &raw_reference.modules[module_index].sentences,
-                ),
-                difference_summaries(
-                    &extra,
-                    &actual.sentences,
-                    &raw_actual.modules[module_index].sentences,
-                ),
+                paired_difference_context(&missing, &extra, &reference_side, &actual_side),
+                difference_summaries(&missing, &reference_side),
+                difference_summaries(&extra, &actual_side),
             );
         }
     }
 }
 
-fn difference_summaries(differences: &[String], stripped: &[Sentence], raw: &[Sentence]) -> String {
+/// One side of a module's sentence comparison, as the mismatch report reads it.
+///
+/// Each sentence is canonicalised once, and a difference finds its sentence by lookup: scanning
+/// and canonicalising every sentence again for each difference made the report quadratic in the
+/// module size.
+struct ReportSide<'a> {
+    /// `canonical[index]` is `canonical_sentence(&stripped[index])`.
+    canonical: &'a [String],
+    /// The first index of each canonical form, which is the index a linear scan finds.
+    positions: HashMap<&'a str, usize>,
+    stripped: &'a [Sentence],
+    raw: &'a [Sentence],
+}
+
+impl<'a> ReportSide<'a> {
+    fn new(canonical: &'a [String], stripped: &'a [Sentence], raw: &'a [Sentence]) -> Self {
+        let mut positions = HashMap::with_capacity(canonical.len());
+        for (index, sentence) in canonical.iter().enumerate() {
+            positions.entry(sentence.as_str()).or_insert(index);
+        }
+        Self {
+            canonical,
+            positions,
+            stripped,
+            raw,
+        }
+    }
+
+    /// The index of the first sentence whose canonical form is `canonical`.
+    fn position(&self, canonical: &str) -> Option<usize> {
+        self.positions.get(canonical).copied()
+    }
+}
+
+fn difference_summaries(differences: &[String], side: &ReportSide) -> String {
+    let (stripped, raw) = (side.stripped, side.raw);
     differences
         .iter()
         .enumerate()
         .filter_map(|(difference_index, difference)| {
-            let sentence_index = stripped
-                .iter()
-                .position(|sentence| canonical_sentence(sentence) == *difference)?;
+            let sentence_index = side.position(difference)?;
             let identity =
                 sentence_identity(&raw[sentence_index]).unwrap_or_else(|| "<generated>".into());
             let kind = match &stripped[sentence_index] {
@@ -7437,16 +7522,14 @@ fn difference_summaries(differences: &[String], stripped: &[Sentence], raw: &[Se
 fn paired_difference_context(
     missing: &[String],
     extra: &[String],
-    stripped_reference: &[Sentence],
-    stripped_actual: &[Sentence],
-    raw_reference: &[Sentence],
-    raw_actual: &[Sentence],
+    reference: &ReportSide,
+    actual: &ReportSide,
 ) -> String {
+    let (stripped_reference, raw_reference) = (reference.stripped, reference.raw);
+    let (stripped_actual, raw_actual) = (actual.stripped, actual.raw);
+    let extra = extra.iter().map(String::as_str).collect::<HashSet<_>>();
     for missing_sentence in missing {
-        let Some(reference_index) = stripped_reference
-            .iter()
-            .position(|sentence| canonical_sentence(sentence) == *missing_sentence)
-        else {
+        let Some(reference_index) = reference.position(missing_sentence) else {
             continue;
         };
         let Some(identity) = sentence_identity(&raw_reference[reference_index]) else {
@@ -7467,8 +7550,8 @@ fn paired_difference_context(
         let Some(actual_index) = actual_index else {
             continue;
         };
-        let actual_sentence = canonical_sentence(&stripped_actual[actual_index]);
-        if extra.contains(&actual_sentence) {
+        let actual_sentence = &actual.canonical[actual_index];
+        if extra.contains(actual_sentence.as_str()) {
             let reference_value = canonicalized_sentence(&stripped_reference[reference_index]);
             let actual_value = canonicalized_sentence(&stripped_actual[actual_index]);
             let competitor_context = match (
@@ -7506,7 +7589,7 @@ fn paired_difference_context(
             };
             return format!(
                 "paired difference for {identity}:\n{}{}",
-                difference_context(Some(missing_sentence), Some(&actual_sentence)),
+                difference_context(Some(missing_sentence), Some(actual_sentence)),
                 competitor_context,
             );
         }
@@ -7555,14 +7638,12 @@ fn owise_competitors(sentence: &Sentence) -> Option<&[Pattern]> {
     })
 }
 
-fn difference_ids(differences: &[String], stripped: &[Sentence], raw: &[Sentence]) -> Vec<String> {
+fn difference_ids(differences: &[String], side: &ReportSide) -> Vec<String> {
     differences
         .iter()
         .map(|difference| {
-            stripped
-                .iter()
-                .position(|sentence| canonical_sentence(sentence) == *difference)
-                .and_then(|index| sentence_identity(&raw[index]))
+            side.position(difference)
+                .and_then(|index| sentence_identity(&side.raw[index]))
                 .unwrap_or_else(|| "<generated>".into())
         })
         .collect()
