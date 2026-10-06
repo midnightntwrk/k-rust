@@ -574,8 +574,13 @@ fn int_sign_extend_bit_range(
 ) -> Result<BigInt, String> {
     let index_u = unsigned_32(&index, "INT.signExtendBitRange")? as usize;
     let length_u = unsigned_32(&length, "INT.signExtendBitRange")? as usize;
+    // `domains.md` defines the result through `1 <<Int (LEN -Int 1)`, a shift by a negative
+    // quantity, and therefore undefined, when the length is zero.
     if length_u == 0 {
-        return Ok(BigInt::zero());
+        return Err(
+            "Argument to hook INT.signExtendBitRange out of range. Expected a positive length."
+                .into(),
+        );
     }
     let result = int_bit_range(value.clone(), index, length.clone())?;
     if ((value >> (index_u + length_u - 1)) & BigInt::one()).is_one() {
@@ -585,11 +590,15 @@ fn int_sign_extend_bit_range(
     }
 }
 fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, String> {
-    if modulus <= BigInt::zero() {
-        return Err("Argument to hook INT.powmod is invalid. Modulus must be positive and negative exponents are only allowed when value and modulus are relatively prime.".into());
+    const INVALID: &str = "Argument to hook INT.powmod is invalid. Modulus must be nonzero and negative exponents are only allowed when value and modulus are relatively prime.";
+    if modulus.is_zero() {
+        return Err(INVALID.into());
     }
+    // `^%Int` is `(A ^Int B) mod C` (its `smt-hook`): the Euclidean remainder, which lies in
+    // [0, |C|) and is therefore the same for C and -C.
+    let modulus = modulus.abs();
     if exponent.is_negative() {
-        let inverse = modular_inverse(a, modulus.clone()).ok_or_else(|| "Argument to hook INT.powmod is invalid. Modulus must be positive and negative exponents are only allowed when value and modulus are relatively prime.".to_owned())?;
+        let inverse = modular_inverse(a, modulus.clone()).ok_or_else(|| INVALID.to_owned())?;
         Ok(inverse.modpow(&(-exponent), &modulus))
     } else {
         Ok(a.modpow(&exponent, &modulus))
@@ -605,10 +614,13 @@ fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
         (old_s, s) = (s.clone(), old_s - q * s);
     }
     if old_r.abs() != BigInt::one() {
-        None
-    } else {
-        Some(((old_s % &modulus) + &modulus) % modulus)
+        return None;
     }
+    // `old_s * a` is congruent to `old_r`, which is 1 or -1; for -1 the inverse is `-old_s`.
+    if old_r.is_negative() {
+        old_s = -old_s;
+    }
+    Some(((old_s % &modulus) + &modulus) % modulus)
 }
 
 fn string_chr(value: BigInt) -> Result<Value, String> {
@@ -677,7 +689,8 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     // Invariant: each `find` scans candidate start indices of `chars` from `index` forward, or backward when `reverse`, and returns the first index holding a character of `needles` (when `any_char`) or the whole `needle`; the finite index range bounds the scan, O(`chars.len()` * `needle.len()`) for a substring search.
     let found = if any_char {
         if reverse {
-            (0..=index.min(chars.len().saturating_sub(1)))
+            // The candidates are the positions at or before `index` that hold a character.
+            (0..chars.len().min(index + 1))
                 .rev()
                 .find(|&i| needles.contains(chars[i]))
         } else {
@@ -697,7 +710,14 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     Ok(Value::Int(found.map_or(-1i64, |i| i as i64).into()))
 }
 fn parse_int(value: &str, radix: u32) -> Result<Value, String> {
-    BigInt::parse_bytes(value.as_bytes(), radix)
+    // An optional sign and one or more digits of the base. The integer parser alone would also
+    // skip `_` separators, which are not digits.
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let well_formed =
+        !digits.is_empty() && digits.chars().all(|character| character.is_digit(radix));
+    well_formed
+        .then(|| BigInt::parse_bytes(value.as_bytes(), radix))
+        .flatten()
         .map(Value::Int)
         .ok_or_else(|| {
             "Argument to hook STRING.string2int invalid. Expected a valid integer.".into()
@@ -743,8 +763,19 @@ fn replace_string(
     } else {
         usize::MAX
     };
-    if needle.is_empty() || count == 0 {
+    if count == 0 {
         return Ok(Value::String(remaining));
+    }
+    if needle.is_empty() {
+        // `domains.md` defines `replace` by finding the needle from index 0 and recursing on the
+        // rest of the haystack after it. An empty needle is found at 0 and leaves the whole
+        // haystack as the rest, so `replace` and `replaceFirst` put `count` copies of the
+        // replacement in front. `replaceAll` first counts the occurrences, a recursion that
+        // does not terminate for an empty needle; it keeps the haystack unchanged.
+        if count_index.is_none() && !first {
+            return Ok(Value::String(remaining));
+        }
+        return Ok(Value::String(replacement.repeat(count) + &remaining));
     }
     let mut out = String::new();
     // Invariant: `out` holds the input before `remaining` with every occurrence of `needle` found so far replaced by `replacement`; each iteration consumes one occurrence, and at most `count` iterations run.
@@ -795,3 +826,123 @@ fn sort_mentions(sort: &Sort, parameter: &Sort) -> bool {
             .iter()
             .any(|argument| sort_mentions(argument, parameter))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int(value: i64) -> BigInt {
+        BigInt::from(value)
+    }
+
+    /// A negative base ends the Euclidean recursion on a remainder of -1, so its inverse is the
+    /// negated Bezout coefficient: -1 * 4 = -4 and -2 * 3 = -6 are both 1 modulo 5 and 7.
+    #[test]
+    fn powmod_inverts_negative_bases() {
+        assert_eq!(int_powmod(int(-1), int(-1), int(5)), Ok(int(4)));
+        assert_eq!(int_powmod(int(-2), int(-1), int(7)), Ok(int(3)));
+        assert_eq!(int_powmod(int(-2), int(-3), int(7)), Ok(int(6)));
+        assert_eq!(int_powmod(int(3), int(-1), int(7)), Ok(int(5)));
+    }
+
+    /// The Euclidean remainder modulo -C is the remainder modulo C, so a negative modulus folds
+    /// like its absolute value; only a zero modulus is undefined.
+    #[test]
+    fn powmod_reduces_by_the_magnitude_of_a_negative_modulus() {
+        assert_eq!(int_powmod(int(2), int(3), int(-5)), Ok(int(3)));
+        assert_eq!(int_powmod(int(-2), int(3), int(-5)), Ok(int(2)));
+        assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
+        assert_eq!(int_powmod(int(0), int(0), int(-1)), Ok(int(0)));
+        assert!(int_powmod(int(2), int(3), int(0)).is_err());
+    }
+
+    /// `rfindChar` scans the characters at or before its index, and an empty haystack has none.
+    #[test]
+    fn rfind_char_scans_only_existing_characters() {
+        let found = |haystack: &str, needles: &str, index: i64| {
+            let values = [
+                Value::String(haystack.into()),
+                Value::String(needles.into()),
+                Value::Int(int(index)),
+            ];
+            match string_find(&values, true, true) {
+                Ok(Value::Int(position)) => position,
+                other => panic!("rfindChar({haystack:?}, {needles:?}, {index}) gave {other:?}"),
+            }
+        };
+        assert_eq!(found("", "a", 0), int(-1));
+        assert_eq!(found("", "", 0), int(-1));
+        assert_eq!(found("ab", "b", 2), int(1));
+        assert_eq!(found("ab", "b", 0), int(-1));
+        assert_eq!(found("aba", "ab", 1), int(1));
+    }
+
+    /// An empty needle occurs at index 0 with the whole haystack after it, so each replacement
+    /// `replace` and `replaceFirst` make goes in front.
+    #[test]
+    fn replacing_an_empty_needle_prepends_the_replacement() {
+        let replaced =
+            |values: &[Value], count_index, first| match replace_string(values, count_index, first)
+            {
+                Ok(Value::String(text)) => text,
+                other => panic!("{values:?} gave {other:?}"),
+            };
+        let text = |value: &str| Value::String(value.into());
+        let arguments = |count| [text("ab"), text(""), text("x"), Value::Int(int(count))];
+        assert_eq!(replaced(&arguments(1), None, true), "xab");
+        assert_eq!(replaced(&arguments(0), Some(3), false), "ab");
+        assert_eq!(replaced(&arguments(3), Some(3), false), "xxxab");
+        assert_eq!(replaced(&arguments(2), None, false), "ab");
+        assert_eq!(
+            replaced(
+                &[text("abab"), text("b"), text("x"), Value::Int(int(1))],
+                Some(3),
+                false
+            ),
+            "axab"
+        );
+    }
+
+    /// `signExtendBitRangeInt(I, IDX, LEN)` is `(bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int
+    /// 1))) modInt (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1))`, undefined for a zero length.
+    #[test]
+    fn sign_extension_of_an_empty_bit_range_is_undefined() {
+        assert!(int_sign_extend_bit_range(int(5), int(0), int(0)).is_err());
+        assert!(int_sign_extend_bit_range(int(-1), int(3), int(0)).is_err());
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(0), int(1)),
+            Ok(int(-1))
+        );
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(1), int(2)),
+            Ok(int(-2))
+        );
+        assert_eq!(
+            int_sign_extend_bit_range(int(5), int(0), int(4)),
+            Ok(int(5))
+        );
+        assert_eq!(int_bit_range(int(5), int(0), int(0)), Ok(int(0)));
+    }
+
+    /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
+    /// its base in either case; a `_` separator is neither.
+    #[test]
+    fn integer_parsing_accepts_only_signed_digits() {
+        let parsed = |text: &str, radix| match parse_int(text, radix) {
+            Ok(Value::Int(value)) => Some(value),
+            _ => None,
+        };
+        assert_eq!(parsed("+15", 10), Some(int(15)));
+        assert_eq!(parsed("-007", 10), Some(int(-7)));
+        assert_eq!(parsed("fF", 16), Some(int(255)));
+        for text in ["1_0", "1_", "_1", "-_1", "", "+", "-", "+-1", " 1", "1e3"] {
+            assert_eq!(parsed(text, 10), None, "{text:?}");
+        }
+        assert_eq!(parsed("f_f", 16), None);
+        assert_eq!(parsed("12", 2), None);
+    }
+}
+
+#[cfg(test)]
+#[path = "constant_folding_oracle.rs"]
+mod oracle;

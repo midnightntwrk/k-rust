@@ -707,9 +707,11 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
-    const MAX_POW_RESULT_BITS: u64 = 1 << 32;
+/// The largest integer result, in bits, that `^Int` and `<<Int` compute (512 MiB); a larger
+/// one is reported as too large instead of exhausting memory.
+const MAX_INT_RESULT_BITS: u64 = 1 << 32;
 
+fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -735,7 +737,7 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_POW_RESULT_BITS} bits"
+                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
                 ),
             },
         ));
@@ -743,12 +745,12 @@ fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     if base
         .bits()
         .checked_mul(exponent)
-        .is_none_or(|bits| bits > MAX_POW_RESULT_BITS)
+        .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
     {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "{base} ^Int {exponent} needs more than {MAX_POW_RESULT_BITS} bits"
+                    "{base} ^Int {exponent} needs more than {MAX_INT_RESULT_BITS} bits"
                 ),
             },
         ));
@@ -840,12 +842,28 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let shifts_left = if right {
-        amount.sign() == Sign::Minus
-    } else {
-        amount.sign() != Sign::Minus
+    // Shifting by a negative quantity is undefined (`#False` in `domains.md`) for both shifts.
+    if amount.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let shifts_left = !right;
+    let too_large = || {
+        Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!("{value} {}Int {amount}", if right { ">>" } else { "<<" }),
+            },
+        ))
     };
-    if let Some(magnitude) = amount.abs().to_usize() {
+    if shifts_left
+        && !value.is_zero()
+        && amount
+            .to_u64()
+            .and_then(|amount| amount.checked_add(value.bits()))
+            .is_none_or(|bits| bits > MAX_INT_RESULT_BITS)
+    {
+        return too_large();
+    }
+    if let Some(magnitude) = amount.to_usize() {
         let result = if shifts_left {
             value << magnitude
         } else {
@@ -865,11 +883,7 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
     if value.is_zero() {
         return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
     }
-    Ok(BuiltinResult::Unsupported(
-        UnsupportedHookReason::ResultTooLarge {
-            detail: format!("{value} {}Int {amount}", if right { ">>" } else { "<<" }),
-        },
-    ))
+    too_large()
 }
 
 fn kequal_ite(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -1384,6 +1398,70 @@ mod tests {
             ),
             Ok(Ok(BuiltinResult::Bottom))
         );
+    }
+
+    /// A left shift whose result would exceed the integer result bound is reported as too large
+    /// rather than allocated; a zero value and results within the bound are still computed.
+    #[test]
+    fn int_shl_beyond_the_result_bound_is_unsupported() {
+        let shl = |value: BigInt, amount: BigInt| {
+            evaluate_hook("INT.shl", &[int_term(value), int_term(amount)])
+        };
+        for amount in [
+            BigInt::one() << 32u32,
+            (BigInt::one() << 32u32) + 1,
+            BigInt::one() << 40u32,
+        ] {
+            assert!(
+                matches!(
+                    shl(BigInt::one(), amount.clone()),
+                    Ok(Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::ResultTooLarge { .. }
+                    )))
+                ),
+                "1 <<Int {amount}"
+            );
+            assert_eq!(
+                shl(BigInt::zero(), amount.clone()),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::zero())))),
+                "0 <<Int {amount}"
+            );
+        }
+        assert_eq!(
+            shl(BigInt::from(3), BigInt::from(100)),
+            Ok(Ok(BuiltinResult::Value(int_term(
+                BigInt::from(3) << 100u32
+            ))))
+        );
+    }
+
+    /// `domains.md`: shifting by a negative quantity is `#False`, in either direction and
+    /// whatever the shifted value; it is not a shift the other way.
+    #[test]
+    fn int_shift_by_a_negative_amount_is_undefined() {
+        for hook in ["INT.shl", "INT.shr"] {
+            for (value, amount) in [(8, -1), (0, -1), (-8, -2)] {
+                assert_eq!(
+                    evaluate_hook(
+                        hook,
+                        &[
+                            int_term(BigInt::from(value)),
+                            int_term(BigInt::from(amount))
+                        ],
+                    ),
+                    Ok(Ok(BuiltinResult::Bottom)),
+                    "{value} {hook} {amount}"
+                );
+            }
+            assert_eq!(
+                evaluate_hook(
+                    hook,
+                    &[int_term(BigInt::one()), int_term(-(BigInt::one() << 70u32))]
+                ),
+                Ok(Ok(BuiltinResult::Bottom)),
+                "{hook} by -2^70"
+            );
+        }
     }
 
     #[test]
