@@ -3683,15 +3683,23 @@ fn simplify_root(
     // The diagnostics of the indeterminate equation attempts of either theory, committed only if
     // neither theory rewrites the term.
     let mut indeterminate = IndeterminateAttempts::default();
-    let function_scan = match apply_theory::<FunctionTheory>(
-        definition,
-        term,
-        known_predicates,
-        options,
-        active_conditions,
-        solver,
-        &mut indeterminate,
-    )? {
+    // An `Unspecified` verdict says the definition gives the application no value, its function
+    // equations included, which are part of it: they are not applied (for
+    // `countAllOccurrences(S, "")` they only recur without end). Simplification lemmas still are.
+    let unspecified = matches!(unsupported, Some(UnsupportedHookReason::Unspecified { .. }));
+    let function_scan = match if unspecified {
+        TheoryScan::NotCacheable
+    } else {
+        apply_theory::<FunctionTheory>(
+            definition,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+            &mut indeterminate,
+        )?
+    } {
         TheoryScan::Applied(result, rule) => {
             let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
                 RootStep::DeterminedFunctionStep

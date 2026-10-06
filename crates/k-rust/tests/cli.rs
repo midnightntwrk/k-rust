@@ -4093,6 +4093,85 @@ fn krun_leaves_chr_of_a_surrogate_unevaluated() {
     );
 }
 
+/// `countAllOccurrences(S, "")` and `replaceAll(S, "", R)` have no value the definition
+/// determines (`domains.md`'s equations give `count = 1 + count` for an empty needle), so a run
+/// ends with the application unevaluated and a warning, instead of applying those equations
+/// until the native stack runs out. A non-empty needle is counted and replaced. `s` hides the
+/// constants from the constant folder.
+#[test]
+fn krun_leaves_counting_an_empty_needle_unevaluated() {
+    const SOURCE: &str = r#"
+module NEEDLE
+  imports INT
+  imports STRING
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "count" | "replace" | "nonempty"
+  syntax KItem ::= r(K)
+  syntax String ::= s(String) [function, total]
+  rule s(S) => S
+  rule <k> count => r(countAllOccurrences(s("ab"), s(""))) </k>
+  rule <k> replace => r(replaceAll(s("ab"), s(""), s("x"))) </k>
+  rule <k> nonempty => r(countAllOccurrences(s("abab"), s("ab")) +Int lengthString(replaceAll(s("aaa"), s("aa"), s("bcd")))) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.needle"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NEEDLE",
+                "--syntax-module",
+                "NEEDLE",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for (program, symbol, hook) in [
+        (
+            "count",
+            "LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String{}(",
+            "STRING.countAllOccurrences",
+        ),
+        (
+            "replace",
+            "LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(",
+            "STRING.replaceAll",
+        ),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(symbol), "{program}: {stdout}");
+        assert!(
+            stderr.contains(&format!("hook {hook} was left unevaluated"))
+                && stderr.contains("the definition does not determine its value"),
+            "{program}: {stderr}"
+        );
+    }
+    let (success, stdout, stderr) = run("nonempty");
+    assert!(success, "nonempty: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6"))"#),
+        "nonempty: {stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `^Int` and `<<Int` results above the backend's result size bound are not computed. A run
 /// that does not use them still ends with its value (the application is left unevaluated with a
 /// warning wherever the simplifier reaches it, and a discarded one leaves no definedness

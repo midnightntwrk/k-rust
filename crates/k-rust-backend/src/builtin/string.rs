@@ -26,6 +26,8 @@ pub(super) fn evaluate(
         "STRING.concat" => concatenate(arguments),
         "STRING.substr" => substring(arguments),
         "STRING.length" => length(arguments),
+        "STRING.countAllOccurrences" => count_all_occurrences(arguments),
+        "STRING.replaceAll" => replace_all(arguments),
         "STRING.find" => find(arguments, false),
         "STRING.rfind" => find(arguments, true),
         "STRING.string2base" => string_to_base(arguments),
@@ -123,6 +125,65 @@ fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(int_term(BigInt::from(
         code_point_units(value).count(),
     ))))
+}
+
+/// `countAllOccurrences(S, N)` is the number of occurrences of `N` in `S` found from the left,
+/// each search starting after the previous match: the `domains.md` equations count one at the
+/// first occurrence and continue on the rest of `S` after it. For an empty `N` those equations
+/// give `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")` (the empty needle is
+/// found at 0 and nothing is consumed), which no integer satisfies, so the `total` hook has a
+/// value the definition does not determine, whatever `S` is, a symbolic one included:
+/// `Unspecified`, which also keeps the simplifier from applying the diverging equations.
+///
+/// Matching the UTF-8 of `N` in the UTF-8 of `S` finds exactly the occurrences that start and end
+/// on code point boundaries, since no code point's encoding starts inside another's.
+fn count_all_occurrences(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("STRING.countAllOccurrences", arguments, 2)?;
+    if let Some(unspecified) = empty_needle("countAllOccurrences", &arguments[1]) {
+        return Ok(unspecified);
+    }
+    let Some((haystack, needle)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(int_term(BigInt::from(
+        haystack.matches(needle).count(),
+    ))))
+}
+
+/// `replaceAll(S, N, R)` replaces the occurrences `countAllOccurrences(S, N)` counts, found from
+/// the left without overlap, by `R` (the `domains.md` equation `replace(S, N, R,
+/// countAllOccurrences(S, N))`); for an empty `N` that count, and so this value, is not
+/// determined.
+fn replace_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("STRING.replaceAll", arguments, 3)?;
+    if let Some(unspecified) = empty_needle("replaceAll", &arguments[1]) {
+        return Ok(unspecified);
+    }
+    let (Some(haystack), Some(needle), Some(replacement)) = (
+        read_string(&arguments[0]),
+        read_string(&arguments[1]),
+        read_string(&arguments[2]),
+    ) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(string_term(
+        haystack.replace(needle, replacement),
+    )))
+}
+
+/// `Unspecified` when `needle` is the empty string, whose occurrences `domains.md`'s counting
+/// equations do not determine.
+fn empty_needle(operation: &str, needle: &Term) -> Option<BuiltinResult> {
+    read_string_bytes(needle)
+        .is_some_and(<[u8]>::is_empty)
+        .then(|| {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "{operation} with an empty needle: the domains.md equations give count = 1 + count"
+                ),
+            })
+        })
 }
 
 /// `findString(S, N, I)` is the first occurrence of N in S starting at or after code point I,
@@ -438,6 +499,64 @@ mod tests {
             ),
             BuiltinResult::Value(int_term(BigInt::from(3)))
         );
+    }
+
+    /// `countAllOccurrences` and `replaceAll` take the occurrences found from the left, each
+    /// search after the previous match; with an empty needle the `domains.md` equations give
+    /// `count = 1 + count`, so neither value is determined, whatever the haystack.
+    #[test]
+    fn count_and_replace_all_take_leftmost_disjoint_matches_and_no_empty_needle() {
+        let count = |haystack: Term, needle: &str| {
+            evaluate(
+                "STRING.countAllOccurrences",
+                vec![haystack, string_term(needle)],
+            )
+        };
+        let replace_all = |haystack: Term, needle: &str, replacement: &str| {
+            evaluate(
+                "STRING.replaceAll",
+                vec![haystack, string_term(needle), string_term(replacement)],
+            )
+        };
+        for (haystack, needle, occurrences, replaced) in [
+            ("abab", "ab", 2, "xx"),
+            ("aaa", "aa", 1, "xa"),
+            ("a🦀é🦀", "🦀", 2, "axéx"),
+            ("abc", "d", 0, "abc"),
+            ("", "a", 0, ""),
+        ] {
+            assert_eq!(
+                count(string_term(haystack), needle),
+                BuiltinResult::Value(int_term(BigInt::from(occurrences))),
+                "countAllOccurrences({haystack:?}, {needle:?})"
+            );
+            assert_eq!(
+                replace_all(string_term(haystack), needle, "x"),
+                BuiltinResult::Value(string_term(replaced)),
+                "replaceAll({haystack:?}, {needle:?}, \"x\")"
+            );
+        }
+        let symbolic = Term::variable(crate::term::Variable::new(
+            "S",
+            Sort::builtin(BuiltinSort::String),
+        ));
+        for haystack in [string_term("ab"), string_term(""), symbolic.clone()] {
+            assert!(
+                matches!(
+                    count(haystack.clone(), ""),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "countAllOccurrences({haystack:?}, \"\")"
+            );
+            assert!(
+                matches!(
+                    replace_all(haystack.clone(), "", "x"),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "replaceAll({haystack:?}, \"\", \"x\")"
+            );
+        }
+        assert_eq!(count(symbolic, "a"), BuiltinResult::NotApplicable);
     }
 
     #[test]

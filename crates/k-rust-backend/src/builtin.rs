@@ -129,7 +129,9 @@ pub enum UnsupportedHookReason {
     /// documentation gives no value on these arguments, or the definition's documents disagree
     /// on whether a value exists. The application denotes whatever value the definition admits.
     /// It is left unevaluated, and it is not an unsupported-hook error on constructor-like
-    /// arguments, since there is no value for an implementation to compute.
+    /// arguments, since there is no value for an implementation to compute. The verdict is final
+    /// for the application: the symbol's function equations, part of the definition that gives
+    /// no value there, are not applied to it.
     Unspecified {
         detail: String,
     },
