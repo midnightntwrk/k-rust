@@ -113,10 +113,11 @@ pub enum UnsupportedHookReason {
         detail: String,
     },
     /// The application has a value, larger than a result size bound (such as
-    /// [`MAX_INT_RESULT_BITS`]), that the backend does not compute. It is left unevaluated, a
-    /// term that denotes that value, and it is not an unsupported-hook error on constructor-like
-    /// arguments: the bound is a resource limit, not a missing implementation, and an error
-    /// would fail runs that never use the value.
+    /// [`MAX_INT_RESULT_BITS`]), that the backend does not compute. Term simplification leaves
+    /// it unevaluated, a term that denotes that value, without an unsupported-hook error on
+    /// constructor-like arguments, so that a subterm whose value is never used fails nothing. A
+    /// run neither branches nor ends on one: the step that would halts with the unsupported-hook
+    /// error (`simplify::refuse_results_above_the_size_bound`).
     ///
     /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
     /// so the simplifier takes the application's `\ceil` to hold.
@@ -939,7 +940,9 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinR
     let too_large = || {
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
-                detail: format!("{value} {}Int {amount}", if right { ">>" } else { "<<" }),
+                detail: format!(
+                    "{value} <<Int {amount} needs more than {MAX_INT_RESULT_BITS} bits"
+                ),
             },
         ))
     };

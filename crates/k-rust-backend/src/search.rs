@@ -104,7 +104,7 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
         TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
-        simplify_result_pattern,
+        simplify_result_pattern, stuck,
     },
     rule::Predicate,
     simplify::{
@@ -1273,7 +1273,7 @@ fn step_search_state(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ),
-        QueuedStateKind::Remaining(None) => Ok(RewriteResult::Stuck(pattern.clone())),
+        QueuedStateKind::Remaining(None) => stuck(definition, pattern),
         QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
     })
 }

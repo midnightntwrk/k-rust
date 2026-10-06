@@ -65,7 +65,7 @@ use super::{
     apply::{exclude_defined, restrict_to_undefined},
     apply_rule, extend_unique, predicates_truth,
     roles::{DefinedSubcase, SequentialSubject},
-    violates_finite_constructor_domain,
+    stuck, violates_finite_constructor_domain,
 };
 
 /// The outcome of one priority group. A `Productive` outcome attributes every diagnostic emitted
@@ -336,7 +336,7 @@ pub(super) fn rewrite_step_all(
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return Ok(RewriteResult::Stuck(pattern.clone()));
+        return stuck(definition, pattern);
     }
     let mut groups = priority_groups.into_iter();
     let mut visited = 0;
@@ -354,7 +354,7 @@ pub(super) fn rewrite_step_all(
         io,
     )?;
     Ok(match outcome {
-        PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
+        PriorityGroupOutcome::NotProductive => stuck(definition, pattern)?,
         PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
         PriorityGroupOutcome::Productive {
             mut branches,
@@ -396,7 +396,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return Ok(RewriteResult::Stuck(pattern.clone()));
+        return stuck(definition, pattern);
     }
     Ok(
         match first_productive_group(
@@ -409,7 +409,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
             assume_initial_defined,
             None,
         )? {
-            PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
+            PriorityGroupOutcome::NotProductive => stuck(definition, pattern)?,
             PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
             PriorityGroupOutcome::Productive {
                 branches,
@@ -836,7 +836,7 @@ pub(super) fn rewrite_step_any(
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return Ok(RewriteResult::Stuck(pattern.clone()));
+        return stuck(definition, pattern);
     }
 
     // Invariant: `remaining` narrows only the constraints of `pattern`, never its term, so the
@@ -1062,7 +1062,7 @@ pub(super) fn rewrite_step_any(
     }
 
     if applied.is_empty() && trivial.is_empty() {
-        return Ok(RewriteResult::Stuck(pattern.clone()));
+        return stuck(definition, pattern);
     }
 
     let remainder_result = if predicates_truth(&remaining.pattern().constraints) == Truth::False

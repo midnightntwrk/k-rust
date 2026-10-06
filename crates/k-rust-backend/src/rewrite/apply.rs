@@ -25,7 +25,9 @@
 //! `apply_rule_with_match`. Cost: one matching problem per attempt; on an indeterminate match up
 //! to eleven recovery strategies, each re-entering once per split with an empty or strictly
 //! shorter remainder (recursion depth <= |remainder| + 1, below the one re-entry with the rule
-//! renamed apart from the subject); up to three SMT calls per attempt.
+//! renamed apart from the subject); up to three SMT calls per attempt. An attempt that applies
+//! has the conditions it adds scanned once for an application above a result size bound
+//! (`refuse_carried_results_above_the_size_bound`), visiting only their unevaluated subterms.
 //! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`, `Counter::SmtQueries`;
 //! O(c) attempts per step for the c candidates the step hands over.
 
@@ -52,8 +54,8 @@ use crate::{
     simplify::{
         BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
         SimplificationError, SimplificationOptions, binds_element_variable_to_set_pattern,
-        decide_condition, simplify_in_execution_with_solver, simplify_predicates_with_solver,
-        simplify_with_solver,
+        decide_condition, refuse_results_above_the_size_bound, simplify_in_execution_with_solver,
+        simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::{Stop, Stoppable},
@@ -308,7 +310,7 @@ pub(super) fn apply_rule(
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
 ) -> Stoppable<RuleAttempt> {
-    apply_rule_with_match(
+    let attempt = apply_rule_with_match(
         definition,
         rule,
         pattern,
@@ -318,7 +320,48 @@ pub(super) fn apply_rule(
         assume_initial_defined,
         None,
         io,
-    )
+    )?;
+    refuse_carried_results_above_the_size_bound(definition, attempt)
+}
+
+/// An attempt whose conditions carry an application whose result is above a result size bound
+/// becomes the unsupported-hook failure that names it, so the step halts on its subject instead
+/// of branching on a value it did not compute (`simplify::refuse_results_above_the_size_bound`):
+/// the conditions each successor adds to its path (the match conditions, the `requires` the
+/// solver did not decide, the right-hand side's carried obligations and `ensures`), and the
+/// applicability, whose negation is the priority group's remainder. A condition the solver
+/// decided is in none of them. The successor's configuration may carry one; it is checked if
+/// the run would end on it (`rewrite::stuck`).
+fn refuse_carried_results_above_the_size_bound(
+    definition: &BackendDefinition,
+    attempt: RuleAttempt,
+) -> Stoppable<RuleAttempt> {
+    let RuleAttempt::Unified { groups } = &attempt else {
+        return Ok(attempt);
+    };
+    let conditions = groups.iter().flat_map(|group| {
+        group
+            .applied
+            .iter()
+            .flat_map(|application| {
+                [
+                    application.applied.rule_predicates.as_slice(),
+                    std::slice::from_ref(application.remainder.as_predicate()),
+                ]
+            })
+            .chain(
+                group
+                    .trivial
+                    .iter()
+                    .map(|trivial| std::slice::from_ref(trivial.remainder.as_predicate())),
+            )
+    });
+    for predicates in conditions {
+        if let Err(error) = refuse_results_above_the_size_bound(definition, None, predicates)? {
+            return Ok(RuleAttempt::Simplification(error));
+        }
+    }
+    Ok(attempt)
 }
 
 /// What every phase of a rule attempt reads and none of them changes.

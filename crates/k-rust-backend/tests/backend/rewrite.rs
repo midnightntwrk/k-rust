@@ -6817,6 +6817,179 @@ fn execution_interrupts_native_hooks_at_the_step_deadline() {
     ));
 }
 
+/// `f(X)` rewrites to `pos` if `X >Int 0` and to `nonpos` if `X <=Int 0`, and `go` rewrites to
+/// `f(1 <<Int 2^20)`, whose result is above the size bound: the backend leaves the application
+/// unevaluated. Its value is positive, so `f` of it has one successor, `pos`; a solver that
+/// cannot decide either condition (`<<Int` has no interpreted SMT encoding) would let both rules
+/// fire. A step whose conditions carry the application undecided halts on its subject with the
+/// unsupported-hook error instead. A state may carry one through steps that do not depend on
+/// its value (`g(X) => pos`), but a run does not end on one (`h` has no rule): that state halts
+/// with the error instead of being reported stuck.
+fn size_bound_branching_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol shl{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), hook{}("INT.shl")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt")]
+            hooked-symbol leInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.le")]
+            sort SortState{} []
+            symbol go{}() : SortState{} [constructor{}(), total{}()]
+            symbol f{}(SortInt{}) : SortState{} [constructor{}(), total{}()]
+            symbol pos{}() : SortState{} [constructor{}(), total{}()]
+            symbol nonpos{}() : SortState{} [constructor{}(), total{}()]
+            symbol g{}(SortInt{}) : SortState{} [constructor{}(), total{}()]
+            symbol h{}(SortInt{}) : SortState{} [constructor{}(), total{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(g{}(X:SortInt{}), \top{SortState{}}()),
+                pos{}()
+            ) [label{}("discard")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(go{}(), \top{SortState{}}()),
+                f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))
+            ) [label{}("go")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(
+                    f{}(X:SortInt{}),
+                    \equals{SortBool{}, SortState{}}(
+                        gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                pos{}()
+            ) [label{}("pos")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(
+                    f{}(X:SortInt{}),
+                    \equals{SortBool{}, SortState{}}(
+                        leInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                nonpos{}()
+            ) [label{}("nonpos")]
+            "#,
+    )
+}
+
+#[test]
+fn a_run_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
+    let definition = size_bound_branching_definition();
+    let undeciding = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Contingent),
+    };
+    let subject = |source: &str| Pattern {
+        term: internal_term(&definition, source),
+        constraints: Vec::new(),
+    };
+    let refused = |error: &SimplificationError| {
+        matches!(
+            error,
+            SimplificationError::UnsupportedHook {
+                hook,
+                reason: UnsupportedHookReason::ResultTooLarge { .. },
+                ..
+            } if hook == "INT.shl"
+        )
+    };
+    let too_large = r#"f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#;
+
+    // The state `go` rewrites to carries the application into both rules' conditions.
+    let execution = execute_with_solver(
+        &definition,
+        subject("go{}()"),
+        ExecutionOptions::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                pattern,
+                halt_reason: HaltReason::Simplification(error),
+                ..
+            }] if pattern.term == internal_term(&definition, too_large) && refused(error)
+        ),
+        "{execution:#?}"
+    );
+    // Both rules' conditions would carry it, undecided: the step halts instead of branching.
+    let carried = subject(too_large);
+    let result = rewrite_step_with_solver(
+        &definition,
+        &carried,
+        &mut FreshCounter::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(&result, RewriteResult::Simplification { pattern, error }
+            if pattern == &carried && refused(error)),
+        "{result:#?}"
+    );
+    // So an execution from it halts there, with no leaf for either branch.
+    let execution = execute_with_solver(
+        &definition,
+        carried,
+        ExecutionOptions::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::Simplification(error),
+                ..
+            }] if refused(error)
+        ),
+        "{execution:#?}"
+    );
+    // A step that discards the value goes ahead; a state that would end the run does not.
+    let execution = execute_with_solver(
+        &definition,
+        subject(r#"g{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#),
+        ExecutionOptions::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf { pattern, halt_reason: HaltReason::Stuck, .. }]
+                if pattern.term == internal_term(&definition, "pos{}()")
+        ),
+        "{execution:#?}"
+    );
+    let ending = subject(r#"h{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048576")))"#);
+    let result = rewrite_step_with_solver(
+        &definition,
+        &ending,
+        &mut FreshCounter::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(&result, RewriteResult::Simplification { pattern, error }
+            if pattern == &ending && refused(error)),
+        "{result:#?}"
+    );
+    // Within the bound the value is computed, and the conditions are decided without a solver.
+    let execution = execute_with_solver(
+        &definition,
+        subject(r#"f{}(shl{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1048575")))"#),
+        ExecutionOptions::default(),
+        &undeciding,
+    );
+    assert!(
+        matches!(
+            execution.leaves.as_slice(),
+            [ExecutionLeaf { pattern, halt_reason: HaltReason::Stuck, .. }]
+                if pattern.term == internal_term(&definition, "pos{}()")
+        ),
+        "{execution:#?}"
+    );
+}
+
 /// `spin(a) = spin(b)` and `spin(b) = spin(a)` are ground function equations that never reach a
 /// value and call no hook, so only the step deadline can end their simplification once the
 /// iteration budget does not. `go` exposes `spin(a)` to the simplifier after one rewrite step.

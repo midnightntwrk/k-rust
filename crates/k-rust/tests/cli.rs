@@ -3986,27 +3986,40 @@ fn krun_leaves_chr_of_a_surrogate_unevaluated() {
     );
 }
 
-/// `^Int` and `<<Int` results above the backend's result size bound are not computed, and a run
-/// that does not use them still ends with its value: such an application stays unevaluated with
-/// a warning wherever the simplifier reaches it, instead of halting the run. `i` hides the
-/// constants from the constant folder.
+/// `^Int` and `<<Int` results above the backend's result size bound are not computed. A run
+/// that does not use them still ends with its value (the application is left unevaluated with a
+/// warning wherever the simplifier reaches it, and a discarded one leaves no definedness
+/// condition), and so does one whose condition over them the solver decides, or one that
+/// carries the application through a step and then drops it. A run halts with the
+/// unsupported-hook error naming the bound instead of branching on a condition over one that
+/// the solver cannot decide (`<<Int` has no interpreted SMT encoding, so `shl` would otherwise
+/// end in both `pos` and the unreachable `nonpos`), or of ending in a configuration that holds
+/// one. `i` hides the constants from the constant folder.
 #[test]
-fn krun_leaves_results_above_the_size_bound_unevaluated() {
+fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
     const SOURCE: &str = r#"
 module BOUND
   imports INT
   imports BOOL
   imports K-EQUAL
   configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unused" | "branch" | "guard" | "used"
-  syntax KItem ::= r(K)
+  syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
+  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
   syntax Int ::= i(Int) [function, total]
   rule i(X) => X
   rule <k> unused => r(false andBool (2 ^Int i(1048576) >Int i(0))) </k>
+  rule <k> unusedshl => r(false andBool (1 <<Int i(1048576) >Int i(0))) </k>
   rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(1048576) #fi) </k>
   rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(1048576)) >Int i(0)
   rule <k> guard => r(4) </k> [owise]
+  rule <k> decided => r(1) </k> requires 2 ^Int i(1048577) >Int i(0)
+  rule <k> decided => r(4) </k> [owise]
+  rule <k> dropped => g(1 <<Int i(1048577)) </k>
+  rule <k> g(_) => r(9) </k>
   rule <k> used => r(2 ^Int 1048576) </k>
+  rule <k> shl => f(1 <<Int i(1048577)) </k>
+  rule <k> f(X) => r(pos) </k> requires X >Int 0
+  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
 endmodule
 "#;
     let (root, definition) = fixture();
@@ -4031,39 +4044,55 @@ endmodule
             .stdin(Stdio::null())
             .output()
             .unwrap();
-        assert!(output.status.success(), "{program}: {output:?}");
         (
+            output.status.success(),
             String::from_utf8(output.stdout).unwrap(),
             String::from_utf8(output.stderr).unwrap(),
         )
     };
-    let pow = r#"Lbl'UndsXor-'Int'Unds'{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("1048576"))"#;
     let warned = |stderr: &str, hook: &str| {
         stderr.contains(&format!("hook {hook} was left unevaluated"))
             && stderr.contains("needs more than 1048576 bits")
     };
+    let halted = |stderr: &str, hook: &str| {
+        stderr.contains(&format!(
+            "unsupported hook '{hook}' on constructor-like arguments"
+        )) && stderr.contains("needs more than 1048576 bits")
+    };
+    let item = |value: &str| {
+        format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+    };
 
-    let (stdout, stderr) = run("unused");
-    // The dropped `^Int` application is defined, so no definedness condition remains.
-    assert!(
-        stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#)
-            && !stdout.contains("\\ceil"),
-        "{stdout}"
-    );
-    assert!(warned(&stderr, "INT.pow"), "{stderr}");
-    let (stdout, _) = run("branch");
-    assert!(
-        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#),
-        "{stdout}"
-    );
-    let (stdout, _) = run("guard");
-    assert!(
-        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("4"))"#),
-        "{stdout}"
-    );
-    let (stdout, stderr) = run("used");
-    assert!(stdout.contains(pow), "{stdout}");
-    assert!(warned(&stderr, "INT.pow"), "{stderr}");
+    for (program, hook) in [("unused", "INT.pow"), ("unusedshl", "INT.shl")] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        // The dropped application is defined, so no definedness condition remains.
+        assert!(
+            stdout.contains(r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#)
+                && !stdout.contains("\\ceil"),
+            "{program}: {stdout}"
+        );
+        assert!(warned(&stderr, hook), "{program}: {stderr}");
+    }
+    for (program, value) in [
+        ("branch", "7"),
+        ("guard", "4"),
+        ("decided", "1"),
+        ("dropped", "9"),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(&item(value)), "{program}: {stdout}");
+    }
+    for (program, hook) in [("used", "INT.pow"), ("shl", "INT.shl")] {
+        let (success, stdout, stderr) = run(program);
+        assert!(!success, "{program}: {stdout}{stderr}");
+        assert!(halted(&stderr, hook), "{program}: {stderr}");
+        assert!(
+            !stdout.contains("\\or") && !stdout.contains("nonpos") && !stdout.contains("Lblpos"),
+            "{program}: {stdout}"
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 

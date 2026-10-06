@@ -55,7 +55,7 @@ use crate::{
     search::ResultModality,
     simplify::{
         ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
-        SimplificationOptions,
+        SimplificationOptions, refuse_results_above_the_size_bound,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     stop::{StopCause, Stoppable},
@@ -584,6 +584,30 @@ pub enum HaltReason {
     BreadthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
+}
+
+/// The result of a step on `pattern` that no rule rewrites: `Stuck`, except that a pattern
+/// carrying an application whose result is above a result size bound halts with the
+/// unsupported-hook error that names it (`simplify::refuse_results_above_the_size_bound`).
+///
+/// No rule's applicability depended on that value (a match or condition over it is refused when
+/// the rule is attempted), so the pattern is stuck whatever the value is; but a run that ends
+/// there would report a final configuration holding a value the backend did not compute, which
+/// reads as the semantics' answer. The error says instead that the backend could not finish it.
+pub(crate) fn stuck(definition: &BackendDefinition, pattern: &Pattern) -> Stoppable<RewriteResult> {
+    Ok(
+        match refuse_results_above_the_size_bound(
+            definition,
+            Some(&pattern.term),
+            &pattern.constraints,
+        )? {
+            Ok(()) => RewriteResult::Stuck(pattern.clone()),
+            Err(error) => RewriteResult::Simplification {
+                pattern: pattern.clone(),
+                error,
+            },
+        },
+    )
 }
 
 fn false_constraint(pattern: &Pattern) -> Predicate {

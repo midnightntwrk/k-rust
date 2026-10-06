@@ -93,7 +93,7 @@ The port is complete only when all of the following are demonstrated from the cu
   relevant K hooks are covered by differential tests.
 - Unsupported behavior is not silently reported as stuck or successful.
   A hook without an evaluator or applicable equations halts with a typed unsupported-hook error when every argument is constructor-like; symbolic applications remain unevaluated.
-  An application whose value the backend does not compute although no evaluator is missing (a value the definition does not determine, or a result above a size bound) stays unevaluated with an `UnsupportedHookUnevaluated` warning instead; see "Backend scope" in `compatibility.md`.
+  An application whose value the definition does not determine stays unevaluated with an `UnsupportedHookUnevaluated` warning instead; one whose result is above a size bound gets that warning in term simplification, and a step that would branch on it or end the run on it halts with the unsupported-hook error; see "Backend scope" in `compatibility.md`.
 - Release and CI checks prove that the default executable path has no runtime dependency on
   `kore-exec`, `kore-rpc`, or `kore-rpc-booster`.
 

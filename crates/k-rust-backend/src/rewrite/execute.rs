@@ -72,7 +72,7 @@ use super::{
     IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
     TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
     normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
-    rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
+    rewrite_step_with_optional_execution, stuck, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -307,7 +307,7 @@ impl<'a> Execution<'a> {
         // result halts the state, whose leaf takes the step's whole collection.
         let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
             ExecutionStateKind::Rewritable => self.step(&state),
-            ExecutionStateKind::Remaining(None) => Ok(RewriteResult::Stuck(state.pattern.clone())),
+            ExecutionStateKind::Remaining(None) => stuck(self.definition, &state.pattern),
             ExecutionStateKind::Remaining(Some(undecided)) => {
                 Ok(undecided.clone().into_result(state.pattern.clone()))
             }
