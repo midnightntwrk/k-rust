@@ -2247,6 +2247,141 @@ mod tests {
         );
     }
 
+    /// Every connective of an alias body is rebuilt with its sorts substituted, and every binder
+    /// under one is renamed exactly when the parameter occurs in its scope. Under each
+    /// connective, and on both sides of a binary one, `beside` holds a binder next to the
+    /// parameter, which keeps its name, and a binder over it, which is renamed because the
+    /// argument has its variable free. Both decisions read the layout at the positions the
+    /// connectives pass down, so a connective that passes a wrong position renames the first
+    /// binder or captures under the second.
+    #[test]
+    fn binders_under_every_connective_of_a_body_avoid_capture() {
+        let beside = r"\and{T}(\exists{T}(Y:T, Y:T), \exists{T}(Y:T, \and{T}(X:T, Y:T)))";
+        let body = [
+            r"\not{T}(B)",
+            r"\next{T}(B)",
+            r"\implies{T}(B, B)",
+            r"\iff{T}(B, B)",
+            r"\ceil{T, T}(B)",
+            r"\floor{T, T}(B)",
+            r"\in{T, T}(B, B)",
+            r"\mu{}(@Z:T, B)",
+            r"\forall{T}(Z:T, B)",
+            r"\iff{T}(\mu{}(@Y:T, @Y:T), \nu{}(@Y:T, \and{T}(X:T, @Y:T)))",
+            r"\iff{T}(\nu{}(@Y:T, \and{T}(X:T, @Y:T)), \mu{}(@Y:T, @Y:T))",
+            r"\bottom{T}()",
+            r#"str{}("text")"#,
+        ]
+        .join(", ")
+        .replace('B', beside);
+        let aliases = aliases_of(&format!(
+            "[] module MAIN sort S{{}} [] symbol str{{}}(S{{}}) : S{{}} []
+                alias every{{T}}(T) : T where every{{T}}(X:T) := \\or{{T}}({body}) []
+            endmodule []"
+        ));
+        let argument = r"\and{S{}}(Y:S{}, @Y:S{})";
+        let mut renamed = 0..;
+        let mut kept_and_renamed = || {
+            let name = format!("YAlias{}", renamed.next().unwrap());
+            format!(
+                r"\and{{S{{}}}}(\exists{{S{{}}}}(Y:S{{}}, Y:S{{}}), \exists{{S{{}}}}({name}:S{{}}, \and{{S{{}}}}({argument}, {name}:S{{}})))"
+            )
+        };
+        let expected = [
+            format!(r"\not{{S{{}}}}({})", kept_and_renamed()),
+            format!(r"\next{{S{{}}}}({})", kept_and_renamed()),
+            format!(
+                r"\implies{{S{{}}}}({}, {})",
+                kept_and_renamed(),
+                kept_and_renamed()
+            ),
+            format!(r"\iff{{S{{}}}}({}, {})", kept_and_renamed(), kept_and_renamed()),
+            format!(r"\ceil{{S{{}}, S{{}}}}({})", kept_and_renamed()),
+            format!(r"\floor{{S{{}}, S{{}}}}({})", kept_and_renamed()),
+            format!(
+                r"\in{{S{{}}, S{{}}}}({}, {})",
+                kept_and_renamed(),
+                kept_and_renamed()
+            ),
+            format!(r"\mu{{}}(@Z:S{{}}, {})", kept_and_renamed()),
+            format!(r"\forall{{S{{}}}}(Z:S{{}}, {})", kept_and_renamed()),
+            format!(
+                r"\iff{{S{{}}}}(\mu{{}}(@Y:S{{}}, @Y:S{{}}), \nu{{}}(@YAlias0:S{{}}, \and{{S{{}}}}({argument}, @YAlias0:S{{}})))"
+            ),
+            format!(
+                r"\iff{{S{{}}}}(\nu{{}}(@YAlias1:S{{}}, \and{{S{{}}}}({argument}, @YAlias1:S{{}})), \mu{{}}(@Y:S{{}}, @Y:S{{}}))"
+            ),
+            r"\bottom{S{}}()".to_owned(),
+            r#"str{}("text")"#.to_owned(),
+        ]
+        .join(", ");
+        let application = parse_pattern(&format!("every{{S{{}}}}({argument})")).unwrap();
+        let expected = parse_pattern(&format!(r"\or{{S{{}}}}({expected})")).unwrap();
+        assert_eq!(
+            expand(&application, &aliases).map(Cow::into_owned),
+            Ok(expected)
+        );
+    }
+
+    /// The free variables of an argument substituted under a binder are collected through every
+    /// connective, from both sides of a binary one, and without the variables its own binders
+    /// bind: the body's binder `Y` is renamed exactly when `Y` is free in the argument.
+    #[test]
+    fn free_variables_of_an_argument_are_collected_through_every_connective() {
+        let aliases = aliases_of(indoc! {r#"
+            []
+            module MAIN
+                sort S{} []
+                symbol a{}() : S{} []
+                alias bind{}(S{}) : S{}
+                    where bind{}(X:S{}) := \exists{S{}}(
+                        Y:S{},
+                        \and{S{}}(X:S{}, Y:S{})
+                    ) []
+            endmodule []
+        "#});
+        let free = [
+            r"\not{S{}}(Y:S{})",
+            r"\next{S{}}(Y:S{})",
+            r"\or{S{}}(a{}(), Y:S{})",
+            r"\or{S{}}(Y:S{}, a{}())",
+            r"\implies{S{}}(\top{S{}}(), Y:S{})",
+            r"\implies{S{}}(Y:S{}, \bottom{S{}}())",
+            r"\iff{S{}}(\top{S{}}(), Y:S{})",
+            r"\iff{S{}}(Y:S{}, \top{S{}}())",
+            r"\rewrites{S{}}(a{}(), Y:S{})",
+            r"\rewrites{S{}}(Y:S{}, a{}())",
+            r"\ceil{S{}, S{}}(Y:S{})",
+            r"\floor{S{}, S{}}(Y:S{})",
+            r"\equals{S{}, S{}}(a{}(), Y:S{})",
+            r"\equals{S{}, S{}}(Y:S{}, a{}())",
+            r"\in{S{}, S{}}(a{}(), Y:S{})",
+            r"\in{S{}, S{}}(Y:S{}, a{}())",
+            r"\mu{}(@Z:S{}, Y:S{})",
+            r"\nu{}(@Z:S{}, Y:S{})",
+            r"\forall{S{}}(Z:S{}, Y:S{})",
+        ];
+        let bound = [
+            r"\or{S{}}(\exists{S{}}(Y:S{}, Y:S{}), \forall{S{}}(Y:S{}, Y:S{}))",
+            r"\in{S{}, S{}}(\top{S{}}(), \exists{S{}}(Y:S{}, Y:S{}))",
+            r#"\or{S{}}(@Y:S{}, \mu{}(@Y:S{}, @Y:S{}), \nu{}(@Z:S{}, @Z:S{}), \dv{S{}}("Y"))"#,
+        ];
+        for (arguments, binder) in [(&free[..], "YAlias0"), (&bound[..], "Y")] {
+            for argument in arguments {
+                let application = parse_pattern(&format!("bind{{}}({argument})")).unwrap();
+                let expected = parse_pattern(&format!(
+                    r"\exists{{S{{}}}}({binder}:S{{}}, \and{{S{{}}}}({argument}, {binder}:S{{}}))"
+                ))
+                .unwrap();
+                assert_eq!(
+                    expand(&application, &aliases).map(Cow::into_owned),
+                    Ok(expected),
+                    "{argument}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn expands_aliases_through_associative_wrappers() {
         let definition = parse_definition(indoc! {r#"
