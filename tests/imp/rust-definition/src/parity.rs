@@ -829,12 +829,12 @@ fn normalized_emitted_k(source: &str) -> String {
             // The explicit configuration route can render its named
             // `tail @ ..` frame only on the result side when the subject's
             // frame is implicit in the cell pattern. Keep this exact: the
-            // generated K variable is the hex encoding of `tail`, at sort K.
+            // generated K variable is the readable spelling of `tail`, at sort K.
             if let Some(body) = line
                 .strip_prefix("    <k> ")
                 .and_then(|line| line.strip_suffix(" </k>"))
                 && let Some((before, after)) = body.split_once(" => ")
-                && let Some(after) = after.strip_suffix(" ~> V7461696C:K")
+                && let Some(after) = after.strip_suffix(" ~> Tail:K")
             {
                 return format!("    <k> {before} => {after} ... </k>");
             }
@@ -844,7 +844,9 @@ fn normalized_emitted_k(source: &str) -> String {
                 .and_then(|line| line.strip_suffix(" </env>"))
                 && !body.contains(" => ")
                 && let Some((prefix, frame)) = body.rsplit_once(' ')
-                && frame.starts_with('V')
+                && frame.starts_with(|character: char| {
+                    character.is_ascii_uppercase() || character == '_'
+                })
                 && frame.ends_with(":Map")
             {
                 return format!("    <env> {prefix} ... </env>");

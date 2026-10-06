@@ -4,8 +4,8 @@ use krs_ir::{
     ProductionGroupId, SemanticId, SemanticIdKind, SourceMapKey,
 };
 use krs_ir_levels::{
-    DefinitionClaimBinder, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands,
-    ProductionSentence, RuleSentence, k_surface::variable_name,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands, ProductionSentence,
+    k_surface::SentenceVariables,
 };
 
 use super::{EmitContext, EmitError, quoted};
@@ -15,6 +15,7 @@ pub(super) fn render_context_term(
     here: &SemanticId,
     here_origin: &krs_ir::NodeOrigin,
     context: &EmitContext<'_>,
+    names: &SentenceVariables,
 ) -> Result<Rendered, EmitError> {
     if matches!(term.kind(), DefinitionTermKind::Variable { variable } if variable == here) {
         let mut output = Rendered::default();
@@ -29,14 +30,20 @@ pub(super) fn render_context_term(
             if index != 0 {
                 output.push(" ~> ");
             }
-            output.append(render_context_term(item, here, here_origin, context)?);
+            output.append(render_context_term(
+                item,
+                here,
+                here_origin,
+                context,
+                names,
+            )?);
         }
         if items.is_empty() {
             output.push(".K");
         }
         return Ok(output.finish(term.origin().key(), 0));
     }
-    render_term(term, context, false)
+    render_term(term, context, names, false)
 }
 
 #[derive(Default)]
@@ -70,21 +77,10 @@ impl Rendered {
 pub(super) fn render_term(
     term: &DefinitionTerm,
     context: &EmitContext<'_>,
+    names: &SentenceVariables,
     root_rewrite: bool,
 ) -> Result<Rendered, EmitError> {
-    render_term_with_binders(term, context, root_rewrite, &[])
-}
-
-pub(super) fn render_rule_term(
-    term: &DefinitionTerm,
-    sentence: &RuleSentence,
-    context: &EmitContext<'_>,
-    root_rewrite: bool,
-) -> Result<Rendered, EmitError> {
-    let existentials = sentence
-        .claim()
-        .map_or(&[][..], |claim| claim.existentials());
-    render_term_with_binders(term, context, root_rewrite, existentials)
+    render_term_with_binders(term, context, root_rewrite, names)
 }
 
 pub(super) fn render_rewrite(
@@ -92,20 +88,15 @@ pub(super) fn render_rewrite(
     to: &DefinitionTerm,
     context: &EmitContext<'_>,
     root_rewrite: bool,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
 ) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
     if !root_rewrite {
         output.push("(");
     }
-    output.append(render_term_with_binders(
-        from,
-        context,
-        false,
-        existentials,
-    )?);
+    output.append(render_term_with_binders(from, context, false, names)?);
     output.push(" => ");
-    output.append(render_term_with_binders(to, context, false, existentials)?);
+    output.append(render_term_with_binders(to, context, false, names)?);
     if !root_rewrite {
         output.push(")");
     }
@@ -120,7 +111,7 @@ fn render_term_with_binders(
     term: &DefinitionTerm,
     context: &EmitContext<'_>,
     root_rewrite: bool,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
 ) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
     let start = 0;
@@ -128,17 +119,13 @@ fn render_term_with_binders(
         DefinitionTermKind::Variable { variable } => {
             if variable.kind() == SemanticIdKind::Wildcard {
                 output.push("_");
-            } else if let SemanticIdKind::Anonymous { name } = variable.kind() {
-                output.push(name);
-                output.push(":");
-                output.push(context.sort_name_ref(term.sort())?);
-            } else if existentials.iter().any(|binder| binder.id() == variable) {
-                output.push("?");
-                output.push(&variable.as_str().to_ascii_uppercase());
-                output.push(":");
-                output.push(context.sort_name_ref(term.sort())?);
             } else {
-                output.push(&variable_name(variable));
+                output.push(names.name(variable).ok_or_else(|| {
+                    EmitError::InvalidReference(format!(
+                        "variable {:?} is not named in its sentence",
+                        variable.as_str()
+                    ))
+                })?);
                 output.push(":");
                 output.push(context.sort_name_ref(term.sort())?);
             }
@@ -148,13 +135,7 @@ fn render_term_with_binders(
             arguments,
         } => match application {
             ApplicationRef::Builtin(operation) => {
-                render_builtin_application(
-                    *operation,
-                    arguments,
-                    context,
-                    existentials,
-                    &mut output,
-                )?;
+                render_builtin_application(*operation, arguments, context, names, &mut output)?;
             }
             ApplicationRef::Declared(symbol) => {
                 let production = context.production(symbol)?;
@@ -177,12 +158,8 @@ fn render_term_with_binders(
                             if parenthesize {
                                 output.push("(");
                             }
-                            output.append(render_term_with_binders(
-                                argument,
-                                context,
-                                false,
-                                existentials,
-                            )?);
+                            output
+                                .append(render_term_with_binders(argument, context, false, names)?);
                             if parenthesize {
                                 output.push(")");
                             }
@@ -222,24 +199,19 @@ fn render_term_with_binders(
                     if index != 0 {
                         output.push(" ~> ");
                     }
-                    output.append(render_term_with_binders(
-                        item,
-                        context,
-                        false,
-                        existentials,
-                    )?);
+                    output.append(render_term_with_binders(item, context, false, names)?);
                 }
             }
         }
         DefinitionTermKind::Map(operands) => {
-            render_map(term.sort(), operands, context, existentials, &mut output)?;
+            render_map(term.sort(), operands, context, names, &mut output)?;
         }
         DefinitionTermKind::List(operands) => render_collection(
             term.sort(),
             operands.operation().spec(),
             operands.operands(),
             context,
-            existentials,
+            names,
             &mut output,
         )?,
         DefinitionTermKind::Set(operands) => render_collection(
@@ -247,7 +219,7 @@ fn render_term_with_binders(
             operands.operation().spec(),
             operands.operands(),
             context,
-            existentials,
+            names,
             &mut output,
         )?,
         DefinitionTermKind::Cell { cell, children } => {
@@ -262,12 +234,7 @@ fn render_term_with_binders(
                 if index != 0 {
                     output.push(" ");
                 }
-                output.append(render_term_with_binders(
-                    child,
-                    context,
-                    false,
-                    existentials,
-                )?);
+                output.append(render_term_with_binders(child, context, false, names)?);
             }
             if !children.is_empty() {
                 output.push(" ");
@@ -277,13 +244,7 @@ fn render_term_with_binders(
             output.push(">");
         }
         DefinitionTermKind::Rewrite { from, to } => {
-            output.append(render_rewrite(
-                from,
-                to,
-                context,
-                root_rewrite,
-                existentials,
-            )?);
+            output.append(render_rewrite(from, to, context, root_rewrite, names)?);
         }
     }
     Ok(output.finish(term.origin().key(), start))
@@ -333,7 +294,7 @@ fn render_builtin_application(
     operation: BuiltinOperation,
     arguments: &[DefinitionTerm],
     context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     let spec = operation.spec();
@@ -347,7 +308,7 @@ fn render_builtin_application(
         BuiltinOperationNotation::Mixfix { pieces } => {
             output.push(pieces[0]);
             for (argument, piece) in arguments.iter().zip(&pieces[1..]) {
-                output.append(render_builtin_argument(argument, context, existentials)?);
+                output.append(render_builtin_argument(argument, context, names)?);
                 output.push(piece);
             }
         }
@@ -358,12 +319,7 @@ fn render_builtin_application(
                 if index > 0 {
                     output.push(", ");
                 }
-                output.append(render_term_with_binders(
-                    argument,
-                    context,
-                    false,
-                    existentials,
-                )?);
+                output.append(render_term_with_binders(argument, context, false, names)?);
             }
             output.push(")");
         }
@@ -374,7 +330,7 @@ fn render_builtin_application(
 fn render_builtin_argument(
     argument: &DefinitionTerm,
     context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
 ) -> Result<Rendered, EmitError> {
     let parenthesize = matches!(
         argument.kind(),
@@ -387,12 +343,7 @@ fn render_builtin_argument(
     if parenthesize {
         output.push("(");
     }
-    output.append(render_term_with_binders(
-        argument,
-        context,
-        false,
-        existentials,
-    )?);
+    output.append(render_term_with_binders(argument, context, false, names)?);
     if parenthesize {
         output.push(")");
     }
@@ -403,7 +354,7 @@ fn render_map(
     result_sort: &DefinitionSortRef,
     operands: &MapOperands<DefinitionTerm>,
     context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     let MapOperands::Items(entries) = operands else {
@@ -412,7 +363,7 @@ fn render_map(
             operands.operation().spec(),
             operands.operands(),
             context,
-            existentials,
+            names,
             output,
         );
     };
@@ -425,7 +376,7 @@ fn render_map(
             MapOperation::Item.spec(),
             [&entry.key, &entry.value].into_iter(),
             context,
-            existentials,
+            names,
             output,
         )?;
     }
@@ -437,7 +388,7 @@ fn render_collection<'a>(
     spec: &CollectionOperationSpec,
     operands: impl Iterator<Item = &'a DefinitionTerm>,
     context: &EmitContext<'_>,
-    existentials: &[DefinitionClaimBinder],
+    names: &SentenceVariables,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     if spec.is_projected() {
@@ -447,12 +398,7 @@ fn render_collection<'a>(
         CollectionNotation::Mixfix { pieces } => {
             output.push(pieces[0]);
             for (operand, piece) in operands.zip(&pieces[1..]) {
-                output.append(render_term_with_binders(
-                    operand,
-                    context,
-                    false,
-                    existentials,
-                )?);
+                output.append(render_term_with_binders(operand, context, false, names)?);
                 output.push(piece);
             }
         }
@@ -463,12 +409,7 @@ fn render_collection<'a>(
                 if index > 0 {
                     output.push(", ");
                 }
-                output.append(render_term_with_binders(
-                    operand,
-                    context,
-                    false,
-                    existentials,
-                )?);
+                output.append(render_term_with_binders(operand, context, false, names)?);
             }
             output.push(")");
         }

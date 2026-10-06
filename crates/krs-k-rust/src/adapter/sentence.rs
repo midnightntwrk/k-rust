@@ -16,13 +16,11 @@ use krs_ir_levels::{
     ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
     DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
+    k_surface::generated_variable_name,
 };
 use serde_json::json;
 
-use super::{
-    Adapter, AdapterError, SentenceNodeRole, attributes_for_origin,
-    term::{TermContext, native_variable},
-};
+use super::{Adapter, AdapterError, SentenceNodeRole, attributes_for_origin, term::TermContext};
 
 impl Adapter<'_> {
     pub(super) fn sentence(
@@ -318,6 +316,7 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
+        self.variable_names = self.naming.configuration(configuration);
         self.initializer_variables.clear();
         for variable in configuration.variables() {
             self.initializer_variables
@@ -432,7 +431,6 @@ impl Adapter<'_> {
                 sentence_index,
                 Vec::new(),
                 TermContext::ConfigurationInitializer,
-                None,
             )?,
             (
                 FixedCellContent::Children { children },
@@ -467,6 +465,7 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
+        self.variable_names = self.naming.context_alias(sentence);
         self.map_sentence_origin(
             sentence.name_origin(),
             module,
@@ -509,6 +508,7 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
+        self.variable_names = self.naming.rule(sentence);
         let body = match sentence.relational_body() {
             RuleBodyRef::Term(term) => {
                 self.map_sentence_origin(
@@ -524,7 +524,6 @@ impl Adapter<'_> {
                     sentence_index,
                     Vec::new(),
                     TermContext::Normal,
-                    Some(sentence),
                 )?
             }
             RuleBodyRef::Configuration { body: rewrite, .. } => {
@@ -546,7 +545,6 @@ impl Adapter<'_> {
                     sentence_index,
                     Vec::new(),
                     TermContext::Normal,
-                    Some(sentence),
                 )
             },
         )?;
@@ -568,7 +566,6 @@ impl Adapter<'_> {
                         sentence_index,
                         Vec::new(),
                         TermContext::Normal,
-                        Some(sentence),
                     )
                 },
             )?;
@@ -688,7 +685,6 @@ impl Adapter<'_> {
                     sentence_index,
                     vec![index],
                     TermContext::Normal,
-                    Some(sentence),
                 )?;
                 let content = match clause.after() {
                     CellPost::Preserve => before,
@@ -700,7 +696,6 @@ impl Adapter<'_> {
                             sentence_index,
                             vec![index, 1],
                             TermContext::Normal,
-                            Some(sentence),
                         )?),
                     },
                 };
@@ -742,14 +737,8 @@ impl Adapter<'_> {
                         SentenceNodeRole::ContextAliasFrame(index),
                     );
                 }
-                let cell_content = self.term(
-                    cell.pattern(),
-                    module,
-                    sentence_index,
-                    vec![index],
-                    context,
-                    None,
-                )?;
+                let cell_content =
+                    self.term(cell.pattern(), module, sentence_index, vec![index], context)?;
                 self.framed_cell(cell.cell(), cell_content, cell.frame(), cell.origin())
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
@@ -766,39 +755,37 @@ impl Adapter<'_> {
         let name = self.cell_name(cell, origin)?;
         let (content, open_right) = match frame {
             CellContentFrame::Exact => (content, false),
-            CellContentFrame::KSequenceTail { binding, .. } => {
-                binding.as_ref().map_or((content.clone(), true), |binding| {
-                    (
-                        NativeTerm::sequence([
+            CellContentFrame::KSequenceTail { binding, .. } => match binding {
+                None => (content, true),
+                Some(binding) => (
+                    NativeTerm::sequence([
+                        content,
+                        self.native_variable(
+                            binding,
+                            NativeSort::new(BuiltinSort::KSequence.k_name()),
+                            origin,
+                        )?,
+                    ]),
+                    false,
+                ),
+            },
+            CellContentFrame::MapRemainder { binding, .. } => match binding {
+                None => (content, true),
+                Some(binding) => (
+                    NativeTerm::apply(
+                        MapOperation::CONCATENATION.k_label,
+                        vec![
                             content,
-                            native_variable(
+                            self.native_variable(
                                 binding,
-                                Some(NativeSort::new(BuiltinSort::KSequence.k_name())),
-                                false,
-                            ),
-                        ]),
-                        false,
-                    )
-                })
-            }
-            CellContentFrame::MapRemainder { binding, .. } => {
-                binding.as_ref().map_or((content.clone(), true), |binding| {
-                    (
-                        NativeTerm::apply(
-                            MapOperation::CONCATENATION.k_label,
-                            vec![
-                                content,
-                                native_variable(
-                                    binding,
-                                    Some(NativeSort::new(BuiltinSort::Map.k_name())),
-                                    false,
-                                ),
-                            ],
-                        ),
-                        false,
-                    )
-                })
-            }
+                                NativeSort::new(BuiltinSort::Map.k_name()),
+                                origin,
+                            )?,
+                        ],
+                    ),
+                    false,
+                ),
+            },
         };
         Ok(incomplete_cell(name, content, open_right))
     }
@@ -843,15 +830,17 @@ fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
 
 pub(super) fn native_claim_counter(sentence_index: usize) -> NativeTerm {
     let sort = Some(NativeSort::new(BuiltinSort::Int.k_name()));
+    // The generated namespace keeps the counter apart from every binder of the claim.
+    let name = generated_variable_name(&format!("counter{sentence_index}"));
     incomplete_cell(
         "generatedCounter",
         NativeTerm::Rewrite {
             left: Box::new(NativeTerm::Variable {
-                name: format!("_KrsCounter{sentence_index}"),
+                name: format!("_{name}"),
                 sort: sort.clone(),
             }),
             right: Box::new(NativeTerm::Variable {
-                name: format!("?KrsCounter{sentence_index}"),
+                name: format!("?{name}"),
                 sort,
             }),
         },

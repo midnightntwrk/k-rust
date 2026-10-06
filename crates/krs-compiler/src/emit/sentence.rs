@@ -10,12 +10,12 @@ use krs_ir::{
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, LabelIdentity, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
-    k_surface::variable_name,
+    k_surface::SentenceVariables,
 };
 
 use super::{
     EmitContext, EmitError, Writer, quoted,
-    term::{render_context_term, render_rewrite, render_rule_term, render_term},
+    term::{render_context_term, render_rewrite, render_term},
 };
 
 pub(super) fn emit_sentence(
@@ -291,11 +291,13 @@ fn emit_fixed_configuration(
 ) -> Result<(), EmitError> {
     writer.push("configuration");
     writer.push("\n");
+    let names = context.naming.configuration(configuration);
     match configuration.root() {
         ConfigurationRoot::GeneratedTop => emit_fixed_cell_forest(
             configuration.cells(),
             configuration.initializer(),
             configuration.variables(),
+            &names,
             4,
             context,
             writer,
@@ -309,6 +311,7 @@ fn emit_fixed_configuration(
                 configuration.cells(),
                 configuration.initializer(),
                 configuration.variables(),
+                &names,
                 6,
                 context,
                 writer,
@@ -332,6 +335,7 @@ fn emit_fixed_cell_forest(
     cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
     variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    names: &SentenceVariables,
     indent: usize,
     context: &EmitContext<'_>,
     writer: &mut Writer,
@@ -349,7 +353,15 @@ fn emit_fixed_cell_forest(
                     cell.id().as_str()
                 ))
             })?;
-        emit_fixed_cell(cell, initialized_cell, variables, indent, context, writer)?;
+        emit_fixed_cell(
+            cell,
+            initialized_cell,
+            variables,
+            names,
+            indent,
+            context,
+            writer,
+        )?;
     }
     Ok(())
 }
@@ -358,6 +370,7 @@ fn emit_fixed_cell(
     cell: &FixedCell<DefinitionSortRef, SymbolId>,
     initializer_cell: &FixedInitializerCell<SymbolId, DefinitionTerm>,
     variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    names: &SentenceVariables,
     indent: usize,
     context: &EmitContext<'_>,
     writer: &mut Writer,
@@ -392,7 +405,7 @@ fn emit_fixed_cell(
     match (cell.content(), initializer_cell.content()) {
         (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => {
             writer.push(" ");
-            emit_initializer_term(term, variables, context, writer)?;
+            emit_initializer_term(term, variables, names, context, writer)?;
             writer.push(" </");
             writer.push(cell.name());
             writer.push(">");
@@ -408,6 +421,7 @@ fn emit_fixed_cell(
                 children,
                 initialized_children,
                 variables,
+                names,
                 indent + 2,
                 context,
                 writer,
@@ -433,6 +447,7 @@ fn emit_fixed_cell(
 fn emit_initializer_term(
     term: &DefinitionTerm,
     variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
@@ -454,7 +469,7 @@ fn emit_initializer_term(
             writer.record(sequence.origin().key(), start, writer.source.len())?;
         }
     } else {
-        writer.append_rendered(render_term(term, context, false)?)?;
+        writer.append_rendered(render_term(term, context, names, false)?)?;
     }
     Ok(())
 }
@@ -465,6 +480,7 @@ fn emit_rule(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let sentence_start = writer.source.len();
+    let names = context.naming.rule(sentence);
     match sentence.relational_body() {
         RuleBodyRef::Configuration { body, .. } => {
             if sentence.kind() == SentenceKind::Claim {
@@ -489,7 +505,7 @@ fn emit_rule(
             for clause in body.clauses() {
                 let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
                     writer.push("\n");
-                    emit_cell_clause(clause, sentence, context, 4, writer)?;
+                    emit_cell_clause(clause, &names, context, 4, writer)?;
                     continue;
                 };
                 if !emitted_repeated.insert(ancestor.clone()) {
@@ -502,28 +518,25 @@ fn emit_rule(
                     context.repeated_ancestor(candidate.cell()) == Some(ancestor)
                 }) {
                     writer.push("\n");
-                    emit_cell_clause(nested, sentence, context, 8, writer)?;
+                    emit_cell_clause(nested, &names, context, 8, writer)?;
                 }
                 writer.push("\n        ...\n    </");
                 writer.push(context.cell_name(ancestor)?);
                 writer.push(">");
             }
-            emit_requires(sentence, context, writer)?;
-            emit_ensures(sentence, context, writer)?;
+            emit_requires(sentence, &names, context, writer)?;
+            emit_ensures(sentence, &names, context, writer)?;
             emit_rule_attributes(sentence, writer)?;
-            record_claim_binders(sentence, context, sentence_start, writer)?;
+            record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
         RuleBodyRef::Term(body) => {
             writer.push("rule ");
-            let existentials = sentence
-                .claim()
-                .map_or(&[][..], |claim| claim.existentials());
             writer.append_rendered(
-                render_rewrite(body.from(), body.to(), context, true, existentials)?
+                render_rewrite(body.from(), body.to(), context, true, &names)?
                     .finish(body.origin().key(), 0),
             )?;
-            emit_requires(sentence, context, writer)?;
+            emit_requires(sentence, &names, context, writer)?;
             emit_term_rule_attributes(sentence, writer)?;
             Ok(())
         }
@@ -563,6 +576,7 @@ fn emit_term_rule_attributes(
 
 fn record_claim_binders(
     sentence: &RuleSentence,
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     sentence_start: usize,
     writer: &mut Writer,
@@ -570,27 +584,23 @@ fn record_claim_binders(
     let Some(claim) = sentence.claim() else {
         return Ok(());
     };
-    for (binder, existential) in claim
-        .universals()
-        .iter()
-        .map(|binder| (binder, false))
-        .chain(claim.existentials().iter().map(|binder| (binder, true)))
-    {
-        let name = if existential {
-            format!("?{}", binder.id().as_str().to_ascii_uppercase())
-        } else {
-            variable_name(binder.id())
-        };
+    for binder in claim.universals().iter().chain(claim.existentials()) {
+        let name = names.name(binder.id()).ok_or_else(|| {
+            EmitError::InvalidReference(format!(
+                "claim binder {:?} is not named in its sentence",
+                binder.id().as_str()
+            ))
+        })?;
         let rendered = format!("{name}:{}", context.sort_name_ref(binder.sort())?);
-        let relative = writer.source[sentence_start..]
-            .find(&rendered)
-            .ok_or_else(|| {
-                EmitError::InvalidReference(format!(
-                    "claim binder {:?} has no rendered occurrence",
-                    binder.id().as_str()
-                ))
-            })?;
-        let start = sentence_start + relative;
+        let start = sentence_start
+            + first_variable_occurrence(&writer.source[sentence_start..], &rendered).ok_or_else(
+                || {
+                    EmitError::InvalidReference(format!(
+                        "claim binder {:?} has no rendered occurrence",
+                        binder.id().as_str()
+                    ))
+                },
+            )?;
         let end = start + rendered.len();
         for origin in [binder.origin(), binder.name_origin(), binder.sort_origin()] {
             writer.record(origin.key(), start, end)?;
@@ -599,8 +609,22 @@ fn record_claim_binders(
     Ok(())
 }
 
+/// Finds `rendered` where it begins a whole variable, not inside a longer one.
+fn first_variable_occurrence(source: &str, rendered: &str) -> Option<usize> {
+    source
+        .match_indices(rendered)
+        .map(|(index, _)| index)
+        .find(|index| {
+            !source[..*index].ends_with(|character: char| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '_' | '\'' | '?' | '!' | '@')
+            })
+        })
+}
+
 fn emit_ensures(
     sentence: &RuleSentence,
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
@@ -609,7 +633,7 @@ fn emit_ensures(
     };
     writer.push("\n    ensures ");
     let start = writer.source.len();
-    writer.append_rendered(render_rule_term(ensures.term(), sentence, context, false)?)?;
+    writer.append_rendered(render_term(ensures.term(), context, names, false)?)?;
     writer.record(ensures.origin().key(), start, writer.source.len())?;
     Ok(())
 }
@@ -678,18 +702,14 @@ fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<
 
 fn emit_requires(
     sentence: &RuleSentence,
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     if let Some(condition) = sentence.requires() {
         writer.push("\n    requires ");
         let start = writer.source.len();
-        writer.append_rendered(render_rule_term(
-            condition.term(),
-            sentence,
-            context,
-            false,
-        )?)?;
+        writer.append_rendered(render_term(condition.term(), context, names, false)?)?;
         writer.record(condition.origin().key(), start, writer.source.len())?;
     }
     Ok(())
@@ -697,7 +717,7 @@ fn emit_requires(
 
 fn emit_cell_clause(
     clause: &krs_ir::FixedCellClause<SymbolId, DefinitionTerm>,
-    sentence: &RuleSentence,
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     indent: usize,
     writer: &mut Writer,
@@ -708,9 +728,9 @@ fn emit_cell_clause(
     writer.push("<");
     writer.push(name);
     writer.push("> ");
-    writer.append_rendered(render_rule_term(clause.before(), sentence, context, false)?)?;
+    writer.append_rendered(render_term(clause.before(), context, names, false)?)?;
     match clause.after() {
-        CellPost::Preserve => emit_single_frame(clause.frame(), writer)?,
+        CellPost::Preserve => emit_single_frame(clause.frame(), names, writer)?,
         CellPost::Replace { term } => {
             match clause.frame() {
                 CellContentFrame::KSequenceTail {
@@ -718,26 +738,28 @@ fn emit_cell_clause(
                     ..
                 } => emit_named_frame_suffix(
                     writer,
+                    names,
                     binding,
                     BuiltinSort::KSequence.k_name(),
                     " ~> ",
-                ),
+                )?,
                 CellContentFrame::MapRemainder {
                     binding: Some(binding),
                     ..
                 } => emit_named_frame_suffix(
                     writer,
+                    names,
                     binding,
                     BuiltinSort::Map.k_name(),
                     MapOperation::CONCATENATION.separator,
-                ),
+                )?,
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
                 | CellContentFrame::MapRemainder { binding: None, .. } => {}
             }
             writer.push(" => ");
-            writer.append_rendered(render_rule_term(term, sentence, context, false)?)?;
-            emit_single_frame(clause.frame(), writer)?;
+            writer.append_rendered(render_term(term, context, names, false)?)?;
+            emit_single_frame(clause.frame(), names, writer)?;
         }
     }
     writer.push(" </");
@@ -747,13 +769,23 @@ fn emit_cell_clause(
     Ok(())
 }
 
-fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<(), EmitError> {
+fn emit_single_frame(
+    frame: &CellContentFrame,
+    names: &SentenceVariables,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
     match frame {
         CellContentFrame::Exact => {}
         CellContentFrame::KSequenceTail { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, BuiltinSort::KSequence.k_name(), " ~> ");
+                emit_named_frame_suffix(
+                    writer,
+                    names,
+                    binding,
+                    BuiltinSort::KSequence.k_name(),
+                    " ~> ",
+                )?;
             } else {
                 writer.push(" ...");
             }
@@ -764,10 +796,11 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
             if let Some(binding) = binding {
                 emit_named_frame_suffix(
                     writer,
+                    names,
                     binding,
                     BuiltinSort::Map.k_name(),
                     MapOperation::CONCATENATION.separator,
-                );
+                )?;
             } else {
                 writer.push(" ...");
             }
@@ -777,11 +810,24 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
     Ok(())
 }
 
-fn emit_named_frame_suffix(writer: &mut Writer, binding: &SemanticId, sort: &str, separator: &str) {
+fn emit_named_frame_suffix(
+    writer: &mut Writer,
+    names: &SentenceVariables,
+    binding: &SemanticId,
+    sort: &str,
+    separator: &str,
+) -> Result<(), EmitError> {
+    let name = names.name(binding).ok_or_else(|| {
+        EmitError::InvalidReference(format!(
+            "frame binding {:?} is not named in its sentence",
+            binding.as_str()
+        ))
+    })?;
     writer.push(separator);
-    writer.push(&variable_name(binding));
+    writer.push(name);
     writer.push(":");
     writer.push(sort);
+    Ok(())
 }
 
 fn emit_context_alias(
@@ -798,9 +844,10 @@ fn emit_context_alias(
         writer.source.len(),
     )?;
     writer.push("]:");
+    let names = context.naming.context_alias(sentence);
     for cell in sentence.body().cells() {
         writer.push("\n");
-        emit_context_alias_cell(cell, sentence, context, writer)?;
+        emit_context_alias_cell(cell, sentence, &names, context, writer)?;
     }
     Ok(())
 }
@@ -808,6 +855,7 @@ fn emit_context_alias(
 fn emit_context_alias_cell(
     cell: &FixedCellPattern<SymbolId, DefinitionTerm>,
     sentence: &ContextAliasSentence,
+    names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
@@ -821,33 +869,9 @@ fn emit_context_alias_cell(
         sentence.here(),
         sentence.here_origin(),
         context,
+        names,
     )?)?;
-    match cell.frame() {
-        CellContentFrame::Exact => {}
-        CellContentFrame::KSequenceTail { origin, binding } => {
-            let frame_start = writer.source.len();
-            if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, BuiltinSort::KSequence.k_name(), " ~> ");
-            } else {
-                writer.push(" ...");
-            }
-            writer.record(origin.key(), frame_start, writer.source.len())?;
-        }
-        CellContentFrame::MapRemainder { origin, binding } => {
-            let frame_start = writer.source.len();
-            if let Some(binding) = binding {
-                emit_named_frame_suffix(
-                    writer,
-                    binding,
-                    BuiltinSort::Map.k_name(),
-                    MapOperation::CONCATENATION.separator,
-                );
-            } else {
-                writer.push(" ...");
-            }
-            writer.record(origin.key(), frame_start, writer.source.len())?;
-        }
-    }
+    emit_single_frame(cell.frame(), names, writer)?;
     writer.push(" </");
     writer.push(name);
     writer.push(">");

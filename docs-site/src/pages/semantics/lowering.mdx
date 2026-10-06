@@ -52,7 +52,7 @@ After semantic and Definition IR lowering, K emission produces the backend-facin
 
 `int::add` did not execute as Rust along the way.
 It remained the symbolic builtin application `int_add`, which the emitter spells as `+Int`.
-The variable names in emitted K are encoded deterministically; `sources.json` carries their authored ranges back to the readable rule.
+Each variable in emitted K takes its authored binder name in K's capitalized form (`lhs` becomes `Lhs`), made unique within its sentence; the native route spells it identically, and `sources.json` carries its authored range back to the readable rule.
 
 `tests/tour-imp/verify.py` regenerates all four views from one source, checks deterministic expansion and emission, and fails if any published view is stale.
 

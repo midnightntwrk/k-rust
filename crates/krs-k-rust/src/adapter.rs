@@ -17,7 +17,9 @@ use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{NodeOrigin, OriginFrame, ProductionGroupId, SemanticId, SourceMapKey, StableItemId};
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId,
-    k_surface::{DefinitionIndex, ImportPolicy, builtin_imports},
+    k_surface::{
+        DefinitionIndex, ImportPolicy, SentenceVariables, VariableNaming, builtin_imports,
+    },
 };
 use serde_json::json;
 
@@ -228,6 +230,9 @@ struct Adapter<'a> {
     index: DefinitionIndex<'a>,
     initializer_variables: BTreeMap<SemanticId, String>,
     context_here: Option<SemanticId>,
+    naming: VariableNaming,
+    /// K spellings of the variables of the sentence being adapted.
+    variable_names: SentenceVariables,
     origins: Vec<OriginMapping>,
     keep_claims: bool,
     omitted_claims: usize,
@@ -239,6 +244,8 @@ impl<'a> Adapter<'a> {
             index: DefinitionIndex::new(ir),
             initializer_variables: BTreeMap::new(),
             context_here: None,
+            naming: VariableNaming::new(ir),
+            variable_names: SentenceVariables::default(),
             origins: Vec::new(),
             keep_claims,
             omitted_claims: 0,

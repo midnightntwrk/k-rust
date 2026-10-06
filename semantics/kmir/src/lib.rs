@@ -8280,7 +8280,7 @@ mod tests {
         assert!(
             source
                 .source()
-                .contains("{V70726F6772616D:List [ V696E646578:Int ]}:>BasicBlock")
+                .contains("{Program:List [ Index:Int ]}:>BasicBlock")
         );
         assert!(source.source().contains("switchInt"));
         assert!(source.source().contains("#EndProgram"));

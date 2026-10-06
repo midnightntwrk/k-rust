@@ -3,6 +3,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod variable_names;
+
+pub use variable_names::{
+    SentenceVariables, VariableNaming, definition_terminals, generated_variable_name,
+};
+
 use crate::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, ProductionSentence, RuleBodyRef, SymbolId, SymbolIdentity,
@@ -10,7 +16,7 @@ use crate::{
 use krs_ir::{
     ApplicationRef, BuiltinSort, CellPost, FixedCell, FixedCellContent, FixedInitializerCell,
     FixedInitializerContent, GrammarProductionItemKind, ProductionAttribute, ProductionGroupId,
-    SemanticId, StableItemId,
+    StableItemId,
 };
 
 /// Borrowed declarations and names from one Definition IR.
@@ -316,22 +322,6 @@ impl BuiltinRequirements {
     }
 }
 
-/// Returns `V` followed by the identity's UTF-8 bytes in uppercase hexadecimal.
-///
-/// # Panics
-///
-/// Panics if writing to a `String` fails.
-#[must_use]
-pub fn variable_name(variable: &SemanticId) -> String {
-    use std::fmt::Write as _;
-
-    let mut output = String::from("V");
-    for byte in variable.as_str().as_bytes() {
-        write!(output, "{byte:02X}").expect("writing to String cannot fail");
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,7 +334,7 @@ mod tests {
     use krs_ir::{
         BuiltinOperation, BuiltinSort, CellContentFrame, ClaimModality, ConfigurationRoot,
         FixedCellPattern, FixedConfigurationPattern, FixedInitializerCell, ItemKind, ModuleId,
-        ProductionAttribute, SentenceKind,
+        ProductionAttribute, SemanticId, SentenceKind,
     };
 
     fn symbol_id(name: &str) -> SymbolId {
@@ -529,6 +519,70 @@ mod tests {
     }
 
     #[test]
+    fn sentence_variables_name_rule_claim_and_alias_binders() {
+        let variable = |key: &str, name: &str| {
+            DefinitionTerm::variable(origin(key), int_sort(), semantic_id(name))
+        };
+        let sum = DefinitionTerm::application(
+            origin("sum"),
+            int_sort(),
+            ApplicationRef::Builtin(BuiltinOperation::IntAdd),
+            vec![variable("left", "old_value"), variable("right", "_once")],
+        );
+        let result = variable("result", "literal");
+        let body = DefinitionTerm::rewrite(origin("sum-rewrite"), int_sort(), sum, result)
+            .expect("valid rewrite");
+        let binder = |name: &str| {
+            crate::DefinitionClaimBinder::new(
+                origin(&format!("{name}-binder")),
+                origin(&format!("{name}-name")),
+                semantic_id(name),
+                origin(&format!("{name}-sort")),
+                int_sort(),
+            )
+        };
+        let claim = RuleSentence::new(
+            origin("naming-claim"),
+            LabelIdentity::new(
+                LabelId::new("naming-claim").expect("valid label ID"),
+                "naming",
+            )
+            .expect("valid label"),
+            SentenceKind::Claim,
+            Vec::new(),
+            body,
+        )
+        .expect("valid claim")
+        .with_claim(Some(DefinitionClaim::new(
+            origin("naming-modality"),
+            ClaimModality::AllPaths,
+            None,
+            vec![binder("old_value"), binder("_once")],
+            vec![binder("literal")],
+            None,
+        )));
+        let definition = definition();
+        assert!(definition_terminals(&definition).contains("literal"));
+        let naming = VariableNaming::new(&definition);
+        let names = naming.rule(&claim);
+        assert_eq!(
+            names.iter().collect::<Vec<_>>(),
+            vec![
+                (&semantic_id("_once"), "_Once"),
+                (&semantic_id("literal"), "?Literal"),
+                (&semantic_id("old_value"), "OldValue"),
+            ],
+        );
+        assert_eq!(naming.rule(&claim), names);
+        let alias = naming.context_alias(&context_alias());
+        assert_eq!(alias.name(&semantic_id("here")), Some("HERE"));
+        assert_eq!(
+            naming.configuration(&configuration()),
+            SentenceVariables::default()
+        );
+    }
+
+    #[test]
     fn import_policies_preserve_consumer_differences() {
         let syntax_only = term_rule(
             DefinitionTerm::token(origin("syntax-int"), int_sort(), "0")
@@ -663,18 +717,5 @@ mod tests {
         assert!(index.sort(&symbol_id("production")).is_none());
         assert!(index.production(&symbol_id("sort")).is_none());
         assert!(index.symbol_name(&symbol_id("leaf")).is_none());
-    }
-
-    #[test]
-    fn variable_names_encode_every_utf8_byte() {
-        for (identity, expected) in [
-            ("X", "V58"),
-            ("a_b9", "V615F6239"),
-            ("éλ", "VC3A9CEBB"),
-            ("__krs_wildcard_0", "V5F5F6B72735F77696C64636172645F30"),
-            ("_X__krs_2", "V5F585F5F6B72735F32"),
-        ] {
-            assert_eq!(variable_name(&semantic_id(identity)), expected);
-        }
     }
 }

@@ -650,7 +650,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(source.contains("  configuration\n"));
     assert!(configuration.starts_with("    <k> $PGM:"));
     assert!(configuration.ends_with(" </k>"));
-    assert!(!configuration.contains("V50474D"));
-    assert!(source.contains("V50474D:Int +Int 1"));
+    assert!(!configuration.contains(" PGM:"));
+    assert!(source.contains("PGM:Int +Int 1"));
     assert!(!source.contains("$PGM:Int +Int 1"));
 }

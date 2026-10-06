@@ -1,11 +1,8 @@
 use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm};
 use krs_ir::{
-    ApplicationRef, CollectionOperationSpec, MapOperation, NonEmpty, SemanticId, SemanticIdKind,
+    ApplicationRef, CollectionOperationSpec, MapOperation, NodeOrigin, NonEmpty, SemanticId,
 };
-use krs_ir_levels::{
-    DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands, RuleSentence,
-    k_surface::variable_name,
-};
+use krs_ir_levels::{DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands};
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 
@@ -28,7 +25,6 @@ impl Adapter<'_> {
         sentence_index: usize,
         path: Vec<u32>,
         context: TermContext,
-        rule: Option<&RuleSentence>,
     ) -> Result<NativeTerm, AdapterError> {
         self.map_sentence_origin(
             term.origin(),
@@ -55,17 +51,8 @@ impl Adapter<'_> {
                         }],
                     ));
                 }
-                let existential = rule.and_then(RuleSentence::claim).is_some_and(|claim| {
-                    claim
-                        .existentials()
-                        .iter()
-                        .any(|binder| binder.id() == variable)
-                });
-                Ok(native_variable(
-                    variable,
-                    Some(self.sort(term.sort(), term.origin())?),
-                    existential,
-                ))
+                let sort = self.sort(term.sort(), term.origin())?;
+                self.native_variable(variable, sort, term.origin())
             }
             DefinitionTermKind::Application {
                 application,
@@ -83,7 +70,7 @@ impl Adapter<'_> {
                     .map(|(index, argument)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(argument, module, sentence_index, child_path, context, rule)
+                        self.term(argument, module, sentence_index, child_path, context)
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             }),
@@ -100,7 +87,7 @@ impl Adapter<'_> {
                         .map(|(index, item)| {
                             let mut child_path = path.clone();
                             child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                            self.term(item, module, sentence_index, child_path, context, rule)
+                            self.term(item, module, sentence_index, child_path, context)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
@@ -111,7 +98,7 @@ impl Adapter<'_> {
                     let mut child_path = path.clone();
                     child_path.push(u32::try_from(next_index).unwrap_or(u32::MAX));
                     next_index += 1;
-                    self.term(operand, module, sentence_index, child_path, context, rule)
+                    self.term(operand, module, sentence_index, child_path, context)
                 })?;
                 let native = match native {
                     MapOperands::Items(entries) => native_map_items(entries),
@@ -128,7 +115,7 @@ impl Adapter<'_> {
                     .map(|(index, operand)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(operand, module, sentence_index, child_path, context, rule)
+                        self.term(operand, module, sentence_index, child_path, context)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let spec = operands.operation().spec();
@@ -141,7 +128,7 @@ impl Adapter<'_> {
                     .map(|(index, operand)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(operand, module, sentence_index, child_path, context, rule)
+                        self.term(operand, module, sentence_index, child_path, context)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let spec = operands.operation().spec();
@@ -155,21 +142,17 @@ impl Adapter<'_> {
                     .map(|(index, child)| {
                         let mut child_path = path.clone();
                         child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
-                        self.term(child, module, sentence_index, child_path, context, rule)
+                        self.term(child, module, sentence_index, child_path, context)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(NativeTerm::apply(format!("<{name}>"), arguments))
             }
             DefinitionTermKind::Rewrite { from, to } => {
-                self.rewrite(from, to, module, sentence_index, path, context, rule)
+                self.rewrite(from, to, module, sentence_index, path, context)
             }
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "A rewrite carries both sides plus the traversal state that `term` threads through."
-    )]
     pub(super) fn rewrite(
         &mut self,
         from: &DefinitionTerm,
@@ -178,15 +161,35 @@ impl Adapter<'_> {
         sentence_index: usize,
         path: Vec<u32>,
         context: TermContext,
-        rule: Option<&RuleSentence>,
     ) -> Result<NativeTerm, AdapterError> {
         let mut left_path = path.clone();
         left_path.push(0);
         let mut right_path = path;
         right_path.push(1);
         Ok(NativeTerm::Rewrite {
-            left: Box::new(self.term(from, module, sentence_index, left_path, context, rule)?),
-            right: Box::new(self.term(to, module, sentence_index, right_path, context, rule)?),
+            left: Box::new(self.term(from, module, sentence_index, left_path, context)?),
+            right: Box::new(self.term(to, module, sentence_index, right_path, context)?),
+        })
+    }
+
+    /// Spells a variable with the name the shared naming function gave it in this sentence.
+    pub(super) fn native_variable(
+        &self,
+        variable: &SemanticId,
+        sort: NativeSort,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        let name =
+            self.variable_names
+                .name(variable)
+                .ok_or_else(|| AdapterError::MissingReference {
+                    key: origin.key().clone(),
+                    kind: "sentence variable",
+                    target: variable.as_str().to_owned(),
+                })?;
+        Ok(NativeTerm::Variable {
+            name: name.to_owned(),
+            sort: Some(sort),
         })
     }
 
@@ -210,21 +213,6 @@ impl Adapter<'_> {
             vec![native],
         ))
     }
-}
-
-pub(super) fn native_variable(
-    variable: &SemanticId,
-    sort: Option<NativeSort>,
-    existential: bool,
-) -> NativeTerm {
-    let name = if existential {
-        format!("?{}", variable_name(variable))
-    } else if let SemanticIdKind::Anonymous { name } = variable.kind() {
-        name.to_owned()
-    } else {
-        variable_name(variable)
-    };
-    NativeTerm::Variable { name, sort }
 }
 
 /// Applies the Map item label to each entry and joins the items with Map concatenation.

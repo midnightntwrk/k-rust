@@ -4,6 +4,7 @@ use krs_ir::{BuiltinOperation, NodeOrigin, NonEmpty};
 use krs_ir_levels::{
     DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm, ListOperands, MapEntry,
     MapOperands, SetOperands,
+    k_surface::{SentenceVariables, VariableNaming},
 };
 
 use super::{EmitContext, term::render_term};
@@ -24,7 +25,14 @@ fn context() -> EmitContext<'static> {
         index: krs_ir_levels::k_surface::DefinitionIndex::default(),
         non_associative_groups: BTreeSet::new(),
         repeated_ancestors: BTreeMap::new(),
+        naming: VariableNaming::default(),
     }
+}
+
+fn render(term: &DefinitionTerm, context: &EmitContext<'_>) -> String {
+    render_term(term, context, &SentenceVariables::default(), false)
+        .unwrap()
+        .text
 }
 
 fn empty(key: &str) -> DefinitionTerm {
@@ -126,7 +134,7 @@ fn builtin_list_operations_have_exact_canonical_k_source() {
     ];
     let context = context();
     for (term, expected) in terms {
-        assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        assert_eq!(render(&term, &context), expected);
     }
 }
 
@@ -184,7 +192,7 @@ fn builtin_bytes_operations_have_exact_canonical_k_source() {
     ];
     let context = context();
     for (term, expected) in terms {
-        assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        assert_eq!(render(&term, &context), expected);
     }
 }
 
@@ -268,7 +276,7 @@ fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
     ];
     let context = context();
     for (term, expected) in terms {
-        assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        assert_eq!(render(&term, &context), expected);
     }
 }
 
@@ -318,6 +326,6 @@ fn remaining_collection_operations_have_exact_canonical_k_source() {
     ];
     let context = context();
     for (term, expected) in terms {
-        assert_eq!(render_term(&term, &context, false).unwrap().text, expected);
+        assert_eq!(render(&term, &context), expected);
     }
 }

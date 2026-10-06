@@ -554,13 +554,13 @@ fn assert_exact_source(source: &str) {
 
 
   rule [assign]:
-    <k> V58:Id = V56:Value ; => .K ... </k>
-    <env> V45:Map => V45:Map [ V58:Id <- V56:Value ] </env>
+    <k> X:Id = V:Value ; => .K ... </k>
+    <env> E:Map => E:Map [ X:Id <- V:Value ] </env>
   rule [step]:
-    <k> V5331:Stmt V5332:Stmt => V5331:Stmt ~> V5332:Stmt ... </k>
+    <k> S1:Stmt S2:Stmt => S1:Stmt ~> S2:Stmt ... </k>
   rule [var]:
-    <k> V58:Id => V56:Value ... </k>
-    <env> V58:Id |-> V56:Value ... </env>
+    <k> X:Id => V:Value ... </k>
+    <env> X:Id |-> V:Value ... </env>
 endmodule
 "#]]
     .assert_eq(source);
@@ -741,16 +741,18 @@ fn nested_cells_and_named_sequence_and_map_frames_lower_structurally() {
         colliding_rule_label: false,
     }));
     assert!(emitted.source().contains("    <machine>\n"));
-    assert!(emitted.source().contains("V4B52455354:K"));
-    assert!(emitted.source().contains("V4D52455354:Map"));
+    assert!(emitted.source().contains("KREST:K"));
+    assert!(emitted.source().contains("MREST:Map"));
     assert!(
         emitted
             .source()
-            .contains("    <k> V58:Id = V56:Value ; ~> V4B52455354:K => .K ~> V4B52455354:K </k>")
+            .contains("    <k> X:Id = V:Value ; ~> KREST:K => .K ~> KREST:K </k>")
     );
-    assert!(emitted.source().contains(
-        "    <env> V45:Map V4D52455354:Map => V45:Map [ V58:Id <- V56:Value ] V4D52455354:Map </env>"
-    ));
+    assert!(
+        emitted
+            .source()
+            .contains("    <env> E:Map MREST:Map => E:Map [ X:Id <- V:Value ] MREST:Map </env>")
+    );
     assert!(
         emitted
             .symbol_map()

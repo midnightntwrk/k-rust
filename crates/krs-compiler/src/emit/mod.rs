@@ -15,7 +15,7 @@ use krs_ir::{
 use krs_ir_levels::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ProductionSentence,
     SymbolId,
-    k_surface::{DefinitionIndex, ImportPolicy, builtin_imports},
+    k_surface::{DefinitionIndex, ImportPolicy, VariableNaming, builtin_imports},
 };
 
 use crate::{
@@ -224,6 +224,7 @@ struct EmitContext<'a> {
     index: DefinitionIndex<'a>,
     non_associative_groups: BTreeSet<ProductionGroupId>,
     repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
+    naming: VariableNaming,
 }
 
 impl<'a> EmitContext<'a> {
@@ -249,6 +250,7 @@ impl<'a> EmitContext<'a> {
             index,
             non_associative_groups,
             repeated_ancestors,
+            naming: VariableNaming::new(definition),
         }
     }
 

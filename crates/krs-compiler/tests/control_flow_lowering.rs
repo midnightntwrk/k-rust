@@ -992,17 +992,17 @@ module KRS-IMP
   imports KRS-IMP-SYNTAX
 
   rule [block]:
-    <k> { V53:Stmt } => V53:Stmt ~> { } ... </k>
+    <k> { S:Stmt } => S:Stmt ~> { } ... </k>
   rule [done]:
     <k> { } => .K ... </k>
   rule [if-else]:
-    <k> if ( V43:Expr ) V53:Stmt => if ( V43:Expr ) V53:Stmt else { } ... </k>
+    <k> if ( C:Expr ) S:Stmt => if ( C:Expr ) S:Stmt else { } ... </k>
   rule [if-false]:
-    <k> if ( false ) _ else V5332:Stmt => V5332:Stmt ... </k>
+    <k> if ( false ) _ else S2:Stmt => S2:Stmt ... </k>
   rule [if-true]:
-    <k> if ( true ) V5331:Stmt else _ => V5331:Stmt ... </k>
+    <k> if ( true ) S1:Stmt else _ => S1:Stmt ... </k>
   rule [while]:
-    <k> while ( V43:Expr ) V53:Stmt => if ( V43:Expr ) { V53:Stmt while ( V43:Expr ) V53:Stmt } else { } ... </k>
+    <k> while ( C:Expr ) S:Stmt => if ( C:Expr ) { S:Stmt while ( C:Expr ) S:Stmt } else { } ... </k>
 endmodule
 
 module KRS-IMP-SYNTAX
