@@ -26,13 +26,11 @@
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
-//! `configure` requires a `variables` object mapping names without `$` to surface K text and returns `pattern` (KORE text of `initGeneratedTopCell`) and `variables` (an object mapping each name to `sort` and `kore` text).
+//! `configure` requires a `variables` object mapping names without `$` to surface K text and returns `pattern` (KORE text of `initGeneratedTopCell`) and `variables` (an object mapping each supplied name to `sort` and `kore` text).
 //! Every declared variable must be supplied once, except declared `$IO` and `$STDIN` may be omitted; those receive krun stream defaults with IO off and empty stdin.
 //! Unknown variable names are errors.
-//! Bindings are assembled with `$PGM` first and other supplied names in lexical order, followed by synthesized stream defaults.
-//! The shared surface pipeline prepares [`k_rust::inner::definition_with_named_projections`], [`k_rust::definition::ResolvedDefinition`], and [`k_rust::kompile::MacroExpansionDefinition`], then caches [`k_rust::inner::ProgramParser::from_resolved`] per parser module chosen with [`k_rust::kompile::initial_configuration::parser_modules`].
-//! It parses at the declared sort, expands macros, uses [`k_rust::kompile::SortInjector`] to determine and inject sorts, and lowers with [`k_rust::kompile::term_to_kore_from_resolved_with_token_module`].
-//! Configuration assembly calls [`k_rust::kompile::initial_configuration::top_cell_initializer`] and uses [`k_rust::kompile::initial_configuration::stream_defaults`] for omitted declared stream variables.
+//! [`k_rust::kompile::ConfigurationAssembler`] builds `pattern` over one [`k_rust::kompile::ProgramGrammar`] per session, binding `$PGM` first, other supplied names in lexical order, and then the stream defaults.
+//! The per-variable `variables` rendering and cell expectations share a surface pipeline over the same grammar: it caches [`k_rust::inner::ProgramParser::from_resolved`] per parser module chosen with [`k_rust::kompile::initial_configuration::parser_modules`], parses at the declared sort, expands macros with [`k_rust::kompile::MacroExpansionDefinition::expand_program`], uses [`k_rust::kompile::SortInjector`] to determine and inject sorts at the expansion position, and lowers with [`k_rust::kompile::term_to_kore_from_resolved_with_token_module`].
 //! `execute` requires a KORE text `pattern` and accepts optional `max_depth` (unsigned integer or null), `max_simplification_iterations` (unsigned integer), `trace` (boolean), and `keep` (a state name).
 //! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::execute`].
 //! Without `keep`, its result is the backend's serialized `ExecuteResult`; leaf traces are empty unless `trace` is true.

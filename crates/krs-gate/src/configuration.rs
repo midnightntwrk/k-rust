@@ -1,16 +1,15 @@
-//! Assemble krun's `-c` pipeline from k-rust's public parser, macro, injection, and initializer pieces.
-//! Replace this assembly with a k-rust library function when one is available.
+//! Parse configuration and cell-expectation text through k-rust's program pipeline.
+//! [`k_rust::kompile::ConfigurationAssembler`] owns krun's `-c` assembly of `initGeneratedTopCell`; this module adds the per-value surface parsing that cell expectations and the Java route's per-variable KORE need.
 //! `ProgramParser` uses visible program productions and adds `KItem` subsorts, but does not add the implicit `KSEQ` productions `K ::= ".K"` and `K ::= K "~>" K`.
 //! `BASIC-K` supplies the subsort path for a single item at `K`, but supplies neither sequence production.
 //! Cell expectations must therefore split top-level sequence delimiters outside quoted strings, parse each item at `KItem`, and assemble `Term::sequence`.
 
 use k_rust::{
-    definition::ResolvedDefinition,
-    inner::{ProgramParser, definition_with_named_projections},
+    inner::{ParsedProgram, ProgramParser},
     kast::{Sort as KastSort, Term},
     kompile::{
-        MacroExpansionDefinition, SortInjector, encode_kore_sort,
-        initial_configuration::{parser_modules, stream_defaults, top_cell_initializer},
+        ConfigurationAssembler, ConfigurationError, MacroExpansionDefinition, ProgramGrammar,
+        SortInjector, encode_kore_sort, initial_configuration::parser_modules,
         term_to_kore_from_resolved_with_token_module,
     },
     kore::ast::{Pattern, Sort, Symbol},
@@ -18,56 +17,23 @@ use k_rust::{
 };
 use krs_k_rust::ConfigurationContext;
 use serde_json::{Map, Value, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    error::Error,
-};
+use std::{collections::BTreeMap, error::Error};
+
+/// The program grammar and declared variable sorts that every configuration of one loaded definition is assembled against.
+struct Grammar {
+    program: ProgramGrammar,
+    variables: BTreeMap<String, KastSort>,
+}
 
 /// The reusable surface parsing context for one loaded definition.
 pub struct Configuration {
-    context: ConfigurationContext,
     main_module: String,
     syntax_module: String,
-    resolved: ResolvedDefinition,
+    grammar: &'static Grammar,
+    assembler: ConfigurationAssembler<'static>,
     parser_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
     macro_definition: MacroExpansionDefinition,
-}
-
-fn validate_variables(
-    available: &BTreeMap<String, KastSort>,
-    variables: &Map<String, Value>,
-) -> Result<(), String> {
-    for name in variables.keys() {
-        if !available.contains_key(name) {
-            return Err(format!(
-                "definition has no configuration variable `${name}`"
-            ));
-        }
-        if !variables[name].is_string() {
-            return Err(format!(
-                "configuration variable `${name}` must be surface text"
-            ));
-        }
-    }
-    let string_sort = KastSort::builtin(BuiltinSort::String);
-    let missing = available
-        .iter()
-        .filter(|(name, sort)| {
-            !(variables.contains_key(*name)
-                || matches!(name.as_str(), "IO" | "STDIN") && *sort == &string_sort)
-        })
-        .map(|(name, _)| format!("${name}"))
-        .collect::<Vec<_>>();
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "missing required configuration variable{} {}",
-            if missing.len() == 1 { "" } else { "s" },
-            missing.join(", ")
-        ))
-    }
 }
 
 fn split_k_sequence(source: &str) -> Result<Option<Vec<&str>>, String> {
@@ -124,22 +90,34 @@ fn split_k_sequence(source: &str) -> Result<Option<Vec<&str>>, String> {
 }
 
 impl Configuration {
-    /// Prepare projections, configuration parser modules, and macros once per session.
+    /// Prepare the program grammar, configuration parser modules, and macros once per session.
+    ///
+    /// The grammar is leaked so that the assembler, which borrows it, can live in the session: a session loads one definition, once, for the life of its process.
     ///
     /// # Errors
     ///
     /// Returns an error when the prepared frontend definition cannot be resolved.
     pub fn new(context: ConfigurationContext) -> Result<Self, Box<dyn Error>> {
-        let projected = definition_with_named_projections(&context.frontend_definition);
-        let resolved = ResolvedDefinition::resolve(&projected)?;
-        let syntax_module = k_rust::outer::resolve_syntax_module(&resolved, None)?.name;
-        let parser_modules = parser_modules(&resolved, &context.frontend_definition.main_module)?;
-        let macro_definition = MacroExpansionDefinition::prepare(&projected)?;
+        let main_module = context.frontend_definition.main_module.clone();
+        let grammar: &'static Grammar = Box::leak(Box::new(Grammar {
+            program: ProgramGrammar::new(&context.frontend_definition)?,
+            variables: context.configuration_variables,
+        }));
+        let resolved = grammar.program.resolved();
+        let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
+        let parser_modules = parser_modules(resolved, &main_module)?;
+        let macro_definition = MacroExpansionDefinition::prepare(grammar.program.definition())?;
+        let assembler = ConfigurationAssembler::new(
+            &grammar.program,
+            main_module.clone(),
+            syntax_module.clone(),
+            &grammar.variables,
+        );
         Ok(Self {
-            main_module: context.frontend_definition.main_module.clone(),
+            main_module,
             syntax_module,
-            context,
-            resolved,
+            grammar,
+            assembler,
             parser_modules,
             parsers: BTreeMap::new(),
             macro_definition,
@@ -153,13 +131,14 @@ impl Configuration {
         source: &str,
         k_item: bool,
     ) -> Result<(Pattern, Sort), Box<dyn Error>> {
-        if self.resolved.module_id(parser_module).is_none() {
+        let resolved = self.grammar.program.resolved();
+        if resolved.module_id(parser_module).is_none() {
             return Err(format!("parser module `{parser_module}` was not found").into());
         }
         if !self.parsers.contains_key(parser_module) {
             self.parsers.insert(
                 parser_module.to_owned(),
-                ProgramParser::from_resolved(&self.resolved, parser_module)?,
+                ProgramParser::from_resolved(resolved, parser_module)?,
             );
         }
         let parse_sort = if sort.is_builtin(BuiltinSort::K) && k_item {
@@ -171,31 +150,36 @@ impl Configuration {
             .parsers
             .get(parser_module)
             .expect("parser was inserted above");
+        let item_sort = KastSort::builtin(BuiltinSort::KItem);
         let value = if sort.is_builtin(BuiltinSort::K) && !k_item {
             if source.trim() == ".K" {
-                Term::sequence(Vec::new())
+                ParsedProgram::from_term(Term::sequence(Vec::new()))
             } else if let Some(items) = split_k_sequence(source)? {
-                Term::sequence(
-                    items
-                        .into_iter()
-                        .filter(|item| *item != ".K")
-                        .map(|item| parser.parse(&KastSort::builtin(BuiltinSort::KItem), item))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )
+                let items = items
+                    .into_iter()
+                    .filter(|item| *item != ".K")
+                    .map(|item| {
+                        parser
+                            .parse(&item_sort, item)
+                            .map(|parsed| parsed.typed_term().clone())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                ParsedProgram::from_term(Term::sequence(items))
             } else {
-                parser.parse(&KastSort::builtin(BuiltinSort::KItem), source)?
+                parser.parse(&item_sort, source)?
             }
         } else {
             parser.parse(&parse_sort, source)?
         };
         let value = self
             .macro_definition
-            .expand_term(&self.main_module, value)?;
-        let injector = SortInjector::new(&self.resolved, &self.main_module)?;
-        let value_sort = injector.term_sort(&value, None)?;
-        let value = injector.inject_at_top(&value)?;
+            .expand_program(&self.main_module, value, &parse_sort)?;
+        // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
+        let injector = SortInjector::new(resolved, &self.main_module)?;
+        let value_sort = injector.term_sort(value.term(), Some(value.position()))?;
+        let value = injector.inject(value.term(), &value_sort)?;
         let value = term_to_kore_from_resolved_with_token_module(
-            &self.resolved,
+            resolved,
             &self.main_module,
             parser_module,
             &value,
@@ -209,18 +193,17 @@ impl Configuration {
         source: &str,
     ) -> Result<(Pattern, Sort), Box<dyn Error>> {
         let sort = self
-            .context
-            .configuration_variables
+            .grammar
+            .variables
             .get(name)
-            .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?
-            .clone();
+            .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?;
         let parser_module = if name == "PGM" {
             &self.syntax_module
         } else {
             self.parser_modules.get(name).unwrap_or(&self.main_module)
         }
         .clone();
-        self.parse_surface(&parser_module, &sort, source, true)
+        self.parse_surface(&parser_module, sort, source, true)
             .map_err(|error| {
                 format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
                     .into()
@@ -269,102 +252,62 @@ impl Configuration {
         }
     }
 
-    /// Parse every declared variable and assemble `initGeneratedTopCell`.
+    /// Assemble `initGeneratedTopCell` from surface text for the declared variables.
     ///
-    /// `$PGM` is first, followed by the remaining names in lexical order.
+    /// [`ConfigurationAssembler`] binds `$PGM` first, at its declared sort with the syntax module, and then the remaining names in lexical order.
     /// `$IO` and `$STDIN`, when declared and omitted, receive stream defaults with IO off and empty stdin.
+    /// Each supplied variable is also rendered on its own through the surface pipeline that cell expectations use, for routes that pass a value as KORE.
     ///
     /// # Errors
     ///
-    /// Returns an error for an unknown or missing variable, or a surface parse failure.
+    /// Returns an error for an unknown, missing, or non-text variable, or a surface parse failure.
     pub fn configure(&mut self, variables: &Map<String, Value>) -> Result<Value, Box<dyn Error>> {
-        validate_variables(&self.context.configuration_variables, variables)?;
-        let mut seen = BTreeSet::new();
+        self.assembler.clear();
+        let configured = self.assemble(variables);
+        if configured.is_err() {
+            self.assembler.clear();
+        }
+        configured
+    }
+
+    fn assemble(&mut self, variables: &Map<String, Value>) -> Result<Value, Box<dyn Error>> {
+        let mut names = variables.keys().collect::<Vec<_>>();
+        names.sort_by_key(|name| (name.as_str() != "PGM", name.as_str()));
         let mut rendered = Map::new();
-        let mut program = None;
-        let mut bindings = Vec::new();
-        let mut names = self
-            .context
-            .configuration_variables
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        names.sort_by_key(|name| (name != "PGM", name.clone()));
         for name in names {
-            let Some(source) = variables.get(&name) else {
-                continue;
-            };
-            let source = source
+            let source = variables[name]
                 .as_str()
                 .ok_or_else(|| format!("configuration variable `${name}` must be surface text"))?;
-            let (value, sort) = self.parse_variable(&name, source)?;
+            if name == "PGM" {
+                let sort = self
+                    .grammar
+                    .variables
+                    .get(name)
+                    .ok_or("definition has no configuration variable `$PGM`")?;
+                self.assembler.program(sort, source)?;
+            } else {
+                self.assembler.bind(name, source)?;
+            }
+            let (value, sort) = self.parse_variable(name, source)?;
             rendered.insert(
                 name.clone(),
                 json!({"sort": sort.to_string(), "kore": value.to_string()}),
             );
-            seen.insert(name.clone());
-            if name == "PGM" {
-                program = Some((value, sort));
-            } else {
-                bindings.push((format!("${name}"), value, sort));
-            }
         }
-        let defaults = stream_defaults(
-            &self.context.configuration_variables,
-            &mut seen,
-            false,
-            true,
-            || Ok::<Vec<u8>, Box<dyn Error>>(Vec::new()),
-        )?;
-        for (name, value, sort) in &defaults {
-            rendered.insert(
-                name.trim_start_matches('$').to_owned(),
-                json!({"sort": sort.to_string(), "kore": value.to_string()}),
-            );
-        }
-        bindings.extend(defaults);
-        Ok(
-            json!({"pattern": top_cell_initializer(program, bindings).to_string(), "variables": rendered}),
-        )
+        self.assembler
+            .bind_stream_defaults(false, true, || Ok::<_, ConfigurationError>(Vec::new()))?;
+        let pattern = self.assembler.finish()?;
+        Ok(json!({"pattern": pattern.to_string(), "variables": rendered}))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{split_k_sequence, validate_variables};
+    use super::{Configuration, split_k_sequence};
     use k_rust::{inner::ProgramParser, kast::Sort, names::BuiltinSort};
-    use serde_json::{Map, json};
+    use krs_k_rust::ConfigurationContext;
+    use serde_json::json;
     use std::collections::BTreeMap;
-
-    #[test]
-    fn validates_declared_names_and_surface_text() {
-        let available = BTreeMap::from([
-            ("PGM".to_owned(), Sort::builtin(BuiltinSort::K)),
-            ("STACK".to_owned(), Sort::builtin(BuiltinSort::K)),
-            ("STDIN".to_owned(), Sort::builtin(BuiltinSort::String)),
-        ]);
-        let mut variables = Map::new();
-        variables.insert("PGM".into(), json!("run"));
-        assert_eq!(
-            validate_variables(&available, &variables).unwrap_err(),
-            "missing required configuration variable $STACK"
-        );
-        variables.insert("STACK".into(), json!(".Stack"));
-        validate_variables(&available, &variables).unwrap();
-        variables.insert("EXTRA".into(), json!("x"));
-        assert!(
-            validate_variables(&available, &variables)
-                .unwrap_err()
-                .contains("$EXTRA")
-        );
-        variables.remove("EXTRA");
-        variables.insert("STACK".into(), json!(1));
-        assert!(
-            validate_variables(&available, &variables)
-                .unwrap_err()
-                .contains("$STACK")
-        );
-    }
 
     #[test]
     fn splits_only_top_level_k_sequence_delimiters() {
@@ -397,11 +340,68 @@ endmodule
         let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
         let loaded =
             krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
-        let parser = ProgramParser::new(&loaded.definition, "MAIN").unwrap();
+        let parser = ProgramParser::new(loaded.definition(), "MAIN").unwrap();
         let sort = Sort::builtin(BuiltinSort::K);
         assert!(parser.parse(&sort, "a").is_ok());
         for source in [".K", "a ~> b", "a ~> .K"] {
             assert!(parser.parse(&sort, source).is_err(), "{source}");
         }
+    }
+
+    #[test]
+    fn configure_assembles_through_the_upstream_assembler_and_recovers_after_errors() {
+        let parsed = k_rust::outer::parse(
+            "configure.k",
+            r#"
+module MAIN
+  imports INT
+  imports BASIC-K
+  syntax Pgm ::= "run" [symbol(run)]
+  configuration <k> $PGM:Pgm </k> <n> $N:Int </n>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(ConfigurationContext {
+            frontend_definition: loaded.into_definition(),
+            configuration_variables: BTreeMap::from([
+                ("PGM".to_owned(), Sort::new("Pgm")),
+                ("N".to_owned(), Sort::builtin(BuiltinSort::Int)),
+            ]),
+        })
+        .unwrap();
+        let unknown = configuration
+            .configure(json!({"PGM": "run", "EXTRA": "1"}).as_object().unwrap())
+            .unwrap_err();
+        assert!(unknown.to_string().contains("$EXTRA"), "{unknown}");
+        let missing = configuration
+            .configure(json!({"PGM": "run"}).as_object().unwrap())
+            .unwrap_err();
+        assert!(missing.to_string().contains("$N"), "{missing}");
+        let configured = configuration
+            .configure(json!({"PGM": "run", "N": "3"}).as_object().unwrap())
+            .unwrap();
+        let pattern = configured["pattern"].as_str().unwrap();
+        assert!(
+            pattern.starts_with("LblinitGeneratedTopCell{}("),
+            "{pattern}"
+        );
+        assert!(
+            pattern.contains("\\dv{SortKConfigVar{}}(\"$PGM\")"),
+            "{pattern}"
+        );
+        assert!(
+            pattern.contains("\\dv{SortKConfigVar{}}(\"$N\")"),
+            "{pattern}"
+        );
+        assert_eq!(configured["variables"]["N"]["sort"], "SortInt{}");
+        assert_eq!(
+            configured["variables"]["N"]["kore"],
+            "\\dv{SortInt{}}(\"3\")"
+        );
+        assert_eq!(configured["variables"]["PGM"]["sort"], "SortPgm{}");
     }
 }
