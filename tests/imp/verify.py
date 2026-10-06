@@ -36,6 +36,7 @@ from support.parallel import settle_all, worker_count  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
+from support.reference import Key, Snapshot, add_refresh_argument  # noqa: E402
 from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
 
 
@@ -56,6 +57,15 @@ EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
 REPLACED_K_TAIL_CELLS = ["k"]
 PRESERVED_MAP_REMAINDER_CELLS = ["env"]
+KOMPILE_TESTS_REFERENCE = HERE / "reference" / "kompile-tests"
+KOMPILE_TEST_COUNT = 2
+
+BASE_TOOLS = ("cargo", "rustc", "rustfmt", "clippy-driver", "git")
+"""Tools every run needs: the Rust checks and the checkout verification."""
+LSP_TOOLS = ("rust-analyzer",)
+"""The live LSP probes of IMP.2 (and IMP.8) start rust-analyzer from PATH."""
+JAVA_TOOLS = ("kompile", "kast", "krun", "kprove", "kore-exec", "llvm-kompile", "z3")
+"""The pinned K toolchain and the solver its Haskell backend starts."""
 
 
 def require_exact_summary(
@@ -86,8 +96,24 @@ class Context:
     corpus: dict[str, Any]
     workspace: Path
     target: Path
+    live_java: bool = True
+    """Whether a layer that runs Java K live runs: a refresh, or IMP.4-IMP.8."""
+    refresh: bool = False
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
+    snapshots: list[Snapshot] = field(default_factory=list)
+    """Reference snapshots to finish once every layer passed."""
+
+
+def required_tools(live_java: bool) -> tuple[str, ...]:
+    """The executables IMP.1 requires for the layers that will run.
+
+    IMP.2 always runs its LSP probes; Java K and the solver are required only
+    when a layer runs them live. IMP.2's kompile tests replay a recorded
+    snapshot unless the run refreshes it.
+    """
+
+    return (*BASE_TOOLS, *LSP_TOOLS, *(JAVA_TOOLS if live_java else ()))
 
 
 @dataclass(frozen=True)
@@ -160,15 +186,17 @@ def phase_preflight(context: Context) -> str:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 
     checkouts = {
-        "k": ROOT.parent / "inspirations/runtimeverification/k",
         "imp": ROOT.parent / "inspirations/runtimeverification/imp-semantics",
         "k_rust": ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main",
     }
     expected = {
-        "k": lock.k_commit(),
         "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
         "k_rust": str(lock.value("k_rust", "commit")),
     }
+    if context.live_java:
+        # The K source checkout qualifies only the live toolchain.
+        checkouts["k"] = ROOT.parent / "inspirations/runtimeverification/k"
+        expected["k"] = lock.k_commit()
     # A clean checkout at the pinned commit fixes every input file; the gate
     # does not digest external files separately.
     for name, path in checkouts.items():
@@ -180,33 +208,73 @@ def phase_preflight(context: Context) -> str:
         if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
             raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
 
-    tools = (
-        "cargo", "rustc", "rustfmt", "clippy-driver", "rust-analyzer", "git",
-        "kompile", "kast", "krun", "kprove", "kore-exec", "llvm-kompile", "z3",
-    )
-    context.tools = {name: executable(name) for name in tools}
-    version = run([context.tools["kompile"], "--version"], timeout=30)
-    if not k_version_matches(version, lock.k_version()):
-        raise GateError(f"K tool version differs from Krs.lock: {compact(version)}")
-    kore = run([context.tools["kore-exec"], "--version"], timeout=30).stdout.strip()
-    if kore != lock.value("k", "kore_exec_version"):
-        raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
-    llvm = Path(context.tools["llvm-kompile"]).resolve()
-    if f"llvm-backend-{lock.value('k', 'llvm_backend_version')}" not in llvm.as_posix():
-        raise GateError("LLVM backend version differs from Krs.lock")
-    z3 = run([context.tools["z3"], "--version"], timeout=30).stdout.strip()
-    if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
-        raise GateError(f"Z3 version differs from Krs.lock: {z3}")
+    context.tools = {name: executable(name) for name in required_tools(context.live_java)}
+    if context.live_java:
+        verify_java_tools(context.tools)
     context.environment = z3_environment()
     msrv = run(["rustc", f"+{lock.msrv()}", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith(f"rustc {lock.msrv()} "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
     native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
     lock.require_stable_at_least_msrv(native_rust)
+    java = "live Java K" if context.live_java else "recorded Java K (no K tools required)"
     return (
-        f"external checkouts and files, corpus, tools, KRS schema {lock.krs_ir_schema()}, "
+        f"external checkouts and files, corpus, tools, {java}, KRS schema {lock.krs_ir_schema()}, "
         f"MSRV {lock.msrv()}, and {native_rust}"
     )
+
+
+def verify_java_tools(tools: Mapping[str, str]) -> None:
+    """Require the `Krs.lock` K, kore-exec, LLVM backend, and Z3 versions."""
+
+    version = run([tools["kompile"], "--version"], timeout=30)
+    if not k_version_matches(version, lock.k_version()):
+        raise GateError(f"K tool version differs from Krs.lock: {compact(version)}")
+    kore = run([tools["kore-exec"], "--version"], timeout=30).stdout.strip()
+    if kore != lock.value("k", "kore_exec_version"):
+        raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
+    llvm = Path(tools["llvm-kompile"]).resolve()
+    if f"llvm-backend-{lock.value('k', 'llvm_backend_version')}" not in llvm.as_posix():
+        raise GateError("LLVM backend version differs from Krs.lock")
+    z3 = run([tools["z3"], "--version"], timeout=30).stdout.strip()
+    if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
+        raise GateError(f"Z3 version differs from Krs.lock: {z3}")
+
+
+def kompile_exported_tests(context: Context, exports: Path) -> Snapshot:
+    """Compile the sources IMP.2's kompile tests exported through the recorded snapshot.
+
+    Each exported source is keyed by its digest, so a change to what the
+    lowering emits requires `--refresh-reference`.
+    """
+
+    requests = sorted(exports.glob("*.json"))
+    sources = sorted(exports.glob("*.k"))
+    if len(requests) != KOMPILE_TEST_COUNT or [path.with_suffix(".k") for path in requests] != sources:
+        raise GateError(f"kompile tests exported {[path.name for path in sorted(exports.iterdir())]}")
+    executables = {"kompile": context.tools["kompile"]} if context.refresh else None
+    snapshot = Snapshot(
+        KOMPILE_TESTS_REFERENCE, Key(tools=("kompile",)), workspace=context.workspace,
+        refresh=context.refresh, executables=executables,
+    )
+    for path in requests:
+        request = load_json(path)
+        main, syntax = str(request.get("main")), str(request.get("syntax"))
+        definition = exports / f"{main}-kompiled"
+        process = snapshot.run(
+            f"kompile/{main}", "kompile",
+            [
+                path.with_suffix(".k"), "--main-module", main, "--syntax-module", syntax,
+                "--backend", "llvm", *(["--enable-search"] if request.get("enable_search") is True else []),
+                "--output-definition", definition,
+            ],
+            timeout=600,
+        )
+        if process.returncode != 0:
+            raise GateError(f"kompile rejected the canonical {main} source: {compact(process)}")
+        if context.refresh and not (definition / "definition.kore").is_file():
+            raise GateError(f"kompile produced no definition.kore for {main}")
+    return snapshot
 
 
 def phase_rust(context: Context) -> RustBuild:
@@ -217,6 +285,7 @@ def phase_rust(context: Context) -> RustBuild:
     ]
     for command in commands:
         run(command, timeout=900, environment=env)
+    exports = context.workspace / "kompile-tests"
     kompile_tests = run(
         [
             "cargo", "test", "--locked", "-p", "krs-compiler",
@@ -224,17 +293,18 @@ def phase_rust(context: Context) -> RustBuild:
             "--", "--ignored",
         ],
         timeout=900,
-        environment={**env, "KRS_K_BIN": os.fspath(Path(context.tools["kompile"]).parent)},
+        environment={**env, "KRS_REFERENCE_EXPORT_DIR": os.fspath(exports)},
     )
     results = re.findall(
         r"^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed;",
         kompile_tests.stdout,
         flags=re.MULTILINE,
     )
-    if sum(int(passed) for _, passed, _ in results) != 2 or any(
+    if sum(int(passed) for _, passed, _ in results) != KOMPILE_TEST_COUNT or any(
         status != "ok" or int(failed) != 0 for status, _, failed in results
     ):
         raise GateError(f"expected exactly two passing kompile tests: {compact(kompile_tests)}")
+    context.snapshots.append(kompile_exported_tests(context, exports))
     doc_env = {**env, "RUSTDOCFLAGS": "-D warnings"}
     run(
         [
@@ -745,6 +815,7 @@ def main() -> int:
             "skip the source, native KORE, behavior, proof, and compatibility comparisons"
         ),
     )
+    add_refresh_argument(parser)
     arguments = parser.parse_args()
     if arguments.artifacts_only and (arguments.record or arguments.audit_all):
         parser.error("--artifacts-only cannot be combined with --record or --audit-all")
@@ -754,7 +825,12 @@ def main() -> int:
     passed: set[str] = set()
     artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-imp-root-") as temporary:
-        context = Context(pins, corpus, Path(temporary), arguments.target_dir.resolve())
+        # IMP.4-IMP.8 still run Java K live; only IMP.2's kompile tests replay a snapshot.
+        context = Context(
+            pins, corpus, Path(temporary), arguments.target_dir.resolve(),
+            live_java=arguments.refresh_reference or not arguments.artifacts_only,
+            refresh=arguments.refresh_reference,
+        )
         context.target.mkdir(parents=True, exist_ok=True)
         try:
             run_phase(1, PHASES[0], (), passed, failures, arguments.audit_all,
@@ -789,6 +865,13 @@ def main() -> int:
                 )
         except StopPhases:
             pass
+        if not failures:
+            for snapshot in context.snapshots:
+                try:
+                    print(f"PASS IMP reference snapshot: {snapshot.finish()}", flush=True)
+                except GateError as error:
+                    failures.append(("reference-snapshot", str(error)))
+                    print(f"FAIL IMP reference snapshot: {error}", file=sys.stderr, flush=True)
     if failures:
         if arguments.audit_all:
             print("IMP audit blockers:", file=sys.stderr)

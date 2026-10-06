@@ -28,6 +28,7 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
 
 - IMP.1 `preflight`: external checkout revisions and file digests,
   `Krs.lock` tool and schema versions, and the corpus;
+  it requires only the tools of the layers that will run (see "Java K");
 - IMP.2 `rust-and-lsp`: authored package formatting, Clippy, and MSRV
   checks; authored and expanded helper tests; authored helper docs;
   kompile tests; gate self-tests; `krs` and `krs-gate` builds; and
@@ -102,6 +103,22 @@ unchanged. After an intended output change, run the gate with `--record` (with
 the same memory-bounded recipe below). It runs every phase and, only if all of
 them pass, rewrites exactly the output pins it measured. It never rewrites an
 input or a reviewed policy value; edit those deliberately.
+
+## Java K
+
+IMP.1 requires the Rust toolchain, `git`, and `rust-analyzer` (for the live LSP probes of IMP.2 and IMP.8) on every run.
+It requires the K tools (`kompile`, `kast`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) at the `Krs.lock` versions,
+the `z3` binary, and the clean K source checkout only when a layer runs Java K live:
+IMP.4-IMP.8 still do, so a full run requires them, and `--artifacts-only` does not.
+
+IMP.2's two kompile tests (`control_flow_lowering` and `fixed_state_lowering`) export the canonical sources they lower
+through `KRS_REFERENCE_EXPORT_DIR` instead of starting `kompile`.
+The gate then replays the recorded `kompile` results in `reference/kompile-tests/`,
+keyed by the `Krs.lock` K version and the digest of each exported source,
+so a change to what the lowering emits fails closed and names `--refresh-reference`.
+`--refresh-reference` runs `kompile` live on the exported sources, also requires every K tool above,
+and rewrites the snapshot only when every layer that ran passed.
+It may be combined with `--artifacts-only` and with `--record`.
 
 ## Proof policy
 

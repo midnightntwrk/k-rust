@@ -1,0 +1,33 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kompile"]
+
+[key.upstream]
+
+[key.inputs]
+
+[[invocation]]
+label = "kompile/KRS-CALC"
+argv = ["kompile", "{{work}}/kompile-tests/KRS-CALC.k", "--main-module", "KRS-CALC", "--syntax-module", "KRS-CALC", "--backend", "llvm", "--output-definition", "{{work}}/kompile-tests/KRS-CALC-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/kompile-tests/KRS-CALC.k" = "15b50af4add1c516457fd465a4b4ebf970698f46abd8c8d3db5a1b5f120d290c"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kompile/KRS-IMP"
+argv = ["kompile", "{{work}}/kompile-tests/KRS-IMP.k", "--main-module", "KRS-IMP", "--syntax-module", "KRS-IMP-SYNTAX", "--backend", "llvm", "--enable-search", "--output-definition", "{{work}}/kompile-tests/KRS-IMP-kompiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/kompile-tests/KRS-IMP.k" = "3f72476fe66ea348e2fa93a7c273288f6454d2c04da54d2219fd4a39a0bf08a2"
+
+[invocation.outputs]

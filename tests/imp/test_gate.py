@@ -27,6 +27,18 @@ class InputPinTests(unittest.TestCase):
         self.assertEqual(set(pins.table("revisions")), {"imp"})
 
 
+class PreflightToolTests(unittest.TestCase):
+    def test_java_tools_are_required_only_when_a_layer_runs_them_live(self) -> None:
+        replay = verify.required_tools(False)
+        live = verify.required_tools(True)
+        for name in verify.JAVA_TOOLS:
+            self.assertNotIn(name, replay)
+            self.assertIn(name, live)
+        for name in (*verify.BASE_TOOLS, *verify.LSP_TOOLS):
+            self.assertIn(name, replay)
+            self.assertIn(name, live)
+
+
 class ExactSummaryTests(unittest.TestCase):
     def process(self, stdout: str, stderr: str = "") -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(["probe"], 0, stdout, stderr)
