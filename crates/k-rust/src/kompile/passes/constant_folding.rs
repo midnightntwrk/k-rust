@@ -1401,6 +1401,33 @@ mod tests {
 
     /// `String2Int` reads an optional sign and decimal digits, and `String2Base` the digits of
     /// its base in either case; a `_` separator is neither.
+    /// The radix "can be anywhere between 2 and 36" (`domains.md`), and both conversions are
+    /// partial: outside that range they are undefined, and the fold leaves them for execution.
+    #[test]
+    fn base_conversions_outside_two_through_thirty_six_are_undefined() {
+        for base in [-2, 0, 1, 37, 1 << 40] {
+            let base = Value::Int(int(base));
+            assert!(
+                matches!(
+                    string_to_base(&[Value::String("ff".into()), base.clone()]),
+                    Err(Unfolded::Undefined(_))
+                ),
+                "String2Base(ff, {base:?})"
+            );
+            assert!(
+                matches!(
+                    base_to_string(&[Value::Int(int(255)), base.clone()]),
+                    Err(Unfolded::Undefined(_))
+                ),
+                "Base2String(255, {base:?})"
+            );
+        }
+        assert!(matches!(
+            base_to_string(&[Value::Int(int(255)), Value::Int(int(36))]),
+            Ok(Value::String(text)) if text == "73"
+        ));
+    }
+
     #[test]
     fn integer_parsing_accepts_only_signed_digits() {
         let parsed = |text: &str, radix| match parse_int(text, radix) {

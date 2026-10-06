@@ -226,9 +226,8 @@ fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let base = match read_base(&base) {
-        Ok(base) => base,
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
+    let Some(base) = read_base(&base) else {
+        return Ok(BuiltinResult::Bottom);
     };
     Ok(parse_integer(value, base)
         .map(int_term)
@@ -254,9 +253,8 @@ fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let base = match read_base(&base) {
-        Ok(base) => base,
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
+    let Some(base) = read_base(&base) else {
+        return Ok(BuiltinResult::Bottom);
     };
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))
 }
@@ -377,12 +375,11 @@ fn string_to_token(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult
     )))
 }
 
-fn read_base(base: &BigInt) -> Result<u32, UnsupportedHookReason> {
-    base.to_u32()
-        .filter(|base| (2..=36).contains(base))
-        .ok_or_else(|| UnsupportedHookReason::ArgumentOutOfRange {
-            detail: format!("base {base} is outside 2..36"),
-        })
+/// The radix of `String2Base` and `Base2String`. `domains.md` says it "can be anywhere between 2
+/// and 36" and gives the digits of exactly those radixes; both hooks are partial, so outside that
+/// range there is no conversion the definition describes, and the application is undefined.
+fn read_base(base: &BigInt) -> Option<u32> {
+    base.to_u32().filter(|base| (2..=36).contains(base))
 }
 
 fn saturating_i64(value: &BigInt) -> i64 {
@@ -837,18 +834,27 @@ mod tests {
         );
     }
 
+    /// The radix "can be anywhere between 2 and 36" (`domains.md`), and both hooks are partial:
+    /// outside that range the conversion is undefined, in both directions.
     #[test]
-    fn bases_outside_two_through_thirty_six_are_unsupported() {
+    fn bases_outside_two_through_thirty_six_are_undefined() {
         for (hook, value) in [
-            ("STRING.string2base", string_term("ff")),
+            ("STRING.string2base", string_term("11")),
             ("STRING.base2string", int_term(255.into())),
         ] {
-            for base in [1, 37] {
+            for base in [-2_i64, 0, 1, 37, 1 << 40] {
                 assert_eq!(
                     evaluate(hook, vec![value.clone(), int_term(base.into())]),
-                    BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
-                        detail: format!("base {base} is outside 2..36"),
-                    }),
+                    BuiltinResult::Bottom,
+                    "{hook} base {base}"
+                );
+            }
+            for base in [2, 36] {
+                assert!(
+                    matches!(
+                        evaluate(hook, vec![value.clone(), int_term(base.into())]),
+                        BuiltinResult::Value(_)
+                    ),
                     "{hook} base {base}"
                 );
             }

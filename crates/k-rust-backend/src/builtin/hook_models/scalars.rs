@@ -707,7 +707,8 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
         ("STRING.string2base", [Str(text), Int(base)]) => {
             match base.to_u32().filter(|base| (2..=36).contains(base)) {
                 Some(base) => textual(text, Spec::partial(read_numeral(text, base).map(Int))),
-                None => Spec::open(),
+                // The radix "can be anywhere between 2 and 36"; the hook is partial.
+                None => textual(text, Spec::bottom()),
             }
         }
         // Letters of either case, chosen consistently by the backend.
@@ -720,7 +721,7 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
                         Str(lower.into_bytes()),
                     ])
                 }
-                None => Spec::open(),
+                None => Spec::bottom(),
             }
         }
         // A nonempty sequence of digits optionally prefixed by a sign.
