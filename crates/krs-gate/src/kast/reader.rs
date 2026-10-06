@@ -99,7 +99,11 @@ pub(crate) fn json_value(text: &str) -> Result<Value, String> {
 }
 
 fn equal(input: &Value, output: &str) -> Result<(), String> {
-    if &json_value(output)? == input {
+    unchanged(input, &json_value(output)?)
+}
+
+fn unchanged(input: &Value, output: &Value) -> Result<(), String> {
+    if output == input {
         Ok(())
     } else {
         Err(
@@ -126,41 +130,30 @@ pub(crate) fn term_value(term: &Term) -> Result<Value, String> {
     )
 }
 
+/// The sentinel K's KAST v4 writer leaves in place of a sentence it cannot represent (a context alias).
+fn bad_sentence() -> Value {
+    json!({"node":"badsentence"})
+}
+
 pub(crate) fn definition_document(value: &Value) -> Result<DefinitionDocument, String> {
     check_envelope(value)?;
-    let mut input = value.clone();
-    let modules = input["term"]["modules"]
-        .as_array_mut()
-        .ok_or("KDefinition.modules is not a list")?;
-    let mut bad_sentences = BTreeMap::new();
-    for (index, module) in modules.iter_mut().enumerate() {
-        let sentences = module["localSentences"]
-            .as_array_mut()
-            .ok_or("KFlatModule.localSentences is not a list")?;
-        let mut positions = BTreeMap::new();
-        for (position, sentence) in sentences.iter().enumerate() {
-            if sentence["node"] == "badsentence" {
-                if sentence != &json!({"node":"badsentence"}) {
-                    return Err("unknown badsentence fields".into());
-                }
-                positions.insert(position, sentence.clone());
-            }
-        }
-        sentences.retain(|sentence| sentence["node"] != "badsentence");
-        if !positions.is_empty() {
-            bad_sentences.insert(index, positions);
-        }
+    let (definition, omitted) =
+        k_rust::definition::json::from_str_omitting_unrepresentable(&value.to_string())
+            .map_err(|e| e.to_string())?;
+    let mut bad_sentences = BTreeMap::<usize, BTreeMap<usize, Value>>::new();
+    for sentence in omitted {
+        bad_sentences
+            .entry(sentence.module_index)
+            .or_default()
+            .insert(sentence.index, bad_sentence());
     }
-    let definition =
-        k_rust::definition::json::from_str(&input.to_string()).map_err(|e| e.to_string())?;
-    equal(
-        &input,
-        &k_rust::definition::json::to_string(&definition).map_err(|e| e.to_string())?,
-    )?;
-    Ok(DefinitionDocument {
+    let document = DefinitionDocument {
         definition,
         bad_sentences,
-    })
+    };
+    // The lossy reader skips a badsentence node whatever its fields; the round trip restores only the exact sentinel.
+    unchanged(value, &definition_value(&document)?)?;
+    Ok(document)
 }
 
 pub(crate) fn from_value(value: &Value) -> Result<Document, String> {
@@ -175,36 +168,15 @@ pub(crate) fn from_value(value: &Value) -> Result<Document, String> {
             bare.clone(),
         ))?)),
         Some("KFlatModuleList") => {
-            let object = bare.as_object().ok_or("KFlatModuleList is not an object")?;
-            if object.len() != 3 {
-                return Err("unknown KFlatModuleList fields".into());
-            }
-            let main_module = bare["mainModule"]
-                .as_str()
-                .ok_or("KFlatModuleList.mainModule is not a string")?
-                .to_owned();
-            let modules = bare["term"]
-                .as_array()
-                .ok_or("KFlatModuleList.term is not a list")?;
-            if modules.is_empty() {
-                return Ok(Document::ModuleList {
-                    main_module,
-                    modules: vec![],
-                });
-            }
-            let synthetic_main = modules[0]["name"]
-                .as_str()
-                .ok_or("KFlatModule.name is not a string")?;
-            let definition = definition_document(&envelope(
-                json!({"node":"KDefinition","mainModule":synthetic_main,"modules":modules,"att":{"node":"KAtt","att":{}}}),
-            ))?;
-            if !definition.bad_sentences.is_empty() {
-                return Err("claim module list contains badsentence".into());
-            }
-            Ok(Document::ModuleList {
-                main_module,
-                modules: definition.definition.modules,
-            })
+            let input = envelope(bare.clone());
+            let list = k_rust::definition::json::module_list_from_str(&input.to_string())
+                .map_err(|e| e.to_string())?;
+            let document = Document::ModuleList {
+                main_module: list.main_module,
+                modules: list.modules,
+            };
+            unchanged(&input, &document.to_value()?)?;
+            Ok(document)
         }
         _ => Ok(Document::Term(term(bare)?)),
     }
@@ -347,5 +319,8 @@ mod tests {
         invalid["term"]["term"][0]["extra"] = true.into();
         assert!(from_value(&invalid).is_err());
         assert!(read(r#"{"node":"KVariable","name":"X"}"#, false).is_err());
+        let unlisted_main =
+            envelope(json!({"node":"KFlatModuleList","mainModule":"SPEC","term":[]}));
+        assert!(from_value(&unlisted_main).is_err());
     }
 }

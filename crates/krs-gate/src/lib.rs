@@ -121,10 +121,10 @@
 //! Each KAST input must supply exactly one of `text` (inline KAST JSON), `path` (a UTF-8 KAST JSON file), or `value` (an inline node or envelope).
 //! Text and path inputs must carry exactly the `format`, `version`, and `term` envelope fields, with format `KAST` and version [`k_rust::kast::json::VERSION`].
 //! `allow_prefix: true` permits text preceding the first `{`; callers must enable this only for tool output that permits leading statistics.
-//! Terms use [`k_rust::kast::json::from_str`] and definitions use [`k_rust::definition::json::from_str`].
+//! Terms use [`k_rust::kast::json::from_str`], definitions use [`k_rust::definition::json::from_str_omitting_unrepresentable`], and module lists use [`k_rust::definition::json::module_list_from_str`].
 //! Every read must equal the corresponding writer output as a JSON value; unknown or changed fields are errors.
-//! The exact `badsentence` sentinel is retained outside the typed definition with its original sentence position.
-//! `KFlatModuleList` retains its wrapper outside the typed reader and reads all its modules as a typed definition.
+//! Each omitted sentence is retained outside the typed definition at its original sentence position and written back as the exact `badsentence` sentinel.
+//! A `KFlatModuleList` must name one of its modules as `mainModule`, and its modules are written back one by one inside the wrapper.
 //! Normalization transforms typed terms, sentences, modules, definitions, and rebuilt attributes before serialization.
 //! Attribute payloads remain JSON values; modeled nodes in payloads pass through the typed reader and normalizer.
 //! Canonical list sorting and projection grouping occur after serialization.
