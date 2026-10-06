@@ -6,6 +6,7 @@ source "$workspace/scripts/reference-memory-guard.sh"
 reference_enter_whole_job "$@"
 source "$workspace/scripts/reference-pins.sh"
 source "$workspace/scripts/reference-cache.sh"
+source "$workspace/scripts/reference-server-port.sh"
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 imp_checkout=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
 kompile=${K_KOMPILE:-}
@@ -52,7 +53,9 @@ kore_parser=${K_KORE_PARSER:-"$(dirname "$kompile")/kore-parser"}
 rpc_client=${K_KORE_RPC_CLIENT:-"$(dirname "$kompile")/kore-rpc-client"}
 # The Haskell backend's own RPC server: the engine the reference krun runs (kore-exec).
 reference_simplifier=$(dirname "$kompile")/kore-rpc
-reference_simplifier_port=${REFERENCE_SIMPLIFIER_PORT:-31349}
+# The simplifier binds this port; 0 (the default) lets the kernel assign a free one, which the
+# gate reads back from the server (scripts/reference-server-port.sh).
+reference_simplifier_port=${REFERENCE_SIMPLIFIER_PORT:-0}
 for tool in "$krun" "$kast"; do
   if [[ ! -x "$tool" ]]; then
     echo "error: missing matching pinned reference executable: $tool" >&2
@@ -97,7 +100,6 @@ simplify_reference_result() {
   local result=$1
   local simplified=$2
   local stem=${result%.kore}
-  local attempt
   for tool in "$kore_parser" "$reference_simplifier" "$rpc_client"; do
     if [[ ! -x "$tool" ]]; then
       echo "error: missing matching pinned reference executable: $tool" >&2
@@ -114,8 +116,9 @@ simplify_reference_result() {
       --print-pattern-json \
       --no-print-definition >"$stem.json"
   )
-  if (exec 3<>"/dev/tcp/127.0.0.1/$reference_simplifier_port") 2>/dev/null; then
-    echo "error: port $reference_simplifier_port is in use; set REFERENCE_SIMPLIFIER_PORT" >&2
+  if [[ "$reference_simplifier_port" != 0 ]] &&
+    (exec 3<>"/dev/tcp/127.0.0.1/$reference_simplifier_port") 2>/dev/null; then
+    echo "error: port $reference_simplifier_port is in use; unset REFERENCE_SIMPLIFIER_PORT" >&2
     exit 2
   fi
   (
@@ -128,18 +131,12 @@ simplify_reference_result() {
       --server-port "$reference_simplifier_port"
   ) >"$stem.simplifier.log" 2>&1 </dev/null &
   simplifier_pid=$!
-  for ((attempt = 1; ; attempt++)); do
-    if (exec 3<>"/dev/tcp/127.0.0.1/$reference_simplifier_port") 2>/dev/null; then
-      break
-    fi
-    if ! kill -0 "$simplifier_pid" 2>/dev/null || ((attempt == 600)); then
-      echo "error: the reference simplifier did not listen on port $reference_simplifier_port" >&2
-      cat "$stem.simplifier.log" >&2
-      exit 1
-    fi
-    sleep 0.1
-  done
-  "$rpc_client" --port "$reference_simplifier_port" --log-level Error simplify "$stem.json" \
+  if ! reference_wait_for_server_port "$simplifier_pid" "$stem.simplifier.log" \
+    "$reference_simplifier_port"; then
+    echo "error: the reference simplifier did not listen" >&2
+    exit 1
+  fi
+  "$rpc_client" --port "$reference_listening_port" --log-level Error simplify "$stem.json" \
     -o "$stem.simplify-response.json" </dev/null
   stop_reference_simplifier
   if ! jq -e '.result.state' "$stem.simplify-response.json" >"$simplified"; then

@@ -1190,8 +1190,10 @@ fn reference_result_simplification_needs_a_reason_and_program_results() {
 /// that only listens, a fake RPC client that answers `simplify` with `\bottom` (or with an error
 /// when `FAKE_RPC_ERROR=1`), and a fake comparator that records which reference result it got
 /// and fails on the raw one unless `FAKE_RAW_STATUS` says otherwise (and on the simplified one
-/// with `FAKE_SIMPLIFIED_STATUS`). Returns the exit status, the call log, standard output and
-/// standard error, and whether the fake server still listened after the gate exited.
+/// with `FAKE_SIMPLIFIED_STATUS`). The gate chooses the server's port unless `environment` sets
+/// `REFERENCE_SIMPLIFIER_PORT`; the fake server records the port it bound (`kore-rpc-bound`).
+/// Returns the exit status, the call log, standard output and standard error, and whether a
+/// fake server still listened after the gate exited.
 fn execution_gate_with_reference_simplifier(
     case: &str,
     environment: &[(&str, &str)],
@@ -1218,11 +1220,13 @@ fn execution_gate_with_reference_simplifier(
         r#"
 printf 'kore-rpc %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
 while (($#)); do [[ $1 == --server-port ]] && port=$2; shift; done
-exec python3 -c 'import socket, sys, time
+exec python3 -c 'import os, socket, sys, time
 s = socket.socket()
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(("127.0.0.1", int(sys.argv[1])))
 s.listen(8)
+with open(os.environ["ENVIRONMENT_CALLS"], "a") as calls:
+    calls.write("kore-rpc-bound %d|\n" % s.getsockname()[1])
 time.sleep(600)' "$port"
 "#,
     );
@@ -1250,10 +1254,6 @@ case $K_REFERENCE_EXECUTION in
 esac
 "#,
     );
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|listener| listener.local_addr())
-        .expect("a free port")
-        .port();
     let path = format!(
         "{}:{}",
         fixture.display(),
@@ -1271,7 +1271,7 @@ esac
         .env_remove("K_KAST")
         .env_remove("K_KORE_PARSER")
         .env_remove("K_KORE_RPC_CLIENT")
-        .env("REFERENCE_SIMPLIFIER_PORT", port.to_string())
+        .env_remove("REFERENCE_SIMPLIFIER_PORT")
         .env("KRUST_GATE_TARGET_DIR", &target)
         .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
         .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
@@ -1280,8 +1280,10 @@ esac
         command.env(name, value);
     }
     let output = command.output().expect("run execution gate fixture");
-    let still_listening = std::net::TcpStream::connect(("127.0.0.1", port)).is_ok();
     let log = fs::read_to_string(&calls).unwrap_or_default();
+    let still_listening = bound_simplifier_ports(&log)
+        .into_iter()
+        .any(|port| std::net::TcpStream::connect(("127.0.0.1", port)).is_ok());
     fs::remove_dir_all(fixture).expect("remove execution gate fixture");
     (
         output.status.code(),
@@ -1290,6 +1292,74 @@ esac
         String::from_utf8_lossy(&output.stderr).into_owned(),
         still_listening,
     )
+}
+
+/// The ports the fake reference simplifiers of [`execution_gate_with_reference_simplifier`]
+/// bound, in start order.
+fn bound_simplifier_ports(log: &str) -> Vec<u16> {
+    log.lines()
+        .filter_map(|line| line.strip_prefix("kore-rpc-bound "))
+        .map(|port| port.trim_end_matches('|').parse().expect("a bound port"))
+        .collect()
+}
+
+/// The `--port` of every `simplify` request the fake RPC client of
+/// [`execution_gate_with_reference_simplifier`] received, in order.
+fn simplify_request_ports(log: &str) -> Vec<u16> {
+    log.lines()
+        .filter(|line| line.starts_with("kore-rpc-client ") && line.contains(" simplify "))
+        .map(|line| {
+            let mut words = line.split_whitespace();
+            words.find(|word| *word == "--port");
+            words
+                .next()
+                .and_then(|port| port.parse().ok())
+                .unwrap_or_else(|| panic!("a simplify request without a port: {line}"))
+        })
+        .collect()
+}
+
+/// The execution gate never assumes a fixed port for the reference simplifier: by default it
+/// starts the server on port 0, so the kernel assigns a free port at the server's own bind and
+/// concurrent gate runs cannot collide, and it sends the request to the port the server it
+/// started actually listens on. A port pinned with `REFERENCE_SIMPLIFIER_PORT` is used as given.
+#[test]
+fn execution_gate_sends_simplify_requests_to_the_port_its_own_server_bound() {
+    let (status, log, stdout, stderr, _) =
+        execution_gate_with_reference_simplifier("star-cell-heating-set", &[]);
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    let servers = log
+        .lines()
+        .filter(|line| line.starts_with("kore-rpc "))
+        .collect::<Vec<_>>();
+    assert_eq!(servers.len(), 2, "{log}");
+    for server in servers {
+        assert!(server.ends_with("--server-port 0|"), "{server}");
+    }
+    let bound = bound_simplifier_ports(&log);
+    assert_eq!(bound.len(), 2, "{log}");
+    assert!(bound.iter().all(|port| *port != 0), "{log}");
+    assert_eq!(simplify_request_ports(&log), bound, "{log}");
+
+    let pinned = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port()
+        .to_string();
+    let (status, log, stdout, stderr, _) = execution_gate_with_reference_simplifier(
+        "star-cell-heating-set",
+        &[("REFERENCE_SIMPLIFIER_PORT", &pinned)],
+    );
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    for server in log.lines().filter(|line| line.starts_with("kore-rpc ")) {
+        assert!(
+            server.ends_with(&format!("--server-port {pinned}|")),
+            "{server}"
+        );
+    }
+    let pinned = pinned.parse::<u16>().unwrap();
+    assert_eq!(bound_simplifier_ports(&log), [pinned, pinned], "{log}");
+    assert_eq!(simplify_request_ports(&log), [pinned, pinned], "{log}");
 }
 
 /// N41: for a case with `reference-result-simplification-reason` the execution gate first
@@ -3477,5 +3547,102 @@ fn collect_workspace_paths(value: &Value, output: &mut BTreeSet<PathBuf>) {
             }
         }
         Value::Integer(_) | Value::Float(_) | Value::Boolean(_) | Value::Datetime(_) => {}
+    }
+}
+
+/// `scripts/reference-server-port.sh` reads the port a gate's server listens on from that
+/// server's own listening socket, so a server told to bind port 0 (a free port the kernel assigns
+/// at its bind) is found on that port, also behind a wrapper that forks it, and a server pinned
+/// to a port another process holds is reported as failed instead of the gate talking to the
+/// other process.
+#[test]
+fn the_gates_read_a_server_port_from_the_server_they_started() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("server-port");
+    let other = std::net::TcpListener::bind("127.0.0.1:0").expect("a listener of another process");
+    let taken = other.local_addr().expect("its address").port();
+    let script = r#"
+set -u
+source "$WORKSPACE/scripts/reference-server-port.sh"
+server='import os, socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen()
+with open(sys.argv[2], "w") as out:
+    out.write("%d %d\n" % (s.getsockname()[1], os.getpid()))
+time.sleep(60)'
+started() {
+  until [[ -s "$1" ]]; do sleep 0.05; done
+  read -r bound pid <"$1"
+}
+python3 -c "$server" 0 "$FIXTURE/direct" 2>"$FIXTURE/direct.log" &
+reference_wait_for_server_port $! "$FIXTURE/direct.log" 0
+started "$FIXTURE/direct"
+echo "direct $reference_listening_port $bound"
+kill "$pid"
+(python3 -c "$server" 0 "$FIXTURE/forked" 2>"$FIXTURE/forked.log"; true) &
+reference_wait_for_server_port $! "$FIXTURE/forked.log" 0
+started "$FIXTURE/forked"
+echo "forked $reference_listening_port $bound"
+kill "$pid"
+python3 -c "$server" "$TAKEN" "$FIXTURE/taken" 2>"$FIXTURE/taken.log" &
+if reference_wait_for_server_port $! "$FIXTURE/taken.log" "$TAKEN" 2>/dev/null; then
+  echo "taken accepted"
+else
+  echo "taken refused"
+fi
+wait
+"#;
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .env("WORKSPACE", &workspace)
+        .env("FIXTURE", &fixture)
+        .env("TAKEN", taken.to_string())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run the server-port helper");
+    drop(other);
+    fs::remove_dir_all(&fixture).expect("remove server-port fixture");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3, "{stdout}{stderr}");
+    for (line, label) in lines.iter().zip(["direct", "forked"]) {
+        let words = line.split_whitespace().collect::<Vec<_>>();
+        assert_eq!(words.len(), 3, "{stdout}{stderr}");
+        assert_eq!(words[0], label, "{stdout}{stderr}");
+        assert_ne!(words[1], "0", "{stdout}{stderr}");
+        assert_eq!(
+            words[1], words[2],
+            "the helper found another port: {stdout}{stderr}"
+        );
+    }
+    assert_eq!(lines[2], "taken refused", "{stdout}{stderr}");
+}
+
+/// The RPC gate starts both of its servers on a kernel-assigned port unless the caller pins one,
+/// and sends every request to the port the server it started listens on
+/// (`scripts/reference-server-port.sh`), so concurrent runs never share or steal a server.
+#[test]
+fn rpc_gate_reads_each_server_port_from_the_server_it_started() {
+    for needle in [
+        "source \"$workspace/scripts/reference-server-port.sh\"",
+        "reference_port=${REFERENCE_RPC_PORT:-0}",
+        "rust_port=${RUST_RPC_PORT:-0}",
+        "reference_wait_for_server_port \"$server_pid\" \"$server_log\"",
+    ] {
+        assert!(RPC_SCRIPT.contains(needle), "RPC gate lacks {needle}");
+    }
+    let requests = RPC_SCRIPT
+        .lines()
+        .filter(|line| line.trim_start().starts_with("collect_responses \""))
+        .collect::<Vec<_>>();
+    assert_eq!(requests.len(), 2, "one session per server kind");
+    for request in requests {
+        assert!(
+            request.contains("collect_responses \"$server_port\""),
+            "a session not addressed to its own server's port: {request}"
+        );
     }
 }
