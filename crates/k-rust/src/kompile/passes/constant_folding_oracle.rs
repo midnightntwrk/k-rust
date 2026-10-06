@@ -28,7 +28,7 @@ use proptest::{
 };
 use serde_json::json;
 
-use super::Folder;
+use super::{Folder, Unfolded};
 use crate::{
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
@@ -307,7 +307,7 @@ enum Expect {
     /// The hook is defined here and has this value.
     Value(Out),
     /// The hook is undefined here (`#False` in its documentation, `Bottom` in the backend), so
-    /// the fold must report an error rather than produce a token.
+    /// the fold must leave the application unfolded, as undefined, rather than produce a token.
     Undefined,
     /// No oracle covers this case; the fold must still finish without panicking.
     Unchecked,
@@ -1420,7 +1420,7 @@ fn ambiguous(hook: &str, arguments: &[Arg]) -> bool {
     }
 }
 
-/// Cases where the fold reports an error although the backend computes a value.
+/// Cases where the fold leaves the application unfolded although the backend computes a value.
 fn fold_may_refuse(hook: &str, arguments: &[Arg]) -> bool {
     let beyond_bound = |argument: &Arg| *argument.int() > BigInt::from(i32::MAX);
     match hook {
@@ -1516,10 +1516,10 @@ fn check_case(
             }
             tally.values += 1;
         }
-        (Expect::Value(expected), Err(message)) => {
+        (Expect::Value(expected), Err(unfolded)) => {
             if !fold_may_refuse(hook, arguments) {
                 return Err(format!(
-                    "the fold reports {message:?} where the oracle gives {expected:?}"
+                    "the fold leaves {unfolded:?} where the oracle gives {expected:?}"
                 ));
             }
             tally.refused += 1;
@@ -1529,7 +1529,20 @@ fn check_case(
                 "the fold gives {folded:?} where the hook is undefined"
             ));
         }
-        (Expect::Undefined, Err(_)) => tally.undefined += 1,
+        (Expect::Undefined, Err(Unfolded::Undefined(_))) => tally.undefined += 1,
+        // The fold does not compute with parameters above 2^31 - 1, defined or not.
+        (Expect::Undefined, Err(Unfolded::Unsupported(_)))
+            if arguments.iter().any(
+                |argument| matches!(argument, Arg::Int(value) if *value > BigInt::from(i32::MAX)),
+            ) =>
+        {
+            tally.undefined += 1;
+        }
+        (Expect::Undefined, Err(unfolded)) => {
+            return Err(format!(
+                "the fold leaves {unfolded:?} where the hook is undefined"
+            ));
+        }
         (Expect::Unchecked, _) => tally.unchecked += 1,
     }
     Ok(())
@@ -1598,8 +1611,8 @@ fn constant_folding_agrees_with_the_backend_hooks() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Without MPFR the fold rejects every `FLOAT` hook (and the `STRING` conversions to and from
-/// `Float`) instead of folding them; the other hooks are compared as with MPFR.
+/// Without MPFR the fold leaves every `FLOAT` hook (and the `STRING` conversions to and from
+/// `Float`) unfolded; the other hooks are compared as with MPFR.
 #[cfg(not(feature = "mpfr-folding"))]
 #[test]
 fn constant_folding_agrees_with_the_backend_hooks() {
@@ -1625,12 +1638,13 @@ fn constant_folding_agrees_with_the_backend_hooks() {
             })
             .map(|argument| argument.token())
             .collect::<Vec<_>>();
-        let error = folder
+        let unfolded = folder
             .try_fold(&Label::new(label(hook)), &tokens)
             .expect_err(hook);
         assert!(
-            error.contains("requires the native MPFR implementation"),
-            "{hook}: {error}"
+            matches!(&unfolded, Unfolded::Unsupported(message)
+                if message.contains("requires the native MPFR implementation")),
+            "{hook}: {unfolded:?}"
         );
     }
 }

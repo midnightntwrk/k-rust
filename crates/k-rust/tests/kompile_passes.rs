@@ -3260,35 +3260,40 @@ fn folds_a_parametric_production_only_when_its_result_sort_is_free_of_parameters
     assert!(right.starts_with("padd("), "{right}");
 }
 
+/// The right-hand side of the only rule of `source` after constant folding, which never fails.
+fn constant_folded_right_hand_side(source: &str) -> Term {
+    let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
+    transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// Constant folding replaces an application only by a token denoting its value. A shift by a
+/// negative amount is undefined (`domains.md`), and the fold does not compute shifts by more than
+/// 2^31 - 1; both stay as written for execution, and the definition still compiles.
 #[test]
-fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
+fn leaves_shifts_it_does_not_compute_unfolded() {
     let control =
         include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/control.k");
-    let folded_right = |source: &str| {
-        let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
-        transformed
-            .main_module()
-            .unwrap()
-            .local_sentences
-            .iter()
-            .find_map(|sentence| match &**sentence {
-                Sentence::Rule { body, .. } => match body.unannotated() {
-                    Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .unwrap()
-    };
     assert_eq!(
-        folded_right(control),
+        constant_folded_right_hand_side(control),
         Term::Token {
             token: "0".into(),
             sort: Sort::new("Int"),
         }
     );
     assert_eq!(
-        folded_right(&control.replace("0 >>Int 2147483647", "8 >>Int 1")),
+        constant_folded_right_hand_side(&control.replace("0 >>Int 2147483647", "8 >>Int 1")),
         Term::Token {
             token: "4".into(),
             sort: Sort::new("Int"),
@@ -3298,15 +3303,32 @@ fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
     let negative =
         include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/test.k");
     for value in ["-1", "2147483648", "4294967295", "4294967296"] {
-        let source = negative.replace("2147483648", value);
-        let error = constant_fold(&resolve_semantic_casts(&parsed(&source)).unwrap()).unwrap_err();
-        assert_eq!(error.diagnostics.len(), 1, "bound {value}");
+        let right = constant_folded_right_hand_side(&negative.replace("2147483648", value));
         assert_eq!(
-            error.diagnostics[0].message,
-            "Argument to hook INT.shr out of range. Expected a 32-bit unsigned integer.",
-            "bound {value}"
+            Printer::new().print_term(&right),
+            format!("shrInt(#token(\"0\",\"Int\"),#token(\"{value}\",\"Int\"))"),
+            "0 >>Int {value}"
         );
     }
+}
+
+/// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and
+/// `STRING.directionality` whose meaning `domains.md` does not give, stay as written.
+#[test]
+fn leaves_hooks_without_a_fold_implementation_unfolded() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax String [hook(STRING.String)]
+          syntax String ::= "result" [function, symbol(result)]
+          syntax String ::= categoryChar(String) [function, hook(STRING.category), symbol(categoryChar)]
+                          | directionalityChar(String) [function, hook(STRING.directionality), symbol(directionalityChar)]
+          rule result => categoryChar(directionalityChar(#token("\"a\"", "String")))
+        endmodule
+    "#};
+    assert_eq!(
+        Printer::new().print_term(&constant_folded_right_hand_side(source)),
+        r#"categoryChar(directionalityChar(#token("\"a\"","String")))"#
+    );
 }
 
 #[cfg(feature = "mpfr-folding")]
@@ -3413,8 +3435,6 @@ fn folds_unicode_string_hooks_with_java_token_wrapping() {
 
 #[test]
 fn folds_string_chr_only_for_unicode_scalar_values() {
-    // reference: pinned K folds D7FF, E000, and 10FFFF to valid KORE, but its D800 and DFFF
-    // artifacts are rejected by both the Haskell backend and standalone kore-parser.
     let source = |value: &str| {
         format!(
             r#"
@@ -3469,30 +3489,22 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
         ));
     }
 
-    for codepoint in ["-1", "1114112"] {
-        let error = constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint))).unwrap())
-            .unwrap_err();
-        assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
+    // No String holds a number outside the code points, or a surrogate code point (KORE string
+    // literals cannot), as a character, so `chrChar` of one is undefined and stays as written.
+    for codepoint in ["-1", "1114112", "55296", "57343"] {
+        let right = constant_folded_right_hand_side(&source(codepoint));
         assert_eq!(
-            error.diagnostics[0].message,
-            "Argument to hook STRING.chr out of range. Expected a number between 0 and 1114111.",
-            "code point {codepoint}"
-        );
-    }
-    for codepoint in ["55296", "57343"] {
-        let error = constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint))).unwrap())
-            .unwrap_err();
-        assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
-        assert_eq!(
-            error.diagnostics[0].message,
-            "Argument to hook STRING.chr is a surrogate code point. Expected a Unicode scalar value.",
+            Printer::new().print_term(&right),
+            format!("chr(#token(\"{codepoint}\",\"Int\"))"),
             "code point {codepoint}"
         );
     }
 }
 
+/// `1 /Int 0` is undefined (`domains.md`: division by zero is `#False`); no token denotes it, so
+/// the fold leaves it and the definition compiles.
 #[test]
-fn reports_invalid_constant_operations() {
+fn leaves_an_undefined_constant_operation_unfolded() {
     let definition = Definition {
         main_module: "MAIN".into(),
         modules: vec![module(
@@ -3542,8 +3554,18 @@ fn reports_invalid_constant_operations() {
         )],
         attributes: Attributes::default(),
     };
-    let error = constant_fold(&definition).unwrap_err();
-    assert_eq!(error.diagnostics[0].message, "Division by zero.");
+    let transformed = constant_fold(&definition).unwrap();
+    let Sentence::Rule { body, .. } = &*transformed.main_module().unwrap().local_sentences[2]
+    else {
+        unreachable!()
+    };
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        unreachable!()
+    };
+    assert_eq!(
+        Printer::new().print_term(right),
+        r#"divide(#token("1","Int"),#token("0","Int"))"#
+    );
 }
 
 #[test]

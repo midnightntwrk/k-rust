@@ -54,7 +54,8 @@ impl fmt::Display for ConstantFoldingError {
 
 impl std::error::Error for ConstantFoldingError {}
 
-/// Apply Java's rewrite-aware `ConstantFolding` transformation to local rules.
+/// Replace constant applications of pure hooks on the right-hand sides and conditions of local
+/// rules by the literals of their values, leaving every application the fold does not evaluate.
 pub fn constant_fold(definition: &Definition) -> Result<Definition, ConstantFoldingError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -79,7 +80,6 @@ pub(crate) fn constant_fold_pass(
     })?;
     let views = resolved.views();
     let mut output = input.definition.clone();
-    let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
@@ -107,33 +107,17 @@ pub(crate) fn constant_fold_pass(
                 body,
                 requires,
                 ensures,
-                attributes,
                 ..
             } = sentence
             else {
                 unreachable!("copy-on-write keeps the kind decided above");
             };
-            *body = folder.fold(body.clone(), Position::Both, attributes, &mut diagnostics);
-            *requires = folder.fold(
-                requires.clone(),
-                Position::Right,
-                attributes,
-                &mut diagnostics,
-            );
-            *ensures = folder.fold(
-                ensures.clone(),
-                Position::Right,
-                attributes,
-                &mut diagnostics,
-            );
+            *body = folder.fold(body.clone(), Position::Both);
+            *requires = folder.fold(requires.clone(), Position::Right);
+            *ensures = folder.fold(ensures.clone(), Position::Right);
         }
     }
-    if diagnostics.is_empty() {
-        Ok(output)
-    } else {
-        diagnostics.sort();
-        Err(ConstantFoldingError { diagnostics })
-    }
+    Ok(output)
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -157,49 +141,34 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     }
 
     // Invariant: `fold` rebuilds `term` bottom-up, folding an `Apply` in `Position::Right` only after its `arguments` are folded; each call recurses into the immediate subterms of `term`, so its finite depth bounds the recursion.
-    fn fold(
-        &self,
-        term: Term,
-        position: Position,
-        sentence_attributes: &crate::definition::Attributes,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) -> Term {
+    fn fold(&self, term: Term, position: Position) -> Term {
         let metadata = term.metadata().cloned();
         let rebuilt = match term.into_unannotated() {
             Term::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.fold(*left, Position::Left, sentence_attributes, diagnostics)),
-                right: Box::new(self.fold(
-                    *right,
-                    Position::Right,
-                    sentence_attributes,
-                    diagnostics,
-                )),
+                left: Box::new(self.fold(*left, Position::Left)),
+                right: Box::new(self.fold(*right, Position::Right)),
             },
             Term::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.fold(*pattern, position, sentence_attributes, diagnostics)),
-                alias: Box::new(self.fold(*alias, position, sentence_attributes, diagnostics)),
+                pattern: Box::new(self.fold(*pattern, position)),
+                alias: Box::new(self.fold(*alias, position)),
             },
             Term::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
-                    .map(|item| self.fold(item, position, sentence_attributes, diagnostics))
+                    .map(|item| self.fold(item, position))
                     .collect(),
             ),
             Term::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
-                    .map(|argument| self.fold(argument, position, sentence_attributes, diagnostics))
+                    .map(|argument| self.fold(argument, position))
                     .collect::<Vec<_>>();
-                if position == Position::Right {
-                    match self.try_fold(&label, &arguments) {
-                        Ok(Some(token)) => return token,
-                        Ok(None) => {}
-                        Err(message) => diagnostics.push(Diagnostic::error_at(
-                            DiagnosticCode::InvalidConstantFolding,
-                            message,
-                            sentence_attributes,
-                        )),
-                    }
+                // An application the fold does not evaluate keeps its meaning as written: the
+                // fold only replaces a term by a token that denotes the same value (`Unfolded`).
+                if position == Position::Right
+                    && let Ok(Some(token)) = self.try_fold(&label, &arguments)
+                {
+                    return token;
                 }
                 Term::Apply { label, arguments }
             }
@@ -212,7 +181,9 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         }
     }
 
-    fn try_fold(&self, label: &Label, arguments: &[Term]) -> Result<Option<Term>, String> {
+    /// The token an application folds to; `Ok(None)` when it is not an application of a pure
+    /// hook to tokens, and `Err` when it is one that the fold leaves as written.
+    fn try_fold(&self, label: &Label, arguments: &[Term]) -> Result<Option<Term>, Unfolded> {
         let Some(production) = self
             .productions
             .productions_for(&LabelHead::from(label))
@@ -279,7 +250,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         }))
     }
 
-    fn evaluate(&self, hook: &str, tokens: &[(&str, &Sort)]) -> Result<Value, String> {
+    fn evaluate(&self, hook: &str, tokens: &[(&str, &Sort)]) -> Result<Value, Unfolded> {
         let values = tokens
             .iter()
             .map(|(token, sort)| self.unwrap(token, sort))
@@ -355,17 +326,17 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                 || hook.starts_with("STRING.float")
                 || hook == "STRING.string2float" =>
             {
-                Err(format!(
+                Err(Unfolded::Unsupported(format!(
                     "floating-point constant folding for hook {hook} requires the native MPFR implementation"
-                ))
+                )))
             }
-            _ => Err(format!(
-                "Missing constant-folding implementation for hook {hook}"
-            )),
+            _ => Err(Unfolded::Unsupported(format!(
+                "no constant-folding implementation for hook {hook}"
+            ))),
         }
     }
 
-    fn unwrap(&self, token: &str, sort: &Sort) -> Result<Value, String> {
+    fn unwrap(&self, token: &str, sort: &Sort) -> Result<Value, Unfolded> {
         match self
             .sorts
             .attributes_for(&SortHead::from(sort))
@@ -373,15 +344,19 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         {
             Some("BOOL.Bool") => bool::from_str(token)
                 .map(Value::Bool)
-                .map_err(|_| format!("invalid Bool token {token:?}")),
+                .map_err(|_| Unfolded::Unsupported(format!("invalid Bool token {token:?}"))),
             Some("INT.Int") => BigInt::from_str(token)
                 .map(Value::Int)
-                .map_err(|_| format!("invalid Int token {token:?}")),
-            Some("STRING.String") => crate::kast::string::unquote(token).map(Value::String),
+                .map_err(|_| Unfolded::Unsupported(format!("invalid Int token {token:?}"))),
+            Some("STRING.String") => crate::kast::string::unquote(token)
+                .map(Value::String)
+                .map_err(Unfolded::Unsupported),
             Some("FLOAT.Float") => {
                 #[cfg(feature = "mpfr-folding")]
                 {
-                    float::KFloat::parse(token).map(Value::Float)
+                    float::KFloat::parse(token)
+                        .map(Value::Float)
+                        .map_err(|unfolded| Unfolded::Unsupported(unfolded.message().to_owned()))
                 }
                 #[cfg(not(feature = "mpfr-folding"))]
                 {
@@ -411,6 +386,39 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     }
 }
 
+/// Why the fold leaves a constant application of a pure hook as written. Folding replaces a term
+/// by a token that denotes the same value, so where there is no such token, or the fold does not
+/// compute it, the application stays and execution evaluates it; a definition never fails to
+/// compile because of a constant's value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Unfolded {
+    /// The hook is undefined (`#Bottom`) on these arguments.
+    Undefined(String),
+    /// The fold does not evaluate this hook, or cannot read these arguments.
+    Unsupported(String),
+}
+
+impl Unfolded {
+    #[cfg(feature = "mpfr-folding")]
+    fn message(&self) -> &str {
+        match self {
+            Self::Undefined(message) | Self::Unsupported(message) => message,
+        }
+    }
+}
+
+impl From<String> for Unfolded {
+    fn from(message: String) -> Self {
+        Self::Undefined(message)
+    }
+}
+
+impl From<&str> for Unfolded {
+    fn from(message: &str) -> Self {
+        Self::Undefined(message.to_owned())
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Value {
     Bool(bool),
@@ -422,109 +430,136 @@ enum Value {
     Float(String),
 }
 
-fn bool_value(value: &Value) -> Result<bool, String> {
+fn bool_value(value: &Value) -> Result<bool, Unfolded> {
     match value {
         Value::Bool(value) => Ok(*value),
-        Value::Int(_) | Value::String(_) | Value::Float(_) => {
-            Err("constant-folding hook expected Bool".into())
-        }
+        Value::Int(_) | Value::String(_) | Value::Float(_) => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Bool".into(),
+        )),
     }
 }
-fn int_value(value: &Value) -> Result<BigInt, String> {
+fn int_value(value: &Value) -> Result<BigInt, Unfolded> {
     match value {
         Value::Int(value) => Ok(value.clone()),
-        Value::Bool(_) | Value::String(_) | Value::Float(_) => {
-            Err("constant-folding hook expected Int".into())
-        }
+        Value::Bool(_) | Value::String(_) | Value::Float(_) => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Int".into(),
+        )),
     }
 }
-fn string_value(value: &Value) -> Result<&str, String> {
+fn string_value(value: &Value) -> Result<&str, Unfolded> {
     match value {
         Value::String(value) => Ok(value),
-        Value::Bool(_) | Value::Int(_) | Value::Float(_) => {
-            Err("constant-folding hook expected String or token".into())
-        }
+        Value::Bool(_) | Value::Int(_) | Value::Float(_) => Err(Unfolded::Unsupported(
+            "constant-folding hook expected String or token".into(),
+        )),
     }
 }
-fn unary_bool(values: &[Value], f: impl FnOnce(bool) -> bool) -> Result<Value, String> {
+fn unary_bool(values: &[Value], f: impl FnOnce(bool) -> bool) -> Result<Value, Unfolded> {
     let [a] = values else {
-        return Err("constant-folding hook expected one argument".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected one argument".into(),
+        ));
     };
     Ok(Value::Bool(f(bool_value(a)?)))
 }
-fn binary_bool(values: &[Value], f: impl FnOnce(bool, bool) -> bool) -> Result<Value, String> {
+fn binary_bool(values: &[Value], f: impl FnOnce(bool, bool) -> bool) -> Result<Value, Unfolded> {
     let [a, b] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     Ok(Value::Bool(f(bool_value(a)?, bool_value(b)?)))
 }
 fn unary_int(
     values: &[Value],
-    f: impl FnOnce(BigInt) -> Result<Value, String>,
-) -> Result<Value, String> {
+    f: impl FnOnce(BigInt) -> Result<Value, Unfolded>,
+) -> Result<Value, Unfolded> {
     let [a] = values else {
-        return Err("constant-folding hook expected one argument".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected one argument".into(),
+        ));
     };
     f(int_value(a)?)
 }
 fn binary_int(
     values: &[Value],
-    f: impl FnOnce(BigInt, BigInt) -> Result<BigInt, String>,
-) -> Result<Value, String> {
+    f: impl FnOnce(BigInt, BigInt) -> Result<BigInt, Unfolded>,
+) -> Result<Value, Unfolded> {
     let [a, b] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     f(int_value(a)?, int_value(b)?).map(Value::Int)
 }
 fn ternary_int(
     values: &[Value],
-    f: impl FnOnce(BigInt, BigInt, BigInt) -> Result<BigInt, String>,
-) -> Result<Value, String> {
+    f: impl FnOnce(BigInt, BigInt, BigInt) -> Result<BigInt, Unfolded>,
+) -> Result<Value, Unfolded> {
     let [a, b, c] = values else {
-        return Err("constant-folding hook expected three arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected three arguments".into(),
+        ));
     };
     f(int_value(a)?, int_value(b)?, int_value(c)?).map(Value::Int)
 }
-fn compare_int(values: &[Value], f: impl FnOnce(Ordering) -> bool) -> Result<Value, String> {
+fn compare_int(values: &[Value], f: impl FnOnce(Ordering) -> bool) -> Result<Value, Unfolded> {
     let [a, b] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     Ok(Value::Bool(f(int_value(a)?.cmp(&int_value(b)?))))
 }
 fn unary_string(
     values: &[Value],
-    f: impl FnOnce(&str) -> Result<Value, String>,
-) -> Result<Value, String> {
+    f: impl FnOnce(&str) -> Result<Value, Unfolded>,
+) -> Result<Value, Unfolded> {
     let [a] = values else {
-        return Err("constant-folding hook expected one argument".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected one argument".into(),
+        ));
     };
     f(string_value(a)?)
 }
 fn binary_string(
     values: &[Value],
-    f: impl FnOnce(&str, &str) -> Result<String, String>,
-) -> Result<Value, String> {
+    f: impl FnOnce(&str, &str) -> Result<String, Unfolded>,
+) -> Result<Value, Unfolded> {
     let [a, b] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     f(string_value(a)?, string_value(b)?).map(Value::String)
 }
-fn compare_string(values: &[Value], f: impl FnOnce(Ordering) -> bool) -> Result<Value, String> {
+fn compare_string(values: &[Value], f: impl FnOnce(Ordering) -> bool) -> Result<Value, Unfolded> {
     let [a, b] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     Ok(Value::Bool(f(string_value(a)?.cmp(string_value(b)?))))
 }
 
-fn unsigned_32(value: &BigInt, hook: &str) -> Result<u32, String> {
+/// A nonnegative parameter the fold computes with: a negative one is undefined for every hook
+/// that reads one, a larger one than 2^31 - 1 is not computed by the fold.
+fn unsigned_32(value: &BigInt, hook: &str) -> Result<u32, Unfolded> {
+    if value.is_negative() {
+        return Err(Unfolded::Undefined(format!(
+            "Argument to hook {hook} out of range. Expected a nonnegative integer."
+        )));
+    }
     value
         .to_u32()
         .filter(|value| *value <= i32::MAX as u32)
         .ok_or_else(|| {
-            format!("Argument to hook {hook} out of range. Expected a 32-bit unsigned integer.")
+            Unfolded::Unsupported(format!(
+                "Argument to hook {hook} is above the fold's parameter bound 2^31 - 1."
+            ))
         })
 }
-fn checked_div(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, String> {
+fn checked_div(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, Unfolded> {
     if b.is_zero() {
         return Err("Division by zero.".into());
     }
@@ -534,7 +569,7 @@ fn checked_div(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, String> 
     let rem = checked_rem(a.clone(), b.clone(), true)?;
     Ok((a - rem) / b)
 }
-fn checked_rem(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, String> {
+fn checked_rem(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, Unfolded> {
     if b.is_zero() {
         return Err(if euclidean {
             "Division by zero."
@@ -550,7 +585,7 @@ fn checked_rem(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, String> 
         rem
     })
 }
-fn int_log2(mut value: BigInt) -> Result<Value, String> {
+fn int_log2(mut value: BigInt) -> Result<Value, Unfolded> {
     if value <= BigInt::zero() {
         return Err("Argument to hook INT.log2 out of range. Expected a positive integer.".into());
     }
@@ -562,7 +597,7 @@ fn int_log2(mut value: BigInt) -> Result<Value, String> {
     }
     Ok(Value::Int(result.into()))
 }
-fn int_bit_range(value: BigInt, index: BigInt, length: BigInt) -> Result<BigInt, String> {
+fn int_bit_range(value: BigInt, index: BigInt, length: BigInt) -> Result<BigInt, Unfolded> {
     let index = unsigned_32(&index, "INT.bitRange")? as usize;
     let length = unsigned_32(&length, "INT.bitRange")? as usize;
     Ok((value & ((BigInt::one() << length) - 1u8) << index) >> index)
@@ -571,7 +606,7 @@ fn int_sign_extend_bit_range(
     value: BigInt,
     index: BigInt,
     length: BigInt,
-) -> Result<BigInt, String> {
+) -> Result<BigInt, Unfolded> {
     let index_u = unsigned_32(&index, "INT.signExtendBitRange")? as usize;
     let length_u = unsigned_32(&length, "INT.signExtendBitRange")? as usize;
     // `domains.md` defines the result through `1 <<Int (LEN -Int 1)`, a shift by a negative
@@ -589,7 +624,7 @@ fn int_sign_extend_bit_range(
         Ok(result)
     }
 }
-fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, String> {
+fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, Unfolded> {
     const INVALID: &str = "Argument to hook INT.powmod is invalid. Modulus must be nonzero and negative exponents are only allowed when value and modulus are relatively prime.";
     if modulus.is_zero() {
         return Err(INVALID.into());
@@ -623,7 +658,7 @@ fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
     Some(((old_s % &modulus) + &modulus) % modulus)
 }
 
-fn string_chr(value: BigInt) -> Result<Value, String> {
+fn string_chr(value: BigInt) -> Result<Value, Unfolded> {
     let Some(value) = value.to_u32().filter(|value| *value <= 0x10ffff) else {
         return Err(
             "Argument to hook STRING.chr out of range. Expected a number between 0 and 1114111."
@@ -638,7 +673,7 @@ fn string_chr(value: BigInt) -> Result<Value, String> {
     };
     Ok(Value::String(value.to_string()))
 }
-fn string_ord(value: &str) -> Result<Value, String> {
+fn string_ord(value: &str) -> Result<Value, Unfolded> {
     let mut chars = value.chars();
     let Some(character) = chars.next() else {
         return Err(
@@ -652,9 +687,11 @@ fn string_ord(value: &str) -> Result<Value, String> {
     }
     Ok(Value::Int((character as u32).into()))
 }
-fn string_substr(values: &[Value]) -> Result<Value, String> {
+fn string_substr(values: &[Value]) -> Result<Value, Unfolded> {
     let [text, start, end] = values else {
-        return Err("constant-folding hook expected three arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected three arguments".into(),
+        ));
     };
     let text = string_value(text)?;
     let start = unsigned_32(&int_value(start)?, "STRING.substr")? as usize;
@@ -665,9 +702,11 @@ fn string_substr(values: &[Value]) -> Result<Value, String> {
     }
     Ok(Value::String(chars[start..end].iter().collect()))
 }
-fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value, String> {
+fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value, Unfolded> {
     let [haystack, needles, index] = values else {
-        return Err("constant-folding hook expected three arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected three arguments".into(),
+        ));
     };
     let haystack = string_value(haystack)?;
     let needles = string_value(needles)?;
@@ -681,10 +720,10 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     )? as usize;
     let chars = haystack.chars().collect::<Vec<_>>();
     if index > chars.len() {
-        return Err(format!(
+        return Err(Unfolded::Undefined(format!(
             "Argument to hook STRING.{} out of range. Expected an index >= 0 and <= the length of the string to search.",
             if reverse { "rfind" } else { "find" }
-        ));
+        )));
     }
     // Invariant: each `find` scans candidate start indices of `chars` from `index` forward, or backward when `reverse`, and returns the first index holding a character of `needles` (when `any_char`) or the whole `needle`; the finite index range bounds the scan, O(`chars.len()` * `needle.len()`) for a substring search.
     let found = if any_char {
@@ -709,7 +748,7 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
     };
     Ok(Value::Int(found.map_or(-1i64, |i| i as i64).into()))
 }
-fn parse_int(value: &str, radix: u32) -> Result<Value, String> {
+fn parse_int(value: &str, radix: u32) -> Result<Value, Unfolded> {
     // An optional sign and one or more digits of the base. The integer parser alone would also
     // skip `_` separators, which are not digits.
     let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
@@ -723,7 +762,7 @@ fn parse_int(value: &str, radix: u32) -> Result<Value, String> {
             "Argument to hook STRING.string2int invalid. Expected a valid integer.".into()
         })
 }
-fn radix(value: &Value) -> Result<u32, String> {
+fn radix(value: &Value) -> Result<u32, Unfolded> {
     let radix = int_value(value)?
         .to_u32()
         .filter(|value| (2..=36).contains(value))
@@ -733,15 +772,19 @@ fn radix(value: &Value) -> Result<u32, String> {
         })?;
     Ok(radix)
 }
-fn string_to_base(values: &[Value]) -> Result<Value, String> {
+fn string_to_base(values: &[Value]) -> Result<Value, Unfolded> {
     let [text, base] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     parse_int(string_value(text)?, radix(base)?)
 }
-fn base_to_string(values: &[Value]) -> Result<Value, String> {
+fn base_to_string(values: &[Value]) -> Result<Value, Unfolded> {
     let [value, base] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     Ok(Value::String(int_value(value)?.to_str_radix(radix(base)?)))
 }
@@ -749,9 +792,11 @@ fn replace_string(
     values: &[Value],
     count_index: Option<usize>,
     first: bool,
-) -> Result<Value, String> {
+) -> Result<Value, Unfolded> {
     let [haystack, needle, replacement, ..] = values else {
-        return Err("constant-folding hook expected at least three arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected at least three arguments".into(),
+        ));
     };
     let mut remaining = string_value(haystack)?.to_owned();
     let needle = string_value(needle)?;
@@ -790,9 +835,11 @@ fn replace_string(
     out.push_str(&remaining);
     Ok(Value::String(out))
 }
-fn count_occurrences(values: &[Value]) -> Result<Value, String> {
+fn count_occurrences(values: &[Value]) -> Result<Value, Unfolded> {
     let [haystack, needle] = values else {
-        return Err("constant-folding hook expected two arguments".into());
+        return Err(Unfolded::Unsupported(
+            "constant-folding hook expected two arguments".into(),
+        ));
     };
     let haystack = string_value(haystack)?;
     let needle = string_value(needle)?;

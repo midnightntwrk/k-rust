@@ -296,6 +296,13 @@ A literal at any other sort is rejected by the definition checks with `InvalidDo
 The emitted declaration of a head carries `hasDomainValues` exactly when that head admits domain values, so `Bool` and `KConfigVar` carry it even without token productions, and every domain value of the emitted definition is at a sort declared with it.
 [Token admissibility tests](../crates/k-rust/tests/token_admissibility.rs) pin the admitted sorts and the rejection of a hooked sort's literal.
 
+## Constant folding
+
+Before emitting KORE, the frontend evaluates applications of pure `BOOL`, `INT`, `STRING` and (with MPFR) `FLOAT` hooks to literals on rule right-hand sides and in conditions, and replaces each by the literal of its value.
+This is an optimisation: it replaces a term only by a token that denotes the same value, so it never changes what a rule means and never changes whether a definition compiles.
+Where there is no such token, or the fold does not compute it, the application stays as written and execution evaluates it: an undefined application such as `1 /Int 0` (its hook's value is `#Bottom`), a hook the fold does not implement (the deprecated `categoryChar` and `directionalityChar`, whose meaning `domains.md` does not give, and every `FLOAT` hook in builds without MPFR), and a parameter outside what the fold computes.
+The tests `leaves_an_undefined_constant_operation_unfolded`, `leaves_hooks_without_a_fold_implementation_unfolded` and `leaves_shifts_it_does_not_compute_unfolded` in [kompile_passes.rs](../crates/k-rust/tests/kompile_passes.rs) cover this, and the fold's oracle test (`constant_folding_oracle.rs`) checks every folded value against the backend's hooks.
+
 ## Resource bounds
 
 Simplification budgets and term nesting depth are k-rust's own resource contracts, specified in [backend-port.md](backend-port.md#simplification-iteration-budgets) and [backend-port.md](backend-port.md#json-depth-policy); this section records how they differ from the reference and why.

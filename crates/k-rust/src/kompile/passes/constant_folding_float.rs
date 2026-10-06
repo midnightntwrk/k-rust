@@ -26,7 +26,7 @@ use rug::{
     ops::Pow,
 };
 
-use super::{Value, int_value, string_value};
+use super::{Unfolded, Value, int_value, string_value};
 
 #[derive(Clone, Debug)]
 pub(super) struct KFloat {
@@ -35,9 +35,9 @@ pub(super) struct KFloat {
 }
 
 impl KFloat {
-    pub(super) fn parse(token: &str) -> Result<Self, String> {
+    pub(super) fn parse(token: &str) -> Result<Self, Unfolded> {
         if !is_float_syntax(token) {
-            return Err(format!("invalid Float token {token:?}"));
+            return Err(format!("invalid Float token {token:?}").into());
         }
         let (text, precision, exponent_bits) = parse_parts(token)?;
         validate_context(precision, exponent_bits)
@@ -84,7 +84,7 @@ impl KFloat {
         format!("{value}p{}x{}", self.value.prec(), self.exponent_bits)
     }
 
-    fn format(&self, format: &str) -> Result<String, String> {
+    fn format(&self, format: &str) -> Result<String, Unfolded> {
         if self.value.is_nan() {
             return Ok("NaN".into());
         }
@@ -118,21 +118,22 @@ impl KFloat {
             if written < 0 || written != length {
                 return Err("MPFR could not format the Float consistently".into());
             }
-            CStr::from_bytes_with_nul(&buffer)
+            Ok(CStr::from_bytes_with_nul(&buffer)
                 .map_err(|error| error.to_string())?
                 .to_str()
                 .map(str::to_owned)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?)
         }
     }
 
-    fn context_matches(&self, other: &Self, hook: &str) -> Result<(), String> {
+    fn context_matches(&self, other: &Self, hook: &str) -> Result<(), Unfolded> {
         if self.value.prec() == other.value.prec() && self.exponent_bits == other.exponent_bits {
             Ok(())
         } else {
-            Err(format!(
-                "Arguments to hook {hook} do not match in exponent bits and precision."
-            ))
+            Err(
+                format!("Arguments to hook {hook} do not match in exponent bits and precision.")
+                    .into(),
+            )
         }
     }
 
@@ -147,7 +148,7 @@ impl KFloat {
         mut value: Float,
         exponent_bits: u32,
         direction: Ordering,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unfolded> {
         limit_exponent(&mut value, exponent_bits, direction)?;
         Ok(Self {
             value,
@@ -162,7 +163,10 @@ impl KFloat {
         }
     }
 
-    fn unary_round(&self, operation: impl FnOnce(&mut Float) -> Ordering) -> Result<Self, String> {
+    fn unary_round(
+        &self,
+        operation: impl FnOnce(&mut Float) -> Ordering,
+    ) -> Result<Self, Unfolded> {
         let mut value = self.value.clone();
         let direction = operation(&mut value);
         Self::from_rounded(value, self.exponent_bits, direction)
@@ -173,20 +177,20 @@ impl KFloat {
         other: &Self,
         hook: &str,
         operation: impl FnOnce(&Float, &Float) -> (Float, Ordering),
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unfolded> {
         self.context_matches(other, hook)?;
         let (value, direction) = operation(&self.value, &other.value);
         Self::from_rounded(value, self.exponent_bits, direction)
     }
 }
 
-pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, String>> {
+pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unfolded>> {
     match hook {
         "STRING.float2string" => unary_float(values, |a| Ok(Value::String(a.token()))),
         "STRING.floatFormat" => float_format(values),
         "STRING.string2float" => match values {
             [value] => Some(string_value(value).and_then(KFloat::parse).map(Value::Float)),
-            _ => Some(Err("constant-folding hook expected one argument".into())),
+            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected one argument".into()))),
         },
         "FLOAT.precision" => unary_float(values, |a| Ok(Value::Int(a.value.prec().into()))),
         "FLOAT.exponentBits" => {
@@ -294,13 +298,13 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Str
                 a.unary_round(|value| value.root_i_round(root, Round::Nearest))
                     .map(Value::Float)
             })),
-            _ => Some(Err("constant-folding hook expected Float and Int".into())),
+            _ => Some(Err(Unfolded::Unsupported("constant-folding hook expected Float and Int".into()))),
         },
         "FLOAT.round" => round_float(values),
         "FLOAT.int2float" => int_to_float(values),
         "FLOAT.float2int" => unary_float(values, |a| {
             let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| "Argument to hook FLOAT.float2int cannot be rounded to an integer.".to_owned())?.0;
-            BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())
+            Ok(BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())?)
         }),
         "FLOAT.maxValue" => extreme_value(values, true),
         "FLOAT.minValue" => extreme_value(values, false),
@@ -310,20 +314,24 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Str
 
 fn unary_float(
     values: &[Value],
-    operation: impl FnOnce(&KFloat) -> Result<Value, String>,
-) -> Option<Result<Value, String>> {
+    operation: impl FnOnce(&KFloat) -> Result<Value, Unfolded>,
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value)] => operation(value),
-        _ => Err("constant-folding hook expected one Float argument".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected one Float argument".into(),
+        )),
     })
 }
 
-fn float_format(values: &[Value]) -> Option<Result<Value, String>> {
+fn float_format(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value), format] => string_value(format)
             .and_then(|format| value.format(format))
             .map(Value::String),
-        _ => Err("constant-folding hook expected Float and String".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Float and String".into(),
+        )),
     })
 }
 
@@ -331,26 +339,30 @@ fn binary_float(
     values: &[Value],
     hook: &str,
     operation: impl FnOnce(&Float, &Float) -> (Float, Ordering),
-) -> Option<Result<Value, String>> {
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(a), Value::Float(b)] => a.binary(b, hook, operation).map(Value::Float),
-        _ => Err("constant-folding hook expected two Float arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Float arguments".into(),
+        )),
     })
 }
 
 fn compare_float(
     values: &[Value],
     predicate: impl FnOnce(Option<Ordering>) -> bool,
-) -> Option<Result<Value, String>> {
+) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(a), Value::Float(b)] => {
             Ok(Value::Bool(predicate(a.value.partial_cmp(&b.value))))
         }
-        _ => Err("constant-folding hook expected two Float arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Float arguments".into(),
+        )),
     })
 }
 
-fn round_float(values: &[Value]) -> Option<Result<Value, String>> {
+fn round_float(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [Value::Float(value), precision, exponent] => {
             context(precision, exponent).and_then(|(precision, exponent_bits)| {
@@ -359,11 +371,13 @@ fn round_float(values: &[Value]) -> Option<Result<Value, String>> {
                 KFloat::from_rounded(value, exponent_bits, direction).map(Value::Float)
             })
         }
-        _ => Err("constant-folding hook expected Float, Int, Int".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Float, Int, Int".into(),
+        )),
     })
 }
 
-fn int_to_float(values: &[Value]) -> Option<Result<Value, String>> {
+fn int_to_float(values: &[Value]) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [integer, precision, exponent] => int_value(integer).and_then(|integer| {
             let (precision, exponent_bits) = context(precision, exponent)?;
@@ -372,11 +386,13 @@ fn int_to_float(values: &[Value]) -> Option<Result<Value, String>> {
             let (value, direction) = Float::with_val_round(precision, integer, Round::Nearest);
             KFloat::from_rounded(value, exponent_bits, direction).map(Value::Float)
         }),
-        _ => Err("constant-folding hook expected Int, Int, Int".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Int, Int, Int".into(),
+        )),
     })
 }
 
-fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, String>> {
+fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, Unfolded>> {
     Some(match values {
         [precision, exponent] => {
             context(precision, exponent).and_then(|(precision, exponent_bits)| {
@@ -395,11 +411,13 @@ fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, String
                 }))
             })
         }
-        _ => Err("constant-folding hook expected two Int arguments".into()),
+        _ => Err(Unfolded::Unsupported(
+            "constant-folding hook expected two Int arguments".into(),
+        )),
     })
 }
 
-fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), String> {
+fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), Unfolded> {
     let precision = int_value(precision)?
         .to_u32()
         .ok_or_else(|| "Float precision is outside the supported range".to_owned())?;
@@ -409,7 +427,7 @@ fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), String> {
     validate_context(precision, exponent)
 }
 
-fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), String> {
+fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolded> {
     if precision > i32::MAX as u32 || precision > float::prec_max() {
         return Err("Float precision is outside the supported range".into());
     }
@@ -423,7 +441,7 @@ fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), String>
     Ok((precision, exponent))
 }
 
-fn exponent_limits(bits: u32) -> Result<(i32, i32), String> {
+fn exponent_limits(bits: u32) -> Result<(i32, i32), Unfolded> {
     let maximum = 1i32
         .checked_shl(bits.saturating_sub(1))
         .filter(|maximum| *maximum > 0)
@@ -434,7 +452,10 @@ fn exponent_limits(bits: u32) -> Result<(i32, i32), String> {
     Ok((minimum, maximum))
 }
 
-fn context_exponent_limits(precision: u32, exponent_bits: u32) -> Result<(i32, i32, i32), String> {
+fn context_exponent_limits(
+    precision: u32,
+    exponent_bits: u32,
+) -> Result<(i32, i32, i32), Unfolded> {
     let (minimum, maximum) = exponent_limits(exponent_bits)?;
     let precision = i32::try_from(precision)
         .map_err(|_| "Float precision is outside the supported range".to_owned())?;
@@ -456,7 +477,7 @@ fn limit_exponent(
     value: &mut Float,
     exponent_bits: u32,
     direction: Ordering,
-) -> Result<(), String> {
+) -> Result<(), Unfolded> {
     let (normal_minimum, subnormal_minimum, maximum) =
         context_exponent_limits(value.prec(), exponent_bits)?;
     let direction = value
@@ -505,7 +526,7 @@ fn is_float_syntax(token: &str) -> bool {
     mantissa_ok && exponent_ok
 }
 
-fn parse_parts(token: &str) -> Result<(&str, u32, u32), String> {
+fn parse_parts(token: &str) -> Result<(&str, u32, u32), Unfolded> {
     if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
         && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
     {
@@ -526,7 +547,7 @@ fn parse_parts(token: &str) -> Result<(&str, u32, u32), String> {
     }
 }
 
-fn validate_mpfr_format(format: &str) -> Result<(), String> {
+fn validate_mpfr_format(format: &str) -> Result<(), Unfolded> {
     let bytes = format.as_bytes();
     let mut index = 0;
     let mut conversions = 0;
@@ -773,7 +794,7 @@ mod tests {
             "1p24x32",
         ] {
             assert_eq!(
-                KFloat::parse(token).unwrap_err(),
+                KFloat::parse(token).unwrap_err().message(),
                 format!("invalid Float token {token:?}")
             );
         }
@@ -790,7 +811,10 @@ mod tests {
     #[test]
     fn rejects_invalid_operation_contexts() {
         let context_error = |precision: i64, exponent: i64| {
-            context(&Value::Int(precision.into()), &Value::Int(exponent.into())).unwrap_err()
+            context(&Value::Int(precision.into()), &Value::Int(exponent.into()))
+                .unwrap_err()
+                .message()
+                .to_owned()
         };
 
         assert_eq!(
