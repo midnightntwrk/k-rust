@@ -19,7 +19,7 @@
 //! id = "parser.grammar.program_signature"
 //! name = "collection of public program-grammar signatures"
 //! sites = ["collect_public_signature", "prepared_program_sentences"]
-//! variable = "M = reachable modules and imports; S = visible sentences"
+//! variable = "M = reachable modules and imports; S = visible syntax declarations"
 //! counters = []
 //! no_counter = "public-signature collection has no dedicated counter"
 //!
@@ -476,7 +476,7 @@ fn program_sentences(
             .value(AttributeKey::NotLr1)
             .is_none()
     {
-        append_unique(
+        append_unique_syntax(
             &mut sentences,
             definition
                 .module(module)
@@ -556,7 +556,7 @@ fn collect_public_signature(
             .value(AttributeKey::NotLr1)
             .is_none()
     {
-        append_unique(sentences, definition.public_sentences(module));
+        append_unique_syntax(sentences, definition.public_sentences(module));
     }
 }
 
@@ -568,13 +568,22 @@ fn program_import(definition: &ResolvedDefinition, module: ModuleId) -> (ModuleI
         .map_or((module, false), |companion| (companion, true))
 }
 
-fn append_unique<'a>(
+/// Append the syntax declarations of `incoming` not equivalent to one already collected.
+///
+/// A program grammar is the syntax its module sees, and only syntax declarations define it
+/// ([`Sentence::is_syntax`]): every step that builds the grammar from the collected set reads
+/// productions, sort declarations, synonyms, lexical identifiers and priority and associativity
+/// declarations, and skips every other sentence. Rules, claims, contexts and configuration
+/// declarations are therefore never collected, so a parser's preparation neither copies nor
+/// compares their terms, whatever their size or depth.
+fn append_unique_syntax<'a>(
     sentences: &mut Vec<Sentence>,
     incoming: impl IntoIterator<Item = &'a Sentence>,
 ) {
     let mut seen = EquivalenceAccumulator::from_sentences(sentences.iter());
     let accepted = incoming
         .into_iter()
+        .filter(|sentence| sentence.is_syntax())
         .filter(|sentence| push_if_inequivalent(&mut seen, sentence))
         .cloned()
         .collect::<Vec<_>>();
@@ -732,6 +741,121 @@ endmodule
         let item_error = parser.parse(&Sort::new("KItem"), "same").unwrap_err();
         assert!(matches!(*item_error.error, ParseError::Ambiguous { .. }));
         assert_eq!(parser.parse_configuration_k_value("same"), Err(item_error));
+    }
+
+    /// A definition whose two modules, the program module and one it imports, each hold a rule,
+    /// a claim, a context, a context alias and a configuration declaration whose first term is
+    /// `depth` levels deep.
+    fn with_semantic_sentences(depth: usize) -> Definition {
+        let parsed = crate::outer::parse(
+            "semantic-sentences.k",
+            r#"
+module LIB
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+endmodule
+
+module MAIN
+  imports LIB
+  syntax KItem ::= "go" [symbol(go)]
+endmodule
+"#,
+        )
+        .unwrap();
+        let mut definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let deep = || {
+            (0..depth).fold(Term::apply("z", Vec::new()), |term, _| {
+                Term::apply("s", vec![term])
+            })
+        };
+        let side = || Term::variable("C");
+        for module in &mut definition.modules {
+            if module.name != "LIB" && module.name != "MAIN" {
+                continue;
+            }
+            module.local_sentences.extend(
+                [
+                    Sentence::Rule {
+                        body: deep(),
+                        requires: side(),
+                        ensures: side(),
+                        attributes: Attributes::default(),
+                    },
+                    Sentence::Claim {
+                        body: deep(),
+                        requires: side(),
+                        ensures: side(),
+                        attributes: Attributes::default(),
+                    },
+                    Sentence::Context {
+                        body: deep(),
+                        requires: side(),
+                        attributes: Attributes::default(),
+                    },
+                    Sentence::ContextAlias {
+                        body: deep(),
+                        requires: side(),
+                        attributes: Attributes::default(),
+                    },
+                    Sentence::Configuration {
+                        body: deep(),
+                        ensures: side(),
+                        attributes: Attributes::default(),
+                    },
+                ]
+                .map(Arc::new),
+            );
+        }
+        definition
+    }
+
+    /// A program grammar is the syntax its module sees: the sentence sets prepared for the
+    /// in-process parser and for a generated Bison parser hold syntax declarations only, not the
+    /// rules, claims, contexts and configuration declarations of the program module or of the
+    /// modules it imports.
+    #[test]
+    fn program_grammar_sentences_are_syntax_declarations_only() {
+        let definition = with_semantic_sentences(3);
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let module = resolved.module_id("MAIN").unwrap();
+        for sentences in [
+            prepared_program_sentences(&resolved, module),
+            prepared_bison_program_sentences(&resolved, module),
+        ] {
+            assert!(
+                sentences.iter().any(|sentence| matches!(
+                    sentence,
+                    Sentence::Production { label: Some(label), .. } if label.name == "s"
+                )),
+                "the imported syntax is part of the grammar"
+            );
+            let semantic = sentences
+                .iter()
+                .filter(|sentence| !sentence.is_syntax())
+                .collect::<Vec<_>>();
+            assert!(semantic.is_empty(), "{semantic:#?}");
+        }
+    }
+
+    /// Preparing a program parser reads no semantic sentence, so the depth of a rule's terms
+    /// does not bound it: a parser is built, and parses, beside rules 100,000 levels deep on a
+    /// thread of 2 MiB of stack.
+    #[test]
+    fn a_program_parser_is_built_beside_semantic_sentences_of_any_depth() {
+        let definition = with_semantic_sentences(100_000);
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+                let parser = ProgramParser::from_resolved(&resolved, "MAIN").unwrap();
+                let program = parser.parse(&Sort::new("KItem"), "go").unwrap();
+                assert!(matches!(
+                    program.typed_term().unannotated(),
+                    Term::Apply { label, arguments } if label.name == "go" && arguments.is_empty()
+                ));
+            })
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish");
     }
 
     #[test]

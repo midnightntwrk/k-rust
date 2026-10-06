@@ -893,10 +893,10 @@ fn modules_identical(previous: &FlatModule, next: &FlatModule) -> (bool, bool) {
             previous
                 .local_sentences
                 .iter()
-                .filter(|sentence| is_syntax_sentence(sentence)),
+                .filter(|sentence| sentence.is_syntax()),
             next.local_sentences
                 .iter()
-                .filter(|sentence| is_syntax_sentence(sentence)),
+                .filter(|sentence| sentence.is_syntax()),
         );
     (identical, syntax_identical)
 }
@@ -1215,18 +1215,6 @@ impl From<&FlatModule> for ResolvedModule {
             attributes: module.attributes.clone(),
         }
     }
-}
-
-fn is_syntax_sentence(sentence: &Sentence) -> bool {
-    matches!(
-        sentence,
-        Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-    )
 }
 
 /// The first of each class of equivalent local sentences, carrying the input addresses of every

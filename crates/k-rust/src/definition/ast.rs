@@ -664,6 +664,24 @@ impl Sentence {
         }
     }
 
+    /// Whether the sentence declares syntax: a sort, a sort synonym, a lexical identifier, a
+    /// production, or a priority or associativity relation among productions.
+    ///
+    /// These sentences, and no others, define a module's grammar. Rules, claims, contexts,
+    /// context aliases and configuration declarations state facts about terms of that grammar,
+    /// and a bubble is text not yet parsed by it.
+    pub fn is_syntax(&self) -> bool {
+        matches!(
+            self,
+            Self::SyntaxSort { .. }
+                | Self::SortSynonym { .. }
+                | Self::SyntaxLexical { .. }
+                | Self::Production { .. }
+                | Self::SyntaxAssociativity { .. }
+                | Self::SyntaxPriority { .. }
+        )
+    }
+
     /// The term-bearing fields of the sentence, indexed by field number (see
     /// [`Sentence::terms`]).
     ///
