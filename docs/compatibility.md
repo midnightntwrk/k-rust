@@ -192,6 +192,7 @@ A configuration variable cast to such a sort is rejected at configuration expans
 A definition's own production labelled `#OuterCast` whose result is such a sort (`syntax #Foo ::= "{" K "}" "asFoo" [symbol(#OuterCast)]`) is a parse error at its use; with a result that has a projection it lowers to that projection like `{T}:>S`.
 A semantic cast that is a downcast to such a sort (a K sequence cast to `KConfigVar` where `KItem ::= KConfigVar`, which only structured input can write) is rejected by sort injection, and by `sentence_typing` alike, as `DowncastWithoutProjection`.
 In a search pattern (`krun --search --pattern`), each semantic cast, including the one the inner parser puts around every variable at its inferred sort, adds the sort predicate of its sort to the pattern's condition when that sort has one.
+A pattern with a rewrite denotes its left side, so the predicate tests the left side of the cast's operand: `(X => Y):Int` adds the test `X:Int` adds.
 A cast to `Bag` adds the cell-fragment test `isBag`, which cell concretization expands into the sort predicates of the fragment's cells.
 A cast to any other sort (`KLabel`, `KList`, `KString`, `Cell`) adds nothing: no compiled K term has such a sort, and the cast's sort is already the operand's sort in the compiled pattern, where a variable matches only terms of its sort and sort injection checks any other operand against the cast.
 The positive `isS(X:S) => true` sort-predicate rule exists only when `S` is placeable at the predicate's `K` argument in its module's subsort order.
@@ -397,6 +398,10 @@ Within a rewrite rule the value exists only once the step applies, so a `!` vari
 It is rejected where the rule matches (the left-hand side of a rewrite, or outside every rewrite), which would compare the subject with a value nothing in it holds yet, and in `requires`, which decides whether the step applies before it allocates anything.
 It is also rejected anywhere in a context: the heating step builds the context's term and the cooling step matches it again, and a value one step allocates is not one the other can match.
 A local function (`#fun`, `#let`) on the right-hand side of a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
+
+The counter cell `<generatedCounter>` holds an `Int` that starts at the domain value `0`, so the configuration has it only when the main module sees a sort `Int` with domain values (token syntax).
+A `--no-prelude` definition without such an `Int` gets a `<generatedTop>` around its own top cell alone, and its claims get no counter cell; nothing in it can draw a fresh value, since a `freshGenerator` takes an `Int`.
+A `!` variable in such a definition is rejected with `InvalidFreshConstant` at its sentence (with no `INT` module, the report is that the counter increment needs `INT`).
 
 ## Anywhere rules
 
@@ -906,6 +911,7 @@ An unknown or untranslatable flag must remain explicitly unsupported rather than
 The `declined-capability` category records steps requiring an interface with no Rust equivalent.
 Semantic input selection, warning handling, execution status, and configuration initialization remain testable contracts; this policy does not exclude them.
 The source-plus-flags interface includes standalone Bison parser generation and executable or shared-library parser artifacts, while relying on the system Bison, Flex, and C compiler rather than implementing those tools in Rust.
+A generated parser accepts exactly the programs of the start sort in the syntax module; when that sort has no programs there (no production, or every production needs a sort without programs, as for a sort declared bare whose program syntax lives in a module the syntax module does not import), there is no Bison grammar for it, and generation fails before Bison with an error naming the sort and those productions.
 
 `krun --output captured` is an explicit ordinary-execution mode for definition-computed console output.
 It uses buffered `--io off` stream semantics with pre-buffered standard input, requires exactly one complete unconstrained terminal execution leaf and exactly one structurally identified stdout stream buffer, writes that buffer to process stdout once, and suppresses KORE rendering.

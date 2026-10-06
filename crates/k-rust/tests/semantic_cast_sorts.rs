@@ -686,3 +686,79 @@ fn a_cast_around_a_rewrite_constrains_each_side() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// The axiom of `EXPS.cast` when `exps.k`'s rule `plus((E => z):Nat, z)` is written as `rule`.
+fn parsed_cast_axiom(rule: &str) -> String {
+    let source = EXPS.replace("plus((E => z):Nat, z)", rule);
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let loaded = load_for_compilation(
+        ResolvedSource::new("exps.k", source),
+        "EXPS",
+        None,
+        &mut resolver,
+        &options(CompilationBackend::Rust),
+    )
+    .unwrap()
+    .0;
+    compiled_cast_axiom(&loaded).unwrap()
+}
+
+// `P #as A` denotes one value, matched by `P` and bound to `A`, so a cast around it constrains
+// both as casts written on each would: `(P #as A):S` means `(P:S) #as (A:S)`. The parser writes
+// those inner casts itself (`(P #as V):Nat` loads as `#SemanticCastToNat(#SemanticCastToNat(P)
+// #as #SemanticCastToNat(V))`); a term without them means the same.
+#[test]
+fn a_cast_around_an_as_pattern_constrains_the_pattern_and_the_alias() {
+    let base = load_exps();
+    let as_pattern = |pattern: Term, alias: Term| Term::As {
+        pattern: Box::new(pattern),
+        alias: Box::new(alias),
+    };
+    let mut failures = Vec::new();
+    for (reused, text) in [
+        ("V", "plus((P #as V):Nat, z => V)"),
+        ("P", "plus((P #as V):Nat, z => P)"),
+    ] {
+        let parsed = parsed_cast_axiom(text);
+        assert!(
+            parsed.contains("\\and{SortNat{}}(VarP:SortNat{},VarV:SortNat{})"),
+            "{parsed}"
+        );
+        let body = app(
+            "plus",
+            vec![
+                cast("Nat", as_pattern(variable("P", None), variable("V", None))),
+                rewrite(z(), variable(reused, None)),
+            ],
+        );
+        for (route, loaded) in exps_with_cast_body(&base, body) {
+            match compiled_cast_axiom(&loaded) {
+                Ok(axiom) if axiom == parsed => {}
+                other => failures.push(format!("{reused} reused, {route}: {other:?}")),
+            }
+        }
+    }
+    // An explicit alias sort outside the cast is the same conflict as on a direct cast.
+    let body = app(
+        "plus",
+        vec![
+            cast(
+                "Nat",
+                as_pattern(variable("P", None), variable("V", Some("Exp"))),
+            ),
+            rewrite(z(), variable("V", None)),
+        ],
+    );
+    for (route, loaded) in exps_with_cast_body(&base, body) {
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "resolve semantic casts"
+                    && error.message.contains(
+                        "variable V has explicit sort Exp outside semantic cast sort Nat",
+                    ) => {}
+            other => failures.push(format!("sorted alias, {route}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

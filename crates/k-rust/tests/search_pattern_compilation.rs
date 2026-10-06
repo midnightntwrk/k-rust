@@ -386,6 +386,58 @@ fn search_pattern_compilation_projects_rewrite_left() {
     assert!(!rendered.contains("Lblc"), "{rendered}");
 }
 
+/// The body of a compiled pattern and the distinct conjuncts of its condition (`_andBool_` is
+/// idempotent, so a test the condition repeats says nothing more).
+fn body_and_tests(compiled: &CompiledSearchPattern) -> (Pattern, BTreeSet<String>) {
+    let Pattern::And { arguments, .. } = &compiled.pattern else {
+        panic!("expected a conjunction: {}", compiled.pattern)
+    };
+    let mut tests = BTreeSet::new();
+    for argument in &arguments[1..] {
+        let mut pending = vec![argument];
+        while let Some(pattern) = pending.pop() {
+            match pattern {
+                Pattern::Equals { left, .. } => pending.push(left),
+                Pattern::Application { symbol, arguments }
+                    if symbol.name == "Lbl'Unds'andBool'Unds'" =>
+                {
+                    pending.extend(arguments)
+                }
+                other => {
+                    tests.insert(other.to_string());
+                }
+            }
+        }
+    }
+    (arguments[0].clone(), tests)
+}
+
+/// A pattern with a rewrite denotes its left side, so a cast around the rewrite constrains the
+/// left side's value: `pair((X => a):Exp, b)` is the pattern `pair(X:Exp, b)`, with the same
+/// sort tests, and its condition holds no rewrite.
+#[test]
+fn search_pattern_compilation_tests_a_cast_around_a_rewrite_on_the_left_side() {
+    for (cast_rewrite, direct) in [
+        ("<k> pair((X => a):Exp, b) </k>", "<k> pair(X:Exp, b) </k>"),
+        ("<k> (pair(X, Y) => a):Exp </k>", "<k> pair(X, Y):Exp </k>"),
+    ] {
+        let compiled = compile(cast_rewrite).unwrap();
+        let mut rewrites = 0;
+        walk(&compiled.pattern, &mut |pattern| {
+            rewrites += usize::from(matches!(pattern, Pattern::Rewrites { .. }));
+        });
+        assert_eq!(rewrites, 0, "{}", compiled.pattern);
+        let (body, tests) = body_and_tests(&compiled);
+        let (direct_body, direct_tests) = body_and_tests(&compile(direct).unwrap());
+        assert_eq!(body, direct_body, "{cast_rewrite}");
+        assert_eq!(tests, direct_tests, "{cast_rewrite}");
+        assert!(
+            tests.iter().all(|test| test.contains("LblisExp")),
+            "{tests:?}"
+        );
+    }
+}
+
 #[test]
 fn search_pattern_compilation_retains_requires_and_ignores_ensures_after_transforms() {
     let without_ensures = compile("<k> a </k> requires false").unwrap();

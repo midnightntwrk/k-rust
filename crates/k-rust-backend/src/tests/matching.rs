@@ -1157,3 +1157,61 @@ fn enumerates_set_element_permutations_without_reuse() {
         ])
     );
 }
+
+/// An `as` pattern `P #as A` is the conjunction `\and(P, A)`. Under an injection `inj{Exp,KItem}`
+/// it matches a value `inj{Int,KItem}(v)` of a subsort, which equals `inj{Exp,KItem}(inj{Int,Exp}
+/// (v))` by injection composition, so each conjunct matches `inj{Int,Exp}(v)`; it matches exactly
+/// when the bare variable `inj{Exp,KItem}(X)` does.
+#[test]
+fn a_conjunction_under_an_injection_matches_a_value_of_a_subsort() {
+    let definition = BackendDefinition::internalize(
+        &parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKItem{} []
+                sort SortExp{} []
+                sort SortInt{} [hasDomainValues{}()]
+                symbol inj{From, To}(From) : To [sortInjection{}()]
+                axiom{R} \exists{R}(Value:SortExp{},
+                    \equals{SortExp{}, R}(Value:SortExp{}, inj{SortInt{}, SortExp{}}(From:SortInt{})))
+                    [subsort{SortInt{}, SortExp{}}()]
+                axiom{R} \exists{R}(Value:SortKItem{},
+                    \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortInt{}, SortKItem{}}(From:SortInt{})))
+                    [subsort{SortInt{}, SortKItem{}}()]
+                axiom{R} \exists{R}(Value:SortKItem{},
+                    \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortExp{}, SortKItem{}}(From:SortExp{})))
+                    [subsort{SortExp{}, SortKItem{}}()]
+            endmodule []"#,
+        )
+        .unwrap(),
+        "MAIN",
+    )
+    .unwrap();
+    let subject = internal_term(
+        &definition,
+        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3"))"#,
+    );
+    let value = internal_term(
+        &definition,
+        r#"inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("3"))"#,
+    );
+    let exp = Sort::simple("SortExp");
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate] {
+        let pattern = internal_term(
+            &definition,
+            r#"inj{SortExp{}, SortKItem{}}(\and{SortExp{}}(X:SortExp{}, Y:SortExp{}))"#,
+        );
+        let result = match_terms_in_definition(mode, &definition, &pattern, &subject);
+        let MatchResult::Success(substitution) = result else {
+            panic!("{mode:?}: {result:?}");
+        };
+        assert_eq!(
+            substitution,
+            Substitution::from([
+                (variable("X", exp.clone()), value.clone()),
+                (variable("Y", exp.clone()), value.clone()),
+            ]),
+            "{mode:?}"
+        );
+    }
+}

@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + F log F + L) plus one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
+//! bound = "O(N + F log F + L) plus one definition.catalog.sort construction for the main module, one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -16,6 +16,7 @@
 //!
 //! Each module scans its visible productions a constant number of times: for its fresh generators, its generated top cell, and, once when the module has a claim, its cell labels (`cell_labels_of`).
 //! A claim that mentions a configuration cell and not the counter gets `<generatedCounter> _GenN => ?_GenM </generatedCounter>`.
+//! The counter cell exists only when the main module's sort catalog (built once) admits `Int` domain values.
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
 #![deny(clippy::wildcard_enum_match_arm)]
@@ -86,6 +87,16 @@ pub(crate) fn resolve_fresh_constants_pass(
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     let mut replacements = BTreeMap::<ProductionIdentity, ProductionIdentity>::new();
+    // The counter cell holds an `Int` (initially the domain value `0`), so the configuration
+    // has one only when the main module, whose view is the emitted definition and whose
+    // configuration is executed, sees an `Int` with domain values. Without one no rule can
+    // draw from a counter (a generator takes an `Int`), and declaring the cell would name an
+    // undeclared sort.
+    // Domain values come from the token declarations among the visible sentences, so the
+    // catalog of those sentences alone decides it, without the imported modules' catalogs.
+    let counter_cell =
+        crate::definition::SortCatalog::from_visible(resolved.sentences(resolved.main_module_id()))
+            .admits_domain_value(&Sort::builtin(BuiltinSort::Int));
 
     for module in &mut output.modules {
         let module_id = resolved
@@ -108,13 +119,20 @@ pub(crate) fn resolve_fresh_constants_pass(
 
         let cell_labels = std::cell::OnceCell::new();
         // The first sentence of the module whose lowering advances the counter, which the
-        // module's `INT` import is for; it locates the error when the definition has no `INT`.
+        // module's `INT` import is for; it locates the error when the definition has no `INT`
+        // or no counter cell.
         let mut first_counter_use = None;
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             let original = sentence.clone();
-            match transform_sentence(original, &productions, &generators, &cell_labels) {
+            match transform_sentence(
+                original,
+                &productions,
+                &generators,
+                &cell_labels,
+                counter_cell,
+            ) {
                 Ok((transformed, counter)) => {
                     if let (Some(before), Some(after)) =
                         (before_identity, production_identity(&transformed))
@@ -123,15 +141,7 @@ pub(crate) fn resolve_fresh_constants_pass(
                         replacements.insert(before, after);
                     }
                     if counter == CounterUse::Advances && first_counter_use.is_none() {
-                        first_counter_use = Some(Diagnostic::error(
-                            DiagnosticCode::InvalidFreshConstant,
-                            super::missing_module_message(
-                                "A fresh variable",
-                                "an increment of the fresh counter",
-                                WellKnownModule::Int,
-                            ),
-                            &transformed,
-                        ));
+                        first_counter_use = Some(transformed.clone());
                     }
                     *sentence = transformed;
                 }
@@ -143,20 +153,39 @@ pub(crate) fn resolve_fresh_constants_pass(
             }
         }
         // The counter cell is an `Int` advanced with `_+Int_`, which the rule's module declares
-        // only when it sees `INT`; the user's rule means the same without that import.
-        if let Some(missing_int) = first_counter_use
-            && !super::import_for_generated(module, resolved, WellKnownModule::Int)
-        {
-            diagnostics.push(missing_int);
+        // only when it sees `INT`; the user's rule means the same without that import. Without
+        // `INT` that is the report; with it, a definition without the counter cell has nowhere
+        // to draw the value from.
+        if let Some(first_use) = first_counter_use {
+            if !super::import_for_generated(module, resolved, WellKnownModule::Int) {
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidFreshConstant,
+                    super::missing_module_message(
+                        "A fresh variable",
+                        "an increment of the fresh counter",
+                        WellKnownModule::Int,
+                    ),
+                    &first_use,
+                ));
+            } else if !counter_cell {
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidFreshConstant,
+                    format!(
+                        "A fresh variable draws its value from the fresh counter cell, which holds an Int starting at the domain value 0, but the main module {} sees no sort Int with domain values, so the configuration has no counter cell.",
+                        input.definition.main_module
+                    ),
+                    &first_use,
+                ));
+            }
         }
 
         let has_cells = productions
             .productions()
             .any(|(_, production)| production.attributes().has(AttributeKey::Cell));
+        let counter = counter_cell.then_some(initial_fresh);
         let configuration =
             if module.name == input.definition.main_module && !visible_generated_top && has_cells {
-                match generated_top_configuration(resolved, module_id, &productions, initial_fresh)
-                {
+                match generated_top_configuration(resolved, module_id, &productions, counter) {
                     Ok(configuration) => Some(configuration),
                     Err(message) => {
                         diagnostics.push(plain_error(message));
@@ -164,19 +193,21 @@ pub(crate) fn resolve_fresh_constants_pass(
                     }
                 }
             } else if local_generated_top {
-                Some(counter_configuration(initial_fresh))
+                counter.map(counter_configuration)
             } else {
                 None
             };
         if let Some(configuration) = configuration {
-            // Invariant: `module.local_sentences` contains each helper of `counter_helpers()` before `sentence`; each iteration consumes one of the two helpers and scans `module.local_sentences` once.
-            for sentence in counter_helpers() {
-                if !module
-                    .local_sentences
-                    .iter()
-                    .any(|candidate| **candidate == sentence)
-                {
-                    module.local_sentences.push(Arc::new(sentence));
+            if counter_cell {
+                // Invariant: `module.local_sentences` contains each helper of `counter_helpers()` before `sentence`; each iteration consumes one of the two helpers and scans `module.local_sentences` once.
+                for sentence in counter_helpers() {
+                    if !module
+                        .local_sentences
+                        .iter()
+                        .any(|candidate| **candidate == sentence)
+                    {
+                        module.local_sentences.push(Arc::new(sentence));
+                    }
                 }
             }
             module.local_sentences.push(Arc::new(configuration));
@@ -217,15 +248,24 @@ pub(crate) fn resolve_fresh_constants_pass(
     Ok(expanded)
 }
 
+/// Lower `sentence`'s fresh variables; `counter_cell` says whether the configuration has the
+/// counter cell, which the generated top production, its initializer and claims then mention.
 fn transform_sentence(
     sentence: Sentence,
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
     cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
+    counter_cell: bool,
 ) -> Result<(Sentence, CounterUse), String> {
     let mut counter = CounterUse::None;
-    let transformed =
-        transform_sentence_counting(sentence, productions, generators, cell_labels, &mut counter)?;
+    let transformed = transform_sentence_counting(
+        sentence,
+        productions,
+        generators,
+        cell_labels,
+        counter_cell,
+        &mut counter,
+    )?;
     Ok((transformed, counter))
 }
 
@@ -242,6 +282,7 @@ fn transform_sentence_counting(
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
     cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
+    counter_cell: bool,
     counter: &mut CounterUse,
 ) -> Result<Sentence, String> {
     match sentence {
@@ -270,7 +311,8 @@ fn transform_sentence_counting(
                 ensures: transform_term(ensures, &fresh, &offsets, generators)?,
                 attributes,
             };
-            if with_fresh.attributes().has(AttributeKey::Initializer)
+            if counter_cell
+                && with_fresh.attributes().has(AttributeKey::Initializer)
                 && rewrite_left(rule_body(&with_fresh))
                     .as_apply()
                     .is_some_and(|(label, _)| label.name == GeneratedCell::Top.initializer())
@@ -311,7 +353,9 @@ fn transform_sentence_counting(
                 attributes,
             })
         }
-        production @ Sentence::Production { .. } => Ok(add_counter_to_top_production(production)),
+        production @ Sentence::Production { .. } if counter_cell => {
+            Ok(add_counter_to_top_production(production))
+        }
         Sentence::Claim {
             body,
             requires,
@@ -324,8 +368,10 @@ fn transform_sentence_counting(
             // except that it has some value before and some value after the path, which is
             // `<generatedCounter> _GenN => ?_GenM </generatedCounter>`. Leaving the cell to the
             // configuration's frame would instead claim that no `!` variable is instantiated.
+            // Without the counter cell there is no counter to say anything about.
             let cell_labels = cell_labels.get_or_init(|| cell_labels_of(productions));
-            let body = if mentions_label(&body, |name| cell_labels.contains(name))
+            let body = if counter_cell
+                && mentions_label(&body, |name| cell_labels.contains(name))
                 && !mentions_label(&body, |name| name == GeneratedCell::Counter.label())
             {
                 let mut names =
@@ -343,7 +389,8 @@ fn transform_sentence_counting(
                 attributes,
             })
         }
-        sentence @ Sentence::SyntaxSort { .. }
+        sentence @ Sentence::Production { .. }
+        | sentence @ Sentence::SyntaxSort { .. }
         | sentence @ Sentence::SortSynonym { .. }
         | sentence @ Sentence::SyntaxLexical { .. }
         | sentence @ Sentence::SyntaxAssociativity { .. }
@@ -684,11 +731,14 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
     attributes.set(AttributeKey::Format, json!(format));
 }
 
+/// The configuration `<generatedTop> <root/> <generatedCounter> N </generatedCounter>
+/// </generatedTop>` around the module's root cell, with the counter cell only when `counter`
+/// gives its initial value.
 fn generated_top_configuration(
     definition: &ResolvedDefinition,
     module: crate::definition::ModuleId,
     productions: &ProductionCatalog<'_>,
-    initial_fresh: usize,
+    counter: Option<usize>,
 ) -> Result<Sentence, String> {
     let root_sort = root_cell_sort(definition, module, productions)?;
     let root = productions
@@ -719,6 +769,17 @@ fn generated_top_configuration(
         .string(AttributeKey::CellName)
         .ok_or_else(|| format!("Root cell {} has no cellName attribute", root.0.name))?;
     let name = cell_name_token(GeneratedCell::Top.name());
+    let root = Term::apply(
+        InternalLabel::ExternalCell.as_str(),
+        vec![cell_name_token(cell_name)],
+    );
+    let contents = match counter {
+        Some(initial_fresh) => Term::apply(
+            InternalLabel::Cells.as_str(),
+            vec![root, counter_config_term(initial_fresh)],
+        ),
+        None => root,
+    };
     Ok(configuration(Term::apply(
         InternalLabel::ConfigCell.as_str(),
         vec![
@@ -727,16 +788,7 @@ fn generated_top_configuration(
                 InternalLabel::CellPropertyListTerminator.as_str(),
                 Vec::new(),
             ),
-            Term::apply(
-                InternalLabel::Cells.as_str(),
-                vec![
-                    Term::apply(
-                        InternalLabel::ExternalCell.as_str(),
-                        vec![cell_name_token(cell_name)],
-                    ),
-                    counter_config_term(initial_fresh),
-                ],
-            ),
+            contents,
             name,
         ],
     )))
@@ -1041,6 +1093,7 @@ fn error_from(message: String) -> ResolveFreshConstantsError {
 /// The stage on the definition the pipeline gives it ([`crate::kompile::stage_harness`]).
 #[cfg(test)]
 mod stage_tests {
+    use crate::kompile::CompileError;
     use crate::kompile::stage_harness::{labelled, render, rendered_changes, run_to_stage};
 
     /// `!X:S` denotes a value of `S` no earlier step has produced (K's user manual,
@@ -1113,6 +1166,79 @@ endmodule
         assert_eq!(
             render(labelled(run.output(), "MAIN", "go")[0]),
             r#"rule #cells(`<k>`(#noDots(.KList),go(.KList)=>`#lambda__`(#token("1","Int"),freshInt(`_+Int_`(#Fresh,#token("0","Int")))),#dots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token("1","Int")),#noDots(.KList))) requires #token("true","Bool") ensures #token("true","Bool")"#
+        );
+    }
+
+    /// The counter cell holds an `Int`. When the main module sees no `Int`, nothing can draw
+    /// from it (a generator takes an `Int`, the advance is `_+Int_`), and its declaration would
+    /// name an undeclared sort: the generated top holds the user's top cell alone.
+    #[test]
+    fn without_int_the_generated_top_holds_no_counter_cell() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)]
+  configuration <t> <k> .K </k> <mem> a </mem> </t>
+  rule <mem> a => b </mem> [label(step)]
+endmodule
+"#,
+            "resolve fresh constants",
+        );
+        let (added, _) = rendered_changes(&run);
+        assert!(
+            added
+                .iter()
+                .any(|sentence| sentence == "syntax GeneratedTopCell ::= <generatedTop>(TCell)"),
+            "{added:#?}"
+        );
+        assert!(
+            added.iter().all(|sentence| !sentence.contains("Counter")),
+            "{added:#?}"
+        );
+        assert_eq!(
+            render(labelled(run.output(), "MAIN", "step")[0]),
+            render(labelled(&run.input, "MAIN", "step")[0])
+        );
+    }
+
+    /// The counter starts at the domain value `0` of `Int`. When the main module's `Int` has no
+    /// domain values (only constructors), the configuration has no counter cell, and a fresh
+    /// variable, which has nothing to draw from, is an error at its rule.
+    #[test]
+    fn a_fresh_variable_without_the_counter_cell_is_rejected_at_the_rule() {
+        let run = run_to_stage(
+            r#"
+module INT
+  syntax Int ::= "zero" [symbol(zero)]
+               | Int "+Int" Int [function, symbol(_+Int_)]
+endmodule
+module MAIN
+  imports INT
+  syntax K
+  syntax Id ::= r"[a-z]+" [token]
+              | freshId(Int) [function, freshGenerator, symbol(freshId)]
+  syntax KItem ::= "go" [symbol(go)]
+  configuration <k> go </k>
+  rule <k> go => !X:Id </k> [label(go)]
+endmodule
+"#,
+            "resolve fresh constants",
+        );
+        let CompileError { diagnostics, .. } = run.error();
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("{diagnostics:#?}");
+        };
+        assert_eq!(
+            diagnostic.message,
+            "A fresh variable draws its value from the fresh counter cell, which holds an Int starting at the domain value 0, but the main module MAIN sees no sort Int with domain values, so the configuration has no counter cell."
+        );
+        assert_eq!(
+            diagnostic
+                .location
+                .as_ref()
+                .map(|location| location.start_line),
+            Some(13)
         );
     }
 }

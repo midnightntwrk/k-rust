@@ -1130,6 +1130,19 @@ impl<'a> Matcher<'a> {
                 }
                 return self.defer(pattern_term.clone(), subject_term);
             }
+            // A conjunction (an `as` pattern `\and(P, A)`) matches the lifted subject when each
+            // conjunct does, which `match_one` decomposes: `inj{S,T}(s)` is `inj{P,T}(inj{S,P}(s))`.
+            if matches!(pattern_term.kind(), TermKind::And(..)) {
+                self.enqueue(
+                    pattern_term.clone(),
+                    Term::injection(
+                        subject_source.clone(),
+                        pattern_source.clone(),
+                        subject_term.clone(),
+                    ),
+                );
+                return Ok(());
+            }
         }
         Err(FailReason::DifferentSorts(pattern, subject))
     }

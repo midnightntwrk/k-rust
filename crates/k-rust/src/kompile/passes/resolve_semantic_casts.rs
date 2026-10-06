@@ -145,6 +145,9 @@ pub fn resolve_semantic_casts_in_sentence(
 /// A cast adds `isS` of its operand only when `cast_condition` gives it a condition: a sort
 /// with a sort predicate, or `Bag`; a cast to any other sort adds nothing.
 ///
+/// The predicate's argument is the left projection of the cast's resolved operand, the value the
+/// pattern denotes there.
+///
 /// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
 /// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
@@ -259,10 +262,17 @@ fn resolve_semantic_casts_in_sentence_mut(
         let sort = label
             .semantic_cast_sort()
             .expect("the cast set contains semantic-cast applications");
+        // A search pattern denotes its left projection (`compile_search_pattern` projects the
+        // body), so the cast constrains the value of its operand's left side: `(L => R):S` adds
+        // the test `L:S` adds.
         match cast_condition(sort.role()) {
             CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
                 label: Label::sort_predicate(&sort),
-                arguments: vec![transform(cast.clone(), &casts, &typed_variables, subsorts)],
+                arguments: vec![crate::kompile::sort_injections::rewrite_projection(
+                    &transform(cast.clone(), &casts, &typed_variables, subsorts),
+                    false,
+                    subsorts,
+                )],
             }),
             CastCondition::Static => None,
         }
@@ -432,9 +442,11 @@ fn collect_cast_bounds(
 }
 
 /// The terms whose value a semantic cast with operand `operand` constrains: the operand, the
-/// operand of each nested semantic cast (a cast denotes the value of its operand), and each side
+/// operand of each nested semantic cast (a cast denotes the value of its operand), each side
 /// of a rewrite (`C[L => R]` denotes `C[L]` on the left of the rule and `C[R]` on the right, so
-/// `(L => R):S` constrains `L` and `R` as `L:S => R:S` does).
+/// `(L => R):S` constrains `L` and `R` as `L:S => R:S` does), and the pattern and the alias of an
+/// `as` pattern (`P #as A` is one value, matched by `P` and bound to `A`, so `(P #as A):S`
+/// constrains both as `(P:S) #as (A:S)` does).
 fn cast_values(operand: &Term) -> Vec<&Term> {
     let mut values = Vec::new();
     let mut pending = vec![operand];
@@ -452,11 +464,14 @@ fn cast_values(operand: &Term) -> Vec<&Term> {
                 pending.push(right);
                 pending.push(left);
             }
+            Term::As { pattern, alias } => {
+                pending.push(alias);
+                pending.push(pattern);
+            }
             Term::Apply { .. }
             | Term::InjectedLabel(_)
             | Term::Token { .. }
             | Term::Variable { .. }
-            | Term::As { .. }
             | Term::Sequence(_)
             | Term::Annotated { .. } => {}
         }
@@ -597,7 +612,8 @@ fn transform(
 /// incomparable ones, so it keeps the narrower: `T` when `T` is at or below `S` (the outer cast
 /// is then an upcast, which places nothing), else `S`. A rewrite carries the cast, and each of
 /// its sides carries it as a cast written on that side would, since `(L => R):S` means
-/// `L:S => R:S`.
+/// `L:S => R:S`; likewise an `as` pattern and its two sides, since `(P #as A):S` means
+/// `(P:S) #as (A:S)`.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
@@ -620,6 +636,10 @@ fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
         TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(attach_sort(*left, sort.clone(), subsorts)),
             right: Box::new(attach_sort(*right, sort.clone(), subsorts)),
+        },
+        TermParts::As { pattern, alias } => Term::As {
+            pattern: Box::new(attach_sort(*pattern, sort.clone(), subsorts)),
+            alias: Box::new(attach_sort(*alias, sort.clone(), subsorts)),
         },
         term => Term::from(term),
     };

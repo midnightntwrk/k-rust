@@ -4730,7 +4730,7 @@ symbol = "transform_term"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + F log F + L) plus one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
+bound = "O(N + F log F + L) plus one definition.catalog.sort construction for the main module, one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
 
 [[node]]
 kind = "algorithm"

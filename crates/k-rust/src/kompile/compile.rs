@@ -1183,6 +1183,68 @@ mod tests {
         }
     }
 
+    /// The fresh counter cell holds an `Int`; a definition whose main module sees no `Int`
+    /// (none declared, or declared only in a module the main module does not import) has no
+    /// counter cell, so its KORE declares no symbol over an undeclared sort and the backend
+    /// accepts it. A claim over its configuration gets no counter cell either.
+    #[test]
+    fn a_configuration_without_int_compiles_without_a_counter_cell() {
+        for (int_module, check_mode, sentence) in [
+            ("", CheckMode::Definition, "rule <mem> a => b </mem>"),
+            (
+                r#"module INT syntax Int ::= r"[0-9]+" [token] endmodule"#,
+                CheckMode::Definition,
+                "rule <mem> a => b </mem>",
+            ),
+            (
+                "",
+                CheckMode::Proof {
+                    definition_module: "MAIN".into(),
+                },
+                "claim <mem> a => b </mem>",
+            ),
+        ] {
+            let source = format!(
+                r#"{int_module}
+                module MAIN
+                  syntax K
+                  syntax Foo ::= "a" [symbol(a)] | "b" [symbol(b)]
+                  configuration <t> <k> .K </k> <mem> a </mem> </t>
+                  {sentence}
+                endmodule"#
+            );
+            let loaded = load(
+                ResolvedSource::new("no-int.k", source),
+                "MAIN",
+                &mut |_: &str, required: &str| Err(format!("unexpected require {required}")),
+            )
+            .unwrap();
+            let artifacts = compile_loaded_definition(
+                &loaded,
+                CompileOptions {
+                    check_mode: check_mode.clone(),
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap();
+            assert!(
+                !artifacts.definition_kore.contains("generatedCounter"),
+                "{int_module} {sentence}\n{}",
+                artifacts.definition_kore
+            );
+            assert!(
+                artifacts
+                    .definition_kore
+                    .contains("symbol Lbl'-LT-'generatedTop'-GT-'{}(SortTCell{})"),
+                "{}",
+                artifacts.definition_kore
+            );
+            let kore = parse_definition(&artifacts.definition_kore).unwrap();
+            BackendDefinition::internalize(&kore, "MAIN")
+                .expect("KORE without a counter cell must satisfy the backend's contract");
+        }
+    }
+
     #[cfg(feature = "z3-inference")]
     fn artifact_digest(text: &str) -> String {
         Sha3_256::digest(text.as_bytes())
