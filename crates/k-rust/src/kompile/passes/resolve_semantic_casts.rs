@@ -145,6 +145,9 @@ pub fn resolve_semantic_casts_in_sentence(
 /// A cast adds `isS` of its operand only when `cast_condition` gives it a condition: a sort
 /// with a sort predicate, or `Bag`; a cast to any other sort adds nothing.
 ///
+/// The predicate's argument is the left projection of the cast's resolved operand, the value the
+/// pattern denotes there.
+///
 /// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
 /// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
@@ -259,10 +262,17 @@ fn resolve_semantic_casts_in_sentence_mut(
         let sort = label
             .semantic_cast_sort()
             .expect("the cast set contains semantic-cast applications");
+        // A search pattern denotes its left projection (`compile_search_pattern` projects the
+        // body), so the cast constrains the value of its operand's left side: `(L => R):S` adds
+        // the test `L:S` adds.
         match cast_condition(sort.role()) {
             CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
                 label: Label::sort_predicate(&sort),
-                arguments: vec![transform(cast.clone(), &casts, &typed_variables, subsorts)],
+                arguments: vec![crate::kompile::sort_injections::rewrite_projection(
+                    &transform(cast.clone(), &casts, &typed_variables, subsorts),
+                    false,
+                    subsorts,
+                )],
             }),
             CastCondition::Static => None,
         }

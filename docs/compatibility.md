@@ -188,6 +188,7 @@ A configuration variable cast to such a sort is rejected at configuration expans
 A definition's own production labelled `#OuterCast` whose result is such a sort (`syntax #Foo ::= "{" K "}" "asFoo" [symbol(#OuterCast)]`) is a parse error at its use; with a result that has a projection it lowers to that projection like `{T}:>S`.
 A semantic cast that is a downcast to such a sort (a K sequence cast to `KConfigVar` where `KItem ::= KConfigVar`, which only structured input can write) is rejected by sort injection, and by `sentence_typing` alike, as `DowncastWithoutProjection`.
 In a search pattern (`krun --search --pattern`), each semantic cast, including the one the inner parser puts around every variable at its inferred sort, adds the sort predicate of its sort to the pattern's condition when that sort has one.
+A pattern with a rewrite denotes its left side, so the predicate tests the left side of the cast's operand: `(X => Y):Int` adds the test `X:Int` adds.
 A cast to `Bag` adds the cell-fragment test `isBag`, which cell concretization expands into the sort predicates of the fragment's cells.
 A cast to any other sort (`KLabel`, `KList`, `KString`, `Cell`) adds nothing: no compiled K term has such a sort, and the cast's sort is already the operand's sort in the compiled pattern, where a variable matches only terms of its sort and sort injection checks any other operand against the cast.
 The positive `isS(X:S) => true` sort-predicate rule exists only when `S` is placeable at the predicate's `K` argument in its module's subsort order.
