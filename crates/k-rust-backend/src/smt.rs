@@ -270,15 +270,15 @@ impl TranslationState {
                         ),
                         SExpr::List(_) => expression.clone(),
                     };
-                    let (template, guarded) = guard_powers(&template);
-                    if guarded {
-                        // The power's value outside the integers is an uninterpreted function.
-                        self.approximate(Exactness::Approximate);
-                    }
                     let arguments = arguments
                         .iter()
                         .map(|argument| self.translate_term(argument))
                         .collect::<Result<Vec<_>, _>>()?;
+                    let (template, guarded) = guard_powers(&template, &arguments);
+                    if guarded {
+                        // The power's value outside the integers is an uninterpreted function.
+                        self.approximate(Exactness::Approximate);
+                    }
                     fill_placeholders(&template, &arguments)
                 }
             },
@@ -601,7 +601,11 @@ const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
 /// it the power is an uninterpreted function of its operands, as a division by zero is. The
 /// function is Real-valued, as Z3's `^` is, so both branches and every context have its sort.
 /// The guard names each operand several times; `fill_placeholders` states each argument once.
-fn guard_powers(expression: &SExpr) -> (SExpr, bool) {
+///
+/// A power whose exponent is a numeral, written in the template or as the argument a
+/// placeholder names (`arguments` are the translated arguments), is left as it is: its guard is
+/// constantly true, so both readings are the same term.
+fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
     match expression {
         SExpr::Atom(_) => (expression.clone(), false),
         SExpr::List(items) => {
@@ -609,13 +613,15 @@ fn guard_powers(expression: &SExpr) -> (SExpr, bool) {
             let items = items
                 .iter()
                 .map(|item| {
-                    let (item, inner) = guard_powers(item);
+                    let (item, inner) = guard_powers(item, arguments);
                     guarded |= inner;
                     item
                 })
                 .collect::<Vec<_>>();
             match items.as_slice() {
-                [SExpr::Atom(operator), base, exponent] if operator == POWER => {
+                [SExpr::Atom(operator), base, exponent]
+                    if operator == POWER && !is_numeral(exponent, arguments) =>
+                {
                     let integer = |value: &str| SExpr::atom(value);
                     let condition = SExpr::application(
                         "or",
@@ -644,6 +650,22 @@ fn guard_powers(expression: &SExpr) -> (SExpr, bool) {
             }
         }
     }
+}
+
+/// Whether the template operand `operand` is a numeral, a nonnegative integer literal, by itself
+/// or as the argument it names.
+fn is_numeral(operand: &SExpr, arguments: &[SExpr]) -> bool {
+    let SExpr::Atom(atom) = operand else {
+        return false;
+    };
+    let value = match placeholder(atom) {
+        Some(index) => match index.checked_sub(1).and_then(|index| arguments.get(index)) {
+            Some(SExpr::Atom(argument)) => argument,
+            Some(SExpr::List(_)) | None => return false,
+        },
+        None => atom,
+    };
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 /// Whether `expression` applies [`POWER`], so that its translation uses
@@ -1345,7 +1367,7 @@ mod tests {
     /// Every power of an `smt-hook`, written as the hook's operation or inside its expression, is
     /// read as itself only where an integer is its value, and as an uninterpreted function
     /// elsewhere; the uninterpreted part makes the translation approximate even for a total
-    /// symbol.
+    /// symbol. A power whose exponent is a numeral has an integer value, and is read as itself.
     #[test]
     fn reads_a_power_as_itself_only_where_an_integer_is_its_value() {
         let int = Sort::simple("SortInt");
@@ -1361,7 +1383,7 @@ mod tests {
             vec![int.clone(), int.clone(), int.clone()],
             int.clone(),
         );
-        let exponent = Term::variable(Variable::new("B", int));
+        let exponent = Term::variable(Variable::new("B", int.clone()));
         let guarded = |base: &str, exponent: &str| {
             format!(
                 "(ite (or (>= {exponent} 0) (= {base} 1) (= {base} (- 1))) (^ {base} {exponent}) \
@@ -1372,7 +1394,7 @@ mod tests {
         let mut translation = TranslationState::new();
         let translated = translation
             .translate_term(&Term::application(
-                power,
+                power.clone(),
                 Vec::new(),
                 vec![integer("2"), exponent.clone()],
             ))
@@ -1391,6 +1413,49 @@ mod tests {
         assert_eq!(
             translated.to_string(),
             format!("(mod {} 7)", guarded("3", "SMT-1"))
+        );
+
+        // A numeral exponent, as the argument or in the template, leaves the power as it is: the
+        // guard holds. A negative literal is not a numeral.
+        let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
+        for (arguments, expected) in [
+            (vec![x.clone(), integer("2")], "(^ SMT-1 2)"),
+            (vec![x.clone(), integer("0")], "(^ SMT-1 0)"),
+        ] {
+            let mut translation = TranslationState::new();
+            let translated = translation
+                .translate_term(&Term::application(power.clone(), Vec::new(), arguments))
+                .unwrap();
+            assert_eq!(translated.to_string(), expected);
+            assert_eq!(translation.exactness(), Exactness::Exact);
+        }
+        assert_eq!(
+            TranslationState::new()
+                .translate_term(&Term::application(
+                    power.clone(),
+                    Vec::new(),
+                    vec![integer("2"), integer("-1")],
+                ))
+                .unwrap()
+                .to_string(),
+            guarded("2", "-1")
+        );
+        let squared_modulo = symbol(
+            "squaredModulo",
+            Some(SmtType::Hook(SExpr::parse("(mod (^ #1 2) #2)").unwrap())),
+            vec![int.clone(), int.clone()],
+            int,
+        );
+        assert_eq!(
+            TranslationState::new()
+                .translate_term(&Term::application(
+                    squared_modulo,
+                    Vec::new(),
+                    vec![x, integer("7")],
+                ))
+                .unwrap()
+                .to_string(),
+            "(mod (^ SMT-1 2) 7)"
         );
         assert!(applies_power(&SExpr::atom("^")));
         assert!(applies_power(&SExpr::parse("(mod (^ #1 #2) #3)").unwrap()));
