@@ -55,6 +55,9 @@ use crate::stop::STACK_RED_ZONE;
 /// deepest level. `tests::every_shape_runs_on_the_stack_it_is_given` and
 /// `tests::every_deep_definition_loads_on_the_stack_it_is_given` run every measured shape on a
 /// stack of exactly the size this bound gives, so a pass whose frames outgrow it overflows there.
+/// The bound follows `debug_assertions`, so a build that optimizes with debug assertions on,
+/// such as the `dev` profile at opt-level 1, gets the larger one; those tests pass there with
+/// at most about 2.2 KiB per level.
 #[cfg(debug_assertions)]
 const STACK_PER_LEVEL: usize = 24 * 1024;
 #[cfg(not(debug_assertions))]
@@ -828,9 +831,16 @@ mod tests {
     const SMALL_STACK: usize = 512 * 1024;
 
     /// Levels of the shapes and definitions that the tests below run: deep enough that their
-    /// passes need several times `SMALL_STACK` in either build, which they are given on a
-    /// segment of exactly the size `stack_for_depth` gives.
-    const LEVELS: usize = if cfg!(debug_assertions) { 300 } else { 1_500 };
+    /// passes need several times `SMALL_STACK` at the optimization level the crate is compiled
+    /// at (`build.rs`), which they are given on a segment of exactly the size `stack_for_depth`
+    /// gives. Unoptimized passes take about 14 to 17 KiB per level of these shapes and passes at
+    /// opt-level 1 about 1.5 to 2.2 KiB, where 300 levels would fit `SMALL_STACK` and a pass run
+    /// without its segment would go unnoticed.
+    const LEVELS: usize = if cfg!(k_rust_opt_level = "0") {
+        300
+    } else {
+        1_500
+    };
 
     #[test]
     fn height_counts_levels_as_the_passes_descend_through_them() {
@@ -972,8 +982,8 @@ mod tests {
     /// Every shape the bound was measured on runs every entry point on a thread whose stack
     /// is far smaller than the shape needs, on a segment of exactly the size `stack_for_depth`
     /// gives for its height: a pass whose frames outgrew `STACK_PER_LEVEL` overflows the segment
-    /// and aborts the test binary. The segments take under 10 MB each, of which the work touches
-    /// at most about half, and the test takes a few seconds.
+    /// and aborts the test binary. The segments reserve under 40 MB each, of which the work
+    /// touches a few MB, and the test takes a few seconds.
     #[test]
     fn every_shape_runs_on_the_stack_it_is_given() {
         on_stack(SMALL_STACK, || {

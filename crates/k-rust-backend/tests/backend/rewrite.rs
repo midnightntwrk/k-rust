@@ -5859,24 +5859,31 @@ fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
 /// per-level ceiling of that contract, at about 1.8 times the measured slope,
 /// so that ordinary frame changes pass and a doubled frame fails.
 ///
-/// Receipt (commit `985e0086`, minimum passing thread stack found by
-/// bisection, one process per size):
-/// - debug: `simplify` alone at depths 256/512/1,024/2,048 needs
-///   4,047/8,046/16,060/32,072 KiB, a slope of 15.6 KiB per level;
-/// - release: 2,543/10,126 KiB at depths 1,024/4,096, a slope of 2.47 KiB per
-///   level.
+/// Receipts (minimum passing thread stack found by bisection, one process per
+/// size):
+/// - opt-level 0 (commit `985e0086`): `simplify` alone at depths
+///   256/512/1,024/2,048 needs 4,047/8,046/16,060/32,072 KiB, a slope of
+///   15.6 KiB per level;
+/// - opt-level 1 with debug assertions, the `dev` profile (commit `927b9ce6`):
+///   1,152/4,188/16,332 KiB at depths 256/1,024/4,096, a slope of 3.95 KiB per
+///   level;
+/// - release (commit `985e0086`): 2,543/10,126 KiB at depths 1,024/4,096, a
+///   slope of 2.47 KiB per level.
 ///
-/// `debug_assertions` stands for the unoptimised profile here; a profile that
-/// optimises with debug assertions on gets the larger ceiling.
-const STACK_BYTES_PER_RECURSION_LEVEL: usize = if cfg!(debug_assertions) {
+/// The ceiling follows the optimization level the crate is compiled at
+/// (`build.rs`), not `debug_assertions`: the frames are what optimization
+/// makes of them, whatever checks are compiled in.
+const STACK_BYTES_PER_RECURSION_LEVEL: usize = if cfg!(k_rust_opt_level = "0") {
     28 * 1024
+} else if cfg!(k_rust_opt_level = "1") {
+    7 * 1024
 } else {
     4_608 // 4.5 KiB
 };
 
 /// Depth-independent stack of a recursion test thread: the test harness and
 /// the frames below the first recursive call (measured intercept: about
-/// 43 KiB debug, 16 KiB release).
+/// 43 KiB at opt-level 0, 140 KiB at opt-level 1, 16 KiB in release).
 const STACK_BASE_BYTES: usize = 256 * 1024;
 
 /// Runs `body` on a thread whose stack is the stated linear bound for a
