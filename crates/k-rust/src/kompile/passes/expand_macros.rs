@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
-//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Expander::shape", "Expander::measure", "Chain::repeats"]
-//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_known", "Expander::expand_chain", "Expander::expand_arguments", "Expander::instantiate", "Expander::substitute", "Expander::record_rewrite", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::try_rules_once", "Expander::new", "Expander::shape", "Expander::measure", "Expander::settled_parts", "Chain::repeats"]
+//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence, at most MAX_RECURSIVE_REWRITES of them by macro-rec and alias-rec rules; S = nodes of the largest rewrite result; P = nodes of the largest macro rule right side; U = nodes of the largest rewrite result that are copies of bindings not settled (holding an application or token some macro rule has as its head); K = nodes copied, over the sentence, for the occurrences of a variable but its last in the right sides of the rewrites; M = nodes of the sentence that are not settled, having an application or token some macro rule has as its head at or below them; Y = retries of applications whose rule set has a head fixing a sort parameter; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 //! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits", "KompileMacroMeasuredNodes", "KompileMacroSubjectWalks"]
 //!
 //! [[cost]]
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one sentence, some macro rule with a parametric head (typed in place)"
-//! bound = "O((W + 1) x (N x (h + R) + T))"
+//! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + S log W + Y x S)"
 //!
 //! [[cost]]
 //! mode = "Expander construction per module"
@@ -19,7 +19,10 @@
 //! ```
 //!
 //! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application whose rule set has a head fixing a sort parameter is retried after a rewriting round until a round rewrites nothing.
-//! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings; each round and each re-expansion of a substituted result clones and compares subterms along paths of length at most h.
+//! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings.
+//! One walk finds the settled parts of the sentence (`Expander::settled_parts`), which are kept from the start, as the settled bindings of a rewrite's result are kept: expansion in place rebuilds nothing, and a settled part holds no application or token a rule could rewrite.
+//! Every other node is visited from its path, O(h), because the typing reports instances by path; its subject is read in place and moved out of the sentence for a rewrite, and only an application recorded for a retry is copied, since its retry compares it with the term then at its path.
+//! A retried application's children are measured anew (`Expander::measure`), since later rewrites may have changed them (Y x S).
 //!
 //! An application is rewritten at its root in a loop (`Expander::expand_chain`, `Expander::try_rules`) until no rule applies, so a long chain of root rewrites takes no native stack.
 //! Without a parametric head, the result of a rewrite is expanded except where it copies a binding that the expansion of the subject's arguments found settled (`Known`): such a copy is kept as it is, so a rewrite visits (`KompileMacroExpansionVisits`) the nodes of the right side and the copies of unsettled bindings, O(P + U).
@@ -1133,51 +1136,62 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// carries no instance, so the instance of an application is read from the typing of the
     /// sentence as it stands when the application's rules are tried: after its arguments have
     /// been expanded, and after every earlier rewrite of the sentence.
+    ///
+    /// The parts `known` marks settled are kept as they are: expansion in place does not
+    /// rebuild nodes, and a settled term holds no application or token any rule has as its
+    /// head, so expanding it would try no rule and record nothing. Returns the [`Shape`] of the
+    /// expanded term.
     fn expand_at(
         &mut self,
         site: &mut Site,
         path: &[u32],
+        known: Known,
         applied: &BTreeSet<usize>,
         grown: usize,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<Shape, Diagnostic> {
+        if let Known::Settled(shape) = known {
+            return Ok(shape);
+        }
         measure::bump(Counter::KompileMacroExpansionVisits);
         with_stack(self.red_zone, || {
-            self.expand_children(site, path, applied, grown)?;
-            self.try_rules(site, path, applied, grown)
+            let children = self.expand_children(site, path, known, applied, grown)?;
+            self.try_rules(site, path, children, applied, grown)
         })
     }
 
-    /// Expand the macros of every child of the term at `path` of `site`.
+    /// Expand the macros of every child of the term at `path` of `site`, of which `known`
+    /// tells which parts are settled; with the shape of each child.
     fn expand_children(
         &mut self,
         site: &mut Site,
         path: &[u32],
+        known: Known,
         applied: &BTreeSet<usize>,
         grown: usize,
-    ) -> Result<(), Diagnostic> {
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "Term is syntax; only the listed variants are special here"
-        )]
-        let children = match site.term(path).unannotated() {
-            Term::Apply { arguments, .. } => arguments.len(),
-            Term::Sequence(items) => items.len(),
-            Term::Rewrite { .. } | Term::As { .. } => 2,
-            _ => 0,
+    ) -> Result<Vec<Shape>, Diagnostic> {
+        let count = children_of(site.term(path)).len();
+        let mut known = match known {
+            Known::Children(children) => children.into_iter(),
+            Known::Unknown | Known::Settled(_) => Vec::new().into_iter(),
         };
-        for index in 0..children {
+        let mut shapes = Vec::with_capacity(count);
+        for index in 0..count {
             let mut child = path.to_vec();
             child.push(u32::try_from(index).expect("a term has fewer than 2^32 children"));
-            self.expand_at(site, &child, applied, grown)?;
+            let known = known.next().unwrap_or(Known::Unknown);
+            shapes.push(self.expand_at(site, &child, known, applied, grown)?);
         }
-        Ok(())
+        Ok(shapes)
     }
 
     /// Expand the given fields of `site`, then retry every failed application whose rule set has a head fixing a sort parameter after a rewriting round until no retry rewrites anything: a rewrite elsewhere can change even a known instance.
     /// An application still unknown at the fixpoint is left as it is, and compilation reports the ill-sorted sentence at injection.
     fn expand_site(&mut self, site: &mut Site, fields: &[u32]) -> Result<(), Diagnostic> {
         for field in fields {
-            self.expand_at(site, &[*field], &BTreeSet::new(), 0)?;
+            // In place, a settled part is kept from the start, so expansion walks only the
+            // nodes above a macro application or token from their paths.
+            let known = self.settled_parts(site.term(&[*field]));
+            self.expand_at(site, &[*field], known, &BTreeSet::new(), 0)?;
         }
         if site.rewrites == 0 {
             return Ok(());
@@ -1191,7 +1205,13 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     continue;
                 }
                 let before = site.rewrites;
-                self.try_rules(site, &path, &applied, grown)?;
+                // Later rewrites may have changed the application's arguments since they were
+                // expanded, so their shapes are measured anew.
+                let children = children_of(site.term(&path))
+                    .into_iter()
+                    .map(|child| self.measure(child))
+                    .collect();
+                self.try_rules(site, &path, children, &applied, grown)?;
                 if site.rewrites != before {
                     // Its enclosing applications were tried before it was expanded.
                     for length in (1..path.len()).rev() {
@@ -1200,6 +1220,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                             && let Term::Apply { label, .. } = term.unannotated()
                             && self.macros.contains_key(&LabelHead::from(label))
                         {
+                            measure::bump(Counter::KompileMacroSubjectWalks);
                             let term = term.clone();
                             // Every macro-headed application is recorded when its rules are tried, and a
                             // replacement below an ancestor keeps the ancestor's record.
@@ -1220,94 +1241,105 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         Ok(())
     }
 
-    /// Try the macro rules of the application or token at `path`, whose arguments are already
-    /// expanded at the current typing of the site, and rewrite it until no rule applies,
-    /// expanding the children of each result first; the chain of root rewrites is the one
-    /// [`Self::expand_chain`] makes, in a loop.
+    /// Try the macro rules of the application or token at `path`, whose children are already
+    /// expanded at the current typing of the site and have the shapes `children`, and rewrite it
+    /// until no rule applies, expanding the children of each result first, except the bindings
+    /// found settled ([`Known`]); with the shape of the final term. The chain of root rewrites
+    /// is the one [`Self::expand_chain`] makes, in a loop.
     fn try_rules(
         &mut self,
         site: &mut Site,
         path: &[u32],
+        children: Vec<Shape>,
         applied: &BTreeSet<usize>,
         grown: usize,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<Shape, Diagnostic> {
         let mut chain = Chain::default();
         let mut grown = grown;
         let mut chain_applied = None::<BTreeSet<usize>>;
-        // Invariant: the term at `path` is the result of the chain's last rewrite (the original application before any) with its children expanded, and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
+        let mut children = children;
+        // Invariant: the term at `path` is the result of the chain's last rewrite (the original application before any) with its children expanded and of the shapes `children`, and `chain_applied` holds the rules applied above it (`applied` before any rewrite); each iteration returns or makes one rewrite, and `record_rewrite` bounds the rewrites of the sentence.
         loop {
             let applied = chain_applied.as_ref().unwrap_or(applied);
-            let Some(next_applied) =
-                self.try_rules_once(site, path, applied, &mut grown, &mut chain)?
-            else {
-                return Ok(());
-            };
-            self.expand_children(site, path, &next_applied, grown)?;
-            chain_applied = Some(next_applied);
+            match self.try_rules_once(site, path, children, applied, &mut grown, &mut chain)? {
+                Tried::Kept(shape) | Tried::Rewritten(_, Known::Settled(shape)) => {
+                    return Ok(shape);
+                }
+                Tried::Rewritten(next_applied, known) => {
+                    children = self.expand_children(site, path, known, &next_applied, grown)?;
+                    chain_applied = Some(next_applied);
+                }
+            }
         }
     }
 
-    /// Rewrite the application or token at `path` once, returning the rules applied above its
-    /// result, or record it for a retry when no rule applies.
+    /// Rewrite the application or token at `path`, whose children have the shapes `children`,
+    /// once, returning the rules applied above its result and what is known of the result; or
+    /// keep it, recording it for a retry when its rules may apply at another typing, and return
+    /// its shape.
+    ///
+    /// The subject is read in place and moved out of the site for the rewrite, not copied;
+    /// only an application recorded for a retry is copied (`KompileMacroSubjectWalks`), since
+    /// the retry compares it with the term then at its path.
     fn try_rules_once(
         &mut self,
         site: &mut Site,
         path: &[u32],
+        children: Vec<Shape>,
         applied: &BTreeSet<usize>,
         grown: &mut usize,
         chain: &mut Chain,
-    ) -> Result<Option<BTreeSet<usize>>, Diagnostic> {
-        measure::bump(Counter::KompileMacroSubjectWalks);
-        let subject = site.term(path).clone();
+    ) -> Result<Tried, Diagnostic> {
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "Term is syntax; only the listed variants are special here"
         )]
-        let (rules, instance) = match subject.unannotated() {
-            Term::Apply { label, .. } => {
-                let Some(rules) = self.macros.get(&LabelHead::from(label)).cloned() else {
-                    return Ok(None);
-                };
-                let instance = if rules.iter().any(|rule| rule.head_instance.is_some()) {
-                    Some(self.subject_instance(site, path))
-                } else {
-                    None
-                };
-                site.applied
-                    .insert(path.to_vec(), (applied.clone(), *grown));
-                (rules, instance)
-            }
-            Term::Token { sort, .. } => match self.token_macros.get(sort).cloned() {
-                Some(rules) => (rules, None),
-                None => return Ok(None),
-            },
-            _ => return Ok(None),
+        let (rules, application) = match site.term(path).unannotated() {
+            Term::Apply { label, .. } => (self.macros.get(&LabelHead::from(label)).cloned(), true),
+            Term::Token { sort, .. } => (self.token_macros.get(sort).cloned(), false),
+            _ => (None, false),
         };
-        if let Some(index) = self.select_rule(&subject, &rules, applied, instance.as_ref())? {
-            let rule = &rules[index];
-            let shape = if rule.recursive {
-                self.measure(&subject)
-            } else {
-                Shape::default()
-            };
-            self.record_rewrite(chain, rule, &subject, &shape, applied.len(), grown)?;
-            let (result, _) = self.instantiate(rule, subject, shape, &[]);
-            site.replace(path, result);
-            let mut next_applied = applied.clone();
-            next_applied.insert(rule.id);
-            return Ok(Some(next_applied));
+        let Some(rules) = rules else {
+            return Ok(Tried::Kept(self.shape(site.term(path), children, false)));
+        };
+        let mut instance = None;
+        if application {
+            if rules.iter().any(|rule| rule.head_instance.is_some()) {
+                instance = Some(self.subject_instance(site, path));
+            }
+            site.applied
+                .insert(path.to_vec(), (applied.clone(), *grown));
         }
-        if instance.is_some()
-            && rules.iter().any(|rule| {
-                rule.head_instance
-                    .as_ref()
-                    .is_some_and(|head| head.iter().any(Option::is_some))
-            })
-        {
-            site.tried
-                .push((path.to_vec(), (applied.clone(), *grown), subject));
-        }
-        Ok(None)
+        let subject = site.term(path);
+        let Some(index) = self.select_rule(subject, &rules, applied, instance.as_ref())? else {
+            let shape = self.shape(subject, children, true);
+            if instance.is_some()
+                && rules.iter().any(|rule| {
+                    rule.head_instance
+                        .as_ref()
+                        .is_some_and(|head| head.iter().any(Option::is_some))
+                })
+            {
+                measure::bump(Counter::KompileMacroSubjectWalks);
+                let subject = subject.clone();
+                site.tried
+                    .push((path.to_vec(), (applied.clone(), *grown), subject));
+            }
+            return Ok(Tried::Kept(shape));
+        };
+        let rule = &rules[index];
+        let settled = children
+            .iter()
+            .map(|child| child.settled)
+            .collect::<Vec<_>>();
+        let shape = self.shape(subject, children, true);
+        self.record_rewrite(chain, rule, subject, &shape, applied.len(), grown)?;
+        let subject = site.take(path);
+        let (result, known) = self.instantiate(rule, subject, shape, &settled);
+        site.replace(path, result);
+        let mut next_applied = applied.clone();
+        next_applied.insert(rule.id);
+        Ok(Tried::Rewritten(next_applied, known))
     }
 
     /// The instance of the application at `path` in the current typing of its site.
@@ -1476,6 +1508,52 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         shapes.pop().expect("a term has a root")
     }
 
+    /// What one walk of `term`, without recursion (`KompileMacroMeasuredNodes`), finds settled
+    /// in it: each maximal settled subterm with its shape, and the children of the others.
+    fn settled_parts(&self, term: &Term) -> Known {
+        // The nodes in preorder with their numbers of children.
+        let mut order = Vec::new();
+        let mut pending = vec![term];
+        // Invariant: `order` lists in preorder the nodes visited so far, and `pending` holds the unvisited children of visited nodes, the next in preorder on top; each iteration visits one node of `term`.
+        while let Some(node) = pending.pop() {
+            let children = children_of(node);
+            order.push((node, children.len()));
+            pending.extend(children.into_iter().rev());
+        }
+        measure::add(Counter::KompileMacroMeasuredNodes, order.len() as u64);
+        let mut parts = Vec::<Known>::new();
+        // Invariant: `parts` holds, in reverse preorder, what is known of the subterms whose roots are the nodes of `order` already consumed and whose parents are not; each iteration consumes the last node of `order` and replaces its children's parts, on top of `parts` with the first child topmost, by its own.
+        for (node, count) in order.into_iter().rev() {
+            let children = (0..count)
+                .map(|_| {
+                    parts
+                        .pop()
+                        .expect("each child's part precedes its parent's")
+                })
+                .collect::<Vec<_>>();
+            let settled = !self.has_rules(node)
+                && children
+                    .iter()
+                    .all(|child| matches!(child, Known::Settled(_)));
+            let part = if settled {
+                let shapes = children
+                    .into_iter()
+                    .map(|child| match child {
+                        Known::Settled(shape) => shape,
+                        Known::Unknown | Known::Children(_) => {
+                            unreachable!("every child of a settled term is settled")
+                        }
+                    })
+                    .collect();
+                Known::Settled(self.shape(node, shapes, false))
+            } else {
+                Known::Children(children)
+            };
+            parts.push(part);
+        }
+        parts.pop().expect("a term has a root")
+    }
+
     /// `term`, a rule's right side, with each variable bound by the match replaced by its
     /// binding and each other variable but `#Configuration` by a fresh one, the same fresh
     /// variable for every occurrence of a name; with what is known of the result: a binding
@@ -1637,6 +1715,15 @@ struct Expanded {
     term: Term,
     rules: Option<Rc<[MacroRule]>>,
     children: Vec<Shape>,
+}
+
+/// The outcome of trying the rules of an application or token in place once
+/// ([`Expander::try_rules_once`]).
+enum Tried {
+    /// It was rewritten; the rules applied above the result, and what is known of the result.
+    Rewritten(BTreeSet<usize>, Known),
+    /// No rule applied; its shape.
+    Kept(Shape),
 }
 
 /// Move into `bindings` the subterm of `subject` that each variable of `pattern` stands for,
@@ -1955,10 +2042,32 @@ impl Site {
         term
     }
 
+    /// The term at `path`, moved out of the sentence; [`Self::replace`] puts its replacement
+    /// there.
+    fn take(&mut self, path: &[u32]) -> Term {
+        std::mem::replace(self.term_mut(path), Term::Sequence(Vec::new()))
+    }
+
     fn replace(&mut self, path: &[u32], replacement: Term) {
-        // Ancestors survive with their own contexts; replaced applications are tried anew.
-        self.applied
-            .retain(|tried_path, _| !tried_path.starts_with(path));
+        // Ancestors survive with their own contexts; replaced applications are tried anew. The
+        // paths that start with `path` are the ones from `path` on, in order, up to the first
+        // that does not.
+        let replaced = self
+            .applied
+            .range(path.to_vec()..)
+            .take_while(|(tried_path, _)| tried_path.starts_with(path))
+            .map(|(tried_path, _)| tried_path.clone())
+            .collect::<Vec<_>>();
+        for tried_path in replaced {
+            self.applied.remove(&tried_path);
+        }
+        *self.term_mut(path) = replacement;
+        self.typing = None;
+        self.rewrites += 1;
+    }
+
+    /// The term at `path`, mutably.
+    fn term_mut(&mut self, path: &[u32]) -> &mut Term {
         let field = match &mut self.sentence {
             Sentence::Rule {
                 body,
@@ -1989,9 +2098,7 @@ impl Site {
         for step in &path[1..] {
             term = child_mut(term, *step as usize);
         }
-        *term = replacement;
-        self.typing = None;
-        self.rewrites += 1;
+        term
     }
 
     /// The current typing, cached until a rewrite changes it; a ground value is typed at

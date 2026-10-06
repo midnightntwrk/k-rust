@@ -497,6 +497,29 @@ fn recursive_macro_rewrites_measure_and_compare_linearly() {
     assert_carrying_work_is_linear(false, &[(Counter::KompileMacroMeasuredNodes, 8)], 64);
 }
 
+/// The in-place expansion of a sentence with a parametric macro head keeps the settled parts of
+/// its input and of each rewrite's result as they are, so it visits only what lies above a
+/// macro application, and it records depths and fingerprints as the expansion without a
+/// parametric head does; so the terms it visits and the nodes it walks to measure terms grow
+/// linearly in n, and it copies no subject but at the chain's checkpoints. Re-expanding the
+/// bindings of every rewrite makes the visits grow with n squared, and copying each visited
+/// term to try its rules makes a subject walk of every visit.
+#[test]
+fn typed_recursive_macro_expansion_work_grows_linearly() {
+    // Measured n + 3 visits (rev; 3 for drop, whose results hold only settled bindings), and
+    // 8n + 75 (rev) and 10n + 75 (drop) measured nodes: the untyped path's measurements plus
+    // the walk that finds the settled parts of each sentence or program. Subject walks: 5 to
+    // 7, as without a parametric head.
+    assert_carrying_work_is_linear(
+        true,
+        &[
+            (Counter::KompileMacroExpansionVisits, 2),
+            (Counter::KompileMacroMeasuredNodes, 11),
+        ],
+        64,
+    );
+}
+
 // ---------- parser ----------
 
 /// Parse the casted left-associative chain `x:S + x:S + ... + x:S => x` as a rule.
