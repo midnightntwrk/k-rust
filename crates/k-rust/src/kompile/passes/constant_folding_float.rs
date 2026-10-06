@@ -318,7 +318,9 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
             {
                 return Err(too_large("FLOAT.float2int", exponent));
             }
-            let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| "Argument to hook FLOAT.float2int cannot be rounded to an integer.".to_owned())?.0;
+            // Total, and NaN and the infinities have no nearest integer: the definition gives
+            // no value there.
+            let integer = a.value.to_integer_round(Round::Nearest).ok_or_else(|| Unfolded::Unspecified("Float2Int of NaN or an infinity has no nearest integer.".into()))?.0;
             Ok(BigInt::from_str(&integer.to_string()).map(Value::Int).map_err(|error| error.to_string())?)
         }),
         "FLOAT.maxValue" => extreme_value(values, true),
@@ -856,6 +858,25 @@ mod tests {
         assert_eq!(root(2), "0e+00p53x11");
         assert_eq!(root(4), "0e+00p53x11");
         assert_eq!(root(3), "-0e+00p53x11");
+    }
+
+    /// `Float2Int` is total, and NaN and the infinities have no nearest integer, so its value
+    /// there is not given and the application stays.
+    #[test]
+    fn leaves_float2int_of_nan_and_infinities_unfolded() {
+        for token in ["NaN", "Infinity", "-Infinityf"] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.float2int", &[Value::Float(float(token))]),
+                    Some(Err(Unfolded::Unspecified(_)))
+                ),
+                "Float2Int({token})"
+            );
+        }
+        assert_eq!(
+            folded_int("FLOAT.float2int", vec![Value::Float(float("-2.5"))]),
+            BigInt::from(-2)
+        );
     }
 
     /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build

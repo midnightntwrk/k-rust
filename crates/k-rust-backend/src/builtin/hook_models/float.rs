@@ -797,7 +797,9 @@ fn float_model(hook: &str, arguments: &[Val]) -> Spec {
             let [Float(format, bits)] = arguments else {
                 panic!("{hook} takes one Float")
             };
-            to_integer(*format, *bits).map_or_else(Spec::open, |value| Spec::value(Int(value)))
+            // Total, and NaN and the infinities have no nearest integer: unspecified there.
+            to_integer(*format, *bits)
+                .map_or_else(Spec::unspecified, |value| Spec::value(Int(value)))
         }
         "FLOAT.maxValue" => {
             let [Int(precision), Int(exponent_bits)] = arguments else {

@@ -302,10 +302,16 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(value
-        .round_to_integer()
-        .map(int_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    // `Float2Int` is total; NaN and the infinities have no nearest integer, so the definition
+    // does not give its value there.
+    Ok(value.round_to_integer().map_or_else(
+        || {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: "Float2Int of NaN or an infinity, which has no nearest integer".into(),
+            })
+        },
+        |integer| BuiltinResult::Value(int_term(integer)),
+    ))
 }
 
 fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {

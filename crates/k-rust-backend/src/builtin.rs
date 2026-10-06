@@ -1979,20 +1979,28 @@ mod tests {
         }
 
         let float_to_int_cases = [
-            ("10.5", Some(10)),
-            ("11.5", Some(12)),
-            ("-10.5f", Some(-10)),
-            ("1.40129846e-45p24x8", Some(0)),
-            ("Infinity", None),
-            ("NaNf", None),
+            ("10.5", 10),
+            ("11.5", 12),
+            ("-10.5f", -10),
+            ("1.40129846e-45p24x8", 0),
         ];
         for (value, expected) in float_to_int_cases {
-            let expected = expected.map_or(BuiltinResult::Bottom, |expected| {
-                BuiltinResult::Value(int_term(BigInt::from(expected)))
-            });
             assert_eq!(
                 evaluate_hook("FLOAT.float2int", &[float_term(value)]),
-                Ok(Ok(expected)),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "float2int({value})"
+            );
+        }
+        // `Float2Int` is total, and NaN and the infinities have no nearest integer: the value
+        // there is not given by the definition.
+        for value in ["Infinity", "-Infinityf", "NaNf", "NaN"] {
+            assert!(
+                matches!(
+                    evaluate_hook("FLOAT.float2int", &[float_term(value)]),
+                    Ok(Ok(BuiltinResult::Unsupported(
+                        UnsupportedHookReason::Unspecified { .. }
+                    )))
+                ),
                 "float2int({value})"
             );
         }
