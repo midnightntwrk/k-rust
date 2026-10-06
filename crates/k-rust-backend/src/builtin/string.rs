@@ -813,5 +813,18 @@ mod tests {
         }
         assert_eq!(to_base("f_f", 16), BuiltinResult::Bottom);
         assert_eq!(to_base("12", 2), BuiltinResult::Bottom);
+        // A radix numeral carries the sign of `String2Int`'s syntax, so that `String2Base` reads
+        // back every `Base2String`, negative ones included.
+        assert_eq!(
+            to_base("+fF", 16),
+            BuiltinResult::Value(int_term(255.into()))
+        );
+        assert_eq!(
+            to_base("-z", 36),
+            BuiltinResult::Value(int_term((-35).into()))
+        );
+        for text in ["+", "-", "+-1", "--1", "1-"] {
+            assert_eq!(to_base(text, 16), BuiltinResult::Bottom, "{text:?}");
+        }
     }
 }

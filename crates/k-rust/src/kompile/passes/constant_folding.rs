@@ -1034,6 +1034,10 @@ mod tests {
     /// like its absolute value; only a zero modulus is undefined.
     #[test]
     fn powmod_reduces_by_the_magnitude_of_a_negative_modulus() {
+        // The remainder is Euclidean whatever the sign of the power, as the `smt-hook`
+        // `(mod (^ #1 #2) #3)` states it to the solver: (-2)^3 = -8 is 2 modulo 5.
+        assert_eq!(int_powmod(int(-2), int(3), int(5)), Ok(int(2)));
+        assert_eq!(int_powmod(int(-3), int(2), int(5)), Ok(int(4)));
         assert_eq!(int_powmod(int(2), int(3), int(-5)), Ok(int(3)));
         assert_eq!(int_powmod(int(-2), int(3), int(-5)), Ok(int(2)));
         assert_eq!(int_powmod(int(3), int(-1), int(-7)), Ok(int(5)));
@@ -1346,6 +1350,13 @@ mod tests {
         }
         assert_eq!(parsed("f_f", 16), None);
         assert_eq!(parsed("12", 2), None);
+        // A radix numeral carries the same sign, so `String2Base` reads back every
+        // `Base2String`, negative ones included.
+        assert_eq!(parsed("+fF", 16), Some(int(255)));
+        assert_eq!(parsed("-z", 36), Some(int(-35)));
+        for text in ["+", "-", "+-1", "--1", "1-"] {
+            assert_eq!(parsed(text, 16), None, "{text:?}");
+        }
     }
 }
 

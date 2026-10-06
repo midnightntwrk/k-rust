@@ -1468,6 +1468,37 @@ mod tests {
         );
     }
 
+    /// `A ^%Int B C` is `(mod (^ A B) C)` (its `smt-hook`, through which the backend states such
+    /// terms to the SMT solver): the Euclidean remainder, in [0, |C|) whatever the signs of the
+    /// power and of C. Zero C is undefined.
+    #[test]
+    fn powmod_is_the_euclidean_remainder_of_the_power() {
+        let powmod = |base: i64, exponent: i64, modulus: i64| {
+            evaluate_hook(
+                "INT.powmod",
+                &[
+                    int_term(BigInt::from(base)),
+                    int_term(BigInt::from(exponent)),
+                    int_term(BigInt::from(modulus)),
+                ],
+            )
+        };
+        for (base, exponent, modulus, expected) in [
+            (-2, 3, 5, 2),
+            (-2, 3, -5, 2),
+            (2, 3, -5, 3),
+            (-1, 1, 5, 4),
+            (-3, 2, 5, 4),
+        ] {
+            assert_eq!(
+                powmod(base, exponent, modulus),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
+                "{base} ^%Int {exponent} {modulus}"
+            );
+        }
+        assert_eq!(powmod(2, 3, 0), Ok(Ok(BuiltinResult::Bottom)));
+    }
+
     /// A result of exactly 2^20 bits is computed and one more bit is reported as too large, for
     /// `^Int` and `<<Int` alike.
     #[test]
