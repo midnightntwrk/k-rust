@@ -406,104 +406,33 @@ impl KompileReference<'_> {
 
 fn checked_kompile() -> &'static Path {
     static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
-    EXECUTABLE.get_or_init(|| pinned_k_tool("kompile"))
-}
-
-fn checked_kprove() -> &'static Path {
-    static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
-    EXECUTABLE.get_or_init(|| pinned_k_tool("kprove"))
-}
-
-/// Locates the K tool `name` in `KRS_K_BIN` or on `PATH` and checks it against the `Krs.lock` pin.
-fn pinned_k_tool(name: &str) -> PathBuf {
-    let lock = include_str!("../../../Krs.lock")
-        .parse::<toml_edit::DocumentMut>()
-        .expect("Krs.lock is valid TOML");
-    let pin = lock
-        .get("k")
-        .and_then(|item| item.get("version"))
-        .and_then(toml_edit::Item::as_str)
-        .expect("Krs.lock has a K version");
-    let executable = std::env::var_os("KRS_K_BIN")
-        .map_or_else(|| PathBuf::from(name), |dir| PathBuf::from(dir).join(name));
-    let output = Command::new(&executable)
-        .arg("--version")
-        .output()
-        .unwrap_or_else(|_| panic!("pin-matched {name} must be on PATH or in KRS_K_BIN"));
-    assert!(output.status.success());
-    let version_output = String::from_utf8_lossy(&output.stdout);
-    let version_token = version_output.split_whitespace().find(|token| {
-        token.starts_with('v') && token.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
-    });
-    assert_eq!(
-        version_token,
-        Some(format!("v{pin}").as_str()),
-        "{name} must match K v{pin}"
-    );
-    executable
-}
-
-/// Checks emitted claims with the pinned frontend: compiles `definition.k` in `artifacts` with the
-/// Haskell backend, then requires `kprove --dry-run` to read every claim of `spec.k` in `artifacts`
-/// as module `<main>-SPEC`.
-///
-/// The returned guard retains the compiled definition and the proof's `spec.kore`.
-///
-/// # Panics
-///
-/// Panics if a pinned tool is unavailable, if `kompile` or `kprove` rejects its input, or if the
-/// dry run does not produce exactly one `spec.kore`.
-#[must_use]
-pub fn kprove_dry_run_reference(artifacts: &Path, main: &str) -> TempDir {
-    let temporary = temp_dir();
-    let definition = temporary.path().join("compiled");
-    let proof = temporary.path().join("proof");
-    let kompile = Command::new(checked_kompile())
-        .arg(artifacts.join("definition.k"))
-        .args([
-            "--backend",
-            "haskell",
-            "--main-module",
-            main,
-            "--syntax-module",
-            main,
-        ])
-        .arg("--output-definition")
-        .arg(&definition)
-        .output()
-        .expect("pinned kompile process starts");
-    assert!(
-        kompile.status.success(),
-        "kompile rejected the emitted definition:\n{}",
-        String::from_utf8_lossy(&kompile.stderr)
-    );
-    let kprove = Command::new(checked_kprove())
-        .arg(artifacts.join("spec.k"))
-        .arg("--definition")
-        .arg(&definition)
-        .args(["--spec-module", &format!("{main}-SPEC"), "--dry-run"])
-        .arg("--temp-dir")
-        .arg(&proof)
-        .output()
-        .expect("pinned kprove process starts");
-    assert!(
-        kprove.status.success(),
-        "kprove rejected the emitted claims:\n{}",
-        String::from_utf8_lossy(&kprove.stderr)
-    );
-    let specs = fs::read_dir(&proof)
-        .expect("kprove temporary directory exists")
-        .map(|entry| {
-            entry
-                .expect("kprove temporary entry")
-                .path()
-                .join("spec.kore")
-        })
-        .filter(|path| path.is_file())
-        .count();
-    assert_eq!(
-        specs, 1,
-        "kprove --dry-run must produce exactly one spec.kore"
-    );
-    temporary
+    EXECUTABLE.get_or_init(|| {
+        let lock = include_str!("../../../Krs.lock")
+            .parse::<toml_edit::DocumentMut>()
+            .expect("Krs.lock is valid TOML");
+        let pin = lock
+            .get("k")
+            .and_then(|item| item.get("version"))
+            .and_then(toml_edit::Item::as_str)
+            .expect("Krs.lock has a K version");
+        let executable = std::env::var_os("KRS_K_BIN").map_or_else(
+            || PathBuf::from("kompile"),
+            |dir| PathBuf::from(dir).join("kompile"),
+        );
+        let output = Command::new(&executable)
+            .arg("--version")
+            .output()
+            .expect("pin-matched kompile must be on PATH or in KRS_K_BIN");
+        assert!(output.status.success());
+        let version_output = String::from_utf8_lossy(&output.stdout);
+        let version_token = version_output.split_whitespace().find(|token| {
+            token.starts_with('v') && token.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
+        });
+        assert_eq!(
+            version_token,
+            Some(format!("v{pin}").as_str()),
+            "kompile must match K v{pin}"
+        );
+        executable
+    })
 }

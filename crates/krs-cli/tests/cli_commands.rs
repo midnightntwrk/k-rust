@@ -13,7 +13,8 @@ use sha2::{Digest, Sha256};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
-const DOLLAR_IDS: &str = include_str!("fixtures/dollar-ids/src/lib.rs");
+/// Shared with the CLI gate, which also runs the emitted claims through the recorded `kprove --dry-run`.
+const DOLLAR_IDS: &str = include_str!("../../../tests/cli/fixtures/dollar-ids/src/lib.rs");
 
 #[test]
 fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
@@ -572,17 +573,6 @@ endmodule
         definition
             .contains("    <env> OldEnv:Map => OldEnv:Map [ Name:Id <- Value:Value ] </env>\n")
     );
-}
-
-/// The C2-002 regression: K's rule grammar has no lexical syntax for `Id` under `ID-SYNTAX`, so a
-/// bare `$x` stops `kprove` at its scanner, while the emitted `#token` spelling reads back.
-#[test]
-#[ignore = "requires pin-matched K 7.1.337 tools"]
-fn emitted_dollar_identifier_claims_pass_the_pinned_kprove_dry_run() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
-    let emitted = emit_dollar_ids(target.path(), temporary.path());
-    let _proof = krs_test_support::kprove_dry_run_reference(&emitted, "ORG-KRS-CLI-FOO-BAR");
 }
 
 fn command(

@@ -20,18 +20,24 @@ from support.lock import k_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.reference import Key, Snapshot, add_refresh_argument, live_tools  # noqa: E402
+from support.reference import (  # noqa: E402
+    Key, Output, Snapshot, add_refresh_argument, live_tools, reduce_kprove_temp, sorted_kore_claims,
+)
 from support.report import Results  # noqa: E402
 from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "foo-bar"
+DOLLAR_IDS = HERE / "fixtures" / "dollar-ids"
+DOLLAR_IDS_PACKAGE = "krs-cli-oracle-dollar-ids"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
 REFERENCE = HERE / "reference" / "execution"
 REFERENCE_TOOLS = ("kompile", "krun")
+CLAIMS_REFERENCE = HERE / "reference" / "dollar-id-claims"
+CLAIMS_REFERENCE_TOOLS = ("kompile", "kprove")
 
 
 def build_cli(results: Results) -> Path | None:
@@ -49,8 +55,8 @@ def build_cli(results: Results) -> Path | None:
     return binary
 
 
-def materialize(destination: Path) -> Path:
-    shutil.copytree(FIXTURE, destination)
+def materialize(destination: Path, fixture: Path = FIXTURE) -> Path:
+    shutil.copytree(fixture, destination)
     template = destination / "Cargo.toml.in"
     manifest = template.read_text(encoding="utf-8").replace(
         "@KRS_CRATE_PATH@",
@@ -219,8 +225,9 @@ def positive_run(binary: Path, workspace: Path, results: Results, gate: Path) ->
 
 def verify_pins(results: Results, pins: Ledger, artifacts: dict[str, bytes]) -> None:
     fixture_actual = {
-        "Cargo.toml.in": sha256_bytes((FIXTURE / "Cargo.toml.in").read_bytes()),
-        "src/lib.rs": sha256_bytes((FIXTURE / "src" / "lib.rs").read_bytes()),
+        f"{prefix}{name}": sha256_bytes((fixture / name).read_bytes())
+        for prefix, fixture in (("", FIXTURE), ("dollar-ids/", DOLLAR_IDS))
+        for name in ("Cargo.toml.in", "src/lib.rs")
     }
     results.add(
         "fixture_pins",
@@ -453,6 +460,96 @@ def reference_runs(
     return compile_process, initial, final
 
 
+def dollar_id_claims(
+    binary: Path, workspace: Path, results: Results, gate: Path, *, refresh: bool
+) -> tuple[dict[str, bytes], Snapshot] | None:
+    """Require K to read back emitted claims that name `$`-prefixed identifiers (C2-002).
+
+    K's rule grammar has no lexical syntax for `Id` under `ID-SYNTAX`, so a bare
+    `$x` stops `kprove` at its scanner; the emitted claims spell it
+    `#token("$x","Id")`. The Haskell `kompile` of the emitted `definition.k` and
+    `kprove --dry-run` of the emitted `spec.k`, with nothing upstream on the
+    include path, replay `reference/dollar-id-claims/`, keyed by the digests of
+    both files. The caller finishes the snapshot only after every other check
+    passed.
+    """
+
+    executables = None
+    if refresh:
+        try:
+            executables = live_tools(CLAIMS_REFERENCE_TOOLS)
+        except GateError as error:
+            results.add("dollar_id_claims", "MISMATCH", f"{error}; the dry run was refused")
+            return None
+    manifest = materialize(workspace / "language", DOLLAR_IDS)
+    emitted = workspace / "emitted"
+    emit = cli_command(
+        binary, "emit-k", manifest, workspace / "target", package=DOLLAR_IDS_PACKAGE, output=emitted,
+    )
+    if emit.returncode != 0 or not (emitted / "spec.k").is_file():
+        results.add("dollar_id_claims", "FAIL", f"emit-k did not write spec.k: {compact(emit)}")
+        return None
+    artifacts = {f"dollar-ids/{name}": (emitted / name).read_bytes() for name in ("definition.k", "spec.k")}
+    spec_text = artifacts["dollar-ids/spec.k"].decode("utf-8")
+    if '#token("$x","Id")' not in spec_text or re.search(r"(?<!\")\$x\b", spec_text):
+        results.add("dollar_id_claims", "FAIL", f"spec.k does not spell $x only as an Id #token:\n{spec_text}")
+        return None
+    main_module = krs_gate.ir_query(gate, emitted, {"kind": "modules"}, environment=z3_environment())["main_module"]
+    spec_module = f"{main_module}-SPEC"
+    try:
+        k = Snapshot(
+            CLAIMS_REFERENCE, Key(tools=CLAIMS_REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
+            executables=executables,
+        )
+        definition = workspace / "compiled-definition"
+        compile_process = k.run(
+            "kompile/definition", "kompile",
+            [
+                emitted / "definition.k", "--backend", "haskell", "--main-module", main_module,
+                "--syntax-module", main_module, "--output-definition", definition,
+            ],
+            timeout=240,
+        )
+        if compile_process.returncode != 0:
+            raise GateError(f"kompile rejected the emitted definition: {compact(compile_process)}")
+        spec_temp = workspace / "kprove-temp"
+        spec_temp.mkdir()
+        spec_kore = workspace / "dry-run" / "spec.kore"
+        dry_run = k.run(
+            "kprove/dry-run", "kprove",
+            [
+                emitted / "spec.k", "--definition", definition, "--spec-module", spec_module,
+                "--dry-run", "--temp-dir", spec_temp,
+            ],
+            timeout=240,
+            outputs=(Output(spec_kore, sorted_kore_claims, locate=lambda: dry_run_spec(spec_temp)),),
+            streams={"stdout": reduce_kprove_temp},
+        )
+        if dry_run.returncode != 0 or not spec_kore.is_file():
+            raise GateError(f"kprove --dry-run rejected the emitted claims: {compact(dry_run)}")
+        claims = re.findall(r"(?m)^// claim ", spec_kore.read_text(encoding="utf-8"))
+        if len(claims) != 1 or "assign-x" not in spec_kore.read_text(encoding="utf-8"):
+            raise GateError(f"spec.kore does not hold exactly the assign-x claim: {len(claims)} claims")
+    except (GateError, OSError) as error:
+        results.add("dollar_id_claims", "FAIL", str(error))
+        return None
+    source_mode = "live" if refresh else "recorded"
+    results.add(
+        "dollar_id_claims", "PASS",
+        f"{source_mode} K {k_version()} kompile and kprove --dry-run read the emitted #token(\"$x\",\"Id\") claim",
+    )
+    return artifacts, k
+
+
+def dry_run_spec(directory: Path) -> Path:
+    """The one `spec.kore` that `kprove --dry-run` wrote below its `--temp-dir`, or a missing path."""
+
+    found = sorted(directory.glob("*/spec.kore"))
+    if len(found) > 1:
+        raise GateError(f"kprove --dry-run wrote {len(found)} spec.kore files")
+    return found[0] if found else directory / "spec.kore"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -468,7 +565,7 @@ def main() -> int:
     if binary is None:
         return 1
     gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
-    snapshot: Snapshot | None = None
+    snapshots: list[Snapshot] = []
     with tempfile.TemporaryDirectory(prefix="krs-cli-oracle-a-") as first_raw, tempfile.TemporaryDirectory(prefix="krs-cli-oracle-relocated-b-") as second_raw:
         first_root = Path(first_raw)
         second_root = Path(second_raw) / "different" / "depth"
@@ -477,14 +574,24 @@ def main() -> int:
         second = positive_run(binary, second_root / "run-b", results, gate)
         if first is not None and second is not None:
             verify_relocation(results, first, second)
-            verify_pins(results, pins, first)
+            claims = dollar_id_claims(
+                binary, first_root / "dollar-ids", results, gate, refresh=arguments.refresh_reference,
+            )
+            if claims is not None:
+                claim_artifacts, claim_snapshot = claims
+                snapshots.append(claim_snapshot)
+                verify_pins(results, pins, {**first, **claim_artifacts})
             snapshot = reference_execution(
                 results, first, first_root / "reference", refresh=arguments.refresh_reference,
             )
+            if snapshot is not None:
+                snapshots.append(snapshot)
         else:
             results.add("clean_relocation", "FAIL", "positive command run did not complete")
         negative_cases(binary, first_root / "negative", results)
-    if snapshot is not None and not results.failed:
+    for snapshot in snapshots:
+        if results.failed:
+            break
         try:
             results.add("reference_snapshot", "PASS", snapshot.finish())
         except GateError as error:

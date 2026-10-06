@@ -1,0 +1,18 @@
+[package]
+name = "krs-cli-oracle-dollar-ids"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+krs = { path = @KRS_CRATE_PATH@ }
+
+[package.metadata.krs]
+k-namespace = "ORG-KRS-CLI-DOLLAR-IDS"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
