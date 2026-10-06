@@ -7,8 +7,8 @@ use k_rust::diagnostic::{
 };
 use k_rust::kast::TermSpan;
 use k_rust::outer::{
-    LoadError, LoadOptions, ResolvedSource, load, load_with_options, load_with_prepared_base,
-    prepared_module_declarations,
+    LoadError, LoadOptions, ResolvedSource, load, load_for_compilation, load_with_options,
+    load_with_prepared_base, prepared_module_declarations,
 };
 use k_rust::provenance::SourceId;
 use proptest::prelude::*;
@@ -2610,5 +2610,144 @@ fn cell_attributes_on_sentences_of_their_shape_load() {
     "#};
     if let Err(error) = load_with_prelude(source, "MAIN") {
         panic!("written-out cells load: {error}");
+    }
+}
+
+/// `definition.outer.select_modules`: the prelude's default configuration is kept for a fresh
+/// compilation exactly when no module that the configuration module reaches through imports
+/// surviving backend exclusion declares a configuration, and the default itself survives it.
+/// A kept default is imported by the configuration module, so its `<k>` cell is the one built.
+#[test]
+fn default_configuration_is_kept_only_without_a_configuration_after_exclusion() {
+    let prelude = indoc! {r#"
+        module MAP
+          syntax Map
+        endmodule
+
+        module DEFAULT-RULES
+          syntax Foo ::= "foo"
+          rule foo => foo
+        endmodule
+
+        module DEFAULT-CONFIGURATION ATTRIBUTES
+          imports DEFAULT-RULES
+          syntax K
+          configuration <k> $PGM:K </k>
+        endmodule
+    "#};
+    let configuration = indoc! {r#"
+        module CONF ATTRIBUTES
+          syntax K
+          configuration <user> $PGM:K </user>
+        endmodule
+    "#};
+    let conf = |attributes: &str| configuration.replace(" ATTRIBUTES", attributes);
+    // (case, entry, configuration module, default attributes, default kept)
+    let cases = [
+        (
+            "an imported configuration",
+            format!("{}module MAIN imports CONF endmodule", conf("")),
+            None,
+            "",
+            false,
+        ),
+        (
+            "an excluded configuration module",
+            format!("{}module MAIN imports CONF endmodule", conf(" [symbolic]")),
+            None,
+            "",
+            true,
+        ),
+        (
+            "a configuration reached only through an excluded module",
+            format!(
+                "{}module WRAP [symbolic] imports CONF endmodule\nmodule MAIN imports WRAP endmodule",
+                conf("")
+            ),
+            None,
+            "",
+            true,
+        ),
+        (
+            "a configuration reached through an excluded and a kept module",
+            format!(
+                "{}module R [symbolic] imports CONF endmodule\nmodule L imports CONF endmodule\n\
+                 module MAIN imports R imports L endmodule",
+                conf("")
+            ),
+            None,
+            "",
+            false,
+        ),
+        (
+            "no configuration",
+            "module MAIN endmodule".to_owned(),
+            None,
+            "",
+            true,
+        ),
+        (
+            "no configuration and an excluded default",
+            "module MAIN endmodule".to_owned(),
+            None,
+            " [symbolic]",
+            false,
+        ),
+        (
+            "a separate configuration module that has one",
+            format!("{}module MAIN endmodule", conf("")),
+            Some("CONF"),
+            "",
+            false,
+        ),
+        (
+            "a separate configuration module that has none",
+            "module SEMANTICS endmodule\nmodule MAIN imports SEMANTICS syntax K \
+             configuration <user> $PGM:K </user> endmodule"
+                .to_owned(),
+            Some("SEMANTICS"),
+            "",
+            true,
+        ),
+    ];
+    for (case, entry, configuration_module, default_attributes, expected) in cases {
+        let prelude = prelude.replace(" ATTRIBUTES", default_attributes);
+        let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+        let (loaded, _) = load_for_compilation(
+            ResolvedSource::new("main.k", entry.as_str()),
+            "MAIN",
+            None,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![ResolvedSource::new("prelude.k", prelude.as_str())],
+                excluded_module_attributes: vec!["symbolic".into()],
+                configuration_module: configuration_module.map(str::to_owned),
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{case}: {error}"));
+        let modules = &loaded.definition().modules;
+        let kept = modules
+            .iter()
+            .any(|module| module.name == "DEFAULT-CONFIGURATION");
+        assert_eq!(kept, expected, "{case}: default configuration kept");
+        // A module with rules is kept only for a kept module that imports it.
+        assert_eq!(
+            modules.iter().any(|module| module.name == "DEFAULT-RULES"),
+            expected,
+            "{case}: the default configuration's imports kept"
+        );
+        let owner = modules
+            .iter()
+            .find(|module| module.name == configuration_module.unwrap_or("MAIN"))
+            .unwrap_or_else(|| panic!("{case}: configuration module"));
+        assert_eq!(
+            owner
+                .imports
+                .iter()
+                .any(|import| import.name == "DEFAULT-CONFIGURATION"),
+            expected,
+            "{case}: configuration module imports the default"
+        );
     }
 }
