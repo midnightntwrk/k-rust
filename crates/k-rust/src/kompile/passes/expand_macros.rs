@@ -2234,6 +2234,10 @@ fn with_stack<T>(red_zone: usize, work: impl FnOnce() -> T) -> T {
 
 /// The number of terms on the longest path from `term` to a leaf, counted without recursion so
 /// that a term of any depth can be measured.
+///
+/// A `macro-rec` or `alias-rec` rewrite measures its bindings with this walk, so it is written
+/// with plain loops: iterator adapters made it several times slower in unoptimized builds,
+/// where the test suite runs.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants have children"
@@ -2243,19 +2247,26 @@ fn term_depth(term: &Term) -> usize {
     let mut pending = vec![(term, 1)];
     // Invariant: `deepest` is the greatest depth of a term visited so far, and `pending` holds every unvisited child of a visited term with its depth; each iteration visits one term.
     while let Some((term, depth)) = pending.pop() {
-        deepest = deepest.max(depth);
-        match term.unannotated() {
-            Term::Apply { arguments, .. } => {
-                pending.extend(arguments.iter().map(|argument| (argument, depth + 1)));
-            }
-            Term::Sequence(items) => pending.extend(items.iter().map(|item| (item, depth + 1))),
+        if depth > deepest {
+            deepest = depth;
+        }
+        let children: &[Term] = match term.unannotated() {
+            Term::Apply { arguments, .. } => arguments,
+            Term::Sequence(items) => items,
             Term::Rewrite { left, right } => {
-                pending.extend([(&**left, depth + 1), (&**right, depth + 1)]);
+                pending.push((left, depth + 1));
+                pending.push((right, depth + 1));
+                continue;
             }
             Term::As { pattern, alias } => {
-                pending.extend([(&**pattern, depth + 1), (&**alias, depth + 1)]);
+                pending.push((pattern, depth + 1));
+                pending.push((alias, depth + 1));
+                continue;
             }
-            _ => {}
+            _ => continue,
+        };
+        for child in children {
+            pending.push((child, depth + 1));
         }
     }
     deepest
