@@ -5,7 +5,7 @@ use k_rust::definition::{
 };
 use k_rust::diagnostic::DiagnosticCode;
 use k_rust::inner::resolve_configuration_bubbles;
-use k_rust::kast::{Term, TermSpan};
+use k_rust::kast::{Term, TermParts, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
 use k_rust::provenance::{
     DestinationAnchor, GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId,
@@ -117,10 +117,10 @@ fn uncast_schematic_configuration_content_is_rejected_at_its_sentence() {
     };
     let expected_source = attributes.source().map(str::to_owned);
     let expected_location = attributes.location();
-    let Term::Apply {
+    let TermParts::Apply {
         label,
         mut arguments,
-    } = body.clone().into_unannotated()
+    } = body.clone().into_unannotated().into_parts()
     else {
         panic!("configuration cell");
     };
@@ -214,10 +214,10 @@ fn generated_configuration_projection_does_not_trust_stale_metadata() {
             },
         )
         .unwrap();
-    let Term::Apply {
+    let TermParts::Apply {
         label,
         mut arguments,
-    } = body.clone().into_unannotated()
+    } = body.clone().into_unannotated().into_parts()
     else {
         panic!("configuration cell");
     };

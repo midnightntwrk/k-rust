@@ -5116,7 +5116,7 @@ bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h 
 
 [[node.cost]]
 mode = "Expander construction per module"
-bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions and one typing per macro rule"
+bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions, and one typing of each macro rule of a parametric head when a subject with that head is first tried"
 
 [[node]]
 kind = "algorithm"
@@ -6791,7 +6791,7 @@ id = "parser.grammar.program_signature"
 provenance = "declared"
 area = "parser"
 name = "collection of public program-grammar signatures"
-variable = "M = reachable modules and imports; S = visible sentences"
+variable = "M = reachable modules and imports; S = visible syntax declarations"
 no_counter = "public-signature collection has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserGrammarProgramSignature"

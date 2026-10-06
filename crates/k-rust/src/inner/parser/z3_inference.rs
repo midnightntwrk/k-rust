@@ -5351,7 +5351,7 @@ mod tests {
                 .into_iter()
                 .map(|vector| vector
                     .into_values()
-                    .map(|sort| sort.name)
+                    .map(|mut sort| std::mem::take(&mut sort.name))
                     .collect::<Vec<_>>())
                 .collect::<BTreeSet<_>>(),
             vectors
@@ -5415,7 +5415,7 @@ mod tests {
                 .map(|vector| vector
                     .into_iter()
                     .filter(|(name, _)| parameters.contains(name))
-                    .map(|(_, sort)| sort.name)
+                    .map(|(_, mut sort)| std::mem::take(&mut sort.name))
                     .collect::<Vec<_>>())
                 .collect::<BTreeSet<_>>(),
             vectors

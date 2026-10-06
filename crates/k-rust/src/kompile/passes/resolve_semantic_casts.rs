@@ -14,7 +14,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, PartialOrder, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::{Label, Sort, SortRole, Term, sort_role::KernelSort},
+    kast::{Label, Sort, SortRole, Term, TermParts, sort_role::KernelSort},
     provenance::GeneratingPass,
 };
 
@@ -538,7 +538,7 @@ fn transform(
 ) -> Term {
     let source_metadata = term.metadata().cloned();
     if casts.contains(term.unannotated()) {
-        let Term::Apply { label, arguments } = term.into_unannotated() else {
+        let TermParts::Apply { label, arguments } = term.into_unannotated().into_parts() else {
             unreachable!("the cast set contains applications only")
         };
         let sort = label
@@ -554,34 +554,34 @@ fn transform(
         );
     }
 
-    let rebuilt = match term.into_unannotated() {
-        Term::Rewrite { left, right } => Term::Rewrite {
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(transform(*left, casts, typed_variables, subsorts)),
             right: Box::new(transform(*right, casts, typed_variables, subsorts)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(transform(*pattern, casts, typed_variables, subsorts)),
             alias: Box::new(transform(*alias, casts, typed_variables, subsorts)),
         },
-        Term::Sequence(items) => Term::Sequence(
+        TermParts::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
                 .map(|item| transform(item, casts, typed_variables, subsorts))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
                 .map(|argument| transform(argument, casts, typed_variables, subsorts))
                 .collect(),
         },
-        Term::Variable { name, sort } => Term::Variable {
+        TermParts::Variable { name, sort } => Term::Variable {
             sort: typed_variables.get(&name).cloned().or(sort),
             name,
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        leaf @ (TermParts::InjectedLabel(_) | TermParts::Token { .. }) => Term::from(leaf),
+        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
     match source_metadata {
         Some(metadata) => rebuilt.with_metadata(metadata),
@@ -604,8 +604,8 @@ fn transform(
 )]
 fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
     let metadata = term.metadata().cloned();
-    let term = match term.into_unannotated() {
-        Term::Variable {
+    let term = match term.into_unannotated().into_parts() {
+        TermParts::Variable {
             name,
             sort: existing,
         } => {
@@ -617,11 +617,11 @@ fn attach_sort(term: Term, sort: Sort, subsorts: &PartialOrder<Sort>) -> Term {
                 variable.with_metadata(metadata)
             });
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(attach_sort(*left, sort.clone(), subsorts)),
             right: Box::new(attach_sort(*right, sort.clone(), subsorts)),
         },
-        term => term,
+        term => Term::from(term),
     };
     let mut metadata = metadata.unwrap_or_default();
     metadata.sort = Some(match metadata.sort.take() {

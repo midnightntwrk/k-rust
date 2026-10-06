@@ -40,7 +40,7 @@ use crate::definition::{
     Sentence, SortSynonyms,
 };
 use crate::kast::sort_role::KernelSort;
-use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term, TermParts};
 use crate::names::BuiltinSort;
 use crate::timings::PhaseTimings;
 
@@ -387,12 +387,12 @@ fn bubble_error(
 /// Readings that differ only in their instance stay distinct during disambiguation; the
 /// parameters are dropped only here, after one reading has been chosen.
 pub(super) fn erase_label_parameters(term: Term) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => Term::Annotated {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => Term::Annotated {
             term: Box::new(erase_label_parameters(*term)),
             metadata,
         },
-        Term::Apply {
+        TermParts::Apply {
             mut label,
             arguments,
         } => {
@@ -402,22 +402,22 @@ pub(super) fn erase_label_parameters(term: Term) -> Term {
                 arguments: arguments.into_iter().map(erase_label_parameters).collect(),
             }
         }
-        Term::InjectedLabel(mut label) => {
+        TermParts::InjectedLabel(mut label) => {
             label.parameters.clear();
             Term::InjectedLabel(label)
         }
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(erase_label_parameters(*left)),
             right: Box::new(erase_label_parameters(*right)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(erase_label_parameters(*pattern)),
             alias: Box::new(erase_label_parameters(*alias)),
         },
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             Term::Sequence(items.into_iter().map(erase_label_parameters).collect())
         }
-        term @ (Term::Variable { .. } | Term::Token { .. }) => term,
+        term @ (TermParts::Variable { .. } | TermParts::Token { .. }) => Term::from(term),
     }
 }
 
@@ -427,7 +427,10 @@ fn up_sentence(
     parsed: Term,
     attributes: Attributes,
 ) -> Result<Sentence, RuleError> {
-    let Term::Apply { label, arguments } = erase_label_parameters(parsed).into_unannotated() else {
+    let TermParts::Apply { label, arguments } = erase_label_parameters(parsed)
+        .into_unannotated()
+        .into_parts()
+    else {
         return Err(bubble_error(
             module,
             sentence_type,

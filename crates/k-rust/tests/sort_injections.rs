@@ -1974,12 +1974,12 @@ fn synthetic_unsorted_variables_use_expected_sort_then_k() {
         Sort::new("Exp")
     );
     assert!(matches!(
-        injector.inject(&variable, &Sort::new("Exp")).unwrap(),
-        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("Exp")
+        &injector.inject(&variable, &Sort::new("Exp")).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && *sort == Sort::new("Exp")
     ));
     assert!(matches!(
-        injector.inject_at_top(&variable).unwrap(),
-        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("K")
+        &injector.inject_at_top(&variable).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && *sort == Sort::new("K")
     ));
 }
 
@@ -3001,4 +3001,91 @@ fn retained_injection_operand_validation_ignores_unmaterialized_casts() {
         };
         assert!(converter.convert(&term).is_err(), "{term}");
     }
+}
+
+/// The number of applications on the path from `term` through first arguments, counted
+/// without recursion.
+fn first_argument_depth(term: &Term) -> usize {
+    let mut depth = 0;
+    let mut term = term;
+    while let Term::Apply { arguments, .. } = term.unannotated() {
+        depth += 1;
+        let Some(first) = arguments.first() else {
+            break;
+        };
+        term = first;
+    }
+    depth
+}
+
+/// Sort injection, the sort inference it makes, the check of a sentence's sort variables and the
+/// conversion of an injected term to KORE each descend once per level of the term, and nothing
+/// bounds that depth; a term of any depth is processed on a small stack. A chain of 100,000
+/// applications of a constructor is injected and converted as a standalone term, and injected as
+/// the right-hand side of a rule, on a thread of 1 MiB; a chain of 500 applications of a
+/// parametric production, whose sort is inferred from its argument's at every level, on a thread
+/// of 64 KiB. (Injecting such a chain takes time super-linear in its depth, 12 s at 2,000 levels
+/// in the `dev` profile, hence its smaller depth.)
+#[test]
+fn terms_of_any_depth_are_injected_and_converted_on_a_small_stack() {
+    const DEPTH: usize = 100_000;
+    let chain = |label: &str, depth: usize| {
+        (0..depth).fold(Term::apply("z", Vec::new()), |term, _| {
+            Term::apply(label, vec![term])
+        })
+    };
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token]
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax {S} S ::= wrap(S) [symbol(wrap)]
+          syntax KItem ::= "go" [symbol(go)] | done(Nat) [symbol(done)]
+        endmodule
+    "#});
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let deep_rule = Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::apply("go", Vec::new())),
+            right: Box::new(Term::apply("done", vec![chain("s", DEPTH)])),
+        },
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let (constructors, parametric) = (chain("s", DEPTH), chain("wrap", 500));
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || {
+            let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+            let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+            let injected = injector.inject_at_top(&constructors).unwrap();
+            assert_eq!(first_argument_depth(&injected), DEPTH + 1);
+            term_to_kore_from_resolved(&resolved, "MAIN", &injected).unwrap();
+            let Sentence::Rule { body, .. } = injector.inject_sentence(&deep_rule).unwrap() else {
+                unreachable!("injection keeps the sentence kind")
+            };
+            let Term::Rewrite { right, .. } = body.unannotated() else {
+                panic!("the rule body stays a rewrite")
+            };
+            assert!(first_argument_depth(right) > DEPTH);
+            std::thread::scope(|scope| {
+                std::thread::Builder::new()
+                    .stack_size(64 << 10)
+                    .spawn_scoped(scope, || {
+                        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+                        let injected = injector.inject_at_top(&parametric).unwrap();
+                        assert!(first_argument_depth(&injected) > 500);
+                        term_to_kore_from_resolved(&resolved, "MAIN", &injected).unwrap();
+                    })
+                    .expect("the worker should spawn")
+                    .join()
+                    .expect("the parametric chain should be injected");
+            });
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
 }

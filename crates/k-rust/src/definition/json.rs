@@ -35,7 +35,7 @@ use super::ast::{
 use crate::definition::AttributeKey;
 use crate::kast::json::{self as term_json, JsonLabel, JsonSort, JsonTerm};
 use crate::{
-    kast::{DeepDrop, Label, ProductionIdentity, Term, TermMetadata, TermSpan},
+    kast::{Label, ProductionIdentity, Term, TermMetadata, TermSpan},
     provenance::{
         DestinationAnchor, GeneratingPass, LogicalSourceId, OriginRecord, ProvenanceLink, SourceId,
         SourceOffsetMap, SourceOffsetSegment, SourceTable,
@@ -181,8 +181,7 @@ type Omissions<'a> = Option<&'a mut Vec<OmittedSentence>>;
 /// serde's recursion limit stays on outside the sentences' terms, which are read as raw text and
 /// decoded with explicit work stacks ([`ReadSentence`]). The rest of a definition k-rust accepts
 /// is shallow (its sort checks reject nested parametric sorts, so a declaration's sort nests at
-/// most two levels), and anything there nested past the limit is an ordinary error. What the
-/// reader decoded before an error is dropped with explicit work lists ([`Decoded`]).
+/// most two levels), and anything there nested past the limit is an ordinary error.
 fn kast_v4_envelope<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, Error> {
     let envelope: Envelope<T> = serde_json::from_str(input)?;
     if envelope.format != term_json::FORMAT {
@@ -210,83 +209,7 @@ fn read_definition(input: &str, omitted: Omissions<'_>) -> Result<Definition, Er
     let definition = kast_v4_envelope::<JsonDefinition<ReadSentence>>(input)?
         .decode(DefinitionEnvelopeKind::KastV4, omitted)?;
     check_main_module(&definition.main_module, &definition.modules)?;
-    Ok(definition.finish())
-}
-
-/// What a reader decodes: a definition or a module list.
-trait DecodedModules {
-    fn modules_mut(&mut self) -> &mut Vec<FlatModule>;
-}
-
-impl DecodedModules for Definition {
-    fn modules_mut(&mut self) -> &mut Vec<FlatModule> {
-        &mut self.modules
-    }
-}
-
-impl DecodedModules for ModuleList {
-    fn modules_mut(&mut self) -> &mut Vec<FlatModule> {
-        &mut self.modules
-    }
-}
-
-/// A definition or module list that a reader is decoding or checking.
-///
-/// Its terms may nest to any depth, and a KAST term drops by recursion. Until the reader returns
-/// it ([`Decoded::finish`]), it is therefore dropped with explicit work lists ([`DeepDrop`]): an
-/// error found after a deep term was decoded, in a later term, sentence or module or by a check
-/// of the whole document, is returned without recursing over that term.
-struct Decoded<T: DecodedModules>(Option<T>);
-
-impl<T: DecodedModules> Decoded<T> {
-    fn new(value: T) -> Self {
-        Self(Some(value))
-    }
-
-    fn modules_mut(&mut self) -> &mut Vec<FlatModule> {
-        std::ops::DerefMut::deref_mut(self).modules_mut()
-    }
-
-    fn finish(mut self) -> T {
-        self.0.take().expect("a decoded value is finished once")
-    }
-}
-
-impl<T: DecodedModules> std::ops::Deref for Decoded<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        self.0
-            .as_ref()
-            .expect("a decoded value is held until it is finished")
-    }
-}
-
-impl<T: DecodedModules> std::ops::DerefMut for Decoded<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        self.0
-            .as_mut()
-            .expect("a decoded value is held until it is finished")
-    }
-}
-
-impl<T: DecodedModules> Drop for Decoded<T> {
-    fn drop(&mut self) {
-        let Some(value) = &mut self.0 else {
-            return;
-        };
-        let mut rubble = DeepDrop::default();
-        for module in value.modules_mut() {
-            for sentence in &mut module.local_sentences {
-                // A sentence is shared only once the reader has returned it.
-                if let Some(sentence) = Arc::get_mut(sentence) {
-                    for (_, term) in sentence.terms_mut() {
-                        rubble.term(std::mem::replace(term, Term::Sequence(Vec::new())));
-                    }
-                }
-            }
-        }
-    }
+    Ok(definition)
 }
 
 /// Decode a KAST JSON version 4 `KDefinition` document.
@@ -321,20 +244,20 @@ pub fn from_str_omitting_unrepresentable(
 /// the semantics a claim is proved against, so a list of claim modules has none to omit.
 pub fn module_list_from_str(input: &str) -> Result<ModuleList, Error> {
     let list = kast_v4_envelope::<JsonModuleList<ReadSentence>>(input)?;
-    let mut decoded = Decoded::new(ModuleList {
+    let mut decoded = ModuleList {
         main_module: list.main_module,
         modules: Vec::with_capacity(list.term.len()),
-    });
+    };
     for (index, module) in list.term.into_iter().enumerate() {
         module.decode_into(
             DefinitionEnvelopeKind::KastV4,
             index,
             None,
-            decoded.modules_mut(),
+            &mut decoded.modules,
         )?;
     }
     check_main_module(&decoded.main_module, &decoded.modules)?;
-    Ok(decoded.finish())
+    Ok(decoded)
 }
 
 pub fn to_string(definition: &Definition) -> Result<String, Error> {
@@ -582,10 +505,8 @@ fn serialize_provenance(
 /// Decode a `KRUST-PROVENANCE` document and restore its source-indexed metadata.
 ///
 /// As for KAST JSON ([`from_str`]), serde's recursion limit stays on outside the sentences'
-/// terms, which are decoded with explicit work stacks, and what was decoded before an error is
-/// dropped with explicit work lists, so a definition whose terms nest to any depth is read or
-/// refused on any thread. The definition returned is held and dropped by the caller, whose
-/// stack bounds the depth of the KAST terms it can drop.
+/// terms, which are decoded with explicit work stacks, so a definition whose terms nest to any
+/// depth is read or refused on any thread.
 pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
     let envelope: ProvenanceEnvelope<ReadSentence> = serde_json::from_str(input)?;
     if envelope.format != PROVENANCE_FORMAT {
@@ -638,7 +559,7 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
     }
     check_main_module(&definition.main_module, &definition.modules)?;
     Ok(ProvenanceDefinition {
-        definition: definition.finish(),
+        definition,
         source_table,
     })
 }
@@ -1353,14 +1274,14 @@ impl JsonDefinition<ReadSentence> {
         self,
         kind: DefinitionEnvelopeKind,
         mut omitted: Omissions<'_>,
-    ) -> Result<Decoded<Definition>, Error> {
-        let mut decoded = Decoded::new(Definition {
+    ) -> Result<Definition, Error> {
+        let mut decoded = Definition {
             main_module: self.main_module,
             modules: Vec::with_capacity(self.modules.len()),
             attributes: self.att.into(),
-        });
+        };
         for (index, module) in self.modules.into_iter().enumerate() {
-            module.decode_into(kind, index, omitted.as_deref_mut(), decoded.modules_mut())?;
+            module.decode_into(kind, index, omitted.as_deref_mut(), &mut decoded.modules)?;
         }
         Ok(decoded)
     }
@@ -1402,10 +1323,9 @@ impl JsonFlatModule {
 }
 
 impl JsonFlatModule<ReadSentence> {
-    /// Decode the module at `module_index` of its document onto the end of `modules`, which
-    /// holds it, and each sentence as it is decoded, so that a later error drops them with
-    /// explicit work lists ([`Decoded`]). With `omitted`, a KAST v4 `badsentence` is skipped
-    /// and its wire position recorded instead of being an error.
+    /// Decode the module at `module_index` of its document onto the end of `modules`. With
+    /// `omitted`, a KAST v4 `badsentence` is skipped and its wire position recorded instead of
+    /// being an error.
     fn decode_into(
         self,
         kind: DefinitionEnvelopeKind,
@@ -1791,18 +1711,11 @@ const TERM_FIELDS: [&str; 3] = ["body", "requires", "ensures"];
 #[serde(transparent)]
 struct TermText(String);
 
-/// Decode the terms of one sentence, in order. When one is refused, the terms decoded before
-/// it, which may nest to any depth, are dropped with explicit work lists.
+/// Decode the terms of one sentence, in order.
 fn decode_terms<const N: usize>(texts: [TermText; N]) -> Result<[Term; N], Error> {
     let mut terms = Vec::with_capacity(N);
     for text in texts {
-        match term_json::term_from_str(&text.0) {
-            Ok(term) => terms.push(term),
-            Err(error) => {
-                DeepDrop::drop_terms(terms);
-                return Err(error.into());
-            }
-        }
+        terms.push(term_json::term_from_str(&text.0)?);
     }
     Ok(terms
         .try_into()

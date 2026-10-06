@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use k_rust_kore::json_tree::{self, Node};
 
-use super::ast::{DeepDrop, Label, Sort, Term};
+use super::ast::{Label, Sort, Term};
 use super::sort_role::{NumeralSpelling, numeral_spelling};
 
 pub const FORMAT: &str = "KAST";
@@ -193,14 +193,7 @@ fn build_sort(root: Node) -> Result<Sort, Error> {
     let mut stack = vec![Frame::new(root)?];
     loop {
         if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
-            match Frame::new(child) {
-                Ok(frame) => stack.push(frame),
-                Err(error) => {
-                    // The sorts built so far may nest to any depth.
-                    DeepDrop::drop_sorts(stack.into_iter().flat_map(|frame| frame.built));
-                    return Err(error);
-                }
-            }
+            stack.push(Frame::new(child)?);
             continue;
         }
         let frame = stack.pop().expect("the root sort frame remains");
@@ -268,20 +261,9 @@ fn build_label(node: Node) -> Result<Label, Error> {
     })
 }
 
-/// Build each sort of `nodes`. When one is refused, the sorts built before it, which may nest to
-/// any depth, are dropped with explicit work lists.
+/// Build each sort of `nodes`.
 fn build_sorts(nodes: Vec<Node>) -> Result<Vec<Sort>, Error> {
-    let mut sorts = Vec::with_capacity(nodes.len());
-    for node in nodes {
-        match build_sort(node) {
-            Ok(sort) => sorts.push(sort),
-            Err(error) => {
-                DeepDrop::drop_sorts(sorts);
-                return Err(error);
-            }
-        }
-    }
-    Ok(sorts)
+    nodes.into_iter().map(build_sort).collect()
 }
 
 fn label_node(label: &Label) -> Node {
@@ -308,8 +290,8 @@ enum TermHead {
 /// Read the head of a term node and its children.
 ///
 /// The members that cannot nest are read, and an application's or sequence's arity checked,
-/// before the sort or label of the head is built, which may nest to any depth: once it is built,
-/// nothing in this node can fail.
+/// before the sort or label of the head is built, so a node's own errors are reported before
+/// those inside its sort or label.
 fn term_head(node: Node) -> Result<(TermHead, Vec<Node>), Error> {
     let mut fields = Fields::new(node)?;
     let node = fields.string("node")?;
@@ -407,32 +389,12 @@ fn build_term(root: Node) -> Result<Term, Error> {
                 TermHead::InjectedLabel(label) => Term::InjectedLabel(label),
             }
         }
-
-        /// Hand what this frame has built, which may nest to any depth, to `rubble`.
-        fn discard(self, rubble: &mut DeepDrop) {
-            rubble.terms(self.built);
-            match self.head {
-                TermHead::Token(sort, _) => rubble.sort(sort),
-                TermHead::Variable(_, sort) => rubble.sorts(sort),
-                TermHead::Apply(label) | TermHead::InjectedLabel(label) => rubble.label(label),
-                TermHead::Sequence | TermHead::Rewrite | TermHead::As => {}
-            }
-        }
     }
 
     let mut stack = vec![Frame::new(root)?];
     loop {
         if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
-            match Frame::new(child) {
-                Ok(frame) => stack.push(frame),
-                Err(error) => {
-                    let mut rubble = DeepDrop::default();
-                    for frame in stack {
-                        frame.discard(&mut rubble);
-                    }
-                    return Err(error);
-                }
-            }
+            stack.push(Frame::new(child)?);
             continue;
         }
         let term = stack.pop().expect("the root term frame remains").finish();

@@ -29,7 +29,7 @@ use crate::{
         SortHead,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, TermParts},
     provenance::GeneratingPass,
 };
 
@@ -165,8 +165,8 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         diagnostics: &mut Vec<Diagnostic>,
     ) -> Term {
         let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated() {
-            Term::Rewrite { left, right } => Term::Rewrite {
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(self.fold(*left, Position::Left, sentence_attributes, diagnostics)),
                 right: Box::new(self.fold(
                     *right,
@@ -175,17 +175,17 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                     diagnostics,
                 )),
             },
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.fold(*pattern, position, sentence_attributes, diagnostics)),
                 alias: Box::new(self.fold(*alias, position, sentence_attributes, diagnostics)),
             },
-            Term::Sequence(items) => Term::Sequence(
+            TermParts::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
                     .map(|item| self.fold(item, position, sentence_attributes, diagnostics))
                     .collect(),
             ),
-            Term::Apply { label, arguments } => {
+            TermParts::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
                     .map(|argument| self.fold(argument, position, sentence_attributes, diagnostics))
@@ -203,8 +203,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                 }
                 Term::Apply { label, arguments }
             }
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-            Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
         match metadata {
             Some(metadata) => rebuilt.with_metadata(metadata),

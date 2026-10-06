@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "Expander construction per module"
-//! bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions and one typing per macro rule"
+//! bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions, and one typing of each macro rule of a parametric head when a subject with that head is first tried"
 //! ```
 //!
 //! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application whose rule set has a head fixing a sort parameter is retried after a rewriting round until a round rewrites nothing.
@@ -42,6 +42,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
+    cell::OnceCell,
     collections::{BTreeMap, BTreeSet},
     fmt,
     hash::{Hash, Hasher},
@@ -62,7 +63,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     inner::ParsedProgram,
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
         fresh_names::{FreshNames, GeneratedVariableIdentity},
@@ -94,10 +95,44 @@ struct MacroRule {
     left: Term,
     right: Term,
     recursive: bool,
+    /// The instance of a parametric head, typed only when a subject with that head is tried;
+    /// `None` for a head whose production has no sort parameter.
+    head_instance: Option<HeadInstance>,
+}
+
+impl MacroRule {
     /// The instance of a parametric head, one entry per sort parameter of its production, as
     /// the typing of the macro rule gives it; `None` in an entry the rule leaves open, and `None`
     /// altogether for a head whose production has no sort parameter.
-    head_instance: Option<Vec<Option<Sort>>>,
+    ///
+    /// The instance must have been typed ([`Expander::type_heads`]): the expander types the
+    /// rules of a head before it tries them on a subject.
+    fn typed_head_instance(&self) -> Option<&[Option<Sort>]> {
+        self.head_instance.as_ref().map(|head| {
+            head.instance
+                .get()
+                .expect("a head is typed before its rules are tried")
+                .as_slice()
+        })
+    }
+}
+
+/// The instance of a macro rule's parametric head, typed on first use.
+///
+/// The expander reads the instance only to compare it with a subject's, when it tries the
+/// rule; typing the rule is O(N x h) in the rule's nodes and height (the typing view records a
+/// path and a subterm at every node), so a rule is typed the first time a subject with its head
+/// is tried, and a program or sentence that never applies the head's symbol does not pay for it.
+#[derive(Clone)]
+struct HeadInstance {
+    /// The path of the head in the rule's typing: the left side of the top rewrite, or the
+    /// body when the rewrite is nested.
+    path: &'static [u32],
+    /// The number of sort parameters of the head's production.
+    parameters: usize,
+    /// The depth of the rule, from which the typing's stack zone is measured.
+    depth: usize,
+    instance: OnceCell<Vec<Option<Sort>>>,
 }
 
 /// Expand the macro and alias rules of each module in the rules, claims and contexts the
@@ -607,6 +642,9 @@ struct Expander<'view, 'definition> {
     /// The typing view of the term module, present when some macro rule has a parametric head:
     /// then an application's instance is read from the typing of the sentence it stands in.
     typer: Option<SentenceTyper<'definition>>,
+    /// The typing view of the macro module, which types the macro rules of a parametric head
+    /// ([`Self::type_heads`]); present when some macro rule has a parametric head.
+    macro_typer: Option<SentenceTyper<'definition>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
     /// Rewrites by `macro-rec` and `alias-rec` rules made since the sentence or standalone
@@ -641,36 +679,56 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let overloads = views
             .overloads(term_module)
             .map_err(|error| plain_error(error.to_string()))?;
-        let all = definition
+        let selected = definition
             .sentences(macro_module)
             .into_iter()
             .enumerate()
             .filter_map(|(id, sentence)| {
-                macro_rule(id, sentence, productions).map(|rule| (sentence, rule))
+                macro_rule_recursion(sentence, productions)
+                    .map(|recursive| (id, sentence, recursive))
             })
-            .map(|(_, rule)| Ok(rule))
-            .collect::<Result<Vec<_>, Diagnostic>>()?;
+            .collect::<Vec<_>>();
+        // Building a macro rule copies its sentence and projects its body, each a recursion as
+        // deep as the rule, so they run with stack for the deepest macro rule, measured without
+        // recursion. A parametric head is typed later, when it is first tried.
+        let depths = selected
+            .iter()
+            .map(|(_, sentence, _)| sentence_depth(sentence))
+            .collect::<Vec<_>>();
+        let rules_depth = depths.iter().copied().max().unwrap_or(0);
+        let mut all = with_stack(walk_zone(rules_depth), || {
+            selected
+                .into_iter()
+                .map(|(id, sentence, recursive)| macro_rule(id, sentence, recursive))
+                .collect::<Vec<_>>()
+        });
         let priorities = all
             .iter()
             .map(|rule| macro_priority(rule.sentence.attributes()))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
-        let parametric = all.iter().any(|(rule, _)| {
-            matches!(rule.left.unannotated(), Term::Apply { label, .. }
-                if production_parameters(productions, label).is_some())
-        });
+        let parametric = all
+            .iter()
+            .any(|rule| parametric_head(productions, rule).is_some());
         let mut typer = None;
+        let mut macro_typer = None;
         if parametric {
             // A typing view that cannot be built leaves every instance open.
-            let macro_typer =
+            macro_typer =
                 SentenceTyper::new(definition, &definition.module(macro_module).name).ok();
-            for (rule, _) in &mut all {
-                rule.head_instance = macro_typer
-                    .as_ref()
-                    .and_then(|typer| head_instance(typer, productions, rule));
+            if macro_typer.is_some() {
+                for (rule, depth) in all.iter_mut().zip(&depths) {
+                    rule.head_instance =
+                        parametric_head(productions, rule).map(|(path, parameters)| HeadInstance {
+                            path,
+                            parameters,
+                            depth: *depth,
+                            instance: OnceCell::new(),
+                        });
+                }
             }
             typer = SentenceTyper::new(definition, &definition.module(term_module).name).ok();
         }
+        let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
         all.sort_by_key(|(_, priority)| *priority);
         let mut macros = BTreeMap::<LabelHead, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
@@ -718,6 +776,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             records_shapes,
             identities: Identities::default(),
             typer,
+            macro_typer,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
             recursive_rewrites: 0,
@@ -909,8 +968,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             shapes.push(shape);
             Ok::<_, Diagnostic>(child)
         };
-        let (term, rules) = match term.into_unannotated() {
-            Term::Apply { label, arguments } => {
+        let (term, rules) = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
                     .map(|argument| expand(self, argument))
@@ -918,25 +977,25 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 let rules = self.macros.get(&LabelHead::from(&label)).cloned();
                 (Term::Apply { label, arguments }, rules)
             }
-            Term::Token { token, sort } => {
+            TermParts::Token { token, sort } => {
                 let rules = self.token_macros.get(&sort).cloned();
                 (Term::Token { token, sort }, rules)
             }
-            Term::Rewrite { left, right } => (
+            TermParts::Rewrite { left, right } => (
                 Term::Rewrite {
                     left: Box::new(expand(self, *left)?),
                     right: Box::new(expand(self, *right)?),
                 },
                 None,
             ),
-            Term::As { pattern, alias } => (
+            TermParts::As { pattern, alias } => (
                 Term::As {
                     pattern: Box::new(expand(self, *pattern)?),
                     alias: Box::new(expand(self, *alias)?),
                 },
                 None,
             ),
-            Term::Sequence(items) => (
+            TermParts::Sequence(items) => (
                 Term::Sequence(
                     items
                         .into_iter()
@@ -945,8 +1004,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 ),
                 None,
             ),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. }) => (leaf, None),
-            Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Variable { .. }) => {
+                (Term::from(leaf), None)
+            }
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
         Ok(Expanded {
             term: with_metadata(term, metadata),
@@ -1063,7 +1124,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     &rule.sentence,
                 ));
             }
-            if !instances_agree(rule.head_instance.as_deref(), instance) {
+            if let Some(instance) = instance
+                && !instances_agree(rule.typed_head_instance(), instance)
+            {
                 continue;
             }
             let mut bindings = BTreeMap::new();
@@ -1314,6 +1377,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         };
         let mut instance = None;
         if application {
+            self.type_heads(&rules);
             if rules.iter().any(|rule| rule.head_instance.is_some()) {
                 instance = Some(self.subject_instance(site, path));
             }
@@ -1325,8 +1389,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             let shape = self.shape(subject, children, true);
             if instance.is_some()
                 && rules.iter().any(|rule| {
-                    rule.head_instance
-                        .as_ref()
+                    rule.typed_head_instance()
                         .is_some_and(|head| head.iter().any(Option::is_some))
                 })
             {
@@ -1350,6 +1413,22 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let mut next_applied = applied.clone();
         next_applied.insert(rule.id);
         Ok(Tried::Rewritten(next_applied, known))
+    }
+
+    /// Type the parametric heads of `rules`, the macro rules of one head, that are not typed
+    /// yet: the first time a subject with that head is tried. Typing walks the rule
+    /// recursively, so it runs with stack for the rule's depth.
+    fn type_heads(&self, rules: &[MacroRule]) {
+        let Some(typer) = &self.macro_typer else {
+            return;
+        };
+        for rule in rules {
+            if let Some(head) = &rule.head_instance {
+                head.instance.get_or_init(|| {
+                    with_stack(walk_zone(head.depth), || head_instance(typer, rule, head))
+                });
+            }
+        }
     }
 
     /// The instance of the application at `path` in the current typing of its site.
@@ -1579,8 +1658,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         fresh: &mut BTreeMap<String, Term>,
     ) -> (Term, Known) {
         let metadata = term.metadata().cloned();
-        let (rebuilt, known) = match term.into_unannotated() {
-            Term::Variable { name, sort } => {
+        let (rebuilt, known) = match term.into_unannotated().into_parts() {
+            TermParts::Variable { name, sort } => {
                 let last = bindings.get_mut(name.as_str()).map(|(_, _, uses)| {
                     *uses -= 1;
                     *uses == 0
@@ -1624,14 +1703,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     (variable, Known::Unknown)
                 }
             }
-            Term::Apply { label, arguments } => {
+            TermParts::Apply { label, arguments } => {
                 let (arguments, known) = arguments
                     .into_iter()
                     .map(|argument| self.substitute(argument, bindings, settled, fresh))
                     .unzip();
                 (Term::Apply { label, arguments }, Known::Children(known))
             }
-            Term::Rewrite { left, right } => {
+            TermParts::Rewrite { left, right } => {
                 let (left, left_known) = self.substitute(*left, bindings, settled, fresh);
                 let (right, right_known) = self.substitute(*right, bindings, settled, fresh);
                 (
@@ -1642,7 +1721,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     Known::Children(vec![left_known, right_known]),
                 )
             }
-            Term::As { pattern, alias } => {
+            TermParts::As { pattern, alias } => {
                 let (pattern, pattern_known) = self.substitute(*pattern, bindings, settled, fresh);
                 let (alias, alias_known) = self.substitute(*alias, bindings, settled, fresh);
                 (
@@ -1653,15 +1732,17 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     Known::Children(vec![pattern_known, alias_known]),
                 )
             }
-            Term::Sequence(items) => {
+            TermParts::Sequence(items) => {
                 let (items, known) = items
                     .into_iter()
                     .map(|item| self.substitute(item, bindings, settled, fresh))
                     .unzip();
                 (Term::Sequence(items), Known::Children(known))
             }
-            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => (leaf, Known::Unknown),
-            Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Token { .. }) => {
+                (Term::from(leaf), Known::Unknown)
+            }
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
         let rebuilt = match metadata {
             Some(metadata) => rebuilt.with_metadata(metadata),
@@ -1757,7 +1838,7 @@ fn take_bindings<'pattern>(
             arguments: patterns,
             ..
         } => {
-            let Term::Apply { arguments, .. } = subject.into_unannotated() else {
+            let TermParts::Apply { arguments, .. } = subject.into_unannotated().into_parts() else {
                 unreachable!("an application pattern matches only applications")
             };
             let mut shapes = shape.children.into_iter();
@@ -2393,8 +2474,8 @@ enum Instance {
 /// application only where their instances agree on every parameter both fix; an open
 /// parameter agrees with every value. An unknown instance agrees only with a head that fixes
 /// no parameter.
-fn instances_agree(head: Option<&[Option<Sort>]>, subject: Option<&Instance>) -> bool {
-    let (Some(head), Some(subject)) = (head, subject) else {
+fn instances_agree(head: Option<&[Option<Sort>]>, subject: &Instance) -> bool {
+    let Some(head) = head else {
         return true;
     };
     match subject {
@@ -2409,48 +2490,54 @@ fn instances_agree(head: Option<&[Option<Sort>]>, subject: Option<&Instance>) ->
     }
 }
 
-/// The instance of `rule`'s head, from the typing of the macro rule itself: the head is the
-/// left side of the rule's top rewrite, or its body when the rewrite is nested.
-fn head_instance(
-    typer: &SentenceTyper<'_>,
+/// Whether `rule`'s head is parametric, decided from the production alone: when it is, the
+/// path of the head in the rule's typing (the left side of the rule's top rewrite, or its body
+/// when the rewrite is nested) and the number of sort parameters of its production.
+fn parametric_head(
     productions: &ProductionCatalog<'_>,
     rule: &MacroRule,
-) -> Option<Vec<Option<Sort>>> {
+) -> Option<(&'static [u32], usize)> {
     let Term::Apply { label, .. } = rule.left.unannotated() else {
         return None;
     };
-    production_parameters(productions, label)?;
+    let (parameters, ..) = production_parameters(productions, label)?;
     let Sentence::Rule { body, .. } = &rule.sentence else {
         return None;
     };
-    let path: &[u32] = if matches!(body.unannotated(), Term::Rewrite { .. }) {
+    let path: &'static [u32] = if matches!(body.unannotated(), Term::Rewrite { .. }) {
         &[0, 0]
     } else {
         &[0]
     };
-    let (parameters, ..) = production_parameters(productions, label)?;
-    // A head the typing view cannot type is fixed by nothing it can see.
-    Some(
-        typer
-            .typing(&rule.sentence)
-            .ok()
-            .and_then(|typing| typing.instances.get(path).cloned())
-            .unwrap_or_else(|| vec![None; parameters.len()]),
-    )
+    Some((path, parameters.len()))
 }
 
-fn macro_rule(
-    id: usize,
-    sentence: &Sentence,
-    productions: &ProductionCatalog<'_>,
-) -> Option<MacroRule> {
+/// The instance of `rule`'s parametric head `head`, from the typing of the macro rule itself.
+fn head_instance(
+    typer: &SentenceTyper<'_>,
+    rule: &MacroRule,
+    head: &HeadInstance,
+) -> Vec<Option<Sort>> {
+    // A head the typing view cannot type is fixed by nothing it can see.
+    typer
+        .typing(&rule.sentence)
+        .ok()
+        .and_then(|typing| typing.instances.get(head.path).cloned())
+        .unwrap_or_else(|| vec![None; head.parameters])
+}
+
+/// Whether `sentence` is a macro rule and, if it is, whether it is recursive (`macro-rec` or
+/// `alias-rec`, on the rule or on the production at the root of its left-hand side).
+fn macro_rule_recursion(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> Option<bool> {
     let Sentence::Rule {
         body, attributes, ..
     } = sentence
     else {
         return None;
     };
-    let left = rewrite_projection(body, false);
+    // Whether the rule is a macro rule depends only on its attributes and on the production at
+    // the root of its left-hand side, so the other rules of the module, of any size or depth,
+    // are not walked.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"
@@ -2458,7 +2545,7 @@ fn macro_rule(
     let production_attributes = if attributes.has(AttributeKey::Simplification) {
         None
     } else {
-        match left.unannotated() {
+        match left_root(body) {
             Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
             _ => None,
         }
@@ -2469,19 +2556,48 @@ fn macro_rule(
     {
         return None;
     }
-    let recursive = attributes.has(AttributeKey::MacroRec)
-        || attributes.has(AttributeKey::AliasRec)
-        || production_attributes.is_some_and(|attributes| {
-            attributes.has(AttributeKey::MacroRec) || attributes.has(AttributeKey::AliasRec)
-        });
-    Some(MacroRule {
+    Some(
+        attributes.has(AttributeKey::MacroRec)
+            || attributes.has(AttributeKey::AliasRec)
+            || production_attributes.is_some_and(|attributes| {
+                attributes.has(AttributeKey::MacroRec) || attributes.has(AttributeKey::AliasRec)
+            }),
+    )
+}
+
+/// The macro rule `sentence`, which [`macro_rule_recursion`] accepts, with its two sides
+/// projected out of its body. Copying and projecting recurse over the rule's depth.
+fn macro_rule(id: usize, sentence: &Sentence, recursive: bool) -> MacroRule {
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!("only rules are macro rules")
+    };
+    MacroRule {
         id,
         sentence: sentence.clone(),
-        left,
+        left: rewrite_projection(body, false),
         right: rewrite_projection(body, true),
         recursive,
         head_instance: None,
-    })
+    }
+}
+
+/// The root of a rule body's left-hand side without its annotations: the root of
+/// `rewrite_projection(body, false).unannotated()`, found by stepping through the annotations
+/// and the rewrites above it rather than by projecting the body.
+fn left_root(body: &Term) -> &Term {
+    let mut term = body;
+    loop {
+        match term {
+            Term::Annotated { term: inner, .. } => term = inner,
+            Term::Rewrite { left, .. } => term = left,
+            Term::InjectedLabel(_)
+            | Term::As { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. } => return term,
+        }
+    }
 }
 
 fn rewrite_projection(term: &Term, right: bool) -> Term {
@@ -2622,6 +2738,18 @@ fn stack_zone(input_depth: usize) -> usize {
 
 #[cfg(target_family = "wasm")]
 fn stack_zone(_: usize) -> usize {
+    0
+}
+
+/// The stack that must remain for a recursive walk over a term `depth` deep that adds no depth
+/// (a copy, a projection, a typing), with a factor of two to spare.
+#[cfg(not(target_family = "wasm"))]
+fn walk_zone(depth: usize) -> usize {
+    2 * STACK_PER_LEVEL * depth
+}
+
+#[cfg(target_family = "wasm")]
+fn walk_zone(_: usize) -> usize {
     0
 }
 

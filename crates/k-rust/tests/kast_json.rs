@@ -109,7 +109,7 @@ fn reference_kast_json_deep_program_round_trips() {
 
 #[test]
 fn round_trips_a_deep_apply_chain_without_a_depth_limit() {
-    let terms = on_stack(1 << 20, || {
+    on_stack(1 << 20, || {
         let term = (0..DEEP_APPLY_LEVELS).fold(Term::variable("X"), |argument, _| {
             Term::apply("f", vec![argument])
         });
@@ -120,11 +120,9 @@ fn round_trips_a_deep_apply_chain_without_a_depth_limit() {
             encoded,
             "the iterative codecs must preserve the complete deep tree"
         );
-        (term, decoded)
+        // A term is dropped with an explicit work list, on the same small stack.
+        drop((term, decoded));
     });
-
-    // Term retains recursive compiler-generated drop glue; this test covers its JSON codec.
-    on_stack(64 << 20, move || drop(terms));
 }
 
 #[test]

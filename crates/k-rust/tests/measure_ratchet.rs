@@ -18,7 +18,7 @@ use k_rust::{
     builtin::embedded,
     definition::{Attributes, Definition, ResolvedDefinition, Sentence},
     inner::{ParsedProgram, ProgramParser, parse_rule_content, resolve_rule_bubbles},
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, TermParts},
     kompile::{
         CompilationBackend, CompileOptions, compile_loaded_definition, expand_macros,
         expand_macros_in_term, propagate_macro_attributes, resolve_semantic_casts,
@@ -394,7 +394,7 @@ endmodule
 /// `drop(cons(a, ... cons(a, nil)), s(... s(z)))` over `length` elements and `length / 2`
 /// successors.
 fn countdown(length: usize) -> Term {
-    let Term::Apply { mut arguments, .. } = reversal(length) else {
+    let TermParts::Apply { mut arguments, .. } = reversal(length).into_parts() else {
         unreachable!("a reversal is an application")
     };
     let mut numeral = application("z", Vec::new());
@@ -408,7 +408,7 @@ fn countdown(length: usize) -> Term {
 /// `dropw(cons(a, ... cons(a, nil)), s(... s(z)))` over `length` elements and `length / 2`
 /// successors.
 fn wrapped_countdown(length: usize) -> Term {
-    let Term::Apply { arguments, .. } = countdown(length) else {
+    let TermParts::Apply { arguments, .. } = countdown(length).into_parts() else {
         unreachable!("a countdown is an application")
     };
     application("dropw", arguments)
@@ -510,10 +510,12 @@ fn assert_carrying_work_is_linear(typed: bool, counters: &[(Counter, usize)], sl
 /// the list at each of its steps, each of which starts a chain for `w`.
 #[test]
 fn recursive_macro_rewrites_measure_and_compare_linearly() {
-    // Measured 6n + 85 nodes (rev) and 7.5n + 85 (drop and dropw) in a rule and 10 fewer in a
+    // Measured 6n + 146 nodes (rev) and 7.5n + 146 (drop and dropw) in a rule and 10 fewer in a
     // program: three depth measurements of the input, for the stack the expansion is given and
-    // for its growth allowance.
-    assert_carrying_work_is_linear(false, &[(Counter::KompileMacroMeasuredNodes, 8)], 64);
+    // for its growth allowance, and one of each of the module's macro rules (61 nodes), for the
+    // stack the expander's rules are built on. The slack is 64 plus those 61 nodes, which do not
+    // depend on n.
+    assert_carrying_work_is_linear(false, &[(Counter::KompileMacroMeasuredNodes, 8)], 64 + 61);
 }
 
 /// The in-place expansion of a sentence with a parametric macro head keeps the settled parts of
@@ -526,16 +528,17 @@ fn recursive_macro_rewrites_measure_and_compare_linearly() {
 #[test]
 fn typed_recursive_macro_expansion_work_grows_linearly() {
     // Measured n + 3 visits (rev; 3 for drop, whose results hold only settled bindings; n / 2
-    // + 3 for dropw, one per `w` its steps build), and 8n + 99 (rev) and 10n + 99 (drop and
+    // + 3 for dropw, one per `w` its steps build), and 8n + 166 (rev) and 10n + 166 (drop and
     // dropw) measured nodes: the untyped path's measurements plus the walk that finds the
-    // settled parts of each sentence or program.
+    // settled parts of each sentence or program; the macro rules measured for the expander's
+    // stack are 67 nodes here, `idm`'s rule included. The slack is 64 plus those 67 nodes.
     assert_carrying_work_is_linear(
         true,
         &[
             (Counter::KompileMacroExpansionVisits, 2),
             (Counter::KompileMacroMeasuredNodes, 11),
         ],
-        64,
+        64 + 67,
     );
 }
 

@@ -21,7 +21,7 @@ use std::fmt;
 
 use crate::definition::{Attributes, LabelHead, ResolvedDefinition, Sentence};
 use crate::inner::{RuleError, parse_rule_content};
-use crate::kast::{Sort, Term, identifier};
+use crate::kast::{Sort, Term, TermParts, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
 use crate::names::BuiltinSort;
 
@@ -281,7 +281,7 @@ fn split_conjunction(term: Term, conjuncts: &mut Vec<Term>) {
         conjuncts.push(term);
         return;
     }
-    let Term::Apply { arguments, .. } = term.into_unannotated() else {
+    let TermParts::Apply { arguments, .. } = term.into_unannotated().into_parts() else {
         unreachable!("a conjunction is an application")
     };
     for argument in arguments {

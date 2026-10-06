@@ -57,7 +57,10 @@ use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::catalog::ProductionCatalog;
-use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, sentence_equivalent};
+use super::equivalence::{
+    COMPARISON_RECURSION_LIMIT, ChildPairs, EquivalenceAccumulator, dedup_by_equivalence,
+    sentence_equivalent,
+};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -244,8 +247,50 @@ impl Ord for SentenceBody<'_> {
 }
 
 /// Preorder comparison of the unannotated term with variable sorts erased.
-// Invariant: each recursive call, directly or through `slices`, compares a pair of strict subterms of `left` and `right`, so the size of `left` bounds the calls.
+///
+/// Terms of any depth are compared in constant stack: a definition read from an artifact may
+/// hold rules far deeper than the thread that resolves it could recurse. The first
+/// [`COMPARISON_RECURSION_LIMIT`] levels recurse, and the subterms below are compared with an
+/// explicit work list in the same preorder.
 fn compare_erased_terms(left: &Term, right: &Term) -> Ordering {
+    compare_erased_terms_at(left, right, 0)
+}
+
+// Invariant: each recursive call compares a pair of strict subterms of `left` and `right` one
+// level deeper, and the depth stops at `COMPARISON_RECURSION_LIMIT`, so the stack is bounded.
+fn compare_erased_terms_at(left: &Term, right: &Term, depth: usize) -> Ordering {
+    if depth == COMPARISON_RECURSION_LIMIT {
+        return compare_erased_terms_iteratively(left, right);
+    }
+    match erased_nodes(left, right) {
+        Err(ordering) => ordering,
+        Ok(children) => {
+            children.first_unequal(|left, right| compare_erased_terms_at(left, right, depth + 1))
+        }
+    }
+}
+
+// Invariant: `pending` holds, in reverse preorder, the pairs of corresponding subterms not yet
+// compared; each pair popped either decides the order or pushes its pairs of strict subterms,
+// so the size of `left` bounds the iterations, and the first unequal pair in preorder decides.
+fn compare_erased_terms_iteratively(left: &Term, right: &Term) -> Ordering {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        match erased_nodes(left, right) {
+            Err(ordering) => return ordering,
+            Ok(children) => {
+                pending.extend((0..children.len()).rev().map(|index| children.get(index)));
+            }
+        }
+    }
+    Ordering::Equal
+}
+
+/// The order of two terms' roots by their own fields, annotations and variable sorts aside:
+/// the kind of node, then a label, name or token and its sort, then the number of children.
+/// When the roots are equal, the pairs of their children, which order the terms next.
+#[inline(always)]
+fn erased_nodes<'a>(left: &'a Term, right: &'a Term) -> Result<ChildPairs<'a>, Ordering> {
     fn variant(term: &Term) -> u8 {
         match term {
             Term::InjectedLabel(_) => 0,
@@ -258,74 +303,89 @@ fn compare_erased_terms(left: &Term, right: &Term) -> Ordering {
             Term::Annotated { .. } => unreachable!("annotations are stripped before comparison"),
         }
     }
-    fn slices(left: &[Term], right: &[Term]) -> Ordering {
-        left.len().cmp(&right.len()).then_with(|| {
-            left.iter()
-                .zip(right)
-                .map(|(left, right)| compare_erased_terms(left, right))
-                .find(|ordering| ordering.is_ne())
-                .unwrap_or(Ordering::Equal)
-        })
+    fn decided(ordering: Ordering, children: ChildPairs<'_>) -> Result<ChildPairs<'_>, Ordering> {
+        if ordering.is_eq() {
+            Ok(children)
+        } else {
+            Err(ordering)
+        }
     }
 
     let left = left.unannotated();
     let right = right.unannotated();
-    variant(left)
-        .cmp(&variant(right))
-        .then_with(|| match (left, right) {
-            (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left.cmp(right),
-            (
-                Term::Rewrite {
-                    left: left_lhs,
-                    right: left_rhs,
-                },
-                Term::Rewrite {
-                    left: right_lhs,
-                    right: right_rhs,
-                },
-            ) => compare_erased_terms(left_lhs, right_lhs)
-                .then_with(|| compare_erased_terms(left_rhs, right_rhs)),
-            (
-                Term::As {
-                    pattern: left_pattern,
-                    alias: left_alias,
-                },
-                Term::As {
-                    pattern: right_pattern,
-                    alias: right_alias,
-                },
-            ) => compare_erased_terms(left_pattern, right_pattern)
-                .then_with(|| compare_erased_terms(left_alias, right_alias)),
-            (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
-                left.cmp(right)
-            }
-            (Term::Sequence(left), Term::Sequence(right)) => slices(left, right),
-            (
-                Term::Apply {
-                    label: left_label,
-                    arguments: left_arguments,
-                },
-                Term::Apply {
-                    label: right_label,
-                    arguments: right_arguments,
-                },
-            ) => left_label
+    let kinds = variant(left).cmp(&variant(right));
+    if kinds.is_ne() {
+        return Err(kinds);
+    }
+    match (left, right) {
+        (Term::InjectedLabel(left), Term::InjectedLabel(right)) => {
+            decided(left.cmp(right), ChildPairs::None)
+        }
+        (
+            Term::Rewrite {
+                left: left_lhs,
+                right: left_rhs,
+            },
+            Term::Rewrite {
+                left: right_lhs,
+                right: right_rhs,
+            },
+        ) => Ok(ChildPairs::Two([
+            (left_lhs, right_lhs),
+            (left_rhs, right_rhs),
+        ])),
+        (
+            Term::As {
+                pattern: left_pattern,
+                alias: left_alias,
+            },
+            Term::As {
+                pattern: right_pattern,
+                alias: right_alias,
+            },
+        ) => Ok(ChildPairs::Two([
+            (left_pattern, right_pattern),
+            (left_alias, right_alias),
+        ])),
+        (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
+            decided(left.cmp(right), ChildPairs::None)
+        }
+        (Term::Sequence(left), Term::Sequence(right)) => decided(
+            left.len().cmp(&right.len()),
+            ChildPairs::Slices(left, right),
+        ),
+        (
+            Term::Apply {
+                label: left_label,
+                arguments: left_arguments,
+            },
+            Term::Apply {
+                label: right_label,
+                arguments: right_arguments,
+            },
+        ) => decided(
+            left_label
                 .cmp(right_label)
-                .then_with(|| slices(left_arguments, right_arguments)),
-            (
-                Term::Token {
-                    token: left_token,
-                    sort: left_sort,
-                },
-                Term::Token {
-                    token: right_token,
-                    sort: right_sort,
-                },
-            ) => left_token
+                .then_with(|| left_arguments.len().cmp(&right_arguments.len())),
+            ChildPairs::Slices(left_arguments, right_arguments),
+        ),
+        (
+            Term::Token {
+                token: left_token,
+                sort: left_sort,
+            },
+            Term::Token {
+                token: right_token,
+                sort: right_sort,
+            },
+        ) => decided(
+            left_token
                 .cmp(right_token)
                 .then_with(|| left_sort.cmp(right_sort)),
-            _ => unreachable!("equal variants have matching shapes"),
-        })
+            ChildPairs::None,
+        ),
+        _ => unreachable!("equal variants have matching shapes"),
+    }
 }
 
 #[derive(Clone)]
@@ -833,10 +893,10 @@ fn modules_identical(previous: &FlatModule, next: &FlatModule) -> (bool, bool) {
             previous
                 .local_sentences
                 .iter()
-                .filter(|sentence| is_syntax_sentence(sentence)),
+                .filter(|sentence| sentence.is_syntax()),
             next.local_sentences
                 .iter()
-                .filter(|sentence| is_syntax_sentence(sentence)),
+                .filter(|sentence| sentence.is_syntax()),
         );
     (identical, syntax_identical)
 }
@@ -1157,18 +1217,6 @@ impl From<&FlatModule> for ResolvedModule {
     }
 }
 
-fn is_syntax_sentence(sentence: &Sentence) -> bool {
-    matches!(
-        sentence,
-        Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-    )
-}
-
 /// The first of each class of equivalent local sentences, carrying the input addresses of every
 /// sentence of its class.
 fn deduplicate_sentences(sentences: &[Arc<Sentence>]) -> Vec<Arc<Sentence>> {
@@ -1308,5 +1356,158 @@ mod tests {
             assert_eq!(updated.sentences(id), resolved.sentences(id));
         }
         assert_eq!(updated.sentences(updated.main_module_id()).len(), 2);
+    }
+
+    /// The order `compare_erased_terms` computes, stated recursively: the terms' kinds, then the
+    /// kind's own fields (a label before the number of its arguments), then the children in
+    /// order; annotations and variable sorts take no part.
+    fn erased_order(left: &Term, right: &Term) -> Ordering {
+        fn kind(term: &Term) -> u8 {
+            match term {
+                Term::InjectedLabel(_) => 0,
+                Term::Rewrite { .. } => 1,
+                Term::As { .. } => 2,
+                Term::Variable { .. } => 3,
+                Term::Sequence(_) => 4,
+                Term::Apply { .. } => 5,
+                Term::Token { .. } => 6,
+                Term::Annotated { .. } => unreachable!(),
+            }
+        }
+        fn children(term: &Term) -> Vec<&Term> {
+            match term {
+                Term::Rewrite { left, right } => vec![left, right],
+                Term::As { pattern, alias } => vec![pattern, alias],
+                Term::Sequence(items)
+                | Term::Apply {
+                    arguments: items, ..
+                } => items.iter().collect(),
+                Term::InjectedLabel(_)
+                | Term::Variable { .. }
+                | Term::Token { .. }
+                | Term::Annotated { .. } => Vec::new(),
+            }
+        }
+        let (left, right) = (left.unannotated(), right.unannotated());
+        let own = match (left, right) {
+            (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left.cmp(right),
+            (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
+                left.cmp(right)
+            }
+            (Term::Apply { label: left, .. }, Term::Apply { label: right, .. }) => left.cmp(right),
+            (
+                Term::Token {
+                    token: left_token,
+                    sort: left_sort,
+                },
+                Term::Token {
+                    token: right_token,
+                    sort: right_sort,
+                },
+            ) => left_token.cmp(right_token).then(left_sort.cmp(right_sort)),
+            _ => Ordering::Equal,
+        };
+        let (left_children, right_children) = (children(left), children(right));
+        kind(left)
+            .cmp(&kind(right))
+            .then(own)
+            .then(left_children.len().cmp(&right_children.len()))
+            .then_with(|| {
+                left_children
+                    .iter()
+                    .zip(&right_children)
+                    .map(|(left, right)| erased_order(left, right))
+                    .find(|ordering| ordering.is_ne())
+                    .unwrap_or(Ordering::Equal)
+            })
+    }
+
+    fn small_term() -> impl proptest::strategy::Strategy<Value = Term> {
+        use proptest::prelude::*;
+        let leaf = prop_oneof![
+            (0..3u8, 0..2u8).prop_map(|(name, sort)| Term::Variable {
+                name: format!("V{name}"),
+                sort: (sort == 1).then(|| Sort::new("S")),
+            }),
+            (0..3u8).prop_map(|token| Term::Token {
+                token: token.to_string(),
+                sort: Sort::new("Int"),
+            }),
+            (0..2u8).prop_map(|label| Term::InjectedLabel(Label::new(format!("l{label}")))),
+        ];
+        leaf.prop_recursive(4, 24, 3, |inner| {
+            prop_oneof![
+                (0..3u8, prop::collection::vec(inner.clone(), 0..3)).prop_map(
+                    |(label, arguments)| Term::Apply {
+                        label: Label::new(format!("f{label}")),
+                        arguments,
+                    }
+                ),
+                prop::collection::vec(inner.clone(), 0..3).prop_map(Term::Sequence),
+                (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::Rewrite {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }),
+                (inner.clone(), inner.clone()).prop_map(|(pattern, alias)| Term::As {
+                    pattern: Box::new(pattern),
+                    alias: Box::new(alias),
+                }),
+                inner.prop_map(|term| term.with_metadata(crate::kast::TermMetadata::default())),
+            ]
+        })
+    }
+
+    proptest::proptest! {
+        /// The comparison, and its work-list part on its own, order terms as the recursive
+        /// statement of the order does; the work-list equivalence agrees with
+        /// `term_equivalent`, and equivalent terms compare equal.
+        #[test]
+        fn erased_term_comparison_is_the_preorder_comparison(
+            left in small_term(),
+            right in small_term(),
+        ) {
+            let expected = erased_order(&left, &right);
+            proptest::prop_assert_eq!(compare_erased_terms(&left, &right), expected);
+            proptest::prop_assert_eq!(compare_erased_terms_iteratively(&left, &right), expected);
+            proptest::prop_assert_eq!(compare_erased_terms(&left, &left), Ordering::Equal);
+            let equivalent = super::super::equivalence::term_equivalent(&left, &right);
+            proptest::prop_assert_eq!(
+                super::super::equivalence::term_equivalent_iteratively(&left, &right),
+                equivalent,
+            );
+            if equivalent {
+                proptest::prop_assert_eq!(expected, Ordering::Equal);
+            }
+        }
+    }
+
+    /// Two terms of any depth are compared on a small stack: equal chains 100,000 levels deep
+    /// are equal, and chains that differ only at the bottom are ordered by that difference.
+    #[test]
+    fn erased_terms_of_any_depth_are_compared_on_a_small_stack() {
+        let chain = |bottom: &str| {
+            (0..100_000).fold(Term::variable(bottom), |term, index| {
+                let term = Term::apply("s", vec![term]);
+                if index % 3 == 0 {
+                    Term::Rewrite {
+                        left: Box::new(term),
+                        right: Box::new(Term::variable("R")),
+                    }
+                } else {
+                    term
+                }
+            })
+        };
+        let (a, a_again, b) = (chain("A"), chain("A"), chain("B"));
+        std::thread::Builder::new()
+            .stack_size(64 << 10)
+            .spawn(move || {
+                assert_eq!(compare_erased_terms(&a, &a_again), Ordering::Equal);
+                assert_eq!(compare_erased_terms(&a, &b), Ordering::Less);
+                assert_eq!(compare_erased_terms(&b, &a), Ordering::Greater);
+            })
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish");
     }
 }

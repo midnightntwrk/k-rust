@@ -1099,6 +1099,61 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `krun` runs a program whose initial configuration is as deep as macro expansion makes it:
+/// `count(m(m(...200...(z))))` expands through `m(X) => s(...500...(X))` to 100,000 levels, which
+/// the frontend instantiates and converts and the backend validates, internalizes and rewrites
+/// once, on the main thread's stack, extended where the depth needs it. (One step: each step of
+/// this countdown takes time in proportion to the term in the `dev` profile, where the suite
+/// runs, and the printed result is quadratic in its depth.)
+#[test]
+fn krun_runs_a_program_whose_expansion_is_of_any_depth() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        format!(
+            r#"
+module MAIN
+  syntax Nat ::= "z" | s(Nat)
+  syntax Nat ::= m(Nat) [macro]
+  syntax KItem ::= count(Nat)
+  configuration <k> $PGM:KItem </k>
+  rule <k> count(s(N)) => count(N) </k>
+  rule m(X) => {}X{}
+endmodule
+"#,
+            "s(".repeat(500),
+            ")".repeat(500)
+        ),
+    )
+    .unwrap();
+    let program = format!("count({}z{})", "m(".repeat(200), ")".repeat(200));
+    let krun = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+            "--expression",
+            &program,
+            "--depth",
+            "1",
+            "--output",
+            "none",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        krun.status.success(),
+        "{}: {}",
+        krun.status,
+        String::from_utf8_lossy(&krun.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_uses_main_module_macros_for_syntax_and_configuration_inputs() {
     let (root, definition) = fixture();

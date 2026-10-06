@@ -31,7 +31,7 @@ use crate::definition::{
     kernel_position_cycle, push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
-use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term, TermParts};
 
 use super::location::span_location;
 use super::parser::{Grammar, ParseError};
@@ -240,12 +240,12 @@ fn up_configuration(
             }
             return term;
         }
-        match term {
-            Term::Annotated { term, metadata } => Term::Annotated {
+        match term.into_parts() {
+            TermParts::Annotated { term, metadata } => Term::Annotated {
                 term: Box::new(keep_content_instance(*term, resolved, module_id)),
                 metadata,
             },
-            Term::Apply {
+            TermParts::Apply {
                 label,
                 mut arguments,
             } => {
@@ -269,16 +269,16 @@ fn up_configuration(
                 }
                 Term::Apply { label, arguments }
             }
-            Term::InjectedLabel(_)
-            | Term::Rewrite { .. }
-            | Term::As { .. }
-            | Term::Variable { .. }
-            | Term::Sequence(_)
-            | Term::Token { .. } => term,
+            parts @ (TermParts::InjectedLabel(_)
+            | TermParts::Rewrite { .. }
+            | TermParts::As { .. }
+            | TermParts::Variable { .. }
+            | TermParts::Sequence(_)
+            | TermParts::Token { .. }) => Term::from(parts),
         }
     }
 
-    let Term::Apply { label, arguments } = parsed.into_unannotated() else {
+    let TermParts::Apply { label, arguments } = parsed.into_unannotated().into_parts() else {
         return Err(bubble_error(
             module,
             &attributes,

@@ -15,4 +15,5 @@ pub use k_rust_kore::names;
 pub mod native;
 pub mod outer;
 pub mod provenance;
+mod stack;
 pub mod timings;

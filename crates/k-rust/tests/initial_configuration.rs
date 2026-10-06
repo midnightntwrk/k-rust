@@ -1066,3 +1066,64 @@ endmodule
         }
     }
 }
+
+/// The applications of `symbol` in `pattern`, counted without recursion.
+fn count_applications(pattern: &k_rust::kore::ast::Pattern, symbol: &str) -> usize {
+    use k_rust::kore::ast::Pattern;
+    let mut count = 0;
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        if let Pattern::Application {
+            symbol: applied,
+            arguments,
+        } = pattern
+        {
+            count += usize::from(applied.name == symbol);
+            pending.extend(arguments);
+        }
+    }
+    count
+}
+
+/// A program's value is as deep as macro expansion makes it, which nothing bounds: the program
+/// `done(m(m(...100...(z))))` expands through `m(X) => s(...1,000...(X))` to 100,000 levels,
+/// which are instantiated, checked ground, converted to KORE and assembled into the
+/// configuration on a thread of 2 MiB of stack.
+#[test]
+fn a_program_value_of_any_depth_is_assembled_on_a_small_stack() {
+    let source = format!(
+        r#"
+module MAIN
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax Nat ::= m(Nat) [macro, symbol(m)]
+  syntax KItem ::= done(Nat) [symbol(done)]
+  rule m(X) => {}X{}
+  configuration <k> $PGM:KItem </k>
+endmodule
+"#,
+        "s(".repeat(1_000),
+        ")".repeat(1_000)
+    );
+    // The definition's rule is read by the inner parser, which recurses once per level of the
+    // rule body; its stack is not what this test is about.
+    let compiled = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(move || compiled(&source, "MAIN"))
+        .expect("the compiler should spawn")
+        .join()
+        .expect("the definition should compile");
+    let program = format!("done({}z{})", "m(".repeat(100), ")".repeat(100));
+    let pattern = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+            let mut assembler =
+                ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+            assembler.program(&Sort::new("KItem"), &program).unwrap();
+            assembler.finish().unwrap()
+        })
+        .expect("the assembler should spawn")
+        .join()
+        .expect("the configuration should be assembled");
+    assert_eq!(count_applications(&pattern, "Lbls"), 100_000);
+}

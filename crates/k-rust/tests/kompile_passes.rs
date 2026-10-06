@@ -4764,6 +4764,253 @@ fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() 
     assert_eq!(printed, r#"f(#token("true","Bool"))"#);
 }
 
+/// Whether a rule is a macro rule follows from its attributes and from the production at the
+/// root of its left-hand side, so selecting the macro rules does not walk the rest of the other
+/// rules: beside an ordinary rule whose left-hand side is 100,000 levels deep, a program is
+/// expanded through a macro on a thread of 2 MiB of stack.
+#[test]
+fn macro_rules_are_selected_without_walking_the_left_sides_of_other_rules() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | done(Nat) [symbol(done)]
+                         | "mgo" [macro, symbol(mgo)]
+          rule mgo => go
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let deep = (0..100_000).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(std::sync::Arc::new(Sentence::Rule {
+            body: rewrite(
+                application("done", vec![deep]),
+                application("go", Vec::new()),
+            ),
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        }));
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("KItem"),
+        "mgo",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    let printed = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let expanded = MacroExpansionDefinition::prepare(&definition)
+                .unwrap()
+                .expand_program("MAIN", program, &Sort::new("KItem"))
+                .unwrap();
+            Printer::new().print_term(expanded.term())
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
+    assert_eq!(printed, "go(.KList)");
+}
+
+/// Prepares `source`'s module `MAIN` with `deep_rule` added, and expands the program `mgo`
+/// through the macro rule `mgo => go` on a thread of 2 MiB of stack; returns the printed result.
+fn expand_mgo_beside(source: &str, deep_rule: Sentence) -> String {
+    expand_beside(source, deep_rule, "mgo")
+}
+
+/// [`expand_mgo_beside`] for the program `program`.
+fn expand_beside(source: &str, deep_rule: Sentence, program: &str) -> String {
+    let mut definition = parsed(source);
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(std::sync::Arc::new(deep_rule));
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("KItem"),
+        program,
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let expanded = MacroExpansionDefinition::prepare(&definition)
+                .unwrap()
+                .expand_program("MAIN", program, &Sort::new("KItem"))
+                .unwrap();
+            Printer::new().print_term(expanded.term())
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish")
+}
+
+/// The expander of a program copies and projects every macro rule of the program's module,
+/// recursively, before it expands anything; a macro rule of any depth is prepared on a thread
+/// of 2 MiB of stack, here one whose right-hand side is 100,000 levels deep, beside the macro
+/// the program uses.
+#[test]
+fn macro_rules_of_any_depth_are_prepared_on_a_small_stack() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | done(Nat) [symbol(done)]
+                         | "mgo" [macro, symbol(mgo)] | "mdeep" [macro, symbol(mdeep)]
+          rule mgo => go
+        endmodule
+    "#};
+    let deep = (0..100_000).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let deep_rule = rule(
+        rewrite(
+            application("mdeep", Vec::new()),
+            application("done", vec![deep]),
+        ),
+        Attributes::default(),
+    );
+    assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// A definition with a parametric macro head, `mp`, is prepared on a thread of 2 MiB of stack
+/// beside a parametric macro rule 2,000 levels deep that the program `mgo` never applies: the
+/// rule is copied and projected, and the typing views of both modules are built. The rule's
+/// head is not typed, since no subject with that head is tried; deeper unused parametric rules
+/// are checked under a memory limit by
+/// `a_parametric_macro_rule_a_program_never_applies_is_not_typed`.
+#[test]
+fn parametric_macro_rules_a_program_does_not_apply_are_prepared_on_a_small_stack() {
+    let (source, deep_rule) = parametric_macro_beside_mgo(2_000);
+    assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// The definition of [`parametric_macro_rules_a_program_does_not_apply_are_prepared_on_a_small_stack`],
+/// whose parametric macro rule `mp(X:Nat) => s(...(X))` is `depth` levels deep.
+fn parametric_macro_beside_mgo(depth: usize) -> (&'static str, Sentence) {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= "go" [symbol(go)] | "mgo" [macro, symbol(mgo)]
+          syntax {S} S ::= "mp(" S ")" [macro, symbol(mp)]
+          rule mgo => go
+        endmodule
+    "#};
+    let variable = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Nat")),
+    };
+    let deep = (0..depth).fold(variable.clone(), |term, _| application("s", vec![term]));
+    let deep_rule = rule(
+        rewrite(application("mp", vec![variable]), deep),
+        Attributes::default(),
+    );
+    (source, deep_rule)
+}
+
+/// The environment variable that makes
+/// [`deep_parametric_macro_rule_child`] run, in the child process of
+/// [`a_parametric_macro_rule_a_program_never_applies_is_not_typed`].
+const DEEP_PARAMETRIC_CHILD: &str = "K_RUST_TEST_DEEP_PARAMETRIC_MACRO_CHILD";
+
+/// The work of [`a_parametric_macro_rule_a_program_never_applies_is_not_typed`]; it does nothing
+/// unless that test runs it in its child process.
+#[test]
+fn deep_parametric_macro_rule_child() {
+    if std::env::var_os(DEEP_PARAMETRIC_CHILD).is_none() {
+        return;
+    }
+    let (source, deep_rule) = parametric_macro_beside_mgo(100_000);
+    assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// A program that never applies a parametric macro head pays nothing for typing that head's
+/// rules: the expander types a rule of a parametric head (O(N x h) memory in the typing view,
+/// which records a path and a subterm at every node) only when a subject with that head is
+/// tried. Here the program `mgo` is expanded beside `mp(X:Nat) => s(...100,000...(X))` in a
+/// child process limited to 1 GiB of address space; typing that rule would take about 1.6 TB, so
+/// a typing made when the expander is built exceeds the limit and the child aborts.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_parametric_macro_rule_a_program_never_applies_is_not_typed() {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -v 1048576 && exec "$0" "$@""#)
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "deep_parametric_macro_rule_child", "--nocapture"])
+        .args(["--test-threads", "1"])
+        .env(DEEP_PARAMETRIC_CHILD, "1")
+        .output()
+        .expect("the test binary re-runs itself");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the expansion beside an unused deep parametric macro rule failed under 1 GiB of address space ({}):\n{stdout}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A program that applies a parametric macro head types the head's rules when the first subject
+/// with that head is tried: `mp(z)` takes the `Nat` rule, 2,000 levels deep, and `mp(one)` the
+/// `Pos` rule, on a thread of 2 MiB of stack. That the instances typed on first use decide which
+/// rule applies is pinned by `parametric_macro_rules_apply_only_at_their_head_instance`.
+///
+/// The typing of the deep rule runs on a stack zone measured from the rule's depth, but this
+/// test does not pin that the zone is proportional to the depth: expansion itself already runs
+/// on a segment of its own red zone plus 32 MiB, which covers a 2,000-level typing, and a rule
+/// deep enough to need more (about 8,000 levels in the `dev` profile) takes over 10 GB to type.
+/// It pins that the typing happens, on first use, and gives the instance rule selection needs.
+#[test]
+fn a_deep_parametric_macro_rule_is_typed_when_a_program_applies_its_head() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax Pos ::= "one" [symbol(one)] | p(Pos) [symbol(p)]
+          syntax KItem ::= pair(Nat, Pos) [symbol(pair)]
+          syntax {S} S ::= "mp(" S ")" [macro, symbol(mp)]
+          rule mp(Y:Pos) => p(Y)
+        endmodule
+    "#};
+    let variable = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Nat")),
+    };
+    let deep = (0..2_000).fold(variable.clone(), |term, _| application("s", vec![term]));
+    let deep_rule = rule(
+        rewrite(application("mp", vec![variable]), deep),
+        Attributes::default(),
+    );
+    let expected = format!(
+        "pair({}z(.KList){},p(one(.KList)))",
+        "s(".repeat(2_000),
+        ")".repeat(2_000)
+    );
+    let expanded = expand_beside(source, deep_rule, "pair(mp(z), mp(one))");
+    assert!(
+        expanded == expected,
+        "expected s^2000(z) and p(one), got {}...{}",
+        &expanded[..expanded.len().min(80)],
+        &expanded[expanded.len().saturating_sub(80)..]
+    );
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;

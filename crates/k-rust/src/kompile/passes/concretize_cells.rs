@@ -34,7 +34,7 @@ use crate::{
         ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
+    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term, TermParts},
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
     provenance::GeneratingPass,
 };
@@ -812,7 +812,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             {
                 if recurse.iter().any(|recurse| *recurse) {
                     let metadata = term.metadata().cloned();
-                    let Term::Apply { label, arguments } = term.into_unannotated() else {
+                    let TermParts::Apply { label, arguments } =
+                        term.into_unannotated().into_parts()
+                    else {
                         unreachable!()
                     };
                     let arguments = arguments
@@ -901,8 +903,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
 
     fn add_parents(&self, term: Term) -> Result<Term, String> {
         let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated() {
-            Term::Apply { label, arguments } => {
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
                 let arguments = arguments
                     .into_iter()
                     .map(|argument| self.add_parents(argument))
@@ -920,22 +922,24 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     application
                 }
             }
-            Term::Rewrite { left, right } => Term::Rewrite {
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(self.add_parents(*left)?),
                 right: Box::new(self.add_parents(*right)?),
             },
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.add_parents(*pattern)?),
                 alias: Box::new(self.add_parents(*alias)?),
             },
-            Term::Sequence(items) => Term::Sequence(
+            TermParts::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
                     .map(|item| self.add_parents(item))
                     .collect::<Result<_, _>>()?,
             ),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-            Term::Annotated { .. } => unreachable!(),
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!(),
         };
         Ok(with_metadata(rebuilt, metadata))
     }
@@ -1103,12 +1107,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
 
     fn close(&mut self, term: Term, on_rhs: bool) -> Result<Term, String> {
         let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated() {
-            Term::Rewrite { left, right } => Term::Rewrite {
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(self.close(*left, false)?),
                 right: Box::new(self.close(*right, true)?),
             },
-            Term::Apply { label, arguments } => {
+            TermParts::Apply { label, arguments } => {
                 let mut application = Term::Apply {
                     label: label.clone(),
                     arguments,
@@ -1116,7 +1120,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 if let Some(cell) = self.model.cell_for_label(&label) {
                     application = self.close_cell(application, cell, on_rhs)?;
                 }
-                let Term::Apply { label, arguments } = application else {
+                let TermParts::Apply { label, arguments } = application.into_parts() else {
                     unreachable!()
                 };
                 Term::Apply {
@@ -1127,18 +1131,20 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         .collect::<Result<_, _>>()?,
                 }
             }
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.close(*pattern, on_rhs)?),
                 alias: Box::new(self.close(*alias, on_rhs)?),
             },
-            Term::Sequence(items) => Term::Sequence(
+            TermParts::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
                     .map(|item| self.close(item, on_rhs))
                     .collect::<Result<_, _>>()?,
             ),
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-            Term::Annotated { .. } => unreachable!(),
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!(),
         };
         Ok(with_metadata(rebuilt, metadata))
     }
@@ -1148,7 +1154,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         reason = "Term is syntax; only the listed variants are special here"
     )]
     fn close_cell(&mut self, application: Term, cell: &Cell, on_rhs: bool) -> Result<Term, String> {
-        let Term::Apply { label, arguments } = application else {
+        let TermParts::Apply { label, arguments } = application.into_parts() else {
             unreachable!()
         };
         if self.complete_cell_arguments(&arguments, cell) {
@@ -1345,8 +1351,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         replace_fragments: bool,
     ) -> Result<Term, String> {
         let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated() {
-            Term::Apply { label, arguments } => {
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
                 if let [argument] = arguments.as_slice()
                     && let Term::Variable { name, .. } = argument.unannotated()
                     && let Some(info) = self.fragments.get(name)
@@ -1362,7 +1368,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     && !cell.children.is_empty()
                 {
                     let ordered = self.order_children(label, arguments, cell)?;
-                    let Term::Apply { label, arguments } = ordered else {
+                    let TermParts::Apply { label, arguments } = ordered.into_parts() else {
                         unreachable!()
                     };
                     Term::Apply {
@@ -1391,21 +1397,21 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     }
                 }
             }
-            Term::Rewrite { left, right } => Term::Rewrite {
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(self.sort_cells_with_fragments(*left, replace_fragments)?),
                 right: Box::new(self.sort_cells_with_fragments(*right, replace_fragments)?),
             },
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.sort_cells_with_fragments(*pattern, replace_fragments)?),
                 alias: Box::new(self.sort_cells_with_fragments(*alias, replace_fragments)?),
             },
-            Term::Sequence(items) => Term::Sequence(
+            TermParts::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
                     .map(|item| self.sort_cells_with_fragments(item, replace_fragments))
                     .collect::<Result<_, _>>()?,
             ),
-            Term::Variable { name, sort } => {
+            TermParts::Variable { name, sort } => {
                 if replace_fragments {
                     self.fragments.get(&name).map_or_else(
                         || Ok(Term::Variable { name, sort }),
@@ -1415,8 +1421,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     Term::Variable { name, sort }
                 }
             }
-            leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
-            Term::Annotated { .. } => unreachable!(),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!(),
         };
         Ok(with_metadata(rebuilt, metadata))
     }
@@ -1926,7 +1932,7 @@ fn unit(child: &Child) -> Option<Term> {
 
 fn set_variable_sort(term: Term, sort: Sort) -> Term {
     let metadata = term.metadata().cloned();
-    let Term::Variable { name, .. } = term.into_unannotated() else {
+    let TermParts::Variable { name, .. } = term.into_unannotated().into_parts() else {
         unreachable!()
     };
     with_metadata(

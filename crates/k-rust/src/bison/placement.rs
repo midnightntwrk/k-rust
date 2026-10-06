@@ -231,7 +231,9 @@ mod tests {
             plan.kind(),
             PlacementKind::SingletonKInjection { item: Some(_), .. }
         ));
-        let Term::Apply { label, arguments } = plan.clone().apply(application()) else {
+        let crate::kast::TermParts::Apply { label, arguments } =
+            plan.clone().apply(application()).into_parts()
+        else {
             panic!("the sequence is embedded into KList");
         };
         assert_eq!(label.parameters, [Sort::builtin(BuiltinSort::K), list]);

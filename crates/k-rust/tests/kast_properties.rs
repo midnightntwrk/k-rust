@@ -1,4 +1,4 @@
-use k_rust::kast::ast::{Label, Sort, Term};
+use k_rust::kast::ast::{Label, Sort, Term, TermParts};
 use k_rust::kast::{json, parser};
 use proptest::prelude::*;
 
@@ -60,17 +60,17 @@ fn text_term() -> impl Strategy<Value = Term> {
 }
 
 fn text_normalize(term: Term) -> Term {
-    match term {
-        Term::Apply { label, arguments } => Term::Apply {
+    match term.into_parts() {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments.into_iter().map(text_normalize).collect(),
         },
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             let mut flattened = Vec::new();
             for item in items.into_iter().map(text_normalize) {
-                match item {
-                    Term::Sequence(nested) => flattened.extend(nested),
-                    item => flattened.push(item),
+                match item.into_parts() {
+                    TermParts::Sequence(nested) => flattened.extend(nested),
+                    item => flattened.push(Term::from(item)),
                 }
             }
             match flattened.as_slice() {
@@ -78,7 +78,7 @@ fn text_normalize(term: Term) -> Term {
                 _ => Term::Sequence(flattened),
             }
         }
-        term => term,
+        term => Term::from(term),
     }
 }
 

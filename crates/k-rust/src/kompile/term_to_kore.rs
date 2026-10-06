@@ -280,6 +280,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     fn pattern(&self, term: &Term) -> Result<Pattern, TermConversionError> {
+        crate::stack::guarded(|| self.pattern_level(term))
+    }
+
+    /// One level of [`Self::pattern`], which runs it with stack for one more level.
+    fn pattern_level(&self, term: &Term) -> Result<Pattern, TermConversionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right } => {
@@ -744,6 +749,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     /// evidence for a retained injection. Rewrite and conjunction sorts still follow the
     /// child sorts used by `pattern`, preserving ordinary conversion's metadata policy.
     fn structural_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
+        crate::stack::guarded(|| self.structural_sort_level(term))
+    }
+
+    /// One level of [`Self::structural_sort`], which runs it with stack for one more level.
+    fn structural_sort_level(&self, term: &Term) -> Result<Sort, TermConversionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }

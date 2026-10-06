@@ -43,7 +43,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term},
+    kast::{GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term, TermParts},
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
@@ -299,27 +299,31 @@ impl Resolver<'_, '_, '_> {
         if let Some((label, arguments)) = special_application(&term) {
             return self.resolve_application(label, arguments, Attributes::default());
         }
-        match term {
-            Term::Annotated { term, metadata } => self.transform(*term).with_metadata(metadata),
-            Term::Rewrite { left, right } => Term::Rewrite {
+        match term.into_parts() {
+            TermParts::Annotated { term, metadata } => {
+                self.transform(*term).with_metadata(metadata)
+            }
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(self.transform(*left)),
                 right: Box::new(self.transform(*right)),
             },
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.transform(*pattern)),
                 alias: Box::new(self.transform(*alias)),
             },
-            Term::Sequence(items) => {
+            TermParts::Sequence(items) => {
                 Term::Sequence(items.into_iter().map(|item| self.transform(item)).collect())
             }
-            Term::Apply { label, arguments } => Term::Apply {
+            TermParts::Apply { label, arguments } => Term::Apply {
                 label,
                 arguments: arguments
                     .into_iter()
                     .map(|argument| self.transform(argument))
                     .collect(),
             },
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
         }
     }
 
@@ -1011,37 +1015,41 @@ fn rewrite_right(term: &Term) -> Term {
 
 fn resolve_anonymous(term: Term) -> Term {
     fn transform(term: Term, fresh: &mut FreshNames) -> Term {
-        match term {
-            Term::Annotated { term, metadata } => transform(*term, fresh).with_metadata(metadata),
-            Term::Variable { name, sort } if is_anonymous(&name) => {
+        match term.into_parts() {
+            TermParts::Annotated { term, metadata } => {
+                transform(*term, fresh).with_metadata(metadata)
+            }
+            TermParts::Variable { name, sort } if is_anonymous(&name) => {
                 let prefix = name.strip_suffix('_').unwrap_or_default();
                 Term::Variable {
                     name: fresh.mint(&format!("{prefix}_Gen")),
                     sort,
                 }
             }
-            Term::Rewrite { left, right } => Term::Rewrite {
+            TermParts::Rewrite { left, right } => Term::Rewrite {
                 left: Box::new(transform(*left, fresh)),
                 right: Box::new(transform(*right, fresh)),
             },
-            Term::As { pattern, alias } => Term::As {
+            TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(transform(*pattern, fresh)),
                 alias: Box::new(transform(*alias, fresh)),
             },
-            Term::Sequence(items) => Term::Sequence(
+            TermParts::Sequence(items) => Term::Sequence(
                 items
                     .into_iter()
                     .map(|item| transform(item, fresh))
                     .collect(),
             ),
-            Term::Apply { label, arguments } => Term::Apply {
+            TermParts::Apply { label, arguments } => Term::Apply {
                 label,
                 arguments: arguments
                     .into_iter()
                     .map(|argument| transform(argument, fresh))
                     .collect(),
             },
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
         }
     }
     let mut fresh = FreshNames::for_terms([&term]);
@@ -1049,28 +1057,32 @@ fn resolve_anonymous(term: Term) -> Term {
 }
 
 fn rename_fresh_constants(term: Term) -> Term {
-    match term {
-        Term::Annotated { term, metadata } => rename_fresh_constants(*term).with_metadata(metadata),
-        Term::Variable { name, sort } if name.starts_with('!') => Term::Variable {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => {
+            rename_fresh_constants(*term).with_metadata(metadata)
+        }
+        TermParts::Variable { name, sort } if name.starts_with('!') => Term::Variable {
             name: format!("#_{}", &name[1..]),
             sort,
         },
-        Term::Rewrite { left, right } => Term::Rewrite {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
             left: Box::new(rename_fresh_constants(*left)),
             right: Box::new(rename_fresh_constants(*right)),
         },
-        Term::As { pattern, alias } => Term::As {
+        TermParts::As { pattern, alias } => Term::As {
             pattern: Box::new(rename_fresh_constants(*pattern)),
             alias: Box::new(rename_fresh_constants(*alias)),
         },
-        Term::Sequence(items) => {
+        TermParts::Sequence(items) => {
             Term::Sequence(items.into_iter().map(rename_fresh_constants).collect())
         }
-        Term::Apply { label, arguments } => Term::Apply {
+        TermParts::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments.into_iter().map(rename_fresh_constants).collect(),
         },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
+        leaf @ (TermParts::InjectedLabel(_)
+        | TermParts::Variable { .. }
+        | TermParts::Token { .. }) => Term::from(leaf),
     }
 }
 
