@@ -387,6 +387,7 @@ dependencies = [
  "indexmap",
  "k-rust-backend",
  "k-rust-kore",
+ "k-rust-regex",
  "num-bigint",
  "num-traits",
  "petgraph",
@@ -397,6 +398,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sha3",
+ "stacker",
  "tracing",
  "web-time",
  "z3",
@@ -426,8 +428,13 @@ version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
+ "smallvec",
  "tracing",
 ]
+
+[[package]]
+name = "k-rust-regex"
+version = "0.4.0"
 
 [[package]]
 name = "k256"
@@ -953,6 +960,12 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "smallvec"
+version = "1.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 
 [[package]]
 name = "spin"
