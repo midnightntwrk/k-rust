@@ -247,3 +247,91 @@ fn the_definedness_of_a_partial_equation_head_is_decided_by_its_equations() {
     .expect("claimed equation heads should internalize");
     assert_eq!(simplified_predicate(&claimed, query), Predicate::True);
 }
+
+/// `SOURCE` with `wrap` marked as a value production, and `u()`, an unmarked anywhere constant
+/// that no equation reduces: its definedness stays an obligation of its own.
+fn conditional_value_production() -> BackendDefinition {
+    internalize(
+        &SOURCE
+            .replace(
+                "symbol wrap{}(SortInt{}) : SortS{} [anywhere{}()]",
+                "symbol wrap{}(SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]\n        symbol u{}() : SortInt{} [anywhere{}()]",
+            ),
+    )
+    .expect("a conditional value production should internalize")
+}
+
+fn simplified_predicate_under(
+    definition: &BackendDefinition,
+    source: &str,
+    known: &[&str],
+) -> Predicate {
+    let internalize = |source: &str| {
+        let syntax = parse_pattern(source).expect("predicate should parse");
+        definition
+            .admit_unverified(&syntax, &[])
+            .internalize_predicate()
+            .expect("predicate should internalize")
+            .0
+    };
+    let known = known
+        .iter()
+        .map(|source| internalize(source))
+        .collect::<Vec<_>>();
+    simplify_predicate_with_solver(
+        definition,
+        &internalize(source),
+        &known,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("predicate should simplify")
+}
+
+/// `wrap`'s only equation `wrap(X) = mk(X /Int 0) requires X ==Int 0` reduces an application
+/// only where its `requires` holds. `value-production` makes an application that no equation
+/// reduces a value, so where the `requires` is false the application's definedness is that of
+/// its argument: `wrap(1)` is defined on every valuation, `wrap(X)` wherever the path condition
+/// refutes `X ==Int 0`, and `wrap(u())` there exactly when `u()` is. Without such a refutation
+/// `wrap(X)` keeps its obligation, `wrap(0)` is still undefined (its equation applies and
+/// divides by zero), and an unmarked head keeps the obligation of `wrap(1)`.
+#[test]
+fn a_value_production_application_whose_reaching_equations_are_refuted_is_defined() {
+    let definition = conditional_value_production();
+    let ceil = |argument: &str| format!(r"\ceil{{SortS{{}}, SortS{{}}}}(wrap{{}}({argument}))");
+    let refuted = |argument: &str| {
+        format!(
+            r#"\equals{{SortBool{{}}, SortS{{}}}}(eqInt{{}}({argument}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("false"))"#
+        )
+    };
+    let one = r#"\dv{SortInt{}}("1")"#;
+    assert_eq!(
+        simplified_predicate_under(&definition, &ceil(one), &[]),
+        Predicate::True
+    );
+    assert_eq!(
+        simplified_predicate_under(
+            &definition,
+            &ceil("X:SortInt{}"),
+            &[&refuted("X:SortInt{}")]
+        ),
+        Predicate::True
+    );
+    assert_eq!(
+        simplified_predicate_under(&definition, &ceil("u{}()"), &[&refuted("u{}()")]),
+        Predicate::Ceil(internal_term(&definition, "u{}()"))
+    );
+    assert_eq!(
+        simplified_predicate_under(&definition, &ceil("X:SortInt{}"), &[]),
+        Predicate::Ceil(internal_term(&definition, "wrap{}(X:SortInt{})"))
+    );
+    assert_eq!(
+        simplified_predicate_under(&definition, &ceil(r#"\dv{SortInt{}}("0")"#), &[]),
+        Predicate::False
+    );
+    let unmarked = internalize(SOURCE).expect("an unmarked anywhere head should internalize");
+    assert_eq!(
+        simplified_predicate_under(&unmarked, &ceil(one), &[]),
+        Predicate::Ceil(internal_term(&unmarked, &format!("wrap{{}}({one})")))
+    );
+}

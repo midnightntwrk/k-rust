@@ -1306,14 +1306,21 @@ impl BackendDefinition {
     /// for every valuation, so the answer does not depend on a path condition. Without the
     /// marker an equation head claims nothing about its irreducible applications, and a
     /// conditional equation whose left-hand side reaches the application withholds both kinds of
-    /// evidence, so the answer is `false` there.
+    /// evidence, so the answer is `false` there; predicate simplification, which has a path
+    /// condition, decides such an equation's `requires` (`simplify::value_production_definedness`).
     pub(crate) fn irreducible_application_is_defined(&self, term: &Term) -> bool {
-        let TermKind::Application { symbol, .. } = term.kind() else {
-            return false;
-        };
-        self.value_productions.contains(&symbol.name)
+        self.is_value_production_application(term)
             && (crate::term::head::certified_ground_normal_form(term)
                 || self.instance_normal(term).is_some())
+    }
+
+    /// Whether `term` is an application of a symbol the definition declares
+    /// `value-production`: an application of it that no equation reduces is a value of its sort.
+    pub(crate) fn is_value_production_application(&self, term: &Term) -> bool {
+        matches!(
+            term.kind(),
+            TermKind::Application { symbol, .. } if self.value_productions.contains(&symbol.name)
+        )
     }
 
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function

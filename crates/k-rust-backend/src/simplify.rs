@@ -34,6 +34,10 @@
 //! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
 //!
 //! [[cost]]
+//! mode = "value-production ceil (value_production_definedness)"
+//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+//!
+//! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subject: one search of the resulting predicates and of their term nodes that lack the evaluated attribute, each shared node once, stopping when every subject is found"
 //! ```
@@ -1998,11 +2002,173 @@ fn apply_ceil_theory(
             )
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
-            GroupScan::Blocked => return Ok(None),
+            // An undecided ceil equation keeps the lower-priority ones from applying; the
+            // value-production evidence below is a separate fact about the application.
+            GroupScan::Blocked => break,
             GroupScan::NotCacheable | GroupScan::NotApplicable => {}
         }
     }
-    Ok(None)
+    value_production_definedness(
+        definition,
+        term,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+/// `\ceil(f(a))` for an application `term` of a `value-production` symbol `f` that no equation
+/// reduces wherever `known_predicates` hold: the definedness obligations of its arguments `a`
+/// (`\top` when they have none); `None` when that is not shown.
+///
+/// `value-production` states that an application no equation reduces is a value of its sort, so
+/// on every valuation where the arguments are defined and no equation reduces `f(a)`, `f(a)` is
+/// defined. An equation reduces an application only where its left-hand side matches it and its
+/// `requires` holds at that match. The equations that may match an instance of `term` are listed
+/// by `BackendDefinition::equations_reaching`, which needs `term`'s arguments to be
+/// instance-normal and equation selection to be complete; each listed equation must have a
+/// `requires` that is refuted under `known_predicates` at its only match
+/// ([`requires_refuted_at_only_match`]). The definedness walk (`definedness::ceil_term`) discharges
+/// an application no equation can match on any instance; this step adds the applications whose
+/// reaching equations a refuted `requires` sets aside, which needs the path condition only
+/// predicate simplification has. The result is equivalent to `\ceil(term)` under
+/// `known_predicates`, the contract of predicate simplification under assumptions.
+#[allow(clippy::too_many_arguments)]
+fn value_production_definedness(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Option<Predicate>> {
+    if !definition.is_value_production_application(term) {
+        return Ok(None);
+    }
+    let Some(reaching) = definition.equations_reaching(term) else {
+        return Ok(None);
+    };
+    for rule in reaching {
+        if !requires_refuted_at_only_match(
+            definition,
+            rule,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )? {
+            return Ok(None);
+        }
+    }
+    let TermKind::Application { arguments, .. } = term.kind() else {
+        unreachable!("a value-production application is an application")
+    };
+    // `\ceil(f(\bottom))` is `\bottom`: the arguments keep their own obligations.
+    let mut obligations = Vec::new();
+    for argument in arguments {
+        for obligation in ceil_term(definition, argument) {
+            if !obligations.contains(&obligation) {
+                obligations.push(obligation);
+            }
+        }
+    }
+    Ok(Some(if obligations.is_empty() {
+        Predicate::True
+    } else {
+        Predicate::And(obligations)
+    }))
+}
+
+/// Whether the equation `rule` cannot reduce `term` wherever `known_predicates` hold: its
+/// `requires` is not empty, equation matching of its left-hand side against `term` succeeds with
+/// a substitution `σ` that is the only match of every instance of `term`, and the simplifier
+/// refutes the `requires` instantiated by `σ` under `known_predicates`.
+///
+/// `σ` is the only match because the left-hand side has no collection pattern: matching then
+/// binds each of its variables by decomposing `term` at a fixed position, so an instance of
+/// `term` matches only at the instance of `σ`. A collection pattern may match an instance in
+/// several ways, and a match left `Indeterminate` decides nothing, so both answer `false`, as do a
+/// match that binds a variable outside the left-hand side and one that binds an element variable
+/// to a set pattern, which equation application does not use either. A `concrete` or `symbolic`
+/// attribute is not consulted: it selects when the evaluator uses an equation, not whether the
+/// equation holds. The diagnostics of deciding the `requires` are dropped unless the decision
+/// fails, as `scan::scan_group` drops those of an attempt that does not apply.
+#[allow(clippy::too_many_arguments)]
+fn requires_refuted_at_only_match(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<bool> {
+    if rule.requires.is_empty() || has_collection_pattern(&rule.lhs) {
+        return Ok(false);
+    }
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
+        return requires_refuted_at_only_match(
+            definition,
+            &renamed,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        );
+    }
+    let MatchResult::Success(substitution) =
+        match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
+    else {
+        return Ok(false);
+    };
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+        || binds_element_variable_to_set_pattern(&substitution)
+    {
+        return Ok(false);
+    }
+    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let (verdict, diagnostics) = diagnostic::buffer(|| {
+        evaluate_equation_condition(
+            definition,
+            &rule.attributes.unique_id,
+            &rule.computed_attributes.unbound_result_variables,
+            &rule.computed_attributes.unbound_variables,
+            Some(term),
+            instance,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
+    });
+    match verdict {
+        Ok(verdict) => Ok(matches!(verdict, EquationCondition::Refuted)),
+        // A failure is what this attempt returns, so its diagnostics are kept with it.
+        Err(unwind) => {
+            diagnostics.commit();
+            Err(unwind)
+        }
+    }
+}
+
+/// Whether `pattern` contains a map, list or set term.
+fn has_collection_pattern(pattern: &Term) -> bool {
+    let mut pending = vec![pattern];
+    while let Some(term) = pending.pop() {
+        match term.kind() {
+            TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => return true,
+            TermKind::Application { arguments, .. } => pending.extend(arguments),
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::And(left, right) => pending.extend([left, right]),
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
 }
 
 fn apply_ceil_equation(

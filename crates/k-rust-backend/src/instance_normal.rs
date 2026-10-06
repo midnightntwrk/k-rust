@@ -111,6 +111,25 @@ impl BackendDefinition {
         )
     }
 
+    /// The equations that may reduce some instance of the equation-head application `term`:
+    /// those equation selection offers it, of every priority, less those whose left-hand side
+    /// does not syntactically unify with `term` or is refuted on it by equation matching (the
+    /// exclusion test of the scan). `None` when the list would not be complete or the test
+    /// would not be sound: `term` is not an equation-head application, an immediate subterm is
+    /// not instance-normal, or equation selection is not complete. With an empty list `term` is
+    /// instance-normal; a caller that sets the listed equations aside by other evidence (a
+    /// `requires` refuted under a path condition, `simplify::value_production_definedness`)
+    /// knows that no equation reduces `term` where that evidence holds.
+    pub(crate) fn equations_reaching(&self, term: &Term) -> Option<Vec<&RewriteRule>> {
+        let _scope = ScanScope::enter();
+        token::unexcluded_candidates(
+            self,
+            term,
+            |subterm| self.instance_normal_memoized(subterm),
+            |rule, arguments| self.excluded(rule, arguments),
+        )
+    }
+
     /// Whether the equation `rule`, which equation selection offers an application headed like
     /// the scanned subject (`NoEquationReaches::scan` enumerates the candidates), cannot apply
     /// to any instance of that subject. It is excluded when its left-hand side does not

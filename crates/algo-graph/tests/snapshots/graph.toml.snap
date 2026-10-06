@@ -2470,6 +2470,10 @@ mode = "one round"
 bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
 
 [[node.cost]]
+mode = "value-production ceil (value_production_definedness)"
+bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+
+[[node.cost]]
 mode = "report retraction (retract_dropped)"
 bound = "only when the call raised a report of an equation passed over on a kept subject: one search of the resulting predicates and of their term nodes that lack the evaluated attribute, each shared node once, stopping when every subject is found"
 
