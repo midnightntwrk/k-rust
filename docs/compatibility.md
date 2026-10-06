@@ -24,7 +24,7 @@ The console IO hooks `IO.getc`, `IO.putc`, `IO.read` and `IO.write` are evaluate
 The `KRYPTO` hooks `bn128add`, `bn128mul`, `bn128ate`, `bn128valid`, `bn128g2valid`, `sha256raw` and `ripemd160raw` are declared in `plugin/krypto.md`; Kore's `Krypto` module registers none of them (`kore/src/Kore/Builtin/Krypto.hs`), and Booster has no `KRYPTO` builtin module.
 `SUBSTITUTION.substOne` is declared in `substitution.md`; Kore has no `SUBSTITUTION` builtin module (`kore/src/Kore/Builtin.hs`), and neither has Booster.
 `STRING.rfind` (`rfindString`) is declared in `domains.md`; Kore's `String` module registers no `STRING.rfind` (`kore/src/Kore/Builtin/String/String.hs`), and Booster has no `STRING` builtin module.
-k-rust implements these nine hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend.
+k-rust implements these nine hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend; `STRING.rfind`'s domain is every pair of strings with every integer start index ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
 Where the declaration gives no value, the result is undefined (`#Bottom`), as for other partial hooks.
 Where the value depends on a subterm the call cannot see, the application stays unevaluated.
 Such a subterm is a variable or an application of a non-constructor symbol, and it may denote any constructor term of its sort.
@@ -82,8 +82,8 @@ The conformance driver retains LLVM output for its frontend comparison and accou
 
 A hook without an evaluator or applicable K equation must report an unsupported-hook error when every argument is constructor-like.
 Symbolic applications remain unevaluated.
+On constructor-like arguments the definition gives the application a value that this backend has no way to compute; left unevaluated, it would end a concrete run in a configuration that looks like the semantics getting stuck, so the error makes the implementation gap visible instead. An exclusion must not turn the unsupported outcome into a successful execution.
 Two outcomes are not such a gap and stay unevaluated with the `UnsupportedHookUnevaluated` diagnostic, and no error: a value the definition does not determine, which no implementation could compute ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)), and a value above a result size bound, a resource limit (`ResultTooLarge`, [Resource bounds](#resource-bounds)).
-This follows the missing-evaluator checks in `kore/src/Kore/Equation/EvaluationStrategy.hs` and the port's completion contract; an exclusion must not turn the unsupported outcome into a successful execution.
 
 Ordinary committed execution implements the console operations `IO.getc` and `IO.read` on descriptor 0 and `IO.putc` and `IO.write` on descriptors 1 and 2.
 Their input cursor and ordered descriptor transcript are branch-local, and rolled-back candidates cannot deliver bytes.
