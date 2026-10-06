@@ -1,0 +1,47 @@
+schema = 1
+
+[key]
+k_version = "7.1.337"
+tools = ["kast", "kompile"]
+
+[key.upstream]
+
+[key.inputs]
+"tests/precedence-associativity/corpus/accepted/iterated-unary.probe" = "0d0949ba60e1f582aca38e0742296f104eade0404a1930b42f1d56a356a5446c"
+"tests/precedence-associativity/corpus/rejected/non-associative-equality.probe" = "a1d392cd2519132e727e0b632d7ad1a94044d77f0c2f3c64e9f3257ea57d1449"
+
+[[invocation]]
+label = "kast/accepted"
+argv = ["kast", "--definition", "{{work}}/compiled", "--module", "KRS-PRECEDENCE-ASSOCIATIVITY", "--sort", "Probe", "--output", "json", "{{root}}/tests/precedence-associativity/corpus/accepted/iterated-unary.probe"]
+returncode = 0
+stdout = "4e4acd8855699e3a3a156debe81e09b097aea9b2aefcb754e1b3f0701aa2f3ce"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{root}}/tests/precedence-associativity/corpus/accepted/iterated-unary.probe" = "0d0949ba60e1f582aca38e0742296f104eade0404a1930b42f1d56a356a5446c"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kast/rejected"
+argv = ["kast", "--definition", "{{work}}/compiled", "--module", "KRS-PRECEDENCE-ASSOCIATIVITY", "--sort", "Probe", "--output", "json", "{{root}}/tests/precedence-associativity/corpus/rejected/non-associative-equality.probe"]
+returncode = 113
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "b8021c95cc716d3fd95e6014f724a93b75896e958790802364074a3c2cda2a40"
+
+[invocation.inputs]
+"{{root}}/tests/precedence-associativity/corpus/rejected/non-associative-equality.probe" = "a1d392cd2519132e727e0b632d7ad1a94044d77f0c2f3c64e9f3257ea57d1449"
+
+[invocation.outputs]
+
+[[invocation]]
+label = "kompile/definition"
+argv = ["kompile", "{{work}}/emitted/definition.k", "--main-module", "KRS-PRECEDENCE-ASSOCIATIVITY", "--syntax-module", "KRS-PRECEDENCE-ASSOCIATIVITY", "--backend", "llvm", "--output-definition", "{{work}}/compiled"]
+returncode = 0
+stdout = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+stderr = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[invocation.inputs]
+"{{work}}/emitted/definition.k" = "28e594c2449767078bdfa91c57baf50196b6f6fac69a319218e8b4df3aea92b8"
+
+[invocation.outputs]
