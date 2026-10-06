@@ -117,10 +117,10 @@ fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(index) = index else {
         return Ok(BuiltinResult::Bottom);
     };
-    let Some(value) = read_wrapping_byte(&arguments[2]) else {
+    let Some(value) = read_byte(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(slot) = bytes.get_mut(index) else {
+    let Some((slot, value)) = bytes.get_mut(index).zip(value) else {
         return Ok(BuiltinResult::Bottom);
     };
     *slot = value;
@@ -195,13 +195,18 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let length = match read_nonnegative_len(&arguments[1]) {
-        Ok(Some(length)) => length,
-        Ok(None) => return Ok(BuiltinResult::NotApplicable),
-        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
-    };
-    let Some(value) = read_wrapping_byte(&arguments[2]) else {
+    let Some((length, value)) = read_int(&arguments[1]).zip(read_byte(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
+        return Ok(BuiltinResult::Bottom);
+    };
+    let Some(length) = length.to_usize() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!("length {length}"),
+            },
+        ));
     };
     let additional = length.saturating_sub(bytes.len());
     if left && additional != 0 {
@@ -338,9 +343,10 @@ fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookRea
     }
 }
 
-fn read_wrapping_byte(term: &Term) -> Option<u8> {
-    let value = read_int(term)?;
-    (value & BigInt::from(0xff_u16)).to_u8()
+/// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
+/// when the argument is not a concrete `Int`.
+fn read_byte(term: &Term) -> Option<Option<u8>> {
+    read_int(term).map(|value| value.to_u8())
 }
 
 fn read_endianness(term: &Term) -> Option<Endianness> {
@@ -493,8 +499,8 @@ mod tests {
             Ok(BuiltinResult::Value(integer(255)))
         );
         assert_eq!(
-            update(&[bytes.clone(), integer(1), integer(256)]),
-            Ok(BuiltinResult::Value(bytes_term(&[0x00, 0x00, 0xff])))
+            update(&[bytes.clone(), integer(1), integer(0x80)]),
+            Ok(BuiltinResult::Value(bytes_term(&[0x00, 0x80, 0xff])))
         );
         assert_eq!(
             substring(&[bytes.clone(), integer(1), integer(3)]),
@@ -542,6 +548,39 @@ mod tests {
         assert_eq!(
             evaluate("BYTES.substr", &[bytes, integer(2), integer(1)]),
             Ok(BuiltinResult::Bottom)
+        );
+    }
+
+    /// `#False` if `value` is not in `[0..255]` (update and padding) or if the padding length
+    /// is negative.
+    #[test]
+    fn byte_values_outside_a_byte_and_negative_padding_lengths_are_bottom() {
+        let bytes = bytes_term(b"ab");
+        for value in [-1, 256] {
+            assert_eq!(
+                update(&[bytes.clone(), integer(0), integer(value)]),
+                Ok(BuiltinResult::Bottom)
+            );
+            for left in [false, true] {
+                assert_eq!(
+                    pad(&[bytes.clone(), integer(4), integer(value)], left),
+                    Ok(BuiltinResult::Bottom)
+                );
+            }
+        }
+        for left in [false, true] {
+            assert_eq!(
+                pad(&[bytes.clone(), integer(-1), integer(0)], left),
+                Ok(BuiltinResult::Bottom)
+            );
+            assert_eq!(
+                pad(&[bytes.clone(), integer(1), integer(0)], left),
+                Ok(BuiltinResult::Value(bytes.clone()))
+            );
+        }
+        assert_eq!(
+            pad(&[bytes.clone(), integer(3), integer(255)], true),
+            Ok(BuiltinResult::Value(bytes_term(b"\xffab")))
         );
     }
 
