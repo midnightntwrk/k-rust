@@ -5311,7 +5311,8 @@ endmodule []
         .unwrap();
     assert!(!bounded_search.status.success());
     assert!(
-        String::from_utf8_lossy(&bounded_search.stderr).contains("BreadthBound"),
+        String::from_utf8_lossy(&bounded_search.stderr)
+            .contains("the breadth bound was exceeded with 2 states at the frontier"),
         "{}",
         String::from_utf8_lossy(&bounded_search.stderr)
     );
