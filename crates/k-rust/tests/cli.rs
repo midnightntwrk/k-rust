@@ -835,12 +835,12 @@ fn exit_reference_fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/exit")
 }
 
+/// `krun` on the stdin delimiter fixture. Its subject is how the `STDIN-STREAM` rules of the
+/// embedded `domains.md` read integers from `$STDIN`, so it resolves builtins from the copies
+/// compiled into `krust` and needs no K checkout.
 fn stdin_delimiter_run_command() -> (Command, PathBuf) {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fixtures = manifest.join("tests/fixtures/reference/execution/stdin-delimiter-run");
-    let builtin = manifest
-        .join("../..")
-        .join("k/k-distribution/include/kframework/builtin");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/stdin-delimiter-run");
     let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
     command.args([
         "krun",
@@ -854,8 +854,6 @@ fn stdin_delimiter_run_command() -> (Command, PathBuf) {
         "Stmt",
         "-I",
         fixtures.to_str().unwrap(),
-        "--builtin-directory",
-        builtin.to_str().unwrap(),
         "--io",
         "off",
     ]);
