@@ -44,7 +44,8 @@ use crate::names::BuiltinSort;
 
 use super::parametric::substitute_sort;
 use super::{
-    Grammar, Item, ParametricOrigin, ParseError, ParsedTerm, ParserRole, ProductionOptions,
+    Grammar, Item, ParametricOrigin, ParseError, ParsedParts, ParsedTerm, ParserRole,
+    ProductionOptions,
 };
 
 #[derive(Clone, Debug)]
@@ -355,139 +356,146 @@ impl Grammar {
         expected: &Sort,
         subsorts: &PartialOrder<Sort>,
     ) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
-                alternatives
-                    .into_iter()
-                    .map(|alternative| {
-                        self.add_empty_lists_with_order(alternative, expected, subsorts)
-                    })
-                    .collect::<Result<_, _>>()?,
-            )),
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.productions[production];
-                let expected_children = nonterminal_sorts(descriptor);
-                if expected_children.len() != children.len() {
-                    return Err(list_error(format!(
-                        "production {:?} has {} nonterminals but its parse node has {} children",
-                        descriptor.parse_label,
-                        expected_children.len(),
-                        children.len()
-                    )));
-                }
-                let shields_children = descriptor.label.as_ref().is_some_and(|label| {
-                    label.is(InternalLabel::SyntacticCast)
-                        || label.is(InternalLabel::SyntacticCastBraced)
-                        || matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
-                });
-                // Rewrite operands are parsed through generic K productions, but sort inference
-                // still requires both sides to share the function result sort. Preserve that
-                // context when one side is a user list so a singleton element on the other side
-                // receives its real recursive constructor and terminator.
-                let rewrite_list_sort = descriptor
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                    .then(|| {
-                        children
-                            .iter()
-                            .map(|child| parsed_sort(self, child))
-                            .filter(|sort| self.user_lists.contains_key(sort))
-                            .collect::<BTreeSet<_>>()
-                    })
-                    .and_then(|sorts| {
-                        (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
-                    });
-                let children = children
-                    .into_iter()
-                    .zip(expected_children)
-                    .map(|(child, expected_child)| {
-                        let expected_child = rewrite_list_sort.as_ref().unwrap_or(expected_child);
-                        let child = if shields_children {
-                            child
-                        } else {
-                            self.wrap_list_child(child, expected_child, subsorts)?
-                        };
-                        self.add_empty_lists_with_order(child, expected_child, subsorts)
-                    })
-                    .collect::<Result<_, _>>()?;
-                Ok(ParsedTerm::Production {
+        crate::stack::guarded(|| {
+            match term.into_parts() {
+                ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+                ParsedParts::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
+                    alternatives
+                        .into_iter()
+                        .map(|alternative| {
+                            self.add_empty_lists_with_order(alternative, expected, subsorts)
+                        })
+                        .collect::<Result<_, _>>()?,
+                )),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
-                })
-            }
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.productions[production];
-                // Children are completed against the production instantiated from the node's
-                // expected sort and its children's sorts, not against the parser's inferred
-                // parameters: a parameter stands for the sort of every position it occupies, so
-                // it is the least sort that holds them all. The two differ for a binder position
-                // such as `#let X = e #in ...`: inference leaves the child-only `Sort2` at `K`,
-                // while the binder equates `X` and `e`, so `Sort2` is `lub(sort(X), sort(e))`,
-                // and an element-sorted `X` bound to a user list is completed to the singleton
-                // list `X .Xs` before ResolveFun reads the binder.
-                let expected_children = if let Some(origin) = &descriptor.parametric_origin {
-                    self.list_instantiation(
-                        origin,
-                        &parameters,
-                        Some(expected),
-                        &children,
-                        subsorts,
-                    )?
-                    .0
-                } else {
-                    nonterminal_sorts(descriptor).into_iter().cloned().collect()
-                };
-                if expected_children.len() != children.len() {
-                    return Err(list_error(format!(
-                        "production {:?} has {} nonterminals but its parse node has {} children",
-                        descriptor.parse_label,
-                        expected_children.len(),
-                        children.len()
-                    )));
-                }
-                let rewrite_list_sort = descriptor
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                    .then(|| {
-                        children
-                            .iter()
-                            .map(|child| parsed_sort(self, child))
-                            .filter(|sort| self.user_lists.contains_key(sort))
-                            .collect::<BTreeSet<_>>()
-                    })
-                    .and_then(|sorts| {
-                        (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
+                } => {
+                    let descriptor = &self.productions[production];
+                    let expected_children = nonterminal_sorts(descriptor);
+                    if expected_children.len() != children.len() {
+                        return Err(list_error(format!(
+                            "production {:?} has {} nonterminals but its parse node has {} children",
+                            descriptor.parse_label,
+                            expected_children.len(),
+                            children.len()
+                        )));
+                    }
+                    let shields_children = descriptor.label.as_ref().is_some_and(|label| {
+                        label.is(InternalLabel::SyntacticCast)
+                            || label.is(InternalLabel::SyntacticCastBraced)
+                            || matches!(
+                                label.generated(),
+                                Some(GeneratedLabel::SemanticCast { .. })
+                            )
                     });
-                let children = children
-                    .into_iter()
-                    .zip(&expected_children)
-                    .map(|(child, expected_child)| {
-                        let expected_child = rewrite_list_sort.as_ref().unwrap_or(expected_child);
-                        let child = self.wrap_list_child(child, expected_child, subsorts)?;
-                        self.add_empty_lists_with_order(child, expected_child, subsorts)
+                    // Rewrite operands are parsed through generic K productions, but sort inference
+                    // still requires both sides to share the function result sort. Preserve that
+                    // context when one side is a user list so a singleton element on the other side
+                    // receives its real recursive constructor and terminator.
+                    let rewrite_list_sort = descriptor
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                        .then(|| {
+                            children
+                                .iter()
+                                .map(|child| parsed_sort(self, child))
+                                .filter(|sort| self.user_lists.contains_key(sort))
+                                .collect::<BTreeSet<_>>()
+                        })
+                        .and_then(|sorts| {
+                            (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
+                        });
+                    let children = children
+                        .into_iter()
+                        .zip(expected_children)
+                        .map(|(child, expected_child)| {
+                            let expected_child =
+                                rewrite_list_sort.as_ref().unwrap_or(expected_child);
+                            let child = if shields_children {
+                                child
+                            } else {
+                                self.wrap_list_child(child, expected_child, subsorts)?
+                            };
+                            self.add_empty_lists_with_order(child, expected_child, subsorts)
+                        })
+                        .collect::<Result<_, _>>()?;
+                    Ok(ParsedTerm::Production {
+                        production,
+                        children,
+                        metadata,
                     })
-                    .collect::<Result<_, _>>()?;
-                Ok(ParsedTerm::InstantiatedProduction {
+                }
+                ParsedParts::InstantiatedProduction {
                     production,
                     parameters,
                     children,
                     metadata,
-                })
+                } => {
+                    let descriptor = &self.productions[production];
+                    // Children are completed against the production instantiated from the node's
+                    // expected sort and its children's sorts, not against the parser's inferred
+                    // parameters: a parameter stands for the sort of every position it occupies, so
+                    // it is the least sort that holds them all. The two differ for a binder position
+                    // such as `#let X = e #in ...`: inference leaves the child-only `Sort2` at `K`,
+                    // while the binder equates `X` and `e`, so `Sort2` is `lub(sort(X), sort(e))`,
+                    // and an element-sorted `X` bound to a user list is completed to the singleton
+                    // list `X .Xs` before ResolveFun reads the binder.
+                    let expected_children = if let Some(origin) = &descriptor.parametric_origin {
+                        self.list_instantiation(
+                            origin,
+                            &parameters,
+                            Some(expected),
+                            &children,
+                            subsorts,
+                        )?
+                        .0
+                    } else {
+                        nonterminal_sorts(descriptor).into_iter().cloned().collect()
+                    };
+                    if expected_children.len() != children.len() {
+                        return Err(list_error(format!(
+                            "production {:?} has {} nonterminals but its parse node has {} children",
+                            descriptor.parse_label,
+                            expected_children.len(),
+                            children.len()
+                        )));
+                    }
+                    let rewrite_list_sort = descriptor
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                        .then(|| {
+                            children
+                                .iter()
+                                .map(|child| parsed_sort(self, child))
+                                .filter(|sort| self.user_lists.contains_key(sort))
+                                .collect::<BTreeSet<_>>()
+                        })
+                        .and_then(|sorts| {
+                            (sorts.len() == 1).then(|| sorts.into_iter().next().unwrap())
+                        });
+                    let children = children
+                        .into_iter()
+                        .zip(&expected_children)
+                        .map(|(child, expected_child)| {
+                            let expected_child =
+                                rewrite_list_sort.as_ref().unwrap_or(expected_child);
+                            let child = self.wrap_list_child(child, expected_child, subsorts)?;
+                            self.add_empty_lists_with_order(child, expected_child, subsorts)
+                        })
+                        .collect::<Result<_, _>>()?;
+                    Ok(ParsedTerm::InstantiatedProduction {
+                        production,
+                        parameters,
+                        children,
+                        metadata,
+                    })
+                }
             }
-        }
+        })
     }
 
     fn wrap_list_child(
@@ -1144,7 +1152,7 @@ mod tests {
         let completed = program
             .add_empty_lists(held_atom(&program), &Sort::new("Holder"))
             .unwrap();
-        let ParsedTerm::Production { children, .. } = completed else {
+        let ParsedParts::Production { children, .. } = completed.into_parts() else {
             unreachable!()
         };
         let [

@@ -2349,9 +2349,9 @@ mod chart_tests {
 
     fn derivation(term: ParsedTerm) -> Derivation {
         fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
-            match term {
-                ParsedTerm::Term(term) => PackedTerm::leaf(term),
-                ParsedTerm::Production {
+            match term.into_parts() {
+                ParsedParts::Term(term) => PackedTerm::leaf(term),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
@@ -2360,10 +2360,10 @@ mod chart_tests {
                     children.into_iter().map(pack).collect(),
                     metadata,
                 ),
-                ParsedTerm::Ambiguity(alternatives) => {
+                ParsedParts::Ambiguity(alternatives) => {
                     PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
                 }
-                ParsedTerm::InstantiatedProduction { .. } => {
+                ParsedParts::InstantiatedProduction { .. } => {
                     panic!("chart tests do not construct post-inference productions")
                 }
             }
@@ -3283,7 +3283,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([losing, preferred])))
             .expect("the preferred collapsed record satisfies priority");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected preferred rewrite root");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3408,7 +3408,7 @@ mod chart_tests {
                 first, second, survivor,
             ])))
             .expect("the surviving record remains after both shared failures");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected surviving wrapper");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3518,7 +3518,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([failing, surviving])))
             .expect("the later ambiguity alternative survives");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected surviving wrapper");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3851,7 +3851,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(forest)
             .expect("the preferred root and collapsed record satisfy priority");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected preferred root production");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {

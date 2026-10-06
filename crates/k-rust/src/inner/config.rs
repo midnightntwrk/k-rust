@@ -217,65 +217,67 @@ fn up_configuration(
         resolved: &ResolvedDefinition,
         module_id: ModuleId,
     ) -> Term {
-        // #configCell arguments are [start, properties, contents, end].
-        const CONFIG_CELL_CONTENTS_INDEX: usize = 2;
-        if let Term::Apply { label, .. } = term.unannotated()
-            && !label.is(InternalLabel::ConfigCell)
-            && !label.is(InternalLabel::Cells)
-            && !label.is(InternalLabel::ExternalCell)
-            && label.semantic_cast_sort().is_none()
-        {
-            if label.parameters.is_empty() {
+        crate::stack::guarded(|| {
+            // #configCell arguments are [start, properties, contents, end].
+            const CONFIG_CELL_CONTENTS_INDEX: usize = 2;
+            if let Term::Apply { label, .. } = term.unannotated()
+                && !label.is(InternalLabel::ConfigCell)
+                && !label.is(InternalLabel::Cells)
+                && !label.is(InternalLabel::ExternalCell)
+                && label.semantic_cast_sort().is_none()
+            {
+                if label.parameters.is_empty() {
+                    return term;
+                }
+                if let Some(result @ LabelResultSort::Schematic { .. }) = resolved
+                    .production_catalog(module_id)
+                    .result_sort_of(&LabelHead::from(label))
+                    && let Some(sort) = result.of_application(&label.parameters)
+                {
+                    return Term::Apply {
+                        label: Label::semantic_cast(&sort),
+                        arguments: vec![term],
+                    };
+                }
                 return term;
             }
-            if let Some(result @ LabelResultSort::Schematic { .. }) = resolved
-                .production_catalog(module_id)
-                .result_sort_of(&LabelHead::from(label))
-                && let Some(sort) = result.of_application(&label.parameters)
-            {
-                return Term::Apply {
-                    label: Label::semantic_cast(&sort),
-                    arguments: vec![term],
-                };
-            }
-            return term;
-        }
-        match term.into_parts() {
-            TermParts::Annotated { term, metadata } => Term::Annotated {
-                term: Box::new(keep_content_instance(*term, resolved, module_id)),
-                metadata,
-            },
-            TermParts::Apply {
-                label,
-                mut arguments,
-            } => {
-                if label.is(InternalLabel::ConfigCell) {
-                    arguments = arguments
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, term)| {
-                            if index == CONFIG_CELL_CONTENTS_INDEX {
-                                keep_content_instance(term, resolved, module_id)
-                            } else {
-                                term
-                            }
-                        })
-                        .collect();
-                } else if label.is(InternalLabel::Cells) {
-                    arguments = arguments
-                        .into_iter()
-                        .map(|term| keep_content_instance(term, resolved, module_id))
-                        .collect();
+            match term.into_parts() {
+                TermParts::Annotated { term, metadata } => Term::Annotated {
+                    term: Box::new(keep_content_instance(*term, resolved, module_id)),
+                    metadata,
+                },
+                TermParts::Apply {
+                    label,
+                    mut arguments,
+                } => {
+                    if label.is(InternalLabel::ConfigCell) {
+                        arguments = arguments
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, term)| {
+                                if index == CONFIG_CELL_CONTENTS_INDEX {
+                                    keep_content_instance(term, resolved, module_id)
+                                } else {
+                                    term
+                                }
+                            })
+                            .collect();
+                    } else if label.is(InternalLabel::Cells) {
+                        arguments = arguments
+                            .into_iter()
+                            .map(|term| keep_content_instance(term, resolved, module_id))
+                            .collect();
+                    }
+                    Term::Apply { label, arguments }
                 }
-                Term::Apply { label, arguments }
+                parts @ (TermParts::InjectedLabel(_)
+                | TermParts::Rewrite { .. }
+                | TermParts::As { .. }
+                | TermParts::Variable { .. }
+                | TermParts::Sequence(_)
+                | TermParts::Token { .. }) => Term::from(parts),
             }
-            parts @ (TermParts::InjectedLabel(_)
-            | TermParts::Rewrite { .. }
-            | TermParts::As { .. }
-            | TermParts::Variable { .. }
-            | TermParts::Sequence(_)
-            | TermParts::Token { .. }) => Term::from(parts),
-        }
+        })
     }
 
     let TermParts::Apply { label, arguments } = parsed.into_unannotated().into_parts() else {

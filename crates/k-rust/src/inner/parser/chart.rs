@@ -605,7 +605,7 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
 }
 
 fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
-    match &term.node {
+    crate::stack::guarded(|| match &term.node {
         PackedNode::Production { metadata, .. }
         | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
         PackedNode::Term(term) => term.metadata().and_then(|metadata| metadata.span),
@@ -618,7 +618,7 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
                 .all(|candidate| candidate == Some(span))
                 .then_some(span)
         }
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -748,9 +748,9 @@ mod tests {
 
     fn derivation(term: ParsedTerm) -> Derivation {
         fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
-            match term {
-                ParsedTerm::Term(term) => PackedTerm::leaf(term),
-                ParsedTerm::Production {
+            match term.into_parts() {
+                ParsedParts::Term(term) => PackedTerm::leaf(term),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
@@ -759,10 +759,10 @@ mod tests {
                     children.into_iter().map(pack).collect(),
                     metadata,
                 ),
-                ParsedTerm::Ambiguity(alternatives) => {
+                ParsedParts::Ambiguity(alternatives) => {
                     PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
                 }
-                ParsedTerm::InstantiatedProduction { .. } => {
+                ParsedParts::InstantiatedProduction { .. } => {
                     panic!("chart tests do not construct post-inference productions")
                 }
             }

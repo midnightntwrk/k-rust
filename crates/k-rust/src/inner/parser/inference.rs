@@ -42,7 +42,7 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
 
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm, Production,
     inferred_variable_name,
 };
 
@@ -371,30 +371,32 @@ impl Grammar {
             term: &Rc<PackedTerm>,
             visited: &mut HashSet<*const PackedTerm>,
         ) -> bool {
-            if !visited.insert(Rc::as_ptr(term)) {
-                return true;
-            }
-            match &term.node {
-                PackedNode::Ambiguity(_) => false,
-                PackedNode::Term(term) => match term.unannotated() {
-                    Term::Token { sort, .. } => sort.parameters.is_empty(),
-                    _ => true,
-                },
-                PackedNode::Production {
-                    production,
-                    children,
-                    ..
-                } => {
-                    let production = &grammar.productions[*production];
-                    signature_is_monomorphic(production)
-                        && children
-                            .iter()
-                            .all(|child| supported(grammar, child, visited))
+            crate::stack::guarded(|| {
+                if !visited.insert(Rc::as_ptr(term)) {
+                    return true;
                 }
-                PackedNode::InstantiatedProduction { .. } => {
-                    unreachable!("sort support is checked before inference")
+                match &term.node {
+                    PackedNode::Ambiguity(_) => false,
+                    PackedNode::Term(term) => match term.unannotated() {
+                        Term::Token { sort, .. } => sort.parameters.is_empty(),
+                        _ => true,
+                    },
+                    PackedNode::Production {
+                        production,
+                        children,
+                        ..
+                    } => {
+                        let production = &grammar.productions[*production];
+                        signature_is_monomorphic(production)
+                            && children
+                                .iter()
+                                .all(|child| supported(grammar, child, visited))
+                    }
+                    PackedNode::InstantiatedProduction { .. } => {
+                        unreachable!("sort support is checked before inference")
+                    }
                 }
-            }
+            })
         }
 
         supported(self, term, &mut HashSet::new())
@@ -406,41 +408,43 @@ impl Grammar {
             term: &Rc<PackedTerm>,
             visited: &mut HashSet<*const PackedTerm>,
         ) -> (bool, bool) {
-            if !visited.insert(Rc::as_ptr(term)) {
-                return (false, false);
-            }
-            match &term.node {
-                PackedNode::Ambiguity(alternatives) => alternatives.iter().fold(
-                    (true, false),
-                    |(ambiguity, parametric), alternative| {
-                        let (child_ambiguity, child_parametric) =
-                            reasons(grammar, alternative, visited);
-                        (ambiguity || child_ambiguity, parametric || child_parametric)
-                    },
-                ),
-                PackedNode::Production {
-                    production,
-                    children,
-                    ..
-                } => {
-                    let descriptor = &grammar.productions[*production];
-                    let local = !signature_is_monomorphic(descriptor);
-                    children
-                        .iter()
-                        .fold((false, local), |(ambiguity, parametric), child| {
+            crate::stack::guarded(|| {
+                if !visited.insert(Rc::as_ptr(term)) {
+                    return (false, false);
+                }
+                match &term.node {
+                    PackedNode::Ambiguity(alternatives) => alternatives.iter().fold(
+                        (true, false),
+                        |(ambiguity, parametric), alternative| {
                             let (child_ambiguity, child_parametric) =
-                                reasons(grammar, child, visited);
+                                reasons(grammar, alternative, visited);
                             (ambiguity || child_ambiguity, parametric || child_parametric)
-                        })
+                        },
+                    ),
+                    PackedNode::Production {
+                        production,
+                        children,
+                        ..
+                    } => {
+                        let descriptor = &grammar.productions[*production];
+                        let local = !signature_is_monomorphic(descriptor);
+                        children
+                            .iter()
+                            .fold((false, local), |(ambiguity, parametric), child| {
+                                let (child_ambiguity, child_parametric) =
+                                    reasons(grammar, child, visited);
+                                (ambiguity || child_ambiguity, parametric || child_parametric)
+                            })
+                    }
+                    PackedNode::Term(term) => match term.unannotated() {
+                        Term::Token { sort, .. } => (false, !sort.parameters.is_empty()),
+                        _ => (false, false),
+                    },
+                    PackedNode::InstantiatedProduction { .. } => {
+                        unreachable!("Z3 reasons are computed before inference")
+                    }
                 }
-                PackedNode::Term(term) => match term.unannotated() {
-                    Term::Token { sort, .. } => (false, !sort.parameters.is_empty()),
-                    _ => (false, false),
-                },
-                PackedNode::InstantiatedProduction { .. } => {
-                    unreachable!("Z3 reasons are computed before inference")
-                }
-            }
+            })
         }
 
         reasons(self, term, &mut HashSet::new())
@@ -555,7 +559,7 @@ impl Grammar {
     }
 
     fn sort_inference_supported(&self, term: &ParsedTerm) -> bool {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::Ambiguity(_) => false,
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Token { sort, .. } => sort.parameters.is_empty(),
@@ -575,12 +579,12 @@ impl Grammar {
             ParsedTerm::InstantiatedProduction { .. } => {
                 unreachable!("sort support is checked before inference")
             }
-        }
+        })
     }
 
     #[cfg(not(feature = "z3-inference"))]
     fn z3_reasons(&self, term: &ParsedTerm) -> (bool, bool) {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::Ambiguity(alternatives) => {
                 alternatives
                     .iter()
@@ -610,7 +614,7 @@ impl Grammar {
             ParsedTerm::InstantiatedProduction { .. } => {
                 unreachable!("Z3 inference reasons are computed before inference")
             }
-        }
+        })
     }
 
     pub(super) fn lhs_is_function_or_macro(&self, term: &ParsedTerm) -> bool {
@@ -678,28 +682,35 @@ impl Grammar {
         next_anonymous: &mut usize,
         next_parametric: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(ref leaf) if inferred_variable_name(leaf).is_some() => {
-                let Some(name) = inferred_variable_name(leaf) else {
-                    unreachable!()
-                };
-                let id = variable_id(name, next_anonymous);
-                let sort = variable_sorts.get(&id).ok_or_else(|| {
-                    inference_error(format!("no inferred sort was produced for variable {name}"))
-                })?;
-                // A semantic cast bounds the variable from above; it records the variable's sort
-                // only when inference chose the bound itself. Otherwise the variable carries the
-                // inferred sort under the cast, so every occurrence agrees on it.
-                if let Some(bound) = enclosing_cast {
-                    if bound == sort {
-                        return Ok(term);
+        crate::stack::guarded(|| {
+            match term.into_parts() {
+                ParsedParts::Term(leaf) if inferred_variable_name(&leaf).is_some() => {
+                    let term = ParsedTerm::Term(leaf);
+                    let ParsedTerm::Term(leaf) = &term else {
+                        unreachable!("built above")
+                    };
+                    let Some(name) = inferred_variable_name(leaf) else {
+                        unreachable!()
+                    };
+                    let id = variable_id(name, next_anonymous);
+                    let sort = variable_sorts.get(&id).ok_or_else(|| {
+                        inference_error(format!(
+                            "no inferred sort was produced for variable {name}"
+                        ))
+                    })?;
+                    // A semantic cast bounds the variable from above; it records the variable's sort
+                    // only when inference chose the bound itself. Otherwise the variable carries the
+                    // inferred sort under the cast, so every occurrence agrees on it.
+                    if let Some(bound) = enclosing_cast {
+                        if bound == sort {
+                            return Ok(term);
+                        }
+                        if let Some(variable) = super::variable_with_inferred_sort(leaf, sort) {
+                            return Ok(ParsedTerm::Term(variable));
+                        }
                     }
-                    if let Some(variable) = super::variable_with_inferred_sort(leaf, sort) {
-                        return Ok(ParsedTerm::Term(variable));
-                    }
-                }
-                let label = Label::semantic_cast(sort).name;
-                let production = self
+                    let label = Label::semantic_cast(sort).name;
+                    let production = self
                     .productions
                     .iter()
                     .enumerate()
@@ -713,32 +724,32 @@ impl Grammar {
                             "cannot record inferred sort {sort} for variable {name}: missing semantic-cast production"
                         ))
                     })?;
-                Ok(ParsedTerm::Production {
-                    production,
-                    children: vec![term],
-                    metadata: super::TermMetadata::default(),
-                })
-            }
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(_) => Err(inference_error(
-                "portable sort inference received an ambiguous parse forest",
-            )),
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.productions[production];
-                let cast_sort = descriptor
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| {
-                        matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                    Ok(ParsedTerm::Production {
+                        production,
+                        children: vec![term],
+                        metadata: super::TermMetadata::default(),
                     })
-                    .then_some(&descriptor.result);
-                // The parametric productions are numbered in pre-order, as `Solver::infer`
-                // records their parameters.
-                let parameters = descriptor
+                }
+                ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+                ParsedParts::Ambiguity(_) => Err(inference_error(
+                    "portable sort inference received an ambiguous parse forest",
+                )),
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.productions[production];
+                    let cast_sort = descriptor
+                        .label
+                        .as_ref()
+                        .is_some_and(|label| {
+                            matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                        })
+                        .then_some(&descriptor.result);
+                    // The parametric productions are numbered in pre-order, as `Solver::infer`
+                    // records their parameters.
+                    let parameters = descriptor
                     .parametric_origin
                     .is_some()
                     .then(|| {
@@ -751,38 +762,39 @@ impl Grammar {
                         })
                     })
                     .transpose()?;
-                let children = children
-                    .into_iter()
-                    .map(|child| {
-                        self.insert_inferred_casts(
-                            child,
-                            variable_sorts,
-                            parameter_sorts,
-                            cast_sort,
-                            next_anonymous,
-                            next_parametric,
-                        )
-                    })
-                    .collect::<Result<_, _>>()?;
-                if let Some(parameters) = parameters {
-                    Ok(ParsedTerm::InstantiatedProduction {
-                        production,
-                        parameters,
-                        children,
-                        metadata,
-                    })
-                } else {
-                    Ok(ParsedTerm::Production {
-                        production,
-                        children,
-                        metadata,
-                    })
+                    let children = children
+                        .into_iter()
+                        .map(|child| {
+                            self.insert_inferred_casts(
+                                child,
+                                variable_sorts,
+                                parameter_sorts,
+                                cast_sort,
+                                next_anonymous,
+                                next_parametric,
+                            )
+                        })
+                        .collect::<Result<_, _>>()?;
+                    if let Some(parameters) = parameters {
+                        Ok(ParsedTerm::InstantiatedProduction {
+                            production,
+                            parameters,
+                            children,
+                            metadata,
+                        })
+                    } else {
+                        Ok(ParsedTerm::Production {
+                            production,
+                            children,
+                            metadata,
+                        })
+                    }
+                }
+                ParsedParts::InstantiatedProduction { .. } => {
+                    unreachable!("portable inference cannot create instantiated productions")
                 }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("portable inference cannot create instantiated productions")
-            }
-        }
+        })
     }
 }
 
@@ -805,191 +817,201 @@ impl<'a> Solver<'a> {
         term: &ParsedTerm,
         anywhere_top: Option<*const ParsedTerm>,
     ) -> Result<SortRef, PortableError> {
-        match term {
-            ParsedTerm::Ambiguity(_) => Err(PortableError::Malformed(inference_error(
-                "portable sort inference does not support ambiguous parse forests",
-            ))),
-            ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
-                (Some(name), _) => self.variable(name, term),
-                (None, Term::Token { sort, .. }) => Ok(SortRef::Concrete(sort.clone())),
-                (None, _) => Err(PortableError::Malformed(inference_error(
-                    "unexpected lowered KAST node in the concrete parse forest",
+        crate::stack::guarded(|| {
+            match term {
+                ParsedTerm::Ambiguity(_) => Err(PortableError::Malformed(inference_error(
+                    "portable sort inference does not support ambiguous parse forests",
                 ))),
-            },
-            ParsedTerm::Production {
-                production,
-                children,
-                ..
-            } => {
-                let production = &grammar.productions[*production];
-                let parameter_slots = production.parametric_origin.as_ref().map(|origin| {
-                    origin
-                        .parameters
-                        .iter()
-                        .map(|_| self.fresh_slot())
-                        .collect::<Vec<_>>()
-                });
-                if let Some(slots) = &parameter_slots {
-                    self.parameters.push(slots.clone());
+                ParsedTerm::Term(term) => {
+                    match (inferred_variable_name(term), term.unannotated()) {
+                        (Some(name), _) => self.variable(name, term),
+                        (None, Term::Token { sort, .. }) => Ok(SortRef::Concrete(sort.clone())),
+                        (None, _) => Err(PortableError::Malformed(inference_error(
+                            "unexpected lowered KAST node in the concrete parse forest",
+                        ))),
+                    }
                 }
-                let parameter_substitution = production
-                    .parametric_origin
-                    .as_ref()
-                    .zip(parameter_slots.as_ref())
-                    .map(|(origin, slots)| {
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    ..
+                } => {
+                    let production = &grammar.productions[*production];
+                    let parameter_slots = production.parametric_origin.as_ref().map(|origin| {
                         origin
                             .parameters
                             .iter()
-                            .cloned()
-                            .zip(slots.iter().copied().map(SortRef::Variable))
-                            .collect::<BTreeMap<_, _>>()
-                    })
-                    .unwrap_or_default();
-                let child_sorts = children
-                    .iter()
-                    .map(|child| self.infer(grammar, child, anywhere_top))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let (expected, actual) = if let Some(origin) = &production.parametric_origin {
-                    (
-                        origin
-                            .items
-                            .iter()
-                            .filter_map(|item| match item {
-                                ProductionItem::NonTerminal { sort, .. } => {
-                                    Some(substitute_sort_ref(sort, &parameter_substitution))
-                                }
-                                ProductionItem::Terminal(_)
-                                | ProductionItem::RegexTerminal { .. } => None,
-                            })
-                            .collect::<Vec<_>>(),
-                        substitute_sort_ref(&origin.result, &parameter_substitution),
-                    )
-                } else {
-                    (
-                        production
-                            .items
-                            .iter()
-                            .filter_map(|item| match item {
-                                Item::NonTerminal(sort) => Some(SortRef::Concrete(sort.clone())),
-                                Item::Terminal(_) | Item::Regex { .. } => None,
-                            })
-                            .collect::<Vec<_>>(),
-                        SortRef::Concrete(production.result.clone()),
-                    )
-                };
-                // A position the grammar widened to a `#Rule` scaffolding sort accepts a rewrite
-                // or `#as` node of that sort; such a node stands for a term of the declared sort
-                // and its own children carry that bound. Any other child keeps the declared sort.
-                let widened = production
-                    .items
-                    .iter()
-                    .zip(&production.item_sort_ids)
-                    .filter_map(|(item, sort_id)| match item {
-                        Item::NonTerminal(sort) => {
-                            let parse = &grammar.sorts[sort_id.expect("nonterminal has a sort id")];
-                            Some((parse != sort).then(|| SortRef::Concrete(parse.clone())))
-                        }
-                        Item::Terminal(_) | Item::Regex { .. } => None,
-                    })
-                    .collect::<Vec<_>>();
-                if expected.len() != child_sorts.len() {
-                    return Err(PortableError::Malformed(inference_error(format!(
-                        "production {:?} has {} nonterminals but its parse node has {} children",
-                        production.parse_label,
-                        expected.len(),
-                        child_sorts.len()
-                    ))));
-                }
-                let anywhere_lhs_sort = (anywhere_top.is_some_and(|top| std::ptr::eq(term, top))
-                    && production
-                        .label
-                        .as_ref()
-                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                    && children.len() == 2)
-                    .then(|| {
-                        if matches!(
-                            strip_brackets(grammar, &children[0]),
-                            ParsedTerm::Term(term)
-                                if matches!(term.unannotated(), Term::Variable { .. })
-                        ) {
-                            SortRef::Concrete(Sort::new("K"))
-                        } else {
-                            child_sorts[0].clone()
-                        }
+                            .map(|_| self.fresh_slot())
+                            .collect::<Vec<_>>()
                     });
-                for (index, ((term, child), expected)) in children
-                    .iter()
-                    .zip(child_sorts.iter().cloned())
-                    .zip(expected.iter().cloned())
-                    .enumerate()
-                {
-                    let expected = if index == 1
-                        && let Some(lhs_sort) = &anywhere_lhs_sort
-                    {
-                        lhs_sort.clone()
-                    } else if let Some(Some(parse)) = widened.get(index)
-                        && &child == parse
-                    {
-                        parse.clone()
+                    if let Some(slots) = &parameter_slots {
+                        self.parameters.push(slots.clone());
+                    }
+                    let parameter_substitution = production
+                        .parametric_origin
+                        .as_ref()
+                        .zip(parameter_slots.as_ref())
+                        .map(|(origin, slots)| {
+                            origin
+                                .parameters
+                                .iter()
+                                .cloned()
+                                .zip(slots.iter().copied().map(SortRef::Variable))
+                                .collect::<BTreeMap<_, _>>()
+                        })
+                        .unwrap_or_default();
+                    let child_sorts = children
+                        .iter()
+                        .map(|child| self.infer(grammar, child, anywhere_top))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let (expected, actual) = if let Some(origin) = &production.parametric_origin {
+                        (
+                            origin
+                                .items
+                                .iter()
+                                .filter_map(|item| match item {
+                                    ProductionItem::NonTerminal { sort, .. } => {
+                                        Some(substitute_sort_ref(sort, &parameter_substitution))
+                                    }
+                                    ProductionItem::Terminal(_)
+                                    | ProductionItem::RegexTerminal { .. } => None,
+                                })
+                                .collect::<Vec<_>>(),
+                            substitute_sort_ref(&origin.result, &parameter_substitution),
+                        )
                     } else {
-                        expected
+                        (
+                            production
+                                .items
+                                .iter()
+                                .filter_map(|item| match item {
+                                    Item::NonTerminal(sort) => {
+                                        Some(SortRef::Concrete(sort.clone()))
+                                    }
+                                    Item::Terminal(_) | Item::Regex { .. } => None,
+                                })
+                                .collect::<Vec<_>>(),
+                            SortRef::Concrete(production.result.clone()),
+                        )
                     };
-                    if is_anonymous_leaf(term) {
-                        // An anonymous occurrence occurs once, so nothing but its context
-                        // constrains it: it has exactly the sort its context requires, the most
-                        // general sort it can have there.  A mere upper bound is insufficient
-                        // for parser sorts such as KItem, whose synthetic hierarchy is not always
-                        // represented by an ordinary subsort production.
-                        self.constrain(child.clone(), expected.clone())?;
-                        self.constrain(expected, child)?;
-                    } else if !(self.is_parameter_ref(&child)
-                        && matches!(
-                            &expected,
-                            SortRef::Concrete(sort) if !sort.in_inference_domain()
-                        ))
+                    // A position the grammar widened to a `#Rule` scaffolding sort accepts a rewrite
+                    // or `#as` node of that sort; such a node stands for a term of the declared sort
+                    // and its own children carry that bound. Any other child keeps the declared sort.
+                    let widened = production
+                        .items
+                        .iter()
+                        .zip(&production.item_sort_ids)
+                        .filter_map(|(item, sort_id)| match item {
+                            Item::NonTerminal(sort) => {
+                                let parse =
+                                    &grammar.sorts[sort_id.expect("nonterminal has a sort id")];
+                                Some((parse != sort).then(|| SortRef::Concrete(parse.clone())))
+                            }
+                            Item::Terminal(_) | Item::Regex { .. } => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if expected.len() != child_sorts.len() {
+                        return Err(PortableError::Malformed(inference_error(format!(
+                            "production {:?} has {} nonterminals but its parse node has {} children",
+                            production.parse_label,
+                            expected.len(),
+                            child_sorts.len()
+                        ))));
+                    }
+                    let anywhere_lhs_sort = (anywhere_top
+                        .is_some_and(|top| std::ptr::eq(term, top))
+                        && production
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                        && children.len() == 2)
+                        .then(|| {
+                            if matches!(
+                                strip_brackets(grammar, &children[0]),
+                                ParsedTerm::Term(term)
+                                    if matches!(term.unannotated(), Term::Variable { .. })
+                            ) {
+                                SortRef::Concrete(Sort::new("K"))
+                            } else {
+                                child_sorts[0].clone()
+                            }
+                        });
+                    for (index, ((term, child), expected)) in children
+                        .iter()
+                        .zip(child_sorts.iter().cloned())
+                        .zip(expected.iter().cloned())
+                        .enumerate()
                     {
-                        // Rule-grammar scaffolding sorts carry parser context, not semantic sort
-                        // bounds for a formal production parameter. The Z3 engine and reference
-                        // SimpleSub path likewise keep that parameter independent of the wrapper.
-                        self.constrain(child, expected)?;
+                        let expected = if index == 1
+                            && let Some(lhs_sort) = &anywhere_lhs_sort
+                        {
+                            lhs_sort.clone()
+                        } else if let Some(Some(parse)) = widened.get(index)
+                            && &child == parse
+                        {
+                            parse.clone()
+                        } else {
+                            expected
+                        };
+                        if is_anonymous_leaf(term) {
+                            // An anonymous occurrence occurs once, so nothing but its context
+                            // constrains it: it has exactly the sort its context requires, the most
+                            // general sort it can have there.  A mere upper bound is insufficient
+                            // for parser sorts such as KItem, whose synthetic hierarchy is not always
+                            // represented by an ordinary subsort production.
+                            self.constrain(child.clone(), expected.clone())?;
+                            self.constrain(expected, child)?;
+                        } else if !(self.is_parameter_ref(&child)
+                            && matches!(
+                                &expected,
+                                SortRef::Concrete(sort) if !sort.in_inference_domain()
+                            ))
+                        {
+                            // Rule-grammar scaffolding sorts carry parser context, not semantic sort
+                            // bounds for a formal production parameter. The Z3 engine and reference
+                            // SimpleSub path likewise keep that parameter independent of the wrapper.
+                            self.constrain(child, expected)?;
+                        }
                     }
-                }
-                if let Some(lhs_sort) = anywhere_lhs_sort
-                    && !matches!(&actual, SortRef::Concrete(sort) if !sort.in_inference_domain())
-                {
-                    // A monomorphic #KRewrite may return #RuleK, which is parser scaffolding.
-                    // Only semantic results (including formal parameters) inherit the LHS bound.
-                    self.constrain(actual.clone(), lhs_sort)?;
-                }
-                if production.label.as_ref().is_some_and(|label| {
-                    [
-                        InternalLabel::SyntacticCast,
-                        InternalLabel::SyntacticCastBraced,
-                    ]
-                    .iter()
-                    .any(|cast| label.is(*cast))
-                }) && let (Some(child), Some(inner)) = (expected.first(), child_sorts.first())
-                {
-                    self.constrain(actual.clone(), child.clone())?;
-                    self.constrain(child.clone(), actual.clone())?;
-                    // A strict cast fixes the sort of its inner term without a runtime check,
-                    // so that term's sort is exactly the cast sort. The loop above already bounds
-                    // the inner sort by the declared one; bounding it from below too makes the
-                    // two equal. Without it a cast would only restate what the enclosing
-                    // position already requires and could not select an overload by sort.
-                    // A synthetic parser sort such as the bottom sort of `#token(_,_)` or
-                    // `#klabel(_)` says nothing about the term's sort: there the cast is the only
-                    // statement of that sort, so it cannot be required to equal the cast sort.
-                    if !matches!(inner, SortRef::Concrete(sort) if !sort.in_inference_domain()) {
-                        self.constrain(child.clone(), inner.clone())?;
+                    if let Some(lhs_sort) = anywhere_lhs_sort
+                        && !matches!(&actual, SortRef::Concrete(sort) if !sort.in_inference_domain())
+                    {
+                        // A monomorphic #KRewrite may return #RuleK, which is parser scaffolding.
+                        // Only semantic results (including formal parameters) inherit the LHS bound.
+                        self.constrain(actual.clone(), lhs_sort)?;
                     }
+                    if production.label.as_ref().is_some_and(|label| {
+                        [
+                            InternalLabel::SyntacticCast,
+                            InternalLabel::SyntacticCastBraced,
+                        ]
+                        .iter()
+                        .any(|cast| label.is(*cast))
+                    }) && let (Some(child), Some(inner)) =
+                        (expected.first(), child_sorts.first())
+                    {
+                        self.constrain(actual.clone(), child.clone())?;
+                        self.constrain(child.clone(), actual.clone())?;
+                        // A strict cast fixes the sort of its inner term without a runtime check,
+                        // so that term's sort is exactly the cast sort. The loop above already bounds
+                        // the inner sort by the declared one; bounding it from below too makes the
+                        // two equal. Without it a cast would only restate what the enclosing
+                        // position already requires and could not select an overload by sort.
+                        // A synthetic parser sort such as the bottom sort of `#token(_,_)` or
+                        // `#klabel(_)` says nothing about the term's sort: there the cast is the only
+                        // statement of that sort, so it cannot be required to equal the cast sort.
+                        if !matches!(inner, SortRef::Concrete(sort) if !sort.in_inference_domain())
+                        {
+                            self.constrain(child.clone(), inner.clone())?;
+                        }
+                    }
+                    Ok(actual)
                 }
-                Ok(actual)
+                ParsedTerm::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after constraint solving")
+                }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("instantiated productions are created after constraint solving")
-            }
-        }
+        })
     }
 
     fn variable(&mut self, name: &str, term: &Term) -> Result<SortRef, PortableError> {
@@ -1031,50 +1053,52 @@ impl<'a> Solver<'a> {
     }
 
     fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), PortableError> {
-        // Invariant: `constraint_cache` contains every propagated bound; recursive propagation
-        // only adds finite lower or upper bounds.
-        if lesser == greater
-            || !self
-                .constraint_cache
-                .insert((lesser.clone(), greater.clone()))
-        {
-            return Ok(());
-        }
-        match (lesser, greater) {
-            (SortRef::Variable(variable), greater) => {
-                self.bounds[variable].upper.insert(greater.clone());
-                let lower = self.bounds[variable]
-                    .lower
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for lesser in lower {
-                    self.constrain(lesser, greater.clone())?;
-                }
-                Ok(())
+        crate::stack::guarded(|| {
+            // Invariant: `constraint_cache` contains every propagated bound; recursive propagation
+            // only adds finite lower or upper bounds.
+            if lesser == greater
+                || !self
+                    .constraint_cache
+                    .insert((lesser.clone(), greater.clone()))
+            {
+                return Ok(());
             }
-            (lesser, SortRef::Variable(variable)) => {
-                self.bounds[variable].lower.insert(lesser.clone());
-                let upper = self.bounds[variable]
-                    .upper
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for greater in upper {
-                    self.constrain(lesser.clone(), greater)?;
-                }
-                Ok(())
-            }
-            (SortRef::Concrete(lesser), SortRef::Concrete(greater)) => {
-                if self.order.less_than_eq(&lesser, &greater) {
+            match (lesser, greater) {
+                (SortRef::Variable(variable), greater) => {
+                    self.bounds[variable].upper.insert(greater.clone());
+                    let lower = self.bounds[variable]
+                        .lower
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for lesser in lower {
+                        self.constrain(lesser, greater.clone())?;
+                    }
                     Ok(())
-                } else {
-                    Err(PortableError::Unsatisfiable(inference_error(format!(
-                        "unexpected sort {lesser}; expected a subsort of {greater}"
-                    ))))
+                }
+                (lesser, SortRef::Variable(variable)) => {
+                    self.bounds[variable].lower.insert(lesser.clone());
+                    let upper = self.bounds[variable]
+                        .upper
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for greater in upper {
+                        self.constrain(lesser.clone(), greater)?;
+                    }
+                    Ok(())
+                }
+                (SortRef::Concrete(lesser), SortRef::Concrete(greater)) => {
+                    if self.order.less_than_eq(&lesser, &greater) {
+                        Ok(())
+                    } else {
+                        Err(PortableError::Unsatisfiable(inference_error(format!(
+                            "unexpected sort {lesser}; expected a subsort of {greater}"
+                        ))))
+                    }
                 }
             }
-        }
+        })
     }
 
     fn realize_variables(&self) -> Result<BTreeMap<VariableId, Sort>, PortableError> {
@@ -1149,25 +1173,27 @@ impl<'a> Solver<'a> {
         upper: bool,
         visited: &mut BTreeSet<usize>,
     ) -> BTreeSet<Sort> {
-        // Invariant: `visited` is the current DFS path; recursion follows one bound edge and
-        // returns only reachable concrete sorts.
-        if !visited.insert(variable) {
-            return BTreeSet::new();
-        }
-        let bounds = if upper {
-            &self.bounds[variable].upper
-        } else {
-            &self.bounds[variable].lower
-        };
-        bounds
-            .iter()
-            .flat_map(|bound| match bound {
-                SortRef::Concrete(sort) => BTreeSet::from([sort.clone()]),
-                SortRef::Variable(variable) => {
-                    self.concrete_bounds(*variable, upper, &mut visited.clone())
-                }
-            })
-            .collect()
+        crate::stack::guarded(|| {
+            // Invariant: `visited` is the current DFS path; recursion follows one bound edge and
+            // returns only reachable concrete sorts.
+            if !visited.insert(variable) {
+                return BTreeSet::new();
+            }
+            let bounds = if upper {
+                &self.bounds[variable].upper
+            } else {
+                &self.bounds[variable].lower
+            };
+            bounds
+                .iter()
+                .flat_map(|bound| match bound {
+                    SortRef::Concrete(sort) => BTreeSet::from([sort.clone()]),
+                    SortRef::Variable(variable) => {
+                        self.concrete_bounds(*variable, upper, &mut visited.clone())
+                    }
+                })
+                .collect()
+        })
     }
 }
 
@@ -1274,25 +1300,27 @@ fn engine_disagreement<T: std::fmt::Debug>(
 /// are counted once each, so the count costs time linear in the forest's distinct nodes.
 fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
     fn count(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
-        if let Some(count) = memo.get(&Rc::as_ptr(term)) {
-            return *count;
-        }
-        let result = match &term.node {
-            PackedNode::Term(_) => 1,
-            PackedNode::Ambiguity(alternatives) => {
-                alternatives.iter().fold(0usize, |total, alternative| {
-                    total.saturating_add(count(alternative, memo))
-                })
+        crate::stack::guarded(|| {
+            if let Some(count) = memo.get(&Rc::as_ptr(term)) {
+                return *count;
             }
-            PackedNode::Production { children, .. }
-            | PackedNode::InstantiatedProduction { children, .. } => {
-                children.iter().fold(1usize, |total, child| {
-                    total.saturating_mul(count(child, memo))
-                })
-            }
-        };
-        memo.insert(Rc::as_ptr(term), result);
-        result
+            let result = match &term.node {
+                PackedNode::Term(_) => 1,
+                PackedNode::Ambiguity(alternatives) => {
+                    alternatives.iter().fold(0usize, |total, alternative| {
+                        total.saturating_add(count(alternative, memo))
+                    })
+                }
+                PackedNode::Production { children, .. }
+                | PackedNode::InstantiatedProduction { children, .. } => {
+                    children.iter().fold(1usize, |total, child| {
+                        total.saturating_mul(count(child, memo))
+                    })
+                }
+            };
+            memo.insert(Rc::as_ptr(term), result);
+            result
+        })
     }
     count(term, &mut HashMap::new())
 }
@@ -1304,45 +1332,47 @@ fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
         term: &Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, Rc<Vec<ParsedTerm>>>,
     ) -> Rc<Vec<ParsedTerm>> {
-        if let Some(trees) = memo.get(&Rc::as_ptr(term)) {
-            return Rc::clone(trees);
-        }
-        let trees = match &term.node {
-            PackedNode::Term(leaf) => vec![ParsedTerm::Term(leaf.clone())],
-            PackedNode::Ambiguity(alternatives) => alternatives
-                .iter()
-                .flat_map(|alternative| expand(alternative, memo).as_ref().clone())
-                .collect(),
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
-                .into_iter()
-                .map(|children| ParsedTerm::Production {
-                    production: *production,
+        crate::stack::guarded(|| {
+            if let Some(trees) = memo.get(&Rc::as_ptr(term)) {
+                return Rc::clone(trees);
+            }
+            let trees = match &term.node {
+                PackedNode::Term(leaf) => vec![ParsedTerm::Term(leaf.clone())],
+                PackedNode::Ambiguity(alternatives) => alternatives
+                    .iter()
+                    .flat_map(|alternative| expand(alternative, memo).as_ref().clone())
+                    .collect(),
+                PackedNode::Production {
+                    production,
                     children,
-                    metadata: metadata.clone(),
-                })
-                .collect(),
-            PackedNode::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
-                .into_iter()
-                .map(|children| ParsedTerm::InstantiatedProduction {
-                    production: *production,
-                    parameters: parameters.clone(),
+                    metadata,
+                } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
+                    .into_iter()
+                    .map(|children| ParsedTerm::Production {
+                        production: *production,
+                        children,
+                        metadata: metadata.clone(),
+                    })
+                    .collect(),
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
                     children,
-                    metadata: metadata.clone(),
-                })
-                .collect(),
-        };
-        let trees = Rc::new(trees);
-        memo.insert(Rc::as_ptr(term), Rc::clone(&trees));
-        trees
+                    metadata,
+                } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
+                    .into_iter()
+                    .map(|children| ParsedTerm::InstantiatedProduction {
+                        production: *production,
+                        parameters: parameters.clone(),
+                        children,
+                        metadata: metadata.clone(),
+                    })
+                    .collect(),
+            };
+            let trees = Rc::new(trees);
+            memo.insert(Rc::as_ptr(term), Rc::clone(&trees));
+            trees
+        })
     }
     expand(term, &mut HashMap::new()).as_ref().clone()
 }
@@ -1351,7 +1381,7 @@ fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
 /// uses with the sorts its parameters were instantiated at, in a canonical order.
 fn parameter_instantiations(term: &ParsedTerm) -> Vec<(usize, &[Sort])> {
     fn collect<'t>(term: &'t ParsedTerm, into: &mut Vec<(usize, &'t [Sort])>) {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::InstantiatedProduction {
                 production,
                 parameters,
@@ -1368,7 +1398,7 @@ fn parameter_instantiations(term: &ParsedTerm) -> Vec<(usize, &[Sort])> {
                 alternatives.iter().for_each(|child| collect(child, into));
             }
             ParsedTerm::Term(_) => {}
-        }
+        })
     }
     let mut instantiations = Vec::new();
     collect(term, &mut instantiations);
@@ -1454,8 +1484,8 @@ fn factor_trees(trees: BTreeSet<ParsedTerm>) -> ParsedTerm {
             continue;
         }
         let factored = variants.into_iter().map(factor_trees).collect();
-        alternatives.insert(match group[0].clone() {
-            ParsedTerm::Production {
+        alternatives.insert(match group[0].clone().into_parts() {
+            ParsedParts::Production {
                 production,
                 metadata,
                 ..
@@ -1464,7 +1494,7 @@ fn factor_trees(trees: BTreeSet<ParsedTerm>) -> ParsedTerm {
                 children: factored,
                 metadata,
             },
-            ParsedTerm::InstantiatedProduction {
+            ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 metadata,
@@ -1475,7 +1505,7 @@ fn factor_trees(trees: BTreeSet<ParsedTerm>) -> ParsedTerm {
                 children: factored,
                 metadata,
             },
-            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => {
+            ParsedParts::Term(_) | ParsedParts::Ambiguity(_) => {
                 unreachable!("only production headers have children")
             }
         });
@@ -1795,11 +1825,11 @@ mod tests {
         let inferred = grammar
             .infer_sorts_portable(body, &Sort::new("#RuleBody"), false)
             .unwrap();
-        let ParsedTerm::InstantiatedProduction {
+        let ParsedParts::InstantiatedProduction {
             parameters,
             children,
             ..
-        } = inferred
+        } = inferred.into_parts()
         else {
             panic!("the rewrite should retain its inferred parameter")
         };

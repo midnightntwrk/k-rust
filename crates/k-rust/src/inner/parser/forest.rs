@@ -81,6 +81,139 @@ pub(super) enum ParsedTerm {
     Ambiguity(BTreeSet<ParsedTerm>),
 }
 
+/// Dropping an owned parse tree frees its nodes one at a time rather than recursing into them,
+/// so a tree of any depth is dropped on any thread, including the subtrees a pass discards when
+/// it fails part-way through a tree.
+impl Drop for ParsedTerm {
+    #[inline]
+    fn drop(&mut self) {
+        if !self.has_grandchildren() {
+            // The fields' drops free a node whose children are leaves within one frame.
+            return;
+        }
+        let mut work = Vec::new();
+        self.detach_children(&mut work);
+        // Invariant: `work` holds detached subtrees; each pop detaches its node's children into
+        // `work`, so every node is dropped with no children left.
+        while let Some(mut term) = work.pop() {
+            term.detach_children(&mut work);
+        }
+    }
+}
+
+/// The owned fields of a [`ParsedTerm`], for a match that takes a tree apart by value: a tree
+/// frees its nodes one at a time when dropped, so it cannot be destructured by move itself.
+pub(super) enum ParsedParts {
+    Production {
+        production: usize,
+        children: Vec<ParsedTerm>,
+        metadata: TermMetadata,
+    },
+    #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
+    InstantiatedProduction {
+        production: usize,
+        parameters: Vec<Sort>,
+        children: Vec<ParsedTerm>,
+        metadata: TermMetadata,
+    },
+    Term(Term),
+    Ambiguity(BTreeSet<ParsedTerm>),
+}
+
+impl ParsedTerm {
+    /// Take this node apart into its owned fields, leaving an empty node to drop.
+    pub(super) fn into_parts(mut self) -> ParsedParts {
+        use std::mem::take;
+        match &mut self {
+            Self::Production {
+                production,
+                children,
+                metadata,
+            } => ParsedParts::Production {
+                production: *production,
+                children: take(children),
+                metadata: take(metadata),
+            },
+            Self::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => ParsedParts::InstantiatedProduction {
+                production: *production,
+                parameters: take(parameters),
+                children: take(children),
+                metadata: take(metadata),
+            },
+            Self::Term(term) => {
+                ParsedParts::Term(std::mem::replace(term, Term::Sequence(Vec::new())))
+            }
+            Self::Ambiguity(alternatives) => ParsedParts::Ambiguity(take(alternatives)),
+        }
+    }
+
+    /// Whether this node has children: a production's arguments or an ambiguity's alternatives.
+    fn has_children(&self) -> bool {
+        match self {
+            Self::Production { children, .. } | Self::InstantiatedProduction { children, .. } => {
+                !children.is_empty()
+            }
+            Self::Ambiguity(alternatives) => !alternatives.is_empty(),
+            Self::Term(_) => false,
+        }
+    }
+
+    /// Whether a child of this node has children of its own.
+    fn has_grandchildren(&self) -> bool {
+        match self {
+            Self::Production { children, .. } | Self::InstantiatedProduction { children, .. } => {
+                children.iter().any(Self::has_children)
+            }
+            Self::Ambiguity(alternatives) => alternatives.iter().any(Self::has_children),
+            Self::Term(_) => false,
+        }
+    }
+
+    fn detach_children(&mut self, work: &mut Vec<Self>) {
+        match self {
+            Self::Production { children, .. } | Self::InstantiatedProduction { children, .. } => {
+                work.append(children);
+            }
+            Self::Ambiguity(alternatives) => work.extend(std::mem::take(alternatives)),
+            Self::Term(_) => {}
+        }
+    }
+}
+
+impl From<ParsedParts> for ParsedTerm {
+    fn from(parts: ParsedParts) -> Self {
+        match parts {
+            ParsedParts::Production {
+                production,
+                children,
+                metadata,
+            } => Self::Production {
+                production,
+                children,
+                metadata,
+            },
+            ParsedParts::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => Self::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            },
+            ParsedParts::Term(term) => Self::Term(term),
+            ParsedParts::Ambiguity(alternatives) => Self::Ambiguity(alternatives),
+        }
+    }
+}
+
 /// Shared parse-forest node used through the ordering-sensitive parser and Z3-inference pipeline.
 ///
 /// Keeping children behind `Rc` prevents chart diamonds from expanding while record syntax,
@@ -134,8 +267,58 @@ impl Ord for PackedTerm {
         // complete structure, so even an FNV collision cannot merge distinct parses.
         self.fingerprint.cmp(&other.fingerprint).then_with(|| {
             measure::bump(Counter::ParserPackedStructuralComparisons);
-            self.node.cmp(&other.node)
+            // Equal fingerprints compare the structure, which descends once per level.
+            crate::stack::guarded(|| self.node.cmp(&other.node))
         })
+    }
+}
+
+/// Dropping a packed node frees the nodes below it that it alone owns one at a time rather than
+/// recursing into them, so the forest of a program of any depth is freed on any thread.
+impl Drop for PackedTerm {
+    fn drop(&mut self) {
+        let mut work = Vec::new();
+        self.node.detach_owned_children(&mut work);
+        // Invariant: `work` holds detached children; each pop detaches the children of a child
+        // this forest alone owns before that child is dropped, so every drop below is shallow.
+        while let Some(mut child) = work.pop() {
+            if let Some(child) = Rc::get_mut(&mut child) {
+                child.node.detach_owned_children(&mut work);
+            }
+        }
+    }
+}
+
+impl PackedNode {
+    /// Move this node's children into `work` when one of them is owned by this node alone and
+    /// has children of its own, the case in which dropping them in place would recurse.
+    fn detach_owned_children(&mut self, work: &mut Vec<Rc<PackedTerm>>) {
+        let owned_inner = |child: &Rc<PackedTerm>| {
+            Rc::strong_count(child) == 1 && Rc::weak_count(child) == 0 && child.node.has_children()
+        };
+        match self {
+            Self::Production { children, .. } | Self::InstantiatedProduction { children, .. } => {
+                if children.iter().any(owned_inner) {
+                    work.append(children);
+                }
+            }
+            Self::Ambiguity(alternatives) => {
+                if alternatives.iter().any(owned_inner) {
+                    work.extend(std::mem::take(alternatives));
+                }
+            }
+            Self::Term(_) => {}
+        }
+    }
+
+    fn has_children(&self) -> bool {
+        match self {
+            Self::Production { children, .. } | Self::InstantiatedProduction { children, .. } => {
+                !children.is_empty()
+            }
+            Self::Ambiguity(alternatives) => !alternatives.is_empty(),
+            Self::Term(_) => false,
+        }
     }
 }
 
@@ -215,7 +398,7 @@ impl PackedTerm {
 
     /// The packed form of an owned tree, sharing nothing.
     pub(super) fn from_parsed(term: &ParsedTerm) -> Rc<Self> {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::Term(leaf) => Self::leaf(leaf.clone()),
             ParsedTerm::Production {
                 production,
@@ -240,37 +423,39 @@ impl PackedTerm {
             ParsedTerm::Ambiguity(alternatives) => {
                 Self::ambiguity(alternatives.iter().map(Self::from_parsed).collect())
             }
-        }
+        })
     }
 
     pub(super) fn unpack(&self) -> ParsedTerm {
-        measure::bump(Counter::ParserUnpackedNodes);
-        match &self.node {
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => ParsedTerm::Production {
-                production: *production,
-                children: children.iter().map(|child| child.unpack()).collect(),
-                metadata: metadata.clone(),
-            },
-            PackedNode::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => ParsedTerm::InstantiatedProduction {
-                production: *production,
-                parameters: parameters.clone(),
-                children: children.iter().map(|child| child.unpack()).collect(),
-                metadata: metadata.clone(),
-            },
-            PackedNode::Term(term) => ParsedTerm::Term(term.clone()),
-            PackedNode::Ambiguity(alternatives) => {
-                ParsedTerm::Ambiguity(alternatives.iter().map(|term| term.unpack()).collect())
+        crate::stack::guarded(|| {
+            measure::bump(Counter::ParserUnpackedNodes);
+            match &self.node {
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => ParsedTerm::Production {
+                    production: *production,
+                    children: children.iter().map(|child| child.unpack()).collect(),
+                    metadata: metadata.clone(),
+                },
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => ParsedTerm::InstantiatedProduction {
+                    production: *production,
+                    parameters: parameters.clone(),
+                    children: children.iter().map(|child| child.unpack()).collect(),
+                    metadata: metadata.clone(),
+                },
+                PackedNode::Term(term) => ParsedTerm::Term(term.clone()),
+                PackedNode::Ambiguity(alternatives) => {
+                    ParsedTerm::Ambiguity(alternatives.iter().map(|term| term.unpack()).collect())
+                }
             }
-        }
+        })
     }
 }
 
@@ -286,87 +471,89 @@ pub(super) fn cmp_packed_structurally(
             std::cmp::Ordering,
         >,
     ) -> std::cmp::Ordering {
-        // Invariant: every memoized pair has a complete structural ordering, and recursion only
-        // visits a not-yet-memoized pair before recording both directions.
-        use std::cmp::Ordering;
+        crate::stack::guarded(|| {
+            // Invariant: every memoized pair has a complete structural ordering, and recursion only
+            // visits a not-yet-memoized pair before recording both directions.
+            use std::cmp::Ordering;
 
-        if Rc::ptr_eq(left, right) {
-            return Ordering::Equal;
-        }
-        let key = (Rc::as_ptr(left), Rc::as_ptr(right));
-        if let Some(ordering) = memo.get(&key) {
-            return *ordering;
-        }
-        let ordering = match (&left.node, &right.node) {
-            (
-                PackedNode::Production {
-                    production: left_production,
-                    children: left_children,
-                    metadata: left_metadata,
-                },
-                PackedNode::Production {
-                    production: right_production,
-                    children: right_children,
-                    metadata: right_metadata,
-                },
-            ) => left_production
-                .cmp(right_production)
-                .then_with(|| {
-                    left_children
-                        .iter()
-                        .zip(right_children)
-                        .map(|(left, right)| compare(left, right, memo))
-                        .find(|ordering| !ordering.is_eq())
-                        .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
-                })
-                .then_with(|| left_metadata.cmp(right_metadata)),
-            (
-                PackedNode::InstantiatedProduction {
-                    production: left_production,
-                    parameters: left_parameters,
-                    children: left_children,
-                    metadata: left_metadata,
-                },
-                PackedNode::InstantiatedProduction {
-                    production: right_production,
-                    parameters: right_parameters,
-                    children: right_children,
-                    metadata: right_metadata,
-                },
-            ) => left_production
-                .cmp(right_production)
-                .then_with(|| left_parameters.cmp(right_parameters))
-                .then_with(|| {
-                    left_children
-                        .iter()
-                        .zip(right_children)
-                        .map(|(left, right)| compare(left, right, memo))
-                        .find(|ordering| !ordering.is_eq())
-                        .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
-                })
-                .then_with(|| left_metadata.cmp(right_metadata)),
-            (PackedNode::Production { .. }, _) => Ordering::Less,
-            (_, PackedNode::Production { .. }) => Ordering::Greater,
-            (PackedNode::InstantiatedProduction { .. }, _) => Ordering::Less,
-            (_, PackedNode::InstantiatedProduction { .. }) => Ordering::Greater,
-            (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
-            (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
-            (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
-            (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
-                let mut left = left.iter().cloned().collect::<Vec<_>>();
-                let mut right = right.iter().cloned().collect::<Vec<_>>();
-                left.sort_by(|left, right| compare(left, right, memo));
-                right.sort_by(|left, right| compare(left, right, memo));
-                left.iter()
-                    .zip(&right)
-                    .map(|(left, right)| compare(left, right, memo))
-                    .find(|ordering| !ordering.is_eq())
-                    .unwrap_or_else(|| left.len().cmp(&right.len()))
+            if Rc::ptr_eq(left, right) {
+                return Ordering::Equal;
             }
-        };
-        memo.insert(key, ordering);
-        memo.insert((key.1, key.0), ordering.reverse());
-        ordering
+            let key = (Rc::as_ptr(left), Rc::as_ptr(right));
+            if let Some(ordering) = memo.get(&key) {
+                return *ordering;
+            }
+            let ordering = match (&left.node, &right.node) {
+                (
+                    PackedNode::Production {
+                        production: left_production,
+                        children: left_children,
+                        metadata: left_metadata,
+                    },
+                    PackedNode::Production {
+                        production: right_production,
+                        children: right_children,
+                        metadata: right_metadata,
+                    },
+                ) => left_production
+                    .cmp(right_production)
+                    .then_with(|| {
+                        left_children
+                            .iter()
+                            .zip(right_children)
+                            .map(|(left, right)| compare(left, right, memo))
+                            .find(|ordering| !ordering.is_eq())
+                            .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
+                    })
+                    .then_with(|| left_metadata.cmp(right_metadata)),
+                (
+                    PackedNode::InstantiatedProduction {
+                        production: left_production,
+                        parameters: left_parameters,
+                        children: left_children,
+                        metadata: left_metadata,
+                    },
+                    PackedNode::InstantiatedProduction {
+                        production: right_production,
+                        parameters: right_parameters,
+                        children: right_children,
+                        metadata: right_metadata,
+                    },
+                ) => left_production
+                    .cmp(right_production)
+                    .then_with(|| left_parameters.cmp(right_parameters))
+                    .then_with(|| {
+                        left_children
+                            .iter()
+                            .zip(right_children)
+                            .map(|(left, right)| compare(left, right, memo))
+                            .find(|ordering| !ordering.is_eq())
+                            .unwrap_or_else(|| left_children.len().cmp(&right_children.len()))
+                    })
+                    .then_with(|| left_metadata.cmp(right_metadata)),
+                (PackedNode::Production { .. }, _) => Ordering::Less,
+                (_, PackedNode::Production { .. }) => Ordering::Greater,
+                (PackedNode::InstantiatedProduction { .. }, _) => Ordering::Less,
+                (_, PackedNode::InstantiatedProduction { .. }) => Ordering::Greater,
+                (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
+                (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
+                (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
+                (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
+                    let mut left = left.iter().cloned().collect::<Vec<_>>();
+                    let mut right = right.iter().cloned().collect::<Vec<_>>();
+                    left.sort_by(|left, right| compare(left, right, memo));
+                    right.sort_by(|left, right| compare(left, right, memo));
+                    left.iter()
+                        .zip(&right)
+                        .map(|(left, right)| compare(left, right, memo))
+                        .find(|ordering| !ordering.is_eq())
+                        .unwrap_or_else(|| left.len().cmp(&right.len()))
+                }
+            };
+            memo.insert(key, ordering);
+            memo.insert((key.1, key.0), ordering.reverse());
+            ordering
+        })
     }
 
     compare(left, right, &mut std::collections::HashMap::new())
@@ -659,6 +846,54 @@ mod tests {
         }
     }
 
+    /// A parse forest and an owned parse tree of any depth are dropped on a small stack, also
+    /// where an ambiguity holds a deep alternative and where a shared node is still referenced
+    /// from outside: a chain of 100,000 productions, whose drop glue once recursed per level, is
+    /// dropped on a thread of 64 KiB.
+    #[test]
+    fn forests_and_trees_of_any_depth_are_dropped_on_a_small_stack() {
+        const DEPTH: usize = 100_000;
+        std::thread::Builder::new()
+            .stack_size(64 << 10)
+            .spawn(|| {
+                let leaf = || Term::Variable {
+                    name: "X".into(),
+                    sort: None,
+                };
+                let mut packed = PackedTerm::leaf(leaf());
+                let mut shared = None;
+                for level in 0..DEPTH {
+                    if level == DEPTH / 2 {
+                        shared = Some(Rc::clone(&packed));
+                    }
+                    packed =
+                        PackedTerm::production(level % 3, vec![packed], TermMetadata::default());
+                }
+                let packed =
+                    PackedTerm::ambiguity(BTreeSet::from([packed, PackedTerm::leaf(leaf())]));
+                drop(packed);
+                let shared = shared.expect("the middle node was kept");
+                assert_eq!(Rc::strong_count(&shared), 1);
+                drop(shared);
+
+                let mut tree = ParsedTerm::Term(leaf());
+                for level in 0..DEPTH {
+                    tree = ParsedTerm::Production {
+                        production: level % 3,
+                        children: vec![tree],
+                        metadata: TermMetadata::default(),
+                    };
+                }
+                drop(ParsedTerm::Ambiguity(BTreeSet::from([
+                    tree,
+                    ParsedTerm::Term(leaf()),
+                ])));
+            })
+            .expect("the worker should spawn")
+            .join()
+            .expect("the forest and the tree should be dropped");
+    }
+
     fn variable(name: &str) -> ParsedTerm {
         ParsedTerm::Term(Term::Variable {
             name: name.to_owned(),
@@ -668,9 +903,9 @@ mod tests {
 
     fn derivation(term: ParsedTerm) -> Derivation {
         fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
-            match term {
-                ParsedTerm::Term(term) => PackedTerm::leaf(term),
-                ParsedTerm::Production {
+            match term.into_parts() {
+                ParsedParts::Term(term) => PackedTerm::leaf(term),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
@@ -679,10 +914,10 @@ mod tests {
                     children.into_iter().map(pack).collect(),
                     metadata,
                 ),
-                ParsedTerm::Ambiguity(alternatives) => {
+                ParsedParts::Ambiguity(alternatives) => {
                     PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
                 }
-                ParsedTerm::InstantiatedProduction { .. } => {
+                ParsedParts::InstantiatedProduction { .. } => {
                     panic!("forest tests do not construct post-inference productions")
                 }
             }
@@ -703,7 +938,7 @@ mod tests {
     #[test]
     fn unequal_deep_packed_nodes_compare_without_walking_their_children() {
         let chain = |name| {
-            let ParsedTerm::Term(leaf) = variable(name) else {
+            let ParsedParts::Term(leaf) = variable(name).into_parts() else {
                 unreachable!()
             };
             let mut node = PackedTerm::leaf(leaf);
@@ -737,10 +972,8 @@ mod tests {
 
     #[test]
     fn packed_fingerprint_collisions_fall_back_to_complete_structure() {
-        let PackedTerm { node: left, .. } =
-            Rc::unwrap_or_clone(derivation(variable("left")).pop().unwrap());
-        let PackedTerm { node: right, .. } =
-            Rc::unwrap_or_clone(derivation(variable("right")).pop().unwrap());
+        let left = derivation(variable("left")).pop().unwrap().node.clone();
+        let right = derivation(variable("right")).pop().unwrap().node.clone();
         let left = PackedTerm {
             fingerprint: 0,
             node: left,

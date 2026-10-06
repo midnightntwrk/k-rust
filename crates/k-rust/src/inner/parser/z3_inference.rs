@@ -84,7 +84,7 @@ use crate::kast::{
 use crate::names::BuiltinSort;
 
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm, Production,
     cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
 
@@ -1417,161 +1417,170 @@ impl<'a> Encoding<'a> {
         cast_context: CastContext,
         path: &str,
     ) -> Result<(Bool, usize), ParseError> {
-        match term {
-            ParsedTerm::Ambiguity(alternatives) => {
-                // The replay explains one alternative of an ambiguity. Keeping one alternative of
-                // each ambiguity only removes readings, so the constraints stay unsatisfiable and
-                // the replay can still find one that fails.
-                let considered = if self.incremental {
-                    1
-                } else {
-                    alternatives.len()
-                };
-                let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
-                    .iter()
-                    .take(considered)
-                    .enumerate()
-                    .map(|(index, alternative)| {
-                        self.constraint_node(
-                            alternative,
-                            expected,
-                            cast_context,
-                            &format!("{path}_a{index}"),
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .unzip();
-                let constraint = or_all(&constraints);
-                let node = self.liveness.ambiguity(constraint.clone(), &nodes);
-                Ok((constraint, node))
-            }
-            ParsedTerm::Term(term) => {
-                let constraint = match (inferred_variable_name(term), term.unannotated()) {
-                    (Some(name), _) => {
-                        let variable = self.term_variable(term, name, path);
-                        self.variable_constraint(variable, name, expected, cast_context)
-                    }
-                    (None, Term::Token { sort, .. }) => {
-                        self.token_constraint(term, sort, expected, cast_context)
-                    }
-                    (None, _) => Err(z3_error(
-                        "unexpected lowered KAST node in the concrete parse forest",
-                    )),
-                }?;
-                let node = self.liveness.leaf(constraint.clone(), term);
-                Ok((constraint, node))
-            }
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.grammar.productions[*production];
-                let parameters =
-                    self.production_parameters(*production, descriptor, metadata, path);
-                let actual_sort = production_result(descriptor);
-                let actual = self.sort_value(actual_sort, &parameters)?;
-                let mut constraints = Vec::new();
-                if let Some(instantiation) =
-                    self.instantiation_constraint(descriptor, &parameters)?
-                {
-                    constraints.push(instantiation);
-                }
-                if cast_context != CastContext::Parser
-                    && is_real_sort(actual_sort, parameters.keys())
-                {
-                    let strict = cast_context == CastContext::Strict
-                        || descriptor
-                            .parametric_origin
-                            .as_ref()
-                            .is_some_and(|origin| origin.parameters.contains(&origin.result));
-                    let constraint = if strict {
-                        actual.eq(expected)
+        crate::stack::guarded(|| {
+            match term {
+                ParsedTerm::Ambiguity(alternatives) => {
+                    // The replay explains one alternative of an ambiguity. Keeping one alternative of
+                    // each ambiguity only removes readings, so the constraints stay unsatisfiable and
+                    // the replay can still find one that fails.
+                    let considered = if self.incremental {
+                        1
                     } else {
-                        self.less_than_eq(&actual, expected)?
+                        alternatives.len()
                     };
-                    if self.incremental {
-                        self.record_replay(
-                            &constraint,
-                            ReplaySubject::Term {
-                                actual: Some(actual.clone()),
-                                undeclared: None,
-                                production: production_text(descriptor),
-                            },
-                            expected,
-                        );
+                    let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
+                        .iter()
+                        .take(considered)
+                        .enumerate()
+                        .map(|(index, alternative)| {
+                            self.constraint_node(
+                                alternative,
+                                expected,
+                                cast_context,
+                                &format!("{path}_a{index}"),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .unzip();
+                    let constraint = or_all(&constraints);
+                    let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                    Ok((constraint, node))
+                }
+                ParsedTerm::Term(term) => {
+                    let constraint = match (inferred_variable_name(term), term.unannotated()) {
+                        (Some(name), _) => {
+                            let variable = self.term_variable(term, name, path);
+                            self.variable_constraint(variable, name, expected, cast_context)
+                        }
+                        (None, Term::Token { sort, .. }) => {
+                            self.token_constraint(term, sort, expected, cast_context)
+                        }
+                        (None, _) => Err(z3_error(
+                            "unexpected lowered KAST node in the concrete parse forest",
+                        )),
+                    }?;
+                    let node = self.liveness.leaf(constraint.clone(), term);
+                    Ok((constraint, node))
+                }
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.grammar.productions[*production];
+                    let parameters =
+                        self.production_parameters(*production, descriptor, metadata, path);
+                    let actual_sort = production_result(descriptor);
+                    let actual = self.sort_value(actual_sort, &parameters)?;
+                    let mut constraints = Vec::new();
+                    if let Some(instantiation) =
+                        self.instantiation_constraint(descriptor, &parameters)?
+                    {
+                        constraints.push(instantiation);
                     }
-                    constraints.push(constraint);
-                }
+                    if cast_context != CastContext::Parser
+                        && is_real_sort(actual_sort, parameters.keys())
+                    {
+                        let strict = cast_context == CastContext::Strict
+                            || descriptor
+                                .parametric_origin
+                                .as_ref()
+                                .is_some_and(|origin| origin.parameters.contains(&origin.result));
+                        let constraint = if strict {
+                            actual.eq(expected)
+                        } else {
+                            self.less_than_eq(&actual, expected)?
+                        };
+                        if self.incremental {
+                            self.record_replay(
+                                &constraint,
+                                ReplaySubject::Term {
+                                    actual: Some(actual.clone()),
+                                    undeclared: None,
+                                    production: production_text(descriptor),
+                                },
+                                expected,
+                            );
+                        }
+                        constraints.push(constraint);
+                    }
 
-                let expected_children = production_nonterminals(descriptor);
-                let mut nodes = Vec::with_capacity(children.len());
-                if expected_children.len() != children.len() {
-                    return Err(z3_error(format!(
-                        "production {:?} has {} nonterminals but its parse node has {} children",
-                        descriptor.parse_label,
-                        expected_children.len(),
-                        children.len()
-                    )));
-                }
-                for (index, (child, child_sort)) in
-                    children.iter().zip(expected_children).enumerate()
-                {
-                    let child_path = format!("{path}_c{index}");
-                    let function_child_sort = (index == 0 && is_top_sort_production(descriptor))
+                    let expected_children = production_nonterminals(descriptor);
+                    let mut nodes = Vec::with_capacity(children.len());
+                    if expected_children.len() != children.len() {
+                        return Err(z3_error(format!(
+                            "production {:?} has {} nonterminals but its parse node has {} children",
+                            descriptor.parse_label,
+                            expected_children.len(),
+                            children.len()
+                        )));
+                    }
+                    for (index, (child, child_sort)) in
+                        children.iter().zip(expected_children).enumerate()
+                    {
+                        let child_path = format!("{path}_c{index}");
+                        let function_child_sort = (index == 0
+                            && is_top_sort_production(descriptor))
                         .then(|| {
                             self.grammar
                                 .body_function_lhs(child, &child_path, self.anywhere)
                         })
                         .flatten();
-                    let child_expected = if let Some((lhs, lhs_path)) = &function_child_sort {
-                        self.actual_sort(lhs, lhs_path)?
-                    } else if self.anywhere
-                        && self.top_rewrite_paths.contains(path)
-                        && descriptor
-                            .label
+                        let child_expected = if let Some((lhs, lhs_path)) = &function_child_sort {
+                            self.actual_sort(lhs, lhs_path)?
+                        } else if self.anywhere
+                            && self.top_rewrite_paths.contains(path)
+                            && descriptor
+                                .label
+                                .as_ref()
+                                .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                            && index == 1
+                            && children.len() == 2
+                        {
+                            self.actual_sort(&children[0], &format!("{path}_c0"))?
+                        } else if is_cast(descriptor) {
+                            self.sort_value(production_result(descriptor), &parameters)?
+                        } else {
+                            self.sort_value(child_sort, &parameters)?
+                        };
+                        let formal_child = descriptor
+                            .parametric_origin
                             .as_ref()
-                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                        && index == 1
-                        && children.len() == 2
-                    {
-                        self.actual_sort(&children[0], &format!("{path}_c0"))?
-                    } else if is_cast(descriptor) {
-                        self.sort_value(production_result(descriptor), &parameters)?
-                    } else {
-                        self.sort_value(child_sort, &parameters)?
-                    };
-                    let formal_child = descriptor
-                        .parametric_origin
-                        .as_ref()
-                        .is_some_and(|origin| origin.parameters.contains(child_sort));
-                    let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if function_child_sort.is_some() => CastContext::None,
-                        CastContext::None if !formal_child && !child_sort.in_inference_domain() => {
-                            CastContext::Parser
-                        }
-                        context => context,
-                    };
-                    let (constraint, node) =
-                        self.constraint_node(child, &child_expected, child_context, &child_path)?;
-                    constraints.push(constraint);
-                    nodes.push(node);
+                            .is_some_and(|origin| origin.parameters.contains(child_sort));
+                        let child_context = match cast_context_for(descriptor) {
+                            CastContext::None if function_child_sort.is_some() => CastContext::None,
+                            CastContext::None
+                                if !formal_child && !child_sort.in_inference_domain() =>
+                            {
+                                CastContext::Parser
+                            }
+                            context => context,
+                        };
+                        let (constraint, node) = self.constraint_node(
+                            child,
+                            &child_expected,
+                            child_context,
+                            &child_path,
+                        )?;
+                        constraints.push(constraint);
+                        nodes.push(node);
+                    }
+                    let constraint = and_all(&constraints);
+                    let node = self.liveness.production(
+                        constraint.clone(),
+                        &nodes,
+                        *production,
+                        descriptor,
+                        metadata.span.as_ref(),
+                    );
+                    Ok((constraint, node))
                 }
-                let constraint = and_all(&constraints);
-                let node = self.liveness.production(
-                    constraint.clone(),
-                    &nodes,
-                    *production,
-                    descriptor,
-                    metadata.span.as_ref(),
-                );
-                Ok((constraint, node))
+                ParsedTerm::InstantiatedProduction { .. } => {
+                    unreachable!("Z3 constraints are generated before model substitution")
+                }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("Z3 constraints are generated before model substitution")
-            }
-        }
+        })
     }
 
     fn constraint_packed(
@@ -1594,181 +1603,193 @@ impl<'a> Encoding<'a> {
         cast_context: CastContext,
         memo: &mut PackedConstraintMemo,
     ) -> Result<(Bool, usize), ParseError> {
-        let identity = Rc::as_ptr(term);
-        let key = (identity, expected.clone(), cast_context);
-        if let Some((_, constraint)) = memo.get(&key) {
-            return constraint.clone();
-        }
-        let result = (|| match &term.node {
-            PackedNode::Ambiguity(alternatives) => {
-                let mut alternatives = packed_terms_in_structural_order(alternatives);
-                if self.incremental {
-                    // The replay explains one alternative of an ambiguity. Keeping one
-                    // alternative of each ambiguity only removes readings, so the constraints
-                    // stay unsatisfiable and the replay can still find one that fails.
-                    alternatives.truncate(1);
+        crate::stack::guarded(|| {
+            let identity = Rc::as_ptr(term);
+            let key = (identity, expected.clone(), cast_context);
+            if let Some((_, constraint)) = memo.get(&key) {
+                return constraint.clone();
+            }
+            let result = (|| match &term.node {
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut alternatives = packed_terms_in_structural_order(alternatives);
+                    if self.incremental {
+                        // The replay explains one alternative of an ambiguity. Keeping one
+                        // alternative of each ambiguity only removes readings, so the constraints
+                        // stay unsatisfiable and the replay can still find one that fails.
+                        alternatives.truncate(1);
+                    }
+                    let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
+                        .iter()
+                        .map(|alternative| {
+                            self.constraint_packed_node(alternative, expected, cast_context, memo)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .unzip();
+                    let overloads = alternatives
+                        .iter()
+                        .map(|alternative| {
+                            let lhs = self.grammar.packed_function_lhs(alternative)?;
+                            let PackedNode::Production { production, .. } = &lhs.node else {
+                                return None;
+                            };
+                            self.grammar.productions[*production].source_production
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    if let Some(overloads) = overloads
+                        && !self.incremental
+                    {
+                        let productions = overloads.iter().copied().collect::<BTreeSet<_>>();
+                        let minimal = self.grammar.overloads.minimal(productions.iter());
+                        if minimal.len() < productions.len() {
+                            let preferred = constraints
+                                .iter()
+                                .zip(overloads)
+                                .filter_map(|(constraint, production)| {
+                                    minimal.contains(&production).then_some(constraint.clone())
+                                })
+                                .collect::<Vec<_>>();
+                            self.packed_overload_preferences.push(or_all(&preferred));
+                        }
+                    }
+                    let constraint = or_all(&constraints);
+                    let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                    Ok((constraint, node))
                 }
-                let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
-                    .iter()
-                    .map(|alternative| {
-                        self.constraint_packed_node(alternative, expected, cast_context, memo)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .unzip();
-                let overloads = alternatives
-                    .iter()
-                    .map(|alternative| {
-                        let lhs = self.grammar.packed_function_lhs(alternative)?;
-                        let PackedNode::Production { production, .. } = &lhs.node else {
-                            return None;
+                PackedNode::Term(leaf) => {
+                    let constraint = match (inferred_variable_name(leaf), leaf.unannotated()) {
+                        (Some(name), _) => {
+                            let variable = self.packed_term_variable(leaf, name, identity);
+                            self.variable_constraint(variable, name, expected, cast_context)
+                        }
+                        (None, Term::Token { sort, .. }) => {
+                            self.token_constraint(leaf, sort, expected, cast_context)
+                        }
+                        (None, _) => Err(z3_error(
+                            "unexpected lowered KAST node in the packed parse forest",
+                        )),
+                    }?;
+                    let node = self.liveness.leaf(constraint.clone(), leaf);
+                    Ok((constraint, node))
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.grammar.productions[*production];
+                    let parameters = self.packed_production_parameters(
+                        *production,
+                        descriptor,
+                        metadata,
+                        identity,
+                    );
+                    let actual_sort = production_result(descriptor);
+                    let actual = self.sort_value(actual_sort, &parameters)?;
+                    let mut constraints = Vec::new();
+                    if let Some(instantiation) =
+                        self.instantiation_constraint(descriptor, &parameters)?
+                    {
+                        constraints.push(instantiation);
+                    }
+                    if cast_context != CastContext::Parser
+                        && is_real_sort(actual_sort, parameters.keys())
+                    {
+                        let strict = cast_context == CastContext::Strict
+                            || descriptor
+                                .parametric_origin
+                                .as_ref()
+                                .is_some_and(|origin| origin.parameters.contains(&origin.result));
+                        let constraint = if strict {
+                            actual.eq(expected)
+                        } else {
+                            self.less_than_eq(&actual, expected)?
                         };
-                        self.grammar.productions[*production].source_production
-                    })
-                    .collect::<Option<Vec<_>>>();
-                if let Some(overloads) = overloads
-                    && !self.incremental
-                {
-                    let productions = overloads.iter().copied().collect::<BTreeSet<_>>();
-                    let minimal = self.grammar.overloads.minimal(productions.iter());
-                    if minimal.len() < productions.len() {
-                        let preferred = constraints
-                            .iter()
-                            .zip(overloads)
-                            .filter_map(|(constraint, production)| {
-                                minimal.contains(&production).then_some(constraint.clone())
-                            })
-                            .collect::<Vec<_>>();
-                        self.packed_overload_preferences.push(or_all(&preferred));
+                        if self.incremental {
+                            self.record_replay(
+                                &constraint,
+                                ReplaySubject::Term {
+                                    actual: Some(actual.clone()),
+                                    undeclared: None,
+                                    production: production_text(descriptor),
+                                },
+                                expected,
+                            );
+                        }
+                        constraints.push(constraint);
                     }
-                }
-                let constraint = or_all(&constraints);
-                let node = self.liveness.ambiguity(constraint.clone(), &nodes);
-                Ok((constraint, node))
-            }
-            PackedNode::Term(leaf) => {
-                let constraint = match (inferred_variable_name(leaf), leaf.unannotated()) {
-                    (Some(name), _) => {
-                        let variable = self.packed_term_variable(leaf, name, identity);
-                        self.variable_constraint(variable, name, expected, cast_context)
+                    let expected_children = production_nonterminals(descriptor);
+                    let mut nodes = Vec::with_capacity(children.len());
+                    if expected_children.len() != children.len() {
+                        return Err(z3_error(format!(
+                            "production {:?} has {} nonterminals but its packed node has {} children",
+                            descriptor.parse_label,
+                            expected_children.len(),
+                            children.len()
+                        )));
                     }
-                    (None, Term::Token { sort, .. }) => {
-                        self.token_constraint(leaf, sort, expected, cast_context)
-                    }
-                    (None, _) => Err(z3_error(
-                        "unexpected lowered KAST node in the packed parse forest",
-                    )),
-                }?;
-                let node = self.liveness.leaf(constraint.clone(), leaf);
-                Ok((constraint, node))
-            }
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.grammar.productions[*production];
-                let parameters =
-                    self.packed_production_parameters(*production, descriptor, metadata, identity);
-                let actual_sort = production_result(descriptor);
-                let actual = self.sort_value(actual_sort, &parameters)?;
-                let mut constraints = Vec::new();
-                if let Some(instantiation) =
-                    self.instantiation_constraint(descriptor, &parameters)?
-                {
-                    constraints.push(instantiation);
-                }
-                if cast_context != CastContext::Parser
-                    && is_real_sort(actual_sort, parameters.keys())
-                {
-                    let strict = cast_context == CastContext::Strict
-                        || descriptor
+                    for (index, (child, child_sort)) in
+                        children.iter().zip(expected_children).enumerate()
+                    {
+                        let function_lhs = (index == 0 && is_top_sort_production(descriptor))
+                            .then(|| self.grammar.packed_body_function_lhs(child, self.anywhere))
+                            .flatten();
+                        let child_expected = if let Some(lhs) = function_lhs {
+                            self.actual_packed_sort(lhs)?
+                        } else if self.anywhere
+                            && self.top_rewrite_ids.contains(&identity)
+                            && descriptor
+                                .label
+                                .as_ref()
+                                .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                            && index == 1
+                            && children.len() == 2
+                        {
+                            self.actual_packed_sort(&children[0])?
+                        } else if is_cast(descriptor) {
+                            self.sort_value(production_result(descriptor), &parameters)?
+                        } else {
+                            self.sort_value(child_sort, &parameters)?
+                        };
+                        let formal_child = descriptor
                             .parametric_origin
                             .as_ref()
-                            .is_some_and(|origin| origin.parameters.contains(&origin.result));
-                    let constraint = if strict {
-                        actual.eq(expected)
-                    } else {
-                        self.less_than_eq(&actual, expected)?
-                    };
-                    if self.incremental {
-                        self.record_replay(
-                            &constraint,
-                            ReplaySubject::Term {
-                                actual: Some(actual.clone()),
-                                undeclared: None,
-                                production: production_text(descriptor),
-                            },
-                            expected,
-                        );
+                            .is_some_and(|origin| origin.parameters.contains(child_sort));
+                        let child_context = match cast_context_for(descriptor) {
+                            CastContext::None if function_lhs.is_some() => CastContext::None,
+                            CastContext::None
+                                if !formal_child && !child_sort.in_inference_domain() =>
+                            {
+                                CastContext::Parser
+                            }
+                            context => context,
+                        };
+                        let (constraint, node) = self.constraint_packed_node(
+                            child,
+                            &child_expected,
+                            child_context,
+                            memo,
+                        )?;
+                        constraints.push(constraint);
+                        nodes.push(node);
                     }
-                    constraints.push(constraint);
+                    let constraint = and_all(&constraints);
+                    let node = self.liveness.production(
+                        constraint.clone(),
+                        &nodes,
+                        *production,
+                        descriptor,
+                        metadata.span.as_ref(),
+                    );
+                    Ok((constraint, node))
                 }
-                let expected_children = production_nonterminals(descriptor);
-                let mut nodes = Vec::with_capacity(children.len());
-                if expected_children.len() != children.len() {
-                    return Err(z3_error(format!(
-                        "production {:?} has {} nonterminals but its packed node has {} children",
-                        descriptor.parse_label,
-                        expected_children.len(),
-                        children.len()
-                    )));
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("constraints are generated before model application")
                 }
-                for (index, (child, child_sort)) in
-                    children.iter().zip(expected_children).enumerate()
-                {
-                    let function_lhs = (index == 0 && is_top_sort_production(descriptor))
-                        .then(|| self.grammar.packed_body_function_lhs(child, self.anywhere))
-                        .flatten();
-                    let child_expected = if let Some(lhs) = function_lhs {
-                        self.actual_packed_sort(lhs)?
-                    } else if self.anywhere
-                        && self.top_rewrite_ids.contains(&identity)
-                        && descriptor
-                            .label
-                            .as_ref()
-                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                        && index == 1
-                        && children.len() == 2
-                    {
-                        self.actual_packed_sort(&children[0])?
-                    } else if is_cast(descriptor) {
-                        self.sort_value(production_result(descriptor), &parameters)?
-                    } else {
-                        self.sort_value(child_sort, &parameters)?
-                    };
-                    let formal_child = descriptor
-                        .parametric_origin
-                        .as_ref()
-                        .is_some_and(|origin| origin.parameters.contains(child_sort));
-                    let child_context = match cast_context_for(descriptor) {
-                        CastContext::None if function_lhs.is_some() => CastContext::None,
-                        CastContext::None if !formal_child && !child_sort.in_inference_domain() => {
-                            CastContext::Parser
-                        }
-                        context => context,
-                    };
-                    let (constraint, node) =
-                        self.constraint_packed_node(child, &child_expected, child_context, memo)?;
-                    constraints.push(constraint);
-                    nodes.push(node);
-                }
-                let constraint = and_all(&constraints);
-                let node = self.liveness.production(
-                    constraint.clone(),
-                    &nodes,
-                    *production,
-                    descriptor,
-                    metadata.span.as_ref(),
-                );
-                Ok((constraint, node))
-            }
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("constraints are generated before model application")
-            }
-        })();
-        memo.insert(key, (Rc::clone(term), result.clone()));
-        result
+            })();
+            memo.insert(key, (Rc::clone(term), result.clone()));
+            result
+        })
     }
 
     fn actual_packed_sort(&mut self, term: &Rc<PackedTerm>) -> Result<Datatype, ParseError> {
@@ -3006,213 +3027,218 @@ impl<'a> Encoding<'a> {
         model: &BTreeMap<String, Sort>,
         memo: &mut PackedModelMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        let identity = Rc::as_ptr(&term);
-        let key = (identity, expected.clone(), cast_context);
-        if let Some((_, result)) = memo.get(&key) {
-            return result.clone();
-        }
-        let result = (|| match &term.node {
-            PackedNode::Ambiguity(alternatives) => {
-                let mut retained = BTreeSet::new();
-                let mut errors = Vec::new();
-                for alternative in packed_terms_in_structural_order(alternatives) {
-                    match self.apply_model_packed(
-                        Rc::clone(&alternative),
-                        expected,
-                        cast_context,
-                        model,
-                        memo,
-                    ) {
-                        Ok(alternative) => match &alternative.node {
-                            PackedNode::Ambiguity(nested) => {
-                                retained.extend(nested.iter().cloned());
-                            }
-                            _ => {
-                                retained.insert(alternative);
-                            }
-                        },
-                        Err(error) => errors.push((alternative, error)),
-                    }
-                }
-                if retained.is_empty() {
-                    Err(errors
-                        .into_iter()
-                        .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
-                        .map(|(_, error)| error)
-                        .unwrap_or_else(|| z3_error("all ambiguity alternatives were ill-sorted")))
-                } else {
-                    Ok(PackedTerm::ambiguity(retained))
-                }
+        crate::stack::guarded(|| {
+            let identity = Rc::as_ptr(&term);
+            let key = (identity, expected.clone(), cast_context);
+            if let Some((_, result)) = memo.get(&key) {
+                return result.clone();
             }
-            PackedNode::Term(leaf) if inferred_variable_name(leaf).is_some() => {
-                let Some(name) = inferred_variable_name(leaf) else {
-                    unreachable!()
-                };
-                let key = packed_inference_variable_key(leaf, name, self.packed_id(identity));
-                let inferred = model
-                    .get(&key)
-                    .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
-                self.check_sort(inferred, expected, cast_context)?;
-                // A semantic cast bounds the variable from above; it records the variable's sort
-                // only when the model chose the bound itself. Otherwise the variable carries the
-                // model's sort under the cast, so every occurrence agrees on it.
-                if cast_context == CastContext::Semantic && inferred == expected {
-                    Ok(Rc::clone(&term))
-                } else if cast_context == CastContext::Semantic
-                    && let Some(variable) = super::variable_with_inferred_sort(leaf, inferred)
-                {
-                    Ok(PackedTerm::leaf(variable))
-                } else {
-                    self.wrap_with_packed_cast(Rc::clone(&term), inferred)
-                }
-            }
-            PackedNode::Term(leaf) if matches!(leaf.unannotated(), Term::Token { .. }) => {
-                let Term::Token { sort, .. } = leaf.unannotated() else {
-                    unreachable!()
-                };
-                self.check_sort(sort, expected, cast_context)?;
-                Ok(Rc::clone(&term))
-            }
-            PackedNode::Term(_) => Err(z3_error(
-                "unexpected lowered KAST node during packed Z3 model substitution",
-            )),
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.grammar.productions[*production];
-                let parameter_values = descriptor
-                    .parametric_origin
-                    .as_ref()
-                    .map(|origin| {
-                        origin
-                            .parameters
-                            .iter()
-                            .enumerate()
-                            .map(|(index, parameter)| {
-                                let name = packed_inference_parameter_key(
-                                    *production,
-                                    metadata,
-                                    self.packed_id(identity),
-                                    index,
-                                );
-                                model
-                                    .get(&name)
-                                    .cloned()
-                                    .map(|value| (parameter.clone(), value))
-                                    .ok_or_else(|| {
-                                        z3_error(format!(
-                                            "Z3 omitted production parameter {parameter}"
-                                        ))
-                                    })
-                            })
-                            .collect::<Result<BTreeMap<_, _>, _>>()
-                    })
-                    .transpose()?
-                    .unwrap_or_default();
-                let actual = substitute_sort(production_result(descriptor), &parameter_values);
-                if actual.in_inference_domain() {
-                    self.check_sort(&actual, expected, cast_context)?;
-                }
-                let expected_children = production_nonterminals(descriptor);
-                let anywhere_lhs_sort = (self.anywhere
-                    && self.top_rewrite_ids.contains(&identity)
-                    && descriptor
-                        .label
-                        .as_ref()
-                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                    && children.len() == 2)
-                    .then(|| self.declared_packed_model_sort(&children[0], model));
-                let function_body_sort = is_top_sort_production(descriptor)
-                    .then(|| {
-                        children.first().and_then(|child| {
-                            self.grammar
-                                .packed_body_function_lhs(child, self.anywhere)
-                                .map(|lhs| self.declared_packed_model_sort(lhs, model))
-                        })
-                    })
-                    .flatten();
-                let transformed_children = children
-                    .iter()
-                    .zip(expected_children)
-                    .enumerate()
-                    .map(|(index, (child, child_sort))| {
-                        let child_expected = if index == 0
-                            && let Some(function_sort) = &function_body_sort
-                        {
-                            function_sort.clone()
-                        } else if index == 1
-                            && let Some(lhs_sort) = &anywhere_lhs_sort
-                        {
-                            lhs_sort.clone()
-                        } else if is_cast(descriptor) {
-                            actual.clone()
-                        } else {
-                            substitute_sort(child_sort, &parameter_values)
-                        };
-                        let formal_child = descriptor
-                            .parametric_origin
-                            .as_ref()
-                            .is_some_and(|origin| origin.parameters.contains(child_sort));
-                        let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if index == 0 && function_body_sort.is_some() => {
-                                CastContext::None
-                            }
-                            CastContext::None
-                                if !formal_child && !child_sort.in_inference_domain() =>
-                            {
-                                CastContext::Parser
-                            }
-                            context => context,
-                        };
-                        self.apply_model_packed(
-                            Rc::clone(child),
-                            &child_expected,
-                            child_context,
+            let result = (|| match &term.node {
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut retained = BTreeSet::new();
+                    let mut errors = Vec::new();
+                    for alternative in packed_terms_in_structural_order(alternatives) {
+                        match self.apply_model_packed(
+                            Rc::clone(&alternative),
+                            expected,
+                            cast_context,
                             model,
                             memo,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let inferred_parameters = descriptor
-                    .parametric_origin
-                    .as_ref()
-                    .map(|origin| {
-                        origin
-                            .parameters
-                            .iter()
-                            .map(|parameter| {
-                                parameter_values
-                                    .get(parameter)
-                                    .cloned()
-                                    .expect("every formal parameter has a model value")
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let transformed = if descriptor.parametric_origin.is_some() {
-                    PackedTerm::instantiated_production(
-                        *production,
-                        inferred_parameters,
-                        transformed_children,
-                        metadata.clone(),
-                    )
-                } else {
-                    PackedTerm::production(*production, transformed_children, metadata.clone())
-                };
-                if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic {
-                    self.wrap_with_packed_cast(transformed, &actual)
-                } else {
-                    Ok(transformed)
+                        ) {
+                            Ok(alternative) => match &alternative.node {
+                                PackedNode::Ambiguity(nested) => {
+                                    retained.extend(nested.iter().cloned());
+                                }
+                                _ => {
+                                    retained.insert(alternative);
+                                }
+                            },
+                            Err(error) => errors.push((alternative, error)),
+                        }
+                    }
+                    if retained.is_empty() {
+                        Err(errors
+                            .into_iter()
+                            .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
+                            .map(|(_, error)| error)
+                            .unwrap_or_else(|| {
+                                z3_error("all ambiguity alternatives were ill-sorted")
+                            }))
+                    } else {
+                        Ok(PackedTerm::ambiguity(retained))
+                    }
                 }
-            }
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("a model is applied only once")
-            }
-        })();
-        memo.insert(key, (term, result.clone()));
-        result
+                PackedNode::Term(leaf) if inferred_variable_name(leaf).is_some() => {
+                    let Some(name) = inferred_variable_name(leaf) else {
+                        unreachable!()
+                    };
+                    let key = packed_inference_variable_key(leaf, name, self.packed_id(identity));
+                    let inferred = model.get(&key).ok_or_else(|| {
+                        z3_error(format!("Z3 omitted a sort for variable {name}"))
+                    })?;
+                    self.check_sort(inferred, expected, cast_context)?;
+                    // A semantic cast bounds the variable from above; it records the variable's sort
+                    // only when the model chose the bound itself. Otherwise the variable carries the
+                    // model's sort under the cast, so every occurrence agrees on it.
+                    if cast_context == CastContext::Semantic && inferred == expected {
+                        Ok(Rc::clone(&term))
+                    } else if cast_context == CastContext::Semantic
+                        && let Some(variable) = super::variable_with_inferred_sort(leaf, inferred)
+                    {
+                        Ok(PackedTerm::leaf(variable))
+                    } else {
+                        self.wrap_with_packed_cast(Rc::clone(&term), inferred)
+                    }
+                }
+                PackedNode::Term(leaf) if matches!(leaf.unannotated(), Term::Token { .. }) => {
+                    let Term::Token { sort, .. } = leaf.unannotated() else {
+                        unreachable!()
+                    };
+                    self.check_sort(sort, expected, cast_context)?;
+                    Ok(Rc::clone(&term))
+                }
+                PackedNode::Term(_) => Err(z3_error(
+                    "unexpected lowered KAST node during packed Z3 model substitution",
+                )),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.grammar.productions[*production];
+                    let parameter_values = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .map(|origin| {
+                            origin
+                                .parameters
+                                .iter()
+                                .enumerate()
+                                .map(|(index, parameter)| {
+                                    let name = packed_inference_parameter_key(
+                                        *production,
+                                        metadata,
+                                        self.packed_id(identity),
+                                        index,
+                                    );
+                                    model
+                                        .get(&name)
+                                        .cloned()
+                                        .map(|value| (parameter.clone(), value))
+                                        .ok_or_else(|| {
+                                            z3_error(format!(
+                                                "Z3 omitted production parameter {parameter}"
+                                            ))
+                                        })
+                                })
+                                .collect::<Result<BTreeMap<_, _>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    let actual = substitute_sort(production_result(descriptor), &parameter_values);
+                    if actual.in_inference_domain() {
+                        self.check_sort(&actual, expected, cast_context)?;
+                    }
+                    let expected_children = production_nonterminals(descriptor);
+                    let anywhere_lhs_sort = (self.anywhere
+                        && self.top_rewrite_ids.contains(&identity)
+                        && descriptor
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                        && children.len() == 2)
+                        .then(|| self.declared_packed_model_sort(&children[0], model));
+                    let function_body_sort = is_top_sort_production(descriptor)
+                        .then(|| {
+                            children.first().and_then(|child| {
+                                self.grammar
+                                    .packed_body_function_lhs(child, self.anywhere)
+                                    .map(|lhs| self.declared_packed_model_sort(lhs, model))
+                            })
+                        })
+                        .flatten();
+                    let transformed_children = children
+                        .iter()
+                        .zip(expected_children)
+                        .enumerate()
+                        .map(|(index, (child, child_sort))| {
+                            let child_expected = if index == 0
+                                && let Some(function_sort) = &function_body_sort
+                            {
+                                function_sort.clone()
+                            } else if index == 1
+                                && let Some(lhs_sort) = &anywhere_lhs_sort
+                            {
+                                lhs_sort.clone()
+                            } else if is_cast(descriptor) {
+                                actual.clone()
+                            } else {
+                                substitute_sort(child_sort, &parameter_values)
+                            };
+                            let formal_child = descriptor
+                                .parametric_origin
+                                .as_ref()
+                                .is_some_and(|origin| origin.parameters.contains(child_sort));
+                            let child_context = match cast_context_for(descriptor) {
+                                CastContext::None if index == 0 && function_body_sort.is_some() => {
+                                    CastContext::None
+                                }
+                                CastContext::None
+                                    if !formal_child && !child_sort.in_inference_domain() =>
+                                {
+                                    CastContext::Parser
+                                }
+                                context => context,
+                            };
+                            self.apply_model_packed(
+                                Rc::clone(child),
+                                &child_expected,
+                                child_context,
+                                model,
+                                memo,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let inferred_parameters = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .map(|origin| {
+                            origin
+                                .parameters
+                                .iter()
+                                .map(|parameter| {
+                                    parameter_values
+                                        .get(parameter)
+                                        .cloned()
+                                        .expect("every formal parameter has a model value")
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let transformed = if descriptor.parametric_origin.is_some() {
+                        PackedTerm::instantiated_production(
+                            *production,
+                            inferred_parameters,
+                            transformed_children,
+                            metadata.clone(),
+                        )
+                    } else {
+                        PackedTerm::production(*production, transformed_children, metadata.clone())
+                    };
+                    if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic
+                    {
+                        self.wrap_with_packed_cast(transformed, &actual)
+                    } else {
+                        Ok(transformed)
+                    }
+                }
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("a model is applied only once")
+                }
+            })();
+            memo.insert(key, (term, result.clone()));
+            result
+        })
     }
 
     fn declared_packed_model_sort(
@@ -3309,208 +3335,220 @@ impl<'a> Encoding<'a> {
         path: &str,
         model: &BTreeMap<String, Sort>,
     ) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Ambiguity(alternatives) => {
-                let mut retained = BTreeSet::new();
-                let mut first_error = None;
-                for (index, alternative) in alternatives.into_iter().enumerate() {
-                    match self.apply_model(
-                        alternative,
-                        expected,
-                        cast_context,
-                        &format!("{path}_a{index}"),
-                        model,
-                    ) {
-                        Ok(alternative) => {
-                            retained.insert(alternative);
+        crate::stack::guarded(|| {
+            match term.into_parts() {
+                ParsedParts::Ambiguity(alternatives) => {
+                    let mut retained = BTreeSet::new();
+                    let mut first_error = None;
+                    for (index, alternative) in alternatives.into_iter().enumerate() {
+                        match self.apply_model(
+                            alternative,
+                            expected,
+                            cast_context,
+                            &format!("{path}_a{index}"),
+                            model,
+                        ) {
+                            Ok(alternative) => {
+                                retained.insert(alternative);
+                            }
+                            Err(error) => {
+                                first_error.get_or_insert(error);
+                            }
                         }
-                        Err(error) => {
-                            first_error.get_or_insert(error);
+                    }
+                    match retained.len() {
+                        0 => Err(first_error.unwrap_or_else(|| {
+                            z3_error("all ambiguity alternatives were ill-sorted")
+                        })),
+                        1 => Ok(retained.pop_first().expect("length was one")),
+                        _ => Ok(ParsedTerm::Ambiguity(retained)),
+                    }
+                }
+                ParsedParts::Term(leaf) if inferred_variable_name(&leaf).is_some() => {
+                    let term = ParsedTerm::Term(leaf);
+                    let ParsedTerm::Term(leaf) = &term else {
+                        unreachable!("built above")
+                    };
+                    let Some(name) = inferred_variable_name(leaf) else {
+                        unreachable!()
+                    };
+                    let key = inference_variable_key(leaf, name, path);
+                    let inferred = model.get(&key).ok_or_else(|| {
+                        z3_error(format!("Z3 omitted a sort for variable {name}"))
+                    })?;
+                    self.check_sort(inferred, expected, cast_context)?;
+                    // As in the packed read-back: under a semantic cast the variable carries the
+                    // model's sort itself unless the model chose the bound.
+                    if cast_context == CastContext::Semantic {
+                        if inferred == expected {
+                            return Ok(term);
+                        }
+                        if let Some(variable) = super::variable_with_inferred_sort(leaf, inferred) {
+                            return Ok(ParsedTerm::Term(variable));
                         }
                     }
+                    self.wrap_with_cast(term, inferred)
                 }
-                match retained.len() {
-                    0 => Err(first_error
-                        .unwrap_or_else(|| z3_error("all ambiguity alternatives were ill-sorted"))),
-                    1 => Ok(retained.pop_first().expect("length was one")),
-                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                ParsedParts::Term(leaf) if matches!(leaf.unannotated(), Term::Token { .. }) => {
+                    let term = ParsedTerm::Term(leaf);
+                    let ParsedTerm::Term(leaf) = &term else {
+                        unreachable!("built above")
+                    };
+                    let Term::Token { sort, .. } = leaf.unannotated() else {
+                        unreachable!()
+                    };
+                    self.check_sort(sort, expected, cast_context)?;
+                    Ok(term)
                 }
-            }
-            ParsedTerm::Term(ref leaf) if inferred_variable_name(leaf).is_some() => {
-                let Some(name) = inferred_variable_name(leaf) else {
-                    unreachable!()
-                };
-                let key = inference_variable_key(leaf, name, path);
-                let inferred = model
-                    .get(&key)
-                    .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
-                self.check_sort(inferred, expected, cast_context)?;
-                // As in the packed read-back: under a semantic cast the variable carries the
-                // model's sort itself unless the model chose the bound.
-                if cast_context == CastContext::Semantic {
-                    if inferred == expected {
-                        return Ok(term);
+                ParsedParts::Term(_) => Err(z3_error(
+                    "unexpected lowered KAST node during Z3 model substitution",
+                )),
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let descriptor = &self.grammar.productions[production];
+                    let parameter_values = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .map(|origin| {
+                            origin
+                                .parameters
+                                .iter()
+                                .enumerate()
+                                .map(|(index, parameter)| {
+                                    let name =
+                                        inference_parameter_key(production, &metadata, path, index);
+                                    model
+                                        .get(&name)
+                                        .cloned()
+                                        .map(|value| (parameter.clone(), value))
+                                        .ok_or_else(|| {
+                                            z3_error(format!(
+                                                "Z3 omitted production parameter {parameter}"
+                                            ))
+                                        })
+                                })
+                                .collect::<Result<BTreeMap<_, _>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    let actual = substitute_sort(production_result(descriptor), &parameter_values);
+                    if actual.in_inference_domain() {
+                        self.check_sort(&actual, expected, cast_context)?;
                     }
-                    if let Some(variable) = super::variable_with_inferred_sort(leaf, inferred) {
-                        return Ok(ParsedTerm::Term(variable));
-                    }
-                }
-                self.wrap_with_cast(term, inferred)
-            }
-            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Token { .. }) => {
-                let Term::Token { sort, .. } = leaf.unannotated() else {
-                    unreachable!()
-                };
-                self.check_sort(sort, expected, cast_context)?;
-                Ok(term)
-            }
-            ParsedTerm::Term(_) => Err(z3_error(
-                "unexpected lowered KAST node during Z3 model substitution",
-            )),
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.grammar.productions[production];
-                let parameter_values = descriptor
-                    .parametric_origin
-                    .as_ref()
-                    .map(|origin| {
-                        origin
-                            .parameters
-                            .iter()
-                            .enumerate()
-                            .map(|(index, parameter)| {
-                                let name =
-                                    inference_parameter_key(production, &metadata, path, index);
-                                model
-                                    .get(&name)
-                                    .cloned()
-                                    .map(|value| (parameter.clone(), value))
-                                    .ok_or_else(|| {
-                                        z3_error(format!(
-                                            "Z3 omitted production parameter {parameter}"
-                                        ))
+                    let expected_children = production_nonterminals(descriptor);
+                    let anywhere_lhs_sort = (self.anywhere
+                        && self.top_rewrite_paths.contains(path)
+                        && descriptor
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
+                        && children.len() == 2)
+                        .then(|| {
+                            declared_model_sort(
+                                self.grammar,
+                                &children[0],
+                                model,
+                                &format!("{path}_c0"),
+                            )
+                        });
+                    let function_body_sort = is_top_sort_production(descriptor)
+                        .then(|| {
+                            children.first().and_then(|child| {
+                                self.grammar
+                                    .body_function_lhs(child, &format!("{path}_c0"), self.anywhere)
+                                    .map(|(lhs, lhs_path)| {
+                                        declared_model_sort(self.grammar, lhs, model, &lhs_path)
                                     })
                             })
-                            .collect::<Result<BTreeMap<_, _>, _>>()
-                    })
-                    .transpose()?
-                    .unwrap_or_default();
-                let actual = substitute_sort(production_result(descriptor), &parameter_values);
-                if actual.in_inference_domain() {
-                    self.check_sort(&actual, expected, cast_context)?;
-                }
-                let expected_children = production_nonterminals(descriptor);
-                let anywhere_lhs_sort = (self.anywhere
-                    && self.top_rewrite_paths.contains(path)
-                    && descriptor
-                        .label
-                        .as_ref()
-                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
-                    && children.len() == 2)
-                    .then(|| {
-                        declared_model_sort(
-                            self.grammar,
-                            &children[0],
-                            model,
-                            &format!("{path}_c0"),
-                        )
-                    });
-                let function_body_sort = is_top_sort_production(descriptor)
-                    .then(|| {
-                        children.first().and_then(|child| {
-                            self.grammar
-                                .body_function_lhs(child, &format!("{path}_c0"), self.anywhere)
-                                .map(|(lhs, lhs_path)| {
-                                    declared_model_sort(self.grammar, lhs, model, &lhs_path)
-                                })
                         })
-                    })
-                    .flatten();
-                let children = children
-                    .into_iter()
-                    .zip(expected_children)
-                    .enumerate()
-                    .map(|(index, (child, child_sort))| {
-                        let child_expected = if index == 0
-                            && let Some(function_sort) = &function_body_sort
-                        {
-                            function_sort.clone()
-                        } else if index == 1
-                            && let Some(lhs_sort) = &anywhere_lhs_sort
-                        {
-                            lhs_sort.clone()
-                        } else if is_cast(descriptor) {
-                            actual.clone()
-                        } else {
-                            substitute_sort(child_sort, &parameter_values)
-                        };
-                        let formal_child = descriptor
-                            .parametric_origin
-                            .as_ref()
-                            .is_some_and(|origin| origin.parameters.contains(child_sort));
-                        let child_context = match cast_context_for(descriptor) {
-                            CastContext::None if index == 0 && function_body_sort.is_some() => {
-                                CastContext::None
-                            }
-                            CastContext::None
-                                if !formal_child && !child_sort.in_inference_domain() =>
+                        .flatten();
+                    let children = children
+                        .into_iter()
+                        .zip(expected_children)
+                        .enumerate()
+                        .map(|(index, (child, child_sort))| {
+                            let child_expected = if index == 0
+                                && let Some(function_sort) = &function_body_sort
                             {
-                                CastContext::Parser
-                            }
-                            context => context,
-                        };
-                        self.apply_model(
-                            child,
-                            &child_expected,
-                            child_context,
-                            &format!("{path}_c{index}"),
-                            model,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let inferred_parameters = descriptor
-                    .parametric_origin
-                    .as_ref()
-                    .map(|origin| {
-                        origin
-                            .parameters
-                            .iter()
-                            .map(|parameter| {
-                                parameter_values
-                                    .get(parameter)
-                                    .cloned()
-                                    .expect("every formal parameter has a model value")
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let result = if descriptor.parametric_origin.is_some() {
-                    ParsedTerm::InstantiatedProduction {
-                        production,
-                        parameters: inferred_parameters,
-                        children,
-                        metadata,
+                                function_sort.clone()
+                            } else if index == 1
+                                && let Some(lhs_sort) = &anywhere_lhs_sort
+                            {
+                                lhs_sort.clone()
+                            } else if is_cast(descriptor) {
+                                actual.clone()
+                            } else {
+                                substitute_sort(child_sort, &parameter_values)
+                            };
+                            let formal_child = descriptor
+                                .parametric_origin
+                                .as_ref()
+                                .is_some_and(|origin| origin.parameters.contains(child_sort));
+                            let child_context = match cast_context_for(descriptor) {
+                                CastContext::None if index == 0 && function_body_sort.is_some() => {
+                                    CastContext::None
+                                }
+                                CastContext::None
+                                    if !formal_child && !child_sort.in_inference_domain() =>
+                                {
+                                    CastContext::Parser
+                                }
+                                context => context,
+                            };
+                            self.apply_model(
+                                child,
+                                &child_expected,
+                                child_context,
+                                &format!("{path}_c{index}"),
+                                model,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let inferred_parameters = descriptor
+                        .parametric_origin
+                        .as_ref()
+                        .map(|origin| {
+                            origin
+                                .parameters
+                                .iter()
+                                .map(|parameter| {
+                                    parameter_values
+                                        .get(parameter)
+                                        .cloned()
+                                        .expect("every formal parameter has a model value")
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let result = if descriptor.parametric_origin.is_some() {
+                        ParsedTerm::InstantiatedProduction {
+                            production,
+                            parameters: inferred_parameters,
+                            children,
+                            metadata,
+                        }
+                    } else {
+                        ParsedTerm::Production {
+                            production,
+                            children,
+                            metadata,
+                        }
+                    };
+                    if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic
+                    {
+                        self.wrap_with_cast(result, &actual)
+                    } else {
+                        Ok(result)
                     }
-                } else {
-                    ParsedTerm::Production {
-                        production,
-                        children,
-                        metadata,
-                    }
-                };
-                if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic {
-                    self.wrap_with_cast(result, &actual)
-                } else {
-                    Ok(result)
+                }
+                ParsedParts::InstantiatedProduction { .. } => {
+                    unreachable!("a model is applied only once")
                 }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("a model is applied only once")
-            }
-        }
+        })
     }
 
     fn check_sort(
@@ -3751,7 +3789,7 @@ fn collect_term_sorts(
     heads: &mut BTreeSet<SortHead>,
     ground: &mut BTreeSet<Sort>,
 ) {
-    match term {
+    crate::stack::guarded(|| match term {
         ParsedTerm::Term(term) => {
             if let Term::Token { sort, .. } = term.unannotated() {
                 collect_sort(sort, heads, ground);
@@ -3768,7 +3806,7 @@ fn collect_term_sorts(
                 collect_term_sorts(alternative, heads, ground);
             }
         }
-    }
+    })
 }
 
 fn collect_packed_term_sorts(
@@ -3807,28 +3845,30 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
     // Invariant: `ids` assigns one stable preorder number to every visited identity; recursion
     // only descends into an identity absent from the map.
     fn visit(term: &Rc<PackedTerm>, ids: &mut HashMap<*const PackedTerm, usize>, next: &mut usize) {
-        let identity = Rc::as_ptr(term);
-        if ids.contains_key(&identity) {
-            return;
-        }
-        ids.insert(identity, *next);
-        *next += 1;
-        match &term.node {
-            PackedNode::Production { children, .. } => {
-                for child in children {
-                    visit(child, ids, next);
+        crate::stack::guarded(|| {
+            let identity = Rc::as_ptr(term);
+            if ids.contains_key(&identity) {
+                return;
+            }
+            ids.insert(identity, *next);
+            *next += 1;
+            match &term.node {
+                PackedNode::Production { children, .. } => {
+                    for child in children {
+                        visit(child, ids, next);
+                    }
+                }
+                PackedNode::Ambiguity(alternatives) => {
+                    for alternative in packed_terms_in_structural_order(alternatives) {
+                        visit(&alternative, ids, next);
+                    }
+                }
+                PackedNode::Term(_) => {}
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("packed identities are assigned before model application")
                 }
             }
-            PackedNode::Ambiguity(alternatives) => {
-                for alternative in packed_terms_in_structural_order(alternatives) {
-                    visit(&alternative, ids, next);
-                }
-            }
-            PackedNode::Term(_) => {}
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("packed identities are assigned before model application")
-            }
-        }
+        })
     }
 
     let mut ids = HashMap::new();
@@ -3840,7 +3880,7 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
 /// nodes, so identities are collected per branch while nested rewrites remain excluded.
 fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
     fn visit(grammar: &Grammar, term: &ParsedTerm, path: String, targets: &mut HashSet<String>) {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::Ambiguity(alternatives) => {
                 for (index, alternative) in alternatives.iter().enumerate() {
                     visit(grammar, alternative, format!("{path}_a{index}"), targets);
@@ -3873,7 +3913,7 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
                 }
             }
             ParsedTerm::Term(_) | ParsedTerm::InstantiatedProduction { .. } => {}
-        }
+        })
     }
     let mut targets = HashSet::new();
     visit(grammar, root, "root".to_owned(), &mut targets);
@@ -3882,7 +3922,7 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
 
 fn packed_top_rewrites(grammar: &Grammar, root: &Rc<PackedTerm>) -> HashSet<*const PackedTerm> {
     fn visit(grammar: &Grammar, term: &Rc<PackedTerm>, targets: &mut HashSet<*const PackedTerm>) {
-        match &term.node {
+        crate::stack::guarded(|| match &term.node {
             PackedNode::Ambiguity(alternatives) => {
                 for alternative in alternatives {
                     visit(grammar, alternative, targets);
@@ -3915,7 +3955,7 @@ fn packed_top_rewrites(grammar: &Grammar, root: &Rc<PackedTerm>) -> HashSet<*con
                 }
             }
             PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {}
-        }
+        })
     }
     let mut targets = HashSet::new();
     visit(grammar, root, &mut targets);
@@ -5763,7 +5803,7 @@ endmodule
         for packed in [true, false] {
             let candidate = infer_constructed_instance(false, packed)
                 .expect("the declared operand instance survives model application");
-            let ParsedTerm::Production { children, .. } = candidate else {
+            let ParsedParts::Production { children, .. } = candidate.into_parts() else {
                 panic!("the candidate retains its semantic cast");
             };
             assert!(matches!(

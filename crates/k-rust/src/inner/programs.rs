@@ -402,7 +402,7 @@ pub fn definition_with_named_projections(definition: &Definition) -> Definition 
 }
 
 fn without_source_spans(term: Term) -> Term {
-    match term.into_parts() {
+    crate::stack::guarded(|| match term.into_parts() {
         TermParts::Annotated { term, mut metadata } => {
             metadata.span = None;
             without_source_spans(*term).with_metadata(metadata)
@@ -425,7 +425,7 @@ fn without_source_spans(term: Term) -> Term {
         term @ (TermParts::InjectedLabel(_)
         | TermParts::Variable { .. }
         | TermParts::Token { .. }) => Term::from(term),
-    }
+    })
 }
 
 /// Parse one program using the concrete syntax visible from `module`.
@@ -601,54 +601,56 @@ fn strip_inferred_parameters(
     term: Term,
     parametric_productions: &BTreeSet<ProductionIdentity>,
 ) -> Term {
-    let metadata = term.metadata().cloned();
-    let inferred_production_parameters = metadata
-        .as_ref()
-        .and_then(|metadata| metadata.production)
-        .is_some_and(|production| parametric_productions.contains(&production));
-    let rebuilt = match term.into_unannotated().into_parts() {
-        TermParts::Apply {
-            mut label,
-            arguments,
-        } => {
-            if inferred_production_parameters {
-                label.parameters.clear();
+    crate::stack::guarded(|| {
+        let metadata = term.metadata().cloned();
+        let inferred_production_parameters = metadata
+            .as_ref()
+            .and_then(|metadata| metadata.production)
+            .is_some_and(|production| parametric_productions.contains(&production));
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Apply {
+                mut label,
+                arguments,
+            } => {
+                if inferred_production_parameters {
+                    label.parameters.clear();
+                }
+                Term::Apply {
+                    label,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|argument| strip_inferred_parameters(argument, parametric_productions))
+                        .collect(),
+                }
             }
-            Term::Apply {
-                label,
-                arguments: arguments
+            TermParts::InjectedLabel(mut label) => {
+                if inferred_production_parameters {
+                    label.parameters.clear();
+                }
+                Term::InjectedLabel(label)
+            }
+            TermParts::Rewrite { left, right } => Term::Rewrite {
+                left: Box::new(strip_inferred_parameters(*left, parametric_productions)),
+                right: Box::new(strip_inferred_parameters(*right, parametric_productions)),
+            },
+            TermParts::As { pattern, alias } => Term::As {
+                pattern: Box::new(strip_inferred_parameters(*pattern, parametric_productions)),
+                alias: Box::new(strip_inferred_parameters(*alias, parametric_productions)),
+            },
+            TermParts::Sequence(items) => Term::Sequence(
+                items
                     .into_iter()
-                    .map(|argument| strip_inferred_parameters(argument, parametric_productions))
+                    .map(|item| strip_inferred_parameters(item, parametric_productions))
                     .collect(),
-            }
+            ),
+            leaf @ (TermParts::Variable { .. } | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        };
+        match metadata {
+            Some(metadata) => rebuilt.with_metadata(metadata),
+            None => rebuilt,
         }
-        TermParts::InjectedLabel(mut label) => {
-            if inferred_production_parameters {
-                label.parameters.clear();
-            }
-            Term::InjectedLabel(label)
-        }
-        TermParts::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(strip_inferred_parameters(*left, parametric_productions)),
-            right: Box::new(strip_inferred_parameters(*right, parametric_productions)),
-        },
-        TermParts::As { pattern, alias } => Term::As {
-            pattern: Box::new(strip_inferred_parameters(*pattern, parametric_productions)),
-            alias: Box::new(strip_inferred_parameters(*alias, parametric_productions)),
-        },
-        TermParts::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| strip_inferred_parameters(item, parametric_productions))
-                .collect(),
-        ),
-        leaf @ (TermParts::Variable { .. } | TermParts::Token { .. }) => Term::from(leaf),
-        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
-    };
-    match metadata {
-        Some(metadata) => rebuilt.with_metadata(metadata),
-        None => rebuilt,
-    }
+    })
 }
 
 #[cfg(test)]
