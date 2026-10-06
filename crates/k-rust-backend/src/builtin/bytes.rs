@@ -6,8 +6,8 @@ use num_traits::{ToPrimitive, Zero};
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, TARGET_RESULT_BYTES, UnsupportedHookReason,
-    describe_int, expect_arity, int_term, read_int, result_size_limit,
+    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, UnsupportedHookReason, describe_int,
+    expect_arity, int_term, read_int, result_size_limit, target_bytes_result_len,
 };
 use crate::term::{Sort, Term, TermKind};
 
@@ -369,14 +369,14 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
 }
 
 /// A nonnegative `length` as the length of a result built from arguments of total size
-/// `arguments` bytes, or `ResultTooLarge` above [`bytes_length_limit`] on this target: the value
+/// `arguments` bytes, or `ResultTooLarge` above [`bytes_result_limit`] on this target: the value
 /// exists, and the backend does not build it.
 fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
     );
-    let limit = bytes_length_limit(arguments, TARGET_RESULT_BYTES);
+    let limit = bytes_result_limit(isize::MAX as u64, arguments);
     length
         .to_u64()
         .filter(|length| *length <= limit)
@@ -389,9 +389,16 @@ fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedH
         })
 }
 
+/// The longest `Bytes` result built from arguments of total size `arguments` bytes on a target
+/// whose largest allocation is `largest_allocation` bytes (`isize::MAX` on this one): at most
+/// [`target_bytes_result_len`] of it, which leaves room to render the result.
+const fn bytes_result_limit(largest_allocation: u64, arguments: u64) -> u64 {
+    bytes_length_limit(arguments, target_bytes_result_len(largest_allocation))
+}
+
 /// The longest `Bytes` result built from arguments of total size `arguments` bytes, on a target
-/// where one result may take at most `target` bytes ([`TARGET_RESULT_BYTES`]): their
-/// `result_size_limit` with the floor [`MAX_BYTES_RESULT_LEN`], and at most `target`.
+/// where one result may take at most `target` bytes: their `result_size_limit` with the floor
+/// [`MAX_BYTES_RESULT_LEN`], and at most `target`.
 const fn bytes_length_limit(arguments: u64, target: u64) -> u64 {
     let limit = result_size_limit(MAX_BYTES_RESULT_LEN, arguments);
     if limit < target { limit } else { target }
@@ -505,7 +512,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::builtin::target_result_bytes;
+    use crate::builtin::TARGET_BYTES_RESULT_LEN;
     use crate::term::{Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
@@ -745,26 +752,62 @@ mod tests {
     }
 
     /// On a 32-bit target, whose largest allocation is 2^31 - 1 bytes and whose whole memory is at
-    /// most 4 GiB, a `Bytes` result is at most a quarter of that allocation, 512 MiB, whatever its
-    /// arguments: the floor of 4 GiB would let a length past `isize::MAX` reach the allocator,
-    /// which panics. On a 64-bit target the floor and the relative term bind first.
+    /// most 4 GiB, a `Bytes` result is at most a sixteenth of that allocation, 128 MiB, whatever
+    /// its arguments: the floor of 4 GiB would let a length past `isize::MAX` reach the allocator,
+    /// which panics, and a longer value could not be rendered (see
+    /// `bytes_results_on_a_32_bit_target_can_be_rendered`). On a 64-bit target the floor and the
+    /// relative term bind first.
     #[test]
     fn bytes_lengths_are_bounded_by_what_the_target_can_allocate() {
-        let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
-        assert_eq!(thirty_two, 1 << 29);
-        assert_eq!(bytes_length_limit(3, thirty_two), 1 << 29);
-        assert_eq!(bytes_length_limit(1 << 30, thirty_two), 1 << 29);
-        let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
-        assert_eq!(sixty_four, 1 << 61);
-        assert_eq!(bytes_length_limit(3, sixty_four), MAX_BYTES_RESULT_LEN);
+        let thirty_two = u64::from(i32::MAX.unsigned_abs());
+        assert_eq!(bytes_result_limit(thirty_two, 3), 1 << 27);
+        assert_eq!(bytes_result_limit(thirty_two, 1 << 30), 1 << 27);
+        let sixty_four = i64::MAX.unsigned_abs();
+        assert_eq!(bytes_result_limit(sixty_four, 3), MAX_BYTES_RESULT_LEN);
         assert_eq!(
-            bytes_length_limit(MAX_BYTES_RESULT_LEN, sixty_four),
+            bytes_result_limit(sixty_four, MAX_BYTES_RESULT_LEN),
             2 * MAX_BYTES_RESULT_LEN
         );
         assert_eq!(
-            TARGET_RESULT_BYTES,
-            target_result_bytes(isize::MAX.unsigned_abs() as u64)
+            TARGET_BYTES_RESULT_LEN,
+            target_bytes_result_len(isize::MAX.unsigned_abs() as u64)
         );
+    }
+
+    /// A `Bytes` result admitted on a 32-bit target can be written out there: KORE text spends at
+    /// most four bytes on a byte (`\xhh`) and KORE JSON at most six (`\u00hh`), so the JSON of
+    /// the longest admitted value is one allocation below `isize::MAX`, and the about sixteen
+    /// bytes per byte that a library response holds at its peak stay within half of the address
+    /// space.
+    #[test]
+    fn bytes_results_on_a_32_bit_target_can_be_rendered() {
+        use k_rust_kore::kore::{
+            ast::{KoreString, Pattern, Sort as KoreSort},
+            json, string,
+        };
+        let sort = KoreSort::Application {
+            name: "SortBytes".into(),
+            arguments: Vec::new(),
+        };
+        let json_length = |value: Vec<u8>| {
+            json::to_string(&Pattern::DomainValue {
+                sort: sort.clone(),
+                value: KoreString::from(value),
+            })
+            .unwrap()
+            .len()
+        };
+        let empty = json_length(Vec::new());
+        for byte in 0..=u8::MAX {
+            assert!(string::quote(&KoreString::from(vec![byte])).len() <= 2 + 4);
+            assert!(json_length(vec![byte]) <= empty + 6, "{byte:#04x}");
+        }
+        let largest = u64::from(i32::MAX.unsigned_abs());
+        for arguments in [0, 3, 1 << 20, 1 << 30, u64::MAX] {
+            let length = bytes_result_limit(largest, arguments);
+            assert!(6 * length + 2 <= largest, "{arguments}: {length}");
+            assert!(16 * length <= largest + 1, "{arguments}: {length}");
+        }
     }
 
     #[test]

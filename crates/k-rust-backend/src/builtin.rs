@@ -763,7 +763,7 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// address space holds, so on a 64-bit host a semantics that models such a memory (a
 /// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
 /// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
-/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_RESULT_BYTES`].
+/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_BYTES_RESULT_LEN`].
 pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 
 /// The floor of the size bound on the length of a `makeList` result, in elements (see
@@ -772,21 +772,42 @@ pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 /// [`TARGET_RESULT_BYTES`] of references.
 pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
 
-/// The most memory, in bytes, that one `Bytes` or `List` result whose length an argument's value
-/// sets may take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB,
-/// on a 32-bit target, and 2^61 bytes on a 64-bit one, where the floors bind first.
+/// The most memory, in bytes, that one `List` result whose length an argument's value sets may
+/// take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB, on a
+/// 32-bit target, and 2^61 bytes on a 64-bit one, where the floor binds first.
 pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
 
+/// The longest `Bytes` result whose length an argument's value sets on this target
+/// ([`target_bytes_result_len`] of `isize::MAX`): 2^27 bytes, 128 MiB, on a 32-bit target, and
+/// 2^59 bytes on a 64-bit one, where the floor binds first.
+pub(crate) const TARGET_BYTES_RESULT_LEN: u64 = target_bytes_result_len(isize::MAX as u64);
+
 // Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
-// do not build there: the target term binds below both floors.
+// do not build there: the target terms bind below both floors.
 const _: () = assert!(
     usize::BITS != 32
         || (TARGET_RESULT_BYTES == 1 << 29
-            && TARGET_RESULT_BYTES < MAX_BYTES_RESULT_LEN
+            && TARGET_BYTES_RESULT_LEN == 1 << 27
+            && TARGET_BYTES_RESULT_LEN < MAX_BYTES_RESULT_LEN
             && TARGET_RESULT_BYTES / 4 < MAX_LIST_RESULT_LEN)
 );
 
-/// The most memory one result may take on a target whose largest allocation is
+/// The longest `Bytes` result on a target whose largest allocation is `largest_allocation`
+/// bytes: a sixteenth of it, `(largest_allocation + 1) / 16`.
+///
+/// A `Bytes` value is also rendered when a run reports it, and its rendering is the largest form
+/// it takes. KORE has no escape shorter than `\xhh` for a byte outside printable ASCII, so the
+/// KORE text of a value of length `L` takes up to `4L + 2` bytes and its KORE JSON (`\u00hh`)
+/// up to `6L + 2`; the library's JSON response holds the value, its externalized copy, the JSON
+/// string of its characters (up to `2L`), the KORE JSON text and the response embedding it, about
+/// `16L` at once. A sixteenth of the largest allocation keeps that peak within half of a 32-bit
+/// address space, and its largest single allocation, `6L + 2`, below `isize::MAX`, which Rust
+/// refuses to exceed by panicking. On a 64-bit target the term is 2^59 bytes and never binds.
+pub(crate) const fn target_bytes_result_len(largest_allocation: u64) -> u64 {
+    largest_allocation.saturating_add(1) / 16
+}
+
+/// The most memory one `List` result may take on a target whose largest allocation is
 /// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
 ///
 /// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
