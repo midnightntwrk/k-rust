@@ -1,17 +1,17 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
-//! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
+//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "KeyGroups", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; k = nodes of the keys (elements) of one map (set); g = groups of those keys by apartness skeleton; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
-//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.walk_eq_ceilTerm"]
+//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.walk_eq_ceilTerm", "KRust.TermAttributes.apart_of_sameSkeleton", "KRust.TermAttributes.normDistinct_of_sameSkeleton"]
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys, O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and O(g log m) per key to list the later keys of other groups; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -24,13 +24,14 @@
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
 //! pass over the term, a loop over an explicit work list that skips subterms whose
-//! construction-time `ceil_free` attribute is true, plus pairwise apartness checks over map keys
-//! and set elements, with one `FxHashSet` deduplication of the whole list; no counter.
+//! construction-time `ceil_free` attribute is true, plus apartness checks over the pairs of map
+//! keys and set elements that grouping them by apartness skeleton does not decide, with one
+//! `FxHashSet` deduplication of the whole list; no counter.
 
 use std::{borrow::Cow, collections::HashSet};
 
 use k_rust_kore::measure::{self, Algorithm};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     definition::BackendDefinition,
@@ -49,6 +50,7 @@ use crate::{
     term::{
         FunctionType, InjectionComparison, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{Apart, certified_ground_normal_form},
+        rigid_apart_skeleton_hash, same_apart_skeleton,
     },
 };
 
@@ -237,18 +239,11 @@ fn ceil_term_node<'a>(
         } => {
             children.extend(entries.iter().flat_map(|(key, value)| [key, value]));
             children.extend(rest);
+            let keys = entries.iter().map(|(key, _)| key).collect::<Vec<_>>();
+            let groups = KeyGroups::new(&keys);
             let mut after = Vec::new();
-            for (position, (left, _)) in entries.iter().enumerate() {
-                for (right, _) in &entries[position + 1..] {
-                    // R-def: this list states both elements' definedness obligations, so
-                    // an apart pair's disequality is implied wherever the list holds.
-                    if !elements_are_apart(definition, left, right) {
-                        after.push(Predicate::Not(Box::new(Predicate::Equals(
-                            left.clone(),
-                            right.clone(),
-                        ))));
-                    }
-                }
+            for (position, left) in keys.iter().enumerate() {
+                groups.push_disequalities(definition, position, &mut after);
                 if let Some(rest) = rest {
                     after.push(not_in_collection(
                         definition,
@@ -276,18 +271,11 @@ fn ceil_term_node<'a>(
         } => {
             children.extend(elements);
             children.extend(rest);
+            let keys = elements.iter().collect::<Vec<_>>();
+            let groups = KeyGroups::new(&keys);
             let mut after = Vec::new();
-            for (position, left) in elements.iter().enumerate() {
-                for right in &elements[position + 1..] {
-                    // R-def: this list states both elements' definedness obligations, so
-                    // an apart pair's disequality is implied wherever the list holds.
-                    if !elements_are_apart(definition, left, right) {
-                        after.push(Predicate::Not(Box::new(Predicate::Equals(
-                            left.clone(),
-                            right.clone(),
-                        ))));
-                    }
-                }
+            for (position, left) in keys.iter().enumerate() {
+                groups.push_disequalities(definition, position, &mut after);
                 if let Some(rest) = rest {
                     after.push(not_in_collection(
                         definition,
@@ -309,6 +297,160 @@ fn ceil_term_node<'a>(
             Vec::new()
         }
     }
+}
+
+/// Fewest keys of one map or set for which [`KeyGroups`] computes skeletons: below it the keys
+/// make at most three pairs, which the pairwise checks decide in no more work than the walks.
+const GROUPED_KEYS: usize = 4;
+
+/// The keys (or elements) of one map (or set) grouped by apartness skeleton, which decides most
+/// of the pairs whose disequality the definedness walk states.
+///
+/// R-def: the walk states `\not(k_i = k_j)` for every pair `i < j` that [`elements_are_apart`]
+/// does not separate. Two rigid keys with one skeleton are apart exactly when they differ
+/// (`term::rigid_apart_skeleton_hash`; `apart_of_sameSkeleton` of the Lean model), and then
+/// `elements_are_apart` holds through its first disjunct, so such a pair needs no call. Only the
+/// pairs with a key in another group or a key that is not rigid, and the pairs of equal keys,
+/// are decided by `elements_are_apart`, in increasing `j`: the list is the one the walk states
+/// pair by pair.
+struct KeyGroups<'a, 't> {
+    keys: &'a [&'t Term],
+    /// The group of each key; `None` for a key that is not rigid, or for every key of a
+    /// collection with fewer than [`GROUPED_KEYS`] keys.
+    group: Vec<Option<usize>>,
+    /// The indices of each group's keys, increasing.
+    members: Vec<Vec<usize>>,
+    /// The indices of the keys without a group, increasing.
+    loose: Vec<usize>,
+    /// The next key equal to each grouped key, which has its group.
+    next_equal: Vec<Option<usize>>,
+}
+
+impl<'a, 't> KeyGroups<'a, 't> {
+    fn new(keys: &'a [&'t Term]) -> Self {
+        let mut groups = Self {
+            keys,
+            group: vec![None; keys.len()],
+            members: Vec::new(),
+            loose: Vec::new(),
+            next_equal: vec![None; keys.len()],
+        };
+        if keys.len() < GROUPED_KEYS {
+            groups.loose = (0..keys.len()).collect();
+            return groups;
+        }
+        let mut pending = Vec::new();
+        // The groups of each skeleton hash, by the index of their first key.
+        let mut by_hash = FxHashMap::<u64, Vec<usize>>::default();
+        let mut last_of_key = FxHashMap::<&Term, usize>::default();
+        for (index, key) in keys.iter().enumerate() {
+            let Some(hash) = rigid_apart_skeleton_hash(key, &mut pending) else {
+                groups.loose.push(index);
+                continue;
+            };
+            let candidates = by_hash.entry(hash).or_default();
+            let group = match candidates
+                .iter()
+                .copied()
+                .find(|&group| same_apart_skeleton(keys[groups.members[group][0]], key))
+            {
+                Some(group) => group,
+                None => {
+                    groups.members.push(Vec::new());
+                    candidates.push(groups.members.len() - 1);
+                    groups.members.len() - 1
+                }
+            };
+            groups.members[group].push(index);
+            groups.group[index] = Some(group);
+            // Equal keys have one skeleton, so they share this group.
+            if let Some(previous) = last_of_key.insert(key, index) {
+                groups.next_equal[previous] = Some(index);
+            }
+        }
+        groups
+    }
+
+    /// Append to `after` the disequality of the key at `position` with every later key that
+    /// [`elements_are_apart`] does not separate, in the order of the later keys.
+    fn push_disequalities(
+        &self,
+        definition: &BackendDefinition,
+        position: usize,
+        after: &mut Vec<Predicate>,
+    ) {
+        let left = self.keys[position];
+        let later = |indices: &[usize]| {
+            let start = indices.partition_point(|&index| index <= position);
+            indices[start..].to_vec()
+        };
+        let undecided = match self.group[position] {
+            None => (position + 1..self.keys.len()).collect::<Vec<_>>(),
+            Some(own) => {
+                let mut undecided = later(&self.loose);
+                for (group, members) in self.members.iter().enumerate() {
+                    if group != own {
+                        undecided.extend(later(members));
+                    }
+                }
+                let mut equal = self.next_equal[position];
+                while let Some(index) = equal {
+                    undecided.push(index);
+                    equal = self.next_equal[index];
+                }
+                undecided.sort_unstable();
+                undecided
+            }
+        };
+        for index in undecided {
+            let right = self.keys[index];
+            // R-def: this list states both elements' definedness obligations, so an apart
+            // pair's disequality is implied wherever the list holds.
+            if !elements_are_apart(definition, left, right) {
+                after.push(Predicate::Not(Box::new(Predicate::Equals(
+                    left.clone(),
+                    right.clone(),
+                ))));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the `elements_are_apart` calls this thread has made.
+    pub(crate) static APARTNESS_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The disequalities the definedness walk states for the keys (or elements) `keys` of one map
+/// (or set), in order: through [`KeyGroups`] when `grouped`, otherwise by calling
+/// [`elements_are_apart`] on every pair, the reference the grouping is checked against
+/// (`tests::definedness`).
+#[cfg(test)]
+pub(crate) fn collection_disequalities(
+    definition: &BackendDefinition,
+    keys: &[&Term],
+    grouped: bool,
+) -> Vec<Predicate> {
+    let mut after = Vec::new();
+    if grouped {
+        let groups = KeyGroups::new(keys);
+        for position in 0..keys.len() {
+            groups.push_disequalities(definition, position, &mut after);
+        }
+    } else {
+        for (position, left) in keys.iter().enumerate() {
+            for right in &keys[position + 1..] {
+                if !elements_are_apart(definition, left, right) {
+                    after.push(Predicate::Not(Box::new(Predicate::Equals(
+                        (*left).clone(),
+                        (*right).clone(),
+                    ))));
+                }
+            }
+        }
+    }
+    after
 }
 
 /// Apartness (A): no value of one term is a value of the other on any valuation.
@@ -340,6 +482,8 @@ pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) 
 /// or an `anywhere` application the simplifier cached as a fixed point). Requiring failure in
 /// both directions keeps the decision independent of matching orientation.
 fn elements_are_apart(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
+    #[cfg(test)]
+    APARTNESS_CHECKS.set(APARTNESS_CHECKS.get() + 1);
     if terms_apart(Some(definition.sort_graph()), left, right).is_some() {
         return true;
     }

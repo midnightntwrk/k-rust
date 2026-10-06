@@ -1742,6 +1742,139 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
     }
 }
 
+/// The hash of the apartness skeleton of a rigid term, or `None` when `term` is not rigid.
+///
+/// A term is *rigid* when every node of it is a root [`Term::apart_with`] reads as fixed and
+/// decomposes or decides: a domain value, an injection, or an application whose root is a free
+/// constructor or a certified equation head ([`apart_root`]). Its *skeleton* is the term with the
+/// value text of its domain values erased: its symbols, sort arguments and arities, the source
+/// and target sorts of its injections, and the sorts of its domain values.
+///
+/// Two rigid terms with one skeleton ([`same_apart_skeleton`]) are apart, for every injection
+/// callback, exactly when they differ: equal terms are not (the search's first test), and two
+/// that differ can differ only in the texts of two domain values of one sort at one position,
+/// every pair of nodes above which is two applications of one symbol with the same sort
+/// arguments and arity, whose search tries every argument pair, or two injections with one
+/// source and one target, whose operands decide them; the pair at that position is apart
+/// ([`head::Apart::of_domain_values`]). This is `apart_of_sameSkeleton` of
+/// `lean/KRust/TermAttributes.lean`.
+///
+/// One walk over the term, with its pending nodes on `pending` (left empty), so that a key of any
+/// height takes a bounded native stack.
+pub(crate) fn rigid_apart_skeleton_hash<'t>(
+    term: &'t Term,
+    pending: &mut Vec<&'t Term>,
+) -> Option<u64> {
+    let mut hasher = FxHasher::default();
+    pending.clear();
+    pending.push(term);
+    while let Some(node) = pending.pop() {
+        let rigid = match apart_root(node).map(head::Fixed::root) {
+            Some(head::FixedRoot::DomainValue) => {
+                let TermKind::DomainValue { sort, .. } = node.kind() else {
+                    unreachable!("a domain-value root is a domain value");
+                };
+                0_u8.hash(&mut hasher);
+                sort.hash(&mut hasher);
+                true
+            }
+            Some(head::FixedRoot::Injection) => {
+                let TermKind::Injection {
+                    source,
+                    target,
+                    term,
+                } = node.kind()
+                else {
+                    unreachable!("an injection root is an injection");
+                };
+                1_u8.hash(&mut hasher);
+                source.hash(&mut hasher);
+                target.hash(&mut hasher);
+                pending.push(term);
+                true
+            }
+            Some(head::FixedRoot::FreeConstructor | head::FixedRoot::EquationHead(_)) => {
+                let TermKind::Application {
+                    symbol,
+                    sort_arguments,
+                    arguments,
+                } = node.kind()
+                else {
+                    unreachable!("an application root is an application");
+                };
+                2_u8.hash(&mut hasher);
+                symbol.name.hash(&mut hasher);
+                sort_arguments.hash(&mut hasher);
+                arguments.len().hash(&mut hasher);
+                // Reversed, so that the walk is in preorder.
+                pending.extend(arguments.iter().rev());
+                true
+            }
+            Some(head::FixedRoot::Collection(_)) | None => false,
+        };
+        if !rigid {
+            pending.clear();
+            return None;
+        }
+    }
+    Some(hasher.finish())
+}
+
+/// Whether two rigid terms (see [`rigid_apart_skeleton_hash`]) have one apartness skeleton:
+/// equal symbols, sort arguments and arities, equal injection sorts and equal domain-value sorts
+/// at every position. Compares the pairs of nodes on a work list.
+pub(crate) fn same_apart_skeleton(left: &Term, right: &Term) -> bool {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        if left.ptr_eq(right) {
+            continue;
+        }
+        let same = match (left.kind(), right.kind()) {
+            (
+                TermKind::DomainValue { sort: left, .. },
+                TermKind::DomainValue { sort: right, .. },
+            ) => left == right,
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right,
+                },
+            ) => {
+                pending.push((left, right));
+                left_source == right_source && left_target == right_target
+            }
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    arguments: left_arguments,
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    arguments: right_arguments,
+                },
+            ) => {
+                pending.extend(left_arguments.iter().zip(right_arguments));
+                (Arc::ptr_eq(left_symbol, right_symbol) || left_symbol == right_symbol)
+                    && left_sorts == right_sorts
+                    && left_arguments.len() == right_arguments.len()
+            }
+            _ => false,
+        };
+        if !same {
+            return false;
+        }
+    }
+    true
+}
+
 /// Levels of argument and operand pairs [`Term::apart_with`] searches by recursion before it
 /// hands a pair to [`apart_on_work_list`]: enough for the keys and operands it is mostly asked
 /// about (a domain value below an injection, a constructor over a few levels of them), which

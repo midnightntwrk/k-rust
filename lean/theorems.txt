@@ -43,7 +43,9 @@ KRust.TermAttributes.adjacentElementsDiffer_adjacent
 KRust.TermAttributes.adjacentKeysDiffer_adjacent
 KRust.TermAttributes.adjacent_and
 KRust.TermAttributes.adjacent_pairwise
+KRust.TermAttributes.apartZip_of_sameSkeletonList
 KRust.TermAttributes.apart_complete
+KRust.TermAttributes.apart_of_sameSkeleton
 KRust.TermAttributes.ceilEntries_sound
 KRust.TermAttributes.ceilFree_sound
 KRust.TermAttributes.ceilList_sound
@@ -76,6 +78,7 @@ KRust.TermAttributes.map_keys_pairwise_distinct
 KRust.TermAttributes.map_normDistinct
 KRust.TermAttributes.min2_zero
 KRust.TermAttributes.ne_or_ne_of_ne
+KRust.TermAttributes.normDistinct_of_sameSkeleton
 KRust.TermAttributes.oneHeader_same
 KRust.TermAttributes.rule_index_same
 KRust.TermAttributes.satAdd_min

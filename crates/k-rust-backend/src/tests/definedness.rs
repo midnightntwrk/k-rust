@@ -348,3 +348,236 @@ fn generated_collection_collisions_have_negative_shape_flags() {
     assert_eq!(coverage.inherited, 55);
     assert_eq!(coverage.concrete_controls, 805);
 }
+
+/// Keys for the grouping of `collection_disequalities`: rigid keys of a few skeletons over a
+/// small alphabet (domain values of two sorts, injections with two sources and two targets,
+/// free constructors of one and two arguments, an `anywhere` symbol with and without the
+/// evaluated mark), so that keys of one skeleton, equal keys and keys of different skeletons
+/// are all frequent, and keys that are not rigid (variables, function applications, maps).
+fn grouping_key() -> impl Strategy<Value = Term> {
+    use proptest::prelude::*;
+    let sorts = || {
+        prop_oneof![
+            Just(Sort::simple("SortInt")),
+            Just(Sort::simple("SortKItem")),
+            Just(Sort::simple("SortS")),
+        ]
+    };
+    let leaf = prop_oneof![
+        4 => (sorts(), prop_oneof![Just("0"), Just("1"), Just("2")])
+            .prop_map(|(sort, value)| Term::domain_value(sort, value)),
+        1 => (prop_oneof![Just("X"), Just("Y")], sorts())
+            .prop_map(|(name, sort)| Term::variable(crate::term::Variable::new(name, sort))),
+    ];
+    let symbol = |name: &str, arity: usize, anywhere: bool, function: bool| {
+        let mut symbol = Symbol::constructor(
+            name,
+            vec![Sort::simple("SortS"); arity],
+            Sort::simple("SortS"),
+        );
+        symbol.attributes = crate::term::SymbolAttributes::constructor().with_anywhere(anywhere);
+        if function {
+            symbol.attributes.symbol_type =
+                crate::term::SymbolType::Function(crate::term::FunctionType::Total);
+        }
+        Arc::new(symbol)
+    };
+    let loc = symbol("loc", 1, false, false);
+    let pair = symbol("pair", 2, false, false);
+    let norm = symbol("norm", 1, true, false);
+    let function = symbol("f", 1, false, true);
+    let (int, kitem, s) = (
+        Sort::simple("SortInt"),
+        Sort::simple("SortKItem"),
+        Sort::simple("SortS"),
+    );
+    let value = || prop_oneof![Just("0"), Just("1"), Just("2")];
+    // Keys of six skeletons, their domain values drawn from three texts.
+    let templates = {
+        let (loc, pair, norm) = (loc.clone(), pair.clone(), norm.clone());
+        (0..6usize, value(), value(), any::<bool>()).prop_map(
+            move |(template, first, second, marked)| {
+                let dv = |sort: &Sort, value: &str| Term::domain_value(sort.clone(), value);
+                match template {
+                    0 => dv(&int, first),
+                    1 => Term::injection(int.clone(), kitem.clone(), dv(&int, first)),
+                    2 => Term::application(
+                        loc.clone(),
+                        vec![],
+                        vec![Term::injection(int.clone(), s.clone(), dv(&int, first))],
+                    ),
+                    3 => Term::application(
+                        pair.clone(),
+                        vec![],
+                        vec![
+                            dv(&s, first),
+                            Term::application(loc.clone(), vec![], vec![dv(&s, second)]),
+                        ],
+                    ),
+                    4 => {
+                        let term = Term::application(norm.clone(), vec![], vec![dv(&s, first)]);
+                        // An equation head is rigid only with the evaluated mark.
+                        if marked {
+                            term.with_evaluated_mark_for_test()
+                        } else {
+                            term
+                        }
+                    }
+                    _ => Term::injection(s.clone(), kitem.clone(), dv(&s, first)),
+                }
+            },
+        )
+    };
+    let random = leaf.prop_recursive(3, 24, 2, move |inner| {
+        let (loc, pair, norm, function) =
+            (loc.clone(), pair.clone(), norm.clone(), function.clone());
+        prop_oneof![
+            3 => (sorts(), sorts(), inner.clone())
+                .prop_map(|(source, target, term)| Term::injection(source, target, term)),
+            3 => inner.clone().prop_map(move |term| Term::application(loc.clone(), vec![], vec![term])),
+            2 => (inner.clone(), inner.clone())
+                .prop_map(move |(left, right)| Term::application(pair.clone(), vec![], vec![left, right])),
+            2 => (inner.clone(), any::<bool>()).prop_map(move |(term, marked)| {
+                let term = Term::application(norm.clone(), vec![], vec![term]);
+                if marked && term.attributes().variables.is_empty() {
+                    term.with_evaluated_mark_for_test()
+                } else {
+                    term
+                }
+            }),
+            1 => inner.clone().prop_map(move |term| Term::application(function.clone(), vec![], vec![term])),
+        ]
+    });
+    prop_oneof![3 => templates, 1 => random]
+}
+
+/// The grouping by apartness skeleton states the disequalities that `elements_are_apart` states
+/// pair by pair, in the same order, for the sorted keys of a map and the sorted elements of a set
+/// (`apart_of_sameSkeleton` of the Lean model, applied to the Rust): a pair it skips is a pair of
+/// distinct rigid keys with one skeleton, which `elements_are_apart` separates.
+#[test]
+fn grouped_disequalities_are_the_pairwise_ones() {
+    use proptest::prelude::*;
+    let definition = definition();
+    let strategy = prop::collection::vec(grouping_key(), 0..12);
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let set_definition = Arc::new(ListDefinition {
+        symbols: CollectionSymbols {
+            unit: "Setunit".into(),
+            element: "Setelement".into(),
+            concat: "Setconcat".into(),
+        },
+        element_sort: "SortKItem".into(),
+        list_sort: "SortSet".into(),
+    });
+    // Pairs skipped by the grouping, pairs with a disequality, and collections with a repeat.
+    let (mut skipped, mut stated, mut repeats) = (0, 0, 0);
+    for case in 0..CASES {
+        let keys = strategy.new_tree(&mut runner).expect("a case").current();
+        let set = Term::set(set_definition.clone(), keys, None);
+        let TermKind::Set { elements, .. } = set.kind() else {
+            unreachable!("a set without a rest is a set");
+        };
+        let keys = elements.iter().collect::<Vec<_>>();
+        let checks = |grouped| {
+            crate::definedness::APARTNESS_CHECKS.set(0);
+            let disequalities =
+                crate::definedness::collection_disequalities(&definition, &keys, grouped);
+            (disequalities, crate::definedness::APARTNESS_CHECKS.get())
+        };
+        let (pairwise, all) = checks(false);
+        let (grouped, made) = checks(true);
+        assert_eq!(
+            grouped, pairwise,
+            "case {case}: the grouping changed the disequalities of {keys:?}"
+        );
+        assert_eq!(all, keys.len() * keys.len().saturating_sub(1) / 2);
+        skipped += all - made;
+        stated += pairwise.len();
+        repeats += usize::from(keys.windows(2).any(|pair| pair[0] == pair[1]));
+    }
+    eprintln!("pairs skipped {skipped}, disequalities stated {stated}, repeats {repeats}");
+    assert!(skipped > 0 && stated > 0 && repeats > 0);
+}
+
+/// R-def: the ceil of a map whose keys are rigid with one skeleton makes no apartness check
+/// beyond its repeated keys, however many keys it has: two distinct keys of one skeleton are
+/// apart. A value that is not `ceil_free` keeps the walk from skipping the map, as the store of
+/// an interpreter's configuration does when it holds a closure. Keys of a second skeleton are
+/// checked against the first ones and among themselves only when they are not rigid.
+#[test]
+fn keys_of_one_skeleton_need_no_apartness_check() {
+    let definition = definition();
+    let map_definition = Arc::new(MapDefinition {
+        symbols: CollectionSymbols {
+            unit: "Mapunit".into(),
+            element: "Mapelement".into(),
+            concat: "Mapconcat".into(),
+        },
+        key_sort: "SortKItem".into(),
+        value_sort: "SortKItem".into(),
+        map_sort: "SortMap".into(),
+    });
+    let (int, kitem, s) = (
+        Sort::simple("SortInt"),
+        Sort::simple("SortKItem"),
+        Sort::simple("SortS"),
+    );
+    let key = |value: usize| {
+        Term::injection(
+            int.clone(),
+            kitem.clone(),
+            Term::domain_value(int.clone(), value.to_string()),
+        )
+    };
+    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
+    partial.attributes.symbol_type =
+        crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
+    let undefined = Term::application(
+        Arc::new(partial),
+        vec![],
+        vec![Term::domain_value(s.clone(), "a")],
+    );
+    let value = Term::domain_value(int.clone(), "0");
+    let checks = |entries: Vec<(Term, Term)>| {
+        let map = Term::map(map_definition.clone(), entries, None);
+        crate::definedness::APARTNESS_CHECKS.set(0);
+        let obligations = ceil_term(&definition, &map);
+        (crate::definedness::APARTNESS_CHECKS.get(), obligations)
+    };
+    let mut entries = (0..200)
+        .map(|index| (key(index), value.clone()))
+        .collect::<Vec<_>>();
+    entries.push((key(200), undefined.clone()));
+    let (made, obligations) = checks(entries.clone());
+    assert_eq!(made, 0);
+    assert_eq!(
+        obligations,
+        vec![crate::rule::Predicate::Ceil(undefined.clone())]
+    );
+    // A repeated key: one check, and its disequality, which makes the map `\bottom`.
+    entries.push((key(7), value.clone()));
+    let (made, obligations) = checks(entries.clone());
+    assert_eq!(made, 1);
+    assert!(obligations.contains(&crate::rule::Predicate::Not(Box::new(
+        crate::rule::Predicate::Equals(key(7), key(7))
+    ))));
+    // Keys of a second skeleton (`inj{S, KItem}(\dv{S}(…))`): each is checked against the 201
+    // keys of the first, not against its own group.
+    entries.pop();
+    entries.extend((0..3).map(|index| {
+        (
+            Term::injection(
+                s.clone(),
+                kitem.clone(),
+                Term::domain_value(s.clone(), index.to_string()),
+            ),
+            value.clone(),
+        )
+    }));
+    let (made, _) = checks(entries);
+    assert_eq!(made, 3 * 201);
+}

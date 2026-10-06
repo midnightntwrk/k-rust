@@ -648,6 +648,106 @@ theorem apart_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k
     have : ¬(a = a' ∧ x = x') := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
     simpa [hne, Ne.symm] using ne_or_ne_of_ne this
 
+/-! ## 7b. Keys of one rigid skeleton are apart exactly when they differ
+
+definedness.rs `KeyGroups` skips the pairwise check of two distinct keys that are both rigid and
+have one skeleton (term.rs `rigid_apart_skeleton_hash`, `same_apart_skeleton`): `apart` holds for
+them whatever `ev` and `injd`, so `normDistinct` does, and the walk's list (`mapSide`, `setSide`)
+is the one it states pair by pair. -/
+
+/- term.rs `rigid_apart_skeleton_hash` is `some _` exactly on these terms: every node is a
+domain value, an injection, or an application whose root `apart` reads as fixed (a free symbol,
+or one `ev` certifies). -/
+mutual
+def rigid (ev : Term → Bool) : Term → Bool
+  | .dv _ _      => true
+  | .inj _ _ t   => rigid ev t
+  | .app f fs as => (f.isFree || ev (.app f fs as)) && rigidList ev as
+  | _            => false
+def rigidList (ev : Term → Bool) : List Term → Bool
+  | []      => true
+  | t :: ts => rigid ev t && rigidList ev ts
+end
+
+/- term.rs `same_apart_skeleton`: equal symbols, sort arguments and arities, equal injection
+sorts and equal domain-value sorts at every position; the domain values' texts may differ. -/
+mutual
+def sameSkeleton : Term → Term → Bool
+  | .dv s _, .dv s' _           => s == s'
+  | .inj s t x, .inj s' t' y    => s == s' && t == t' && sameSkeleton x y
+  | .app f fs as, .app g gs bs  => f == g && fs == gs && sameSkeletonList as bs
+  | _, _                        => false
+def sameSkeletonList : List Term → List Term → Bool
+  | [], []           => true
+  | a :: as, b :: bs => sameSkeleton a b && sameSkeletonList as bs
+  | _, _             => false
+end
+
+/- A: two distinct rigid terms with one skeleton are apart, whatever `ev` and `injd`. They can
+differ only in the texts of two domain values of one sort at one position; every pair above it
+is an application pair of one symbol, decided by its argument pairs (`apartZip`), or an
+injection pair with one source and one target, decided by its operands. -/
+mutual
+theorem apart_of_sameSkeleton (ev : Term → Bool) (injd : Term → Term → Bool) :
+    ∀ a b : Term, rigid ev a = true → rigid ev b = true → sameSkeleton a b = true → a ≠ b →
+      apart ev injd a b = true
+  | .dv s v, b, _ha, _hb, hs, hne => by
+      cases b
+      case dv s' v' =>
+        have hs' : s = s' := by simpa [sameSkeleton] using hs
+        subst hs'
+        have hv : v ≠ v' := fun h => hne (h ▸ rfl)
+        simp [apart, hne, hv]
+      all_goals simp [sameSkeleton] at hs
+  | .inj s t x, b, ha, hb, hs, hne => by
+      cases b
+      case inj s' t' y =>
+        simp only [sameSkeleton, Bool.and_eq_true, beq_iff_eq] at hs
+        obtain ⟨⟨rfl, rfl⟩, hxy⟩ := hs
+        have hne' : x ≠ y := fun h => hne (h ▸ rfl)
+        simp only [rigid] at ha hb
+        simp [apart, hne, apart_of_sameSkeleton ev injd x y ha hb hxy hne']
+      all_goals simp [sameSkeleton] at hs
+  | .app f fs as, b, ha, hb, hs, hne => by
+      cases b
+      case app g gs bs =>
+        simp only [sameSkeleton, Bool.and_eq_true, beq_iff_eq] at hs
+        obtain ⟨⟨rfl, rfl⟩, hab⟩ := hs
+        simp only [rigid, Bool.and_eq_true] at ha hb
+        have hne' : as ≠ bs := fun h => hne (h ▸ rfl)
+        simp [apart, hne, ha.1, hb.1,
+          apartZip_of_sameSkeletonList ev injd as bs ha.2 hb.2 hab hne']
+      all_goals simp [sameSkeleton] at hs
+  | .and _ _, _, ha, _, _, _ => by simp [rigid] at ha
+  | .var _ _ _, _, ha, _, _, _ => by simp [rigid] at ha
+  | .map _ _ _, _, ha, _, _, _ => by simp [rigid] at ha
+  | .list _ _ _, _, ha, _, _, _ => by simp [rigid] at ha
+  | .set _ _ _, _, ha, _, _, _ => by simp [rigid] at ha
+theorem apartZip_of_sameSkeletonList (ev : Term → Bool) (injd : Term → Term → Bool) :
+    ∀ as bs : List Term, rigidList ev as = true → rigidList ev bs = true →
+      sameSkeletonList as bs = true → as ≠ bs → apartZip ev injd as bs = true
+  | [], bs, _, _, hs, hne => by
+      cases bs
+      · exact absurd rfl hne
+      · simp [sameSkeletonList] at hs
+  | a :: as, [], _, _, hs, _ => by simp [sameSkeletonList] at hs
+  | a :: as, b :: bs, ha, hb, hs, hne => by
+      simp only [sameSkeletonList, Bool.and_eq_true] at hs
+      simp only [rigidList, Bool.and_eq_true] at ha hb
+      by_cases hab : a = b
+      · subst hab
+        have hne' : as ≠ bs := fun h => hne (h ▸ rfl)
+        simp [apartZip, apartZip_of_sameSkeletonList ev injd as bs ha.2 hb.2 hs.2 hne']
+      · simp [apartZip, apart_of_sameSkeleton ev injd a b ha.1 hb.1 hs.1 hab]
+end
+
+/-- R-def: two distinct rigid keys with one skeleton need no disequality: `normDistinct` holds
+through its first disjunct, for every definition (every `Oracles`). -/
+theorem normDistinct_of_sameSkeleton (O : Oracles) (a b : Term)
+    (ha : rigid O.evaluated a = true) (hb : rigid O.evaluated b = true)
+    (hs : sameSkeleton a b = true) (hne : a ≠ b) : normDistinct O a b = true := by
+  simp [normDistinct, apart_of_sameSkeleton O.evaluated O.injectionsDistinct a b ha hb hs hne]
+
 /-! ## 8. The side obligations vanish on the narrowed class -/
 
 theorem mapSide_none (O : Oracles) (d : String) : ∀ es : List (Term × Term),
