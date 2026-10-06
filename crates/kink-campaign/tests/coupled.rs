@@ -24,6 +24,7 @@ use kink_native::execution::ExecutionBudget;
 use kink_native::execution_difference::{
     CertifiedSide, DifferenceCertificate, Exclusion, NotProvedReason,
 };
+use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
     Baseline, CandidateDisposition, CandidateGeneration, Edit, InsertPosition, Patch,
@@ -2266,7 +2267,7 @@ fn audit_ks_as7_anchoring_fails_closed() {
                 let decider = kink_native::step_events::ObservationDecider::new(
                     definition,
                     solver,
-                    &fixture.tests[0].initial_state,
+                    TestInitialState::of_test(&fixture.tests[0].initial_state),
                 );
                 Ok::<_, k_rust::backend::BackendError>(kink_native::bridge::paths_from_execution(
                     &execution,
@@ -2849,7 +2850,7 @@ fn ei_check(
 /// AT1: freshgen observes its stamped continuation. Renaming an existential outside the payload preserves both declared values.
 /// The two definitions execute identically, so the result does not rest on names being renamed
 /// apart: under variable identity the renamed existential is minted from the request's counter
-/// on both sides (`Ex#Var'Ques'T!N` against `Ex#Var'Ques'U!N`), and freshgen's existential rules
+/// on both sides (printed `Ex-hVar'Ques'T-bN` against `Ex-hVar'Ques'U-bN`), and freshgen's existential rules
 /// no longer switch off the initial variables.
 #[test]
 fn audit_so_at1_existential_rename_is_not_killed() {
@@ -3507,7 +3508,7 @@ fn audit_so_at13_first_kill_equals_full() {
 }
 
 /// Variable identity (VI-04; EI-05 pinned the opposite): the stable variables are the test's
-/// initial variables whatever their spelling. G's sym-guarded test with `X1`, `Y1`, `V1`, `W1`
+/// initial variables, read verbatim, whatever their spelling. G's sym-guarded test with `X1`, `Y1`, `V1`, `W1`
 /// for `X`, `Y`, `V`, `W` keeps G's certificate (`Disjoint`, `Clash`, `Length`) and its pattern
 /// kill (Z3), and FirstKill stops at it. Before VI-04 names ending in a digit were never
 /// stable (a mint could print as one), so the pattern slot was Unknown by a NoWitness demotion
@@ -3568,7 +3569,7 @@ fn audit_vi_digit_suffixed_initial_names_are_stable() {
 /// EI-05: the state-oracle side of the EI-02b name conflation. conflate.k's `go` narrows
 /// `X:Box` to `c(I)` with a fresh `I`, which k-rust printed as `ExVarI<n>` before variable
 /// identity; with the initial variables named `ExVarI0` and `ExVarI1`, two feasible baseline
-/// leaves were then decided Unsat on their decoded state and could be discarded. Under
+/// leaves were then decided Unsat on their read state and could be discarded. Under
 /// variable identity the mint is printed apart from every initial name, so no such leaf is
 /// Unsat and the Unsat discard is sound (ticket EI-T02 (iii), closed). The baseline is still
 /// refused, for either naming and in both profiles, because narrowing also leaves a remainder
@@ -3663,7 +3664,8 @@ fn audit_vi_fresh_counter_collision_is_not_killed() {
     });
 }
 
-/// VI-AT1: `EI-bM0-b1` decodes to the forged scope candidate `EI!M0!1`.
+/// VI-AT1: `EI-bM0-b1` is read as the variable `EI-bM0-b1` (k-rust v2 decoded it to the
+/// forged scope candidate `EI!M0!1`; under v3 no read name contains `!`).
 /// The two-constructor baseline and existential mutant denote the same relation.
 /// Under Z3, narrowing the user-sort variable leaves both baseline leaves Unknown,
 /// so admission refuses the baseline; without Z3 it is refused as well.
@@ -5335,7 +5337,8 @@ fn pattern_paths(
     let sorts = kink_pattern::SymbolSorts::from_definition(&parsed);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, initial);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(initial));
             Ok::<_, k_rust::backend::BackendError>(
                 paths_from_steps(
                     &BridgeContext {
@@ -5476,4 +5479,941 @@ fn residue_observation(whole: bool) -> Vec<StepEventSpec> {
             .then(|| support::k_config(support::var("P", "SortProg"), "SortProg", "R", "C2")),
         payload: vec![],
     }]
+}
+
+// ------------------------------------------------------------- VI-06: variable-identity audit
+//
+// README 12 as amended by README 16 (k-rust 927b9ce6, VARIABLE_IDENTITY 3): names are read
+// verbatim and printed injectively, and one counter per request skips every request spelling.
+// So a test's initial variable is one variable whatever it is spelled, and no spelling can
+// make a mint, a rule variable or a scope name one of the test's variables. Each attack runs
+// a campaign under the neutral naming and under forged namings, and asserts that the naming
+// changes nothing; the neutral result is pinned with its measured value.
+
+/// A campaign's result reduced to what a naming must not change.
+#[derive(Debug, PartialEq)]
+enum ViResult {
+    Refused(CampaignFailureKind),
+    Ran {
+        tests: Vec<(String, TestRun)>,
+        status: MutantStatus,
+        killing: Vec<String>,
+        certificates: Vec<CertificateCheck>,
+    },
+}
+
+impl ViResult {
+    fn of(
+        campaign: &Campaign<'_>,
+        generation: &CandidateGeneration<'_>,
+        mode: ScheduleMode,
+    ) -> Self {
+        match run_campaign(campaign, generation, mode) {
+            Err(failure) => Self::Refused(failure.kind()),
+            Ok(run) => {
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                Self::Ran {
+                    tests: mutant
+                        .plan
+                        .tests
+                        .iter()
+                        .map(|test| (test.test_id.clone(), test.run.clone()))
+                        .collect(),
+                    status: mutant.report.status,
+                    killing: mutant.report.killing_test_ids.clone(),
+                    certificates: mutant.certificate_checks.clone(),
+                }
+            }
+        }
+    }
+
+    fn killed(&self) -> bool {
+        matches!(
+            self,
+            Self::Ran {
+                status: MutantStatus::Killed,
+                ..
+            }
+        )
+    }
+
+    /// Every Killed result rests on a state-slot `Distinguish` or a `Proved` certificate.
+    fn assert_justified(&self, context: &str) {
+        let Self::Ran {
+            tests,
+            status: MutantStatus::Killed,
+            killing,
+            certificates,
+        } = self
+        else {
+            return;
+        };
+        for id in killing {
+            let proved = certificates.iter().any(|check| {
+                check.test_id == *id
+                    && matches!(check.certificate, DifferenceCertificate::Proved { .. })
+            });
+            let run = tests
+                .iter()
+                .find(|(test, _)| test == id)
+                .map(|(_, run)| run);
+            // Slot 0 of every VI-06 campaign is the state slot.
+            let state_slot = matches!(run, Some(TestRun::Compared(row)) if row.first() == Some(&D));
+            assert!(
+                proved || state_slot,
+                "{context}: {id} kills unjustified: {self:?}"
+            );
+        }
+    }
+}
+
+/// `pattern` with each free element variable named in `renaming` renamed (KORE JSON level, so
+/// the spelling reaches k-rust exactly as written).
+fn vi_renamed(pattern: &Pattern, renaming: &[(&str, &str)]) -> Pattern {
+    fn walk(value: &mut serde_json::Value, renaming: &[(&str, &str)]) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if map.get("tag").and_then(serde_json::Value::as_str) == Some("EVar")
+                    && let Some(serde_json::Value::String(name)) = map.get_mut("name")
+                    && let Some((_, to)) = renaming.iter().find(|(from, _)| from == name)
+                {
+                    *name = (*to).to_owned();
+                }
+                map.values_mut().for_each(|value| walk(value, renaming));
+            }
+            serde_json::Value::Array(items) => {
+                items.iter_mut().for_each(|value| walk(value, renaming));
+            }
+            _ => {}
+        }
+    }
+    let mut value = k_rust::kore::codec::to_value(pattern).expect("pattern encodes");
+    walk(&mut value, renaming);
+    let renamed = k_rust::kore::codec::from_value(&value).expect("pattern decodes");
+    let expected = pattern
+        .free_variables()
+        .into_iter()
+        .map(|variable| {
+            renaming
+                .iter()
+                .find(|(from, _)| *from == variable.name)
+                .map_or(variable.name.clone(), |(_, to)| (*to).to_owned())
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = renamed
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected, "every free variable renamed once");
+    renamed
+}
+
+/// The free element variable names of `tests`, in a fixed order.
+fn vi_free_names(tests: &[TestCase]) -> Vec<String> {
+    tests
+        .iter()
+        .flat_map(|test| test.initial_state.free_variables())
+        .map(|variable| variable.name)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// The namings of `tests` that give its free variables the spellings of `spellings`, one per
+/// rotation: rotation `r` names the `i`-th variable `spellings[(i + r) % spellings.len()]`.
+fn vi_rotations(tests: &[TestCase], spellings: &[&str]) -> Vec<Vec<TestCase>> {
+    let names = vi_free_names(tests);
+    assert!(names.len() <= spellings.len(), "{names:?}");
+    (0..spellings.len())
+        .map(|rotation| {
+            let renaming = names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    (
+                        name.as_str(),
+                        spellings[(index + rotation) % spellings.len()],
+                    )
+                })
+                .collect::<Vec<_>>();
+            tests
+                .iter()
+                .map(|test| TestCase {
+                    initial_state: vi_renamed(&test.initial_state, &renaming),
+                    ..test.clone()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Runs `generation` under `tests` and under every naming of `namings`, Full and FirstKill:
+/// each naming gives exactly the neutral result, which is returned (Full, FirstKill).
+fn vi_naming_invariant(
+    context: &str,
+    campaign: &dyn Fn(&[TestCase]) -> ViResult,
+    tests: &[TestCase],
+    namings: &[Vec<TestCase>],
+) -> ViResult {
+    let neutral = campaign(tests);
+    neutral.assert_justified(context);
+    for naming in namings {
+        let names = vi_free_names(naming);
+        let forged = campaign(naming);
+        forged.assert_justified(context);
+        assert_eq!(forged, neutral, "{context}: naming {names:?}");
+    }
+    neutral
+}
+
+/// The A2 campaign (symmem `V` renamed `U` in write and load): every naming survives.
+fn vi_symmem_rename(fixture: &Symmem, tests: &[TestCase], mode: ScheduleMode) -> ViResult {
+    let baseline = fixture.validator.baseline();
+    let patch = Patch::new(vec![
+        renamed(baseline, "SYMMEM.write", &[0, 0, 0, 1], "V", "U"),
+        renamed(baseline, "SYMMEM.load", &[0, 0, 0, 1], "V", "U"),
+    ])
+    .expect("patch");
+    let generation = fixed(
+        baseline,
+        &[
+            ("SYMMEM.write", &[0, 0, 0, 1]),
+            ("SYMMEM.load", &[0, 0, 0, 1]),
+        ],
+        "rename-value",
+        &patch,
+    );
+    ViResult::of(&fixture.campaign(tests), &generation, mode)
+}
+
+/// The symmem A2 survival, `[[A,A,A,A]; 4]`, in both profiles and schedules.
+fn vi_symmem_survives(result: &ViResult) {
+    let ViResult::Ran {
+        tests,
+        status,
+        killing,
+        certificates,
+    } = result
+    else {
+        panic!("symmem A2 runs: {result:?}")
+    };
+    assert_eq!(
+        tests.iter().map(|(_, run)| run.clone()).collect::<Vec<_>>(),
+        vec![TestRun::Compared(vec![A, A, A, A]); 4]
+    );
+    assert_eq!(*status, MutantStatus::Survived);
+    assert!(killing.is_empty() && certificates.is_empty());
+}
+
+/// G (`inverted_load_sign`) on its symbolic and ground tests: Z3 Killed by both, with G's
+/// certificate on the symbolic test; no-Z3 refuses the symbolic baseline.
+fn vi_guarded_g_pinned(result: &ViResult, mode: ScheduleMode) {
+    if cfg!(feature = "z3") {
+        let ViResult::Ran {
+            status,
+            killing,
+            certificates,
+            ..
+        } = result
+        else {
+            panic!("Z3 admits G: {result:?}")
+        };
+        assert_eq!(*status, MutantStatus::Killed);
+        let expected: &[&str] = if mode == ScheduleMode::Full {
+            &["sym-guarded", "ground-guarded"]
+        } else {
+            &["sym-guarded"]
+        };
+        assert_eq!(killing, expected);
+        assert_eq!(
+            *certificates,
+            [CertificateCheck {
+                test_id: "sym-guarded".into(),
+                certificate: DifferenceCertificate::Proved {
+                    witness_side: CertifiedSide::Mutant,
+                    witness_leaf: 0,
+                    exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
+                },
+                demoted_slots: vec![],
+            }]
+        );
+    } else {
+        assert_eq!(
+            *result,
+            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+        );
+    }
+}
+
+/// The repeated-write guard split of `audit_so_symbolic_guard_split_is_not_killed` on `sym-x`.
+fn vi_guard_split_tests(guarded: &Guarded) -> Vec<TestCase> {
+    let plan = PatternPlan::new(
+        &guarded.vocabulary,
+        vec![("A".into(), kore_sort("SortInt"))],
+        vec![PatternArm {
+            atoms: [MatchMode::Bind, MatchMode::Use]
+                .into_iter()
+                .map(|mode| Atom {
+                    constructor: "memoryWrite".into(),
+                    payload: vec![PayloadClause {
+                        position: 0,
+                        mode,
+                        variable: "A".into(),
+                    }],
+                })
+                .collect(),
+            relations: vec![Relation::EventuallyAfter],
+        }],
+        None,
+    )
+    .expect("plan");
+    let repeated = OracleDeclaration::new(
+        CrashPolicy::CompareIdentity,
+        Projection::Pattern {
+            plan,
+            with_bindings: false,
+        },
+    )
+    .expect("oracle");
+    let x = support::var("X", "SortInt");
+    let program = support::initial_state(
+        app(
+            "seq",
+            vec![
+                app("write", vec![addr(support::int(0)), support::int(5)]),
+                app(
+                    "seq",
+                    vec![
+                        app("write", vec![addr(x.clone()), support::int(6)]),
+                        app(
+                            "seq",
+                            vec![
+                                app("load", vec![addr(x), support::int(7)]),
+                                app("halt", vec![]),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        "SortProg",
+    );
+    vec![case(
+        "sym-x",
+        program,
+        &[guarded.tests[1].oracles[0].clone(), repeated],
+    )]
+}
+
+/// Z3 `[[A,A]]` Survived; no-Z3 refuses the symbolic baseline.
+fn vi_guard_split_pinned(result: &ViResult) {
+    if cfg!(feature = "z3") {
+        assert_eq!(
+            *result,
+            ViResult::Ran {
+                tests: vec![("sym-x".into(), TestRun::Compared(vec![A, A]))],
+                status: MutantStatus::Survived,
+                killing: vec![],
+                certificates: vec![],
+            }
+        );
+    } else {
+        assert_eq!(
+            *result,
+            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+        );
+    }
+}
+
+const VI_OLD_MINT_SPELLINGS: [&str; 5] = [
+    "ExVarI0",
+    "ExVarI10",
+    "RuleVarX",
+    "X'Bang'apart1",
+    "Var'Ques'X0",
+];
+
+const VI_NEW_MINT_SPELLINGS: [&str; 5] = [
+    "Ex-hVarI-b0",
+    "Ex-hFrame-b0",
+    "X-bapart0",
+    "Ex-hVar'Ques'T-b0",
+    "Rule-hVarA",
+];
+
+/// VI-AT2: initial names spelled like pre-VI mints (`ExVarI0`, `ExVarI10`, `RuleVarX`,
+/// `X'Bang'apart1`, `Var'Ques'X0`) are ordinary variables. The symmem A2 rename survives and
+/// G keeps its certificate-backed kill (Z3; refused without Z3) under every rotation of those
+/// spellings, Full and FirstKill, exactly as under the neutral names. Leaf rows (every Unsat
+/// and discard) are pinned per fixture in kink-native `audit_vi.rs`.
+#[test]
+fn audit_vi_at2_old_mint_spellings_keep_every_campaign_result() {
+    with_stack(|| {
+        let symmem = Symmem::new();
+        let guarded = Guarded::new();
+        let g = inverted_load_sign(guarded.validator.baseline());
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT2 symmem A2",
+                &|tests| vi_symmem_rename(&symmem, tests, mode),
+                &symmem.tests,
+                &vi_rotations(&symmem.tests, &VI_OLD_MINT_SPELLINGS),
+            );
+            vi_symmem_survives(&result);
+            let result = vi_naming_invariant(
+                "AT2 G",
+                &|tests| ViResult::of(&guarded.campaign(tests), &g, mode),
+                &guarded.tests,
+                &vi_rotations(&guarded.tests, &VI_OLD_MINT_SPELLINGS),
+            );
+            vi_guarded_g_pinned(&result, mode);
+        }
+    });
+}
+
+/// VI-AT3: initial names spelled like v3 printed mints (`Ex-hVarI-b0`, `Ex-hFrame-b0`,
+/// `X-bapart0`, `Ex-hVar'Ques'T-b0`, `Rule-hVarA`) are read as those variables and never
+/// re-minted: symmem A2 survives, G keeps its certificate (Z3), and the symbolic guard split
+/// survives (Z3; refused without Z3), as under the neutral names. kink-native `audit_vi.rs`
+/// pins the leaves next to narrowing that mints `Ex#VarI!N`.
+#[test]
+fn audit_vi_at3_new_mint_spellings_keep_every_campaign_result() {
+    with_stack(|| {
+        let symmem = Symmem::new();
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let g = inverted_load_sign(baseline);
+        let split = Patch::new(ei_guard_split(baseline)).expect("patch");
+        let split = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[1])],
+            "guard-split",
+            &split,
+        );
+        let split_tests = vi_guard_split_tests(&guarded);
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT3 symmem A2",
+                &|tests| vi_symmem_rename(&symmem, tests, mode),
+                &symmem.tests,
+                &vi_rotations(&symmem.tests, &VI_NEW_MINT_SPELLINGS),
+            );
+            vi_symmem_survives(&result);
+            let result = vi_naming_invariant(
+                "AT3 G",
+                &|tests| ViResult::of(&guarded.campaign(tests), &g, mode),
+                &guarded.tests,
+                &vi_rotations(&guarded.tests, &VI_NEW_MINT_SPELLINGS),
+            );
+            vi_guarded_g_pinned(&result, mode);
+            let result = vi_naming_invariant(
+                "AT3 guard split",
+                &|tests| ViResult::of(&guarded.campaign(tests), &split, mode),
+                &split_tests,
+                &vi_rotations(&split_tests, &VI_NEW_MINT_SPELLINGS),
+            );
+            vi_guard_split_pinned(&result);
+        }
+    });
+}
+
+/// VI-AT4: `X-1` (outside v2's decoding image, refused there) is an ordinary variable under
+/// v3, like `a-x` and `EI-bB0-u2e-0-b1`: the symmem A2 rename and the symbolic guard split
+/// keep the neutral run's result, never a kill.
+#[test]
+fn audit_vi_at4_hyphenated_names_are_ordinary_variables() {
+    with_stack(|| {
+        let symmem = Symmem::new();
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let split = Patch::new(ei_guard_split(baseline)).expect("patch");
+        let split = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[1])],
+            "guard-split",
+            &split,
+        );
+        let split_tests = vi_guard_split_tests(&guarded);
+        let spellings = ["X-1", "a-x", "EI-bB0-u2e-0-b1", "Y-1"];
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT4 symmem A2",
+                &|tests| vi_symmem_rename(&symmem, tests, mode),
+                &symmem.tests,
+                &vi_rotations(&symmem.tests, &spellings),
+            );
+            vi_symmem_survives(&result);
+            assert!(!result.killed());
+            let result = vi_naming_invariant(
+                "AT4 guard split",
+                &|tests| ViResult::of(&guarded.campaign(tests), &split, mode),
+                &split_tests,
+                &vi_rotations(&split_tests, &spellings),
+            );
+            vi_guard_split_pinned(&result);
+            assert!(!result.killed());
+        }
+    });
+}
+
+/// freshgen's AT1 guard split: `write` keeps `A >Int 0`, and an inserted copy takes
+/// `A ==Int 0`; with `rename` the copy's existential is `?U` instead of `?T`.
+fn vi_freshgen_split(fresh: &EiMemory, rename: bool) -> Patch {
+    let baseline = fresh.validator.baseline();
+    let write_label = fresh.rule("write");
+    let a = term(baseline, &write_label, &[0, 0, 0, 0, 0]);
+    let mut zero = unlabelled_copy(baseline, &write_label);
+    if let k_rust::definition::Sentence::Rule { requires, body, .. } = &mut zero {
+        *requires = Term::apply("_==Int_", vec![a.clone(), int_token(0)]);
+        if rename {
+            assert_eq!(swap_names(body, "?T", "?U"), 1);
+        }
+    }
+    Patch::new(vec![
+        replaced(
+            baseline,
+            &write_label,
+            &[1],
+            Term::apply("_>Int_", vec![a, int_token(0)]),
+        ),
+        Edit::InsertSentence {
+            position: InsertPosition::After(support::rule(baseline, &write_label)),
+            ordinal: 0,
+            sentence: zero,
+        },
+    ])
+    .expect("patch")
+}
+
+/// freshgen's `write(addr(X), 5); write(addr(Y), 6); load(addr(X), 7); halt`: `?T` is minted
+/// twice on every path that does not fault.
+fn vi_freshgen_two_writes(fresh: &EiMemory) -> Vec<TestCase> {
+    let int = |name: &str| support::var(name, "SortInt");
+    let program = support::initial_state(
+        app(
+            "seq",
+            vec![
+                app("write", vec![addr(int("X")), support::int(5)]),
+                app(
+                    "seq",
+                    vec![
+                        app("write", vec![addr(int("Y")), support::int(6)]),
+                        app(
+                            "seq",
+                            vec![
+                                app("load", vec![addr(int("X")), support::int(7)]),
+                                app("halt", vec![]),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        "SortProg",
+    );
+    vec![case(
+        "sym-two-writes",
+        program,
+        &[whole_term(), fresh.gwl_after()],
+    )]
+}
+
+/// The namings of `vi_freshgen_two_writes`: initial variables spelled like the printed `?T`
+/// and `?U` mints (`Ex-hVar'Ques'T-b0` is `Ex#Var'Ques'T!0` printed), which the request's
+/// counter must skip.
+fn vi_freshgen_namings(tests: &[TestCase]) -> Vec<Vec<TestCase>> {
+    [
+        [("X", "X"), ("Y", "Ex-hVar'Ques'T-b0")],
+        [("X", "Ex-hVar'Ques'T-b0"), ("Y", "Ex-hVar'Ques'T-b1")],
+        [("X", "Ex-hVar'Ques'U-b0"), ("Y", "Ex-hVar'Ques'T-b2")],
+        [("X", "Ex-hVar'Ques'T-b1"), ("Y", "Ex-hVar'Ques'U-b1")],
+    ]
+    .iter()
+    .map(|renaming| {
+        tests
+            .iter()
+            .map(|test| TestCase {
+                initial_state: vi_renamed(&test.initial_state, renaming),
+                ..test.clone()
+            })
+            .collect()
+    })
+    .collect()
+}
+
+/// The measured freshgen two-write result of both split mutants: Z3 `[[A,A]]` Survived;
+/// no-Z3 refuses the symbolic baseline.
+fn vi_freshgen_pinned(result: &ViResult) {
+    if cfg!(feature = "z3") {
+        assert_eq!(
+            *result,
+            ViResult::Ran {
+                tests: vec![("sym-two-writes".into(), TestRun::Compared(vec![A, A]))],
+                status: MutantStatus::Survived,
+                killing: vec![],
+                certificates: vec![],
+            }
+        );
+    } else {
+        assert_eq!(
+            *result,
+            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+        );
+    }
+}
+
+/// VI-AT5: freshgen's existential `?T` is minted twice on one path (two writes), and leaves
+/// the state each time (`stamp` drops it). With initial variables spelled like those mints,
+/// or like the renamed copy's `?U` mints, the counter skips their spellings, so the stable set
+/// is still the test's initial variables and no Clash or Equal identifies a mint with one: the
+/// AT1 rename split keeps the neutral result in both schedules, never a kill.
+#[test]
+fn audit_vi_at5_reused_existential_keeps_initial_variables_stable() {
+    with_stack(|| {
+        let fresh = EiMemory::new("freshgen.k");
+        let baseline = fresh.validator.baseline();
+        let write_label = fresh.rule("write");
+        let patch = vi_freshgen_split(&fresh, true);
+        let generation = fixed(baseline, &[(&write_label, &[1])], "guard-split", &patch);
+        let tests = vi_freshgen_two_writes(&fresh);
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT5 freshgen rename split",
+                &|tests| ViResult::of(&fresh.campaign(tests), &generation, mode),
+                &tests,
+                &vi_freshgen_namings(&tests),
+            );
+            vi_freshgen_pinned(&result);
+            assert!(!result.killed());
+        }
+    });
+}
+
+/// VI-AT6: the guard split adds a branch whose rule mints `?T` too. The request's one counter
+/// is shared by every branch, so the mutant's later mints carry other counters than the
+/// baseline's (kink-native `audit_vi.rs` measures the shift). Minted names are never compared
+/// across requests, so the shift kills nothing: the split survives under every naming, as
+/// under the neutral one, in both schedules.
+#[test]
+fn audit_vi_at6_counter_shift_is_not_a_kill() {
+    with_stack(|| {
+        let fresh = EiMemory::new("freshgen.k");
+        let baseline = fresh.validator.baseline();
+        let write_label = fresh.rule("write");
+        let patch = vi_freshgen_split(&fresh, false);
+        let generation = fixed(baseline, &[(&write_label, &[1])], "guard-split", &patch);
+        let tests = vi_freshgen_two_writes(&fresh);
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT6 freshgen split",
+                &|tests| ViResult::of(&fresh.campaign(tests), &generation, mode),
+                &tests,
+                &vi_freshgen_namings(&tests),
+            );
+            vi_freshgen_pinned(&result);
+            assert!(!result.killed());
+        }
+    });
+}
+
+/// conflate's `go` rules with their variable `I` renamed to `to` in both `goPos` and `goNeg`.
+fn vi_conflate_go_renamed(baseline: &Baseline, to: &str) -> Patch {
+    Patch::new(vec![
+        renamed(baseline, "CONFLATE.goPos", &[0], "I", to),
+        renamed(baseline, "CONFLATE.goPos", &[1], "I", to),
+        renamed(baseline, "CONFLATE.goNeg", &[0], "I", to),
+        renamed(baseline, "CONFLATE.goNeg", &[1], "I", to),
+    ])
+    .expect("patch")
+}
+
+/// VI-AT10 (KK-82 review R1-1): a test whose path condition names `Rule-hVarI` (the printed
+/// spelling of conflate's rule variable `Rule#VarI`, which `go` narrows) is read as an
+/// ordinary variable that no rule variable is. Against the alpha-renamed mutant (`I` to `K`)
+/// the campaign result equals the neutral naming's in both schedules: refused, because the
+/// narrowing remainder leaf is Unknown (as `audit_ei_conflated_names_leave_the_state_slot_refused`),
+/// never a kill. kink-native `audit_vi.rs` pins the leaves.
+#[test]
+fn audit_vi_at10_forged_rule_variable_in_the_path_condition_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let patch = vi_conflate_go_renamed(baseline, "K");
+        let generation = fixed(
+            baseline,
+            &[
+                ("CONFLATE.goPos", &[0]),
+                ("CONFLATE.goPos", &[1]),
+                ("CONFLATE.goNeg", &[0]),
+                ("CONFLATE.goNeg", &[1]),
+            ],
+            "rename",
+            &patch,
+        );
+        let program = ei_program(
+            vec![
+                app("check", vec![support::var("N", "SortInt")]),
+                app("go", vec![support::var("X", "SortBox")]),
+            ],
+            app("done", vec![]),
+        );
+        let tests = [case("forged-rule-variable", program, &[whole_term()])];
+        let namings = ["Rule-hVarI", "Rule-hI", "Rule-hVarK", "Eq-hVarI"]
+            .iter()
+            .map(|name| {
+                vec![TestCase {
+                    initial_state: vi_renamed(&tests[0].initial_state, &[("N", name)]),
+                    ..tests[0].clone()
+                }]
+            })
+            .collect::<Vec<_>>();
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = vi_naming_invariant(
+                "AT10 conflate",
+                &|tests| {
+                    ViResult::of(
+                        &Campaign {
+                            validator: &validator,
+                            module: "CONFLATE",
+                            observation: &[],
+                            classify: &normal,
+                            tests,
+                            budget: BUDGET,
+                        },
+                        &generation,
+                        mode,
+                    )
+                },
+                &tests,
+                &namings,
+            );
+            assert_eq!(
+                result,
+                ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+            );
+        }
+    });
+}
+
+/// VI-AT11 (KK-82 review R1-2): a mutant definition whose rule variable or right-hand-side
+/// existential is renamed to a forged spelling (`Rule-hA`, `A-b0`; `?X-b0`) compiles and loads
+/// as an ordinary alpha-rename: k-rust reads its KORE variable verbatim and marks it like any
+/// other. Each forged rename gives exactly the neutral alpha-rename's result in both
+/// schedules, never a kill: guardedmem's `write` (`A` renamed, G's tests) survives, and
+/// freshgen's renamed existential in the AT1 split survives (ground tests).
+#[test]
+fn audit_vi_at11_forged_names_in_a_mutant_definition_are_ordinary() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let rename = |to: &str| {
+            let patch = Patch::new(vec![
+                renamed(baseline, "GUARDEDMEM.write", &[0], "A", to),
+                renamed(baseline, "GUARDEDMEM.write", &[1], "A", to),
+            ])
+            .expect("patch");
+            fixed(
+                baseline,
+                &[("GUARDEDMEM.write", &[0]), ("GUARDEDMEM.write", &[1])],
+                "rename",
+                &patch,
+            )
+        };
+        let fresh = EiMemory::new("freshgen.k");
+        let fresh_baseline = fresh.validator.baseline();
+        let write_label = fresh.rule("write");
+        let existential = |to: &str| {
+            let mut patch = vi_freshgen_split(&fresh, false);
+            let mut edits = patch.edits().to_vec();
+            let Edit::InsertSentence { sentence, .. } = &mut edits[1] else {
+                panic!("inserted copy")
+            };
+            let k_rust::definition::Sentence::Rule { body, .. } = sentence else {
+                panic!("rule")
+            };
+            assert_eq!(swap_names(body, "?T", to), 1);
+            patch = Patch::new(edits).expect("patch");
+            fixed(
+                fresh_baseline,
+                &[(&write_label, &[1])],
+                "guard-split",
+                &patch,
+            )
+        };
+        let ground = [
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                &[whole_term(), fresh.gwl_after()],
+            ),
+            case(
+                "ground-one",
+                int_program(1, 5, support::int(1), 7),
+                &[whole_term(), fresh.gwl_after()],
+            ),
+        ];
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let neutral = ViResult::of(&guarded.campaign(&guarded.tests), &rename("B"), mode);
+            let expected_rows = if cfg!(feature = "z3") {
+                Some(vec![TestRun::Compared(vec![A, A]); 2])
+            } else {
+                None
+            };
+            match (&neutral, &expected_rows) {
+                (ViResult::Ran { tests, status, .. }, Some(rows)) => {
+                    assert_eq!(
+                        tests.iter().map(|(_, run)| run.clone()).collect::<Vec<_>>(),
+                        *rows
+                    );
+                    assert_eq!(*status, MutantStatus::Survived);
+                }
+                (ViResult::Refused(kind), None) => {
+                    assert_eq!(*kind, CampaignFailureKind::BaselineOracleFailed);
+                }
+                other => panic!("guardedmem alpha-rename: {other:?}"),
+            }
+            for forged in ["Rule-hA", "A-b0", "Ex-hA-b0"] {
+                let result = ViResult::of(&guarded.campaign(&guarded.tests), &rename(forged), mode);
+                assert_eq!(result, neutral, "guardedmem write renamed to {forged}");
+                assert!(!result.killed());
+            }
+            let neutral = ViResult::of(&fresh.campaign(&ground), &existential("?U"), mode);
+            assert_eq!(
+                neutral,
+                ViResult::Ran {
+                    tests: vec![
+                        ("ground-zero".into(), TestRun::Compared(vec![A, A])),
+                        ("ground-one".into(), TestRun::Compared(vec![A, A])),
+                    ],
+                    status: MutantStatus::Survived,
+                    killing: vec![],
+                    certificates: vec![],
+                }
+            );
+            for forged in ["?X-b0", "?Rule-hT", "?Ex-hVar'Ques'T-b0"] {
+                let result = ViResult::of(&fresh.campaign(&ground), &existential(forged), mode);
+                assert_eq!(result, neutral, "freshgen existential renamed to {forged}");
+            }
+        }
+    });
+}
+
+/// VI-AT8: a test whose state holds set variables spelled like printed marked set variables
+/// (`@Rule-hM`, `@Rule#M` printed) is admitted, and its run stops at an Indeterminate leaf
+/// (kink-native `audit_vi.rs`), so the baseline's slots are incomplete: the campaign is
+/// refused against the A2 rename and against K, in both schedules, never a kill.
+#[test]
+fn audit_vi_at8_set_variable_in_a_test_is_not_killed() {
+    with_stack(|| {
+        let symmem = Symmem::new();
+        let set = |name: &str| {
+            Pattern::Variable(k_rust::kore::ast::Variable {
+                kind: k_rust::kore::ast::VariableKind::Set,
+                name: name.into(),
+                sort: kore_sort("SortNat"),
+            })
+        };
+        let tests = [case(
+            "sym-set",
+            state(addr(nat("X")), set("@Rule-hM"), addr(nat("X")), set("@M")),
+            &symmem.tests[1].oracles,
+        )];
+        let k = coupled(symmem.validator.baseline(), false);
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            for result in [
+                vi_symmem_rename(&symmem, &tests, mode),
+                ViResult::of(&symmem.campaign(&tests), &k, mode),
+            ] {
+                assert_eq!(
+                    result,
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                );
+            }
+        }
+    });
+}
+
+/// VI-06 deliverable 6: `symwraptotal.k` keeps symwrap's non-injective `wrap` (the `anywhere`
+/// rule `wrap(s(z)) => wrap(z)`) with a functional claim. The mutant deletes that rule, so
+/// `wrap(s(z))` and `wrap(z)` are equal on the baseline and unrelated on the mutant; a
+/// decision that treated `wrap` as free would make the mutant's write/load pair `no-match`
+/// and kill. Measured, Full and FirstKill, both profiles: the symbolic test's baseline is
+/// refused, the ground test is `[[U,U]]` Unknown; never Killed.
+#[test]
+fn audit_vi_symwrap_total_head_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("symwraptotal.k"), CompileOptions::default());
+        // symwrap has no `free`: only the write and load declarations.
+        let mut observation = step_support::symmem(true);
+        observation.retain(|spec| spec.constructor != "memoryFree");
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        let baseline = validator.baseline();
+        let patch = Patch::new(vec![Edit::DeleteSentence {
+            at: support::rule(baseline, "SYMWRAPTOTAL.collapse"),
+        }])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("SYMWRAPTOTAL.collapse", &[0])],
+            "delete-collapse",
+            &patch,
+        );
+        let wrap = |value: Pattern| app("wrap", vec![value]);
+        let oracles = [
+            whole_term(),
+            pattern(
+                &vocabulary,
+                "memoryWrite",
+                "memoryLoad",
+                Relation::EventuallyAfter,
+            ),
+        ];
+        let tests = [
+            case(
+                "sym-wrap",
+                state(
+                    wrap(app("s", vec![nat("X")])),
+                    nat("V"),
+                    wrap(z()),
+                    nat("W"),
+                ),
+                &oracles,
+            ),
+            case(
+                "ground-wrap",
+                state(wrap(app("s", vec![z()])), nat("V"), wrap(z()), nat("W")),
+                &oracles,
+            ),
+        ];
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            for test in &tests {
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "SYMWRAPTOTAL",
+                    observation: &observation,
+                    classify: &normal,
+                    tests: std::slice::from_ref(test),
+                    budget: BUDGET,
+                };
+                let result = ViResult::of(&campaign, &generation, mode);
+                assert!(!result.killed(), "{}: {result:?}", test.id);
+                let expected = if test.id == "sym-wrap" {
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                } else {
+                    ViResult::Ran {
+                        tests: vec![("ground-wrap".into(), TestRun::Compared(vec![U, U]))],
+                        status: MutantStatus::Unknown,
+                        killing: vec![],
+                        certificates: vec![],
+                    }
+                };
+                assert_eq!(result, expected, "{} {mode:?}", test.id);
+            }
+        }
+    });
 }

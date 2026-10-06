@@ -801,6 +801,7 @@ fn term_conjunct(state: &Pattern, sorts: &SymbolSorts) -> Option<Pattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::feasibility::TestInitialState;
     use k_rust::backend::TransitionIdOutput;
     use k_rust::kore::{json as kore_json, parser::parse_pattern};
     use kink_pattern::{
@@ -972,8 +973,12 @@ mod tests {
             "MAIN",
         )
         .expect("definition");
-        ObservationDecider::new(&definition, &k_rust_backend::smt::NoSolver, term)
-            .definition_independent(term)
+        ObservationDecider::new(
+            &definition,
+            &k_rust_backend::smt::NoSolver,
+            TestInitialState::of_test(term),
+        )
+        .definition_independent(term)
     }
 
     fn classify(term: &Pattern) -> ExecutionTerminalKind {

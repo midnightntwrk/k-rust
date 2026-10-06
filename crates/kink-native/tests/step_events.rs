@@ -15,7 +15,7 @@ use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgeFailure, paths_from_steps};
 use kink_native::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile, SteppedExecution};
-use kink_native::feasibility::BackendRelations;
+use kink_native::feasibility::{BackendRelations, TestInitialState};
 use kink_native::step_events::{
     ObservationDecider, StepEventSpec, StepObservation, StepObservationError, StepPresence,
 };
@@ -139,7 +139,8 @@ fn paths_for(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     baseline_backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(state));
             let bridged = paths_from_steps(
                 &BridgeContext {
                     test_id: "identity",
@@ -347,12 +348,14 @@ fn hooked_string_sort_identity_is_undecided() {
     StepObservation::new(&mut backend, vec![spec.clone()]).expect("declaration validates");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             assert!(matches!(
                 decider.classify_step(&spec, &steps.states[0][0], Some(&steps.states[0][1]), &path),
                 StepPresence::Undecided
             ));
-            let relations = BackendRelations::shared(definition, solver, &state);
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
             let value = custom_value("SortMyStr", &[206, 169]);
             assert_eq!(
                 relations.relate(&path, &[], &value, &value),
@@ -407,7 +410,8 @@ fn unknown_domain_codec_blocks_identity() {
     let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             let spec = StepEventSpec {
                 constructor: "probe".into(),
                 pre: support::var("X", "SortGeneratedTopCell"),
@@ -432,12 +436,8 @@ fn unknown_domain_codec_blocks_identity() {
                     StepPresence::Undecided
                 ));
                 assert_eq!(
-                    BackendRelations::shared(definition, solver, &state).relate(
-                        &path,
-                        &[],
-                        &value,
-                        &value
-                    ),
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state))
+                        .relate(&path, &[], &value, &value),
                     RelationDecision::Indeterminate
                 );
             }
@@ -507,7 +507,8 @@ fn non_ascii_string_encodings_do_not_distinguish_equal_executions() {
     let path = paths_for(&baseline, &baseline, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             assert!(!decider.definition_independent(&string_value(&[195, 169])));
             assert!(!decider.definition_independent(&string_value("é".as_bytes())));
             assert!(decider.definition_independent(&string_value(b"abc")));
@@ -567,7 +568,8 @@ fn shared_string_relations_refuse_non_ascii_clashes() {
     let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, &state);
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
             for (left, right) in [
                 (string_value(&[195, 169]), string_value("Ã©".as_bytes())),
                 (string_value("é".as_bytes()), string_value("Ã©".as_bytes())),
@@ -823,7 +825,8 @@ fn dead_existential_rule_does_not_change_paths() {
         .expect("baseline backend");
         backend
             .with_solver(None, |definition, solver| {
-                let decider = BackendRelations::shared(definition, solver, &state);
+                let decider =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 let x = support::var("X", "SortNat");
                 let z = app("Lblz", vec![]);
                 let assumption = TermRelation {
@@ -1009,7 +1012,8 @@ fn missing_stepped_states_refuse_the_whole_bridge() {
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             let result = paths_from_steps(
                 &BridgeContext {
                     test_id: "missing",
@@ -1179,7 +1183,8 @@ fn injections_match_modulo_subsorts() {
     .expect("backend");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             let nested = inj(
                 "SortLarge",
                 "SortKItem",
@@ -1338,7 +1343,8 @@ fn unvalidated_identity_injections_are_undecided() {
         .expect("backend");
         backend
             .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, &state);
+                let decider =
+                    ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
                 assert!(matches!(
                     decider.classify_step(
                         &spec,
@@ -1397,7 +1403,8 @@ fn ill_sorted_injection_constructor_heads_are_undecided() {
     .expect("backend");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             for (pattern, subject) in [
                 (
                     inj("SortSmall", "SortKItem", support::var("X", "SortSmall")),
@@ -1651,6 +1658,12 @@ mod position_rows {
                 let unobserved = adapter
                     .execute_unobserved(&mut backend, &state, BUDGET)
                     .expect("unobserved run");
+                assert!(
+                    !unobserved.timed_out,
+                    "{} {row}: unobserved timeout",
+                    fixture.name()
+                );
+                let unobserved = unobserved.leaves;
                 let mut erased = execution.adapted.erased();
                 for leaf in &mut erased {
                     leaf.branch.clear();

@@ -74,7 +74,7 @@ use kink_native::execution_difference::{
     DefinitionFacts, DifferenceCertificate, NotProvedReason, StateSequences, certify_difference,
     definition_facts,
 };
-use kink_native::feasibility::BackendRelations;
+use kink_native::feasibility::{BackendRelations, TestInitialState};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
@@ -756,7 +756,7 @@ fn run_tests(
                     let mutant_facts = sides.facts(*symbolic)?;
                     Ok(certify_difference(
                         &mut certifier.runtime.backend,
-                        &test.initial_state,
+                        TestInitialState::of_test(&test.initial_state),
                         &baseline_facts,
                         &mutant_facts,
                         &baseline_sequences,
@@ -898,7 +898,11 @@ impl Runtime {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
             }
             Ok(execution) => match self.backend.with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, &test.initial_state);
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                );
                 Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
                     &execution,
                     &BridgeContext {
@@ -947,8 +951,16 @@ impl Runtime {
         context.test_id.clone_from(&test.id);
         self.backend
             .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, &test.initial_state);
-                let relations = BackendRelations::shared(definition, solver, &test.initial_state);
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                );
+                let relations = BackendRelations::shared(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                );
                 let evaluate = |execution: Option<&SteppedExecution>| {
                     let bridged = execution.and_then(|execution| {
                         paths_from_steps(

@@ -27,7 +27,10 @@ use kink_native::execution_difference::{
     CertifiedSide, DifferenceCertificate, Exclusion, NotProvedReason, StateSequences,
     certify_difference, definition_facts,
 };
-use kink_native::{bridge, feasibility::LeafFeasibility};
+use kink_native::{
+    bridge,
+    feasibility::{LeafFeasibility, TestInitialState},
+};
 use kink_patch::{Edit, Patch, TermRef};
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -384,13 +387,26 @@ fn scope_name_forgery_does_not_prove_an_identical_relation() {
         let bs = scope_sequences(&mut baseline, &initial);
         let ms = scope_sequences(&mut mutant, &initial);
         assert_eq!(
-            certify_difference(&mut baseline, &initial, &facts, &mutant_facts, &bs, &ms),
+            certify_difference(
+                &mut baseline,
+                TestInitialState::of_test(&initial),
+                &facts,
+                &mutant_facts,
+                &bs,
+                &ms
+            ),
             DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
             "{name}",
         );
         let ps = scope_sequences(&mut positive, &initial);
-        let certificate =
-            certify_difference(&mut baseline, &initial, &facts, &positive_facts, &bs, &ps);
+        let certificate = certify_difference(
+            &mut baseline,
+            TestInitialState::of_test(&initial),
+            &facts,
+            &positive_facts,
+            &bs,
+            &ps,
+        );
         let expected = if cfg!(feature = "z3") {
             DifferenceCertificate::Proved {
                 witness_side: CertifiedSide::Mutant,
@@ -415,7 +431,14 @@ fn scope_name_forgery_does_not_prove_an_identical_relation() {
     let bs = scope_sequences(&mut baseline, &initial);
     let ms = scope_sequences(&mut mutant, &initial);
     assert_eq!(
-        certify_difference(&mut baseline, &initial, &facts, &mutant_facts, &bs, &ms),
+        certify_difference(
+            &mut baseline,
+            TestInitialState::of_test(&initial),
+            &facts,
+            &mutant_facts,
+            &bs,
+            &ms
+        ),
         DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
         "ordinary identifier EI-bB0-u2e-0-b1",
     );

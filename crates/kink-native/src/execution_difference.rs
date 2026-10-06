@@ -18,8 +18,8 @@ use k_rust_backend::unification::{UnificationResult, unify_term_pairs};
 use crate::{
     execution::HaltClass,
     feasibility::{
-        Inhabitation, InitialVariables, LeafFeasibility, free_constructor, interpreted_predicate,
-        proves_clash, solver_answer, translates_exactly,
+        Inhabitation, InitialVariables, LeafFeasibility, TestInitialState, free_constructor,
+        interpreted_predicate, proves_clash, solver_answer, translates_exactly,
     },
 };
 
@@ -275,7 +275,7 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 /// pattern-slot `Distinguish` into `Unknown`.
 pub fn certify_difference(
     backend: &mut Backend,
-    initial: &Pattern,
+    initial: TestInitialState<'_>,
     baseline_facts: &DefinitionFacts,
     mutant_facts: &DefinitionFacts,
     baseline_sequences: &StateSequences,
@@ -321,7 +321,7 @@ impl<'a> Prover<'a> {
     fn new(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
-        initial: &Pattern,
+        initial: TestInitialState<'_>,
     ) -> Self {
         let stable = InitialVariables::of(definition, &Inhabitation::of(definition), initial)
             .unwrap_or_default();

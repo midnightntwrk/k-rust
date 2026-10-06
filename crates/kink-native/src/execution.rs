@@ -267,6 +267,16 @@ impl SteppedExecution {
     }
 }
 
+/// The leaves of one run without observation rules ([`ExecutionAdapter::execute_unobserved`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnobservedExecution {
+    pub leaves: Vec<BaselineLeaf>,
+    /// The watchdog fired before the run ended, as [`AdaptedExecution::timed_out`]: the run is a
+    /// timeout and `leaves` is not its path set, whether the backend then returned leaves or an
+    /// error (which leaves none).
+    pub timed_out: bool,
+}
+
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
 /// observation does not produce, and its branch identity.
 #[derive(Clone, Debug, PartialEq)]
@@ -515,11 +525,12 @@ impl ExecutionAdapter {
         backend: &mut Backend,
         state: &Pattern,
         budget: ExecutionBudget,
-    ) -> Result<Vec<BaselineLeaf>, ExecutionAdapterFailure> {
+    ) -> Result<UnobservedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let encoded = state.clone();
-        let (result, _) = execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
-        result
+        let (result, timed_out) =
+            execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
+        let leaves = result
             .leaves
             .into_iter()
             .map(|leaf| {
@@ -547,7 +558,8 @@ impl ExecutionAdapter {
                     undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(UnobservedExecution { leaves, timed_out })
     }
 
     fn adapt(
@@ -917,7 +929,9 @@ mod tests {
             if profile == build {
                 let observed = observed.expect("matching profile executes");
                 assert_eq!(observed.leaves().len(), 1);
-                assert_eq!(unobserved.expect("matching profile executes").len(), 1);
+                let unobserved = unobserved.expect("matching profile executes");
+                assert!(!unobserved.timed_out);
+                assert_eq!(unobserved.leaves.len(), 1);
             } else {
                 assert_eq!(
                     observed,
@@ -929,6 +943,51 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// VI-03F review minor M1 (routed to VI-06): a fired watchdog makes the unobserved run a
+    /// timeout, as it does for `execute` and `execute_steps`, whether the backend then returns
+    /// leaves or an error. It is never a complete run.
+    #[test]
+    fn zero_budget_unobserved_execution_is_timeout() {
+        use k_rust::backend::BackendOptions;
+        let mut backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let state = Pattern::Application {
+            symbol: Symbol {
+                name: "Lbla".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::ZERO,
+            max_simplification_iterations: 10,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let unobserved = ExecutionAdapter::with_profile(SolverProfile::BUILD).execute_unobserved(
+            &mut backend,
+            &state,
+            budget,
+        );
+        // Before the fix (measured): no-Z3 `Ok([one Cancelled leaf])`, Z3 `Ok([])` (the backend's
+        // cancellation error mapped to no leaves), both indistinguishable from a complete run.
+        let unobserved = unobserved.expect("a timeout is not an adapter failure");
+        assert!(unobserved.timed_out, "a fired watchdog is a timeout");
+        assert_eq!(
+            unobserved.leaves.len(),
+            usize::from(!cfg!(feature = "z3")),
+            "no-Z3 keeps the cancelled leaf, Z3 returns the cancellation error"
+        );
     }
 
     #[test]

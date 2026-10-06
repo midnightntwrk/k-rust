@@ -1,7 +1,7 @@
 // Execution-identity audit fixture (EI-05, attack AT1). guardedmem with an existential:
-// `write` continues with `stamp(?T)`, so the definition has existential rewrite variables and
-// no initial variable is stable for the difference certificate. An AS5 guard split whose
-// inserted copy renames `?T` to `?U` gives runs that are equal up to that renaming.
+// `write` continues with `stamp(?T)`. Under variable identity each `?T` is minted apart from
+// every request name, so the initial variables stay stable for the difference certificate. An AS5
+// guard split whose inserted copy renames `?T` to `?U` gives runs equal up to that renaming.
 module FRESHGEN-SYNTAX
   imports INT-SYNTAX
   syntax Address ::= addr(Int) [symbol(addr)]

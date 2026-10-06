@@ -22,7 +22,7 @@ use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, pat
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::feasibility::{BackendRelations, LeafFeasibility};
+use kink_native::feasibility::{BackendRelations, LeafFeasibility, TestInitialState};
 use kink_native::report::{ReportInput, ReportResult, step3_report};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -265,7 +265,8 @@ fn run_side(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
                 &BridgeContext {
                     test_id: "symbolic",
@@ -281,7 +282,8 @@ fn run_side(
         .expect("execution bridges");
     let report_bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
                 &stepped.adapted,
                 &BridgeContext {
@@ -389,6 +391,8 @@ fn observation_erasure_preserves_live_leaves() {
             let unobserved = adapter
                 .execute_unobserved(&mut backend, &state, budget)
                 .expect("unobserved execution");
+            assert!(!unobserved.timed_out, "{fixture} {row}: unobserved timeout");
+            let unobserved = unobserved.leaves;
             let mut erased = observed.erased();
             for leaf in &mut erased {
                 leaf.branch.clear();
@@ -485,7 +489,8 @@ fn outcome(run: &Run, plan: &PatternPlan) -> Evaluation {
 fn decided(run: &mut Run, plan: &PatternPlan) -> Evaluation {
     run.backend
         .with_solver(None, |definition, solver| {
-            let decider = BackendRelations::shared(definition, solver, &run.state);
+            let decider =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&run.state));
             Ok::<_, k_rust::backend::BackendError>(evaluate_with(
                 &run.context,
                 plan,
@@ -1134,7 +1139,8 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
                 &BridgeContext {
                     test_id: row.id,
@@ -1162,7 +1168,8 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
     };
     let evaluation = backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, &state);
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
             Ok::<_, k_rust::backend::BackendError>(evaluate_with(
                 &context,
                 &plan,
@@ -1181,7 +1188,8 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
         .expect("evaluation");
     let report_bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
             Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
                 execution,
                 &BridgeContext {
@@ -2297,8 +2305,16 @@ fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [E
     run.backend
         .with_solver(None, |definition, solver| {
             Ok::<_, k_rust::backend::BackendError>([
-                evaluate(&BackendRelations::shared(definition, solver, &state)),
-                evaluate(&BackendRelations::shared(definition, &NoSolver, &state)),
+                evaluate(&BackendRelations::shared(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&state),
+                )),
+                evaluate(&BackendRelations::shared(
+                    definition,
+                    &NoSolver,
+                    TestInitialState::of_test(&state),
+                )),
             ])
         })
         .expect("backend definition")
@@ -2542,7 +2558,8 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     let (always_sat, z3_answer) = run
         .backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, &AlwaysSat, &state);
+            let relations =
+                BackendRelations::shared(definition, &AlwaysSat, TestInitialState::of_test(&state));
             let evaluation = evaluate_with(
                 &run.context,
                 &plan,

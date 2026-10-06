@@ -19,7 +19,7 @@ use kink_native::execution_difference::{
     CertifiedSide, DefinitionFacts, DifferenceCertificate, Exclusion, NotProvedReason,
     StateSequence, StateSequences, certify_difference, definition_facts,
 };
-use kink_native::feasibility::LeafFeasibility;
+use kink_native::feasibility::{LeafFeasibility, TestInitialState};
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{Baseline, Edit, InsertPosition, Patch, TermRef};
 
@@ -135,7 +135,7 @@ fn certify(baseline: &mut Side, mutant: &mut Side, state: &Pattern) -> Differenc
     let (baseline_facts, mutant_facts) = (baseline.facts(), mutant.facts());
     certify_difference(
         &mut baseline.backend,
-        state,
+        TestInitialState::of_test(state),
         &baseline_facts,
         &mutant_facts,
         &baseline_sequences,
@@ -361,7 +361,14 @@ fn synthetic(
     mutant: &StateSequences,
 ) -> DifferenceCertificate {
     let facts = definition_facts(backend).expect("facts");
-    certify_difference(backend, initial, &facts, &facts, baseline, mutant)
+    certify_difference(
+        backend,
+        TestInitialState::of_test(initial),
+        &facts,
+        &facts,
+        baseline,
+        mutant,
+    )
 }
 
 fn symmem_backend() -> Backend {
@@ -484,7 +491,7 @@ fn signature_projections_compare_constructor_and_sort_structure() {
     assert_eq!(
         certify_difference(
             &mut symmem.backend,
-            &chain(2)[0],
+            TestInitialState::of_test(&chain(2)[0]),
             &symmem_facts,
             &guarded_facts,
             &sequences,
@@ -726,7 +733,7 @@ fn uninternalizable_states_fail_closed() {
     );
 }
 
-// ------------------------------------------------------------------ decoded names (variable identity)
+// ------------------------------------------------------------------ read names (variable identity)
 
 /// `check(a); check2(b); go(X); done` over conflate.k: `check` continues when `a <=Int 0`,
 /// `check2` when `b >Int 0`, and the baseline's `go` narrows `X:Box` to `c(I)` with a fresh
@@ -789,7 +796,7 @@ fn initial_names_are_distinct_from_minted_names() {
         assert_eq!(
             certify_difference(
                 &mut baseline.backend,
-                &program,
+                TestInitialState::of_test(&program),
                 &baseline_facts,
                 &mutant_facts,
                 &baseline_sequences,
@@ -801,7 +808,8 @@ fn initial_names_are_distinct_from_minted_names() {
     }
 }
 
-/// Within one decoded state a name is one variable, whatever its spelling, so it is renamed
+/// Within one read state a name is one variable, whatever its spelling (names are read
+/// verbatim and printed injectively), so it is renamed
 /// consistently in its scope: `write(addr(N), N)` against `write(addr(z), s(z))` clashes for
 /// every name. Before variable identity the names a mint could print as (`ExVarI10`, `N10`)
 /// were renamed per occurrence, and the difference was not proved.
@@ -836,8 +844,8 @@ fn every_name_is_renamed_consistently() {
     }
 }
 
-/// A leaf's feasibility is decided on its decoded state, which is the real state under variable
-/// identity, so an Unsat covering leaf has no instance and is `Vacuous` whatever its names.
+/// A leaf's feasibility is decided on its read state, which under variable identity is the
+/// real state up to a renaming that fixes the request's names, so an Unsat covering leaf has no instance and is `Vacuous` whatever its names.
 /// Before variable identity only names that no mint could print as (`N`, not `ExVarI10` or
 /// `N10`) made an Unsat leaf Vacuous.
 #[test]

@@ -174,6 +174,35 @@ impl Inhabitation {
     }
 }
 
+/// The test's initial state, as the stable-name source of the cross-request rule
+/// ([`InitialVariables`]; variable-identity README VI-R7).
+///
+/// It is the only input that [`BackendRelations::shared`],
+/// [`crate::step_events::ObservationDecider::new`] and
+/// [`crate::execution_difference::certify_difference`] accept for the variables they link
+/// between requests. The pattern must be the one every k-rust request that kink combines for
+/// one test receives as its input: the initial configuration of the test, run on the baseline
+/// and on the mutant, stepped and event-free. A leaf state, an observed payload or any other
+/// state of a request is not one: its minted names belong to that request alone, and wrapping
+/// it here would make them stable across requests. In production the only construction is the
+/// campaign runner's, from `TestCase::initial_state`, the same pattern it executes.
+#[derive(Clone, Copy, Debug)]
+pub struct TestInitialState<'a>(&'a Pattern);
+
+impl<'a> TestInitialState<'a> {
+    /// The initial state of a test, which every request whose payloads are combined received.
+    #[must_use]
+    pub const fn of_test(initial_state: &'a Pattern) -> Self {
+        Self(initial_state)
+    }
+
+    /// The pattern.
+    #[must_use]
+    pub const fn pattern(self) -> &'a Pattern {
+        self.0
+    }
+}
+
 /// The variables that kink links across requests: the free element variables of the **test's**
 /// initial state, when every free variable of it internalizes to an element variable of an
 /// inhabited sort, and none otherwise.
@@ -186,7 +215,7 @@ impl Inhabitation {
 /// it is the only kind of variable that may be identified between them: a minted name of one
 /// request says nothing about a minted name of another (exploration order and rule-variable
 /// names choose them). The spelling of an initial name does not matter (`X1`, `ExVarI0` and
-/// `Ex-hX-b0` are stable like `X`). Callers pass the test's initial state and nothing else.
+/// `Ex-hX-b0` are stable like `X`). The only input is a [`TestInitialState`].
 pub(crate) struct InitialVariables;
 
 impl InitialVariables {
@@ -195,9 +224,10 @@ impl InitialVariables {
     pub(crate) fn of(
         definition: &BackendDefinition,
         inhabitation: &Inhabitation,
-        initial: &Pattern,
+        initial: TestInitialState<'_>,
     ) -> Option<BTreeSet<Variable>> {
         initial
+            .pattern()
             .free_variables()
             .into_iter()
             .map(|variable| {
@@ -660,7 +690,7 @@ impl<'a> BackendRelations<'a> {
     pub fn shared(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
-        initial_state: &Pattern,
+        initial_state: TestInitialState<'_>,
     ) -> Self {
         let inhabitation = Inhabitation::of(definition);
         let variables = InitialVariables::of(definition, &inhabitation, initial_state);
@@ -967,7 +997,8 @@ mod tests {
         let real = path(PathStop::DepthLimit, top());
         backend
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 for (bytes, canonical) in [
                     (b"01".as_slice(), b"1".as_slice()),
                     (b"+1", b"1"),
@@ -1269,7 +1300,8 @@ mod tests {
         let state = symmem_state();
         let answers = symmem
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 Ok::<_, BackendError>(
                     rows.iter()
                         .map(|(id, assumed, left, right, _)| {
@@ -1344,7 +1376,8 @@ mod tests {
         let state = symmem_state();
         let answers = symmem
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 Ok::<_, BackendError>(
                     rows.iter()
                         .map(|(id, path, assumptions, _)| {
@@ -1373,7 +1406,8 @@ mod tests {
                     .name
                     .to_string();
                 let one_plus_one = support::app(&plus, vec![support::int(1), support::int(1)]);
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 let real = path(PathStop::Terminal, top());
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &one_plus_one, &support::int(2)),
@@ -1471,8 +1505,9 @@ mod tests {
                     answer: answer.clone(),
                     queries: std::cell::RefCell::default(),
                 };
-                let feasible = BackendRelations::shared(definition, &solver, state)
-                    .feasible(path, assumptions);
+                let feasible =
+                    BackendRelations::shared(definition, &solver, TestInitialState::of_test(state))
+                        .feasible(path, assumptions);
                 let asked = solver.queries.into_inner();
                 let expected_queries = query.iter().cloned().collect::<Vec<_>>();
                 if feasible != *expected || asked != expected_queries {
@@ -1741,7 +1776,12 @@ mod tests {
                     answer: Ok(Satisfiability::Unsat),
                     queries: std::cell::RefCell::default(),
                 };
-                let answer = BackendRelations::shared(definition, &solver, &symmem_state()).relate(
+                let answer = BackendRelations::shared(
+                    definition,
+                    &solver,
+                    TestInitialState::of_test(&symmem_state()),
+                )
+                .relate(
                     &path(PathStop::Terminal, top()),
                     &[],
                     &addr(x.clone()),
@@ -1848,6 +1888,79 @@ mod tests {
             vec![LeafFeasibility::Unknown; 2]
         };
         assert_eq!(rows, expected);
+    }
+
+    /// VI-06 attack VI-AT7, the row `decoded_binders_do_not_capture` cannot build from KORE:
+    /// an internal binder `Ex#W!0` (a mint, never a read name) printed next to a free
+    /// variable that a test spelled `Ex-hW-b0`, the binder's own printed spelling. k-rust's
+    /// printer renames the binder apart (`apart_binders`: `Ex#W!0!binder0`, printed
+    /// `Ex-hW-b0-bbinder0`), so the read-back state keeps the real `w = 1 and exists v. w = 2`:
+    /// Unsat under Z3, not the captured, satisfiable `w = 1 and exists w. w = 2`. Without Z3
+    /// the state is Unknown.
+    #[test]
+    fn audit_vi_at7_initial_name_spelled_like_a_printed_binder_is_not_captured() {
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        let (binder, row) = guarded
+            .with_solver(None, |definition, solver| {
+                let inhabitation = Inhabitation::of(definition);
+                let w = support::var("Ex-hW-b0", "SortInt");
+                let Pattern::Variable(read_binder) = &support::var("B", "SortInt") else {
+                    unreachable!()
+                };
+                let read = constrained(
+                    constrained(
+                        guarded_state(w.clone()),
+                        equals("SortInt", w.clone(), support::int(1)),
+                    ),
+                    Pattern::Exists {
+                        sort: top_sort(),
+                        variable: Box::new(read_binder.clone()),
+                        body: Box::new(equals("SortInt", w.clone(), support::int(2))),
+                    },
+                );
+                let mut internal = definition
+                    .admit_unverified(&read, &[])
+                    .internalize_pattern()
+                    .expect("state internalizes");
+                let mut minted = 0;
+                for predicate in &mut internal.constraints {
+                    if let k_rust_backend::rule::Predicate::Exists(variable, _) = predicate {
+                        *variable = variable.with_name("Ex#W!0");
+                        minted += 1;
+                    }
+                }
+                assert_eq!(minted, 1, "one binder: {:?}", internal.constraints);
+                let printed = externalize::constrained_pattern(&internal);
+                let mut binders = Vec::new();
+                k_rust::kore::walk::for_each_post_order(&printed, |node| {
+                    if let Pattern::Exists { variable, .. } = node {
+                        binders.push(variable.name.clone());
+                    }
+                });
+                assert_eq!(
+                    printed
+                        .free_variables()
+                        .into_iter()
+                        .map(|variable| variable.name)
+                        .collect::<Vec<_>>(),
+                    ["Ex-hW-b0", "V"]
+                );
+                let row = leaf_feasibility(
+                    definition,
+                    solver,
+                    &inhabitation,
+                    &codec::to_value(&printed).expect("printed state encodes"),
+                );
+                Ok::<_, BackendError>((binders, row))
+            })
+            .expect("binder row");
+        assert_eq!(binder, ["Ex-hW-b0-bbinder0"]);
+        let expected = if cfg!(feature = "z3") {
+            LeafFeasibility::Unsat
+        } else {
+            LeafFeasibility::Unknown
+        };
+        assert_eq!(row, expected);
     }
 
     /// Under the documented explicit-definedness premise, leaf feasibility uses the solver's
@@ -2000,7 +2113,8 @@ mod tests {
         let both = |value: Pattern| support::app("Lblboth", vec![value]);
         let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
         let solver = Scripted(Err(SmtError::Unavailable));
-        let relations = BackendRelations::shared(&definition, &solver, &state);
+        let relations =
+            BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&state));
         let real = path(PathStop::Terminal, top_of("SortNat"));
         assert_eq!(
             [
@@ -2035,6 +2149,96 @@ mod tests {
         );
     }
 
+    /// VI-03F review attack AT13 over a non-confluent `anywhere` head: `tag(s(z))` rewrites to
+    /// `tag(z)` and to `tag(s(s(z)))`; `f` is a partial function without equations and `g` a
+    /// total function with one.
+    const TAG: &str = r#"[]
+        module MAIN
+            sort SortNat{} []
+            symbol Lblz{}() : SortNat{} [constructor{}(), functional{}()]
+            symbol Lbls{}(SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+            symbol Lblpair{}(SortNat{}, SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+            symbol Lbltag{}(SortNat{}) : SortNat{} [functional{}(), injective{}(), anywhere{}()]
+            symbol Lblf{}(SortNat{}) : SortNat{} [function{}()]
+            symbol Lblg{}(SortNat{}) : SortNat{} [function{}(), functional{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+                ),
+                \equals{SortNat{}, R}(
+                    Lbltag{}(X0:SortNat{}),
+                    \and{SortNat{}}(Lbltag{}(Lblz{}()), \top{SortNat{}}())
+                )
+            ) [label{}("t1"), anywhere{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+                ),
+                \equals{SortNat{}, R}(
+                    Lbltag{}(X0:SortNat{}),
+                    \and{SortNat{}}(Lbltag{}(Lbls{}(Lbls{}(Lblz{}()))), \top{SortNat{}}())
+                )
+            ) [label{}("t2"), anywhere{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lblz{}()), \top{R}())
+                ),
+                \equals{SortNat{}, R}(
+                    Lblg{}(X0:SortNat{}),
+                    \and{SortNat{}}(Lblz{}(), \top{SortNat{}}())
+                )
+            ) [label{}("g-z")]
+        endmodule []"#;
+
+    /// VI-06 re-run of VI-03F review attack AT13 (T-FREE, README 16.4): an `anywhere` head
+    /// (`HeadRole::EquationHead`) is decomposed only by k-rust, and only where both
+    /// applications are normal on every instance. Every relation that an equation could
+    /// decide another way is Indeterminate and every such query Unknown; only `tag(z)` against
+    /// `tag(s(s(z)))`, both normal on every instance, is Unequal. Same values in both profiles,
+    /// with the build's solver. No unjustified Equal, Unequal or Clash.
+    #[test]
+    fn audit_vi_at13_anywhere_heads_are_decomposed_only_where_normal() {
+        let mut backend = Backend::new(TAG, "MAIN", BackendOptions::default()).expect("backend");
+        let (x, y) = (nat("X"), nat("Y"));
+        let tag = |value: Pattern| support::app("Lbltag", vec![value]);
+        let f = |value: Pattern| support::app("Lblf", vec![value]);
+        let g = |value: Pattern| support::app("Lblg", vec![value]);
+        let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
+        let real = path(PathStop::Terminal, top_of("SortNat"));
+        let (answers, queries) = backend
+            .with_solver(None, |definition, solver| {
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
+                let answers = [
+                    (tag(s(z())), tag(z())),
+                    (tag(f(x.clone())), tag(z())),
+                    (tag(g(x.clone())), tag(z())),
+                    (tag(g(x.clone())), tag(s(s(z())))),
+                    (tag(x.clone()), tag(z())),
+                    (tag(x.clone()), tag(s(s(y.clone())))),
+                    (tag(s(x.clone())), tag(s(s(z())))),
+                    (f(x.clone()), f(y.clone())),
+                    (g(x.clone()), g(y.clone())),
+                    (s(tag(s(x.clone()))), s(tag(z()))),
+                    (tag(z()), tag(s(s(z())))),
+                ]
+                .map(|(left, right)| relations.relate(&real, &[], &left, &right));
+                let queries = [
+                    relations.feasible(&real, &[relation(tag(x.clone()), tag(z()))]),
+                    relations.feasible(&real, &[relation(tag(s(x.clone())), tag(s(s(z()))))]),
+                ];
+                Ok::<_, BackendError>((answers, queries))
+            })
+            .expect("relations");
+        let mut expected = [const { Indeterminate }; 11];
+        expected[10] = Unequal;
+        assert_eq!(answers, expected);
+        assert_eq!(queries, [Unknown, Unknown]);
+    }
+
     /// Before variable identity, a definition whose rewrite rules introduce existential
     /// variables could reuse a variable name for two values on one path, so every comparison
     /// involving a variable was undecided (`[Indeterminate, Indeterminate, Unequal]`). Under the
@@ -2061,7 +2265,8 @@ mod tests {
                         .any(|rule| !rule.rule.existentials.is_empty()),
                     "fixture must introduce an existential"
                 );
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &addr(x.clone()), &addr(x.clone())),
                     relations.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
@@ -2102,7 +2307,8 @@ mod tests {
         let real = path(PathStop::DepthLimit, top());
         let (variables, answers) = symmem
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state);
+                let relations =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 Ok::<_, BackendError>((
                     relations.variables.clone(),
                     [
@@ -2137,7 +2343,8 @@ mod tests {
         let inhabited = support::var("VarS", "SortS");
         let empty = support::var("VarE", "SortEmpty");
         assert_eq!(
-            BackendRelations::shared(&definition, &solver, &inhabited).variables,
+            BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&inhabited))
+                .variables,
             Some(BTreeSet::from([Variable::new(
                 "VarS",
                 Sort::simple("SortS")
@@ -2148,7 +2355,8 @@ mod tests {
             vec![inhabited, support::app("Lblwrap", vec![empty])],
         );
         assert_eq!(
-            BackendRelations::shared(&definition, &solver, &pair).variables,
+            BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&pair))
+                .variables,
             None
         );
     }
@@ -2169,7 +2377,8 @@ mod tests {
         let real = path(PathStop::DepthLimit, top());
         backend
             .with_solver(None, |definition, solver| {
-                let shared = BackendRelations::shared(definition, solver, &state);
+                let shared =
+                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
                 assert_eq!(
                     shared.relate(&real, &[], &identity, &y),
                     RelationDecision::Indeterminate
@@ -2283,7 +2492,8 @@ mod tests {
         let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
         let (feasibility, events) = backend
             .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, &state);
+                let decider =
+                    ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
                 let feasibility = execution
                     .adapted
                     .leaves()

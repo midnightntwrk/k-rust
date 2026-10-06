@@ -25,7 +25,7 @@ use kink_native::bridge::{self, DiscardReason};
 use kink_native::execution::{
     AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::feasibility::{BackendRelations, LeafFeasibility};
+use kink_native::feasibility::{BackendRelations, LeafFeasibility, TestInitialState};
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
@@ -382,7 +382,8 @@ fn definedness_rows(
     let mut checked = 0;
     let rows = backend(&side, module)
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, &initial);
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(&initial));
             Ok::<_, BackendError>(
                 leaves
                     .iter()
@@ -549,7 +550,8 @@ fn review_leaves(
     let leaves = leaves(&side, module, initial);
     backend(&side, module)
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, initial);
+            let relations =
+                BackendRelations::shared(definition, solver, TestInitialState::of_test(initial));
             Ok::<_, BackendError>(
                 leaves
                     .iter()
@@ -1011,8 +1013,11 @@ fn review_kept_calls_do_not_supply_terminals() {
         };
         let guarded = side
             .with_solver(None, |definition, solver| {
-                let decider =
-                    kink_native::step_events::ObservationDecider::new(definition, solver, &initial);
+                let decider = kink_native::step_events::ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&initial),
+                );
                 Ok::<_, BackendError>(bridge::paths_from_execution(
                     &execution,
                     &context,
@@ -1118,8 +1123,11 @@ fn injections_are_values_only_in_normal_form() {
         let initial = support::initial_state(program.clone(), "SortProg");
         let independent = backend
             .with_solver(None, |definition, solver| {
-                let decider =
-                    kink_native::step_events::ObservationDecider::new(definition, solver, &initial);
+                let decider = kink_native::step_events::ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&initial),
+                );
                 Ok::<_, BackendError>(decider.definition_independent(&program))
             })
             .expect("backend definition");
@@ -1132,8 +1140,11 @@ fn injections_are_values_only_in_normal_form() {
     let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
     let nested_independent = backend
         .with_solver(None, |definition, solver| {
-            let decider =
-                kink_native::step_events::ObservationDecider::new(definition, solver, &nested);
+            let decider = kink_native::step_events::ObservationDecider::new(
+                definition,
+                solver,
+                TestInitialState::of_test(&nested),
+            );
             Ok::<_, BackendError>(decider.definition_independent(&nested))
         })
         .expect("backend definition");
@@ -1197,8 +1208,11 @@ fn identity_injections_do_not_supply_terminals() {
         };
         let bridged = backend
             .with_solver(None, |definition, solver| {
-                let decider =
-                    kink_native::step_events::ObservationDecider::new(definition, solver, &initial);
+                let decider = kink_native::step_events::ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&initial),
+                );
                 Ok::<_, BackendError>(bridge::paths_from_execution(
                     &execution,
                     &context,

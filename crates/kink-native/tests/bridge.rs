@@ -21,7 +21,7 @@ use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_steps};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::feasibility::BackendRelations;
+use kink_native::feasibility::{BackendRelations, TestInitialState};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{NativeValidator, ValidatedDefinition, equivalent_compilation};
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
@@ -194,7 +194,8 @@ fn run(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = baseline_backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, state);
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(state));
             Ok::<_, k_rust::backend::BackendError>(
                 paths_from_steps(
                     &BridgeContext {
@@ -288,7 +289,11 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
         return backend
             .borrow_mut()
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &run.initial_state);
+                let relations = BackendRelations::shared(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&run.initial_state),
+                );
                 Ok::<_, k_rust::backend::BackendError>(
                     evaluate_with(
                         &run.context,

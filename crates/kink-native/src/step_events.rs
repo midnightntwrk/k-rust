@@ -13,8 +13,9 @@ use kink_pattern::{
 };
 
 use crate::feasibility::{
-    BackendRelations, Inhabitation, contains_non_strict_injection, domain_value_identity_safe,
-    free_constructor, non_strict_injection_node, strict_injection_sorts,
+    BackendRelations, Inhabitation, TestInitialState, contains_non_strict_injection,
+    domain_value_identity_safe, free_constructor, non_strict_injection_node,
+    strict_injection_sorts,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -332,7 +333,7 @@ impl<'a> ObservationDecider<'a> {
     pub fn new(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
-        initial_state: &Pattern,
+        initial_state: TestInitialState<'_>,
     ) -> Self {
         Self {
             definition,
@@ -418,8 +419,9 @@ impl<'a> ObservationDecider<'a> {
             } else {
                 left.clone()
             };
-            // Both terms are subterms of states of one request, where one decoded name is one
-            // variable (variable identity), so identical terms are equal on every instance.
+            // Both terms are subterms of states of one request, where one printed name is one
+            // variable (variable identity: names are read verbatim and printed injectively), so
+            // identical terms are equal on every instance.
             let decision = if left == *right
                 && !crate::feasibility::contains_untrusted_domain_value(self.definition, &left)
             {
