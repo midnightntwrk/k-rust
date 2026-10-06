@@ -5,6 +5,9 @@
 # A test that spawns `krust` waits for the child, so it uses one CPU at a time and needs no
 # override. Doc-tests do not run under nextest; run them with `cargo test --doc`.
 
+# `priority` below needs nextest 0.9.91; CI installs the recommended version.
+nextest-version = { required = "0.9.91", recommended = "0.9.143" }
+
 [test-groups]
 # Tests that measure the machine: peak RSS and the wall-clock timing residual of a `krust
 # kcompile` child, judged against fixed bounds.

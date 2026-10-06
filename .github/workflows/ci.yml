@@ -45,6 +45,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
@@ -69,8 +74,12 @@ jobs:
       - name: Run Clippy with native Z3 inference
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # nextest runs each test in its own process; it does not run doc-tests.
       - name: Run tests with native Z3 inference
-        run: cargo test --workspace --locked --no-fail-fast
+        run: cargo nextest run --workspace --locked --no-fail-fast --profile ci
+
+      - name: Run doc-tests with native Z3 inference
+        run: cargo test --doc --workspace --exclude k-rust-napi --locked
 
       - name: Run native measurement ratchet
         run: scripts/measure-ratchet.sh --gh-release
