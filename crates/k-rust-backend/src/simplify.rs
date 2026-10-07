@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records, each recorded evaluation checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions included. Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions of one predicate included (a conjunct of several is evaluated with the others as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -5093,12 +5093,22 @@ struct RecordTable {
 /// attempts it reached at the same depths, none of the applications it found not open, the
 /// rule-condition keys it found active and none of those it inserted, the console at the same
 /// position (or no console) if it reached a console hook, the same options, the same solver and
-/// the same assumptions by content (`\top` being no assumption) ([`EvaluationGiven`]). The
-/// evaluation is a function of those reads, so it would compute the recorded outcome; a served
-/// value is that evaluation's value, and a served failure starts the evaluation as its last
-/// retry, the failed equations excluded and the same contingency handed on. The one difference
-/// is the budget: a reused outcome does not spend what the evaluation would. What the record
-/// read is added to the evaluation that serves it ([`UnspecifiedEvaluation::reach`]).
+/// the same assumptions by content (`\top` being no assumption) and the same path condition
+/// ([`EvaluationGiven`]). The evaluation is a function of those reads, so it would compute the
+/// recorded outcome; a served value is that evaluation's value, and a served failure starts the
+/// evaluation as its last retry, the failed equations excluded and the same contingency handed
+/// on. Results differ in nothing but the budget: a reused outcome does not spend what the
+/// evaluation would. Diagnostics may differ: serving a record emits none of the diagnostics its
+/// evaluation emitted, so one that the evaluation would emit again at the point of reuse is
+/// missing there, and is not reported at all when the recorded evaluation emitted it inside an
+/// attempt that was undone, which discarded it. What the record read is added to the evaluation
+/// that serves it ([`UnspecifiedEvaluation::reach`]).
+///
+/// A rule condition is evaluated under its other conjuncts as assumptions
+/// (`simplify_predicates_with_budget`), so it shares records with the evaluation around it only
+/// when it is one predicate: then its assumptions have the content of those around it. A
+/// `requires` `C1 andBool C2`, or one whose definedness obligation stays open, is two or more,
+/// and its conjuncts share records only with evaluations under the same other conjuncts.
 struct UnspecifiedValues;
 
 impl UnspecifiedValues {
