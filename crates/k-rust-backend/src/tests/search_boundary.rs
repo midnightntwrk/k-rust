@@ -28,7 +28,9 @@ use crate::{
 /// `a => b => c`, `m => macroed`, `p => q` ensuring `g(q) = q`, and `t => c`, `t => macroed`,
 /// over constructors `a`, `b`, `c`, `m`, `p`, `q` and `t`, a macro symbol `macroed`, a total
 /// function `g` without equations, and `unsupported(\dv)`, an application of a hooked function
-/// whose hook the backend does not implement and which has no equations.
+/// whose hook the backend does not implement and which has no equations, declared `impure` so
+/// that it is the unsupported-hook error where the simplifier reaches it (a pure `total` one is
+/// left for the run to refuse where it uses the value).
 ///
 /// Two equations are guarded by `g(X) = X`, which nothing decides, so simplifying what they
 /// apply to asks the solver about `g`: `f(X) = c`, of a total function `f`, and `\ceil(pf(X))`,
@@ -69,7 +71,7 @@ fn definition() -> BackendDefinition {
                     \equals{{R, R}}(\ceil{{SortS{{}}, R}}(pf{{}}(X:SortS{{}})), \top{{R}}())
                 ) [label{{}}("pf-defined")]
                 hooked-symbol unsupported{{}}(SortV{{}}) : SortS{{}}
-                    [function{{}}(), total{{}}(), hook{{}}("TEST.unimplemented")]
+                    [function{{}}(), total{{}}(), impure{{}}(), hook{{}}("TEST.unimplemented")]
                 {a_b}
                 {b_c}
                 {m_macroed}

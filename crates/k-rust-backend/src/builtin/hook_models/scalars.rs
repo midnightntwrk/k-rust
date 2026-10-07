@@ -1,9 +1,7 @@
 //! `BYTES` against byte vectors and `STRING` against code-point sequences.
 //!
-//! A stored `String` is a byte sequence; its code points are its valid UTF-8 sequences, and a
-//! byte that begins none is a code point of its own (`code_point_units` in `string.rs`). The
-//! model splits a value with the standard library's `Utf8Chunks` instead, one unit per decoded
-//! character and per byte of an invalid chunk.
+//! A stored `String` holds its code points in UTF-8 (`kore::string::LiteralEncoding`); the
+//! model splits a value into its characters, one unit each.
 
 use num_bigint::{BigInt, Sign};
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -33,8 +31,9 @@ fn bytes(draw: &mut Draw<'_>, env: &mut Env, most: usize) -> Term {
     )
 }
 
-/// Text pieces: ASCII, two-, three- and four-byte characters, and bytes that begin no valid
-/// UTF-8 sequence (alone, or as a truncated one).
+/// Text pieces: ASCII, two-, three- and four-byte characters, and code points whose numbers are
+/// the bytes of a UTF-8 sequence's beginning (U+00C3 is the first byte of `é`; U+00E2 U+0082
+/// the first two of `€`), which must not be confused with those sequences.
 const PIECES: [&[u8]; 14] = [
     b"a",
     b"b",
@@ -47,9 +46,9 @@ const PIECES: [&[u8]; 14] = [
     "🦀".as_bytes(),
     "\u{fffd}".as_bytes(),
     b"\x00",
-    b"\xc3",
-    b"\xff",
-    b"\xe2\x82",
+    "\u{c3}".as_bytes(),
+    "\u{80}".as_bytes(),
+    "\u{e2}\u{82}".as_bytes(),
 ];
 
 fn text_value(draw: &mut Draw<'_>, most: usize) -> Vec<u8> {
@@ -324,12 +323,14 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
             .map(|byte| char::from(*byte))
             .collect::<String>()
             .into_bytes())),
-        // The code point of each unit, a raw byte standing for U+00NN, as one byte.
+        // The code point of each unit as one byte.
         ("BYTES.string2bytes", [Str(text)]) => units(text)
             .into_iter()
-            .map(|unit| match std::str::from_utf8(unit) {
-                Ok(character) => u8::try_from(u32::from(character.chars().next().unwrap())).ok(),
-                Err(_) => Some(unit[0]),
+            .map(|unit| {
+                u8::try_from(u32::from(
+                    std::str::from_utf8(unit).unwrap().chars().next().unwrap(),
+                ))
+                .ok()
             })
             .collect::<Option<Vec<_>>>()
             .map_or_else(
@@ -481,20 +482,12 @@ const STRING_HOOKS: [&str; 18] = [
     "STRING.token2string",
 ];
 
-/// The code points of a stored string, each as its bytes.
+/// The code points of a stored string, each as its UTF-8 bytes.
 fn units(value: &[u8]) -> Vec<&[u8]> {
-    let mut units = Vec::new();
-    for chunk in value.utf8_chunks() {
-        let valid = chunk.valid();
-        let mut offset = 0;
-        for character in valid.chars() {
-            let length = character.len_utf8();
-            units.push(&valid.as_bytes()[offset..offset + length]);
-            offset += length;
-        }
-        units.extend(chunk.invalid().chunks(1));
-    }
-    units
+    let text = std::str::from_utf8(value).expect("the model's strings are UTF-8");
+    text.char_indices()
+        .map(|(offset, character)| &value[offset..offset + character.len_utf8()])
+        .collect()
 }
 
 fn base_argument(draw: &mut Draw<'_>, env: &mut Env) -> Term {
@@ -511,7 +504,10 @@ fn string_case(draw: &mut Draw<'_>) -> Case {
             let left = text_value(draw, 3);
             let right = match draw.below(4) {
                 0 => left.clone(),
-                1 => left[..draw.below(left.len() + 1)].to_vec(),
+                1 => {
+                    let units = units(&left);
+                    units[..draw.below(units.len() + 1)].concat()
+                }
                 _ => text_value(draw, 3),
             };
             vec![string(draw, env, left), string(draw, env, right)]
@@ -531,8 +527,9 @@ fn string_case(draw: &mut Draw<'_>) -> Case {
         "STRING.find" | "STRING.rfind" => {
             let haystack = text_value(draw, 5);
             let haystack_units = units(&haystack);
-            // A needle taken from the haystack half of the time, or a prefix of one of its
-            // code points that ends inside it, which matches bytes but no whole code point.
+            // A needle taken from the haystack half of the time, or the code points whose
+            // numbers are the bytes of a prefix of one of its multi-byte characters, which
+            // occur only where those code points do.
             let multibyte = (0..haystack_units.len())
                 .filter(|&unit| haystack_units[unit].len() > 1)
                 .collect::<Vec<_>>();
@@ -545,9 +542,13 @@ fn string_case(draw: &mut Draw<'_>) -> Case {
                 2 if !multibyte.is_empty() => {
                     let unit = draw.pick(&multibyte);
                     let from = unit - draw.below(2).min(unit);
-                    let mut needle = haystack_units[from..=unit].concat();
-                    needle.pop();
-                    needle
+                    let mut bytes = haystack_units[from..=unit].concat();
+                    bytes.pop();
+                    bytes
+                        .iter()
+                        .map(|byte| char::from(*byte))
+                        .collect::<String>()
+                        .into_bytes()
                 }
                 _ => text_value(draw, 2),
             };
@@ -745,14 +746,9 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             }),
         },
         ("STRING.ord", [Str(text)]) => match units(text).as_slice() {
-            [unit] => match std::str::from_utf8(unit) {
-                Ok(character) => {
-                    Spec::value(Val::int(u32::from(character.chars().next().unwrap())))
-                }
-                // A byte outside UTF-8 is a code point of the stored string, the one a `\xNN`
-                // escape writes: U+00NN.
-                Err(_) => Spec::value(Val::int(unit[0])),
-            },
+            [unit] => Spec::value(Val::int(u32::from(
+                std::str::from_utf8(unit).unwrap().chars().next().unwrap(),
+            ))),
             _ => textual(text, Spec::bottom()),
         },
         ("STRING.token2string", [Token(_, text)]) => Spec::value(Str(text.clone())),

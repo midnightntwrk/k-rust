@@ -603,8 +603,11 @@ const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
 /// The guard names each operand several times; `fill_placeholders` states each argument once.
 ///
 /// A power whose exponent is a numeral, written in the template or as the argument a
-/// placeholder names (`arguments` are the translated arguments), is left as it is: its guard is
-/// constantly true, so both readings are the same term.
+/// placeholder names (`arguments` are the translated arguments), has an integer value for every
+/// base. A positive numeral leaves it as it is: its guard is constantly true, and Z3 reads it as
+/// the product of that many bases, 0 included. The numeral 0 makes it the constant `1.0` (of the
+/// sort of Z3's `^`): `X ^Int 0` is 1 for every integer `X`, `0 ^Int 0` included, while Z3 leaves
+/// `(^ 0 0)` uninterpreted, so the power itself would not be an exact reading there.
 fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
     match expression {
         SExpr::Atom(_) => (expression.clone(), false),
@@ -619,8 +622,16 @@ fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
                 })
                 .collect::<Vec<_>>();
             match items.as_slice() {
+                [SExpr::Atom(operator), _, exponent]
+                    if operator == POWER
+                        && numeral(exponent, arguments)
+                            .is_some_and(|value| value.bytes().all(|digit| digit == b'0')) =>
+                {
+                    // The base is dropped, and with it any guard it held.
+                    (SExpr::atom("1.0"), false)
+                }
                 [SExpr::Atom(operator), base, exponent]
-                    if operator == POWER && !is_numeral(exponent, arguments) =>
+                    if operator == POWER && numeral(exponent, arguments).is_none() =>
                 {
                     let integer = |value: &str| SExpr::atom(value);
                     let condition = SExpr::application(
@@ -652,20 +663,20 @@ fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
     }
 }
 
-/// Whether the template operand `operand` is a numeral, a nonnegative integer literal, by itself
+/// The template operand `operand` when it is a numeral, a nonnegative integer literal, by itself
 /// or as the argument it names.
-fn is_numeral(operand: &SExpr, arguments: &[SExpr]) -> bool {
+fn numeral<'a>(operand: &'a SExpr, arguments: &'a [SExpr]) -> Option<&'a str> {
     let SExpr::Atom(atom) = operand else {
-        return false;
+        return None;
     };
     let value = match placeholder(atom) {
         Some(index) => match index.checked_sub(1).and_then(|index| arguments.get(index)) {
             Some(SExpr::Atom(argument)) => argument,
-            Some(SExpr::List(_)) | None => return false,
+            Some(SExpr::List(_)) | None => return None,
         },
         None => atom,
     };
-    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then_some(value.as_str())
 }
 
 /// Whether `expression` applies [`POWER`], so that its translation uses
@@ -1415,12 +1426,14 @@ mod tests {
             format!("(mod {} 7)", guarded("3", "SMT-1"))
         );
 
-        // A numeral exponent, as the argument or in the template, leaves the power as it is: the
-        // guard holds. A negative literal is not a numeral.
+        // A positive numeral exponent, as the argument or in the template, leaves the power as it
+        // is: the guard holds, and Z3 reads it as a product. The exponent 0 is the constant 1, of
+        // the sort of Z3's power, for every base: Z3 leaves `(^ 0 0)` uninterpreted, and K's
+        // `0 ^Int 0` is 1. A negative literal is not a numeral.
         let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
         for (arguments, expected) in [
             (vec![x.clone(), integer("2")], "(^ SMT-1 2)"),
-            (vec![x.clone(), integer("0")], "(^ SMT-1 0)"),
+            (vec![x.clone(), integer("0")], "1.0"),
         ] {
             let mut translation = TranslationState::new();
             let translated = translation
@@ -1444,18 +1457,35 @@ mod tests {
             "squaredModulo",
             Some(SmtType::Hook(SExpr::parse("(mod (^ #1 2) #2)").unwrap())),
             vec![int.clone(), int.clone()],
-            int,
+            int.clone(),
         );
         assert_eq!(
             TranslationState::new()
                 .translate_term(&Term::application(
                     squared_modulo,
                     Vec::new(),
-                    vec![x, integer("7")],
+                    vec![x.clone(), integer("7")],
                 ))
                 .unwrap()
                 .to_string(),
             "(mod (^ SMT-1 2) 7)"
+        );
+        let zeroth_modulo = symbol(
+            "zerothModulo",
+            Some(SmtType::Hook(SExpr::parse("(mod (^ #1 0) #2)").unwrap())),
+            vec![int.clone(), int.clone()],
+            int,
+        );
+        assert_eq!(
+            TranslationState::new()
+                .translate_term(&Term::application(
+                    zeroth_modulo,
+                    Vec::new(),
+                    vec![x, integer("7")],
+                ))
+                .unwrap()
+                .to_string(),
+            "(mod 1.0 7)"
         );
         assert!(applies_power(&SExpr::atom("^")));
         assert!(applies_power(&SExpr::parse("(mod (^ #1 #2) #3)").unwrap()));

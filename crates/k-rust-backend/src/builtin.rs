@@ -118,7 +118,7 @@ pub enum UnsupportedHookReason {
     /// constructor-like arguments, so that a subterm whose value is never used fails nothing. A
     /// run never decides a condition over one and never ends stuck or final on one: the step or
     /// search match that would is the unsupported-hook error
-    /// (`simplify::refuse_results_above_the_size_bound`).
+    /// (`simplify::refuse_uncomputed_applications`).
     ///
     /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
     /// so the simplifier takes the application's `\ceil` to hold.
@@ -129,7 +129,12 @@ pub enum UnsupportedHookReason {
     /// documentation gives no value on these arguments, or the definition's documents disagree
     /// on whether a value exists. The application denotes whatever value the definition admits.
     /// It is left unevaluated, and it is not an unsupported-hook error on constructor-like
-    /// arguments, since there is no value for an implementation to compute.
+    /// arguments, since there is no value for an implementation to compute. The verdict reads
+    /// the hook's documentation only: the symbol's function equations, axioms of the definition
+    /// being run, still give the application the value they state. An equation whose evaluation
+    /// needs the value of the same application again gives none, and the application stays
+    /// unevaluated only if none of its equations gives one
+    /// (`simplify::unspecified_equation_attempt`).
     Unspecified {
         detail: String,
     },
@@ -441,9 +446,10 @@ fn io_read(
             UnsupportedHookReason::NotImplemented,
         ));
     };
+    // Each byte read is one character, the code point of its value, as for `IO.getc`.
     let bytes = execution.read(maximum);
     Ok(BuiltinResult::Value(inject_result(
-        Term::domain_value(Sort::builtin(BuiltinSort::String), bytes.to_vec()),
+        Term::domain_value(Sort::builtin(BuiltinSort::String), console_text(bytes)),
         result_sort,
     )))
 }
@@ -505,12 +511,36 @@ fn io_write(
     if !sort.is_builtin(BuiltinSort::String) {
         return Ok(BuiltinResult::NotApplicable);
     }
+    // Each character is written as one byte, its code point, as `IO.putc` writes one; a code
+    // point above 255 has no byte.
+    let Some(bytes) = value.as_utf8().ok().and_then(console_bytes) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: "IO.write of a code point above 255, which is no byte".into(),
+            },
+        ));
+    };
     let unit = io_k_unit("IO.write", result_sort, definition);
     if !matches!(unit, BuiltinResult::Value(_)) {
         return Ok(unit);
     }
-    execution.append("IO.write", descriptor, Arc::<[u8]>::from(value.as_bytes()));
+    execution.append("IO.write", descriptor, Arc::<[u8]>::from(bytes));
     Ok(unit)
+}
+
+/// The `String` of console bytes: K's console hooks are POSIX operations on characters, and
+/// `IO.getc` and `IO.putc` read and write one character as one byte, its code point; `IO.read`
+/// and `IO.write` read and write a string of such characters, so each byte is the code point of
+/// its value and back. (`domains.md` supports exactly the code points up to 255 in strings.)
+pub(crate) fn console_text(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| char::from(*byte)).collect()
+}
+
+/// The console bytes of `text` (see [`console_text`]), `None` when a code point is above 255.
+fn console_bytes(text: &str) -> Option<Vec<u8>> {
+    text.chars()
+        .map(|character| u8::try_from(u32::from(character)).ok())
+        .collect()
 }
 
 fn io_k_unit(
@@ -761,7 +791,7 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// address space holds, so on a 64-bit host a semantics that models such a memory (a
 /// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
 /// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
-/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_RESULT_BYTES`].
+/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_BYTES_RESULT_LEN`].
 pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 
 /// The floor of the size bound on the length of a `makeList` result, in elements (see
@@ -770,21 +800,42 @@ pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 /// [`TARGET_RESULT_BYTES`] of references.
 pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
 
-/// The most memory, in bytes, that one `Bytes` or `List` result whose length an argument's value
-/// sets may take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB,
-/// on a 32-bit target, and 2^61 bytes on a 64-bit one, where the floors bind first.
+/// The most memory, in bytes, that one `List` result whose length an argument's value sets may
+/// take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB, on a
+/// 32-bit target, and 2^61 bytes on a 64-bit one, where the floor binds first.
 pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
 
+/// The longest `Bytes` result whose length an argument's value sets on this target
+/// ([`target_bytes_result_len`] of `isize::MAX`): 2^27 bytes, 128 MiB, on a 32-bit target, and
+/// 2^59 bytes on a 64-bit one, where the floor binds first.
+pub(crate) const TARGET_BYTES_RESULT_LEN: u64 = target_bytes_result_len(isize::MAX as u64);
+
 // Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
-// do not build there: the target term binds below both floors.
+// do not build there: the target terms bind below both floors.
 const _: () = assert!(
     usize::BITS != 32
         || (TARGET_RESULT_BYTES == 1 << 29
-            && TARGET_RESULT_BYTES < MAX_BYTES_RESULT_LEN
+            && TARGET_BYTES_RESULT_LEN == 1 << 27
+            && TARGET_BYTES_RESULT_LEN < MAX_BYTES_RESULT_LEN
             && TARGET_RESULT_BYTES / 4 < MAX_LIST_RESULT_LEN)
 );
 
-/// The most memory one result may take on a target whose largest allocation is
+/// The longest `Bytes` result on a target whose largest allocation is `largest_allocation`
+/// bytes: a sixteenth of it, `(largest_allocation + 1) / 16`.
+///
+/// A `Bytes` value is also rendered when a run reports it, and its rendering is the largest form
+/// it takes. KORE has no escape shorter than `\xhh` for a byte outside printable ASCII, so the
+/// KORE text of a value of length `L` takes up to `4L + 2` bytes and its KORE JSON (`\u00hh`)
+/// up to `6L + 2`; the library's JSON response holds the value, its externalized copy, the JSON
+/// string of its characters (up to `2L`), the KORE JSON text and the response embedding it, about
+/// `16L` at once. A sixteenth of the largest allocation keeps that peak within half of a 32-bit
+/// address space, and its largest single allocation, `6L + 2`, below `isize::MAX`, which Rust
+/// refuses to exceed by panicking. On a 64-bit target the term is 2^59 bytes and never binds.
+pub(crate) const fn target_bytes_result_len(largest_allocation: u64) -> u64 {
+    largest_allocation.saturating_add(1) / 16
+}
+
+/// The most memory one `List` result may take on a target whose largest allocation is
 /// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
 ///
 /// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
@@ -2216,44 +2267,52 @@ mod tests {
         }
     }
 
-    /// `rootFloat(F, 2)` is the root of degree 2, IEEE 754 rootn(F, 2): the square root, except
-    /// that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
-    /// `rootFloat(F, 2)`). Other degrees are not implemented.
+    /// `rootFloat(F, N)` is IEEE 754 rootn(F, N) for every degree. Degree 2 is the square root,
+    /// except that the even root of -0 is +0 (and so is `sqrtFloat(-0.0)`, the K rule
+    /// `rootFloat(F, 2)`); degree 0 and an even root of a negative value are NaN; a zero gives a
+    /// zero of its sign for an odd positive degree, +0 for an even one, an infinity of its sign
+    /// for an odd negative degree and +inf for an even one; an infinity gives an infinity for a
+    /// positive degree and a zero for a negative one, with its sign for an odd degree and NaN for
+    /// an even root of -inf.
     #[test]
-    fn float_root_of_degree_two_is_the_ieee_even_root() {
+    fn float_root_is_the_ieee_rootn_of_every_degree() {
         let cases = [
-            ("4.0f", "2.00000000e+00p24x8"),
-            ("2.0", "1.4142135623730951e+00p53x11"),
-            ("-4.0f", "NaNp24x8"),
-            ("NaN", "NaNp53x11"),
-            ("Infinityf", "Infinityp24x8"),
-            ("-Infinity", "NaNp53x11"),
-            ("0.0", "0e+00p53x11"),
-            ("-0.0f", "0e+00p24x8"),
-            ("-0.0", "0e+00p53x11"),
+            ("4.0f", 2, "2.00000000e+00p24x8"),
+            ("2.0", 2, "1.4142135623730951e+00p53x11"),
+            ("-4.0f", 2, "NaNp24x8"),
+            ("NaN", 2, "NaNp53x11"),
+            ("Infinityf", 2, "Infinityp24x8"),
+            ("-Infinity", 2, "NaNp53x11"),
+            ("0.0", 2, "0e+00p53x11"),
+            ("-0.0f", 2, "0e+00p24x8"),
+            ("-0.0", 2, "0e+00p53x11"),
+            ("8.0f", 3, "2.00000000e+00p24x8"),
+            ("-8.0", 3, "-2.0000000000000000e+00p53x11"),
+            ("27.0", 3, "3.0000000000000000e+00p53x11"),
+            ("16.0", -4, "5.0000000000000000e-01p53x11"),
+            ("-8.0", 4, "NaNp53x11"),
+            ("2.0", 0, "NaNp53x11"),
+            ("2.0", 1, "2.0000000000000000e+00p53x11"),
+            ("4.0", -1, "2.5000000000000000e-01p53x11"),
+            ("-0.0", 3, "-0e+00p53x11"),
+            ("-0.0", -3, "-Infinityp53x11"),
+            ("-0.0", -2, "Infinityp53x11"),
+            ("0.0f", -3, "Infinityp24x8"),
+            ("Infinity", -3, "0e+00p53x11"),
+            ("-Infinity", 3, "-Infinityp53x11"),
+            ("-Infinity", -3, "-0e+00p53x11"),
+            ("-Infinityf", 4, "NaNp24x8"),
         ];
-        for (value, expected) in cases {
+        for (value, degree, expected) in cases {
             assert_eq!(
                 evaluate_hook(
                     "FLOAT.root",
-                    &[float_term(value), int_term(BigInt::from(2))],
+                    &[float_term(value), int_term(BigInt::from(degree))],
                 ),
                 Ok(Ok(BuiltinResult::Value(float_term(expected)))),
-                "root({value}, 2)"
+                "root({value}, {degree})"
             );
         }
-
-        assert_eq!(
-            evaluate_hook(
-                "FLOAT.root",
-                &[float_term("8.0f"), int_term(BigInt::from(3))],
-            ),
-            Ok(Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::ArgumentOutOfRange {
-                    detail: "root degree 3 (only 2 is implemented)".into(),
-                }
-            )))
-        );
     }
 
     #[test]

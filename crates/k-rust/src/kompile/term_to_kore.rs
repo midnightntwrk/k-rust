@@ -37,6 +37,7 @@ use crate::definition::{
 };
 use crate::kast::{self, InternalLabel, Label, Sort, Term, identifier};
 use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
+use crate::kore::string::LiteralEncoding;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
@@ -317,9 +318,10 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                         message: "the sort has no visible token declaration".into(),
                     });
                 }
+                let kore_sort = self.kore_sort(sort)?;
                 Ok(Pattern::DomainValue {
-                    sort: self.kore_sort(sort)?,
-                    value: self.token_value(token, sort)?,
+                    value: self.token_value(token, sort, &kore_sort)?,
+                    sort: kore_sort,
                 })
             }
             Term::Annotated { .. } => unreachable!(),
@@ -700,7 +702,12 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         }
     }
 
-    fn token_value(&self, token: &str, sort: &Sort) -> Result<KoreString, TermConversionError> {
+    fn token_value(
+        &self,
+        token: &str,
+        sort: &Sort,
+        kore_sort: &crate::kore::ast::Sort,
+    ) -> Result<KoreString, TermConversionError> {
         let hook = self
             .token_sorts
             .as_ref()
@@ -714,26 +721,35 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                     .attributes_for(&SortHead::from(sort))
                     .and_then(|attributes| attributes.string(AttributeKey::Hook))
             });
-        match hook {
-            Some("STRING.String") => self.unquote_token(token, sort),
-            Some("BYTES.Bytes") => token
-                .strip_prefix('b')
-                .ok_or_else(|| TermConversionError::InvalidToken {
-                    sort: sort.clone(),
-                    message: "expected a leading `b`".into(),
-                })
-                .and_then(|token| self.unquote_token(token, sort)),
-            _ => Ok(token.into()),
-        }
-    }
-
-    fn unquote_token(&self, token: &str, sort: &Sort) -> Result<KoreString, TermConversionError> {
-        kast::string::unquote_bytes(token)
-            .map(Into::into)
-            .map_err(|message| TermConversionError::InvalidToken {
-                sort: sort.clone(),
-                message,
-            })
+        // The token's code points by its sort's hook: a `String` token's characters, a `Bytes`
+        // token's bytes as the code points of their values, any other token its text. A KORE
+        // domain value outside a definition carries only its sort's name, so the payload holds
+        // them by the encoding of that name (`kore::string::LiteralEncoding`), whatever the hook.
+        let invalid = |message| TermConversionError::InvalidToken {
+            sort: sort.clone(),
+            message,
+        };
+        let encoding = LiteralEncoding::of_domain_value(kore_sort);
+        let text = match hook {
+            Some("STRING.String") => kast::string::unquote_text(token).map_err(invalid)?,
+            Some("BYTES.Bytes") => {
+                let bytes = token
+                    .strip_prefix('b')
+                    .ok_or_else(|| invalid("expected a leading `b`".into()))
+                    .and_then(|token| kast::string::unquote_bytes(token).map_err(invalid))?;
+                if encoding == LiteralEncoding::Bytes {
+                    return Ok(bytes.into());
+                }
+                bytes.into_iter().map(char::from).collect()
+            }
+            _ => token.to_owned(),
+        };
+        encoding.store(&text).ok_or_else(|| {
+            invalid(format!(
+                "a code point above U+00FF in a value of {}, whose values are bytes",
+                BuiltinSort::Bytes.kore_name()
+            ))
+        })
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {

@@ -854,6 +854,302 @@ fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
     );
 }
 
+/// A `total` hook without an evaluator or equations denotes a value whatever its arguments, which
+/// this backend does not compute: on constructor-like arguments the application stays
+/// unevaluated with the diagnostic, and a context that does not depend on it simplifies
+/// (`false andBool _` is `false`). An effect is the error at once, so that later steps never run
+/// before it: a symbol declared `impure`, and an `IO` hook whatever its declaration. So is a
+/// partial hook, whose definedness is unknown too (`missingHook`).
+#[test]
+fn a_total_pure_hook_without_an_evaluator_stays_unevaluated_and_an_effect_does_not() {
+    let definition = definition(
+        r#"
+            hooked-symbol totalMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), hook{}("TEST.totalMissing")]
+            hooked-symbol impureMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), impure{}(), hook{}("TEST.impureMissing")]
+            hooked-symbol ioMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), hook{}("IO.time")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            symbol isS{}(SortS{}) : SortBool{} [function{}(), total{}()]
+        "#,
+    );
+    let application = |symbol: &str| format!(r#"{symbol}{{}}(\dv{{SortS{{}}}}("value"))"#);
+    let total = term(&definition, &application("totalMissing"));
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &total, SimplificationOptions::default()));
+    assert_eq!(result.expect("no error").term, total);
+    assert!(
+        matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UnsupportedHookUnevaluated {
+                hook,
+                reason: UnsupportedHookReason::NotImplemented,
+            }] if hook == "TEST.totalMissing"
+        ),
+        "{diagnostics:?}"
+    );
+    let discarded = term(
+        &definition,
+        &format!(
+            r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), isS{{}}({}))"#,
+            application("totalMissing")
+        ),
+    );
+    let (result, _) =
+        diagnostic::collect(|| simplify(&definition, &discarded, SimplificationOptions::default()));
+    assert_eq!(
+        result.expect("no error").term,
+        term(&definition, r#"\dv{SortBool{}}("false")"#)
+    );
+
+    for (symbol, hook) in [
+        ("impureMissing", "TEST.impureMissing"),
+        ("ioMissing", "IO.time"),
+        ("missingHook", "TEST.missing"),
+    ] {
+        let input = term(
+            &definition,
+            &format!(
+                r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), isS{{}}({}))"#,
+                application(symbol)
+            ),
+        );
+        let error = simplify(&definition, &input, SimplificationOptions::default())
+            .expect_err("the application is the unsupported-hook error");
+        let message = format!("{error:?}");
+        assert!(message.contains("UnsupportedHook"), "{message}");
+        assert!(message.contains(hook), "{message}");
+    }
+}
+
+/// An `Unspecified` verdict comes from the builtin documentation alone; a function equation of
+/// the definition being run is an axiom about the symbol, and where one applies the application
+/// has the value it states.
+#[test]
+fn a_definition_equation_gives_an_unspecified_hook_application_its_value() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol substr{}(SortString{}, SortInt{}, SortInt{}) : SortString{}
+                [function{}(), total{}(), hook{}("STRING.substr")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortString{}, R}(S:SortString{}, \dv{SortString{}}("hello")),
+                        \and{R}(
+                            \in{SortInt{}, R}(I:SortInt{}, \dv{SortInt{}}("3")),
+                            \and{R}(
+                                \in{SortInt{}, R}(J:SortInt{}, \dv{SortInt{}}("1")),
+                                \top{R}()
+                            )
+                        )
+                    )
+                ),
+                \equals{SortString{}, R}(
+                    substr{}(S:SortString{}, I:SortInt{}, J:SortInt{}),
+                    \and{SortString{}}(\dv{SortString{}}(""), \top{SortString{}}())
+                )
+            ) [label{}("substr-reversed")]
+        "#,
+    );
+    let input = term(
+        &definition,
+        r#"substr{}(\dv{SortString{}}("hello"), \dv{SortInt{}}("3"), \dv{SortInt{}}("1"))"#,
+    );
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the equation gives the application a value");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortString{}}("")"#));
+}
+
+/// Where the definition's equations give an `Unspecified` application no value by evaluation,
+/// because evaluating the equation needs the value of the same application again (`domains.md`'s
+/// `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`), the application stays
+/// unevaluated with the diagnostic, as where the definition has no equation, instead of recurring
+/// until the stack runs out. A needle the hook counts is counted without the equations.
+#[test]
+fn an_unspecified_application_whose_equation_needs_its_own_value_stays_unevaluated() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol count{}(SortString{}, SortString{}) : SortInt{}
+                [function{}(), total{}(), hook{}("STRING.countAllOccurrences")]
+            hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\top{R}(), \top{R}())),
+                \equals{SortInt{}, R}(
+                    count{}(S:SortString{}, N:SortString{}),
+                    \and{SortInt{}}(
+                        plusInt{}(
+                            \dv{SortInt{}}("1"),
+                            count{}(S:SortString{}, N:SortString{})
+                        ),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("count-again")]
+        "#,
+    );
+    let empty = r#"count{}(\dv{SortString{}}("ab"), \dv{SortString{}}(""))"#;
+    let unevaluated = |source: &str| {
+        let input = term(&definition, source);
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(result.expect("no error").term, input);
+        assert!(
+            !diagnostics.is_empty()
+                && diagnostics.iter().all(|diagnostic| matches!(
+                    diagnostic,
+                    BackendDiagnostic::UnsupportedHookUnevaluated {
+                        hook,
+                        reason: UnsupportedHookReason::Unspecified { .. },
+                    } if hook == "STRING.countAllOccurrences"
+                )),
+            "{diagnostics:?}"
+        );
+    };
+
+    unevaluated(empty);
+    unevaluated(&format!(r#"plusInt{{}}(\dv{{SortInt{{}}}}("2"), {empty})"#));
+    let counted = term(
+        &definition,
+        r#"count{}(\dv{SortString{}}("abab"), \dv{SortString{}}("ab"))"#,
+    );
+    assert_eq!(
+        simplify(&definition, &counted, SimplificationOptions::default())
+            .expect("the hook counts a non-empty needle")
+            .term,
+        term(&definition, r#"\dv{SortInt{}}("2")"#)
+    );
+}
+
+/// The equations of an `Unspecified` application are axioms, each on its own: an equation whose
+/// evaluation needs the value of the same application again (in its `requires` or in the
+/// lineage of its result) gives no value by evaluation, and that fails that equation only. Where
+/// another equation applies, the application has the value that one states, whichever order the
+/// definition lists them in. An equation that applies but recurs is not refuted, so it still
+/// keeps a lower-priority equation from applying in its place.
+#[test]
+fn an_equation_that_needs_its_own_application_does_not_discard_another_equations_value() {
+    let substr = |rhs: &str, condition: &str, attributes: &str| {
+        format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({condition}, \dv{{SortBool{{}}}}("true")),
+                        \top{{R}}()
+                    )
+                ),
+                \equals{{SortString{{}}, R}}(
+                    substr{{}}(S:SortString{{}}, I:SortInt{{}}, J:SortInt{{}}),
+                    \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                )
+            ) [{attributes}]"#
+        )
+    };
+    let reversed = r#"ltInt{}(J:SortInt{}, I:SortInt{})"#;
+    let own = r#"substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})"#;
+    // `"x"` where `I < J` and the application's own length is above 5: refuted on reversed
+    // indices by its first conjunct, after its second has reached the application again.
+    let long = substr(
+        r#"\dv{SortString{}}("x")"#,
+        &format!(
+            r#"andBool{{}}(ltInt{{}}(I:SortInt{{}}, J:SortInt{{}}), gtInt{{}}(lengthString{{}}({own}), \dv{{SortInt{{}}}}("5")))"#
+        ),
+        r#"label{}("long")"#,
+    );
+    // The same guard with the conjuncts that hold on reversed indices: undecided, since the
+    // length of the unevaluated application is not known.
+    let undecided = substr(
+        r#"\dv{SortString{}}("x")"#,
+        &format!(
+            r#"andBool{{}}({reversed}, gtInt{{}}(lengthString{{}}({own}), \dv{{SortInt{{}}}}("5")))"#
+        ),
+        r#"label{}("undecided")"#,
+    );
+    // A result whose lineage reaches the application again.
+    let again = substr(
+        &format!(r#"concatString{{}}({own}, \dv{{SortString{{}}}}(""))"#),
+        reversed,
+        r#"label{}("again")"#,
+    );
+    let empty = substr(r#"\dv{SortString{}}("")"#, reversed, r#"label{}("empty")"#);
+    let owise = substr(
+        r#"\dv{SortString{}}("owise")"#,
+        r#"\dv{SortBool{}}("true")"#,
+        r#"label{}("owise"), priority{}("200")"#,
+    );
+    let definition = |equations: &[&str]| {
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
+                hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+                hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.lt")]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt")]
+                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+                {}
+            endmodule []"#,
+            equations.concat()
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    };
+    let input = r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("2"), \dv{SortInt{}}("1"))"#;
+    let simplified = |equations: &[&str]| {
+        let definition = definition(equations);
+        let input = term(&definition, input);
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        let result = result.expect("no error").term;
+        (definition, input, result)
+    };
+
+    for equations in [
+        [long.as_str(), empty.as_str()],
+        [empty.as_str(), long.as_str()],
+        [undecided.as_str(), empty.as_str()],
+        [empty.as_str(), undecided.as_str()],
+        [again.as_str(), empty.as_str()],
+        [empty.as_str(), again.as_str()],
+    ] {
+        let (definition, _, result) = simplified(&equations);
+        assert_eq!(
+            result,
+            term(&definition, r#"\dv{SortString{}}("")"#),
+            "{equations:?}"
+        );
+    }
+    // The only equation that applies recurs: no value, and the lower-priority equation does not
+    // apply in its place.
+    for equations in [
+        [again.as_str(), owise.as_str()],
+        [owise.as_str(), again.as_str()],
+    ] {
+        let (_, input, result) = simplified(&equations);
+        assert_eq!(result, input, "{equations:?}");
+    }
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not
@@ -1690,6 +1986,117 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     .unwrap();
 
     assert_eq!(result, [defined, first, second]);
+}
+
+/// A conjunct `\ceil(t)` keeps stating the definedness of a partial `t` beside a sibling
+/// equality `t = c`. Rewritten through that equality it would become `\ceil(c)`, which holds,
+/// and leave the definedness of `t` to the equality alone; the solver may later decide the
+/// equality valid with `t`'s SMT reading, which is exact only where `t` is defined, and drop it.
+/// An equality among the known predicates, which the caller keeps, still discharges it.
+#[test]
+fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
+    let definition = definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           symbol p{}(SortInt{}) : SortInt{} [function{}()]"#,
+    );
+    let applied = term(&definition, "p{}(X:SortInt{})");
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let defined = Predicate::Ceil(applied.clone());
+    let equality = Predicate::Equals(applied, zero);
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
+    assert!(
+        siblings.contains(&defined) && siblings.contains(&equality),
+        "{siblings:?}"
+    );
+    assert!(
+        simplified(&[defined], &[equality]).is_empty(),
+        "a known equality discharges the ceil"
+    );
+}
+
+/// Every application is strict, so a known predicate that states a term defined (a Boolean term
+/// read as `true = P`, an equality with a defined side, a `\ceil`) states every subterm of it
+/// defined, under partial symbols too, and a `\ceil` conjunct over one holds. A negated known
+/// predicate states nothing defined (`\not(t = 0)` holds where `t` is undefined), and a sibling
+/// conjunct is not known.
+#[test]
+fn a_ceil_conjunct_is_discharged_by_a_known_predicate_that_states_its_term_defined() {
+    let definition = definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           symbol p{}(SortInt{}) : SortInt{} [function{}()]
+           symbol le{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}()]"#,
+    );
+    const APPLIED: &str = "p{}(X:SortInt{})";
+    const NESTED: &str = "p{}(p{}(X:SortInt{}))";
+    let applied = term(&definition, APPLIED);
+    let nested = term(&definition, NESTED);
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let truth = term(&definition, r#"\dv{SortBool{}}("true")"#);
+    let bounded = |subject: &str| {
+        term(
+            &definition,
+            &format!(r#"le{{}}({subject}, \dv{{SortInt{{}}}}("0"))"#),
+        )
+    };
+    let defined = Predicate::Ceil(applied.clone());
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    for known in [
+        Predicate::Equals(bounded(APPLIED), truth.clone()),
+        Predicate::Equals(truth.clone(), bounded(NESTED)),
+        Predicate::Term(bounded(NESTED)),
+        Predicate::Ceil(nested.clone()),
+        Predicate::And(vec![
+            Predicate::Term(bounded(APPLIED)),
+            Predicate::Not(Box::new(Predicate::Equals(zero.clone(), applied.clone()))),
+        ]),
+    ] {
+        assert!(
+            simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)).is_empty(),
+            "{known:?}"
+        );
+    }
+    for known in [
+        Predicate::Not(Box::new(Predicate::Equals(applied.clone(), zero.clone()))),
+        Predicate::Or(vec![
+            Predicate::Term(bounded(APPLIED)),
+            Predicate::Equals(zero.clone(), term(&definition, "X:SortInt{}")),
+        ]),
+    ] {
+        assert_eq!(
+            simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)),
+            vec![defined.clone()],
+            "{known:?}"
+        );
+    }
+    let siblings = simplified(
+        &[
+            defined.clone(),
+            Predicate::Equals(bounded(APPLIED), truth.clone()),
+        ],
+        &[],
+    );
+    assert!(siblings.contains(&defined), "{siblings:?}");
 }
 
 /// Each conjunct may be simplified under the others, but not under conjuncts that were

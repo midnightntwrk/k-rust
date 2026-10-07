@@ -134,6 +134,7 @@ implemented = [
   "STRING.base2string",
   "STRING.chr",
   "STRING.concat",
+  "STRING.countAllOccurrences",
   "STRING.eq",
   "STRING.find",
   "STRING.ge",
@@ -144,6 +145,7 @@ implemented = [
   "STRING.lt",
   "STRING.ne",
   "STRING.ord",
+  "STRING.replaceAll",
   "STRING.rfind",
   "STRING.string2base",
   "STRING.string2int",
@@ -197,8 +199,8 @@ hooks = [
   "BYTES.updateMInt",
 ]
 
-# FLOAT.root evaluates the WASM-required degree 2 for binary32 and binary64.
-# Other degrees remain unevaluated rather than approximated.
+# FLOAT.root evaluates IEEE 754 rootn of every integer degree for binary32 and
+# binary64, correctly rounded.
 [[unsupported]]
 reason = "WASM-unused arbitrary-precision, transcendental, remainder, and exponent hooks are not implemented"
 hooks = [
@@ -343,13 +345,11 @@ hooks = ["SET.choice", "SET.union"]
 reason = "Unicode properties, replacement utilities, floating conversion, and UUID generation are not implemented"
 hooks = [
   "STRING.category",
-  "STRING.countAllOccurrences",
   "STRING.directionality",
   "STRING.findChar",
   "STRING.float2string",
   "STRING.floatFormat",
   "STRING.replace",
-  "STRING.replaceAll",
   "STRING.replaceFirst",
   "STRING.rfindChar",
   "STRING.string2float",

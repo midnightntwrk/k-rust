@@ -5,6 +5,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::kore::ast::{Pattern, Sort as KoreSort, Symbol, Variable, VariableKind};
 use crate::kore::normalize;
+use crate::kore::string::LiteralEncoding;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::ast::{Label, Sort, Term, TermParts};
@@ -132,11 +133,33 @@ impl<'a> Converter<'a> {
                 [operand_sort, result_sort],
                 [left.as_ref(), right.as_ref()],
             ),
-            Pattern::DomainValue { sort, value } => {
-                let sort = self.sort(sort)?;
+            Pattern::DomainValue {
+                sort: kore_sort,
+                value,
+            } => {
+                let sort = self.sort(kore_sort)?;
+                // The payload holds code points by the encoding of the KORE sort's name
+                // (`LiteralEncoding`), and the hook says what they are.
+                let encoding = LiteralEncoding::of_domain_value(kore_sort);
                 let token = match self.sort_hooks.get(&sort.name).map(String::as_str) {
-                    Some("STRING.String") => string::quote_bytes(value.as_bytes()),
-                    Some("BYTES.Bytes") => format!("b{}", string::quote_bytes(value.as_bytes())),
+                    Some("STRING.String") => string::quote(&encoding.code_points(value)),
+                    Some("BYTES.Bytes") => {
+                        let bytes = match encoding {
+                            LiteralEncoding::Bytes => value.as_bytes().to_vec(),
+                            LiteralEncoding::Utf8 => encoding
+                                .code_points(value)
+                                .chars()
+                                .map(|character| u8::try_from(u32::from(character)).ok())
+                                .collect::<Option<Vec<u8>>>()
+                                .ok_or_else(|| {
+                                    ConversionError(format!(
+                                        "domain value of sort {} holds a code point above U+00FF, which is no byte",
+                                        sort.name
+                                    ))
+                                })?,
+                        };
+                        format!("b{}", string::quote_bytes(&bytes))
+                    }
                     _ => value.as_utf8().map(str::to_owned).map_err(|_| {
                         ConversionError(format!(
                             "domain value of sort {} is not valid UTF-8",

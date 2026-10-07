@@ -11,6 +11,8 @@ use super::{
 };
 use crate::term::{Sort, Term, TermKind};
 
+mod root;
+
 #[derive(Clone, Copy, Debug)]
 enum KFloat {
     Binary32(f32),
@@ -123,13 +125,46 @@ impl KFloat {
         }
     }
 
-    /// `rootFloat(x, 2)`, the root of degree 2: IEEE 754 rootn(x, 2), which is squareRoot
-    /// except that the even root of -0 is +0. (`sqrtFloat` is the K rule `rootFloat(F, 2)`.)
-    fn second_root(self) -> Self {
-        // `value == 0.0` holds for either zero.
+    /// `rootFloat(x, n)`, "the Nth integer root": IEEE 754 `rootn(x, n)` rounded to nearest in
+    /// `x`'s format ([`root`]). Its special cases (`n = 0`, a NaN, a zero, an infinity, a negative
+    /// `x` with an even `n`) are IEEE's; degree 1 is `x`, degree -1 the IEEE division `1/x`,
+    /// degree 2 IEEE `squareRoot` (the even root of -0 being +0, so `sqrtFloat(-0.0)`, the K rule
+    /// `rootFloat(F, 2)`, is +0), and every other degree is rounded exactly.
+    fn root(self, degree: &BigInt) -> Self {
         match self {
-            Self::Binary32(value) => Self::Binary32(if value == 0.0 { 0.0 } else { value.sqrt() }),
-            Self::Binary64(value) => Self::Binary64(if value == 0.0 { 0.0 } else { value.sqrt() }),
+            Self::Binary32(value) => {
+                Self::Binary32(match root::special_root(f64::from(value), degree) {
+                    Some(special) => special as f32,
+                    None => match root::native_degree(degree) {
+                        Some(1) => value,
+                        Some(-1) => 1.0 / value,
+                        Some(_) => value.sqrt(),
+                        None => f32::from_bits(
+                            u32::try_from(root::positive_root_bits(
+                                root::BINARY32,
+                                u64::from(value.abs().to_bits()),
+                                degree,
+                            ))
+                            .expect("a binary32 bit pattern"),
+                        )
+                        .copysign(value),
+                    },
+                })
+            }
+            Self::Binary64(value) => Self::Binary64(match root::special_root(value, degree) {
+                Some(special) => special,
+                None => match root::native_degree(degree) {
+                    Some(1) => value,
+                    Some(-1) => 1.0 / value,
+                    Some(_) => value.sqrt(),
+                    None => f64::from_bits(root::positive_root_bits(
+                        root::BINARY64,
+                        value.abs().to_bits(),
+                        degree,
+                    ))
+                    .copysign(value),
+                },
+            }),
         }
     }
 
@@ -253,14 +288,7 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(degree) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if degree != BigInt::from(2) {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ArgumentOutOfRange {
-                detail: format!("root degree {degree} (only 2 is implemented)"),
-            },
-        ));
-    }
-    Ok(BuiltinResult::Value(float_term(value.second_root())))
+    Ok(BuiltinResult::Value(float_term(value.root(&degree))))
 }
 
 fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {

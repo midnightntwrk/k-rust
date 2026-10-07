@@ -387,7 +387,16 @@ fn decodes_string_and_bytes_token_syntax() {
                 token: r#""line\nα""#.into(),
                 sort: Sort::new("String"),
             },
-            "\\dv{SortString{}}(\"line\\n\\xce\\xb1\")",
+            "\\dv{SortString{}}(\"line\\n\\u03b1\")",
+        ),
+        // A `String` escape names a code point: `"\xe9"` and `"é"` are one value, and
+        // `"\xc3\xa9"` is two code points.
+        (
+            Term::Token {
+                token: r#""é\xe9\xc3\xa9""#.into(),
+                sort: Sort::new("String"),
+            },
+            "\\dv{SortString{}}(\"\\xe9\\xe9\\xc3\\xa9\")",
         ),
         (
             Term::Token {
@@ -396,11 +405,63 @@ fn decodes_string_and_bytes_token_syntax() {
             },
             "\\dv{SortBytes{}}(\"bytes!\")",
         ),
+        (
+            Term::Token {
+                token: r#"b"\xe9""#.into(),
+                sort: Sort::new("Bytes"),
+            },
+            "\\dv{SortBytes{}}(\"\\xe9\")",
+        ),
     ] {
         assert_eq!(
             Printer::compact().print_pattern(&converter.convert(&term).unwrap()),
             expected
         );
+    }
+}
+
+/// A KORE domain value outside a definition carries only its sort's name, so its payload is
+/// stored by the encoding of that name (`LiteralEncoding`: bytes for `SortBytes`, UTF-8 code
+/// points for every other sort). A token of a sort hooked `BYTES.Bytes` under another name holds
+/// the code points of its bytes' values like any `Bytes` token, stored as that name's encoding
+/// says, so its KORE text reads back as the same payload and distinct byte strings stay
+/// distinct; the KAST converter gives the token back.
+#[test]
+fn stores_each_token_by_the_encoding_of_its_kore_sort() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Bytes [hook(BYTES.Bytes), token]
+          syntax MyBytes [hook(BYTES.Bytes), token]
+        endmodule
+    "#});
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+    let hooks = [
+        ("Bytes".to_owned(), "BYTES.Bytes".to_owned()),
+        ("MyBytes".to_owned(), "BYTES.Bytes".to_owned()),
+    ]
+    .into_iter()
+    .collect::<std::collections::HashMap<_, _>>();
+    let back = k_rust::kast::convert::Converter::new(&hooks);
+    for (sort, token, expected) in [
+        ("MyBytes", r#"b"\xe9""#, r#"\dv{SortMyBytes{}}("\xe9")"#),
+        (
+            "MyBytes",
+            r#"b"\xc3\xa9""#,
+            r#"\dv{SortMyBytes{}}("\xc3\xa9")"#,
+        ),
+        ("Bytes", r#"b"\xe9""#, r#"\dv{SortBytes{}}("\xe9")"#),
+        ("Bytes", r#"b"\xc3\xa9""#, r#"\dv{SortBytes{}}("\xc3\xa9")"#),
+    ] {
+        let term = Term::Token {
+            token: token.into(),
+            sort: Sort::new(sort),
+        };
+        let pattern = converter.convert(&term).unwrap();
+        let printed = Printer::compact().print_pattern(&pattern);
+        assert_eq!(printed, expected);
+        assert_eq!(parse_pattern(&printed).unwrap(), pattern, "{printed}");
+        assert_eq!(back.convert(&pattern).unwrap(), term, "{printed}");
     }
 }
 

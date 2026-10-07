@@ -28,7 +28,7 @@ pub fn quote(value: &str) -> String {
     output
 }
 
-/// Quote a concrete K String or Bytes payload without requiring UTF-8.
+/// Quote a concrete K `Bytes` payload.
 ///
 /// Unlike [`quote`], this treats `\xNN` as an escape for one byte. Non-ASCII
 /// bytes are always escaped so the result remains valid Rust and JSON text.
@@ -85,7 +85,47 @@ pub fn unquote(input: &str) -> Result<String, String> {
     Ok(output)
 }
 
-/// Decode a concrete K String or Bytes token into its exact byte payload.
+/// Decode a concrete K `String` token into its code points.
+///
+/// Every escape names one code point (`domains.md`): `\xFF` "a code point between 0x00 and
+/// 0xff", `\uFFFF` and `\UFFFFFFFF` likewise, an octal `\NNN` its value; an unknown escape
+/// is an error.
+pub fn unquote_text(input: &str) -> Result<String, String> {
+    if !input.starts_with('"') || !input.ends_with('"') || input.len() < 2 {
+        return Err("expected a double-quoted string".into());
+    }
+    let mut output = String::new();
+    let mut characters = input[1..input.len() - 1].chars().peekable();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            output.push(character);
+            continue;
+        }
+        let escape = characters.next().ok_or("truncated escape")?;
+        output.push(match escape {
+            '"' => '"',
+            '\\' => '\\',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            'f' => '\u{000c}',
+            'x' => read_escape(&mut characters, 2)?,
+            'u' => read_escape(&mut characters, 4)?,
+            'U' => read_escape(&mut characters, 8)?,
+            digit @ '0'..='9' => {
+                let mut digits = String::from(digit);
+                digits.push(characters.next().ok_or("truncated octal escape")?);
+                digits.push(characters.next().ok_or("truncated octal escape")?);
+                let value = u32::from_str_radix(&digits, 8).map_err(|_| "invalid octal escape")?;
+                char::from_u32(value).ok_or("invalid octal scalar")?
+            }
+            _ => return Err("unsupported escape".into()),
+        });
+    }
+    Ok(output)
+}
+
+/// Decode a concrete K `Bytes` token into its bytes.
 ///
 /// `\xNN` contributes one byte. Direct Unicode and `\u`/`\U` escapes
 /// contribute the scalar's UTF-8 encoding.

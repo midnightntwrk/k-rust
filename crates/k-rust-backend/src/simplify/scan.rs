@@ -112,6 +112,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
                 EquationAttempt::Unused => EquationAttempt::Unused,
                 EquationAttempt::Indeterminate(reason) => EquationAttempt::Indeterminate(reason),
+                EquationAttempt::Recurred => EquationAttempt::Recurred,
             })
         })? {
             GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
@@ -156,6 +157,12 @@ pub(super) enum EquationAttempt<T, N> {
     /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
     Unused,
     Indeterminate(ConditionIndeterminacy),
+    /// The equation applied, but evaluating it (its conditions or the lineage of its result)
+    /// reached the subject again, so it gives the subject a value only through that value
+    /// itself and evaluation gives it none (`simplify::unspecified_equation_attempt`). The
+    /// equation is not refuted: like `Indeterminate`, this keeps lower-priority groups from
+    /// firing, while the other equations of its group are still tried.
+    Recurred,
     Applied(T),
 }
 
@@ -203,8 +210,8 @@ pub(super) enum GroupScan<T> {
 ///
 /// Each attempt is speculative, so its diagnostics are buffered ([`diagnostic::buffer`]) and
 /// follow its outcome. An applied attempt's are committed: its result is the subject's. An
-/// indeterminate attempt's are held in `indeterminate`, for the caller to commit if the subject
-/// is kept. An attempt that does not apply, its `requires` refuted or the equation not used,
+/// indeterminate or recurred attempt's are held in `indeterminate`, for the caller to commit if
+/// the subject is kept. An attempt that does not apply, its `requires` refuted or the equation not used,
 /// says nothing about the subject, and its diagnostics are dropped. A failed attempt's are
 /// committed, as the failure is what the scan returns.
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -229,7 +236,7 @@ pub(super) fn scan_group<R, T, N>(
                 diagnostics.commit();
                 return Ok(GroupScan::Applied(result));
             }
-            EquationAttempt::Indeterminate(_reason) => {
+            EquationAttempt::Indeterminate(_) | EquationAttempt::Recurred => {
                 indeterminate_attempts.0.push(diagnostics);
                 indeterminate = true;
             }

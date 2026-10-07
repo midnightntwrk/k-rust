@@ -109,7 +109,7 @@ use crate::{
     rule::Predicate,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        refuse_results_above_the_size_bound, simplify_predicates_with_solver, simplify_with_solver,
+        refuse_uncomputed_applications, simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     stop::{self, Stop, StopCause, Stoppable},
@@ -2489,14 +2489,13 @@ fn match_pattern_with_variables(
                 }
             }
             // The match would be reported under a condition neither the simplifier nor the
-            // solver decided. Over an application whose result is above a size bound that
+            // solver decided. Over an application whose value the backend does not compute that
             // report rests on the solver reading the hook as an arbitrary function, as a rule
-            // condition would (`simplify::refuse_results_above_the_size_bound`): the match is
+            // condition would (`simplify::refuse_uncomputed_applications`): the match is
             // the unsupported-hook error instead, unless the solver proves the constraints that
             // hold one on every instance. A refutation above is sound and still gives no match;
             // the substitution may bind such an application, which decides nothing.
-            if let Err(error) = refuse_results_above_the_size_bound(definition, None, &constraints)?
-            {
+            if let Err(error) = refuse_uncomputed_applications(definition, None, &constraints)? {
                 return Ok(
                     match decide_refused_constraints(
                         definition,
@@ -2555,7 +2554,7 @@ fn decide_refused_constraints(
     let mut refused = Vec::new();
     let mut rest = Vec::new();
     for constraint in constraints {
-        if refuse_results_above_the_size_bound(definition, None, std::slice::from_ref(&constraint))?
+        if refuse_uncomputed_applications(definition, None, std::slice::from_ref(&constraint))?
             .is_err()
         {
             refused.push(constraint);

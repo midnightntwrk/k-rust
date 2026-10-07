@@ -26,6 +26,8 @@ pub(super) fn evaluate(
         "STRING.concat" => concatenate(arguments),
         "STRING.substr" => substring(arguments),
         "STRING.length" => length(arguments),
+        "STRING.countAllOccurrences" => count_all_occurrences(arguments),
+        "STRING.replaceAll" => replace_all(arguments),
         "STRING.find" => find(arguments, false),
         "STRING.rfind" => find(arguments, true),
         "STRING.string2base" => string_to_base(arguments),
@@ -48,24 +50,24 @@ fn compare(
     comparison: impl FnOnce(&[u8], &[u8]) -> bool,
 ) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
-    let Some((left, right)) =
-        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
-    else {
+    let Some((left, right)) = read_string(&arguments[0]).zip(read_string(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(bool_term(comparison(left, right))))
+    // UTF-8 orders byte strings as it orders the code point sequences they encode.
+    Ok(BuiltinResult::Value(bool_term(comparison(
+        left.as_bytes(),
+        right.as_bytes(),
+    ))))
 }
 
 fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.concat", arguments, 2)?;
-    let Some((left, right)) =
-        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
-    else {
+    let Some((left, right)) = read_string(&arguments[0]).zip(read_string(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut result = Vec::with_capacity(left.len().saturating_add(right.len()));
-    result.extend_from_slice(left);
-    result.extend_from_slice(right);
+    let mut result = String::with_capacity(left.len().saturating_add(right.len()));
+    result.push_str(left);
+    result.push_str(right);
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
@@ -76,7 +78,7 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// the `domains.md` equations of `replaceFirst`, `findChar` and `countAllOccurrences` use.
 fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.substr", arguments, 3)?;
-    let Some(value) = read_string_bytes(&arguments[0]) else {
+    let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
@@ -89,7 +91,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
         && start <= end
         && let (Some(start), Some(end)) = (start.to_usize(), end.to_usize())
     {
-        let boundaries = code_point_units(value).chain(std::iter::once(value.len()));
+        let boundaries = code_point_offsets(value).chain(std::iter::once(value.len()));
         for (unit, offset) in boundaries.enumerate() {
             if unit == start {
                 offsets.0 = Some(offset);
@@ -105,24 +107,81 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
             UnsupportedHookReason::Unspecified {
                 detail: format!(
                     "substrString from {start} to {end} on a string of length {}, outside the valid indices 0 <= start <= end <= length",
-                    code_point_units(value).count()
+                    value.chars().count()
                 ),
             },
         ));
     };
     Ok(BuiltinResult::Value(string_term(
-        value[start_offset..end_offset].to_vec(),
+        &value[start_offset..end_offset],
     )))
 }
 
 fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.length", arguments, 1)?;
-    let Some(value) = read_string_bytes(&arguments[0]) else {
+    let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(
-        code_point_units(value).count(),
+        value.chars().count(),
     ))))
+}
+
+/// `countAllOccurrences(S, N)` is the number of occurrences of `N` in `S` found from the left,
+/// each search starting after the previous match: the `domains.md` equations count one at the
+/// first occurrence and continue on the rest of `S` after it. For an empty `N` those equations
+/// give `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")` (the empty needle is
+/// found at 0 and nothing is consumed), which no integer satisfies, so the `total` hook has a
+/// value the definition does not determine, whatever `S` is, a symbolic one included:
+/// `Unspecified`, which also keeps the simplifier from applying the diverging equations.
+///
+/// Matching the UTF-8 of `N` in the UTF-8 of `S` finds exactly the occurrences that start and end
+/// on code point boundaries, since no code point's encoding starts inside another's.
+fn count_all_occurrences(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("STRING.countAllOccurrences", arguments, 2)?;
+    if let Some(unspecified) = empty_needle("countAllOccurrences", &arguments[1]) {
+        return Ok(unspecified);
+    }
+    let Some((haystack, needle)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(int_term(BigInt::from(
+        haystack.matches(needle).count(),
+    ))))
+}
+
+/// `replaceAll(S, N, R)` replaces the occurrences `countAllOccurrences(S, N)` counts, found from
+/// the left without overlap, by `R` (the `domains.md` equation `replace(S, N, R,
+/// countAllOccurrences(S, N))`); for an empty `N` that count, and so this value, is not
+/// determined.
+fn replace_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("STRING.replaceAll", arguments, 3)?;
+    if let Some(unspecified) = empty_needle("replaceAll", &arguments[1]) {
+        return Ok(unspecified);
+    }
+    let (Some(haystack), Some(needle), Some(replacement)) = (
+        read_string(&arguments[0]),
+        read_string(&arguments[1]),
+        read_string(&arguments[2]),
+    ) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(BuiltinResult::Value(string_term(
+        haystack.replace(needle, replacement),
+    )))
+}
+
+/// `Unspecified` when `needle` is the empty string, whose occurrences `domains.md`'s counting
+/// equations do not determine.
+fn empty_needle(operation: &str, needle: &Term) -> Option<BuiltinResult> {
+    read_string(needle).is_some_and(str::is_empty).then(|| {
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+            detail: format!(
+                "{operation} with an empty needle: the domains.md equations give count = 1 + count"
+            ),
+        })
+    })
 }
 
 /// `findString(S, N, I)` is the first occurrence of N in S starting at or after code point I,
@@ -137,8 +196,7 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
         "STRING.find"
     };
     expect_arity(hook, arguments, 3)?;
-    let Some((haystack, needle)) =
-        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
+    let Some((haystack, needle)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -150,22 +208,13 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
     }
     let start = saturating_i64(&start);
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    // `starts[unit]` is the byte offset at which code point `unit` starts, and `boundary[offset]`
-    // holds when a unit of the haystack starts at `offset`; the end of the haystack is both. A
-    // match must start and end on a boundary, so it covers whole units of the haystack, and
-    // those units are exactly the units of the needle: the unit decomposition from a boundary
-    // depends only on the bytes that follow it.
-    let mut starts = code_point_units(haystack).collect::<Vec<_>>();
+    // `starts[unit]` is the byte offset at which code point `unit` starts, the end of the
+    // haystack after the last. The UTF-8 of the needle occurring at the start of a code point
+    // ends on the end of one, since no code point's encoding starts inside another's.
+    let mut starts = code_point_offsets(haystack).collect::<Vec<_>>();
     let units = starts.len();
     starts.push(haystack.len());
-    let mut boundary = vec![false; haystack.len() + 1];
-    for offset in &starts {
-        boundary[*offset] = true;
-    }
-    let occurs_at = |unit: usize| {
-        let offset = starts[unit];
-        haystack[offset..].starts_with(needle) && boundary[offset + needle.len()]
-    };
+    let occurs_at = |unit: usize| haystack[starts[unit]..].starts_with(needle);
     let candidates: Box<dyn Iterator<Item = usize>> = if reverse {
         Box::new((0..=start.min(units)).rev())
     } else {
@@ -188,34 +237,9 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
     ))))
 }
 
-/// Byte offsets at which the code points of a stored `String` value start.
-///
-/// `String` is a sequence of code points; `length`, `substr` and `find` count and index them.
-/// A stored value is a byte sequence: a valid UTF-8 sequence is one code point, and a byte that
-/// does not begin a valid UTF-8 sequence (a raw `\xNN` escape or a byte read from a file) is
-/// one code point on its own.
-fn code_point_units(value: &[u8]) -> impl Iterator<Item = usize> + '_ {
-    let mut offset = 0;
-    std::iter::from_fn(move || {
-        let rest = value.get(offset..).filter(|rest| !rest.is_empty())?;
-        let start = offset;
-        offset += code_point_unit_length(rest);
-        Some(start)
-    })
-}
-
-fn code_point_unit_length(bytes: &[u8]) -> usize {
-    let length = match bytes[0] {
-        0x00..=0x7f => return 1,
-        0xc2..=0xdf => 2,
-        0xe0..=0xef => 3,
-        0xf0..=0xf4 => 4,
-        _ => return 1,
-    };
-    match bytes.get(..length) {
-        Some(sequence) if std::str::from_utf8(sequence).is_ok() => length,
-        _ => 1,
-    }
+/// Byte offsets at which the code points of a `String` value, stored as UTF-8, start.
+fn code_point_offsets(value: &str) -> impl Iterator<Item = usize> + '_ {
+    value.char_indices().map(|(offset, _)| offset)
 }
 
 fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -308,56 +332,42 @@ fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     ))
 }
 
-/// `ordChar(S)` is the number of the one code point of S, undefined for any other length. A
-/// stored byte that starts no UTF-8 sequence is one code point (`code_point_units`): the one a
-/// `\xNN` escape writes, which both K's string syntax and the KORE language specification make
-/// U+00NN, so its number is the byte's value.
+/// `ordChar(S)` is the number of the one code point of S, undefined for any other length.
 fn ord(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.ord", arguments, 1)?;
-    let Some(value) = read_string_bytes(&arguments[0]) else {
+    let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut units = code_point_units(value);
-    let (Some(start), None) = (units.next(), units.next()) else {
+    let mut characters = value.chars();
+    let (Some(character), None) = (characters.next(), characters.next()) else {
         return Ok(BuiltinResult::Bottom);
     };
-    debug_assert_eq!(start, 0);
-    Ok(BuiltinResult::Value(int_term(BigInt::from(
-        code_point_number(value),
-    ))))
+    Ok(BuiltinResult::Value(int_term(BigInt::from(u32::from(
+        character,
+    )))))
 }
 
-/// The number of the code point that the bytes of one unit (`code_point_units`) store.
-pub(super) fn code_point_number(unit: &[u8]) -> u32 {
-    match std::str::from_utf8(unit) {
-        Ok(character) => u32::from(
-            character
-                .chars()
-                .next()
-                .expect("a unit holds one code point"),
-        ),
-        Err(_) => u32::from(unit[0]),
-    }
-}
-
-/// The stored bytes of each code point of a `String` value (see `code_point_units`).
-pub(super) fn code_points(value: &[u8]) -> impl Iterator<Item = &[u8]> + '_ {
-    let mut starts = code_point_units(value).peekable();
-    std::iter::from_fn(move || {
-        let start = starts.next()?;
-        let end = starts.peek().copied().unwrap_or(value.len());
-        Some(&value[start..end])
-    })
-}
-
+/// The token's code points as a `String`. A `Bytes` payload holds one byte per code point, every
+/// other payload their UTF-8 (`kore::string::LiteralEncoding`).
 fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.token2string", arguments, 1)?;
-    let TermKind::DomainValue { value, .. } = arguments[0].kind() else {
+    let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let value = if sort.is_builtin(BuiltinSort::Bytes) {
+        KoreString::from(
+            value
+                .as_bytes()
+                .iter()
+                .map(|byte| char::from(*byte))
+                .collect::<String>(),
+        )
+    } else {
+        value.clone()
     };
     Ok(BuiltinResult::Value(Term::domain_value(
         Sort::builtin(BuiltinSort::String),
-        value.clone(),
+        value,
     )))
 }
 
@@ -368,6 +378,18 @@ fn string_to_token(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult
     };
     let Some(result_sort) = result_sort else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let value = if result_sort.is_builtin(BuiltinSort::Bytes) {
+        let Some(bytes) = value
+            .chars()
+            .map(|character| u8::try_from(u32::from(character)).ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(BuiltinResult::NotApplicable);
+        };
+        KoreString::from(bytes)
+    } else {
+        KoreString::from(value)
     };
     Ok(BuiltinResult::Value(Term::domain_value(
         result_sort.clone(),
@@ -392,18 +414,16 @@ fn saturating_i64(value: &BigInt) -> i64 {
     })
 }
 
-fn read_string(term: &Term) -> Option<&str> {
-    std::str::from_utf8(read_string_bytes(term)?).ok()
-}
-
-// A stored String value is a byte sequence (see `code_point_units`). Hooks that model textual
-// conversions call `read_string`; the other string operations call this helper.
-fn read_string_bytes(term: &Term) -> Option<&[u8]> {
+/// A `String` domain value's code points, stored as UTF-8 (`kore::string::LiteralEncoding`).
+/// Every reader stores them so; a payload built otherwise is not a `String` value these hooks
+/// evaluate.
+pub(super) fn read_string(term: &Term) -> Option<&str> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
     sort.is_builtin(BuiltinSort::String)
-        .then(|| value.as_bytes())
+        .then(|| value.as_utf8().ok())
+        .flatten()
 }
 
 fn string_term(value: impl Into<KoreString>) -> Term {
@@ -440,6 +460,64 @@ mod tests {
         );
     }
 
+    /// `countAllOccurrences` and `replaceAll` take the occurrences found from the left, each
+    /// search after the previous match; with an empty needle the `domains.md` equations give
+    /// `count = 1 + count`, so neither value is determined, whatever the haystack.
+    #[test]
+    fn count_and_replace_all_take_leftmost_disjoint_matches_and_no_empty_needle() {
+        let count = |haystack: Term, needle: &str| {
+            evaluate(
+                "STRING.countAllOccurrences",
+                vec![haystack, string_term(needle)],
+            )
+        };
+        let replace_all = |haystack: Term, needle: &str, replacement: &str| {
+            evaluate(
+                "STRING.replaceAll",
+                vec![haystack, string_term(needle), string_term(replacement)],
+            )
+        };
+        for (haystack, needle, occurrences, replaced) in [
+            ("abab", "ab", 2, "xx"),
+            ("aaa", "aa", 1, "xa"),
+            ("a🦀é🦀", "🦀", 2, "axéx"),
+            ("abc", "d", 0, "abc"),
+            ("", "a", 0, ""),
+        ] {
+            assert_eq!(
+                count(string_term(haystack), needle),
+                BuiltinResult::Value(int_term(BigInt::from(occurrences))),
+                "countAllOccurrences({haystack:?}, {needle:?})"
+            );
+            assert_eq!(
+                replace_all(string_term(haystack), needle, "x"),
+                BuiltinResult::Value(string_term(replaced)),
+                "replaceAll({haystack:?}, {needle:?}, \"x\")"
+            );
+        }
+        let symbolic = Term::variable(crate::term::Variable::new(
+            "S",
+            Sort::builtin(BuiltinSort::String),
+        ));
+        for haystack in [string_term("ab"), string_term(""), symbolic.clone()] {
+            assert!(
+                matches!(
+                    count(haystack.clone(), ""),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "countAllOccurrences({haystack:?}, \"\")"
+            );
+            assert!(
+                matches!(
+                    replace_all(haystack.clone(), "", "x"),
+                    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+                ),
+                "replaceAll({haystack:?}, \"\", \"x\")"
+            );
+        }
+        assert_eq!(count(symbolic, "a"), BuiltinResult::NotApplicable);
+    }
+
     #[test]
     fn a_character_is_one_code_point_long() {
         for code_point in [233, 0xd7ff, 0xe000, 0x1f980] {
@@ -458,16 +536,12 @@ mod tests {
 
     #[test]
     fn find_matches_whole_code_points_only() {
-        // The lead byte of "é" alone is an invalid sequence, one code point, which does not occur
-        // in "é".
+        // U+00C3, the code point whose number is the first byte of the UTF-8 of "é", does not
+        // occur in "é" (U+00E9).
         assert_eq!(
             evaluate(
                 "STRING.find",
-                vec![
-                    string_term("é"),
-                    string_term(vec![0xc3]),
-                    int_term(0.into())
-                ]
+                vec![string_term("é"), string_term("\u{c3}"), int_term(0.into())]
             ),
             BuiltinResult::Value(int_term(BigInt::from(-1)))
         );
@@ -475,8 +549,8 @@ mod tests {
             evaluate(
                 "STRING.find",
                 vec![
-                    string_term(vec![0xc3, b'x', 0xc3]),
-                    string_term(vec![0xc3]),
+                    string_term("\u{c3}x\u{c3}"),
+                    string_term("\u{c3}"),
                     int_term(1.into())
                 ]
             ),
@@ -499,44 +573,65 @@ mod tests {
     }
 
     #[test]
-    fn string_operations_preserve_arbitrary_bytes() {
-        let raw = || string_term(vec![0xff, 0x80, 0x00, b'A']);
+    /// The code points up to U+00FF, the ones a `\xNN` escape writes, are characters like any
+    /// other, a NUL included, and order by their numbers.
+    fn string_operations_take_every_code_point_up_to_255() {
+        let low = || string_term("\u{ff}\u{80}\u{0}A");
         assert_eq!(
-            evaluate("STRING.length", vec![raw()]),
+            evaluate("STRING.length", vec![low()]),
             BuiltinResult::Value(int_term(BigInt::from(4)))
         );
         assert_eq!(
             evaluate(
                 "STRING.substr",
-                vec![raw(), int_term(1.into()), int_term(3.into())]
+                vec![low(), int_term(1.into()), int_term(3.into())]
             ),
-            BuiltinResult::Value(string_term(vec![0x80, 0x00]))
+            BuiltinResult::Value(string_term("\u{80}\u{0}"))
         );
         assert_eq!(
             evaluate(
                 "STRING.find",
-                vec![raw(), string_term(vec![0x80, 0x00]), int_term(0.into())]
+                vec![low(), string_term("\u{80}\u{0}"), int_term(0.into())]
             ),
             BuiltinResult::Value(int_term(BigInt::from(1)))
         );
         assert_eq!(
             evaluate(
                 "STRING.concat",
-                vec![string_term(vec![0xff]), string_term(vec![0x80, 0x00])]
+                vec![string_term("\u{ff}"), string_term("\u{80}\u{0}")]
             ),
-            BuiltinResult::Value(string_term(vec![0xff, 0x80, 0x00]))
+            BuiltinResult::Value(string_term("\u{ff}\u{80}\u{0}"))
         );
         assert_eq!(
-            evaluate("STRING.eq", vec![raw(), raw()]),
+            evaluate("STRING.eq", vec![low(), low()]),
             BuiltinResult::Value(bool_term(true))
         );
-        assert_eq!(
-            evaluate(
-                "STRING.lt",
-                vec![string_term(vec![0x80]), string_term(vec![0xff])]
-            ),
-            BuiltinResult::Value(bool_term(true))
-        );
+        for (left, right) in [("\u{80}", "\u{ff}"), ("\u{ff}", "\u{100}"), ("é", "€")] {
+            assert_eq!(
+                evaluate("STRING.lt", vec![string_term(left), string_term(right)]),
+                BuiltinResult::Value(bool_term(true)),
+                "{left:?} <String {right:?}"
+            );
+        }
+    }
+
+    /// A payload that is not UTF-8 is not how any reader stores a `String` value, so the hooks do
+    /// not evaluate it.
+    #[test]
+    fn a_payload_that_is_not_utf8_is_no_string_value() {
+        let stray = || string_term(vec![0xff, 0x80, 0x00, b'A']);
+        for (hook, arguments) in [
+            ("STRING.length", vec![stray()]),
+            ("STRING.ord", vec![string_term(vec![0xe9])]),
+            ("STRING.eq", vec![stray(), stray()]),
+            ("STRING.concat", vec![stray(), string_term("a")]),
+        ] {
+            assert_eq!(
+                evaluate(hook, arguments),
+                BuiltinResult::NotApplicable,
+                "{hook}"
+            );
+        }
     }
 
     #[test]
@@ -667,26 +762,27 @@ mod tests {
         );
     }
 
-    /// A stored byte that starts no UTF-8 sequence is the code point of the same number, the one
-    /// a `\xNN` escape writes; a string of more or fewer than one code point has no `ordChar`.
+    /// The code point a `\xNN` escape writes is U+00NN, whose number is the escape's; a string
+    /// of more or fewer than one code point has no `ordChar`.
     #[test]
-    fn ord_of_a_raw_byte_is_its_value() {
-        for (bytes, expected) in [(vec![0xe9], 233), (vec![0x80], 128), (vec![0xff], 255)] {
+    fn ord_of_an_escaped_code_point_is_its_value() {
+        for (literal, expected) in [(r#""\xe9""#, 233), (r#""\x80""#, 128), (r#""\xff""#, 255)] {
+            let value = k_rust_kore::kore::string::unquote(literal).unwrap();
             assert_eq!(
-                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                evaluate("STRING.ord", vec![string_term(value)]),
                 BuiltinResult::Value(int_term(BigInt::from(expected))),
-                "ordChar({bytes:x?})"
+                "ordChar({literal})"
             );
         }
         assert_eq!(
             evaluate("STRING.ord", vec![string_term("é")]),
             BuiltinResult::Value(int_term(BigInt::from(233)))
         );
-        for bytes in [vec![0xff, 0xfe], vec![0xff, b'a'], vec![]] {
+        for text in ["\u{ff}\u{fe}", "\u{ff}a", ""] {
             assert_eq!(
-                evaluate("STRING.ord", vec![string_term(bytes.clone())]),
+                evaluate("STRING.ord", vec![string_term(text)]),
                 BuiltinResult::Bottom,
-                "ordChar({bytes:x?})"
+                "ordChar({text:?})"
             );
         }
     }
@@ -820,15 +916,12 @@ mod tests {
                 "rfindString({haystack:?}, {needle:?}, {start})"
             );
         }
-        // The lead byte of "é" alone is a unit of its own and does not occur inside "é".
+        // U+00C3, the code point numbered like the first byte of the UTF-8 of "é", does not
+        // occur in "é".
         assert_eq!(
             evaluate(
                 "STRING.rfind",
-                vec![
-                    string_term("é"),
-                    string_term(vec![0xc3]),
-                    int_term(1.into())
-                ]
+                vec![string_term("é"), string_term("\u{c3}"), int_term(1.into())]
             ),
             BuiltinResult::Value(int_term(BigInt::from(-1)))
         );

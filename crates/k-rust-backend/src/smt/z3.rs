@@ -1880,6 +1880,21 @@ mod tests {
                     int("-1"),
                 ),
             ),
+            // `X ^Int 0` is 1 for every integer `X`, 0 included.
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({b}, {})", dv(0))),
+                    int("1"),
+                ),
+            ),
+            (
+                Vec::new(),
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({}, {})", dv(0), dv(0))),
+                    int("1"),
+                ),
+            ),
         ] {
             assert_eq!(
                 validity(&known, checked.clone()),

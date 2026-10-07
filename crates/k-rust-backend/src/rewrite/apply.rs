@@ -26,7 +26,7 @@
 //! re-entering once per split with an empty or strictly shorter remainder (recursion depth <=
 //! |remainder| + 1, below the one re-entry with the rule renamed apart from the subject); up to
 //! three SMT calls per attempt. An attempt that applies has the conditions it adds scanned once for
-//! an application above a result size bound (`refuse_carried_results_above_the_size_bound`),
+//! an application above a result size bound (`refuse_carried_uncomputed_applications`),
 //! visiting only their unevaluated subterms. `Counter::RewriteRuleAttempts`,
 //! `Counter::RewriteMatchFailures`, `Counter::SmtQueries`; O(c) attempts per step for the c
 //! candidates the step hands over.
@@ -54,7 +54,7 @@ use crate::{
     simplify::{
         BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
         SimplificationError, SimplificationOptions, binds_element_variable_to_set_pattern,
-        decide_condition, refuse_results_above_the_size_bound, simplify_in_execution_with_solver,
+        decide_condition, refuse_uncomputed_applications, simplify_in_execution_with_solver,
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
@@ -321,18 +321,18 @@ pub(super) fn apply_rule(
         None,
         io,
     )?;
-    refuse_carried_results_above_the_size_bound(definition, attempt)
+    refuse_carried_uncomputed_applications(definition, attempt)
 }
 
-/// An attempt whose conditions carry an application whose result is above a result size bound
+/// An attempt whose conditions carry an application whose value the backend does not compute
 /// becomes the unsupported-hook failure that names it, so the step halts on its subject instead
-/// of branching on a value it did not compute (`simplify::refuse_results_above_the_size_bound`):
+/// of branching on a value it did not compute (`simplify::refuse_uncomputed_applications`):
 /// the conditions each successor adds to its path (the match conditions, the `requires` the
 /// solver did not decide, the right-hand side's carried obligations and `ensures`), and the
 /// applicability, whose negation is the priority group's remainder. A condition the solver
 /// decided is in none of them. The successor's configuration may carry one; it is checked if
 /// the run would end on it (`rewrite::stuck`).
-fn refuse_carried_results_above_the_size_bound(
+fn refuse_carried_uncomputed_applications(
     definition: &BackendDefinition,
     attempt: RuleAttempt,
 ) -> Stoppable<RuleAttempt> {
@@ -357,7 +357,7 @@ fn refuse_carried_results_above_the_size_bound(
             )
     });
     for predicates in conditions {
-        if let Err(error) = refuse_results_above_the_size_bound(definition, None, predicates)? {
+        if let Err(error) = refuse_uncomputed_applications(definition, None, predicates)? {
             return Ok(RuleAttempt::Simplification(error));
         }
     }

@@ -28,7 +28,9 @@ use crate::{
 
 /// Constructors `a`, `b`, `c`, `done`, `start(_)`, `wrap(_)`; total functions `f` and `g`
 /// without equations; `unsupported(\dv)`, an application of a hooked function whose hook the
-/// backend does not implement and which has no equations; and the rewrite rules `rules`.
+/// backend does not implement and which has no equations, declared `impure` so that it is the
+/// unsupported-hook error where the simplifier reaches it (a pure `total` one is left for the run
+/// to refuse where it uses the value); and the rewrite rules `rules`.
 fn definition(rules: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
@@ -44,7 +46,7 @@ fn definition(rules: &str) -> BackendDefinition {
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
                 symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
                 hooked-symbol unsupported{{}}(SortV{{}}) : SortS{{}}
-                    [function{{}}(), total{{}}(), hook{{}}("TEST.unimplemented")]
+                    [function{{}}(), total{{}}(), impure{{}}(), hook{{}}("TEST.unimplemented")]
                 {rules}
             endmodule []"#
     );

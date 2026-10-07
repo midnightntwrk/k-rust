@@ -7,6 +7,7 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
 use super::ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind};
+use super::string;
 
 const MAGIC: &[u8; 5] = b"\x7fKORE";
 const HEADER_SIZE_V1_0: usize = 11;
@@ -529,9 +530,15 @@ fn application(
         let [Block::String(value)] = arguments.as_slice() else {
             return malformed_application(offset, name, "one string argument");
         };
+        // Binary KORE carries a payload's bytes; one that is not UTF-8 in a value stored as
+        // UTF-8 is read as text (`string::canonical`), so every payload holds its code points in
+        // its sort's encoding.
         return Ok(Pattern::DomainValue {
             sort: sort.clone(),
-            value: value.clone(),
+            value: string::canonical(
+                value.clone(),
+                string::LiteralEncoding::of_domain_value(sort),
+            ),
         });
     }
 
@@ -1087,17 +1094,18 @@ mod tests {
         );
     }
 
+    /// A `Bytes` value carries every byte as itself.
     #[test]
-    fn round_trips_every_latin1_string_byte() {
+    fn round_trips_every_bytes_value_byte() {
         for byte in 0..=u8::MAX {
             let value = Pattern::DomainValue {
                 sort: Sort::Application {
-                    name: "S".to_owned(),
+                    name: "SortBytes".to_owned(),
                     arguments: vec![],
                 },
                 value: KoreString::from(vec![byte]),
             };
-            let encoded = encode_term(&value).expect("Latin-1 strings should encode");
+            let encoded = encode_term(&value).expect("Bytes values should encode");
             assert_eq!(decode_term(&encoded).unwrap(), value);
             assert!(
                 encoded
@@ -1107,6 +1115,9 @@ mod tests {
         }
     }
 
+    /// Any other value carries its code points in UTF-8; a payload that is not UTF-8 is read as
+    /// text, each stray byte the code point of its value, so the value read holds its code
+    /// points in UTF-8 as every reader stores them.
     #[test]
     fn round_trips_utf8_string_values_as_their_bytes() {
         let value = Pattern::DomainValue {
@@ -1118,6 +1129,24 @@ mod tests {
         };
         let encoded = encode_term(&value).expect("UTF-8 bytes should encode");
         assert_eq!(decode_term(&encoded).unwrap(), value);
+        let stray = Pattern::DomainValue {
+            sort: Sort::Application {
+                name: "S".to_owned(),
+                arguments: vec![],
+            },
+            value: KoreString::from(vec![0xe9, b'A']),
+        };
+        let encoded = encode_term(&stray).expect("bytes should encode");
+        assert_eq!(
+            decode_term(&encoded).unwrap(),
+            Pattern::DomainValue {
+                sort: Sort::Application {
+                    name: "S".to_owned(),
+                    arguments: vec![],
+                },
+                value: KoreString::from("éA"),
+            }
+        );
     }
 
     #[test]

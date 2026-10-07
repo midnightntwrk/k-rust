@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "unspecified_equation_attempt", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -16,6 +16,10 @@
 //! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
 //!
 //! [[cost]]
+//! mode = "Unspecified application (UnspecifiedEvaluation)"
+//! bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications on which an equation is being tried (one entry per nested such attempt); each equation tried on one is evaluated through its conditions and the lineage of its result before the next is tried, and an attempt that reaches its own application again is discarded after being evaluated down to that occurrence"
+//!
+//! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
 //! ```
@@ -23,7 +27,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; L = predicate nodes of the largest assumed conjunct other than the one being simplified"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes"]
 //! span = "per call"
@@ -36,6 +40,10 @@
 //! [[cost]]
 //! mode = "assumption lookups"
 //! bound = "per visited sub-predicate and its simplified form: O(min(s, L)) to count its nodes against L, then a hash of it, and of a copy of its negation, only when s <= L; a connective chain of depth d beside assumptions of at most L nodes costs O(d x L), not O(d^2)"
+//!
+//! [[cost]]
+//! mode = "ceil conjunct (known_defined_subterms)"
+//! bound = "only in a round with a \\ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \\ceil conjunct"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -55,7 +63,7 @@
 //! re-entry through the ceil and predicate theories; `Counter::SimplifyAssumptionNodes`.
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
@@ -92,7 +100,7 @@ use crate::{
     stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{
-        FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind,
+        FunctionType, HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{
             CertifiedOnly, Head, NormalFormCertificate, RootComparison, classify_value,
             compare_roots,
@@ -560,6 +568,91 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
+}
+
+/// The subterms of the terms that `known` states defined, as far as their definedness can be an
+/// open obligation (`ceil_free` subterms are left out, since no `\ceil` of one is ever open).
+///
+/// Every KORE application is strict (`σ(.., \bottom, ..)` is `\bottom`), and so is a term-level
+/// `\and` and a collection, so a term that denotes an element has defined subterms at every depth,
+/// under partial symbols too. A known predicate states its term defined when it asserts that term
+/// equal to a defined value: a Boolean term read as `true = P`, an equality one side of which is
+/// provably defined (both sides then are), or `\ceil` of the term. A negation or a disjunction
+/// states no term defined (`\not(t = 0)` holds where `t` is undefined), nor does a predicate
+/// under a binder, whose variable it does not fix.
+fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -> FxHashSet<Term> {
+    fn collect(term: &Term, subterms: &mut FxHashSet<Term>) {
+        if term.attributes().ceil_free() || !subterms.insert(term.clone()) {
+            return;
+        }
+        match term.kind() {
+            TermKind::Application { arguments, .. } => {
+                arguments
+                    .iter()
+                    .for_each(|argument| collect(argument, subterms));
+            }
+            TermKind::Injection { term, .. } => collect(term, subterms),
+            TermKind::And(left, right) => {
+                collect(left, subterms);
+                collect(right, subterms);
+            }
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    collect(key, subterms);
+                    collect(value, subterms);
+                }
+                if let Some(rest) = rest {
+                    collect(rest, subterms);
+                }
+            }
+            TermKind::List { heads, rest, .. } => {
+                heads.iter().for_each(|head| collect(head, subterms));
+                if let Some((middle, tails)) = rest {
+                    collect(middle, subterms);
+                    tails.iter().for_each(|tail| collect(tail, subterms));
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                elements
+                    .iter()
+                    .for_each(|element| collect(element, subterms));
+                if let Some(rest) = rest {
+                    collect(rest, subterms);
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+
+    fn visit(
+        definition: &BackendDefinition,
+        known: &[Predicate],
+        predicate: &Predicate,
+        subterms: &mut FxHashSet<Term>,
+    ) {
+        let defined = |term: &Term| {
+            term_is_provably_defined(definition, term, |obligation| known.contains(obligation))
+        };
+        match predicate {
+            Predicate::And(conjuncts) => {
+                for conjunct in conjuncts {
+                    visit(definition, known, conjunct, subterms);
+                }
+            }
+            Predicate::Term(term) | Predicate::Ceil(term) => collect(term, subterms),
+            Predicate::Equals(left, right) if defined(left) || defined(right) => {
+                collect(left, subterms);
+                collect(right, subterms);
+            }
+            _ => {}
+        }
+    }
+
+    let mut subterms = FxHashSet::default();
+    for predicate in known {
+        visit(definition, known, predicate, &mut subterms);
+    }
+    subterms
 }
 
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
@@ -1069,6 +1162,18 @@ fn simplify_predicates_with_budget(
     };
     // The path condition of every current equality, rebuilt only after one of them changed.
     let mut full_path_condition = None;
+    // The path condition of the known predicates alone, under which a `\ceil` conjunct is
+    // simplified: a sibling equality `t = c` would turn `\ceil(t)` into `\ceil(c)`, which
+    // holds, and leave the definedness of `t` stated only by that equality. The equality is a
+    // conjunct the solver may later decide valid with `t`'s SMT reading and drop; that reading
+    // is exact only where `t` is defined, so the decision is a K one only while `\ceil(t)` is
+    // stated beside it. The known predicates are kept by the caller, so their equalities may
+    // rewrite it.
+    let mut known_path_condition = None;
+    // The terms the known predicates state defined, with their subterms, built at the first
+    // `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). The
+    // known predicates are kept by the caller, so the definedness stays stated by them.
+    let mut known_defined = None;
     // The conjunct parts of the additional conjuncts simplified so far.
     let mut simplified_conjuncts = FxHashSet::default();
     let mut simplified = Vec::with_capacity(conjuncts.len());
@@ -1077,13 +1182,28 @@ fn simplify_predicates_with_budget(
         if let Some(position) = additional_positions[index] {
             assumptions[position] = Predicate::True;
         }
-        let result = {
+        let result = if let Predicate::Ceil(subject) = predicate
+            && known_defined
+                .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
+                .contains(subject)
+        {
+            Ok(Predicate::True)
+        } else {
             let excluded_path_condition = (!conjunct_equalities[index].is_empty())
                 .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
-            let path_condition = match &excluded_path_condition {
-                Some(path_condition) => path_condition,
-                None => full_path_condition
-                    .get_or_insert_with(|| path_condition_excluding(&conjunct_equalities, None)),
+            let path_condition = if matches!(predicate, Predicate::Ceil(_)) {
+                &*known_path_condition.get_or_insert_with(|| {
+                    PathConditionReplacements::from_equalities(
+                        known_equalities.iter().map(|(left, right)| (left, right)),
+                    )
+                })
+            } else {
+                match &excluded_path_condition {
+                    Some(path_condition) => path_condition,
+                    None => full_path_condition.get_or_insert_with(|| {
+                        path_condition_excluding(&conjunct_equalities, None)
+                    }),
+                }
             };
             let assumptions = PredicateAssumptions::new(
                 TermAssumptions {
@@ -2167,8 +2287,99 @@ fn size_bound_refusal(
     )
 }
 
+/// Whether the backend leaves an application of the hooked `symbol` on constructor-like
+/// arguments, which neither its evaluator nor an equation reduced, unevaluated with the
+/// `UnsupportedHookUnevaluated` warning and refuses it only where a run uses its value
+/// ([`refuse_uncomputed_applications`]), instead of failing with the unsupported-hook error at
+/// once.
+///
+/// It does when the application denotes a value whatever the arguments and is not an effect:
+/// the symbol is `total`, it is not declared `impure` (K's mark of an effect), and its hook is not
+/// an `IO` operation (K's console and file operations, which this backend performs as effects
+/// whatever the declaration says). Such an application is a value the backend does not compute,
+/// as a result above a size bound is, and an error where the simplifier reaches it bottom-up
+/// would fail a run on a subterm the semantics never consults (`false andBool B` is `false` for
+/// every `B`). A partial hook's application is the error at once: its definedness is unknown
+/// too, and every hook is strict, so even a discarded one would leave its `\ceil` as an undecided
+/// condition the run refuses in the end. An effect is the error at once: left unevaluated, later
+/// steps would run before it.
+fn defers_uncomputed(definition: &BackendDefinition, symbol: &Symbol, hook: &str) -> bool {
+    symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+        && !definition.is_impure(&symbol.name)
+        && !hook.starts_with("IO.")
+}
+
+/// Why a hooked application on constructor-like arguments that neither its evaluator (whose
+/// `outcome` is `None` for `NotApplicable`) nor an equation reduced has a value this backend
+/// does not compute: no evaluator and no equations (`NotImplemented`), arguments the evaluator
+/// does not support (`ArgumentOutOfRange`), an evaluator that did not reduce constructor-like
+/// arguments, or a result above a size bound (`ResultTooLarge`). `None` when the definition
+/// leaves the value open (`Unspecified`) or the symbol's equations define it (a hook without an
+/// evaluator but with equations is an ordinary function).
+fn uncomputed_reason(
+    outcome: Option<UnsupportedHookReason>,
+    has_equations: bool,
+) -> Option<UnsupportedHookReason> {
+    match outcome {
+        Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
+        Some(UnsupportedHookReason::Unspecified { .. }) => None,
+        Some(reason) => Some(reason),
+        None => Some(UnsupportedHookReason::ArgumentOutOfRange {
+            detail: "the evaluator did not reduce constructor-like arguments".into(),
+        }),
+    }
+}
+
+/// Whether the definition has function or simplification equations for `term`'s head.
+fn has_equations(definition: &BackendDefinition, term: &Term) -> bool {
+    let index = term_index(term);
+    definition.function_theory().contains_key(&index)
+        || definition.simplification_theory().contains_key(&index)
+}
+
+/// The reason to refuse `term`, a hooked application on constructor-like arguments that term
+/// simplification left unevaluated although its value is determined: a result above a size
+/// bound, or an uncomputed application the backend defers ([`defers_uncomputed`]). `None` for
+/// any other term.
+fn uncomputed_refusal(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> SimplifyResult<Option<UnsupportedHookReason>> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    let Some(hook) = symbol.attributes.hook.as_deref() else {
+        return Ok(None);
+    };
+    if !arguments
+        .iter()
+        .all(|argument| argument.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    let outcome = match evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)? {
+        BuiltinResult::NotApplicable => None,
+        BuiltinResult::Unsupported(reason) => Some(reason),
+        BuiltinResult::Value(_) | BuiltinResult::Bottom | BuiltinResult::Effect(_) => {
+            return Ok(None);
+        }
+    };
+    Ok(
+        match uncomputed_reason(outcome, has_equations(definition, term)) {
+            Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => Some(reason),
+            Some(reason) if defers_uncomputed(definition, symbol, hook) => Some(reason),
+            _ => None,
+        },
+    )
+}
+
 /// Fail with the unsupported-hook error of the first application in `term` or `predicates` whose
-/// result is above a result size bound ([`UnsupportedHookReason::ResultTooLarge`]).
+/// value is determined but not computed ([`uncomputed_refusal`]): a result above a result size
+/// bound ([`UnsupportedHookReason::ResultTooLarge`]), or an application of a `total` pure hook
+/// that neither an evaluator nor an equation reduced ([`defers_uncomputed`]).
 ///
 /// Term simplification leaves such an application unevaluated without an error, so that a
 /// subterm the simplification discards (`false andBool B`) neither costs nor fails anything,
@@ -2181,14 +2392,15 @@ fn size_bound_refusal(
 /// (`rewrite::stuck`); each halts the state with the error. A condition the solver decided is not
 /// carried and so never reaches this check.
 ///
-/// The `\ceil` of such an application is not a use of its value: it holds
-/// (`size_bound_refusal`), and term simplification leaves it as the obligation of a discarded
-/// partial subterm (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
+/// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
+/// a size bound only where the hook is defined, `size_bound_refusal`, and the other kind is
+/// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
+/// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
 /// Only subterms that are not `evaluated` are visited: an `evaluated` term is built from
 /// constructors and domain values, or is certified a normal form, and neither holds such an
 /// application. A state that is a value costs one look at its root.
-pub(crate) fn refuse_results_above_the_size_bound(
+pub(crate) fn refuse_uncomputed_applications(
     definition: &BackendDefinition,
     term: Option<&Term>,
     predicates: &[Predicate],
@@ -2202,7 +2414,7 @@ pub(crate) fn refuse_results_above_the_size_bound(
             if term.attributes().evaluated {
                 continue;
             }
-            if let Some(reason) = size_bound_refusal(definition, &term)? {
+            if let Some(reason) = uncomputed_refusal(definition, &term)? {
                 let TermKind::Application { symbol, .. } = term.kind() else {
                     unreachable!("only a hooked application is refused");
                 };
@@ -2226,7 +2438,8 @@ pub(crate) fn refuse_results_above_the_size_bound(
 }
 
 /// Push the terms `predicate` carries onto `pending`, except the term of a `\ceil` that is itself
-/// an application above a result size bound, whose `\ceil` holds.
+/// an application whose `\ceil` holds although its value is not computed: one above a result
+/// size bound, or one of a `total` symbol.
 fn push_predicate_terms(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -2234,7 +2447,9 @@ fn push_predicate_terms(
 ) -> SimplifyResult<()> {
     match predicate {
         Predicate::Ceil(term) => {
-            if size_bound_refusal(definition, term)?.is_none() {
+            let total = matches!(term.kind(), TermKind::Application { symbol, .. }
+                if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
+            if !total && size_bound_refusal(definition, term)?.is_none() {
                 pending.push(term.clone());
             }
         }
@@ -3302,8 +3517,9 @@ fn simplify_with_budget(
         let (root, root_step, root_equation) = simplify_root(
             definition,
             &children.term,
-            assumptions.predicates,
+            assumptions,
             options,
+            remaining,
             active_conditions,
             solver,
             execution.as_deref_mut(),
@@ -3314,10 +3530,12 @@ fn simplify_with_budget(
             // A child's own report comes first: it names the innermost equation. Otherwise the
             // undefined term arose in this lineage, after the last `total` step if there was one.
             // The root step of this round is not that step's cause: an equation's result carries
-            // no undefined term, so a root report comes from a builtin or a repeated collection.
+            // no undefined term, so a root report comes from a builtin or a repeated collection,
+            // or from the lineage of an equation's result that `simplify_root` evaluated itself
+            // (`unspecified_equation_attempt`), which resolves its own provenance.
             let (undefined, contradicted) = match children.undefined_term {
                 Some(term) => (Some(term), children.contradicted_total),
-                None => (root.undefined_term, None),
+                None => (root.undefined_term, root.contradicted_total),
             };
             if let Some(undefined) = &undefined {
                 accumulated.contradicted_total = contradicted.or_else(|| {
@@ -3786,6 +4004,10 @@ enum RootStep {
     Other,
 }
 
+/// What `simplify_root` made of a root: the result, what produced it, and the equation it
+/// applied.
+type RootResult = (Simplification, RootStep, Option<Arc<RewriteRule>>);
+
 /// One root step: a builtin hook, else the function theory, else the simplification theory.
 ///
 /// A hooked symbol is a function symbol, and a KORE application is strict: `f(t1, .., tn)` is
@@ -3803,15 +4025,18 @@ enum RootStep {
 /// included: ground simplification already is, since children are simplified before the root and
 /// an undefined argument makes the whole term `\bottom` before the hook sees it, so symbolic
 /// evaluation must agree with it on every instance.
+#[allow(clippy::too_many_arguments)]
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
-    known_predicates: &[Predicate],
+    assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
+    remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-    execution: Option<&mut ExecutionEvaluationContext>,
-) -> SimplifyResult<(Simplification, RootStep, Option<Arc<RewriteRule>>)> {
+    mut execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<RootResult> {
+    let known_predicates = assumptions.predicates;
     // A set holding an element twice, or a map binding a key twice (with the same value or
     // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
     // elements and keys, and syntactically equal terms denote the same element on every
@@ -3829,7 +4054,7 @@ fn simplify_root(
             None,
         ));
     }
-    let builtin = match execution {
+    let builtin = match execution.as_deref_mut() {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
     }?
@@ -3865,25 +4090,55 @@ fn simplify_root(
     // The diagnostics of the indeterminate equation attempts of either theory, committed only if
     // neither theory rewrites the term.
     let mut indeterminate = IndeterminateAttempts::default();
-    let function_scan = match apply_theory::<FunctionTheory>(
-        definition,
-        term,
-        known_predicates,
-        options,
-        active_conditions,
-        solver,
-        &mut indeterminate,
-    )? {
-        TheoryScan::Applied(result, rule) => {
-            let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
-                RootStep::DeterminedFunctionStep
-            } else {
-                RootStep::Other
-            };
-            return Ok((result, step, Some(rule)));
-        }
-        scan => scan,
+    // An `Unspecified` verdict comes from the builtin documentation alone; the definition's
+    // function equations are axioms about the symbol and give the application the value they
+    // state. Where evaluating one needs the value of the same application again, that equation
+    // gives it no value by evaluation (`countAllOccurrences(S, "") = 1 +Int
+    // countAllOccurrences(S, "")`), and the others are still tried
+    // (`unspecified_equation_attempt`); the application stays unevaluated, as the verdict leaves
+    // it, only if none gives a value.
+    let unspecified = matches!(unsupported, Some(UnsupportedHookReason::Unspecified { .. }));
+    // Whether the equation applied to an `Unspecified` application left conditions of its own.
+    let mut equation_conditional = None;
+    let function_scan = if !unspecified {
+        apply_theory::<FunctionTheory>(
+            definition,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+            &mut indeterminate,
+        )?
+    } else if UnspecifiedEvaluation::reenter(term) {
+        TheoryScan::NotCacheable
+    } else {
+        scan_term_theory::<FunctionTheory>(definition, term, &mut indeterminate, |rule| {
+            unspecified_equation_attempt(
+                definition,
+                rule,
+                term,
+                assumptions,
+                options,
+                remaining,
+                active_conditions,
+                solver,
+                execution.as_deref_mut(),
+                &mut equation_conditional,
+            )
+        })?
     };
+    if let TheoryScan::Applied(result, rule) = function_scan {
+        // The step is classified by the equation's own result; the steps of its result's
+        // lineage that `unspecified_equation_attempt` took were charged there.
+        let conditional = equation_conditional.unwrap_or_else(|| !result.conditions().is_empty());
+        let step = if term.attributes().variables.is_empty() && !conditional {
+            RootStep::DeterminedFunctionStep
+        } else {
+            RootStep::Other
+        };
+        return Ok((result, step, Some(rule)));
+    }
     let simplification_scan = match apply_theory::<SimplificationTheory>(
         definition,
         term,
@@ -3909,39 +4164,41 @@ fn simplify_root(
             None,
         ));
     };
-    let builtin_supported = unsupported.is_none();
+    let mut builtin_supported = unsupported.is_none();
     if let Some(hook) = symbol.attributes.hook.as_deref() {
         if arguments
             .iter()
             .all(|argument| argument.attributes().constructor_like)
         {
-            let index = term_index(term);
-            let has_equations = definition.function_theory().contains_key(&index)
-                || definition.simplification_theory().contains_key(&index);
+            let has_equations = has_equations(definition, term);
+            // The application denotes a value the backend does not compute, and stays as that
+            // unevaluated application, with a warning: a value the definition leaves open (no
+            // implementation could compute it), one above a result size bound (a resource limit,
+            // not a gap to fix), or one of a `total` pure hook neither an evaluator nor an
+            // equation reduced (`defers_uncomputed`). Arguments are simplified bottom-up whether
+            // or not their values are used, so an error here would fail a run on a subterm the
+            // semantics never consults (`false andBool B` is `false` for every `B`). A run never
+            // decides a condition over the last two kinds, nor ends stuck on them; see
+            // `refuse_uncomputed_applications`. Any other uncomputed application is the error.
+            let unevaluated = |reason| {
+                diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
+                    hook: hook.to_owned(),
+                    reason,
+                });
+                None
+            };
             let reason = match unsupported {
-                Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
-                // The application denotes a value the backend does not compute, and stays as
-                // that unevaluated application: a value the definition leaves open (no
-                // implementation could compute it), or one above a result size bound (a
-                // resource limit, not a gap to fix). Arguments are simplified bottom-up whether
-                // or not their values are used, so an error here would fail a run on a subterm
-                // the semantics never consults (`false andBool B` is `false` for every `B`). A
-                // run never decides a condition over the second kind, nor ends stuck on it; see
-                // `refuse_results_above_the_size_bound`.
-                Some(
-                    reason @ (UnsupportedHookReason::Unspecified { .. }
-                    | UnsupportedHookReason::ResultTooLarge { .. }),
-                ) => {
-                    diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
-                        hook: hook.to_owned(),
-                        reason,
-                    });
-                    None
-                }
-                Some(reason) => Some(reason),
-                None => Some(UnsupportedHookReason::ArgumentOutOfRange {
-                    detail: "the evaluator did not reduce constructor-like arguments".into(),
-                }),
+                Some(reason @ UnsupportedHookReason::Unspecified { .. }) => unevaluated(reason),
+                outcome => match uncomputed_reason(outcome, has_equations) {
+                    Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
+                        unevaluated(reason)
+                    }
+                    Some(reason) if defers_uncomputed(definition, symbol, hook) => {
+                        builtin_supported = false;
+                        unevaluated(reason)
+                    }
+                    reason => reason,
+                },
             };
             if let Some(reason) = reason {
                 return Err(SimplificationError::UnsupportedHook {
@@ -3975,6 +4232,143 @@ fn simplify_root(
         term.clone()
     };
     Ok((Simplification::irreducible(term), RootStep::Other, None))
+}
+
+/// One function equation `rule` tried on `application`, whose hook left it `Unspecified`: the
+/// equation's conditions and, where it applies, the lineage of its result, all evaluated while
+/// `application` is on the evaluation stack (`UnspecifiedEvaluation`). `conditional` is set, when
+/// the equation applies, to whether its own result carries conditions.
+///
+/// The equation `application = rhs requires R` gives the application the value of `rhs` only if
+/// evaluating `rhs` (or `R`) does not need that value again. Reaching `application` inside the
+/// attempt leaves that inner occurrence unevaluated and fails this attempt only
+/// (`EquationAttempt::Recurred`): no value derived through it is returned, and the scan goes on
+/// to the application's other equations, each of which states the value on its own. A `requires`
+/// that is refuted or undecided is returned as it is even when its evaluation reached the
+/// application: the occurrence stayed unevaluated, which is the identity, so the verdict holds of
+/// the application whatever its value.
+#[allow(clippy::too_many_arguments)]
+fn unspecified_equation_attempt(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    application: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+    conditional: &mut Option<bool>,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+    let evaluation = UnspecifiedEvaluation::enter(application);
+    let attempt = apply_equation(
+        definition,
+        rule,
+        application,
+        assumptions.predicates,
+        options,
+        active_conditions,
+        solver,
+    )?;
+    let EquationAttempt::Applied(result) = attempt else {
+        return Ok(attempt);
+    };
+    if evaluation.reentered() {
+        return Ok(EquationAttempt::Recurred);
+    }
+    let own_conditions = !result.conditions().is_empty();
+    // A result that keeps the subject (`Simplification::bottom_subject`) states it empty; there
+    // is no lineage to evaluate.
+    if result.term == *application {
+        *conditional = Some(own_conditions);
+        return Ok(EquationAttempt::Applied(result));
+    }
+    let mut accumulated = Accumulated::default();
+    let applied = accumulated.absorb(result);
+    let lineage = simplify_with_budget(
+        definition,
+        &applied.term,
+        assumptions,
+        options,
+        remaining,
+        active_conditions,
+        solver,
+        execution,
+    )?;
+    if evaluation.reentered() {
+        return Ok(EquationAttempt::Recurred);
+    }
+    // An equation's result carries no undefined term, so a report is the lineage's; one the
+    // lineage did not attribute lies in the result of this equation, if its symbol is `total`.
+    let lineage = accumulated.absorb(lineage);
+    if let Some(undefined) = lineage.undefined_term {
+        accumulated.contradicted_total = lineage.contradicted_total.or_else(|| {
+            is_total_application(application)
+                .then(|| ContradictedTotal::new(application.clone(), rule, undefined.clone()))
+        });
+        accumulated.undefined_term = Some(undefined);
+    }
+    *conditional = Some(own_conditions);
+    Ok(EquationAttempt::Applied(accumulated.finish(lineage.term)))
+}
+
+thread_local! {
+    /// The applications whose hook left them `Unspecified` and on which this thread is trying a
+    /// function equation, outermost first, each with whether that attempt reached it again.
+    static UNSPECIFIED_EVALUATIONS: RefCell<Vec<(Term, bool)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// An `Unspecified` application on which one function equation is being tried: from the
+/// equation's conditions to the end of the simplification lineage of its result
+/// (`unspecified_equation_attempt`).
+///
+/// An attempt that reaches the same application again needs that application's value to give
+/// one, so that equation gives none by evaluation: the inner occurrence is left as it is
+/// (`reenter`) and the attempt fails, while the application's other equations are still tried.
+/// Leaving an application unevaluated is the identity, so this is sound whatever the equations
+/// say; an attempt that never reaches its application again is unaffected. Each attempt is a
+/// nested call, so the entries form a stack; dropping an entry removes it and every entry above
+/// it.
+struct UnspecifiedEvaluation {
+    depth: usize,
+}
+
+impl UnspecifiedEvaluation {
+    fn enter(application: &Term) -> Self {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
+            evaluations.push((application.clone(), false));
+            Self {
+                depth: evaluations.len() - 1,
+            }
+        })
+    }
+
+    /// Whether `application` is being evaluated, marking that evaluation as reached again.
+    fn reenter(application: &Term) -> bool {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
+            match evaluations
+                .iter_mut()
+                .find(|(evaluated, _)| evaluated == application)
+            {
+                Some((_, reentered)) => {
+                    *reentered = true;
+                    true
+                }
+                None => false,
+            }
+        })
+    }
+
+    fn reentered(&self) -> bool {
+        UNSPECIFIED_EVALUATIONS
+            .with_borrow(|evaluations| evaluations.get(self.depth).is_some_and(|entry| entry.1))
+    }
+}
+
+impl Drop for UnspecifiedEvaluation {
+    fn drop(&mut self) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| evaluations.truncate(self.depth));
+    }
 }
 
 /// The definedness of the arguments of a hooked application the hook has evaluated: the

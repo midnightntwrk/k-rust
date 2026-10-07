@@ -31,7 +31,7 @@ use k_rust_backend::{
     fresh::RequestNames,
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
-        HaltReason, Pattern,
+        HaltReason, IndeterminateReason, Pattern,
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status, execute_with_solver,
     },
@@ -44,7 +44,7 @@ use k_rust_backend::{
         BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationError,
         SimplificationOptions, simplify_pattern_with_solver,
     },
-    smt::SmtSolver,
+    smt::{SmtError, SmtSolver, TranslationError},
     stop::StopCause,
     term::{Sort, Term, TermKind, Variable},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
@@ -457,11 +457,19 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Erro
             leaf.depth, leaf.halt_reason
         )));
     }
-    Ok(details[0].1[0].clone())
+    details[0].1[0].clone().map_err(|character| {
+        io::Error::other(format!(
+            "captured output writes each character of the stdout stream buffer as one byte, its code point; the buffer holds U+{:04X}, which is above 255 and no byte",
+            u32::from(character)
+        ))
+    })
 }
 
-fn stdout_stream_buffers(term: &Term) -> Vec<Vec<u8>> {
-    fn visit(term: &Term, memo: &mut HashMap<Term, Vec<Vec<u8>>>) -> Vec<Vec<u8>> {
+/// The console bytes of a `stdout` stream buffer, or the first character that is no byte.
+type StdoutBuffer = Result<Vec<u8>, char>;
+
+fn stdout_stream_buffers(term: &Term) -> Vec<StdoutBuffer> {
+    fn visit(term: &Term, memo: &mut HashMap<Term, Vec<StdoutBuffer>>) -> Vec<StdoutBuffer> {
         if let Some(buffers) = memo.get(term) {
             return buffers.clone();
         }
@@ -539,7 +547,7 @@ fn stdout_stream_buffers(term: &Term) -> Vec<Vec<u8>> {
     visit(term, &mut HashMap::new())
 }
 
-fn stdout_stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+fn stdout_stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<StdoutBuffer> {
     let PatternNode::Application { symbol, arguments } = pattern.node() else {
         return None;
     };
@@ -619,7 +627,7 @@ fn is_stream_descriptor<'a, S: PatternSource<'a>>(
         && domain_value(unwrap_injections(arguments[0].clone()), sort_name, value)
 }
 
-fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<StdoutBuffer> {
     let PatternNode::Application { symbol, arguments } = unwrap_injections(pattern).node() else {
         return None;
     };
@@ -652,13 +660,29 @@ fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
     )
 }
 
-fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> Option<Vec<u8>> {
+/// The console bytes of a `String` buffer: each character is one byte, its code point, as
+/// `IO.write` writes it, or the first code point above 255, which is no byte; `None` when the
+/// pattern is no domain value of `sort_name`.
+fn domain_value_bytes<'a, S: PatternSource<'a>>(
+    pattern: S,
+    sort_name: &str,
+) -> Option<StdoutBuffer> {
     let PatternNode::DomainValue { sort, value } = pattern.node() else {
         return None;
     };
-    matches!(sort.as_ref(), KoreSort::Application { name, arguments }
+    if !matches!(sort.as_ref(), KoreSort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then(|| value.as_bytes().to_vec())
+    {
+        return None;
+    }
+    Some(
+        value
+            .as_utf8()
+            .ok()?
+            .chars()
+            .map(|character| u8::try_from(u32::from(character)).map_err(|_| character))
+            .collect(),
+    )
 }
 
 impl Backend {
@@ -748,7 +772,8 @@ fn run_backend_with_solver(
             search_incomplete_disposition(incomplete) == IncompleteDisposition::Failure
         }) {
             return Err(io::Error::other(format!(
-                "in-process backend search was incomplete: {incomplete:?}"
+                "in-process backend search was incomplete: {}",
+                describe_incomplete_search(incomplete)
             ))
             .into());
         }
@@ -838,13 +863,10 @@ fn run_backend_with_solver(
             | HaltReason::BreadthBound => false,
         })
     {
+        let result_sort = leaf.pattern.term.sort();
         let reason = match &leaf.halt_reason {
-            HaltReason::Simplification(
-                error @ SimplificationError::UnsupportedHook { term, .. },
-            ) => {
-                let application = KorePrinter::pretty(100).print_pattern(&externalize::term(term));
-                format!("{error}\n{application}")
-            }
+            HaltReason::Simplification(error) => describe_simplification_error(error, &result_sort),
+            HaltReason::Indeterminate(reason) => describe_indeterminate(reason, &result_sort),
             reason @ HaltReason::Stopped(_)
             | reason @ HaltReason::Stuck
             | reason @ HaltReason::Trivial { .. }
@@ -853,9 +875,7 @@ fn run_backend_with_solver(
             | reason @ HaltReason::CutPointRule { .. }
             | reason @ HaltReason::TerminalRule { .. }
             | reason @ HaltReason::DepthBound
-            | reason @ HaltReason::BreadthBound
-            | reason @ HaltReason::Indeterminate(_)
-            | reason @ HaltReason::Simplification(_) => format!("{reason:?}"),
+            | reason @ HaltReason::BreadthBound => format!("{reason:?}"),
         };
         return Err(io::Error::other(format!(
             "in-process backend halted at depth {}: {reason}",
@@ -1079,6 +1099,195 @@ enum IncompleteDisposition {
 
 /// Classify one state a search left unexplored.
 #[deny(clippy::wildcard_enum_match_arm)]
+/// A reader's account of a search entry left incomplete: the reason, the terms it names and the
+/// state's configuration, each term printed in KORE, and the state's depth. The entry's `Debug`
+/// form spells out term internals (attributes, hashes, whole symbol declarations at every node),
+/// which are not part of the reason and grow with the state far faster than its KORE does.
+fn describe_incomplete_search(incomplete: &IncompleteSearch) -> String {
+    let (state, reason) = match incomplete {
+        IncompleteSearch::DepthBound(state) => (state, "the depth bound was reached".to_owned()),
+        IncompleteSearch::BreadthBound(states) => {
+            return format!(
+                "the breadth bound was exceeded with {} states at the frontier",
+                states.len()
+            );
+        }
+        IncompleteSearch::Indeterminate { state, reason } => (
+            state,
+            describe_indeterminate(reason, &state.pattern.term.sort()),
+        ),
+        IncompleteSearch::Stopped { state, cause } => (state, cause.to_string()),
+        IncompleteSearch::Simplification { state, error } => (
+            state,
+            describe_simplification_error(error, &state.pattern.term.sort()),
+        ),
+        IncompleteSearch::Match {
+            state, remainder, ..
+        } => (
+            state,
+            format!(
+                "the match of the target pattern left an undecided remainder:{}",
+                describe_equalities(remainder)
+            ),
+        ),
+        IncompleteSearch::Smt { state, error } => (
+            state,
+            format!("the solver failed: {}", describe_smt_error(error)),
+        ),
+    };
+    format!(
+        "{reason}\nin the state at depth {}:\n{}",
+        state.depth,
+        KorePrinter::pretty(100).print_pattern(&externalize::constrained_pattern(&state.pattern))
+    )
+}
+
+/// A simplification failure with the term or predicate it names printed in KORE; a predicate is
+/// printed at the sort of the pattern it constrains.
+fn describe_simplification_error(error: &SimplificationError, sort: &Sort) -> String {
+    match error {
+        SimplificationError::UnsupportedHook { term, .. } => format!(
+            "{error}\n{}",
+            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
+        ),
+        SimplificationError::IterationLimit { limit, term } => format!(
+            "simplification reached its limit of {limit} iterations on\n{}",
+            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
+        ),
+        SimplificationError::PredicateIterationLimit { limit, predicate } => format!(
+            "simplification reached its limit of {limit} iterations on the predicate\n{}",
+            describe_predicate(predicate, sort)
+        ),
+        SimplificationError::SmtPredicate { predicate, error } => format!(
+            "the solver failed ({}) on the predicate\n{}",
+            describe_smt_error(error),
+            describe_predicate(predicate, sort)
+        ),
+        SimplificationError::Smt { rule_id, error } => format!(
+            "the solver failed on rule {rule_id}: {}",
+            describe_smt_error(error)
+        ),
+        SimplificationError::Builtin(_)
+        | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::TopEquationOutsideConjunction { .. }
+        | SimplificationError::InvalidBuiltinResultSymbol { .. } => error.to_string(),
+    }
+}
+
+/// Why a rewrite step could not decide its successors, with the terms and predicates it names
+/// printed in KORE at the sort of the state.
+fn describe_indeterminate(reason: &IndeterminateReason, sort: &Sort) -> String {
+    match reason {
+        IndeterminateReason::SurvivingMacroOrAlias { symbol } => {
+            format!("the macro or alias symbol {symbol} survived into an executable term")
+        }
+        IndeterminateReason::Match {
+            rule_id, remainder, ..
+        } => format!(
+            "rule {rule_id} matched with an undecided remainder:{}",
+            describe_equalities(remainder)
+        ),
+        IndeterminateReason::Instantiation {
+            rule_id,
+            missing_variables,
+        } => format!(
+            "rule {rule_id} leaves {} uninstantiated in concrete execution",
+            missing_variables
+                .iter()
+                .map(|variable| externalize::external_variable_name(&variable.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        IndeterminateReason::Requires {
+            rule_id,
+            predicates,
+        } => format!(
+            "the requires clause of rule {rule_id} is undecided:{}",
+            describe_predicates(predicates, sort)
+        ),
+        IndeterminateReason::Smt { rule_id, error } => format!(
+            "the solver failed on rule {rule_id}: {}",
+            describe_smt_error(error)
+        ),
+        IndeterminateReason::Remainder {
+            rule_ids,
+            predicates,
+            satisfiability,
+        } => format!(
+            "the remainder of rules {} is undecided ({}):{}",
+            rule_ids.join(", "),
+            match satisfiability {
+                Ok(satisfiability) => format!("{satisfiability:?}"),
+                Err(error) => describe_smt_error(error),
+            },
+            describe_predicates(predicates, sort)
+        ),
+    }
+}
+
+/// A solver failure; a term a translation failure names is printed in KORE.
+fn describe_smt_error(error: &SmtError) -> String {
+    match error {
+        SmtError::Translation(TranslationError::NonBooleanAnd(term)) => format!(
+            "a term conjunction that is not Boolean cannot be translated: {}",
+            KorePrinter::compact().print_pattern(&externalize::term(term))
+        ),
+        SmtError::Translation(TranslationError::SmtLemmaSurplusMappings { rule_id, terms }) => {
+            format!(
+                "the smt-lemma {rule_id} maps surplus terms: {}",
+                terms
+                    .iter()
+                    .map(|term| KorePrinter::compact().print_pattern(&externalize::term(term)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        SmtError::Translation(TranslationError::SmtLemmaSurplusPredicates {
+            rule_id,
+            predicates,
+        }) => format!(
+            "the smt-lemma {rule_id} has surplus predicates: {}",
+            predicates.len()
+        ),
+        SmtError::Translation(
+            translation @ (TranslationError::PlaceholderOutOfBounds { .. }
+            | TranslationError::UnsupportedPredicate(_)
+            | TranslationError::ParametricSort(_)
+            | TranslationError::MissingSmtLemmaVariable { .. }),
+        ) => format!("{translation:?}"),
+        error @ (SmtError::Unavailable
+        | SmtError::Unknown(_)
+        | SmtError::InconsistentGroundTruth
+        | SmtError::MissingModel
+        | SmtError::MissingModelValue(_)
+        | SmtError::InvalidModelValue { .. }) => format!("{error:?}"),
+    }
+}
+
+fn describe_predicate(predicate: &Predicate, sort: &Sort) -> String {
+    KorePrinter::pretty(100).print_pattern(&externalize::ml_pattern(predicate, sort))
+}
+
+fn describe_predicates(predicates: &[Predicate], sort: &Sort) -> String {
+    predicates
+        .iter()
+        .map(|predicate| format!("\n{}", describe_predicate(predicate, sort)))
+        .collect()
+}
+
+fn describe_equalities(equalities: &[(Term, Term)]) -> String {
+    equalities
+        .iter()
+        .map(|(left, right)| {
+            format!(
+                "\n{} = {}",
+                KorePrinter::compact().print_pattern(&externalize::term(left)),
+                KorePrinter::compact().print_pattern(&externalize::term(right))
+            )
+        })
+        .collect()
+}
+
 fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDisposition {
     match incomplete {
         IncompleteSearch::DepthBound(_) => IncompleteDisposition::UserLimit,
@@ -1300,13 +1509,13 @@ mod captured_stdout_tests {
     fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
         let output = stdout_cell(buffer(Term::domain_value(
             Sort::simple("SortString"),
-            vec![0, b'o', b'k', 255],
+            "\u{0}ok\u{ff}",
         )));
         let shared = app("wrap", vec![output]);
         let doubled = app("pair", vec![shared.clone(), shared]);
         assert_eq!(
             stdout_stream_buffers(&doubled),
-            vec![vec![0, b'o', b'k', 255]; 2]
+            vec![Ok(vec![0, b'o', b'k', 255]); 2]
         );
 
         let missing = app("other", vec![]);
@@ -1370,7 +1579,11 @@ mod captured_stdout_tests {
         Term::domain_value(Sort::simple("SortInt"), value.to_string())
     }
 
-    fn sorted(mut buffers: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    fn sorted(buffers: Vec<Result<Vec<u8>, char>>) -> Vec<Vec<u8>> {
+        let mut buffers = buffers
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("every buffer holds bytes");
         buffers.sort();
         buffers
     }
@@ -1511,5 +1724,28 @@ mod captured_stdout_tests {
             let error = captured_stdout_buffer(&finals).unwrap_err().to_string();
             assert!(error.ends_with(message), "{error}");
         }
+    }
+
+    /// `backend.execution.captured_stdout`: the console writes each character as one byte, its
+    /// code point, so a buffer holding a code point above 255 is that error, as `IO.write`
+    /// refuses it, and not a missing buffer.
+    #[test]
+    fn captured_output_names_a_code_point_above_255() {
+        let lambda = leaf(
+            internal_stdout_cell("a\u{3bb}\n".as_bytes()),
+            Vec::new(),
+            HaltReason::Stuck,
+        );
+        let error = captured_stdout_buffer(&[&lambda]).unwrap_err().to_string();
+        assert!(
+            error.ends_with("the buffer holds U+03BB, which is above 255 and no byte"),
+            "{error}"
+        );
+        let latin = leaf(
+            internal_stdout_cell("\u{e9}".as_bytes()),
+            Vec::new(),
+            HaltReason::Stuck,
+        );
+        assert_eq!(captured_stdout_buffer(&[&latin]).unwrap(), [0xe9]);
     }
 }

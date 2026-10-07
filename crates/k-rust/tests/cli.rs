@@ -4093,6 +4093,252 @@ fn krun_leaves_chr_of_a_surrogate_unevaluated() {
     );
 }
 
+/// A `String` is a sequence of code points, and a K escape names one: `"é"` and `"\xe9"` are
+/// one value, and `"\xc3\xa9"` is the two code points U+00C3 U+00A9. KORE literals are code
+/// points too, so a result is written with `\xhh` only for a code point up to U+00FF, and a
+/// `Bytes` value with `\xhh` for each byte. `s` hides the constants from the constant folder.
+#[test]
+fn krun_reads_and_writes_strings_as_code_points() {
+    const SOURCE: &str = r#"
+module POINTS
+  imports DOMAINS
+  imports BYTES
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "same" | "two" | "joined" | "bytes"
+  syntax KItem ::= r(K)
+  syntax String ::= s(String) [function, total]
+  rule s(S) => S
+  rule <k> same => r(s("é") ==String s("\xe9")) </k>
+  rule <k> two => r(lengthString(s("\xc3\xa9"))) </k>
+  rule <k> joined => r(s("é") +String s("\u0101") +String s("\xc3")) </k>
+  rule <k> bytes => r(String2Bytes(s("é\xc3"))) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.points"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "POINTS",
+                "--syntax-module",
+                "POINTS",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    for (program, value) in [
+        ("same", r#"\dv{SortBool{}}("true")"#),
+        ("two", r#"\dv{SortInt{}}("2")"#),
+        ("joined", r#"\dv{SortString{}}("\xe9\u0101\xc3")"#),
+        ("bytes", r#"\dv{SortBytes{}}("\xe9\xc3")"#),
+    ] {
+        let stdout = run(program);
+        assert!(stdout.contains(value), "{program}: {stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `countAllOccurrences(S, "")` has no value the hook's documentation gives, and none its
+/// `domains.md` equations give by evaluation (they state `count = 1 + count` for an empty
+/// needle), so a run ends with the application unevaluated and a warning, instead of applying
+/// those equations until the native stack runs out. `replaceAll(S, "", R)` has the value its
+/// equation states, `replace(S, "", R, countAllOccurrences(S, ""))`, with the count unevaluated.
+/// A value the definition gives by its own equation is that value (`given`: `substrString` with
+/// reversed indices, which the hook's documentation leaves open). A non-empty needle is counted
+/// and replaced. `s` and `i` hide the constants from the constant folder.
+#[test]
+fn krun_leaves_counting_an_empty_needle_unevaluated() {
+    const SOURCE: &str = r#"
+module NEEDLE
+  imports INT
+  imports STRING
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "count" | "replace" | "given" | "nonempty"
+  syntax KItem ::= r(K)
+  syntax String ::= s(String) [function, total]
+  rule s(S) => S
+  syntax Int ::= i(Int) [function, total]
+  rule i(I) => I
+  rule substrString(_, I, J) => "" requires J <Int I
+  rule <k> count => r(countAllOccurrences(s("ab"), s(""))) </k>
+  rule <k> replace => r(replaceAll(s("ab"), s(""), s("x"))) </k>
+  rule <k> given => r(substrString(s("abc"), i(2), i(1))) </k>
+  rule <k> nonempty => r(countAllOccurrences(s("abab"), s("ab")) +Int lengthString(replaceAll(s("aaa"), s("aa"), s("bcd")))) </k>
+endmodule
+"#;
+    const COUNT: &str = "LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String{}(";
+    const REPLACE_ALL: &str = "LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(";
+    const REPLACE: &str = "Lblreplace'LParUndsCommUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String'Unds'Int{}(";
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.needle"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NEEDLE",
+                "--syntax-module",
+                "NEEDLE",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for program in ["count", "replace"] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(COUNT), "{program}: {stdout}");
+        assert!(
+            stderr.contains("hook STRING.countAllOccurrences was left unevaluated")
+                && stderr.contains("the definition does not determine its value"),
+            "{program}: {stderr}"
+        );
+    }
+    let (_, stdout, _) = run("replace");
+    assert!(
+        stdout.contains(REPLACE) && !stdout.contains(REPLACE_ALL),
+        "replace: {stdout}"
+    );
+    let (success, stdout, stderr) = run("given");
+    assert!(success, "given: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortString{}, SortKItem{}}(\dv{SortString{}}(""))"#),
+        "given: {stdout}"
+    );
+    let (success, stdout, stderr) = run("nonempty");
+    assert!(success, "nonempty: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6"))"#),
+        "nonempty: {stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// An application on constructor-like arguments of a `total` hook this backend has no evaluator
+/// for (`expFloat`) has a value the backend does not compute. Term simplification leaves it
+/// unevaluated with a warning, so a run whose result does not depend on it ends with that result
+/// (`false andBool B` is `false`, a discarded `#if` branch is discarded), while a run that would
+/// decide a condition over it, or end on a configuration holding it, halts with the
+/// unsupported-hook error. A partial hook without an evaluator (`logFloat`) is the error where
+/// the simplifier reaches it: its definedness is unknown too, so even a discarded application
+/// leaves an undecided condition. `i` and `fl` hide the constants from the constant folder.
+#[test]
+fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() {
+    const SOURCE: &str = r#"
+module NOEVAL
+  imports INT
+  imports BOOL
+  imports FLOAT
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "unused" | "branch" | "used" | "decide" | "partial"
+  syntax KItem ::= r(K) | f(Float) | "pos" | "nonpos"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  syntax Float ::= fl(Float) [function, total]
+  rule fl(X) => X
+  rule <k> unused => r(false andBool (Float2Int(expFloat(fl(1.0))) ==Int 2)) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else Float2Int(expFloat(fl(1.0))) #fi) </k>
+  rule <k> used => r(expFloat(fl(1.0))) </k>
+  rule <k> decide => f(expFloat(fl(1.0))) </k>
+  rule <k> partial => r(false andBool (Float2Int(logFloat(fl(2.0))) ==Int 0)) </k>
+  rule <k> f(X) => r(pos) </k> requires X >Float 0.0
+  rule <k> f(X) => r(nonpos) </k> requires X <=Float 0.0
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.noeval"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NOEVAL",
+                "--syntax-module",
+                "NOEVAL",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for (program, value) in [
+        (
+            "unused",
+            r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#,
+        ),
+        (
+            "branch",
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#,
+        ),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(value), "{program}: {stdout}");
+        assert!(
+            stderr.contains("hook FLOAT.exp was left unevaluated"),
+            "{program}: {stderr}"
+        );
+    }
+    for (program, hook) in [
+        ("used", "FLOAT.exp"),
+        ("decide", "FLOAT.exp"),
+        ("partial", "FLOAT.log"),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(!success, "{program}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "unsupported hook '{hook}' on constructor-like arguments"
+            )),
+            "{program}: {stderr}"
+        );
+        assert!(
+            !stdout.contains("pos") && !stdout.contains("nonpos"),
+            "{program}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `^Int` and `<<Int` results above the backend's result size bound are not computed. A run
 /// that does not use them still ends with its value (the application is left unevaluated with a
 /// warning wherever the simplifier reaches it, and a discarded one leaves no definedness
@@ -4280,8 +4526,17 @@ endmodule
         let (success, stdout, stderr) = search(&format!("<k> f(X) </k> requires {condition}"));
         assert!(!success, "{condition}: {stdout}{stderr}");
         assert!(!stdout.contains("VarX"), "{condition}: {stdout}");
+        // The incomplete entry is described, not dumped: the reason, the refused application
+        // and the state in KORE, and the state's depth.
         assert!(
-            stderr.contains(r#"UnsupportedHook { hook: "INT.shl", reason: ResultTooLarge"#),
+            stderr.contains(
+                "unsupported hook 'INT.shl' on constructor-like arguments: 1 <<Int 16777217 needs more than"
+            ) && stderr.contains("in the state at depth 1:")
+                && stderr.contains(r#"Lbl'Unds-LT--LT-'Int'Unds'{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("16777217"))"#),
+            "{condition}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("TermData") && !stderr.contains("SearchState"),
             "{condition}: {stderr}"
         );
     }
@@ -5223,7 +5478,8 @@ endmodule []
         .unwrap();
     assert!(!bounded_search.status.success());
     assert!(
-        String::from_utf8_lossy(&bounded_search.stderr).contains("BreadthBound"),
+        String::from_utf8_lossy(&bounded_search.stderr)
+            .contains("the breadth bound was exceeded with 2 states at the frontier"),
         "{}",
         String::from_utf8_lossy(&bounded_search.stderr)
     );
@@ -6619,6 +6875,80 @@ fn kprove_proves_nothing_from_a_power_where_no_integer_is_its_value() {
     };
     assert_ne!(verdict("negative"), "proven", "{stdout}");
     assert_eq!(verdict("minus-one"), "proven", "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+const PARTIAL_HALF: &str = r#"
+module HALF
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= go(Int) | go2(Int)
+  syntax KItem ::= "yes" | "no"
+  syntax Int ::= half(Int) [function, smt-hook((div #1 2)), symbol(half)]
+  rule half(X) => X /Int 2 requires X %Int 2 ==Int 0
+  rule <k> go(X) => yes </k> requires half(X) ==Int 0
+  rule <k> go(_) => no </k> [owise]
+  rule <k> go2(X) => yes </k> requires half(half(X)) ==Int 0
+  rule <k> go2(_) => no </k> [owise]
+endmodule
+module HALF-SPEC
+  imports HALF
+  claim [symbolic-yes]: <k> go(X) => yes </k> requires 0 <Int X andBool X <Int 2
+  claim [concrete-yes]: <k> go(1) => yes </k>
+  claim [even-yes]: <k> go(X) => yes </k> requires X ==Int 0
+  claim [range-yes]: <k> go(X) => yes </k> requires half(X) <=Int 0 andBool half(X) >=Int 0
+  claim [nested-yes]: <k> go2(X) => yes </k> requires 1 <Int X andBool X <Int 3
+  claim [nested-range-yes]: <k> go2(X) => yes </k> requires half(half(X)) <=Int 0 andBool half(half(X)) >=Int 0
+endmodule
+"#;
+
+/// `half` is partial and its equations give it a value only at even arguments, so the
+/// definition leaves open whether `half(1)` is defined: `go(1)` reaches `yes` if it is (with
+/// value 0) and `no` if it is not. Its `smt-hook` is SMT-LIB's `div`, which has a value at every
+/// argument, so the solver reads `half(1) = 0` as true; the claims that `go` reaches `yes` at 1
+/// must not be proven from that reading. The definedness of `half(X)` is stated next to the
+/// condition `half(X) = 0` and not discharged through it, so the solver decides the condition
+/// only under it. At an even argument the equations give the value, and the claim is proven.
+/// A claim whose `requires` holds of `half(X)` (`range-yes`) states that `half(X)` is defined,
+/// since every symbol is strict, so the claim is proven; at any depth too (`nested-range-yes`,
+/// with `half(X)` under the partial `half`), while `go2(2)` (`half(2)` is 1, `half(1)` has no
+/// value the definition gives) is not.
+#[test]
+fn kprove_decides_a_partial_smt_hook_only_under_its_definedness() {
+    let (root, definition) = fixture();
+    fs::write(&definition, PARTIAL_HALF).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "HALF-SPEC",
+            "--definition-module",
+            "HALF",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim HALF-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(verdict("symbolic-yes"), "proven", "{stdout}");
+    assert_ne!(verdict("concrete-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("even-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("range-yes"), "proven", "{stdout}");
+    assert_ne!(verdict("nested-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("nested-range-yes"), "proven", "{stdout}");
     fs::remove_dir_all(root).unwrap();
 }
 

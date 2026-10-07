@@ -2489,6 +2489,11 @@ symbol = "simplify_predicates_with_budget"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "known_defined_subterms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_predicate_with_budget"
 
 [[node.sites]]
@@ -2513,6 +2518,10 @@ bound = "n predicate simplifications plus up to n rebuilds of PathConditionRepla
 [[node.cost]]
 mode = "assumption lookups"
 bound = "per visited sub-predicate and its simplified form: O(min(s, L)) to count its nodes against L, then a hash of it, and of a copy of its negation, only when s <= L; a connective chain of depth d beside assumptions of at most L nodes costs O(d x L), not O(d^2)"
+
+[[node.cost]]
+mode = "ceil conjunct (known_defined_subterms)"
+bound = '''only in a round with a \ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \ceil conjunct'''
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
@@ -2592,6 +2601,11 @@ symbol = "simplify_root"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "unspecified_equation_attempt"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "hook_argument_definedness"
 
 [[node.sites]]
@@ -2606,6 +2620,10 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 [[node.cost]]
 mode = "rule condition"
 bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+
+[[node.cost]]
+mode = "Unspecified application (UnspecifiedEvaluation)"
+bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications on which an equation is being tried (one entry per nested such attempt); each equation tried on one is evaluated through its conditions and the lineage of its result before the next is tried, and an attempt that reaches its own application again is discarded after being evaluated down to that occurrence"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"

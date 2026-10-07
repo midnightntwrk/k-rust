@@ -689,9 +689,18 @@ pub(crate) fn stream_defaults<E: From<ConfigurationError>>(
         } else {
             read_buffered_stdin()?
         };
+        // Console input is bytes, and each is one character, the code point of its value, as
+        // `IO.read` reads them.
         bindings.push(ConfigurationBinding {
             name: "$STDIN".into(),
-            value: ConfigurationValue::from_string(injector, input, "$STDIN")?,
+            value: ConfigurationValue::from_string(
+                injector,
+                input
+                    .iter()
+                    .map(|byte| char::from(*byte))
+                    .collect::<String>(),
+                "$STDIN",
+            )?,
         });
         pending.insert("STDIN".into());
     }
