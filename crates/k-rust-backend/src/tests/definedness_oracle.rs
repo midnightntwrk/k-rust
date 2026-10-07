@@ -994,7 +994,8 @@ struct Peak {
     /// directly ([`Universe::exposed_heads`]).
     exposed: BTreeSet<u32>,
     /// The heads of the applications in the values its two steps, and the steps its sides
-    /// take, bind, and in what those values reach: the equation instances of the two paths
+    /// take, bind (and the two redexes' arguments, where its sides are proven one defined and
+    /// one undefined), and in what those values reach: the equation instances of the two paths
     /// cannot all hold, so one of those values may be undefined.
     bound: BTreeSet<u32>,
 }
@@ -1311,7 +1312,15 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                 }
                 // The equation instances of the two paths cannot all hold, so a value one of
                 // them binds may be undefined: every application in the values the two steps
-                // bind, and the steps their sides take, or in what those values reach.
+                // bind, and the steps their sides take, or in what those values reach. An
+                // equation also binds its head's arguments, by membership; where one side is
+                // proven defined and the other undefined, the instances of the two steps cannot
+                // both hold, so one of the redex's arguments is undefined, and they count too.
+                let contradict = |one: &HashSet<Id>, other: &HashSet<Id>| {
+                    one.iter().any(|id| defined[*id as usize])
+                        && other.iter().any(|id| undefined[*id as usize])
+                };
+                let arguments_bound = contradict(&left, &right) || contradict(&right, &left);
                 let mut bound = BTreeSet::new();
                 let mut values = first
                     .valuation
@@ -1319,6 +1328,10 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                     .chain(&second.valuation)
                     .copied()
                     .collect::<Vec<_>>();
+                if arguments_bound {
+                    values.extend(&first.arguments);
+                    values.extend(&second.arguments);
+                }
                 for id in left.iter().chain(&right) {
                     for step in universe
                         .steps
