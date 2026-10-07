@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "unspecified_equation_attempt", "hook_argument_definedness", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications on which an equation is being tried (one entry per nested such attempt); each equation tried on one is evaluated through its conditions and the lineage of its result before the next is tried, and an attempt that reaches its own application again is discarded after being evaluated down to that occurrence"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -71,7 +71,7 @@ use std::{
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builtin::{
@@ -106,13 +106,13 @@ use crate::{
             compare_roots,
         },
     },
-    transition::ExecutionEvaluationContext,
+    transition::{ExecutionEvaluationContext, ExecutionIoState},
 };
 
 mod result;
 pub(crate) mod scan;
 
-use result::{Accumulated, HookOutcome};
+use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
     EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
@@ -3486,104 +3486,191 @@ fn simplify_with_budget(
     // any undefined term appeared: an undefined term reached afterwards lies in that equation's
     // result, whose arguments were defined when it fired (`ContradictedTotal`).
     let mut total_step: Option<(Term, Arc<RewriteRule>)> = None;
-    // Each round simplifies the children then the root; the loop exits on a fixed point, an
-    // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` never grows.
-    // Invariant: `term` equals the input modulo `applied_rules` under the accumulated conditions.
+    // The function-equation steps this lineage took on `Unspecified` applications, oldest first,
+    // each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`), and, after one
+    // failed, the equations its application is retried without.
+    let mut frames: Vec<UnspecifiedFrame> = Vec::new();
+    let mut retry: Option<UnspecifiedRetry> = None;
+    // The values this lineage's nested lineages computed for `Unspecified` applications, open
+    // from the first such step on (`UnspecifiedValues`).
+    let mut values: Option<UnspecifiedValues> = None;
+    // Each round simplifies the children then the root; the rounds end on a fixed point, an
+    // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` grows only when
+    // a failed attempt is undone. Invariant: `term` equals the input modulo `applied_rules` under
+    // the accumulated conditions.
     loop {
-        measure::bump(Counter::SimplifyRounds);
-        // Neither the request's cancellation nor the step's deadline is bounded by the iteration
-        // budget, which counts rewrites of one lineage rather than time, so every round polls.
-        stop::check()?;
-        stop::check_stack()?;
-        if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
-            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok(accumulated.finish(term));
-        }
-        term = assumptions.path_condition.apply(&term);
-        if term.attributes().evaluated {
-            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok(accumulated.finish(term));
-        }
-        let children = simplify_children(
-            definition,
-            &term,
-            assumptions,
-            options,
-            remaining,
-            active_conditions,
-            solver,
-            execution.as_deref_mut(),
-        )?;
-        let (root, root_step, root_equation) = simplify_root(
-            definition,
-            &children.term,
-            assumptions,
-            options,
-            remaining,
-            active_conditions,
-            solver,
-            execution.as_deref_mut(),
-        )?;
-        let children = accumulated.absorb(children);
-        let root = accumulated.absorb(root);
-        if accumulated.undefined_term.is_none() {
-            // A child's own report comes first: it names the innermost equation. Otherwise the
-            // undefined term arose in this lineage, after the last `total` step if there was one.
-            // The root step of this round is not that step's cause: an equation's result carries
-            // no undefined term, so a root report comes from a builtin or a repeated collection,
-            // or from the lineage of an equation's result that `simplify_root` evaluated itself
-            // (`unspecified_equation_attempt`), which resolves its own provenance.
-            let (undefined, contradicted) = match children.undefined_term {
-                Some(term) => (Some(term), children.contradicted_total),
-                None => (root.undefined_term, root.contradicted_total),
+        let end = 'rounds: loop {
+            measure::bump(Counter::SimplifyRounds);
+            // Neither the request's cancellation nor the step's deadline is bounded by the
+            // iteration budget, which counts rewrites of one lineage rather than time, so every
+            // round polls.
+            stop::check()?;
+            stop::check_stack()?;
+            // A retried application is the subject of the step that failed: its children were
+            // simplified in that round, and only its root is tried again.
+            let retried = retry.take();
+            let children = if retried.is_some() {
+                Simplification::irreducible(term.clone())
+            } else {
+                if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
+                    measure::bump(Counter::SimplifyNodesSkippedEvaluated);
+                    break 'rounds term;
+                }
+                term = assumptions.path_condition.apply(&term);
+                if term.attributes().evaluated {
+                    measure::bump(Counter::SimplifyNodesSkippedEvaluated);
+                    break 'rounds term;
+                }
+                simplify_children(
+                    definition,
+                    &term,
+                    assumptions,
+                    options,
+                    remaining,
+                    active_conditions,
+                    solver,
+                    execution.as_deref_mut(),
+                )?
             };
-            if let Some(undefined) = &undefined {
-                accumulated.contradicted_total = contradicted.or_else(|| {
-                    total_step.as_ref().map(|(application, rule)| {
-                        ContradictedTotal::new(application.clone(), rule, undefined.clone())
-                    })
+            let (root, root_step, root_equation, unspecified) = simplify_root(
+                definition,
+                &children.term,
+                assumptions,
+                options,
+                active_conditions,
+                solver,
+                execution.as_deref_mut(),
+                retried,
+            )?;
+            let children = accumulated.absorb(children);
+            let mut before_step = unspecified.as_ref().map(|_| accumulated.mark());
+            let root = accumulated.absorb(root);
+            if accumulated.undefined_term.is_none() {
+                // A child's own report comes first: it names the innermost equation. Otherwise
+                // the undefined term arose in this lineage, after the last `total` step if there
+                // was one. The root step of this round is not that step's cause: an equation's
+                // result carries no undefined term, so a root report comes from a builtin or a
+                // repeated collection.
+                let (undefined, contradicted) = match children.undefined_term {
+                    Some(term) => (Some(term), children.contradicted_total),
+                    None => (root.undefined_term, None),
+                };
+                if let Some(undefined) = &undefined {
+                    accumulated.contradicted_total = contradicted.or_else(|| {
+                        total_step.as_ref().map(|(application, rule)| {
+                            ContradictedTotal::new(application.clone(), rule, undefined.clone())
+                        })
+                    });
+                }
+                accumulated.undefined_term = undefined;
+            }
+            if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
+                // The step's own result carries no report, so the reports now are those of the
+                // state the step was taken from.
+                before.refresh_reports(&accumulated);
+                let rule = root_equation
+                    .clone()
+                    .expect("an Unspecified step applies an equation");
+                values.get_or_insert_with(|| {
+                    UnspecifiedValues::open(EvaluationContext::of(
+                        assumptions,
+                        options,
+                        active_conditions,
+                        execution.is_some(),
+                    ))
+                });
+                frames.push(UnspecifiedFrame {
+                    evaluation: step.evaluation,
+                    application: children.term.clone(),
+                    rule,
+                    excluded: step.excluded,
+                    contingent: step.contingent,
+                    before: LineageState {
+                        accumulated: before,
+                        total_step: total_step.clone(),
+                        remaining: *remaining,
+                        io: execution
+                            .as_deref()
+                            .map(ExecutionEvaluationContext::snapshot),
+                        diagnostics: step.diagnostics,
+                    },
                 });
             }
-            accumulated.undefined_term = undefined;
-        }
-        if accumulated.undefined_term.is_none()
-            && let Some(rule) = root_equation
-            && is_total_application(&children.term)
-        {
-            total_step = Some((children.term.clone(), rule));
-        }
-        if root.term.ptr_eq(&children.term)
-            || root.term == children.term
-            || root.term.attributes().evaluated
-        {
-            return Ok(accumulated.finish(root.term));
-        }
-        // A determined function step is the definition's own computation, not a rewrite the
-        // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
-        let charged = root_step != RootStep::DeterminedFunctionStep;
-        if charged && *remaining == 0 {
-            return match options.budget {
-                BudgetPolicy::Fail => Err(SimplificationError::IterationLimit {
-                    limit: options.max_iterations,
-                    term: root.term,
+            if accumulated.undefined_term.is_none()
+                && let Some(rule) = root_equation
+                && is_total_application(&children.term)
+            {
+                total_step = Some((children.term.clone(), rule));
+            }
+            if root.term.ptr_eq(&children.term)
+                || root.term == children.term
+                || root.term.attributes().evaluated
+            {
+                break 'rounds root.term;
+            }
+            // A determined function step is the definition's own computation, not a rewrite the
+            // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
+            let charged = root_step != RootStep::DeterminedFunctionStep;
+            if charged && *remaining == 0 {
+                match options.budget {
+                    BudgetPolicy::Fail => {
+                        return Err(SimplificationError::IterationLimit {
+                            limit: options.max_iterations,
+                            term: root.term,
+                        }
+                        .into());
+                    }
+                    BudgetPolicy::KeepPartial => {
+                        accumulated.exhausted = Some(BudgetExhaustion {
+                            limit: options.max_iterations,
+                            subject: BudgetSubject::Term,
+                        });
+                        break 'rounds root.term;
+                    }
                 }
-                .into()),
-                BudgetPolicy::KeepPartial => {
-                    accumulated.exhausted = Some(BudgetExhaustion {
-                        limit: options.max_iterations,
-                        subject: BudgetSubject::Term,
-                    });
-                    Ok(accumulated.finish(root.term))
-                }
-            };
+            }
+            if accumulated.exhausted.is_some() {
+                break 'rounds root.term;
+            }
+            if charged {
+                *remaining -= 1;
+            }
+            term = root.term;
+        };
+        // The lineage has its outcome; each of its `Unspecified` steps is decided on it, the
+        // latest first. A failed one is undone and its application tried again without it.
+        let Some(failed) = failed_unspecified_frame(&frames, &end, &accumulated) else {
+            if let Some(values) = &values
+                && let Some(first) = frames.first()
+            {
+                values.record_in_enclosing(first, &end, &accumulated, execution.as_deref());
+            }
+            return Ok(accumulated.finish(end));
+        };
+        frames.truncate(failed.index + 1);
+        let frame = frames.pop().expect("the failed frame is the last one kept");
+        let UnspecifiedFrame {
+            evaluation,
+            application,
+            rule,
+            mut excluded,
+            contingent,
+            before,
+        } = frame;
+        drop(evaluation);
+        accumulated.rewind(&before.accumulated);
+        total_step = before.total_step;
+        *remaining = before.remaining;
+        if let (Some(execution), Some(io)) = (execution.as_deref_mut(), before.io) {
+            execution.restore(io);
         }
-        if accumulated.exhausted.is_some() {
-            return Ok(accumulated.finish(root.term));
-        }
-        if charged {
-            *remaining -= 1;
-        }
-        term = root.term;
+        diagnostic::discard_since(before.diagnostics);
+        excluded.push(rule);
+        retry = Some(UnspecifiedRetry {
+            excluded,
+            contingent: min_depth(contingent, failed.contingent),
+        });
+        term = application;
     }
 }
 
@@ -4004,9 +4091,15 @@ enum RootStep {
     Other,
 }
 
-/// What `simplify_root` made of a root: the result, what produced it, and the equation it
-/// applied.
-type RootResult = (Simplification, RootStep, Option<Arc<RewriteRule>>);
+/// What `simplify_root` made of a root: the result, what produced it, the equation it applied,
+/// and, for a function equation applied to an `Unspecified` application, the attempt the lineage
+/// keeps open until it ends (`UnspecifiedFrame`).
+type RootResult = (
+    Simplification,
+    RootStep,
+    Option<Arc<RewriteRule>>,
+    Option<UnspecifiedStep>,
+);
 
 /// One root step: a builtin hook, else the function theory, else the simplification theory.
 ///
@@ -4031,10 +4124,10 @@ fn simplify_root(
     term: &Term,
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
-    remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
+    retry: Option<UnspecifiedRetry>,
 ) -> SimplifyResult<RootResult> {
     let known_predicates = assumptions.predicates;
     // A set holding an element twice, or a map binding a key twice (with the same value or
@@ -4051,6 +4144,7 @@ fn simplify_root(
         return Ok((
             Simplification::repeated_collection(term),
             RootStep::Other,
+            None,
             None,
         ));
     }
@@ -4084,6 +4178,7 @@ fn simplify_root(
                 Simplification::hook(definition, term, outcome, hook, known_predicates),
                 RootStep::Other,
                 None,
+                None,
             ));
         }
     };
@@ -4092,14 +4187,18 @@ fn simplify_root(
     let mut indeterminate = IndeterminateAttempts::default();
     // An `Unspecified` verdict comes from the builtin documentation alone; the definition's
     // function equations are axioms about the symbol and give the application the value they
-    // state. Where evaluating one needs the value of the same application again, that equation
-    // gives it no value by evaluation (`countAllOccurrences(S, "") = 1 +Int
-    // countAllOccurrences(S, "")`), and the others are still tried
-    // (`unspecified_equation_attempt`); the application stays unevaluated, as the verdict leaves
-    // it, only if none gives a value.
+    // state. An equation is tried as an attempt that lasts from its `requires` to the end of the
+    // lineage that takes its step (`UnspecifiedFrame`); one whose outcome still needs the
+    // application's value gives none (`countAllOccurrences(S, "") = 1 +Int
+    // countAllOccurrences(S, "")`) and is undone, and the others are still tried. The
+    // application stays unevaluated, as the verdict leaves it, only if none gives a value.
     let unspecified = matches!(unsupported, Some(UnsupportedHookReason::Unspecified { .. }));
-    // Whether the equation applied to an `Unspecified` application left conditions of its own.
-    let mut equation_conditional = None;
+    // The lowest depth of the evaluation stack that a failed attempt on this application was
+    // contingent on (`UnspecifiedEvaluation`), handed on if the application stays unevaluated.
+    let mut contingent = None;
+    // Whether this occurrence was cut: an attempt on the same application is open, which reports
+    // the application if it stays unevaluated, while this occurrence only holds its place.
+    let mut cut = false;
     let function_scan = if !unspecified {
         apply_theory::<FunctionTheory>(
             definition,
@@ -4111,33 +4210,90 @@ fn simplify_root(
             &mut indeterminate,
         )?
     } else if UnspecifiedEvaluation::reenter(term) {
+        cut = true;
         TheoryScan::NotCacheable
-    } else {
-        scan_term_theory::<FunctionTheory>(definition, term, &mut indeterminate, |rule| {
-            unspecified_equation_attempt(
-                definition,
-                rule,
-                term,
-                assumptions,
-                options,
-                remaining,
-                active_conditions,
-                solver,
-                execution.as_deref_mut(),
-                &mut equation_conditional,
-            )
-        })?
-    };
-    if let TheoryScan::Applied(result, rule) = function_scan {
-        // The step is classified by the equation's own result; the steps of its result's
-        // lineage that `unspecified_equation_attempt` took were charged there.
-        let conditional = equation_conditional.unwrap_or_else(|| !result.conditions().is_empty());
-        let step = if term.attributes().variables.is_empty() && !conditional {
+    } else if let Some((result, rule)) = UnspecifiedValues::recorded(
+        EvaluationContext::of(assumptions, options, active_conditions, execution.is_some()),
+        term,
+    ) {
+        let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
             RootStep::DeterminedFunctionStep
         } else {
             RootStep::Other
         };
-        return Ok((result, step, Some(rule)));
+        return Ok((result, step, Some(rule), None));
+    } else {
+        let UnspecifiedRetry {
+            mut excluded,
+            contingent: inherited,
+        } = retry.unwrap_or_default();
+        contingent = inherited;
+        let diagnostics = diagnostic::mark();
+        let mut opened = None;
+        let scan =
+            scan_term_theory::<FunctionTheory>(definition, term, &mut indeterminate, |rule| {
+                // An equation whose attempt failed on this application is not tried again; it was
+                // not refuted, so it keeps lower-priority equations from applying in its place.
+                if excluded.iter().any(|failed| Arc::ptr_eq(failed, rule)) {
+                    return Ok(EquationAttempt::Recurred);
+                }
+                let evaluation = UnspecifiedEvaluation::enter(term);
+                let attempt = apply_equation(
+                    definition,
+                    rule,
+                    term,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )?;
+                match attempt {
+                    // The `requires` holds, with whatever it reached left as it is, so it holds for
+                    // every value of what it reached; the attempt goes on in the lineage, which
+                    // decides it on its outcome. A result that keeps the subject
+                    // (`Simplification::bottom_subject`) states it empty and has no lineage.
+                    EquationAttempt::Applied(result) => {
+                        if result.term != *term {
+                            evaluation.clear_cuts();
+                            opened = Some(evaluation);
+                        }
+                        Ok(EquationAttempt::Applied(result))
+                    }
+                    // An undecided `requires` keeps the application unevaluated; if what it reached
+                    // was an application below this one on the stack, that is contingent on the
+                    // attempt that application is in.
+                    EquationAttempt::Indeterminate(reason) => {
+                        contingent = min_depth(contingent, evaluation.contingent_cut());
+                        Ok(EquationAttempt::Indeterminate(reason))
+                    }
+                    // A refuted `requires` was refuted with whatever it reached left as it is, so it
+                    // is refuted for every value of it.
+                    attempt => Ok(attempt),
+                }
+            })?;
+        if let TheoryScan::Applied(result, rule) = scan {
+            let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+                RootStep::DeterminedFunctionStep
+            } else {
+                RootStep::Other
+            };
+            let unspecified = opened.map(|evaluation| UnspecifiedStep {
+                evaluation,
+                excluded: std::mem::take(&mut excluded),
+                contingent,
+                diagnostics,
+            });
+            return Ok((result, step, Some(rule), unspecified));
+        }
+        scan
+    };
+    if let TheoryScan::Applied(result, rule) = function_scan {
+        let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+            RootStep::DeterminedFunctionStep
+        } else {
+            RootStep::Other
+        };
+        return Ok((result, step, Some(rule), None));
     }
     let simplification_scan = match apply_theory::<SimplificationTheory>(
         definition,
@@ -4148,11 +4304,18 @@ fn simplify_root(
         solver,
         &mut indeterminate,
     )? {
-        TheoryScan::Applied(result, rule) => return Ok((result, RootStep::Other, Some(rule))),
+        TheoryScan::Applied(result, rule) => {
+            return Ok((result, RootStep::Other, Some(rule), None));
+        }
         scan => scan,
     };
     // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
     indeterminate.commit(|| Subject::Term(term.clone()));
+    // Kept only because attempts that reached an application below it on the stack failed, it is
+    // an occurrence cut for the attempt that holds it (`UnspecifiedEvaluation`).
+    if let Some(depth) = contingent {
+        UnspecifiedEvaluation::cut(term, depth);
+    }
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -4161,6 +4324,7 @@ fn simplify_root(
         return Ok((
             Simplification::irreducible(term.clone()),
             RootStep::Other,
+            None,
             None,
         ));
     };
@@ -4188,6 +4352,7 @@ fn simplify_root(
                 None
             };
             let reason = match unsupported {
+                Some(UnsupportedHookReason::Unspecified { .. }) if cut => None,
                 Some(reason @ UnsupportedHookReason::Unspecified { .. }) => unevaluated(reason),
                 outcome => match uncomputed_reason(outcome, has_equations) {
                     Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
@@ -4208,7 +4373,9 @@ fn simplify_root(
                 }
                 .into());
             }
-        } else if let Some(reason) = unsupported {
+        } else if let Some(reason) = unsupported
+            && !cut
+        {
             diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
                 hook: hook.to_owned(),
                 reason,
@@ -4231,143 +4398,396 @@ fn simplify_root(
     } else {
         term.clone()
     };
-    Ok((Simplification::irreducible(term), RootStep::Other, None))
+    Ok((
+        Simplification::irreducible(term),
+        RootStep::Other,
+        None,
+        None,
+    ))
 }
 
-/// One function equation `rule` tried on `application`, whose hook left it `Unspecified`: the
-/// equation's conditions and, where it applies, the lineage of its result, all evaluated while
-/// `application` is on the evaluation stack (`UnspecifiedEvaluation`). `conditional` is set, when
-/// the equation applies, to whether its own result carries conditions.
+/// A function equation applied to an `Unspecified` application by `simplify_root`, with what the
+/// lineage needs to keep it as an [`UnspecifiedFrame`]: the application's entry on the
+/// evaluation stack, the equations of the application whose attempts failed before this one,
+/// the lowest stack depth any of those failures was contingent on, and the extent of the
+/// diagnostics before the attempt.
+struct UnspecifiedStep {
+    evaluation: UnspecifiedEvaluation,
+    excluded: Vec<Arc<RewriteRule>>,
+    contingent: Option<usize>,
+    diagnostics: diagnostic::EmissionMark,
+}
+
+/// An `Unspecified` application whose attempt failed, tried again by `simplify_root` without the
+/// equations that failed on it (`excluded`), with the lowest stack depth any failure was
+/// contingent on.
+#[derive(Default)]
+struct UnspecifiedRetry {
+    excluded: Vec<Arc<RewriteRule>>,
+    contingent: Option<usize>,
+}
+
+/// One attempt of a function equation `rule` on an `Unspecified` `application`, which a lineage
+/// took as a step and keeps open until it reaches its outcome: the attempt is the equation's
+/// `requires`, its step, and every round of the lineage after it.
 ///
-/// The equation `application = rhs requires R` gives the application the value of `rhs` only if
-/// evaluating `rhs` (or `R`) does not need that value again. Reaching `application` inside the
-/// attempt leaves that inner occurrence unevaluated and fails this attempt only
-/// (`EquationAttempt::Recurred`): no value derived through it is returned, and the scan goes on
-/// to the application's other equations, each of which states the value on its own. A `requires`
-/// that is refuted or undecided is returned as it is even when its evaluation reached the
-/// application: the occurrence stayed unevaluated, which is the identity, so the verdict holds of
-/// the application whatever its value.
-#[allow(clippy::too_many_arguments)]
-fn unspecified_equation_attempt(
-    definition: &BackendDefinition,
-    rule: &RewriteRule,
-    application: &Term,
-    assumptions: &TermAssumptions<'_>,
-    options: SimplificationOptions,
-    remaining: &mut usize,
-    active_conditions: &BTreeSet<(String, Term)>,
-    solver: &dyn SmtSolver,
-    execution: Option<&mut ExecutionEvaluationContext>,
-    conditional: &mut Option<bool>,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    let evaluation = UnspecifiedEvaluation::enter(application);
-    let attempt = apply_equation(
-        definition,
-        rule,
-        application,
-        assumptions.predicates,
-        options,
-        active_conditions,
-        solver,
-    )?;
-    let EquationAttempt::Applied(result) = attempt else {
-        return Ok(attempt);
-    };
-    if evaluation.reentered() {
-        return Ok(EquationAttempt::Recurred);
+/// The equation `application = rhs requires R` gives the application a value only if its
+/// derivation does not state it through an application whose value is still being computed.
+/// While the attempt is open, the application is on the evaluation stack, and evaluation leaves
+/// every occurrence it reaches of an application on that stack as it is
+/// (`UnspecifiedEvaluation`). Leaving an occurrence as it is, is the identity, so every result
+/// of the lineage is still equal to the application; but a result that holds such an occurrence
+/// states the application through itself (`c = 1 +Int c`), or through an application an
+/// enclosing attempt is computing, and is no value of it. So the lineage decides the attempt on
+/// its outcome (`failed_unspecified_frame`): it fails exactly when the outcome, its term or a
+/// condition added since the step, holds an occurrence cut while the attempt was the innermost
+/// one open. A failed attempt is undone entirely: the lineage returns to `before`, the state it
+/// had before the step (its result so far, the provenance of an undefined term, the budget, the
+/// console, the diagnostics), so a discarded attempt has no effect, and the application is
+/// tried again without `rule` (`UnspecifiedRetry`), which, as it applied, still keeps
+/// lower-priority equations from applying in its place.
+struct UnspecifiedFrame {
+    evaluation: UnspecifiedEvaluation,
+    application: Term,
+    rule: Arc<RewriteRule>,
+    excluded: Vec<Arc<RewriteRule>>,
+    contingent: Option<usize>,
+    before: LineageState,
+}
+
+/// The state of a lineage before a step on an `Unspecified` application, to which it returns if
+/// that attempt fails.
+struct LineageState {
+    accumulated: AccumulatedMark,
+    total_step: Option<(Term, Arc<RewriteRule>)>,
+    remaining: usize,
+    io: Option<ExecutionIoState>,
+    diagnostics: diagnostic::EmissionMark,
+}
+
+/// The latest attempt of `frames` that fails on the lineage's outcome `end`, with the conditions
+/// accumulated since its step (`UnspecifiedFrame`), and the lowest depth below its own it was
+/// contingent on; `None` when every attempt gives its application a value.
+///
+/// The latest attempt is decided first: the earlier ones are open around it, and its retry may
+/// change the outcome they are decided on.
+fn failed_unspecified_frame(
+    frames: &[UnspecifiedFrame],
+    end: &Term,
+    accumulated: &Accumulated,
+) -> Option<FailedFrame> {
+    frames.iter().enumerate().rev().find_map(|(index, frame)| {
+        let cuts = frame.evaluation.cuts();
+        if cuts.is_empty() {
+            return None;
+        }
+        let held = held_cuts(
+            &cuts,
+            end,
+            accumulated.constraints_since(&frame.before.accumulated),
+        );
+        (!held.is_empty()).then(|| FailedFrame {
+            index,
+            contingent: held
+                .into_iter()
+                .filter(|&depth| depth < frame.evaluation.depth)
+                .min(),
+        })
+    })
+}
+
+/// An attempt that failed ([`failed_unspecified_frame`]): its index in the lineage's frames, and
+/// the lowest stack depth below its own that an occurrence held by its outcome was cut at.
+struct FailedFrame {
+    index: usize,
+    contingent: Option<usize>,
+}
+
+/// The stack depths of the cut occurrences `cuts` that `term` or `conditions` still hold.
+fn held_cuts(cuts: &[(Term, usize)], term: &Term, conditions: &[Predicate]) -> Vec<usize> {
+    let cut = cuts.iter().cloned().collect::<FxHashMap<Term, usize>>();
+    let mut held = Vec::new();
+    let mut visited = FxHashSet::default();
+    let mut pending = vec![term.clone()];
+    for condition in conditions {
+        condition.visit_terms(&mut |term| pending.push(term.clone()));
     }
-    let own_conditions = !result.conditions().is_empty();
-    // A result that keeps the subject (`Simplification::bottom_subject`) states it empty; there
-    // is no lineage to evaluate.
-    if result.term == *application {
-        *conditional = Some(own_conditions);
-        return Ok(EquationAttempt::Applied(result));
+    while let Some(term) = pending.pop() {
+        if !visited.insert(term.clone()) {
+            continue;
+        }
+        if let Some(&depth) = cut.get(&term) {
+            held.push(depth);
+            continue;
+        }
+        push_children(&term, &mut pending);
     }
-    let mut accumulated = Accumulated::default();
-    let applied = accumulated.absorb(result);
-    let lineage = simplify_with_budget(
-        definition,
-        &applied.term,
-        assumptions,
-        options,
-        remaining,
-        active_conditions,
-        solver,
-        execution,
-    )?;
-    if evaluation.reentered() {
-        return Ok(EquationAttempt::Recurred);
+    held
+}
+
+fn min_depth(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (depth, None) | (None, depth) => depth,
     }
-    // An equation's result carries no undefined term, so a report is the lineage's; one the
-    // lineage did not attribute lies in the result of this equation, if its symbol is `total`.
-    let lineage = accumulated.absorb(lineage);
-    if let Some(undefined) = lineage.undefined_term {
-        accumulated.contradicted_total = lineage.contradicted_total.or_else(|| {
-            is_total_application(application)
-                .then(|| ContradictedTotal::new(application.clone(), rule, undefined.clone()))
-        });
-        accumulated.undefined_term = Some(undefined);
-    }
-    *conditional = Some(own_conditions);
-    Ok(EquationAttempt::Applied(accumulated.finish(lineage.term)))
 }
 
 thread_local! {
-    /// The applications whose hook left them `Unspecified` and on which this thread is trying a
-    /// function equation, outermost first, each with whether that attempt reached it again.
-    static UNSPECIFIED_EVALUATIONS: RefCell<Vec<(Term, bool)>> = const { RefCell::new(Vec::new()) };
+    /// The applications whose hook left them `Unspecified` and on which this thread has an
+    /// equation attempt open, outermost first.
+    static UNSPECIFIED_EVALUATIONS: RefCell<UnspecifiedStack> =
+        RefCell::new(UnspecifiedStack::default());
+
+    /// The scopes of [`UnspecifiedValues`], outermost first: the values nested lineages computed
+    /// for `Unspecified` applications, each scope with the context they hold in.
+    static UNSPECIFIED_VALUES: RefCell<Vec<ValueScope>> = const { RefCell::new(Vec::new()) };
 }
 
-/// An `Unspecified` application on which one function equation is being tried: from the
-/// equation's conditions to the end of the simplification lineage of its result
-/// (`unspecified_equation_attempt`).
+#[derive(Default)]
+struct UnspecifiedStack {
+    entries: Vec<StackEntry>,
+    /// The depth of each entry's application; an application is entered only when it is not on
+    /// the stack, so each has one depth.
+    depths: FxHashMap<Term, usize>,
+}
+
+/// An open attempt's application, with the occurrences evaluation cut while that attempt was the
+/// innermost one open: each occurrence with the depth of the stack entry it was cut for.
+struct StackEntry {
+    application: Term,
+    cuts: Vec<(Term, usize)>,
+}
+
+/// An `Unspecified` application with an equation attempt open on it, from the equation's
+/// `requires` to the end of the lineage that took its step ([`UnspecifiedFrame`]).
 ///
-/// An attempt that reaches the same application again needs that application's value to give
-/// one, so that equation gives none by evaluation: the inner occurrence is left as it is
-/// (`reenter`) and the attempt fails, while the application's other equations are still tried.
-/// Leaving an application unevaluated is the identity, so this is sound whatever the equations
-/// say; an attempt that never reaches its application again is unaffected. Each attempt is a
-/// nested call, so the entries form a stack; dropping an entry removes it and every entry above
-/// it.
+/// Evaluation that reaches an application on the stack leaves that occurrence as it is
+/// ([`Self::reenter`]): its value is what an open attempt is computing. The occurrence is
+/// recorded as cut for the innermost open attempt, whose outcome then gives no value if it still
+/// holds it. If the reached application is that attempt's own, the attempt states it through
+/// itself. If it is one below, an enclosing attempt's, the innermost attempt has failed only for
+/// want of a value an enclosing attempt is computing; that failure is contingent, and the
+/// innermost attempt's application is tried with its other equations. If none gives a value, the
+/// application stays unevaluated, and that occurrence is in turn cut, at the reached depth, for
+/// the attempt that holds it ([`Self::cut`], from `simplify_root`), so contingency is handed down
+/// one open attempt at a time, and a failed attempt's cuts are dropped with it.
+///
+/// Each attempt is nested in the ones open when it started, so the entries form a stack;
+/// dropping an entry removes it and every entry above it.
 struct UnspecifiedEvaluation {
     depth: usize,
 }
 
 impl UnspecifiedEvaluation {
     fn enter(application: &Term) -> Self {
-        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
-            evaluations.push((application.clone(), false));
-            Self {
-                depth: evaluations.len() - 1,
-            }
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            let depth = stack.entries.len();
+            stack.entries.push(StackEntry {
+                application: application.clone(),
+                cuts: Vec::new(),
+            });
+            stack.depths.insert(application.clone(), depth);
+            Self { depth }
         })
     }
 
-    /// Whether `application` is being evaluated, marking that evaluation as reached again.
+    /// Whether an attempt is open on `application`; if so, the occurrence is cut for the
+    /// innermost open attempt.
     fn reenter(application: &Term) -> bool {
-        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
-            match evaluations
-                .iter_mut()
-                .find(|(evaluated, _)| evaluated == application)
-            {
-                Some((_, reentered)) => {
-                    *reentered = true;
-                    true
-                }
-                None => false,
-            }
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            let Some(&depth) = stack.depths.get(application) else {
+                return false;
+            };
+            record_cut(stack, application, depth);
+            true
         })
     }
 
-    fn reentered(&self) -> bool {
-        UNSPECIFIED_EVALUATIONS
-            .with_borrow(|evaluations| evaluations.get(self.depth).is_some_and(|entry| entry.1))
+    /// Record that `application` was left unevaluated only for want of the value an attempt at
+    /// `depth` is computing: it is cut, at that depth, for the innermost open attempt.
+    fn cut(application: &Term, depth: usize) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| record_cut(stack, application, depth));
+    }
+
+    /// The occurrences cut for this attempt so far.
+    fn cuts(&self) -> Vec<(Term, usize)> {
+        UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+            stack
+                .entries
+                .get(self.depth)
+                .map(|entry| entry.cuts.clone())
+                .unwrap_or_default()
+        })
+    }
+
+    /// Forget the occurrences cut so far: the equation's `requires` holds with them as they are,
+    /// so it holds whatever their values.
+    fn clear_cuts(&self) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            if let Some(entry) = stack.entries.get_mut(self.depth) {
+                entry.cuts.clear();
+            }
+        });
+    }
+
+    /// The lowest depth below this attempt's own at which an occurrence was cut for it.
+    fn contingent_cut(&self) -> Option<usize> {
+        self.cuts()
+            .into_iter()
+            .map(|(_, depth)| depth)
+            .filter(|&depth| depth < self.depth)
+            .min()
+    }
+}
+
+fn record_cut(stack: &mut UnspecifiedStack, application: &Term, depth: usize) {
+    if let Some(innermost) = stack.entries.last_mut()
+        && !innermost.cuts.iter().any(|(cut, _)| cut == application)
+    {
+        innermost.cuts.push((application.clone(), depth));
     }
 }
 
 impl Drop for UnspecifiedEvaluation {
     fn drop(&mut self) {
-        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| evaluations.truncate(self.depth));
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            for entry in stack.entries.drain(self.depth.min(stack.entries.len())..) {
+                stack.depths.remove(&entry.application);
+            }
+        });
+    }
+}
+
+/// What a simplification of a term depends on besides the term and the definition: the
+/// assumptions it is taken under, the rule conditions being evaluated around it, whether it runs
+/// with a console, and the options. Two lineages alive at once whose contexts are equal share
+/// these objects, so a value one computed is a value for the other.
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct EvaluationContext {
+    predicates: usize,
+    predicate_count: usize,
+    path_condition: usize,
+    active_conditions: usize,
+    execution: bool,
+    options: SimplificationOptions,
+}
+
+impl EvaluationContext {
+    fn of(
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        active_conditions: &BTreeSet<(String, Term)>,
+        execution: bool,
+    ) -> Self {
+        Self {
+            predicates: assumptions.predicates.as_ptr() as usize,
+            predicate_count: assumptions.predicates.len(),
+            path_condition: std::ptr::from_ref(assumptions.path_condition) as usize,
+            active_conditions: std::ptr::from_ref(active_conditions) as usize,
+            execution,
+            options,
+        }
+    }
+}
+
+struct ValueScope {
+    context: EvaluationContext,
+    values: FxHashMap<Term, (Simplification, Arc<RewriteRule>)>,
+}
+
+/// The values that lineages nested in one lineage computed for `Unspecified` applications, kept
+/// for the rest of that lineage, so that an application evaluated in an attempt that failed is
+/// not evaluated again when the next equation reaches it.
+///
+/// A lineage opens its scope when it takes its first step on an `Unspecified` application, the
+/// only kind of lineage that retries, and closes it when it ends. A nested lineage whose first
+/// step was on such an application, and whose attempts all gave values, records the
+/// application's value ([`Self::record_in_enclosing`]) in the innermost enclosing scope of the
+/// same [`EvaluationContext`]; the scope's lineage holds that context's objects for as long as
+/// the scope is open, so the context names the same assumptions for every lineage that meets it.
+/// Every lineage result equals its input under its assumptions (a cut occurrence is left as it
+/// is, the identity), so a recorded value is a value of the application under that context
+/// whatever was on the evaluation stack when it was computed. Only a value whose derivation had
+/// no console effect, no exhausted budget and no undefined term is recorded, so reusing it
+/// neither drops an effect nor a report.
+struct UnspecifiedValues {
+    depth: usize,
+    context: EvaluationContext,
+}
+
+impl UnspecifiedValues {
+    fn open(context: EvaluationContext) -> Self {
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
+            scopes.push(ValueScope {
+                context,
+                values: FxHashMap::default(),
+            });
+            Self {
+                depth: scopes.len() - 1,
+                context,
+            }
+        })
+    }
+
+    /// The value recorded for `application` under `context`, with the equation of the step that
+    /// began its derivation.
+    fn recorded(
+        context: EvaluationContext,
+        application: &Term,
+    ) -> Option<(Simplification, Arc<RewriteRule>)> {
+        UNSPECIFIED_VALUES.with_borrow(|scopes| {
+            scopes
+                .iter()
+                .rev()
+                .filter(|scope| scope.context == context)
+                .find_map(|scope| scope.values.get(application).cloned())
+        })
+    }
+
+    /// Record, in the innermost enclosing scope of this lineage's context, the value the lineage
+    /// gave the application of its first `Unspecified` step `first`: the outcome `end` with what
+    /// was accumulated since that step.
+    fn record_in_enclosing(
+        &self,
+        first: &UnspecifiedFrame,
+        end: &Term,
+        accumulated: &Accumulated,
+        execution: Option<&ExecutionEvaluationContext>,
+    ) {
+        let effect_free = match (execution, &first.before.io) {
+            (Some(execution), Some(io)) => execution.unchanged_since(io),
+            (None, None) => true,
+            _ => false,
+        };
+        if !effect_free
+            || accumulated.exhausted.is_some()
+            || accumulated.undefined_term.is_some()
+            || *end == first.application
+        {
+            return;
+        }
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
+            let enclosing = self.depth.min(scopes.len());
+            if let Some(scope) = scopes[..enclosing]
+                .iter_mut()
+                .rev()
+                .find(|scope| scope.context == self.context)
+            {
+                scope.values.insert(
+                    first.application.clone(),
+                    (
+                        accumulated.since(&first.before.accumulated, end.clone()),
+                        Arc::clone(&first.rule),
+                    ),
+                );
+            }
+        });
+    }
+}
+
+impl Drop for UnspecifiedValues {
+    fn drop(&mut self) {
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| scopes.truncate(self.depth));
     }
 }
 

@@ -206,6 +206,29 @@ pub(super) struct Accumulated {
     pub(super) contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
+/// A point of an [`Accumulated`] result ([`Accumulated::mark`]): how many conditions, applied
+/// rules and effects it held, and its reports then. The reports may be updated after the mark is
+/// taken ([`AccumulatedMark::refresh_reports`]), for a caller that settles them later in the same
+/// step.
+pub(super) struct AccumulatedMark {
+    conditions: usize,
+    applied_rules: usize,
+    effects: usize,
+    exhausted: Option<BudgetExhaustion>,
+    undefined_term: Option<Term>,
+    contradicted_total: Option<Box<ContradictedTotal>>,
+}
+
+impl AccumulatedMark {
+    /// Take `accumulated`'s current reports in place of those held at the mark.
+    pub(super) fn refresh_reports(&mut self, accumulated: &Accumulated) {
+        self.exhausted = accumulated.exhausted;
+        self.undefined_term.clone_from(&accumulated.undefined_term);
+        self.contradicted_total
+            .clone_from(&accumulated.contradicted_total);
+    }
+}
+
 /// What [`Accumulated::absorb`] leaves of a part: its term and its undefined-term reports.
 pub(super) struct Absorbed {
     pub(super) term: Term,
@@ -243,6 +266,49 @@ impl Accumulated {
         self.applied_rules.push(rule_id);
         self.conditions
             .append(ResultConditions::top_equation(obligations));
+    }
+
+    /// Where the running result stands now, for [`Accumulated::rewind`] and
+    /// [`Accumulated::since`].
+    pub(super) fn mark(&self) -> AccumulatedMark {
+        AccumulatedMark {
+            conditions: self.conditions.len(),
+            applied_rules: self.applied_rules.len(),
+            effects: self.effects.len(),
+            exhausted: self.exhausted,
+            undefined_term: self.undefined_term.clone(),
+            contradicted_total: self.contradicted_total.clone(),
+        }
+    }
+
+    /// Return to `mark`: every part absorbed since is dropped, and the reports are those `mark`
+    /// holds.
+    pub(super) fn rewind(&mut self, mark: &AccumulatedMark) {
+        self.conditions.truncate(mark.conditions);
+        self.applied_rules.truncate(mark.applied_rules);
+        self.effects.truncate(mark.effects);
+        self.exhausted = mark.exhausted;
+        self.undefined_term.clone_from(&mark.undefined_term);
+        self.contradicted_total.clone_from(&mark.contradicted_total);
+    }
+
+    /// The conditions absorbed since `mark`.
+    pub(super) fn constraints_since(&self, mark: &AccumulatedMark) -> &[Predicate] {
+        &self.conditions.as_slice()[mark.conditions..]
+    }
+
+    /// What was absorbed since `mark`, as the result for `term`, without reports: the caller
+    /// takes it only where no report was raised.
+    pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
+        Simplification {
+            term,
+            conditions: self.conditions.since(mark.conditions),
+            applied_rules: self.applied_rules[mark.applied_rules..].to_vec(),
+            effects: self.effects[mark.effects..].to_vec(),
+            exhausted: None,
+            undefined_term: None,
+            contradicted_total: None,
+        }
     }
 
     /// The accumulated result for `term`.

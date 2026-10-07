@@ -303,6 +303,32 @@ fn record_in_sink(kind: EmissionKind) {
     });
 }
 
+/// How many emissions the current collection holds, for [`discard_since`]; `None` without a
+/// collector.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EmissionMark(Option<usize>);
+
+/// The current collection's extent now ([`EmissionMark`]).
+pub(crate) fn mark() -> EmissionMark {
+    EmissionMark(SINK.with(|sink| sink.borrow().as_ref().map(|sink| sink.emissions.len())))
+}
+
+/// Drop what the current collection recorded since `mark`, which must have been taken in the
+/// same collection: the work that emitted it was undone, and the collection is as if it had
+/// never run. Every collection rule (one report per hook, say) only declines an emission that
+/// an earlier one already records, so the emissions kept, and what later ones meet, are those
+/// before `mark`.
+pub(crate) fn discard_since(mark: EmissionMark) {
+    let EmissionMark(Some(len)) = mark else {
+        return;
+    };
+    SINK.with(|sink| {
+        if let Some(sink) = sink.borrow_mut().as_mut() {
+            sink.emissions.truncate(len);
+        }
+    });
+}
+
 /// The position the next emission on this thread will take: every emission of a unit of work
 /// that starts at `a` and ends at `b` has a position in `a..b`.
 pub(crate) fn next_position() -> u64 {

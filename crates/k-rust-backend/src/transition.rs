@@ -257,6 +257,24 @@ impl ExecutionEvaluationContext {
     pub(crate) fn commit(self) -> ExecutionIoState {
         self.state
     }
+
+    /// The console state now, for [`Self::restore`]: the cursor and the transcript are values,
+    /// so this copies two shared pointers and a number.
+    pub(crate) fn snapshot(&self) -> ExecutionIoState {
+        self.state.clone()
+    }
+
+    /// Return to `snapshot`: every read since is unread and every write since unwritten.
+    pub(crate) fn restore(&mut self, snapshot: ExecutionIoState) {
+        self.state = snapshot;
+    }
+
+    /// Whether nothing was read or written since `snapshot`: input is only consumed and the
+    /// transcript only grows.
+    pub(crate) fn unchanged_since(&self, snapshot: &ExecutionIoState) -> bool {
+        self.state.cursor == snapshot.cursor
+            && self.state.transcript.len() == snapshot.transcript.len()
+    }
 }
 
 /// Effects owned by the committed prefix of one execution branch.
