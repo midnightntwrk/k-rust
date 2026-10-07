@@ -510,6 +510,31 @@ fn shapes() -> Vec<Case> {
         ],
         inputs: vec![App(4)],
     });
+    // A value recorded for the first application of a lineage that took further steps reads
+    // what those steps read. `T = U4 = A ++ X`, `A = U2 = B` and `B = U1 = X ++ ""`, so `A`'s
+    // lineage steps on `B`, whose attempt is still open when the lineage ends; `X = U0` is `A ++
+    // W` (with `W = U3`, which never gives a value) or `"x"`. In `T`, `A` is evaluated first and
+    // `B`'s attempt finds `X` not open. Then `X`'s attempt on `A ++ W` reaches `A` with `X`
+    // open: evaluated afresh, `B` fails for want of `X`, so `A` gets no value there and `X` is
+    // `"x"`; `A`'s record, had it lost what `B`'s attempt read, would give `A` its value there
+    // and `X` the value `"x" ++ W`.
+    shapes.push(Case {
+        name: "shape lineage-reads".to_owned(),
+        seed: 5,
+        determined: false,
+        strict: false,
+        model: ["x", "x", "x", "", "xx"].map(str::to_owned).to_vec(),
+        functions: Vec::new(),
+        equations: vec![
+            app(4, concat(App(2), App(0)), Cond::True),
+            app(0, concat(App(2), App(3)), Cond::True),
+            app(0, lit("x"), Cond::True),
+            app(1, concat(App(0), lit("")), Cond::True),
+            app(2, App(1), Cond::True),
+            app(3, concat(App(3), lit("")), Cond::True),
+        ],
+        inputs: vec![App(4)],
+    });
     shapes
 }
 

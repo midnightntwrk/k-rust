@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records, each recorded evaluation checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions included. Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions of one predicate included (a conjunct of several is evaluated with the others as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -5112,6 +5112,22 @@ impl AssumptionContent {
             && self.replacements == assumptions.path_condition.replacements
             && self.substitution == assumptions.path_condition.substitution
     }
+
+    /// A hash of the predicates of `assumptions` other than `\top`: assumptions of the same
+    /// content ([`Self::holds`]) have the same hash. The path condition is left to
+    /// [`Self::holds`].
+    fn hash(assumptions: &TermAssumptions<'_>) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = rustc_hash::FxHasher::default();
+        for predicate in assumptions
+            .predicates
+            .iter()
+            .filter(|predicate| **predicate != Predicate::True)
+        {
+            predicate.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
 }
 
 /// The evaluation of an `Unspecified` application recorded for reuse: the value a nested lineage
@@ -5221,11 +5237,19 @@ impl Record {
     }
 }
 
-/// The records of evaluations of `Unspecified` applications ([`UnspecifiedValues`]).
+/// The records of evaluations of `Unspecified` applications ([`UnspecifiedValues`]): those of
+/// each application, by the hash of the predicates they were made under
+/// ([`AssumptionContent::hash`]), in the order they were made.
+///
+/// A record is served only under assumptions of the same content ([`Record::holds`]), which have
+/// the same hash, so every record that could be served is in the list of that hash; that list
+/// keeps the order of the records in it, so its first record that holds is the first of all the
+/// application's records that holds. Indexing changes which records a lookup scans, not which
+/// one it serves.
 #[derive(Default)]
 struct RecordTable {
     scopes: usize,
-    records: FxHashMap<Term, Vec<Record>>,
+    records: FxHashMap<Term, FxHashMap<u64, Vec<Record>>>,
 }
 
 /// The evaluations of `Unspecified` applications kept for reuse while a lineage that took a step
@@ -5246,12 +5270,22 @@ struct RecordTable {
 /// attempts it reached at the same depths, none of the applications it found not open, the
 /// rule-condition keys it found active and none of those it inserted, the console at the same
 /// position (or no console) if it reached a console hook, the same options, the same solver and
-/// the same assumptions by content (`\top` being no assumption) ([`EvaluationGiven`]). The
-/// evaluation is a function of those reads, so it would compute the recorded outcome; a served
-/// value is that evaluation's value, and a served failure starts the evaluation as its last
-/// retry, the failed equations excluded and the same contingency handed on. The one difference
-/// is the budget: a reused outcome does not spend what the evaluation would. What the record
-/// read is added to the evaluation that serves it ([`UnspecifiedEvaluation::reach`]).
+/// the same assumptions by content (`\top` being no assumption) and the same path condition
+/// ([`EvaluationGiven`]). The evaluation is a function of those reads, so it would compute the
+/// recorded outcome; a served value is that evaluation's value, and a served failure starts the
+/// evaluation as its last retry, the failed equations excluded and the same contingency handed
+/// on. Results differ in nothing but the budget: a reused outcome does not spend what the
+/// evaluation would. Diagnostics may differ: serving a record emits none of the diagnostics its
+/// evaluation emitted, so one that the evaluation would emit again at the point of reuse is
+/// missing there, and is not reported at all when the recorded evaluation emitted it inside an
+/// attempt that was undone, which discarded it. What the record read is added to the evaluation
+/// that serves it ([`UnspecifiedEvaluation::reach`]).
+///
+/// A rule condition is evaluated under its other conjuncts as assumptions
+/// (`simplify_predicates_with_budget`), so it shares records with the evaluation around it only
+/// when it is one predicate: then its assumptions have the content of those around it. A
+/// `requires` `C1 andBool C2`, or one whose definedness obligation stays open, is two or more,
+/// and its conjuncts share records only with evaluations under the same other conjuncts.
 struct UnspecifiedValues;
 
 impl UnspecifiedValues {
@@ -5270,7 +5304,10 @@ impl UnspecifiedValues {
             return None;
         }
         UNSPECIFIED_VALUES.with_borrow(|table| {
-            let records = table.records.get(application)?;
+            let records = table
+                .records
+                .get(application)?
+                .get(&AssumptionContent::hash(given.assumptions))?;
             UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
                 records
                     .iter()
@@ -5328,10 +5365,13 @@ impl UnspecifiedValues {
             stack,
             active: given.active.clone(),
         };
+        let hash = AssumptionContent::hash(given.assumptions);
         UNSPECIFIED_VALUES.with_borrow_mut(|table| {
             table
                 .records
                 .entry(application.clone())
+                .or_default()
+                .entry(hash)
                 .or_default()
                 .push(record);
         });
@@ -6880,6 +6920,178 @@ mod tests {
         );
         assert!(given(&began));
         assert!(!given(&BTreeSet::new()));
+    }
+
+    /// A record is served only where no application it found not open is open, also when the
+    /// stack ends with the application on which its evaluation began: `R`'s evaluation began on
+    /// `[A]` and found `X` not open. On `[A]` it is served; on `[X, A]`, whose top is `A` too, a
+    /// fresh evaluation would find `X` open and cut it, so it is not.
+    #[test]
+    fn a_record_is_not_served_where_an_application_it_found_not_open_is_open_below_the_top() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let [r, a, x] = ["r", "a", "x"]
+            .map(|name| term(&definition, &format!(r#"\dv{{SortString{{}}}}("{name}")"#)));
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let active = BTreeSet::new();
+        let given = EvaluationGiven {
+            assumptions: &assumptions,
+            options: SimplificationOptions::default(),
+            active: &active,
+            console: None,
+            solver: &NoSolver,
+        };
+        let served = || UnspecifiedValues::recorded(&r, &given).is_some();
+        let _scope = UnspecifiedValues::open();
+        let on_a = UnspecifiedEvaluation::enter(&a);
+        let mut reads = Reads::default();
+        reads.absent(&x);
+        UnspecifiedValues::record(
+            &r,
+            RecordedOutcome::Failed {
+                excluded: Vec::new(),
+                contingent: None,
+            },
+            reads,
+            1,
+            &given,
+        );
+        assert!(served(), "on the stack it began on");
+        drop(on_a);
+        let on_x = UnspecifiedEvaluation::enter(&x);
+        let on_a = UnspecifiedEvaluation::enter(&a);
+        assert!(!served(), "with X open below A");
+        drop(on_a);
+        drop(on_x);
+    }
+
+    /// `\top` assumes nothing: a record made under the assumptions `P, \top`, as a `requires` of
+    /// one predicate evaluates its terms under `P` (`\top` in place of itself), is served under
+    /// `P` alone, and the other way round, so that such a `requires` reuses what was evaluated
+    /// around it.
+    #[test]
+    fn a_record_made_under_top_is_served_without_it() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let [made_under_top, made_under_none] = ["top", "none"]
+            .map(|name| term(&definition, &format!(r#"\dv{{SortString{{}}}}("{name}")"#)));
+        let path_condition = PathConditionReplacements::new(&[]);
+        let active = BTreeSet::new();
+        let under = |predicates: &[Predicate], application: &Term, record: bool| {
+            let assumptions = TermAssumptions {
+                predicates,
+                path_condition: &path_condition,
+            };
+            let given = EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &active,
+                console: None,
+                solver: &NoSolver,
+            };
+            if record {
+                UnspecifiedValues::record(
+                    application,
+                    RecordedOutcome::Failed {
+                        excluded: Vec::new(),
+                        contingent: None,
+                    },
+                    Reads::default(),
+                    0,
+                    &given,
+                );
+            }
+            UnspecifiedValues::recorded(application, &given).is_some()
+        };
+        let p = Predicate::Ceil(term(&definition, r#"\dv{SortString{}}("p")"#));
+        let with_top = [p.clone(), Predicate::True];
+        let without = [p];
+        let _scope = UnspecifiedValues::open();
+        assert!(under(&with_top, &made_under_top, true));
+        assert!(under(&without, &made_under_top, false));
+        assert!(under(&without, &made_under_none, true));
+        assert!(under(&with_top, &made_under_none, false));
+    }
+
+    /// A record is served only under the same path condition as well as the same predicates:
+    /// the path condition is given beside the predicates, not computed from them. A `\ceil`
+    /// conjunct is simplified with its sibling conjuncts among the predicates but under the path
+    /// condition of the known predicates alone (`simplify_predicates_with_budget`), where a
+    /// sibling equality `X = "c"` does not rewrite `X`; elsewhere the same predicates come with
+    /// the path condition they state, which does.
+    #[test]
+    fn a_record_is_not_served_under_another_path_condition_with_the_same_predicates() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("application")"#);
+        let equality = [Predicate::Equals(
+            term(&definition, "X:SortString{}"),
+            term(&definition, r#"\dv{SortString{}}("c")"#),
+        )];
+        let stated = PathConditionReplacements::new(&equality);
+        let unstated = PathConditionReplacements::new(&[]);
+        assert!(!stated.substitution.is_empty());
+        let active = BTreeSet::new();
+        let under = |path_condition: &PathConditionReplacements, record: bool| {
+            let assumptions = TermAssumptions {
+                predicates: &equality,
+                path_condition,
+            };
+            let given = EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &active,
+                console: None,
+                solver: &NoSolver,
+            };
+            if record {
+                UnspecifiedValues::record(
+                    &application,
+                    RecordedOutcome::Failed {
+                        excluded: Vec::new(),
+                        contingent: None,
+                    },
+                    Reads::default(),
+                    0,
+                    &given,
+                );
+            }
+            UnspecifiedValues::recorded(&application, &given).is_some()
+        };
+        let _scope = UnspecifiedValues::open();
+        assert!(
+            under(&unstated, true),
+            "under the path condition it was recorded under"
+        );
+        assert!(
+            !under(&stated, false),
+            "under the path condition the predicates state"
+        );
     }
 
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
