@@ -397,12 +397,16 @@ pub(super) fn check_function_rule_attributes_with_views(
     let productions = views.production_catalog(module);
     let rules = definition.rule_catalog(module);
     let mut diagnostics = Vec::new();
+    let mut function_rule_ids = BTreeSet::new();
 
-    // Invariant: `diagnostics` holds the attribute errors of the rules of every entry of `productions.function_labels()` before `function`; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
+    // Invariant: `diagnostics` holds the attribute-policy errors of the rules of every entry of `productions.function_labels()` before `function`, and `function_rule_ids` their ids; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
     for function in productions.function_labels() {
         let function_rules = rules
             .rules()
             .filter(|(_, rule)| LabelHead::from(&match_rule_label(rule)) == *function)
+            .inspect(|(id, _)| {
+                function_rule_ids.insert(*id);
+            })
             .map(|(_, rule)| rule)
             .collect::<Vec<_>>();
         let all_concrete = function_rules.iter().all(|rule| {
@@ -415,12 +419,6 @@ pub(super) fn check_function_rule_attributes_with_views(
         });
         for rule in function_rules {
             let attributes = rule.attributes();
-            if (has_no_arg(rule, AttributeKey::Concrete) && attributes.has(AttributeKey::Symbolic))
-                || (has_no_arg(rule, AttributeKey::Symbolic)
-                    && attributes.has(AttributeKey::Concrete))
-            {
-                diagnostics.push(both_concrete_and_symbolic(rule));
-            }
             if attributes.has(AttributeKey::Concrete)
                 && !all_concrete
                 && !attributes.has(AttributeKey::Simplification)
@@ -444,24 +442,35 @@ pub(super) fn check_function_rule_attributes_with_views(
         }
     }
 
-    for (_, rule) in rules.rules() {
+    // A pattern is concrete when it has no variables or unevaluated functions and symbolic
+    // otherwise, so a variable both attributes name can never be matched and the rule never
+    // applies. Checked once per rule, on every rule the attributes restrict: simplification rules
+    // and the rules of function labels.
+    for (id, rule) in rules.rules() {
         let attributes = rule.attributes();
-        if !attributes.has(AttributeKey::Simplification)
+        if !(attributes.has(AttributeKey::Simplification) || function_rule_ids.contains(&id))
             || !attributes.has(AttributeKey::Concrete)
             || !attributes.has(AttributeKey::Symbolic)
         {
             continue;
         }
-        let concrete = attribute_names(rule, AttributeKey::Concrete);
-        let symbolic = attribute_names(rule, AttributeKey::Symbolic);
-        if concrete.is_empty() || symbolic.is_empty() {
-            diagnostics.push(both_concrete_and_symbolic(rule));
-            continue;
-        }
-        let overlap = concrete
-            .intersection(&symbolic)
-            .cloned()
-            .collect::<Vec<_>>();
+        let overlap = match (
+            attribute_variables(rule, AttributeKey::Concrete),
+            attribute_variables(rule, AttributeKey::Symbolic),
+        ) {
+            (AttributeVariables::All, AttributeVariables::All) => {
+                diagnostics.push(both_concrete_and_symbolic(rule));
+                continue;
+            }
+            (AttributeVariables::All, AttributeVariables::Named(names))
+            | (AttributeVariables::Named(names), AttributeVariables::All) => {
+                names.into_iter().collect::<Vec<_>>()
+            }
+            (AttributeVariables::Named(concrete), AttributeVariables::Named(symbolic)) => concrete
+                .intersection(&symbolic)
+                .cloned()
+                .collect::<Vec<_>>(),
+        };
         if !overlap.is_empty() {
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::InconsistentFunctionRuleAttributes,
@@ -489,18 +498,28 @@ fn has_no_arg(rule: &Sentence, attribute: AttributeKey) -> bool {
     rule.attributes().string(attribute) == Some("")
 }
 
-fn attribute_names(rule: &Sentence, attribute: AttributeKey) -> BTreeSet<String> {
-    // Keep empty names: a bare attribute, which names every variable, has the one name `""`, so a
-    // bare `concrete` and a bare `symbolic` overlap in it and are reported, with the overlap
-    // printed as `[]`. A bare attribute against a list of names shares no name with it and is
-    // not reported, although it also names the listed variables.
-    rule.attributes()
-        .string(attribute)
-        .into_iter()
-        .flat_map(|names| names.split(','))
-        .map(str::trim)
-        .map(str::to_owned)
-        .collect()
+/// The variables a `concrete` or `symbolic` attribute restricts.
+enum AttributeVariables {
+    /// The bare attribute: every variable of the rule.
+    All,
+    /// `attribute(X, Y, ...)`: the listed variables.
+    Named(BTreeSet<String>),
+}
+
+/// The variables `attribute` restricts on `rule`, which carries it.
+fn attribute_variables(rule: &Sentence, attribute: AttributeKey) -> AttributeVariables {
+    let value = rule.attributes().string(attribute).unwrap_or_default();
+    if value.is_empty() {
+        return AttributeVariables::All;
+    }
+    AttributeVariables::Named(
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
 }
 
 fn both_concrete_and_symbolic(rule: &Sentence) -> Diagnostic {

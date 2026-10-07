@@ -2167,35 +2167,126 @@ fn simplification_rules_reject_overlapping_concrete_and_symbolic_variables() {
     );
 }
 
-#[test]
-fn bare_concrete_and_symbolic_on_a_simplification_rule_overlap_in_the_empty_name() {
-    let simplification = Sentence::Rule {
-        body: rewrite(token("0"), token("1")),
-        requires: truth(),
-        ensures: truth(),
-        attributes: attrs(&[
-            ("simplification", json!("")),
-            ("concrete", json!("")),
-            ("symbolic", json!("")),
-        ]),
-    };
+fn function_rule_attribute_messages(sentences: Vec<Sentence>) -> Vec<String> {
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
         main_module: "MAIN".into(),
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![Arc::new(simplification)],
+            local_sentences: sentences.into_iter().map(Arc::new).collect(),
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
     })
     .unwrap();
-    let diagnostics = check_function_rule_attributes(&resolved);
+    check_function_rule_attributes(&resolved)
+        .into_iter()
+        .map(|diagnostic| diagnostic.message)
+        .collect()
+}
 
-    assert_eq!(diagnostics.len(), 1);
+fn concrete_symbolic_rule(lhs: Term, extra: &[(&str, Value)]) -> Sentence {
+    Sentence::Rule {
+        body: rewrite(lhs, token("1")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(extra),
+    }
+}
+
+#[test]
+fn bare_concrete_and_symbolic_on_a_simplification_rule_overlap_in_every_variable() {
+    // Both bare attributes name every variable of the rule, and no pattern is both concrete and
+    // symbolic, so the rule can never apply.
+    let simplification = concrete_symbolic_rule(
+        token("0"),
+        &[
+            ("simplification", json!("")),
+            ("concrete", json!("")),
+            ("symbolic", json!("")),
+        ],
+    );
+
     assert_eq!(
-        diagnostics[0].message,
-        "Rule cannot be both concrete and symbolic in the same variable: []"
+        function_rule_attribute_messages(vec![simplification]),
+        ["Rule cannot be both concrete and symbolic in the same variable."]
+    );
+}
+
+#[test]
+fn a_bare_attribute_overlaps_every_variable_the_other_attribute_names() {
+    // A bare `concrete` names every variable, `X` and `Y` included, so `symbolic(X, Y)` asks
+    // them to be symbolic as well; and the mirror image.
+    let bare_concrete = concrete_symbolic_rule(
+        token("0"),
+        &[
+            ("simplification", json!("")),
+            ("concrete", json!("")),
+            ("symbolic", json!("X, Y")),
+        ],
+    );
+    let bare_symbolic = concrete_symbolic_rule(
+        token("2"),
+        &[
+            ("simplification", json!("")),
+            ("concrete", json!("Z")),
+            ("symbolic", json!("")),
+        ],
+    );
+
+    assert_eq!(
+        function_rule_attribute_messages(vec![bare_concrete, bare_symbolic]),
+        [
+            "Rule cannot be both concrete and symbolic in the same variable: [X, Y]",
+            "Rule cannot be both concrete and symbolic in the same variable: [Z]",
+        ]
+    );
+}
+
+#[test]
+fn concrete_and_symbolic_overlaps_on_function_rules_are_reported_once() {
+    let function = production(
+        Some("overlapF"),
+        "Int",
+        &[],
+        attrs(&[("function", json!(""))]),
+    );
+    let lhs = || Term::apply("overlapF", Vec::new());
+    let bare_simplification = concrete_symbolic_rule(
+        lhs(),
+        &[
+            ("simplification", json!("")),
+            ("concrete", json!("")),
+            ("symbolic", json!("")),
+        ],
+    );
+    let named_simplification = concrete_symbolic_rule(
+        lhs(),
+        &[
+            ("simplification", json!("")),
+            ("concrete", json!("")),
+            ("symbolic", json!("X")),
+        ],
+    );
+    let named_function_rule =
+        concrete_symbolic_rule(lhs(), &[("concrete", json!("X")), ("symbolic", json!("X"))]);
+
+    let mut messages = function_rule_attribute_messages(vec![
+        function,
+        bare_simplification,
+        named_simplification,
+        named_function_rule,
+    ]);
+    messages.sort();
+    assert_eq!(
+        messages,
+        [
+            "Found concrete attribute without simplification attribute on function with one or more non-concrete rules.",
+            "Found symbolic attribute without simplification attribute on function with one or more non-symbolic rules.",
+            "Rule cannot be both concrete and symbolic in the same variable.",
+            "Rule cannot be both concrete and symbolic in the same variable: [X]",
+            "Rule cannot be both concrete and symbolic in the same variable: [X]",
+        ]
     );
 }
 
