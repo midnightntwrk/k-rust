@@ -87,4 +87,19 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 Function hooks are a separate typed catalog selected in `#[k::function(..., hook = ...)]`.
 They are intentionally not arbitrary strings or raw attributes.
 
+## Running a definition
+
+Each command compiles the selected definition in-process and corresponds to a K tool on the emitted `definition.k` and `spec.k`; the [workflow reference](/reference/workflow#run-search-and-prove) lists their options.
+
+| KRS | Java K | Result |
+| --- | --- | --- |
+| `krs parse --sort Stmt prog.imp` | `kast --sort Stmt prog.imp` | the program as KAST |
+| `krs run prog.imp -c env='.Map'` | `krun prog.imp -cENV='.Map'` | the final configuration of one path |
+| `krs search prog.imp` | `krun --search prog.imp` | the set of reachable final states |
+| `krs prove --claim branching` | `kprove spec.k --claims MAIN-SPEC.branching` | a verdict for each claim |
+
+A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
+Proof verdicts are k-rust's: `proven`, `disproved`, `failed`, `indeterminate`, and `depth-bound`.
+`--output json` prints a `krs-exec/1` report whose configurations are KAST JSON, as `krun --output json` prints them.
+
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

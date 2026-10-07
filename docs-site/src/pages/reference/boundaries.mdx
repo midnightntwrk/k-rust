@@ -59,7 +59,8 @@ General matching logic, fresh-variable sentences, `anywhere`, semantic casts, sy
 Method-call term sugar and exact `% ` formatting sugar are deferred.
 Non-doc block comments inside DSL macro bodies are rejected.
 There is no numeric priority for transition rules, and source order is never a rule tie-breaker.
-There is also no `krs run` or `krs prove` command.
+`krs run`, `krs search`, and `krs prove` always use the in-process k-rust backend; their results print as KAST, JSON, or KORE, not yet as program text.
+There is no stepping debugger: `krs run --trace` lists the rewrite steps of a finished run.
 
 When an example needs an unsupported feature, state the semantic gap and use a checked adapter only if its limitation is recorded.
 Do not present parser acceptance, a historical draft, or a generated reference spelling as a supported idiom.

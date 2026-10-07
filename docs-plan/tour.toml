@@ -17,7 +17,7 @@ reference = "Required in the feature index or API reference"
 limitation = "Required in the limitations and capability material"
 
 [surface_review]
-cli_commands = ["fmt", "check", "expand", "emit-k", "build"]
+cli_commands = ["fmt", "check", "expand", "emit-k", "build", "parse", "run", "search", "prove"]
 metadata_keys = ["k-namespace", "root", "syntax-root"]
 macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cell", "cells", "claim", "configuration", "constructor", "constructors", "context_alias", "ensures", "equation", "exists", "fragment", "function", "id", "init", "k", "map", "or_bool", "precedence", "priority", "requires", "rule", "rules", "seqstrict", "simplification", "sort", "sorts", "strict", "subsort", "symbol", "term", "token"]
 builtin_operations = ["add", "and", "bit_and", "bit_or", "bit_xor", "concat", "contains", "div", "empty", "eq", "ge", "get", "gt", "in_keys", "item", "le", "length", "log2", "lt", "make", "modulo", "mul", "ne", "not", "or", "pad_right", "pow_mod", "range", "shift_left", "shift_right", "size", "sub", "substr", "union", "update", "update_all"]
@@ -743,7 +743,7 @@ coverage = "spine"
 chapter = "lowering"
 prerequisites = ["fmt-check", "two-surfaces"]
 evidence = ["crates/krs-cli/src/main.rs", "crates/krs-cli/tests/cli_commands.rs"]
-note = "There is no krs run command."
+note = "Running, searching, and proving are krs run, krs search, and krs prove (crates/krs-cli/tests/exec_commands.rs)."
 
 [[concept]]
 id = "artifacts"

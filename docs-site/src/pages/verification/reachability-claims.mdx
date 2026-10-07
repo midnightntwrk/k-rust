@@ -59,7 +59,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 A proved result, an incomplete frontier, a false claim, and exhausted resources are distinct observations.
 
 The Haskell cells refer to `krs build --backend haskell` artifacts plus the repository's pinned native `kprove` harnesses.
-Proof search and concrete execution are performed by those named K/KORE consumers or repository harnesses; there is no `krs prove` or `krs run` command in the current CLI.
+Those cells describe the named K/KORE consumers and repository harnesses; `krs prove` proves the same claims in-process with the k-rust backend and reports k-rust's verdicts.
 One-path remains unqualified until a positive end-to-end fixture establishes its intended backend route.
 
 Malformed binders and ill-sorted conditions fail during authoring or semantic checking.

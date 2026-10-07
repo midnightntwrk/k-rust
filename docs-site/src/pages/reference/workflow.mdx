@@ -27,7 +27,7 @@ The default aligned trailing-comment layout is provisional; `--trailing-comments
 
 `check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
-`check`, `expand`, `emit-k`, and `build` render human-readable diagnostics on stderr by default, including their codes, notes, and authored source snippets when the source revision matches.
+`check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, and authored source snippets when the source revision matches.
 Pass `--message-format=json` when a tool consumes diagnostics.
 In JSON mode, located collector failures use schema-1 JSON envelopes on stderr, with stage `analysis`, a `krs::collect::*` code, and the exact authored file revision and byte range.
 Unlocated diagnostics and other failures retain prose lines in JSON mode.
@@ -64,8 +64,27 @@ The LLVM backend executes but does not prove, so an LLVM build omits the definit
 Successful `check`, `emit-k`, and `build` commands reuse a previous result when the command options, collector executable, and files read by the collector are unchanged.
 A reused command returns the same stdout and restores any missing or modified output files.
 Pass `--no-reuse`, or set `KRS_NO_REUSE=1`, to run the collector and later stages again.
-The current commands are `fmt`, `check`, `expand`, `emit-k`, and `build`.
-There is no `krs run` command and no `krs prove` command; execution and proof are owned by named downstream K/KORE tools or repository harnesses.
+
+## Run, search, and prove
+
+```console
+krs run --package my-semantics --definition main prog.imp -c env='.Map'
+krs search --package my-semantics --definition main prog.imp
+krs prove --package my-semantics --definition main --claim branching
+krs parse --package my-semantics --definition main --sort Stmt prog.imp
+```
+
+`run`, `search`, `prove`, and `parse` play the roles of K's `krun`, `krun --search`, `kprove`, and `kast` on the emitted definition.
+They share the collection and lowering stages of `check`, then compile the Definition IR in-process with the k-rust backend over the symbolic KORE dialect, so they take no `--backend`.
+Their results are never reused from an earlier invocation.
+FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` binds another configuration variable by its K name (`ENV` or `$ENV`) or its init parameter (`env`).
+`run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
+`prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix.
+`--depth N` bounds rewrite steps; evaluating functions is not a step.
+`--trace` prints each rewrite step with its rule label and authored source, and `--output kast`, `json`, or `kore` selects how results print (`none` prints no configuration from `run`).
+A run that ends stuck, at the depth bound, or undefined exits 0; a proof exits 0 only when every selected claim is `proven`; an inconclusive result or an error exits 1, and a usage error exits 2.
+
+The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, and `prove`.
 
 ## Read failures by stage
 

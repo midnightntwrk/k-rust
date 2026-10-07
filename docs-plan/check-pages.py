@@ -402,7 +402,7 @@ def main() -> None:
 
     cli_source = CLI_MAIN.read_text(encoding="utf-8")
     cli_commands = ["fmt"] + re.findall(
-        r'"(check|expand|emit-k|build)"\s*=>\s*CommandKind::', cli_source
+        r'"(check|expand|emit-k|build|parse|run|search|prove)"\s*=>\s*CommandKind::', cli_source
     )
     if cli_commands != review.get("cli_commands"):
         fail("CLI commands changed without refreshing surface_review.cli_commands")

@@ -198,7 +198,7 @@ def verify_capability_matrix() -> None:
         "All-path with existential results, anonymous values, or `ensures`",
         "Circular all-path",
         "| One-path | Accepted by parsing, lowering, and emission.",
-        "there is no `krs prove` or `krs run` command",
+        "`krs prove` proves the same claims in-process with the k-rust backend",
     )
 
 
