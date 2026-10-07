@@ -943,6 +943,55 @@ impl Grammar {
         })
     }
 
+    /// Whether the priority filter rejects a node of production `child` as the child of a node
+    /// of production `parent` at child position `position` (1-based, among the parent's
+    /// nonterminals), whatever the two nodes' children are: the check
+    /// [`Self::filter_packed_priority_memo`] makes at that edge finds a scope, cast, priority or
+    /// associativity violation, so no reading the filter accepts has that edge. Both
+    /// productions are those of the nodes: a production whose node is its child's
+    /// (`build_packed_term`) has no parse label and is never rejected, and a token production
+    /// builds no production node. A record production's edges are checked only after its
+    /// node is collapsed into another production's, so for one the answer is `false`.
+    pub(super) fn edge_rejects(&self, parent: usize, child: usize, position: usize) -> bool {
+        let descriptor = &self.productions[parent];
+        let child_descriptor = &self.productions[child];
+        if descriptor.record.is_some()
+            || descriptor.syntactic_subsort
+            || child_descriptor.record.is_some()
+            || child_descriptor.token
+        {
+            return false;
+        }
+        let child_count = descriptor
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count();
+        let first = position == 1 && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)));
+        let last = position == child_count
+            && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)));
+        let checked = match &descriptor.apply_priority {
+            Some(positions) => positions.contains(&position),
+            None => first || last,
+        };
+        if !checked {
+            return false;
+        }
+        let side = if first {
+            Side::Left
+        } else if last {
+            Side::Right
+        } else {
+            Side::Middle
+        };
+        let shallow = ParsedTerm::Production {
+            production: child,
+            children: Vec::new(),
+            metadata: crate::kast::TermMetadata::default(),
+        };
+        self.child_violation(descriptor, &shallow, side).is_some()
+    }
+
     fn child_violation(
         &self,
         parent: &Production,

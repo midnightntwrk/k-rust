@@ -325,6 +325,20 @@ impl PredictionAnalysis {
         }
     }
 
+    /// Whether the items of `production` from `dot` on can begin with some lexeme for which
+    /// `occurs` holds; `true` for a production the analysis does not cover.
+    pub(super) fn rest_can_start_with_any(
+        &self,
+        production: usize,
+        dot: usize,
+        occurs: impl Fn(usize) -> bool,
+    ) -> bool {
+        match self.rests.get(production).and_then(Option::as_ref) {
+            Some(rests) => rests.first[dot].iter().any(occurs),
+            None => true,
+        }
+    }
+
     /// Whether the items of `production` from `dot` on can begin with the lexeme `winner`, the
     /// token the scanner reads next; `true` for a production the analysis does not cover.
     pub(super) fn rest_can_start_with(
@@ -491,20 +505,85 @@ mod tests {
     /// while a recognition that skips those items meets only the cycles of items the input can
     /// continue (as skipped predictions already did), so it may succeed or fail otherwise.
     /// Conversely, a cycle the filtered parse reports is one the unfiltered recognition meets.
+    ///
+    /// The filtered attempt alone, before any retry, finds a derivation of the input exactly
+    /// when the unfiltered recognition does, and then gives its result: a retry, which restores
+    /// the skipped work, must not be what makes the two agree.
     fn pruning_agrees_with_unfiltered_recognition(
         grammar: &Grammar,
         input: &str,
     ) -> Result<(), TestCaseError> {
         let filtered = filtered(grammar, input);
-        let unfiltered = unfiltered(grammar, input);
+        let mut everything = Pruning::default();
+        let unfiltered = attempt(grammar, input, PredictionMode::Unfiltered, &mut everything);
         if matches!(unfiltered, Err(ParseError::CyclicDerivation(_))) {
             return Ok(());
         }
         if let (Ok(filtered), Ok(unfiltered)) = (&filtered, &unfiltered) {
             prop_assert_eq!(metadata(filtered), metadata(unfiltered));
         }
-        prop_assert_eq!(filtered, unfiltered);
+        prop_assert_eq!(&filtered, &unfiltered);
+        let mut skipped = Pruning::default();
+        let alone = attempt(grammar, input, PredictionMode::Filtered, &mut skipped);
+        prop_assert_eq!(skipped.furthest.is_none(), everything.furthest.is_none());
+        if everything.furthest.is_none() {
+            prop_assert_eq!(alone, unfiltered);
+        }
         Ok(())
+    }
+
+    /// A sentence of the random grammar of the pruning proptests (`(sort, items)` with the item
+    /// codes they use), derived from `S0` by taking, at each nonterminal in order, the
+    /// production `choices` names next among those of its sort; `None` when the choices run
+    /// out before every nonterminal is expanded.
+    fn derived_sentence(productions: &[(u8, Vec<u8>)], choices: &[u8]) -> Option<String> {
+        let mut choices = choices.iter();
+        let mut pending = vec![0u8];
+        let mut sentence = Vec::new();
+        // Invariant: `pending` holds, last first, the item codes still to expand.
+        while let Some(item) = pending.pop() {
+            match item {
+                0..=2 | 7 => {
+                    let sort = if item == 7 { 0 } else { item };
+                    let alternatives = productions
+                        .iter()
+                        .filter(|(result, _)| *result == sort)
+                        .collect::<Vec<_>>();
+                    if alternatives.is_empty() {
+                        return None;
+                    }
+                    let choice = usize::from(*choices.next()?) % alternatives.len();
+                    pending.extend(alternatives[choice].1.iter().rev());
+                }
+                3 => sentence.push("a"),
+                4 => sentence.push("b"),
+                5 => sentence.push("c"),
+                _ => sentence.push("d"),
+            }
+        }
+        Some(sentence.join(" "))
+    }
+
+    fn attempt(
+        grammar: &Grammar,
+        input: &str,
+        mode: PredictionMode,
+        pruning: &mut Pruning,
+    ) -> Result<Term, ParseError> {
+        grammar.parse_attempt(
+            &Sort::new("Start"),
+            input,
+            ParseContext {
+                is_anywhere: false,
+                provenance: ParseProvenance {
+                    source: SourceId(7),
+                    base_offset: 100,
+                },
+                diagnostic_provenance: true,
+            },
+            mode,
+            pruning,
+        )
     }
 
     fn metadata(term: &Term) -> Vec<Option<TermMetadata>> {
@@ -785,6 +864,79 @@ mod tests {
                         _ => crate::definition::Associativity::NonAssoc,
                     },
                     tags,
+                    attributes: Attributes::default(),
+                });
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
+        }
+
+        /// The same with priority declarations and terminals the input may lack: a recognition
+        /// that skips the items whose node a priority forbids wherever it could sit, or whose
+        /// callers need a token that no longer occurs in the input, keeps every parse and every
+        /// error of an unfiltered one.
+        #[test]
+        fn completion_pruning_matches_unfiltered_recognition_with_priorities(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..8, 0..5)),
+                1..9,
+            ),
+            levels in prop::collection::btree_map(0usize..9, 0u8..3, 1..7),
+            associativity in prop::collection::vec((0u8..4, 0usize..9), 0..3),
+            random_input in "[abc ]{0,11}",
+            choices in prop::collection::vec(any::<u8>(), 0..24),
+        ) {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items)) in productions.iter().enumerate() {
+                let items = items
+                    .iter()
+                    .map(|item| match item {
+                        0..=2 => nt(&format!("S{item}")),
+                        3 => terminal("a"),
+                        4 => terminal("b"),
+                        5 => terminal("c"),
+                        6 => terminal("d"),
+                        _ => nt("S0"),
+                    })
+                    .collect();
+                sentences.push(production(&format!("S{result}"), items, &format!("p{index}")));
+            }
+            // Most random inputs have no derivation, which the retry explains; a sentence of
+            // the grammar, derived by `choices` when they derive one, is what exercises the
+            // items skipped from parses that exist.
+            let input = derived_sentence(&productions, &choices).unwrap_or(random_input);
+            let label = |member: &usize| (*member < productions.len()).then(|| format!("p{member}"));
+            // Each production is at most at one level, so the declaration has no cycle.
+            let priorities = (0u8..3)
+                .map(|level| {
+                    levels
+                        .iter()
+                        .filter(|(_, at)| **at == level)
+                        .filter_map(|(member, _)| label(member))
+                        .collect::<Vec<_>>()
+                })
+                .filter(|group| !group.is_empty())
+                .collect::<Vec<_>>();
+            if priorities.len() >= 2 {
+                sentences.push(Sentence::SyntaxPriority {
+                    priorities,
+                    attributes: Attributes::default(),
+                });
+            }
+            for (associativity, member) in &associativity {
+                let Some(tag) = label(member) else {
+                    continue;
+                };
+                sentences.push(Sentence::SyntaxAssociativity {
+                    associativity: match associativity {
+                        0 => continue,
+                        1 => crate::definition::Associativity::Left,
+                        2 => crate::definition::Associativity::Right,
+                        _ => crate::definition::Associativity::NonAssoc,
+                    },
+                    tags: vec![tag],
                     attributes: Attributes::default(),
                 });
             }

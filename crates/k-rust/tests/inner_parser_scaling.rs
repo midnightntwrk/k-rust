@@ -14,8 +14,11 @@ const _: () = assert!(cfg!(feature = "measure"));
 
 use std::sync::{Mutex, MutexGuard};
 
+use k_rust::builtin::embedded;
 use k_rust::inner::ProgramParser;
 use k_rust::kast::Sort;
+use k_rust::kompile::CompilationBackend;
+use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options};
 use k_rust_kore::measure::{self, Counter, CountingAllocator, Snapshot};
 
 #[global_allocator]
@@ -34,6 +37,34 @@ fn parser(source: &str) -> ProgramParser {
     let parsed = k_rust::outer::parse("program.k", source).expect("definition should parse");
     let definition = k_rust::outer::lower(&parsed, "MAIN").expect("definition should lower");
     ProgramParser::new(&definition, "MAIN").expect("program grammar should build")
+}
+
+/// Load module `MAIN` of `source` as `kast` and `kcompile` load a definition: with the K
+/// prelude, which gives every sort the matching-logic connectives (`S "#And" S`, ...) and every
+/// rule grammar the rewrite and the casts, and with every rule body parsed.
+fn load_with_prelude(source: &str) -> LoadedDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    load_with_options(
+        ResolvedSource::new("program.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the definition does not load: {error:?}"))
+}
+
+/// The program parser of module `MAIN` of `source`, loaded with the K prelude.
+fn prelude_parser(source: &str) -> ProgramParser {
+    ProgramParser::from_resolved(load_with_prelude(source).resolved(), "MAIN")
+        .expect("program grammar should build")
 }
 
 /// The counters of parsing `program` at `sort`, with the bytes allocated meanwhile.
@@ -322,5 +353,112 @@ fn ambiguous_chains_are_reported_in_chart_work_linear_in_their_length() {
     assert!(
         large <= small * 9 / 4,
         "{small} completions at 300 operands, {large} at 600"
+    );
+}
+
+/// Operator chains under the K prelude, which declares `S "#And" S`, `S "#Or" S` and
+/// `S "#Implies" S` at every sort, and under a priority between two operators: their chart work
+/// is linear in their length, as it is for a sort with one binary operator. The recognizer kept
+/// every sum that starts after the first operand, because the sum could be the left operand of
+/// an `#And` (or of a `*`) at its origin, which in turn could be the right operand of a `+`;
+/// that the input holds no `#And`, and that `*` binds tighter than `+`, were not consulted. Such
+/// a chain of 600 operands completed about seven times the items one of 300 does.
+#[test]
+fn operator_chains_parse_in_chart_work_linear_in_their_length_under_the_prelude() {
+    let numbers = |separator: &'static str| {
+        move |count: usize| {
+            (0..count)
+                .map(|number| number.to_string())
+                .collect::<Vec<_>>()
+                .join(separator)
+        }
+    };
+    let alternating = |count: usize| {
+        (0..count)
+            .map(|number| {
+                let operator = if number % 2 == 0 { " + " } else { " * " };
+                format!("{number}{operator}")
+            })
+            .collect::<String>()
+            + "0"
+    };
+    let one_operator = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num | E \"+\" E [left]\nendmodule\n";
+    let arithmetic = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num\n             | E \"*\" E [left]\n             > E \"+\" E [left]\nendmodule\n";
+    let below_a_rewrite = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num | E \"+\" E [left, symbol(plus)] | E \"=>\" E [symbol(rw)]\n  syntax priority plus > rw\nendmodule\n";
+    let shapes: [(&str, &str, Box<dyn Fn(usize) -> String>); 5] = [
+        ("E \"+\" E [left]", one_operator, Box::new(numbers(" + "))),
+        (
+            "`+` chain under `*` > `+`",
+            arithmetic,
+            Box::new(numbers(" + ")),
+        ),
+        (
+            "`*` chain under `*` > `+`",
+            arithmetic,
+            Box::new(numbers(" * ")),
+        ),
+        ("alternating `+` and `*`", arithmetic, Box::new(alternating)),
+        (
+            "`+` chain under `plus > rw`",
+            below_a_rewrite,
+            Box::new(numbers(" + ")),
+        ),
+    ];
+    let _measuring = measuring();
+    for (shape, source, program) in shapes {
+        let parser = prelude_parser(source);
+        let [(small, small_bytes), (large, large_bytes)] = [300, 600].map(|length| {
+            let work = parse_work(&parser, "E", &program(length));
+            (
+                work.get(Counter::ParserChartCompletionCandidates),
+                work.get(Counter::AllocatedBytes),
+            )
+        });
+        println!(
+            "{shape}: {small} and {large} completions, {small_bytes} and {large_bytes} bytes at 300 and 600"
+        );
+        assert!(
+            large <= small * 9 / 4,
+            "{shape}: {small} completions at 300, {large} at 600"
+        );
+        assert!(
+            large_bytes <= small_bytes * 5 / 2,
+            "{shape}: {small_bytes} bytes at 300, {large_bytes} at 600"
+        );
+    }
+}
+
+/// An operator chain in a rule body, whose grammar also has the rewrite, the casts and the
+/// matching-logic connectives at every sort, is parsed in chart work linear in its length: the
+/// work of loading the definition grows by about as much from 100 to 200 operands as from 50
+/// to 100, where the cubic chart of the chain made it grow eight times as much.
+#[test]
+fn operator_chains_in_rule_bodies_parse_in_chart_work_linear_in_their_length() {
+    let definition = |length: usize| {
+        let chain = (0..length)
+            .map(|number| (number % 10).to_string())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        format!(
+            "module MAIN\n  imports INT\n  imports BOOL\n  \
+             syntax E ::= Int | E \"+\" E [left, symbol(plus)]\n  \
+             syntax KItem ::= foo(E) [symbol(foo)]\n  rule foo({chain}) => .K\nendmodule\n"
+        )
+    };
+    let _measuring = measuring();
+    let [at_50, at_100, at_200] = [50, 100, 200].map(|length| {
+        let before = measure::snapshot();
+        drop(load_with_prelude(&definition(length)));
+        measure::snapshot()
+            .delta(&before)
+            .get(Counter::ParserChartCompletionCandidates)
+    });
+    let (first, second) = (at_100 - at_50, at_200 - at_100);
+    println!(
+        "rule-body chain: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+    );
+    assert!(
+        second <= first * 5 / 2,
+        "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
     );
 }
