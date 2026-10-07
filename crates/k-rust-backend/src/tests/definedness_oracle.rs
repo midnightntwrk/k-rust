@@ -39,7 +39,11 @@
 //! undefined application in a term whose step leads to one holding the query (a left-hand side
 //! instance the certificate reads), has a head that an overlap peak of the explored graph,
 //! whose two sides it cannot join, may make undefined that way ([`Peak`]), or that a root step
-//! of a total head's equation to a term in `U` holds below total symbols.
+//! of a total head's equation to a term in `U` holds below total symbols. The assumption is the
+//! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
+//! application it decides, so an application that one of its own head's conditional equations
+//! matches (one the discharge can decide, where without it the obligation stays) excuses
+//! nothing.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -786,28 +790,37 @@ impl<'d> Universe<'d> {
         symbol.constructor || symbol.totality != Totality::Production
     }
 
-    /// The value-production heads of the term.
-    fn heads(&self, id: Id, into: &mut BTreeSet<u32>) {
+    /// The value-production heads of the applications in the term, but those in `skip`.
+    fn heads(&self, id: Id, skip: &HashSet<Id>, into: &mut BTreeSet<u32>) {
         if let Node::App(symbol, _) = &self.nodes[id as usize]
             && !self.is_constructor(*symbol)
+            && !skip.contains(&id)
         {
             into.insert(*symbol);
         }
         for child in self.children(id) {
-            self.heads(child, into);
+            self.heads(child, skip, into);
         }
     }
 
-    /// The value-production heads of the applications in the term that are in `undefined`.
-    fn undefined_heads(&self, id: Id, undefined: &[bool], into: &mut BTreeSet<u32>) {
+    /// The value-production heads of the applications in the term that are in `undefined`, but
+    /// those in `skip`.
+    fn undefined_heads(
+        &self,
+        id: Id,
+        undefined: &[bool],
+        skip: &HashSet<Id>,
+        into: &mut BTreeSet<u32>,
+    ) {
         if let Node::App(symbol, _) = &self.nodes[id as usize]
             && !self.is_constructor(*symbol)
             && undefined[id as usize]
+            && !skip.contains(&id)
         {
             into.insert(*symbol);
         }
         for child in self.children(id) {
-            self.undefined_heads(child, undefined, into);
+            self.undefined_heads(child, undefined, skip, into);
         }
     }
 
@@ -1317,7 +1330,7 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                         break;
                     }
                     for id in reached {
-                        universe.heads(id, &mut bound);
+                        universe.heads(id, &HashSet::new(), &mut bound);
                     }
                 }
                 peaks.push(Peak {
@@ -1348,6 +1361,31 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                     universe.exposed_heads(child, &mut held);
                 }
                 held_below_total.push((step.head, held));
+            }
+        }
+    }
+    // The applications the value-production discharge of `simplify.rs` can decide beyond the
+    // certificate: those that the left-hand side of one of their own head's conditional
+    // equations matches (without the discharge such an application keeps its obligation; with
+    // no reaching equation the discharge and the certificate answer alike). The documented
+    // assumptions are the certificate's, and the discharge rests on none of them for the
+    // application it decides, so these applications excuse no query.
+    let mut conditional_applications = HashSet::new();
+    for id in 1..count {
+        let id = Id::try_from(id).unwrap();
+        let Node::App(symbol, _) = universe.nodes[id as usize].clone() else {
+            continue;
+        };
+        for equation in &definition.equations {
+            let Pat::App(head, _) = &equation.lhs else {
+                continue;
+            };
+            if equation.requires.is_some()
+                && universe.symbols[head.as_str()] == symbol
+                && universe.matches(&equation.lhs, id, &mut HashMap::new())
+            {
+                conditional_applications.insert(id);
+                break;
             }
         }
     }
@@ -1382,7 +1420,7 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         let mut heads = BTreeSet::new();
         if complete {
             for reached in &reached {
-                universe.heads(*reached, &mut heads);
+                universe.heads(*reached, &conditional_applications, &mut heads);
             }
         } else {
             heads.clone_from(&every_head);
@@ -1397,7 +1435,7 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
             if contains(&universe, *to, id, &mut holds)
                 && !contains(&universe, *from, id, &mut holds)
             {
-                universe.undefined_heads(*from, &undefined, &mut heads);
+                universe.undefined_heads(*from, &undefined, &conditional_applications, &mut heads);
             }
         }
         let excused = peaks.iter().any(|peak| {
@@ -1936,7 +1974,152 @@ fn random_definition(rng: &mut Rng) -> Definition {
         definition.equations.push(Equation { lhs, rhs, requires });
         previous = Some(head);
     }
+    if generator.rng.percent(50) {
+        plant_held_conditional(&mut generator, &mut definition);
+    }
     definition
+}
+
+/// Plants review 7 F1's shape: a value production `p` with a conditional equation (added when
+/// `p` has none), and an equation whose left-hand side holds, below its root, an instance of
+/// that equation's left-hand side with the `requires` variable bound to a literal; its root is
+/// another head (often a total one, when the definition has it) or `p` itself, and its
+/// right-hand side is often undefined. Under such an equation the theory can make the instance
+/// undefined while `p`'s own `requires` is false there.
+fn plant_held_conditional(generator: &mut Generator<'_>, definition: &mut Definition) {
+    let productions = generator
+        .heads
+        .iter()
+        .filter(|head| head.totality == Totality::Production && head.result != "S")
+        .cloned()
+        .collect::<Vec<_>>();
+    if productions.is_empty() {
+        return;
+    }
+    let held = generator.rng.pick(&productions).clone();
+    let existing = definition
+        .equations
+        .iter()
+        .find(|equation| {
+            equation.requires.is_some()
+                && matches!(&equation.lhs, Pat::App(name, _) if *name == held.name)
+        })
+        .cloned();
+    let conditional = if let Some(existing) = existing {
+        existing
+    } else {
+        let arguments = held
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(index, sort)| match (index, sort.as_str()) {
+                (0, "Int") => int_var("VarI"),
+                (0, _) => app("m", vec![int_var("VarI")]),
+                _ => generator.left(sort, 2),
+            })
+            .collect();
+        let lhs = app(&held.name, arguments);
+        let mut scope = BTreeMap::new();
+        pattern_variables(&lhs, &mut scope);
+        let rhs = generator.right(&held.result, 2, &scope);
+        let equation = Equation {
+            lhs,
+            rhs,
+            requires: Some(Requires {
+                comparison: if generator.rng.percent(50) {
+                    Comparison::Eq
+                } else {
+                    Comparison::Lt
+                },
+                variable: "VarI".into(),
+                value: i64::try_from(generator.rng.below(4)).unwrap(),
+            }),
+        };
+        definition.equations.push(equation.clone());
+        equation
+    };
+    let variable = &conditional
+        .requires
+        .as_ref()
+        .expect("the equation is conditional")
+        .variable;
+    let literal = int(i64::try_from(generator.rng.below(4)).unwrap());
+    let instance = substituted(&conditional.lhs, variable, &literal);
+    let outers = generator
+        .heads
+        .iter()
+        .filter(|head| head.arguments.contains(&held.result))
+        .cloned()
+        .collect::<Vec<_>>();
+    let total = outers
+        .iter()
+        .filter(|head| head.totality != Totality::Production)
+        .cloned()
+        .collect::<Vec<_>>();
+    let outer = if !total.is_empty() && generator.rng.percent(40) {
+        generator.rng.pick(&total).clone()
+    } else if outers.is_empty() {
+        return;
+    } else {
+        generator.rng.pick(&outers).clone()
+    };
+    let positions = (0..outer.arguments.len())
+        .filter(|index| outer.arguments[*index] == held.result)
+        .collect::<Vec<_>>();
+    let position = *generator.rng.pick(&positions);
+    let arguments = outer
+        .arguments
+        .iter()
+        .enumerate()
+        .map(|(index, sort)| {
+            if index == position {
+                instance.clone()
+            } else {
+                generator.left(sort, 1)
+            }
+        })
+        .collect();
+    let lhs = app(&outer.name, arguments);
+    let rhs = if generator.rng.percent(60) {
+        match outer.result.as_str() {
+            "S" => undefined(),
+            "Int" => div(int(1), int(0)),
+            _ => app("m", vec![div(int(1), int(0))]),
+        }
+    } else {
+        let mut scope = BTreeMap::new();
+        pattern_variables(&lhs, &mut scope);
+        generator.right(&outer.result, 2, &scope)
+    };
+    definition.equations.push(Equation {
+        lhs,
+        rhs,
+        requires: None,
+    });
+}
+
+/// `pattern` with the variable `name` replaced by `replacement`.
+fn substituted(pattern: &Pat, name: &str, replacement: &Pat) -> Pat {
+    match pattern {
+        Pat::Var(variable, _) if variable == name => replacement.clone(),
+        Pat::Var(..) | Pat::Int(_) => pattern.clone(),
+        Pat::App(symbol, arguments) => Pat::App(
+            symbol.clone(),
+            arguments
+                .iter()
+                .map(|argument| substituted(argument, name, replacement))
+                .collect(),
+        ),
+        Pat::Inj(from, to, inner) => Pat::Inj(
+            from.clone(),
+            to.clone(),
+            Box::new(substituted(inner, name, replacement)),
+        ),
+        Pat::Div(left, right) => Pat::Div(
+            Box::new(substituted(left, name, replacement)),
+            Box::new(substituted(right, name, replacement)),
+        ),
+    }
 }
 
 fn environment(name: &str, default: u64) -> u64 {
@@ -2309,9 +2492,12 @@ fn probes() -> Vec<Probe> {
             vec![app("h", vec![app("g", vec![cons("d")])])],
         )
     });
-    // Review 4, F2 (cross-head, the documented assumption): excused.
+    // Review 4, F2: the cross-head example of `docs/compatibility.md` with a conditional `wrap`
+    // equation. `wrap(1)` is undefined through the peak of the `h` equations at `h(g(5))`; the
+    // discharge decides `wrap(1)` (its equation's `requires` is false there), so the peak
+    // assumption does not excuse it, and `wrap`, in an `h` right-hand side, keeps its obligation.
     probes.push(Probe {
-        excused: true,
+        excused: false,
         ..probe(
             "review 4 F2",
             Definition::new(&["G"])
@@ -2675,6 +2861,45 @@ fn probes() -> Vec<Probe> {
             vec![app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)])],
         )
     });
+    // Review 7, F1: `f(m(I)) = c requires I ==Int 0` is refuted at `f(m(1))`, and `e(f(m(1))) =
+    // m(1 /Int 0)` with `e` total makes `f(m(1))` undefined without any peak. The discharge
+    // decides `f(m(1))`, so the total-head limit does not excuse it.
+    let conditional_f = Definition::new(&["A"])
+        .constructor("c", &[], "A")
+        .constructor("k", &["A"], "A")
+        .constructor("m", &["Int"], "A")
+        .total_head("e", &["A"], "A")
+        .head("f", &["A"], "A")
+        .head("q", &["A"], "A")
+        .conditional(
+            app("f", vec![app("m", vec![int_var("VarI")])]),
+            cons("c"),
+            requires_eq("VarI", 0),
+        );
+    let f_m_1 = app("f", vec![app("m", vec![int(1)])]);
+    probes.push(probe(
+        "review 7 F1",
+        conditional_f.clone().equation(
+            app("e", vec![f_m_1.clone()]),
+            app("m", vec![div(int(1), int(0))]),
+        ),
+        vec![],
+        vec![f_m_1.clone()],
+    ));
+    // Round 8: `q(c) = k(f(m(1)))` beside `q(c) = m(1 /Int 0)` makes `f(m(1))` undefined through
+    // a peak of `q`, whose side holds `f`; under the same conditional `f` equation the discharge
+    // decides `f(m(1))`, so the peak assumption does not excuse it.
+    probes.push(probe(
+        "round 8 right-hand side of another head",
+        conditional_f
+            .equation(app("q", vec![cons("c")]), app("k", vec![f_m_1.clone()]))
+            .equation(
+                app("q", vec![cons("c")]),
+                app("m", vec![div(int(1), int(0))]),
+            ),
+        vec![],
+        vec![f_m_1],
+    ));
     // Review 6, F1 and F2: `e : A -> A` a total equation head, `sz : A -> Int` a total
     // function; `g(d) = m(1 /Int 0)` beside `g(d) = C[g(t)]` with `C` built from total symbols
     // only, so `g(t)` is undefined; F1 adds `g(m(I)) = c requires I ==Int 0`, refuted at
