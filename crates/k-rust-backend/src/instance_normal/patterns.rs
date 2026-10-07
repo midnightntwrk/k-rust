@@ -115,8 +115,8 @@ use crate::{
     term::{
         FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable,
         head::{
-            Fixed, Head, NormalForms, PatternReading, Scanned, Shape, classify_pattern,
-            classify_value, compare_roots,
+            Fixed, Head, NormalForms, PatternReading, Shape, classify_pattern, classify_value,
+            compare_roots,
         },
     },
 };
@@ -334,14 +334,6 @@ impl BackendDefinition {
             let _scope = ScanScope::enter();
             self.overlaps_miss(equation, subject, roots)
         }
-    }
-
-    /// Whether no overlapped instance of the left-hand side of `rule`, a function or
-    /// simplification equation of this definition, reaches `term`, an application whose
-    /// immediate subterms are instance-normal ([`Self::overlaps_miss`]).
-    pub(crate) fn overlapped_instances_miss(&self, rule: &RewriteRule, term: &Term) -> bool {
-        let _scope = ScanScope::enter();
-        self.overlaps_miss(rule, term, &mut Scanned(self))
     }
 
     /// Whether no instance of the left-hand side `pattern` has `subject`, an application with the

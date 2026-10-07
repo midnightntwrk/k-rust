@@ -291,16 +291,20 @@ fn simplified_predicate_under(
 }
 
 /// `wrap`'s only equation `wrap(X) = mk(X /Int 0) requires X ==Int 0` reduces an application
-/// only where its `requires` holds. `value-production` makes an application that no equation
-/// reduces a value, so where the `requires` is false the application's definedness is that of
-/// its argument: `wrap(1)` is defined on every valuation, `wrap(X)` wherever the path condition
-/// refutes `X ==Int 0`, and `wrap(u())` there exactly when `u()` is. Without such a refutation
-/// `wrap(X)` keeps its obligation, `wrap(0)` is still undefined (its equation applies and
-/// divides by zero), and an unmarked head keeps the obligation of `wrap(1)`.
+/// only where its `requires` holds, and its `requires` is false at `wrap(1)`, and at `wrap(X)`
+/// under a path condition refuting `X ==Int 0`. Whether `value-production` then makes such an
+/// application a value depends on whether some other axiom of the definition constrains it,
+/// which the equation does not show (`docs/compatibility.md`, "Anywhere rules"), so these keep
+/// their obligation, as does `wrap(X)` without the path condition. `wrap(0)` is undefined (its
+/// equation applies and divides by zero), and an unmarked head keeps the obligation of
+/// `wrap(1)`.
 #[test]
-fn a_value_production_application_whose_reaching_equations_are_refuted_is_defined() {
+fn a_value_production_application_whose_reaching_equations_are_refuted_keeps_its_obligation() {
     let definition = conditional_value_production();
     let ceil = |argument: &str| format!(r"\ceil{{SortS{{}}, SortS{{}}}}(wrap{{}}({argument}))");
+    let kept = |argument: &str| {
+        Predicate::Ceil(internal_term(&definition, &format!("wrap{{}}({argument})")))
+    };
     let refuted = |argument: &str| {
         format!(
             r#"\equals{{SortBool{{}}, SortS{{}}}}(eqInt{{}}({argument}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("false"))"#
@@ -309,7 +313,7 @@ fn a_value_production_application_whose_reaching_equations_are_refuted_is_define
     let one = r#"\dv{SortInt{}}("1")"#;
     assert_eq!(
         simplified_predicate_under(&definition, &ceil(one), &[]),
-        Predicate::True
+        kept(one)
     );
     assert_eq!(
         simplified_predicate_under(
@@ -317,15 +321,11 @@ fn a_value_production_application_whose_reaching_equations_are_refuted_is_define
             &ceil("X:SortInt{}"),
             &[&refuted("X:SortInt{}")]
         ),
-        Predicate::True
-    );
-    assert_eq!(
-        simplified_predicate_under(&definition, &ceil("u{}()"), &[&refuted("u{}()")]),
-        Predicate::Ceil(internal_term(&definition, "u{}()"))
+        kept("X:SortInt{}")
     );
     assert_eq!(
         simplified_predicate_under(&definition, &ceil("X:SortInt{}"), &[]),
-        Predicate::Ceil(internal_term(&definition, "wrap{}(X:SortInt{})"))
+        kept("X:SortInt{}")
     );
     assert_eq!(
         simplified_predicate_under(&definition, &ceil(r#"\dv{SortInt{}}("0")"#), &[]),
@@ -826,7 +826,9 @@ fn an_equations_own_root_step_from_an_overlapped_instance_reaches_its_normal_for
 /// (review 3, F2): `f(1, Y) = f(3, Y) = mk(3 /Int 0)`, undefined. Matching the conditional
 /// equation against `f(1, Y)` succeeds only at `X = 1`, where its `requires` is false, but the
 /// instance `f(3, Z)` of its left-hand side, which the other equation also rewrites, reaches
-/// `f(1, Y)`: the refuted `requires` discharges nothing. `f(2, Y)` is reached by neither.
+/// `f(1, Y)`: the refuted `requires` discharges nothing. `f(2, Y)` is reached by neither, and
+/// keeps its obligation too: the conditional equation matches it, and a refuted `requires` is
+/// not read as making the application a value.
 #[test]
 fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
     let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
@@ -848,19 +850,10 @@ fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
         ) [anywhere{}()]"#
             .into(),
     ]);
-    let kept = format!("f{{}}({}, Y:SortInt{{}})", int("1"));
-    assert_ceil_kept(&definition, &kept, "SortS{}", &kept);
-    assert_eq!(
-        simplified_predicate_under(
-            &definition,
-            &format!(
-                r"\ceil{{SortS{{}}, SortS{{}}}}(f{{}}({}, Y:SortInt{{}}))",
-                int("2")
-            ),
-            &[]
-        ),
-        Predicate::True
-    );
+    for first in ["1", "2"] {
+        let kept = format!("f{{}}({}, Y:SortInt{{}})", int(first));
+        assert_ceil_kept(&definition, &kept, "SortS{}", &kept);
+    }
 }
 
 /// `e, d : Int -> A`, `k : Int -> T` and `c : T` constructors, `f : A x T -> S` a value
@@ -1076,12 +1069,12 @@ fn conditional_f_m(arguments: &str, sorts: &str) -> String {
 /// Review 5, F1. `n, k : A -> A`, `j : A x A -> A`, `m : Int -> A` and `c, d : A` constructors;
 /// `q : A x A x A -> Int` and `f : A x A -> S` value productions; `q(c, n(n(c)), d) = 0`,
 /// `f(V, k(Y)) = f(V, j(V, Y))`, `f(n(Y), k(W)) = mk(1 /Int 0)` and `f(n(n({name})), j(W, Y2)) =
-/// f(m(q({name}, W, Y2)), c)`, and with `discharge` also `f(m(X), c) = mk(X /Int 0) requires
+/// f(m(q({name}, W, Y2)), c)`, and with `conditional` also `f(m(X), c) = mk(X /Int 0) requires
 /// X ==Int 3`. By the axioms `f(m(0), c) = f(m(q(c, n(n(c)), d)), c) = f(n(n(c)), j(n(n(c)), d)) =
 /// f(n(n(c)), k(d)) = mk(1 /Int 0)`, undefined. The overlap representative of the `f(n(Y), k(W))`
 /// equation that reaches `f(m(q(Y', W', Y2)), c)` holds variables of three copies; stored apart,
 /// they cover `f(m(q(c, n(n(c)), d)), c)`, whose `q` the first equation rewrites.
-fn stored_names_definition(name: &str, discharge: bool) -> BackendDefinition {
+fn stored_names_definition(name: &str, conditional: bool) -> BackendDefinition {
     let mut rest = EQ_INT
         .iter()
         .map(|line| (*line).to_string())
@@ -1127,7 +1120,7 @@ fn stored_names_definition(name: &str, discharge: bool) -> BackendDefinition {
         "j{}(VarW:SortA{}, VarY2:SortA{})",
         &format!("f{{}}(m{{}}(q{{}}({name}:SortA{{}}, VarW:SortA{{}}, VarY2:SortA{{}})), c{{}}())"),
     ));
-    if discharge {
+    if conditional {
         rest.push(conditional_f_m(
             r"\and{R}(\in{SortA{}, R}(X0:SortA{}, m{}(VarX:SortInt{})), \and{R}(\in{SortA{}, R}(X1:SortA{}, c{}()), \top{R}()))",
             "X0:SortA{}, X1:SortA{}",
@@ -1137,13 +1130,14 @@ fn stored_names_definition(name: &str, discharge: bool) -> BackendDefinition {
 }
 
 /// Review 5, F1: a stored overlap representative keeps every variable it holds apart, whatever
-/// the equations name them, with or without the conditional equation the discharge reads.
+/// the equations name them, with or without a conditional equation that matches the subject
+/// with a refuted `requires`.
 #[test]
 fn a_stored_representative_keeps_apart_the_variables_of_every_copy_it_holds() {
     let subject = r#"f{}(m{}(\dv{SortInt{}}("0")), c{}())"#;
     for name in ["VarY", "VarU"] {
-        for discharge in [false, true] {
-            let definition = stored_names_definition(name, discharge);
+        for conditional in [false, true] {
+            let definition = stored_names_definition(name, conditional);
             assert_ceil_kept(&definition, subject, "SortS{}", subject);
         }
     }
@@ -1152,12 +1146,12 @@ fn a_stored_representative_keeps_apart_the_variables_of_every_copy_it_holds() {
 /// Review 5, F2. `n_i, s_i : A -> A` for `i < count`, `m : Int -> A` and `c1, c2 : A`
 /// constructors; `v : A -> A`, `p : A x A -> A`, `r : A x A -> Int` and `f : A -> S` value
 /// productions; `v(n_i(Z)) = s_i(Z)`, `p(s0(A), s0(B)) = m(r(A, B))`, `r(c1, c2) = 0` and
-/// `f(p(v(W1), v(W2))) = mk(1 /Int 0)`, and with `discharge` also `f(m(X)) = mk(X /Int 0) requires
+/// `f(p(v(W1), v(W2))) = mk(1 /Int 0)`, and with `conditional` also `f(m(X)) = mk(X /Int 0) requires
 /// X ==Int 3`. By the axioms `f(m(0)) = f(m(r(c1, c2))) = f(p(s0(c1), s0(c2))) =
 /// f(p(v(n0(c1)), v(n0(c2)))) = mk(1 /Int 0)`, undefined. With 70 `v` equations each `v(Wi)` has
 /// more reducts than the representatives kept, and both fall back to every right-hand side `v`
 /// reaches; read as one copy, the `s0(Z)` of the two positions would share `Z`.
-fn bound_fallback_definition(count: usize, discharge: bool) -> BackendDefinition {
+fn bound_fallback_definition(count: usize, conditional: bool) -> BackendDefinition {
     let constructor = |name: &str, arguments: &str| {
         format!(
             "symbol {name}{{}}({arguments}) : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
@@ -1212,7 +1206,7 @@ fn bound_fallback_definition(count: usize, discharge: bool) -> BackendDefinition
         "p{}(v{}(VarW1:SortA{}), v{}(VarW2:SortA{}))",
         UNDEFINED_MK,
     ));
-    if discharge {
+    if conditional {
         rest.push(conditional_f_m(
             r"\and{R}(\in{SortA{}, R}(X0:SortA{}, m{}(VarX:SortInt{})), \top{R}())",
             "X0:SortA{}",
@@ -1227,8 +1221,8 @@ fn bound_fallback_definition(count: usize, discharge: bool) -> BackendDefinition
 fn the_representatives_past_the_bound_are_fresh_copies_of_the_right_hand_sides() {
     let subject = r#"f{}(m{}(\dv{SortInt{}}("0")))"#;
     for count in [3, 70] {
-        for discharge in [false, true] {
-            let definition = bound_fallback_definition(count, discharge);
+        for conditional in [false, true] {
+            let definition = bound_fallback_definition(count, conditional);
             assert_ceil_kept(&definition, subject, "SortS{}", subject);
         }
     }
@@ -1351,8 +1345,7 @@ fn an_overlap_that_holds_an_application_below_total_symbols_keeps_its_obligation
 /// `c, d : A`, `k : A -> A` and `m : Int -> A` constructors; `e : A -> A` a total equation head
 /// (`anywhere`, `total`), `t : A -> A` a total function with no equation, `sz : A -> Int` a
 /// total function with no equation, and `f, q : A -> A` value productions; `f(m(I)) = c
-/// requires I ==Int 0`, and the axioms `{context}`, each of which mentions `f` elsewhere than at
-/// the root of the left-hand side of one of `f`'s own equations.
+/// requires I ==Int 0`, and the axioms `{context}`.
 fn held_value_production(context: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
@@ -1441,7 +1434,7 @@ fn a_refuted_requires_does_not_discharge_an_application_another_axiom_constrains
         ),
     ];
     let query = format!(r"\ceil{{SortA{{}}, SortA{{}}}}({F_M_1})");
-    let discharged = contexts
+    let not_kept = contexts
         .iter()
         .enumerate()
         .filter(|(_, context)| {
@@ -1452,7 +1445,7 @@ fn a_refuted_requires_does_not_discharge_an_application_another_axiom_constrains
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     assert_eq!(
-        discharged,
+        not_kept,
         Vec::<usize>::new(),
         "contexts whose obligation is not kept"
     );
@@ -1491,4 +1484,100 @@ fn a_refuted_requires_does_not_discharge_an_application_another_heads_right_hand
     .expect("the cross-head definition should internalize");
     let held = r#"wrap{}(\dv{SortInt{}}("1"))"#;
     assert_ceil_kept(&definition, held, "SortS{}", held);
+}
+
+/// An equation `f(X0) = {right} ensures {ensures}` of [`held_value_production`]'s `f`, with
+/// `X0 \in {pattern}`: KORE writes the `ensures` as a conjunct of the right-hand side.
+fn own_ensures_equation(pattern: &str, right: &str, ensures: &str) -> String {
+    format!(
+        r"axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, {pattern}), \top{{R}}())),
+            \equals{{SortA{{}}, R}}(f{{}}(X0:SortA{{}}), \and{{SortA{{}}}}({right}, {ensures}))
+        ) [anywhere{{}}()]"
+    )
+}
+
+/// The `ensures` predicates of review 9 about `held`: `sz(held) ==Int sz(held)` is `true`, and is
+/// `false`, each of which holds for a defined `held` only (`sz` and `==Int` are total, so a
+/// defined `held` makes the comparison `true`, an undefined one makes it `\bottom`), and
+/// `\not(\ceil(held))`.
+fn ensures_about(held: &str) -> [String; 3] {
+    let compared = |value: &str| {
+        format!(
+            r#"\equals{{SortBool{{}}, SortA{{}}}}(eqInt{{}}(sz{{}}({held}), sz{{}}({held})), \dv{{SortBool{{}}}}("{value}"))"#
+        )
+    };
+    [
+        compared("true"),
+        compared("false"),
+        format!(r"\not{{SortA{{}}}}(\ceil{{SortA{{}}, SortA{{}}}}({held}))"),
+    ]
+}
+
+/// The contexts of review 9 about `held`, each of `f`'s own equations at `f(k(c))`, and each
+/// making `held` undefined in every model of [`held_value_production`] with it:
+///
+/// - `f(k(c)) = c ensures sz(held) ==Int sz(held)` and `f(k(c)) = m(1 /Int 0)`: `f(k(c))` is
+///   `\bottom`, so `c` conjoined with the `ensures` is, so the `ensures` is false, which for a
+///   defined `held` it is not;
+/// - the same `ensures` beside `f(k(c)) = c ensures (sz(held) ==Int sz(held)) == false`: for a
+///   defined `held` the first equation makes `f(k(c))` equal to `c` and the second to `\bottom`;
+/// - `f(k(c)) = c ensures \not(\ceil(held))` beside `f(k(c)) = c`: `c` conjoined with the
+///   `ensures` is `c`, so `\not(\ceil(held))` holds;
+/// - the control `f(k(c)) = held` beside `f(k(c)) = m(1 /Int 0)`: `held` is `f(k(c))`, which is
+///   `\bottom`.
+///
+/// Each theory has models (`f(m(0)) = c`, `held` and `f(k(c))` undefined, except `f(k(c)) = c`
+/// in the third).
+fn own_ensures_contexts(held: &str) -> [String; 4] {
+    let [defined, refuted, not_ceil] = ensures_about(held);
+    [
+        [
+            own_ensures_equation("k{}(c{}())", "c{}()", &defined),
+            unary_a_equation("f", "k{}(c{}())", M_UNDEFINED),
+        ]
+        .join("\n"),
+        [
+            own_ensures_equation("k{}(c{}())", "c{}()", &defined),
+            own_ensures_equation("k{}(c{}())", "c{}()", &refuted),
+        ]
+        .join("\n"),
+        [
+            own_ensures_equation("k{}(c{}())", "c{}()", &not_ceil),
+            unary_a_equation("f", "k{}(c{}())", "c{}()"),
+        ]
+        .join("\n"),
+        [
+            unary_a_equation("f", "k{}(c{}())", held),
+            unary_a_equation("f", "k{}(c{}())", M_UNDEFINED),
+        ]
+        .join("\n"),
+    ]
+}
+
+/// The indices of `contexts` under which [`held_value_production`] does not keep the obligation
+/// `\ceil(held)` as it is.
+fn contexts_not_keeping(contexts: &[String], held: &str) -> Vec<usize> {
+    let query = format!(r"\ceil{{SortA{{}}, SortA{{}}}}({held})");
+    contexts
+        .iter()
+        .enumerate()
+        .filter(|(_, context)| {
+            let definition = held_value_production(context);
+            simplified_predicate_under(&definition, &query, &[])
+                != Predicate::Ceil(internal_term(&definition, held))
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// Review 9, F1: the contexts of [`own_ensures_contexts`] about `f(m(1))`, whose only matching
+/// equation `f(m(I)) = c requires I ==Int 0` is refuted there. The obligation stays in each.
+#[test]
+fn a_refuted_requires_does_not_discharge_an_application_its_own_equations_ensures_mention() {
+    assert_eq!(
+        contexts_not_keeping(&own_ensures_contexts(F_M_1), F_M_1),
+        Vec::<usize>::new(),
+        "contexts whose obligation is not kept"
+    );
 }

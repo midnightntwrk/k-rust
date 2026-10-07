@@ -1,8 +1,8 @@
 //! A randomized differential test of the definedness claims against a ground-truth oracle.
 //!
 //! Two claims of the backend say that a term is defined although no equation evaluates it to a
-//! value: `\ceil(t)` simplifying to `\top` (the value certificate, instance normality and the
-//! value-production discharge of `simplify.rs`), and instance normality itself, which says that
+//! value: `\ceil(t)` simplifying to `\top` (the value certificate and instance normality, read
+//! for a `value-production` head), and instance normality itself, which says that
 //! every instance of `t` is a normal form the equations identify with no other one. This module
 //! checks both against what the axioms of small definitions prove, without any of the backend's
 //! code.
@@ -45,10 +45,11 @@
 //! `U` holds below total symbols, or when a term the query reaches has a step whose redex has
 //! an argument in `U` (the evaluator applies such an equation instance although it states
 //! nothing, `docs/compatibility.md`, "Anywhere rules"). The assumption is the
-//! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
-//! application it decides, so an application that one of its own head's conditional equations
-//! matches (one the discharge can decide, where without it the obligation stays), at an
-//! exposed position of a normal form the query reaches, excuses nothing.
+//! certificate's, and the certificate never reads an application that one of its own head's
+//! conditional equations matches as a value (the equation is never set aside, and a refuted
+//! `requires` is not read as leaving the application free), so such an application, at an
+//! exposed position of a normal form the query reaches, excuses nothing: its obligation must
+//! stay.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -64,7 +65,8 @@
 //! definition that does not terminate need not end.
 //!
 //! The definitions are a fixed corpus encoding every reviewer probe of the value-production
-//! discharge and the pattern facts (each asserted to have its query in `U`), variants of each
+//! definedness claims (the withdrawn `requires` discharge's and the pattern facts', each asserted
+//! to have its query in `U`), variants of each
 //! that write the same axioms with other variable names and equation orders ([`variant`]), and
 //! seeded random ones. `KRUST_DEFINEDNESS_ORACLE_CASES` (default [`DEFAULT_CASES`]),
 //! `KRUST_DEFINEDNESS_ORACLE_FIRST` and `KRUST_DEFINEDNESS_ORACLE_SEED` set the random run,
@@ -1389,15 +1391,15 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
             }
         }
     }
-    // The applications the value-production discharge of `simplify.rs` can decide beyond the
-    // certificate: those that the left-hand side of one of their own head's conditional
-    // equations matches (without the discharge such an application keeps its obligation; with
-    // no reaching equation the discharge and the certificate answer alike). The discharge
-    // answers the `\ceil` of an application the definedness walk asks about: one at an exposed
-    // position of a normal form the query reaches by steps. It rests on none of the documented
-    // assumptions for that application, so such an application excuses no query. One below a
-    // partial head, or in a term the query's evaluation passes through, still does: there the
-    // certificate, or the evaluation of the enclosing equations, reads it.
+    // The applications that the left-hand side of one of their own head's conditional equations
+    // matches. The certificate never reads one as a value: that equation is never set aside, and
+    // a `requires` false at the match is not read as leaving the application free (the
+    // withdrawn discharge did; `docs/compatibility.md`, "Anywhere rules"). Such an application
+    // at an exposed position of a normal form the query reaches by steps, whose `\ceil` the
+    // definedness walk asks, rests on none of the documented assumptions, so it excuses no
+    // query: its obligation must stay. One below a partial head, or in a term the query's
+    // evaluation passes through, still does: there the certificate, or the evaluation of the
+    // enclosing equations, reads it.
     let mut conditional_applications = HashSet::new();
     for id in 1..count {
         let id = Id::try_from(id).unwrap();
@@ -2529,9 +2531,9 @@ fn probes() -> Vec<Probe> {
         )
     });
     // Review 4, F2: the cross-head example of `docs/compatibility.md` with a conditional `wrap`
-    // equation. `wrap(1)` is undefined through the peak of the `h` equations at `h(g(5))`; the
-    // discharge decides `wrap(1)` (its equation's `requires` is false there), so the peak
-    // assumption does not excuse it, and `wrap`, in an `h` right-hand side, keeps its obligation.
+    // equation. `wrap(1)` is undefined through the peak of the `h` equations at `h(g(5))`; its
+    // own conditional equation matches it (with a false `requires`), so the peak assumption
+    // does not excuse it, and it keeps its obligation.
     probes.push(Probe {
         excused: false,
         ..probe(
@@ -2905,8 +2907,8 @@ fn probes() -> Vec<Probe> {
         )
     });
     // Review 7, F1: `f(m(I)) = c requires I ==Int 0` is refuted at `f(m(1))`, and `e(f(m(1))) =
-    // m(1 /Int 0)` with `e` total makes `f(m(1))` undefined without any peak. The discharge
-    // decides `f(m(1))`, so the total-head limit does not excuse it.
+    // m(1 /Int 0)` with `e` total makes `f(m(1))` undefined without any peak. Its own conditional
+    // equation matches `f(m(1))`, so the total-head limit does not excuse it.
     let conditional_f = Definition::new(&["A"])
         .constructor("c", &[], "A")
         .constructor("k", &["A"], "A")
@@ -2930,8 +2932,8 @@ fn probes() -> Vec<Probe> {
         vec![f_m_1.clone()],
     ));
     // Round 8: `q(c) = k(f(m(1)))` beside `q(c) = m(1 /Int 0)` makes `f(m(1))` undefined through
-    // a peak of `q`, whose side holds `f`; under the same conditional `f` equation the discharge
-    // decides `f(m(1))`, so the peak assumption does not excuse it.
+    // a peak of `q`, whose side holds `f`; the same conditional `f` equation matches `f(m(1))`,
+    // so the peak assumption does not excuse it.
     probes.push(probe(
         "round 8 right-hand side of another head",
         conditional_f

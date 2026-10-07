@@ -286,9 +286,21 @@ impl<'t> NoEquationReaches<'t> {
         _selection: SelectionComplete,
         definition: &BackendDefinition,
         subject: &'t Term,
-        excluded: impl FnMut(&RewriteRule) -> bool,
+        mut excluded: impl FnMut(&RewriteRule) -> bool,
     ) -> Option<Self> {
-        let none_reaches = candidate_equations(definition, subject).all(excluded);
+        let indices = [term_index(subject), TermIndex::Variable];
+        let none_reaches = [
+            definition.function_theory(),
+            definition.simplification_theory(),
+        ]
+        .into_iter()
+        .all(|theory| {
+            indices.iter().all(|index| {
+                theory
+                    .get(index)
+                    .is_none_or(|groups| groups.values().flatten().all(|rule| excluded(rule)))
+            })
+        });
         #[cfg(feature = "check-normal-forms")]
         if none_reaches {
             crate::term::head::check::assert_no_equation_matches(
@@ -299,54 +311,4 @@ impl<'t> NoEquationReaches<'t> {
         }
         none_reaches.then_some(Self { subject })
     }
-}
-
-/// The equations equation selection offers `subject`, of every priority: the function- and
-/// simplification-theory equations indexed by `term_index(subject)` and by
-/// `TermIndex::Variable`. The candidates of [`NoEquationReaches::scan`] and of
-/// [`unexcluded_candidates`].
-fn candidate_equations<'d>(
-    definition: &'d BackendDefinition,
-    subject: &Term,
-) -> impl Iterator<Item = &'d RewriteRule> {
-    let index = term_index(subject);
-    let (functions, simplifications) = (
-        definition.function_theory(),
-        definition.simplification_theory(),
-    );
-    [
-        functions.get(&index),
-        functions.get(&TermIndex::Variable),
-        simplifications.get(&index),
-        simplifications.get(&TermIndex::Variable),
-    ]
-    .into_iter()
-    .flatten()
-    .flat_map(|groups| groups.values().flatten().map(AsRef::as_ref))
-}
-
-/// The candidate equations (those of [`NoEquationReaches::scan`]) that `excluded` leaves for the
-/// equation-head application `subject`: those whose left-hand side may match an instance of it.
-/// `None` when `subject` is not an equation-head application, when one of its immediate
-/// subterms is not instance-normal (the precondition of `excluded`), or when the definition's
-/// equation selection is not complete, so that the candidates would not be every equation that
-/// could reach `subject`. An empty list is not an [`InstanceNormal`]: the caller decides what
-/// else sets the remaining equations aside.
-pub(super) fn unexcluded_candidates<'d, 't>(
-    definition: &'d BackendDefinition,
-    subject: &'t Term,
-    subterm: impl FnMut(&Term) -> Option<InstanceNormal>,
-    mut excluded: impl FnMut(&RewriteRule, NormalArguments<'t>) -> bool,
-) -> Option<Vec<&'d RewriteRule>> {
-    if subject.shape() != Shape::Application(HeadRole::EquationHead) {
-        return None;
-    }
-    definition.equation_selection_complete()?;
-    let subterms = NormalSubterms::of(subject, subterm)?;
-    let arguments = NormalArguments::of(&subterms);
-    Some(
-        candidate_equations(definition, subject)
-            .filter(|rule| !excluded(rule, arguments))
-            .collect(),
-    )
 }
