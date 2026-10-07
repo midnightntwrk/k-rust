@@ -1,0 +1,26 @@
+[package]
+name = "krs-exec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Filesystem-free parse, run, search, and prove over KRS Definition IR through k-rust"
+
+[features]
+default = ["z3-inference"]
+z3-inference = ["k-rust/z3-inference", "krs-k-rust/z3-inference"]
+
+[dependencies]
+k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false }
+krs-ir = { path = "../krs-ir" }
+krs-ir-levels = { path = "../krs-ir-levels" }
+krs-k-rust = { path = "../krs-k-rust", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+krs-ir = { path = "../krs-ir", features = ["test-support"] }
+
+[lints]
+workspace = true

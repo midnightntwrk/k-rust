@@ -1,6 +1,8 @@
 {
   "fixture_sha256": {
     "Cargo.toml.in": "00abdc5f61524019928fab378ce671466e61b64b1015afff5908499ccf793495",
+    "claims/Cargo.toml.in": "6e758e1777b3ee0db0aef8ece92103b88d57c67eaf7d18d284ec5bdbd4bec44e",
+    "claims/src/lib.rs": "3fbb35f1eae0e58ef06a5b66fdc2af0521a7104b6574d10f4ea6674bd743787f",
     "dollar-ids/Cargo.toml.in": "71c1a35d94c4f3b5600a8da667bfebe46471bcd40fe888d1a496ae55fb59876b",
     "dollar-ids/src/lib.rs": "5e47a4aff68ed1ad285d39374b3b3081455138b05ee2304ee4c92d17bdc9c025",
     "src/lib.rs": "a863a61d5d844b602985dbcf94b8f12b820e1530ab6537b434d563f8c62e88c9"
@@ -18,10 +20,19 @@
     "native/syntaxDefinition.kore": "c1c19a6152c81d9a62e8d4943c388fcf570837b97cc69f17a22c514abfd7e0bb",
     "semantic-ir.json": "cb8833936ad40dddd6720f886aa1c3c8987f25655bab15365811b85def3833b8",
     "sources.json": "4a3079273d9f44f7e3186f76798ff7170f20359f8e7faa9ad9a96349822b76d9",
-    "symbols.json": "0f881d571b6083f95c8a66e7b036ecdd6f93c93a02b4967a3153262acdd8eed9"
+    "symbols.json": "0f881d571b6083f95c8a66e7b036ecdd6f93c93a02b4967a3153262acdd8eed9",
+    "claims/definition.k": "00259dfc8fb60dbe5dc4925bc3b490be9b8f23b620eabc012a45da932766096d",
+    "claims/prove.json": "72abd764eda34deaf52d85ee9046566ad42d0dc34bfd8b6347beccf1a1b4982e",
+    "claims/spec.k": "ac67b47862a3ff8f21dc448f0fe3dea29c05ededa6af9875b61f6e2bd8687762",
+    "native-run/final.kore": "5c170f35fbde622dd438fbb05111698597f0263a5c674600ef268c313811cdcf",
+    "native-run/parse.json": "23c8b2b783292f338832f5a3c06ded9edf695a12d33f7f5cbc3923cff765befa",
+    "native-run/parse.kast": "18a7a86507bbcd724a66eb706b1a48732e4eb0b2054da44ddd578c7a94996b9f",
+    "native-run/run.json": "89d63e29db027cbe54c48a816e0fe019b1da1f53d74df35bfc8989543afbd083",
+    "native-run/trace.txt": "fc0111a0db6095f32480f423db32bdf9e63f64a26219b7e65942b1c9672dcc35"
   },
   "reference_sha256": {
     "execution": "2d7fae7c31b953bfc8e364e29acbf5b5ec8f33ed4d9b8fdeeff4f7c612b4c838",
-    "dollar-id-claims": "d0bf031205cc9bfab1d325560560f0c3b07bde1371d6e08c765cc7a08768f033"
+    "dollar-id-claims": "d0bf031205cc9bfab1d325560560f0c3b07bde1371d6e08c765cc7a08768f033",
+    "claims-prove": "0acf085bebeff1523f29ba0a608655dccfbab6a19e302c284197e936db54ad62"
   }
 }

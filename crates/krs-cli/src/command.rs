@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 
 mod collector;
 mod counters;
+mod exec;
 mod output;
 mod result_cache;
 use collector::{
@@ -47,6 +48,14 @@ pub enum CommandKind {
     EmitK,
     /// Compile the same Definition IR through the native frontend.
     Build,
+    /// Parse program text with the definition's program grammar.
+    Parse,
+    /// Run a program on one path, as krun does.
+    Run,
+    /// Return the set of reachable states, as `krun --search` does.
+    Search,
+    /// Prove the definition's claims, as kprove does.
+    Prove,
 }
 
 impl CommandKind {
@@ -58,7 +67,18 @@ impl CommandKind {
             Self::Expand => "expand",
             Self::EmitK => "emit-k",
             Self::Build => "build",
+            Self::Parse => "parse",
+            Self::Run => "run",
+            Self::Search => "search",
+            Self::Prove => "prove",
         }
+    }
+
+    /// Whether a successful result is stored and restored by the result cache.
+    /// Runs and their relatives are never cached.
+    #[must_use]
+    pub const fn reuses_results(self) -> bool {
+        matches!(self, Self::Check | Self::EmitK | Self::Build)
     }
 }
 
@@ -84,7 +104,19 @@ pub enum Command {
         /// Artifact directory to populate.
         output: PathBuf,
     },
+    /// Parse program text (`krs parse`).
+    Parse(ParseRequest),
+    /// Run a program (`krs run`).
+    Run(RunRequest),
+    /// Search a program's reachable states (`krs search`).
+    Search(SearchRequest),
+    /// Prove claims (`krs prove`).
+    Prove(ProveRequest),
 }
+
+pub use exec::{
+    ColorChoice, ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
+};
 
 impl Command {
     /// Return the command category recorded in measurements and cache file names.
@@ -95,6 +127,10 @@ impl Command {
             Self::Expand => CommandKind::Expand,
             Self::EmitK { .. } => CommandKind::EmitK,
             Self::Build { .. } => CommandKind::Build,
+            Self::Parse(_) => CommandKind::Parse,
+            Self::Run(_) => CommandKind::Run,
+            Self::Search(_) => CommandKind::Search,
+            Self::Prove(_) => CommandKind::Prove,
         }
     }
 
@@ -103,7 +139,12 @@ impl Command {
     pub const fn backend(&self) -> Option<Backend> {
         match self {
             Self::Check { backend } | Self::Build { backend, .. } => Some(*backend),
-            Self::Expand | Self::EmitK { .. } => None,
+            Self::Expand
+            | Self::EmitK { .. }
+            | Self::Parse(_)
+            | Self::Run(_)
+            | Self::Search(_)
+            | Self::Prove(_) => None,
         }
     }
 
@@ -112,7 +153,12 @@ impl Command {
     pub fn output(&self) -> Option<&Path> {
         match self {
             Self::EmitK { output } | Self::Build { output, .. } => Some(output),
-            Self::Check { .. } | Self::Expand => None,
+            Self::Check { .. }
+            | Self::Expand
+            | Self::Parse(_)
+            | Self::Run(_)
+            | Self::Search(_)
+            | Self::Prove(_) => None,
         }
     }
 }
@@ -155,6 +201,8 @@ pub struct CommandRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandOutcome {
     stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: i32,
     warnings: crate::DiagnosticReports,
 }
 
@@ -169,6 +217,18 @@ impl CommandOutcome {
     #[must_use]
     pub fn stdout(&self) -> &[u8] {
         &self.stdout
+    }
+
+    /// Status and trace lines to write to stderr after the diagnostics.
+    #[must_use]
+    pub fn stderr(&self) -> &[u8] {
+        &self.stderr
+    }
+
+    /// The process exit status: 0 for a completed result, 1 for an inconclusive one.
+    #[must_use]
+    pub const fn exit_code(&self) -> i32 {
+        self.exit_code
     }
 }
 
@@ -276,7 +336,7 @@ fn execute_with_sources(
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
-    if request.command.kind() != CommandKind::Expand
+    if request.command.kind().reuses_results()
         && !request.no_reuse
         && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"))
     {
@@ -303,10 +363,14 @@ fn execute_with_sources(
             .map(CommandExecution::without_artifacts),
         Command::EmitK { output } => emit(&prepared, output, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
+        Command::Parse(_) | Command::Run(_) | Command::Search(_) | Command::Prove(_) => {
+            exec::execute(&prepared, &request.command, &*sources, measurement)
+                .map(CommandExecution::without_artifacts)
+        }
     };
     measurement.timings.span("release", |_| drop(prepared));
     if let Ok(ref value) = outcome
-        && request.command.kind() != CommandKind::Expand
+        && request.command.kind().reuses_results()
     {
         cache.store(
             request,
@@ -388,6 +452,8 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
         )
     })?;
     Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
         warnings: crate::DiagnosticReports::default(),
         stdout: format!(
             "KRS check passed: {} descriptors, {} semantic modules\n",
@@ -425,6 +491,8 @@ fn expand(
         &facade.scope(),
     )?;
     Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
         warnings: crate::DiagnosticReports::default(),
         stdout: expanded.into_bytes(),
     })
@@ -485,6 +553,8 @@ fn emit(
     }
     Ok(CommandExecution {
         outcome: CommandOutcome {
+            stderr: Vec::new(),
+            exit_code: 0,
             warnings: crate::DiagnosticReports::default(),
             stdout,
         },
@@ -555,6 +625,8 @@ fn build(
     let stdout = format!("built definition.kore, syntaxDefinition.kore, macros.kore\n{omitted}");
     Ok(CommandExecution {
         outcome: CommandOutcome {
+            stderr: Vec::new(),
+            exit_code: 0,
             warnings,
             stdout: stdout.into_bytes(),
         },
@@ -657,6 +729,10 @@ pub enum CommandError {
     },
     /// Artifact output appears to belong to the user or another tool.
     UnsafeOutput(PathBuf),
+    /// A parse, run, search, or prove operation failed.
+    Exec(krs_exec::ExecError),
+    /// A run-family invocation that the selected definition rules out (exit status 2).
+    Usage(String),
 }
 
 impl fmt::Display for CommandError {
@@ -726,6 +802,8 @@ impl fmt::Display for CommandError {
                 "refusing to replace non-KRS artifact directory `{}`",
                 path.display()
             ),
+            Self::Exec(error) => error.fmt(formatter),
+            Self::Usage(message) => formatter.write_str(message),
         }
     }
 }
@@ -746,7 +824,9 @@ impl Error for CommandError {
             Self::Facade(error) => Some(error),
             Self::ReferenceExpansion(error) => Some(error),
             Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => Some(error),
-            Self::InvalidRequest(_)
+            Self::Exec(error) => Some(error),
+            Self::Usage(_)
+            | Self::InvalidRequest(_)
             | Self::InvalidMetadata(_)
             | Self::ProcessFailed { .. }
             | Self::Diagnostics(_)
@@ -757,8 +837,28 @@ impl Error for CommandError {
 }
 
 impl CommandError {
+    /// The process exit status for this failure: 2 for a usage error, 1 otherwise.
+    #[must_use]
+    pub const fn exit_code(&self) -> i32 {
+        match self {
+            Self::Usage(_)
+            | Self::Exec(krs_exec::ExecError::StrayProgram | krs_exec::ExecError::MissingProgram) => {
+                2
+            }
+            _ => 1,
+        }
+    }
+
     fn diagnostic_model(&self) -> Option<(Diagnostic, DiagnosticStage)> {
         let (mut diagnostic, stage) = match self {
+            Self::Exec(error) => (
+                Diagnostic::error(
+                    exec::diagnostic_code(error),
+                    String::new(),
+                    krs_diagnostic::Location::None,
+                ),
+                DiagnosticStage::Native,
+            ),
             Self::Planning(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Generation(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::DescriptorLowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
@@ -770,6 +870,15 @@ impl CommandError {
             _ => return None,
         };
         diagnostic.message = self.to_string();
+        if let Self::Exec(_) = self {
+            // A listing (declared or missing variables) follows the first line; render it as notes.
+            let mut lines = diagnostic.message.lines().map(str::trim).map(str::to_owned);
+            let message = lines.next().unwrap_or_default();
+            diagnostic.notes.extend(lines);
+            message
+                .trim_end_matches(':')
+                .clone_into(&mut diagnostic.message);
+        }
         Some((diagnostic, stage))
     }
 

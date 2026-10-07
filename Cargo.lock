@@ -556,6 +556,7 @@ dependencies = [
  "krs-collector",
  "krs-compiler",
  "krs-diagnostic",
+ "krs-exec",
  "krs-fmt",
  "krs-ir",
  "krs-ir-levels",
@@ -621,6 +622,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-exec"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "krs-ir",
+ "krs-ir-levels",
+ "krs-k-rust",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "krs-expand"
 version = "0.1.0"
 dependencies = [
@@ -671,6 +684,7 @@ dependencies = [
  "k-rust",
  "krs-cli",
  "krs-compiler",
+ "krs-exec",
  "krs-expand",
  "krs-ir",
  "krs-ir-levels",

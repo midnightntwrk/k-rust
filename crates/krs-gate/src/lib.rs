@@ -176,6 +176,10 @@
 //! Comparisons normalize nested builtin List association and unit, and Map and Set association, commutation, and unit using the compiled definition's hooks.
 //! No other difference is normalized.
 //! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
+//! The loaded definition is a [`krs_exec::Semantics`], compiled exactly as `krs run` compiles it; `execute`, `search`, and `prove` issue raw k-rust requests to its backend.
+//! `exec.run`, `exec.search`, and `exec.prove` run the `krs run`, `krs search`, and `krs prove` code paths of [`krs_exec`] and return their `krs-exec/1` reports.
+//! `exec.run` and `exec.search` accept `program` (surface text bound to `$PGM`) with an optional `program_name`, `variables` (an object of `-c` bindings by K name, `$`-prefixed name, or init parameter), and `depth` (unsigned integer or null); `exec.run` also accepts `trace` (boolean), and `exec.search` accepts `mode` (`final`, `all`, `one-step`, or `one-or-more-steps`) and `max_solutions`.
+//! `exec.prove` accepts `claims` (labels resolved by exact match or unique suffix; empty proves every claim) and `depth`.
 //!
 //! A failure while handling a valid operation, including a pattern parse or backend error, produces an error response and leaves the session open.
 //! After a failed load, `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations can still succeed in that session.
@@ -185,7 +189,7 @@
 pub mod collector_bundle;
 /// Compile Definition IR into native KORE.
 pub mod compile;
-/// Assemble surface configuration variables through the native frontend.
+/// Assemble surface configuration variables through the native frontend (owned by `krs-exec`).
 pub mod configuration;
 /// Query version-checked emitted artifact models.
 pub mod ir_query;

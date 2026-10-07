@@ -22,6 +22,11 @@ different absolute paths. Each run checks all four commands against the same
 - `emit-k` creates the schema marker, the three IR/bundle documents, `definition.k`, `symbols.json`, and `sources.json`, and retains `ObjectTerm < KResult < KItem`, `<k> foo </k>`, and the `foo => bar` rule;
 - `build` compiles the Definition IR through the structured k-rust frontend and creates exactly `.krs-artifacts`, `definition.kore`, `syntaxDefinition.kore`, and `macros.kore`.
 
+Each run then exercises the run commands natively on the same theory, through `krs-exec` and the `k-rust` symbolic backend:
+
+- `krs run --output json` reports `halt: stuck` after one step with `bar` at the head of `<k>`; `--output kore` prints the final state, which the reference step below compares with Java `krun`'s; `--trace` prints the one step with its authored source position;
+- `krs parse --sort ObjectTerm` prints `foo` as KAST text and as KAST JSON.
+
 Relocated outputs must be byte-identical and match `pins.json`. These pins are
 independent of the in-tree minimal-definition oracle: this package intentionally has its own
 stable Cargo name, K namespace, and source layout, all of which participate in
@@ -37,11 +42,19 @@ the fixture, compiles its `definition.k` with the Haskell backend, and requires
 `kprove --dry-run` to read its `spec.k` with nothing upstream on the include
 path; `pins.json` pins both emitted files.
 
+A third fixture, `fixtures/claims`, is the foo-to-bar language with `$PGM` and two claims:
+`foo-reaches-bar` holds and `bar-reaches-foo` does not.
+`krs prove` must report them `proven` and `disproved` (exit status 1, since not every claim is proven),
+and Java `kprove` on the emitted `spec.k`, against the Haskell `kompile` of the emitted `definition.k`, must agree;
+those Java runs form the reference snapshot `claims-prove`.
+The same fixture checks an unknown `--claim` (with its did-you-mean from `foo_reaches_bar` to the kebab label)
+and the `file:line:column` of a program that does not parse.
+
 Negative cases cover omitted and nonexistent facets, ambiguous Cargo package
-names, an authored Cargo-check failure, and preservation of an unowned
-nonempty artifact directory. The emitted K is compiled with the LLVM backend
+names, an authored Cargo-check failure, preservation of an unowned
+nonempty artifact directory, an unknown `-c` variable, and a FILE passed to a definition whose init function takes no program (exit status 2). The emitted K is compiled with the LLVM backend
 and executed to prove `foo -> bar`.
-The Java K results form the reference snapshots `execution` and `dollar-id-claims` (`tests/support/reference.py`),
+The Java K results form the reference snapshots `execution`, `dollar-id-claims`, and `claims-prove` (`tests/support/reference.py`),
 keyed by the `Krs.lock` K version and the digests of the emitted `definition.k` (and, for the dry run, `spec.k`).
 `pins.json` `reference_sha256` pins their manifest digests, and by default the oracle replays the per-user reference cache entries stored under them,
 so with a warm cache it needs no K tool; a cached entry whose emitted file differs fails closed.

@@ -2,30 +2,25 @@
 
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
-use krs_k_rust::{
-    Backend, CompileOptions, CompiledArtifacts, ConfigurationContext,
-    compile_definition_with_context_timed,
-};
+use krs_k_rust::{CompiledArtifacts, ConfigurationContext};
 use std::path::{Path, PathBuf};
 use std::{error::Error, fs};
 
-/// Compile the emitted Definition IR with the same options as the one-shot command.
+/// Compile the emitted Definition IR with the options `krs-exec` uses for every route.
 pub(crate) fn compile_ir(
     timings: &mut Timings,
     input: &Path,
 ) -> Result<(CompiledArtifacts, ConfigurationContext), Box<dyn Error>> {
-    let definition_ir: DefinitionIr = timings.try_span("native.input", |_| {
+    let definition_ir = read_ir(timings, input)?;
+    krs_exec::compile_definition(&definition_ir, timings)
+        .map_err(|error| format!("{error:#?}").into())
+}
+
+/// Read Definition IR through the canonical JSON reader.
+pub(crate) fn read_ir(timings: &mut Timings, input: &Path) -> Result<DefinitionIr, Box<dyn Error>> {
+    timings.try_span("native.input", |_| {
         Ok::<_, Box<dyn Error>>(krs_ir::json::from_slice(&fs::read(input)?)?)
-    })?;
-    compile_definition_with_context_timed(
-        &definition_ir,
-        CompileOptions {
-            backend: Backend::Haskell,
-            ..CompileOptions::default()
-        },
-        timings,
-    )
-    .map_err(|error| format!("{error:#?}").into())
+    })
 }
 
 fn compile(timings: &mut Timings, input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {

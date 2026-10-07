@@ -7,14 +7,19 @@ license.workspace = true
 publish = false
 description = "Native KRS gate protocol and compiler"
 
+[features]
+default = ["z3-inference"]
+z3-inference = ["k-rust/z3-inference", "krs-exec/z3-inference", "krs-k-rust/z3-inference"]
+
 [dependencies]
-k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false }
 krs-cli = { path = "../krs-cli" }
 krs-compiler = { path = "../krs-compiler" }
+krs-exec = { path = "../krs-exec", default-features = false }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
-krs-k-rust = { path = "../krs-k-rust" }
+krs-k-rust = { path = "../krs-k-rust", default-features = false }
 quote.workspace = true
 serde.workspace = true
 serde_json.workspace = true

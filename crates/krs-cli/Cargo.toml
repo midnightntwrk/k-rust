@@ -13,7 +13,7 @@ doc = false
 
 [features]
 default = ["z3-inference"]
-z3-inference = ["krs-k-rust/z3-inference"]
+z3-inference = ["krs-exec/z3-inference", "krs-k-rust/z3-inference"]
 
 [dependencies]
 annotate-snippets = "0.12.16"
@@ -21,6 +21,7 @@ krs = { path = "../krs" }
 krs-collector = { path = "../krs-collector" }
 krs-compiler = { path = "../krs-compiler" }
 krs-diagnostic = { path = "../krs-diagnostic" }
+krs-exec = { path = "../krs-exec", default-features = false }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet};
 use krs_diagnostic::{Diagnostic, Location, Severity};
-use krs_ir::{LineIndex, PackageId, Sha256Digest, SourceRange};
+use krs_ir::{LineIndex, PackageId, Sha256Digest, SourceFileId, SourceRange};
 use sha2::{Digest, Sha256};
 
 use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticGeneratedRange};
@@ -156,14 +156,24 @@ impl DiagnosticSources {
     }
 
     fn source(&self, range: &SourceRange) -> Result<String, &'static str> {
+        self.file_text(&range.file)
+    }
+
+    /// The exact authored revision of `file`, when its package is selected and its digest still matches.
+    #[must_use]
+    pub fn source_text(&self, file: &SourceFileId) -> Option<String> {
+        self.file_text(file).ok()
+    }
+
+    fn file_text(&self, file: &SourceFileId) -> Result<String, &'static str> {
         let root = self
             .packages
-            .get(range.file.package())
+            .get(file.package())
             .ok_or("source package is unavailable")?;
-        let bytes = std::fs::read(root.join(range.file.package_relative_path()))
+        let bytes = std::fs::read(root.join(file.package_relative_path()))
             .map_err(|_| "source file is unavailable")?;
         let digest = Sha256Digest::from_bytes(Sha256::digest(&bytes).into());
-        if &digest != range.file.content_sha256() {
+        if &digest != file.content_sha256() {
             return Err("source changed since the diagnostic was produced");
         }
         String::from_utf8(bytes).map_err(|_| "source file is not UTF-8")

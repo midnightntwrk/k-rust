@@ -291,4 +291,16 @@ register_codes! {
         RESERVED_NAME: "krs::policy::reserved-name" => "Rejects an authored name in the generated-name namespace.",
         PROTOCOL_ERROR: "krs::policy::protocol" => "The request was not a valid schema-1 request.",
     }
+    /// Diagnostics from `krs parse`, `krs run`, `krs search`, and `krs prove` (`krs-exec`).
+    exec {
+        BACKEND: "krs::exec::backend" => "The native backend failed while loading or running the definition.",
+        PROGRAM: "krs::exec::program" => "FILE was given without $PGM, or omitted with $PGM.",
+        VARIABLE: "krs::exec::variable" => "A configuration variable is unknown, bound twice, or missing.",
+        PARSE: "krs::exec::parse" => "Program or configuration-variable text does not parse at its sort.",
+        SORT: "krs::exec::sort" => "A requested parse sort is not a program sort.",
+        CLAIM: "krs::exec::claim" => "A claim label matched no claim, several claims, or the definition has no claims.",
+        STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
+        UNAVAILABLE: "krs::exec::unavailable" => "The requested operation is not available in this build.",
+        RESULT: "krs::exec::result" => "The backend returned a result KRS cannot read.",
+    }
 }

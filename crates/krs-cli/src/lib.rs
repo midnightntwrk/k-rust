@@ -7,6 +7,8 @@
 //! production planning shares its package and facet selection.
 //! Authored production packages do not implement a collector runtime.
 //!
+//! `parse`, `run`, `search`, and `prove` share the pipeline up to Definition IR and then compile it in-process through `krs-exec` and the k-rust symbolic backend; their results are never cached.
+//!
 //! The command-line binary renders human-readable diagnostics on stderr by default.
 //! `--message-format=json` selects schema-1 envelope lines for located diagnostics and prose lines for unlocated diagnostics and other failures.
 
@@ -21,7 +23,8 @@ mod process;
 mod render;
 
 pub use command::{
-    Command, CommandError, CommandKind, CommandOutcome, CommandRequest, MessageFormat,
+    ColorChoice, Command, CommandError, CommandKind, CommandOutcome, CommandRequest, MessageFormat,
+    ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
     execute_command, execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
@@ -31,6 +34,7 @@ pub use diagnostic::{
 };
 pub use format::{FormatInput, discover_format_inputs};
 pub use generate::{GeneratedCollector, GenerationError};
+pub use krs_exec::SearchMode;
 pub use krs_k_rust::Backend;
 pub use metadata::{
     CargoMetadata, MetadataError, MetadataNode, MetadataPackage, MetadataResolve, MetadataTarget,

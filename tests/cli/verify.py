@@ -31,11 +31,18 @@ HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "foo-bar"
 DOLLAR_IDS = HERE / "fixtures" / "dollar-ids"
 DOLLAR_IDS_PACKAGE = "krs-cli-oracle-dollar-ids"
+CLAIMS = HERE / "fixtures" / "claims"
+CLAIMS_PACKAGE = "krs-cli-oracle-claims"
+CLAIM_VERDICTS = {
+    "ORG-KRS-CLI-CLAIMS-SPEC.bar-reaches-foo": "disproved",
+    "ORG-KRS-CLI-CLAIMS-SPEC.foo-reaches-bar": "proven",
+}
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
 REFERENCE_TOOLS = ("kompile", "krun")
 CLAIMS_REFERENCE_TOOLS = ("kompile", "kprove")
+PROVE_REFERENCE_TOOLS = ("kompile", "kprove")
 
 
 def build_cli(results: Results) -> Path | None:
@@ -74,10 +81,11 @@ def cli_command(
     package: str = PACKAGE,
     definition: str | None = "main",
     output: Path | None = None,
+    extra: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[bytes]:
     extras = ["--output", str(output)] if output is not None else []
     arguments = Invocation(binary, manifest, package, definition).argv(
-        command, "--message-format=json", *extras
+        command, "--message-format=json", *extras, *extra
     )
     environment = {
         "CARGO_TARGET_DIR": str(target),
@@ -218,13 +226,69 @@ def positive_run(binary: Path, workspace: Path, results: Results, gate: Path) ->
     for name in sorted(native_names):
         artifacts[f"native/{name}"] = (native / name).read_bytes()
     artifacts["expand.rs"] = expand.stdout
+    native_run = run_commands(binary, manifest, target, workspace, results)
+    if native_run is None:
+        return None
+    artifacts.update(native_run)
     return artifacts
+
+
+def run_commands(
+    binary: Path, manifest: Path, target: Path, workspace: Path, results: Results
+) -> dict[str, bytes] | None:
+    """Run, trace, and parse the foo-bar theory natively; every output is pinned and relocation-stable.
+
+    The init function takes no program, so `krs run` takes no FILE; `krs parse` parses at `ObjectTerm`.
+    """
+
+    program = workspace / "foo.prog"
+    program.write_text("foo\n", encoding="utf-8")
+    try:
+        run_json = cli_command(binary, "run", manifest, target, extra=("--output", "json"))
+        if run_json.returncode != 0:
+            raise ValueError(compact(run_json))
+        report = json.loads(run_json.stdout)
+        if report.get("schema") != "krs-exec/1" or report["run"]["halt"] != "stuck" or report["run"]["steps"] != 1:
+            raise ValueError(f"krs run report differs: {report}")
+        if b"krs run: stuck after 1 step; <k> starts with `bar" not in run_json.stderr:
+            raise ValueError(f"krs run status line differs: {run_json.stderr!r}")
+        run_kore = cli_command(binary, "run", manifest, target, extra=("--output", "kore"))
+        trace = cli_command(binary, "run", manifest, target, extra=("--trace", "--output", "none"))
+        if run_kore.returncode != 0 or trace.returncode != 0 or trace.stdout:
+            raise ValueError(compact(run_kore if run_kore.returncode != 0 else trace))
+        # The fixture's `#[krs::rule] fn foo_to_bar` is unlabelled, so the step names its rule identity.
+        if not re.match(rb"step 1  \S+   src/lib\.rs:\d+:\d+\nkrs run: stuck after 1 step", trace.stderr):
+            raise ValueError(f"krs run --trace differs: {trace.stderr!r}")
+        parse_kast = cli_command(
+            binary, "parse", manifest, target, extra=("--sort", "ObjectTerm", "--output", "kast", str(program)),
+        )
+        parse_json = cli_command(
+            binary, "parse", manifest, target, extra=("--sort", "ObjectTerm", "--output", "json", str(program)),
+        )
+        if parse_kast.returncode != 0 or parse_json.returncode != 0:
+            raise ValueError(compact(parse_kast if parse_kast.returncode != 0 else parse_json))
+        if json.loads(parse_json.stdout)["term"]["label"]["name"] != "foo":
+            raise ValueError(f"krs parse --output json differs: {parse_json.stdout!r}")
+    except (KeyError, ValueError) as error:
+        results.add(f"{workspace.name}_run", "FAIL", str(error))
+        return None
+    results.add(
+        f"{workspace.name}_run", "PASS",
+        "krs run (json, kore, trace) and krs parse (kast, json) reproduce foo -> bar natively",
+    )
+    return {
+        "native-run/run.json": run_json.stdout,
+        "native-run/final.kore": run_kore.stdout,
+        "native-run/trace.txt": trace.stderr,
+        "native-run/parse.kast": parse_kast.stdout,
+        "native-run/parse.json": parse_json.stdout,
+    }
 
 
 def verify_pins(results: Results, pins: Ledger, artifacts: dict[str, bytes]) -> None:
     fixture_actual = {
         f"{prefix}{name}": sha256_bytes((fixture / name).read_bytes())
-        for prefix, fixture in (("", FIXTURE), ("dollar-ids/", DOLLAR_IDS))
+        for prefix, fixture in (("", FIXTURE), ("dollar-ids/", DOLLAR_IDS), ("claims/", CLAIMS))
         for name in ("Cargo.toml.in", "src/lib.rs")
     }
     results.add(
@@ -356,6 +420,24 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     )
     results.add("unsafe_output", "PASS" if preserved else "FAIL", "nonempty unowned output rejected without changing bytes" if preserved else compact(unsafe))
 
+    run_manifest = materialize(workspace / "run-language")
+    run_target = workspace / "run-target"
+    unknown_variable = cli_command(binary, "run", run_manifest, run_target, extra=("-c", "ENV=.Map"))
+    unknown_ok = (
+        unknown_variable.returncode == 1
+        and b"unknown configuration variable `ENV`" in unknown_variable.stderr
+    )
+    results.add(
+        "run_unknown_variable", "PASS" if unknown_ok else "FAIL",
+        "krs run rejects -c for an undeclared variable" if unknown_ok else compact(unknown_variable),
+    )
+    stray = cli_command(binary, "run", run_manifest, run_target, extra=("foo.prog",))
+    stray_ok = stray.returncode == 2 and b"the init function takes no program (no $PGM); do not pass FILE" in stray.stderr
+    results.add(
+        "run_stray_file", "PASS" if stray_ok else "FAIL",
+        "krs run rejects FILE when the init function takes no program" if stray_ok else compact(stray),
+    )
+
 
 def reference_execution(
     results: Results, artifacts: dict[str, bytes], workspace: Path, pins: Ledger, *, refresh: bool
@@ -404,13 +486,19 @@ def reference_execution(
             session.expect("initial", "k", text="foo ~> .K")
             session.read(final.stdout, "final")
             session.expect("final", "k", text="bar ~> .K")
+            # `krs run` follows the same single path natively; its final state agrees with krun's.
+            session.read(artifacts["native-run/final.kore"].decode("utf-8"), "native")
+            session.expect("native", "k", text="bar ~> .K")
+            cells = ["k", "generatedCounter"]
+            if session.observe("final", cells) != session.observe("native", cells):
+                raise GateError("krs run and krun final states differ")
     except (GateError, OSError, UnicodeError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return None
     source_mode = "live" if k.live else "cached"
     results.add(
         "reference_execution", "PASS",
-        f"{source_mode} K {k_version()} compiled canonical output and executed foo -> bar",
+        f"{source_mode} K {k_version()} compiled canonical output and executed foo -> bar, as krs run does",
     )
     return k
 
@@ -524,6 +612,94 @@ def dollar_id_claims(
     return artifacts, k
 
 
+def claims_proofs(
+    binary: Path, workspace: Path, results: Results, pins: Ledger, *, refresh: bool
+) -> tuple[dict[str, bytes], Snapshot] | None:
+    """Prove the claims fixture natively with `krs prove` and require Java `kprove` to agree.
+
+    `foo-reaches-bar` holds and `bar-reaches-foo` does not. Java K kompiles the emitted
+    `definition.k` with the Haskell backend and proves each claim of the emitted `spec.k`;
+    these runs form the reference snapshot `claims-prove`, keyed by the digests of both files.
+    The fixture also carries the negatives that need a program: an unknown claim with its
+    did-you-mean, and a program parse error with its location.
+    """
+
+    manifest = materialize(workspace / "language", CLAIMS)
+    target = workspace / "target"
+    emitted = workspace / "emitted"
+    try:
+        prove = cli_command(binary, "prove", manifest, target, package=CLAIMS_PACKAGE, extra=("--output", "json"))
+        if prove.returncode != 1:
+            raise GateError(f"krs prove did not report a disproved claim with status 1: {compact(prove)}")
+        verdicts = {report["claim"]: report["verdict"] for report in json.loads(prove.stdout)["prove"]}
+        if verdicts != CLAIM_VERDICTS:
+            raise GateError(f"krs prove verdicts differ: {verdicts}")
+        proven = cli_command(
+            binary, "prove", manifest, target, package=CLAIMS_PACKAGE, extra=("--claim", "foo-reaches-bar"),
+        )
+        if proven.returncode != 0 or proven.stdout != b"ORG-KRS-CLI-CLAIMS-SPEC.foo-reaches-bar: proven\n":
+            raise GateError(f"krs prove --claim foo-reaches-bar differs: {compact(proven)}")
+        suggestion = cli_command(
+            binary, "prove", manifest, target, package=CLAIMS_PACKAGE, extra=("--claim", "foo_reaches_bar"),
+        )
+        expected_suggestion = (
+            b"no claim has label `foo_reaches_bar`; did you mean `ORG-KRS-CLI-CLAIMS-SPEC.foo-reaches-bar`?"
+        )
+        if suggestion.returncode != 1 or expected_suggestion not in suggestion.stderr:
+            raise GateError(f"unknown-claim suggestion differs: {compact(suggestion)}")
+        bad = workspace / "bad.prog"
+        bad.write_text("fooo\n", encoding="utf-8")
+        rejected = cli_command(binary, "run", manifest, target, package=CLAIMS_PACKAGE, extra=(str(bad),))
+        expected_location = f"{bad}:1:4 does not parse at sort ObjectTerm".encode()
+        if rejected.returncode != 1 or expected_location not in rejected.stderr:
+            raise GateError(f"program parse error location differs: {compact(rejected)}")
+        emit = cli_command(binary, "emit-k", manifest, target, package=CLAIMS_PACKAGE, output=emitted)
+        if emit.returncode != 0 or not (emitted / "spec.k").is_file():
+            raise GateError(f"emit-k did not write spec.k: {compact(emit)}")
+        main_module = "ORG-KRS-CLI-CLAIMS"
+        spec_module = f"{main_module}-SPEC"
+        k = Snapshot(
+            "cli/claims-prove", Key(tools=PROVE_REFERENCE_TOOLS), workspace=workspace, refresh=refresh,
+            pin=Pin(pins, "claims-prove"),
+        )
+        definition = workspace / "compiled-definition"
+        compile_process = k.run(
+            "kompile/definition", "kompile",
+            [
+                emitted / "definition.k", "--backend", "haskell", "--main-module", main_module,
+                "--syntax-module", main_module, "--output-definition", definition,
+            ],
+            timeout=240,
+        )
+        if compile_process.returncode != 0:
+            raise GateError(f"kompile rejected the emitted definition: {compact(compile_process)}")
+        java: dict[str, str] = {}
+        for label in sorted(CLAIM_VERDICTS):
+            local = label.rsplit(".", 1)[1]
+            process = k.run(
+                f"kprove/{local}", "kprove",
+                [emitted / "spec.k", "--definition", definition, "--spec-module", spec_module, "--claims", label],
+                timeout=240,
+            )
+            proved = process.returncode == 0 and process.stdout.strip() == "#Top"
+            java[label] = "proven" if proved else "disproved"
+            if not proved and process.returncode == 0:
+                raise GateError(f"kprove {label} exited 0 without #Top: {compact(process)}")
+        if java != CLAIM_VERDICTS:
+            raise GateError(f"Java kprove verdicts differ from krs prove: java={java}, krs={verdicts}")
+    except (GateError, OSError, KeyError, ValueError) as error:
+        results.add("claims_prove", "FAIL", str(error))
+        return None
+    source_mode = "live" if k.live else "cached"
+    results.add(
+        "claims_prove", "PASS",
+        f"krs prove and {source_mode} K {k_version()} kprove agree: foo-reaches-bar proven, bar-reaches-foo disproved",
+    )
+    artifacts = {f"claims/{name}": (emitted / name).read_bytes() for name in ("definition.k", "spec.k")}
+    artifacts["claims/prove.json"] = prove.stdout
+    return artifacts, k
+
+
 def dry_run_spec(directory: Path) -> Path:
     """The one `spec.kore` that `kprove --dry-run` wrote below its `--temp-dir`, or a missing path."""
 
@@ -560,10 +736,14 @@ def main() -> int:
             claims = dollar_id_claims(
                 binary, first_root / "dollar-ids", results, gate, pins, refresh=arguments.refresh_reference,
             )
-            if claims is not None:
+            proofs = claims_proofs(
+                binary, first_root / "claims", results, pins, refresh=arguments.refresh_reference,
+            )
+            if claims is not None and proofs is not None:
                 claim_artifacts, claim_snapshot = claims
-                snapshots.append(claim_snapshot)
-                verify_pins(results, pins, {**first, **claim_artifacts})
+                proof_artifacts, proof_snapshot = proofs
+                snapshots.extend((claim_snapshot, proof_snapshot))
+                verify_pins(results, pins, {**first, **claim_artifacts, **proof_artifacts})
             snapshot = reference_execution(
                 results, first, first_root / "reference", pins, refresh=arguments.refresh_reference,
             )

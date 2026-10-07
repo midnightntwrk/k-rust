@@ -136,6 +136,8 @@ impl ResultCache {
             counters.set(name, value);
         }
         Ok(Some(CommandOutcome {
+            stderr: Vec::new(),
+            exit_code: 0,
             stdout: stdout.to_vec(),
             warnings: image.warnings,
         }))

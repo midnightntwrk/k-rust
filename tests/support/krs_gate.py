@@ -330,6 +330,34 @@ class Session:
 
         return self.request("prove", claim=claim)
 
+    def exec_run(
+        self, *, program: str | None = None, program_name: str | None = None,
+        variables: Mapping[str, str] | None = None, depth: int | None = None, trace: bool = False,
+    ) -> dict[str, Any]:
+        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/1` run report."""
+
+        return self.request(
+            "exec.run", program=program, program_name=program_name,
+            variables=dict(variables or {}), depth=depth, trace=trace,
+        )
+
+    def exec_search(
+        self, *, program: str | None = None, program_name: str | None = None,
+        variables: Mapping[str, str] | None = None, mode: str = "final",
+        depth: int | None = None, max_solutions: int | None = None,
+    ) -> dict[str, Any]:
+        """Search surface inputs through krs-exec, as `krs search` does, and return its search report."""
+
+        return self.request(
+            "exec.search", program=program, program_name=program_name,
+            variables=dict(variables or {}), mode=mode, depth=depth, max_solutions=max_solutions,
+        )
+
+    def exec_prove(self, claims: list[str] | None = None, *, depth: int | None = None) -> list[dict[str, Any]]:
+        """Prove claims by label through krs-exec, as `krs prove` does, and return its proof reports."""
+
+        return self.request("exec.prove", claims=list(claims or []), depth=depth)
+
     @staticmethod
     def _kast_input(value: Any = None, *, text: str | None = None, path: Path | None = None) -> dict[str, Any]:
         fields = {"value": value, "text": text, "path": os.fspath(path) if path is not None else None}

@@ -1,18 +1,20 @@
 //! Newline-delimited JSON native backend session.
 
 use crate::{
-    compile::compile_ir,
-    configuration::Configuration,
+    compile::read_ir,
     kore_digest,
     pattern::{self, PatternContext},
 };
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest, SearchRequest},
+    backend::{Backend, ExecuteRequest, ProveRequest, SearchRequest},
     kore::{
         ast::Pattern,
         json as kore_json,
         parser::{parse_definition, parse_pattern},
     },
+};
+use krs_exec::{
+    ConfigInputs, ProgramInput, ProveOptions, RunOptions, SearchMode, SearchOptions, Semantics,
 };
 use krs_ir::measure::Timings;
 use serde::Deserialize;
@@ -136,11 +138,51 @@ fn search(
     }
 }
 
+fn optional_u64(request: &Value, key: &str) -> Result<Option<u64>, Box<dyn Error>> {
+    match request.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => Ok(Some(value.as_u64().ok_or_else(|| {
+            format!("request field `{key}` must be an unsigned integer or null")
+        })?)),
+    }
+}
+
+/// The `krs run` inputs of an `exec.*` request: `program` (text) with optional `program_name`, and `variables` (an object of `-c` bindings).
+fn config_inputs(request: &Value) -> Result<ConfigInputs, Box<dyn Error>> {
+    let program = match request.get("program") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(ProgramInput {
+            name: request
+                .get("program_name")
+                .and_then(Value::as_str)
+                .unwrap_or("<program>")
+                .to_owned(),
+            text: value
+                .as_str()
+                .ok_or("request field `program` must be a string")?
+                .to_owned(),
+        }),
+    };
+    let variables = match request.get("variables") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(value) => value
+            .as_object()
+            .ok_or("request field `variables` must be an object")?
+            .iter()
+            .map(|(name, text)| {
+                text.as_str()
+                    .map(|text| (name.clone(), text.to_owned()))
+                    .ok_or_else(|| format!("variable `{name}` must be surface text"))
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(ConfigInputs { program, variables })
+}
+
 /// A session with at most one loaded definition.
 #[derive(Default)]
 pub struct Session {
-    backend: Option<Backend>,
-    configuration: Option<Configuration>,
+    semantics: Option<Semantics>,
     patterns: Option<PatternContext>,
     states: BTreeMap<String, Pattern>,
     load_attempted: bool,
@@ -170,6 +212,9 @@ impl Session {
                 | "execute"
                 | "search"
                 | "prove"
+                | "exec.run"
+                | "exec.search"
+                | "exec.prove"
                 | "kore.read"
                 | "kore.digest"
                 | "ir.query"
@@ -183,7 +228,7 @@ impl Session {
         ) {
             return Err(format!("unsupported operation `{operation}`").into());
         }
-        if self.backend.is_none()
+        if self.semantics.is_none()
             && !matches!(
                 operation,
                 "definition.load"
@@ -209,7 +254,10 @@ impl Session {
             "configure" => self.configure(request),
             "execute" => self.execute(request),
             "search" => self.search(request),
-            "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
+            "prove" => prove(self.backend()?, request),
+            "exec.run" => self.exec_run(request),
+            "exec.search" => self.exec_search(request),
+            "exec.prove" => self.exec_prove(request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
             "ir.query" => crate::ir_query::dispatch(request),
@@ -227,35 +275,51 @@ impl Session {
         })
     }
 
+    fn backend(&mut self) -> Result<&mut Backend, Box<dyn Error>> {
+        Ok(self
+            .semantics
+            .as_mut()
+            .ok_or("backend not loaded")?
+            .backend_mut())
+    }
+
+    fn semantics(&mut self) -> Result<&mut Semantics, Box<dyn Error>> {
+        Ok(self.semantics.as_mut().ok_or("definition not loaded")?)
+    }
+
     fn load(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let module = required_string(request, "module")?;
         if request.get("kore").is_some() {
             return Err("definition.load does not accept `kore`".into());
         }
         let path = required_string(request, "definition_ir")?;
-        let (artifacts, context) = compile_ir(&mut Timings::disabled(), Path::new(path))?;
-        if context.frontend_definition.main_module != module {
+        let mut timings = Timings::disabled();
+        let definition_ir = read_ir(&mut timings, Path::new(path))?;
+        let semantics = Semantics::compile_with(&definition_ir, None, &mut timings).map_err(
+            |error| match error {
+                krs_exec::ExecError::Compile(error) => format!("{error:#?}"),
+                error => error.to_string(),
+            },
+        )?;
+        if semantics.main_module() != module {
             return Err(format!(
                 "Definition IR main module is `{}`, not requested `{module}`",
-                context.frontend_definition.main_module
+                semantics.main_module()
             )
             .into());
         }
         let patterns =
-            PatternContext::from_definition(&parse_definition(&artifacts.definition_kore)?)?
-                .with_frontend_cells(&context.frontend_definition)?;
-        let configuration = Configuration::new(context)?;
-        let backend = Backend::new(
-            &artifacts.definition_kore,
-            module.to_owned(),
-            BackendOptions::default(),
-        )?;
-        self.backend = Some(backend);
-        self.configuration = Some(configuration);
+            PatternContext::from_definition(&parse_definition(semantics.definition_kore())?)?
+                .with_frontend_cells(semantics.frontend_definition())?;
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(semantics.definition_kore().as_bytes())
+        );
+        self.semantics = Some(semantics);
         self.patterns = Some(patterns);
         Ok(json!({
             "module": module,
-            "definition_kore_sha256": format!("{:x}", Sha256::digest(artifacts.definition_kore.as_bytes())),
+            "definition_kore_sha256": digest,
         }))
     }
 
@@ -264,10 +328,77 @@ impl Session {
             .get("variables")
             .and_then(Value::as_object)
             .ok_or("request field `variables` must be an object")?;
-        self.configuration
-            .as_mut()
-            .ok_or("configuration not loaded")?
-            .configure(variables)
+        self.semantics()?.configuration_mut().configure(variables)
+    }
+
+    /// `krs run` through `krs-exec`: configure from `program` and `variables`, then run with `depth` and `trace`.
+    fn exec_run(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let inputs = config_inputs(request)?;
+        let options = RunOptions {
+            depth: optional_u64(request, "depth")?,
+            trace: request
+                .get("trace")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        let semantics = self.semantics()?;
+        let state = semantics.configure(&inputs)?;
+        Ok(serde_json::to_value(semantics.run(&state, options)?)?)
+    }
+
+    /// `krs search` through `krs-exec`.
+    fn exec_search(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let inputs = config_inputs(request)?;
+        let mode = match request.get("mode") {
+            None | Some(Value::Null) => SearchMode::Final,
+            Some(value) => {
+                let name = value
+                    .as_str()
+                    .ok_or("request field `mode` must be a string")?;
+                SearchMode::ALL
+                    .into_iter()
+                    .find(|mode| mode.as_str() == name)
+                    .ok_or_else(|| format!("unknown search mode `{name}`"))?
+            }
+        };
+        let options = SearchOptions {
+            mode,
+            depth: optional_u64(request, "depth")?,
+            max_solutions: optional_u64(request, "max_solutions")?
+                .map(usize::try_from)
+                .transpose()?,
+            trace: request
+                .get("trace")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        let semantics = self.semantics()?;
+        let state = semantics.configure(&inputs)?;
+        Ok(serde_json::to_value(semantics.search(&state, options)?)?)
+    }
+
+    /// `krs prove` through `krs-exec`: `claims` (labels; empty proves every claim) and `depth`.
+    fn exec_prove(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let claims = match request.get("claims") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(value) => value
+                .as_array()
+                .ok_or("request field `claims` must be an array")?
+                .iter()
+                .map(|label| {
+                    label
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or("claim labels must be strings")
+                })
+                .collect::<Result<_, _>>()?,
+        };
+        let options = ProveOptions {
+            module: None,
+            claims,
+            depth: optional_u64(request, "depth")?,
+        };
+        Ok(serde_json::to_value(self.semantics()?.prove(&options)?)?)
     }
 
     fn execute(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
@@ -275,7 +406,7 @@ impl Session {
             .get("keep")
             .map(|_| required_string(request, "keep"))
             .transpose()?;
-        let (result, state) = execute(self.backend.as_mut().ok_or("backend not loaded")?, request)?;
+        let (result, state) = execute(self.backend()?, request)?;
         if let (Some(name), Some(state)) = (keep, state) {
             self.states.insert(name.to_owned(), state);
         }
@@ -294,7 +425,7 @@ impl Session {
             .get("keep")
             .map(|_| required_string(request, "keep"))
             .transpose()?;
-        let (result, state) = search(self.backend.as_mut().ok_or("backend not loaded")?, request)?;
+        let (result, state) = search(self.backend()?, request)?;
         if let (Some(name), Some(state)) = (keep, state) {
             self.states.insert(name.to_owned(), state);
         }
@@ -372,10 +503,7 @@ impl Session {
             .cell_sort(cell_name)
             .ok_or_else(|| format!("unknown cell <{cell_name}>"))?
             .clone();
-        let configuration = self
-            .configuration
-            .as_mut()
-            .ok_or("configuration not loaded")?;
+        let configuration = self.semantics()?.configuration_mut();
         let expected = if head {
             configuration.parse_head(cell_name, source)?
         } else {
@@ -449,14 +577,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::Session;
+    use super::{Session, search};
     use k_rust::{
         backend::{Backend, BackendOptions},
         kore::parser::parse_pattern,
     };
     use serde_json::json;
 
-    fn search_session() -> Session {
+    fn search_backend() -> Backend {
         let definition = r#"[]
             module MAIN
                 sort SortState{} []
@@ -470,73 +598,69 @@ mod tests {
                     \and{SortState{}}(initial{}(), \top{SortState{}}()), right{}()
                 ) [label{}("right")]
             endmodule []"#;
-        Session {
-            backend: Some(Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()),
-            ..Session::new()
-        }
+        Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
     }
 
     #[test]
     fn search_returns_final_states_and_retains_a_single_result() {
-        let mut session = search_session();
-        let response = session
-            .dispatch(&json!({
+        let mut backend = search_backend();
+        let (result, retained) = search(
+            &mut backend,
+            &json!({
                 "id": "raw", "operation": "search", "pattern": "initial{}()",
                 "max_depth": null, "max_results": null
-            }))
-            .unwrap();
-        assert_eq!(response["result"]["states"].as_array().unwrap().len(), 2);
-        assert!(session.states.is_empty());
+            }),
+        )
+        .unwrap();
+        assert_eq!(result["states"].as_array().unwrap().len(), 2);
+        assert!(retained.is_none());
 
         for (pattern, expected) in [("left{}()", "left{}()"), ("right{}()", "right{}()")] {
-            let response = session
-                .dispatch(&json!({
+            let (result, retained) = search(
+                &mut backend,
+                &json!({
                     "id": "retained", "operation": "search", "pattern": pattern,
                     "max_depth": 1, "max_results": 1, "keep": "final"
-                }))
-                .unwrap();
-            assert_eq!(response["result"]["states"], 1);
-            assert!(response["result"]["modality"].is_string());
-            assert_eq!(response["result"].as_object().unwrap().len(), 2);
-            assert_eq!(session.states["final"], parse_pattern(expected).unwrap());
+                }),
+            )
+            .unwrap();
+            assert_eq!(result["states"], 1);
+            assert!(result["modality"].is_string());
+            assert_eq!(result.as_object().unwrap().len(), 2);
+            assert_eq!(retained.unwrap(), parse_pattern(expected).unwrap());
         }
     }
 
     #[test]
-    fn failed_search_preserves_retained_states_and_the_session() {
-        let mut session = search_session();
-        let original = parse_pattern("left{}()").unwrap();
-        session.states.insert("final".into(), original.clone());
+    fn failed_search_reports_each_invalid_request() {
+        let mut backend = search_backend();
         for (max_results, count) in [(json!(null), 2), (json!(0), 0)] {
-            let response = session
-                .dispatch(&json!({
+            let error = search(
+                &mut backend,
+                &json!({
                     "id": "multiple", "operation": "search", "pattern": "initial{}()",
                     "max_results": max_results, "keep": "final"
-                }))
-                .unwrap();
+                }),
+            )
+            .unwrap_err();
             assert_eq!(
-                response["error"]["message"],
+                error.to_string(),
                 format!("search with `keep` requires exactly one result state, got {count}")
             );
-            assert_eq!(session.states["final"], original);
         }
-        for (field, value) in [
-            ("max_depth", json!(-1)),
-            ("max_results", json!("1")),
-            ("keep", json!(null)),
-        ] {
+        for (field, value) in [("max_depth", json!(-1)), ("max_results", json!("1"))] {
             let mut request = json!({
                 "id": "invalid", "operation": "search", "pattern": "left{}()"
             });
             request[field] = value;
-            let response = session.dispatch(&request).unwrap();
-            assert!(response["error"]["message"].is_string());
-            assert_eq!(session.states["final"], original);
+            assert!(search(&mut backend, &request).is_err());
         }
-        let response = session
-            .dispatch(&json!({"id": "valid", "operation": "search", "pattern": "left{}()"}))
-            .unwrap();
-        assert_eq!(response["result"]["states"].as_array().unwrap().len(), 1);
+        let (result, _) = search(
+            &mut backend,
+            &json!({"id": "valid", "operation": "search", "pattern": "left{}()"}),
+        )
+        .unwrap();
+        assert_eq!(result["states"].as_array().unwrap().len(), 1);
     }
 
     #[test]

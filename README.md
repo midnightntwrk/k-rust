@@ -11,7 +11,9 @@ Its declarations are rustc-valid Rust; K-specific patterns and logic live in exp
 The `krs` command collects the crate's descriptors, resolves one Semantic IR and one Definition IR, and then either emits inspectable `.k` files or lowers the Definition IR natively through the pinned [`k-rust`](https://github.com/midnightntwrk/k-rust) frontend to KORE.
 `krs expand` projects the readable (layer-1) surface to a deterministic, explicit (layer-2) Rust reference surface, and `krs fmt` is the canonical formatter for both.
 
-`krs check`, `expand`, `emit-k`, and `build` render human-readable diagnostics on stderr by default, with diagnostic codes, notes, and authored source snippets when the source revision matches.
+`krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR in-process through `krs-exec` and the `k-rust` symbolic backend, and `--output json` prints a `krs-exec/1` report.
+
+`krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, and authored source snippets when the source revision matches.
 Pass `--message-format=json` for machine consumption: located diagnostics use schema-1 JSON envelope lines, while unlocated diagnostics and other failures retain prose lines.
 
 ## Current state
@@ -37,7 +39,8 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 | `crates/krs-compiler`, `crates/krs-ir`, `crates/krs-ir-levels` | Semantic analysis, `.k` emission, descriptor contracts, and the Semantic and Definition IR levels |
 | `crates/krs-diagnostic` | Located diagnostic model and code registry shared by producers |
 | `crates/krs-k-rust` | Adapter from Definition IR to the pinned `k-rust` frontend |
-| `crates/krs-cli` | The `krs` command: `check`, `expand`, `emit-k`, `build`, and `fmt` |
+| `crates/krs-exec` | Filesystem-free parse, run, search, and prove over Definition IR through the `k-rust` backend |
+| `crates/krs-cli` | The `krs` command: `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, and `fmt` |
 | `crates/krs-fmt` | Canonical formatter |
 | `crates/krs-expand-wasm`, `crates/krs-lesson-policy`, `crates/krs-wasm-abi` | Browser-lesson expander, editable-surface policy, and their shared Wasm ABI |
 | `semantics/` | Separate Cargo workspace with the KWasm, KEVM, and KMIR ports and `coverage.toml` |

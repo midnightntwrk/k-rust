@@ -1,8 +1,9 @@
 //! Cargo-style command-line frontend for the KRS definition compiler.
 
 use krs_cli::{
-    Backend, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector, KrsCfg,
-    MessageFormat, PackageSelector, RegistrationMode, execute_command_reported,
+    Backend, ColorChoice, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector,
+    KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource, ProveRequest,
+    RegistrationMode, RunRequest, SearchMode, SearchRequest, TermOutput, execute_command_reported,
     valid_identifier_segment,
 };
 use krs_diagnostic::ToDiagnostic;
@@ -19,6 +20,13 @@ KRS definition compiler
 
 Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
+  krs parse  --package P --definition D [--sort SORT] [--output kast|json|kore] [FILE|-]
+  krs run    --package P --definition D [FILE|-] [-c NAME=TEXT]... [--depth N] [--trace]
+             [--output kast|json|kore|none] [--color auto|always|never]
+  krs search --package P --definition D [FILE|-] [-c NAME=TEXT]...
+             [--mode final|all|one-step|one-or-more-steps] [--depth N] [--max-solutions N]
+             [--trace] [--output kast|json|kore] [--color auto|always|never]
+  krs prove  --package P --definition D [--claim LABEL]... [--depth N] [--output kast|json|kore]
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
 
@@ -27,6 +35,10 @@ Commands:
   expand                    Render the selected Rust reference surface
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts
+  parse                     Parse a program with the definition's grammar (kast)
+  run                       Run a program on one path (krun)
+  search                    Return the set of reachable final states (krun --search)
+  prove                     Prove the definition's claims (kprove)
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
 
 Options:
@@ -38,6 +50,15 @@ Options:
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
   --backend llvm|haskell     Native target dialect (default: llvm)
   --output DIRECTORY         Required for emit-k and build
+  --output FORMAT            Result format for parse, run, search, and prove (default: kast)
+  -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
+  --depth N                  At most N rewrite steps
+  --trace                    Print each rewrite step with its rule and source
+  --mode MODE                Search mode (default: final)
+  --max-solutions N          Stop search after N solutions
+  --claim LABEL              Prove only this claim (exact label or unique suffix); repeatable
+  --sort SORT                Parse at SORT (default: the sort of $PGM)
+  --color WHEN               Colour pretty output (auto, always, never)
   --timings FILE             Write krs-timings/1 phase timings as JSON
   --counters FILE            Write krs-counters/1 work counters as JSON
   --message-format human|json Diagnostic output (default: human)
@@ -70,7 +91,11 @@ fn main() {
                 request.command.kind(),
                 result.is_ok(),
             );
-            if !report_outcome(result, request.message_format, &sources) || !measured {
+            let status = report_outcome(result, request.message_format, &sources);
+            if status != 0 {
+                std::process::exit(status);
+            }
+            if !measured {
                 std::process::exit(1);
             }
         }
@@ -118,12 +143,15 @@ fn write_measurement(
     ok
 }
 
-/// Print a command outcome; false when the command or stdout failed.
+/// Print a command outcome and return the process exit status.
+///
+/// A success exits with the outcome's status (0, or 1 for an inconclusive run, search, or proof);
+/// a failure exits 2 for a usage error and 1 otherwise; a stdout failure exits 1.
 fn report_outcome(
     result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>,
     format: MessageFormat,
     sources: &DiagnosticSources,
-) -> bool {
+) -> i32 {
     match result {
         Ok(outcome) => {
             report_diagnostics(
@@ -134,9 +162,14 @@ fn report_outcome(
             );
             if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
                 eprintln!("krs: could not write stdout: {error}");
-                return false;
+                return 1;
             }
-            true
+            let _ = io::stdout().lock().flush();
+            if let Err(error) = io::stderr().lock().write_all(outcome.stderr()) {
+                eprintln!("krs: could not write stderr: {error}");
+                return 1;
+            }
+            outcome.exit_code()
         }
         Err(error) => {
             if let Some(diagnostics) = error.diagnostics() {
@@ -149,7 +182,7 @@ fn report_outcome(
             } else {
                 eprintln!("krs: {error}");
             }
-            false
+            error.exit_code()
         }
     }
 }
@@ -205,7 +238,7 @@ fn write_diagnostics(
 enum ParseResult {
     Help,
     Format(FormatRequest),
-    Run(CommandRequest, MeasureOptions),
+    Run(Box<CommandRequest>, MeasureOptions),
 }
 
 struct FormatRequest {
@@ -217,8 +250,32 @@ struct FormatRequest {
     trailing_comments: TrailingCommentStyle,
 }
 
+/// Options of the run-family commands (`parse`, `run`, `search`, `prove`), with the spelling of each given option.
+#[derive(Default)]
+struct ExecOptions {
+    given: Vec<&'static str>,
+    inputs: Vec<OsString>,
+    variables: Vec<(String, String)>,
+    depth: Option<u64>,
+    trace: bool,
+    mode: Option<SearchMode>,
+    max_solutions: Option<usize>,
+    claims: Vec<String>,
+    sort: Option<String>,
+    color: Option<ColorChoice>,
+}
+
+impl ExecOptions {
+    fn note(&mut self, option: &'static str) {
+        if !self.given.contains(&option) {
+            self.given.push(option);
+        }
+    }
+}
+
 #[derive(Default)]
 struct RunOptions {
+    exec: ExecOptions,
     manifest_path: Option<PathBuf>,
     package: Option<String>,
     package_id: Option<String>,
@@ -285,6 +342,10 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         "expand" => CommandKind::Expand,
         "emit-k" => CommandKind::EmitK,
         "build" => CommandKind::Build,
+        "parse" => CommandKind::Parse,
+        "run" => CommandKind::Run,
+        "search" => CommandKind::Search,
+        "prove" => CommandKind::Prove,
         unknown => return Err(usage(format!("unknown command `{unknown}`"))),
     };
     parse_run(&mut parser, kind)
@@ -361,14 +422,217 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
                 };
                 set_once(&mut options.registration, selected, "--registration")?;
             }
+            Short('c') => exec_option(parser, &mut options.exec, "-c")?,
+            Long(name) if EXEC_LONG_OPTIONS.contains(&name) => {
+                let option = EXEC_LONG_OPTIONS
+                    .iter()
+                    .find(|option| **option == name)
+                    .copied()
+                    .expect("guard matched a run option");
+                exec_option(parser, &mut options.exec, option)?;
+            }
+            Value(value) => {
+                options.exec.note("FILE");
+                options.exec.inputs.push(value);
+            }
             _ => return Err(argument.unexpected().into()),
         }
     }
     finish_run(kind, options)
 }
 
+/// Long options of the run-family commands, without their leading dashes.
+const EXEC_LONG_OPTIONS: [&str; 7] = [
+    "depth",
+    "max-solutions",
+    "mode",
+    "trace",
+    "claim",
+    "sort",
+    "color",
+];
+
+/// Parse one run-family option (`-c` or a member of [`EXEC_LONG_OPTIONS`]).
+fn exec_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    match option {
+        "-c" => {
+            exec.note("-c");
+            let value = option_value(parser, "configuration variable")?;
+            let (name, text) = value
+                .split_once('=')
+                .ok_or_else(|| usage(format!("-c `{value}` must have the form NAME=TEXT")))?;
+            if name.trim_start_matches('$').is_empty() {
+                return Err(usage(format!("-c `{value}` has an empty variable name")));
+            }
+            exec.variables.push((name.to_owned(), text.to_owned()));
+        }
+        "depth" => {
+            exec.note("--depth");
+            let value = option_value(parser, "depth")?;
+            let depth = value
+                .parse::<u64>()
+                .map_err(|_| usage(format!("--depth `{value}` is not a non-negative integer")))?;
+            set_once(&mut exec.depth, depth, "--depth")?;
+        }
+        "max-solutions" => {
+            exec.note("--max-solutions");
+            let value = option_value(parser, "maximum solution count")?;
+            let limit = value.parse::<usize>().map_err(|_| {
+                usage(format!(
+                    "--max-solutions `{value}` is not a non-negative integer"
+                ))
+            })?;
+            set_once(&mut exec.max_solutions, limit, "--max-solutions")?;
+        }
+        "mode" => {
+            exec.note("--mode");
+            let value = option_value(parser, "search mode")?;
+            let mode = SearchMode::ALL
+                .into_iter()
+                .find(|mode| mode.as_str() == value)
+                .ok_or_else(|| usage(format!("unknown search mode `{value}`")))?;
+            set_once(&mut exec.mode, mode, "--mode")?;
+        }
+        "trace" => {
+            exec.note("--trace");
+            exec.trace = true;
+        }
+        "claim" => {
+            exec.note("--claim");
+            exec.claims.push(option_value(parser, "claim label")?);
+        }
+        "sort" => {
+            exec.note("--sort");
+            let sort = option_value(parser, "sort")?;
+            set_once(&mut exec.sort, sort, "--sort")?;
+        }
+        "color" => {
+            exec.note("--color");
+            let value = option_value(parser, "color")?;
+            let color = match value.as_str() {
+                "auto" => ColorChoice::Auto,
+                "always" => ColorChoice::Always,
+                "never" => ColorChoice::Never,
+                _ => return Err(usage(format!("unknown color choice `{value}`"))),
+            };
+            set_once(&mut exec.color, color, "--color")?;
+        }
+        _ => unreachable!("exec_option is called only for run options"),
+    }
+    Ok(())
+}
+
+/// The options each run-family command accepts beyond the shared selection options.
+fn exec_options(kind: CommandKind) -> &'static [&'static str] {
+    match kind {
+        CommandKind::Parse => &["FILE", "--sort"],
+        CommandKind::Run => &["FILE", "-c", "--depth", "--trace", "--color"],
+        CommandKind::Search => &[
+            "FILE",
+            "-c",
+            "--mode",
+            "--depth",
+            "--max-solutions",
+            "--trace",
+            "--color",
+        ],
+        CommandKind::Prove => &["--claim", "--depth", "--color"],
+        CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => &[],
+    }
+}
+
+fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput, UsageError> {
+    let Some(output) = output else {
+        return Ok(TermOutput::Kast);
+    };
+    let value = output.to_string_lossy();
+    match (value.as_ref(), kind) {
+        ("kast", _) => Ok(TermOutput::Kast),
+        ("json", _) => Ok(TermOutput::Json),
+        ("kore", _) => Ok(TermOutput::Kore),
+        ("none", CommandKind::Run) => Ok(TermOutput::None),
+        ("program", CommandKind::Parse)
+        | ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
+            Err(usage(format!(
+                "--output {value} needs grammar-directed unparsing (KF-017), which is not built yet; use kast, json, or kore"
+            )))
+        }
+        ("program", _) => Err(usage("--output program applies only to krs parse")),
+        _ => Err(usage(format!(
+            "unknown --output format `{value}` for krs {}",
+            kind.as_str()
+        ))),
+    }
+}
+
+fn exec_command(
+    kind: CommandKind,
+    exec: ExecOptions,
+    output: Option<PathBuf>,
+) -> Result<Command, UsageError> {
+    let accepted = exec_options(kind);
+    if let Some(option) = exec.given.iter().find(|option| !accepted.contains(option)) {
+        return Err(usage(if *option == "FILE" {
+            format!("krs {} takes no FILE argument", kind.as_str())
+        } else {
+            format!("{option} does not apply to krs {}", kind.as_str())
+        }));
+    }
+    if exec.inputs.len() > 1 {
+        return Err(usage("more than one FILE given"));
+    }
+    let input = exec.inputs.into_iter().next().map(|input| {
+        if input == "-" {
+            ProgramSource::Stdin
+        } else {
+            ProgramSource::File(PathBuf::from(input))
+        }
+    });
+    let output = term_output(kind, output)?;
+    let color = exec.color.unwrap_or_default();
+    Ok(match kind {
+        CommandKind::Parse => Command::Parse(ParseRequest {
+            sort: exec.sort,
+            input: input.unwrap_or(ProgramSource::Stdin),
+            output,
+        }),
+        CommandKind::Run => Command::Run(RunRequest {
+            input,
+            variables: exec.variables,
+            depth: exec.depth,
+            trace: exec.trace,
+            output,
+            color,
+        }),
+        CommandKind::Search => Command::Search(SearchRequest {
+            input,
+            variables: exec.variables,
+            mode: exec.mode.unwrap_or_default(),
+            depth: exec.depth,
+            max_solutions: exec.max_solutions,
+            trace: exec.trace,
+            output,
+            color,
+        }),
+        CommandKind::Prove => Command::Prove(ProveRequest {
+            claims: exec.claims,
+            depth: exec.depth,
+            output,
+            color,
+        }),
+        CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => {
+            unreachable!("only run-family commands take run options")
+        }
+    })
+}
+
 fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, UsageError> {
     let RunOptions {
+        exec,
         manifest_path,
         package,
         package_id,
@@ -393,7 +657,25 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         },
         definition: definition.ok_or_else(|| usage("missing --definition"))?,
     };
+    if let Some(option) = exec.given.first()
+        && exec_options(kind).is_empty()
+    {
+        return Err(usage(if *option == "FILE" {
+            format!("krs {} takes no FILE argument", kind.as_str())
+        } else {
+            format!("{option} does not apply to krs {}", kind.as_str())
+        }));
+    }
     let command = match kind {
+        CommandKind::Parse | CommandKind::Run | CommandKind::Search | CommandKind::Prove => {
+            if backend.is_some() {
+                return Err(usage(format!(
+                    "--backend does not apply to krs {}; it always uses the in-process k-rust backend",
+                    kind.as_str()
+                )));
+            }
+            exec_command(kind, exec, output)?
+        }
         CommandKind::Check | CommandKind::Expand if output.is_some() => {
             return Err(usage(format!(
                 "--output does not apply to {}",
@@ -413,7 +695,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         },
     };
     Ok(ParseResult::Run(
-        CommandRequest {
+        Box::new(CommandRequest {
             command,
             manifest_path: manifest_path.unwrap_or_else(|| PathBuf::from("Cargo.toml")),
             root,
@@ -422,7 +704,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
             registration: registration.unwrap_or(RegistrationMode::Inventory),
             no_reuse,
             message_format: message_format.unwrap_or_default(),
-        },
+        }),
         measure,
     ))
 }
@@ -659,7 +941,7 @@ mod tests {
 
     fn run(args: &[&str]) -> (CommandRequest, MeasureOptions) {
         match parse_args(args).unwrap() {
-            ParseResult::Run(request, measure) => (request, measure),
+            ParseResult::Run(request, measure) => (*request, measure),
             _ => panic!("expected run command"),
         }
     }
@@ -959,6 +1241,164 @@ mod tests {
         assert!(
             error(&["fmt", "--trailing-comments"])
                 .contains("missing argument for option '--trailing-comments'")
+        );
+    }
+
+    #[test]
+    fn parses_run_family_commands() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let with = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            run(&args).0.command
+        };
+        assert_eq!(
+            with(
+                "run",
+                &[
+                    "prog.imp",
+                    "-c",
+                    "env=.Map",
+                    "-c$STORE=1",
+                    "--depth",
+                    "3",
+                    "--trace",
+                    "--output",
+                    "json"
+                ]
+            ),
+            Command::Run(RunRequest {
+                input: Some(ProgramSource::File(PathBuf::from("prog.imp"))),
+                variables: vec![
+                    ("env".to_owned(), ".Map".to_owned()),
+                    ("$STORE".to_owned(), "1".to_owned()),
+                ],
+                depth: Some(3),
+                trace: true,
+                output: TermOutput::Json,
+                color: ColorChoice::Auto,
+            })
+        );
+        assert_eq!(
+            with(
+                "search",
+                &[
+                    "-",
+                    "--mode",
+                    "one-step",
+                    "--max-solutions",
+                    "2",
+                    "--color",
+                    "never"
+                ]
+            ),
+            Command::Search(SearchRequest {
+                input: Some(ProgramSource::Stdin),
+                variables: Vec::new(),
+                mode: SearchMode::OneStep,
+                depth: None,
+                max_solutions: Some(2),
+                trace: false,
+                output: TermOutput::Kast,
+                color: ColorChoice::Never,
+            })
+        );
+        assert_eq!(
+            with(
+                "prove",
+                &[
+                    "--claim",
+                    "branching",
+                    "--claim",
+                    "MAIN-SPEC.sum",
+                    "--output=kore"
+                ]
+            ),
+            Command::Prove(ProveRequest {
+                claims: vec!["branching".to_owned(), "MAIN-SPEC.sum".to_owned()],
+                depth: None,
+                output: TermOutput::Kore,
+                color: ColorChoice::Auto,
+            })
+        );
+        assert_eq!(
+            with("parse", &["--sort", "Stmt"]),
+            Command::Parse(ParseRequest {
+                sort: Some("Stmt".to_owned()),
+                input: ProgramSource::Stdin,
+                output: TermOutput::Kast,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_run_family_options_on_the_wrong_verb() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            error(&args)
+        };
+        assert_eq!(
+            failure("run", &["--max-solutions", "1"]),
+            "--max-solutions does not apply to krs run"
+        );
+        assert_eq!(
+            failure("run", &["--mode", "all"]),
+            "--mode does not apply to krs run"
+        );
+        assert_eq!(
+            failure("parse", &["--trace"]),
+            "--trace does not apply to krs parse"
+        );
+        assert_eq!(
+            failure("prove", &["--trace"]),
+            "--trace does not apply to krs prove"
+        );
+        assert_eq!(
+            failure("run", &["--claim", "x"]),
+            "--claim does not apply to krs run"
+        );
+        assert_eq!(
+            failure("check", &["--claim", "x"]),
+            "--claim does not apply to krs check"
+        );
+        assert_eq!(
+            failure("prove", &["prog.imp"]),
+            "krs prove takes no FILE argument"
+        );
+        assert_eq!(
+            failure("check", &["prog.imp"]),
+            "krs check takes no FILE argument"
+        );
+        assert_eq!(failure("run", &["a", "b"]), "more than one FILE given");
+        assert_eq!(
+            failure("run", &["--output", "program"]),
+            "--output program applies only to krs parse"
+        );
+        assert!(failure("run", &["--output", "pretty"]).contains("KF-017"));
+        assert!(failure("parse", &["--output", "program"]).contains("KF-017"));
+        assert_eq!(
+            failure("search", &["--output", "none"]),
+            "unknown --output format `none` for krs search"
+        );
+        assert_eq!(
+            failure("run", &["-c", "ENV"]),
+            "-c `ENV` must have the form NAME=TEXT"
+        );
+        assert_eq!(
+            failure("run", &["--depth", "-1"]),
+            "--depth `-1` is not a non-negative integer"
+        );
+        assert_eq!(
+            failure("search", &["--mode", "=>!"]),
+            "unknown search mode `=>!`"
+        );
+        assert!(
+            failure("run", &["--backend", "llvm"])
+                .starts_with("--backend does not apply to krs run")
         );
     }
 

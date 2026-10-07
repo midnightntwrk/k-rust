@@ -36,6 +36,7 @@ fn registered_spellings_are_well_formed_and_unique() {
         codes::syntax::CODES,
         codes::expand::CODES,
         codes::policy::CODES,
+        codes::exec::CODES,
     ];
     let stage_codes: BTreeSet<_> = stages.into_iter().flatten().map(Code::as_str).collect();
     assert_eq!(seen, stage_codes);
