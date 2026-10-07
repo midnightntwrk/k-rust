@@ -4381,7 +4381,7 @@ impl Reads {
     }
 
     fn bound(&mut self) {
-        if self.absent.len() + self.inserted.len() > READS_BOUND {
+        if self.absent.len() + self.inserted.len() > reads_bound() {
             self.unbounded = true;
             self.absent = FxHashSet::default();
             self.inserted = FxHashSet::default();
@@ -4545,6 +4545,41 @@ pub fn without_unspecified_reuse<T>(action: impl FnOnce() -> T) -> T {
     }
     let _restore = Restore(UNSPECIFIED_REUSE.replace(false));
     action()
+}
+
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// The bound of a [`Reads`] on this thread ([`with_reads_bound`]).
+    static READS_BOUND_NOW: Cell<usize> = const { Cell::new(READS_BOUND) };
+}
+
+/// Run `action` with [`Reads`] bounded at `bound` entries on this thread in place of
+/// [`READS_BOUND`], so that a test reaches the check a record keeps past its bound with small
+/// definitions. Only with the `test-switches` feature.
+#[cfg(feature = "test-switches")]
+pub fn with_reads_bound<T>(bound: usize, action: impl FnOnce() -> T) -> T {
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            READS_BOUND_NOW.set(self.0);
+        }
+    }
+    let _restore = Restore(READS_BOUND_NOW.replace(bound));
+    action()
+}
+
+/// The number of entries a [`Reads`] lists before it keeps only the sufficient check:
+/// [`READS_BOUND`], except under [`with_reads_bound`].
+#[inline(always)]
+fn reads_bound() -> usize {
+    #[cfg(feature = "test-switches")]
+    {
+        READS_BOUND_NOW.get()
+    }
+    #[cfg(not(feature = "test-switches"))]
+    {
+        READS_BOUND
+    }
 }
 
 #[cfg(feature = "test-switches")]
@@ -6288,8 +6323,6 @@ mod tests {
         assert!(!result.term.attributes().evaluated);
     }
 
-    /// A cancellation observed by the predicate simplifier is returned on the outer layer with
-    /// its cause: no simplified conjunction and no failure stands in for it.
     /// A value recorded with what its evaluation read: one computed with the console after
     /// reaching a console hook is not reused where there is none. `T = substr("abc", 4, 1)`
     /// reads the console (empty: nothing changes), `A = substr("abc", 2, 1) = g(T)` and `g(Z) =
@@ -6384,11 +6417,13 @@ mod tests {
     }
 
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
-    /// the evaluation that serves it: `Z = substr("abc", 4, 1) = "z"` is evaluated, and so read
-    /// not open, by `X = keep(Z, "x")` (a value), by `X2 = keep(Z, X2)` (a failure) and by `X3`,
-    /// whose first equation's `requires` (`lengthString(Z) == 5`) is refuted and whose second
-    /// fails. Evaluated twice inside the same open attempt, the second evaluation of each is
-    /// served from its record, and the attempt has read that `Z` was not open.
+    /// the evaluation that serves it. `Z = substr("abc", 4, 1) = "z"` is evaluated, and so read
+    /// not open, by `X = keep(Z, "x")` (a value, in its attempt), by `X2 = keep(Z, X2)` (a
+    /// failure, in its failed attempt), and by the refuted `requires` (`lengthString(Z) == 5`) of
+    /// `V`'s first equation, which is the first priority, before `V = "v"` (a value, in an
+    /// attempt before its own). Each equation is stated for its application alone, so no other
+    /// evaluation reads `Z`. Evaluated twice inside the same open attempt, the second evaluation
+    /// of each is served from its record, and the attempt has read that `Z` was not open.
     #[test]
     fn a_served_evaluation_adds_what_it_read_to_the_attempt_that_serves_it() {
         let at = |index: &str| {
@@ -6396,30 +6431,33 @@ mod tests {
                 r#"substr{{}}(\dv{{SortString{{}}}}("abc"), \dv{{SortInt{{}}}}("{index}"), \dv{{SortInt{{}}}}("1"))"#
             )
         };
-        let guard = |index: &str| {
-            format!(
-                r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), eqInt{{}}(J:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
-            )
-        };
-        let equation = |requires: &str, rhs: &str, label: &str| {
+        // The arguments are matched through `\in` constraints before the `requires` is decided.
+        let equation = |index: &str, requires: &str, rhs: &str, attributes: &str| {
             format!(
                 r#"
                 axiom{{R}} \implies{{R}}(
                     \and{{R}}(
-                        \top{{R}}(),
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
                         \and{{R}}(
-                            \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
-                            \top{{R}}()
+                            \in{{SortString{{}}, R}}(X0:SortString{{}}, S:SortString{{}}),
+                            \and{{R}}(
+                                \in{{SortInt{{}}, R}}(X1:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")),
+                                \and{{R}}(
+                                    \in{{SortInt{{}}, R}}(X2:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                                    \top{{R}}()
+                                )
+                            )
                         )
                     ),
                     \equals{{SortString{{}}, R}}(
-                        substr{{}}(S:SortString{{}}, I:SortInt{{}}, J:SortInt{{}}),
+                        substr{{}}(X0:SortString{{}}, X1:SortInt{{}}, X2:SortInt{{}}),
                         \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
                     )
-                ) [label{{}}("{label}")]"#
+                ) [{attributes}]"#
             )
         };
         let z = at("4");
+        let always = r#"\dv{SortBool{}}("true")"#;
         let source = format!(
             r#"[]
             module MAIN
@@ -6428,14 +6466,10 @@ mod tests {
                 hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
                 hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
                     [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
-                hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
-                    [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
                 hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
                     [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
                 hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
                     [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
-                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
-                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
                 symbol keep{{}}(SortString{{}}, SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
                 axiom{{R}} \implies{{R}}(
                     \and{{R}}(\top{{R}}(), \and{{R}}(\top{{R}}(), \top{{R}}())),
@@ -6447,21 +6481,30 @@ mod tests {
                 {}
             endmodule []"#,
             [
-                equation(&guard("4"), r#"\dv{SortString{}}("z")"#, "z"),
-                equation(&guard("3"), &format!(r#"keep{{}}({z}, \dv{{SortString{{}}}}("x"))"#), "x"),
-                equation(&guard("5"), &format!("keep{{}}({z}, {})", at("5")), "x2"),
+                equation("4", always, r#"\dv{SortString{}}("z")"#, r#"label{}("z")"#),
                 equation(
-                    &format!(
-                        r#"andBool{{}}({}, eqInt{{}}(lengthString{{}}({z}), \dv{{SortInt{{}}}}("5")))"#,
-                        guard("6")
-                    ),
-                    r#"\dv{SortString{}}("a")"#,
-                    "x3-refuted"
+                    "3",
+                    always,
+                    &format!(r#"keep{{}}({z}, \dv{{SortString{{}}}}("x"))"#),
+                    r#"label{}("x")"#
                 ),
                 equation(
-                    &guard("6"),
-                    &format!(r#"concatString{{}}({}, \dv{{SortString{{}}}}(""))"#, at("6")),
-                    "x3-fails"
+                    "5",
+                    always,
+                    &format!("keep{{}}({z}, {})", at("5")),
+                    r#"label{}("x2")"#
+                ),
+                equation(
+                    "7",
+                    &format!(r#"eqInt{{}}(lengthString{{}}({z}), \dv{{SortInt{{}}}}("5"))"#),
+                    r#"\dv{SortString{}}("a")"#,
+                    r#"label{}("v-refuted"), priority{}("10")"#
+                ),
+                equation(
+                    "7",
+                    always,
+                    r#"\dv{SortString{}}("v")"#,
+                    r#"label{}("v"), priority{}("20")"#
                 ),
             ]
             .concat()
@@ -6472,26 +6515,37 @@ mod tests {
         let z = term(&definition, &z);
         let open = term(&definition, &at("9"));
         let _scope = UnspecifiedValues::open();
-        for index in ["3", "5", "6"] {
+        for (index, value) in [("3", Some("x")), ("5", None), ("7", Some("v"))] {
             let input = term(&definition, &at(index));
             let evaluate = || {
                 let attempt = UnspecifiedEvaluation::enter(&open);
                 let (result, _) = diagnostic::collect(|| {
                     simplify(&definition, &input, SimplificationOptions::default())
                 });
-                unstopped(result).expect("no error");
-                attempt.reads_below()
+                let result = unstopped(result).expect("no error").term;
+                (result, attempt.reads_below())
             };
-            let first = evaluate();
-            assert!(first.absent.contains(&z), "substr(abc, {index}, 1), first");
-            let served = evaluate();
+            let expected = match value {
+                Some(value) => term(&definition, &format!(r#"\dv{{SortString{{}}}}("{value}")"#)),
+                None => input.clone(),
+            };
+            let (first, first_reads) = evaluate();
+            assert_eq!(first, expected, "substr(abc, {index}, 1), first");
             assert!(
-                served.absent.contains(&z),
+                first_reads.absent.contains(&z),
+                "substr(abc, {index}, 1), first"
+            );
+            let (served, served_reads) = evaluate();
+            assert_eq!(served, expected, "substr(abc, {index}, 1), served");
+            assert!(
+                served_reads.absent.contains(&z),
                 "substr(abc, {index}, 1), served"
             );
         }
     }
 
+    /// A cancellation observed by the predicate simplifier is returned on the outer layer with
+    /// its cause: no simplified conjunction and no failure stands in for it.
     #[test]
     fn a_stop_is_returned_on_the_outer_layer_with_its_cause() {
         let definition = definedness_definition();
