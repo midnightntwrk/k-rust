@@ -1399,7 +1399,14 @@ const M_UNDEFINED: &str = r#"m{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0
 /// - `q(c) = k(f(m(1)))` and `q(c) = m(1 /Int 0)`: `k(f(m(1)))` is `q(c)`, which is `\bottom`,
 ///   and `k` is a constructor;
 /// - `e(c) = m(1 /Int 0) requires sz(f(m(1))) ==Int sz(f(m(1)))`, `e` and `sz` total: `e(c)` is
-///   defined, so the `requires` is false, which for a defined `f(m(1))` it is not.
+///   defined, so the `requires` is false, which for a defined `f(m(1))` it is not;
+/// - the rewrite axiom `k(f(m(1))) => m(1 /Int 0)`: a rewrite axiom `l => r` states `l -> •r`,
+///   with `•` the one-step next symbol, and `•\bottom` is `\bottom`, so `k(f(m(1)))` is
+///   `\bottom`, and `k` is a constructor;
+/// - the rewrite axiom `c => m(1 /Int 0) requires sz(f(m(1))) ==Int sz(f(m(1)))`: `c` is
+///   defined, so the `requires` is false, which for a defined `f(m(1))` it is not;
+/// - the rewrite axiom `c => d ensures \not(\ceil(f(m(1))))`: `c` is defined, so the
+///   right-hand side is, which needs `f(m(1))` undefined.
 ///
 /// Each theory has models (`f(m(0)) = c` and `f(m(1))` undefined), so the obligation must stay:
 /// the refuted `requires` shows only that `f`'s own equations leave `f(m(1))` unconstrained.
@@ -1422,6 +1429,15 @@ fn a_refuted_requires_does_not_discharge_an_application_another_axiom_constrains
         .join("\n"),
         format!(
             r#"axiom{{R}} \implies{{R}}(\and{{R}}(\equals{{SortBool{{}}, R}}(eqInt{{}}(sz{{}}({F_M_1}), sz{{}}({F_M_1})), \dv{{SortBool{{}}}}("true")), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, c{{}}()), \top{{R}}())), \equals{{SortA{{}}, R}}(e{{}}(X0:SortA{{}}), \and{{SortA{{}}}}({M_UNDEFINED}, \top{{SortA{{}}}}()))) [anywhere{{}}()]"#
+        ),
+        format!(
+            r"axiom{{}} \rewrites{{SortA{{}}}}(\and{{SortA{{}}}}(k{{}}({F_M_1}), \top{{SortA{{}}}}()), \and{{SortA{{}}}}({M_UNDEFINED}, \top{{SortA{{}}}}())) []"
+        ),
+        format!(
+            r#"axiom{{}} \rewrites{{SortA{{}}}}(\and{{SortA{{}}}}(\equals{{SortBool{{}}, SortA{{}}}}(eqInt{{}}(sz{{}}({F_M_1}), sz{{}}({F_M_1})), \dv{{SortBool{{}}}}("true")), c{{}}()), \and{{SortA{{}}}}({M_UNDEFINED}, \top{{SortA{{}}}}())) []"#
+        ),
+        format!(
+            r"axiom{{}} \rewrites{{SortA{{}}}}(\and{{SortA{{}}}}(c{{}}(), \top{{SortA{{}}}}()), \and{{SortA{{}}}}(d{{}}(), \not{{SortA{{}}}}(\ceil{{SortA{{}}, SortA{{}}}}({F_M_1})))) []"
         ),
     ];
     let query = format!(r"\ceil{{SortA{{}}, SortA{{}}}}({F_M_1})");

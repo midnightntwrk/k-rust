@@ -1342,8 +1342,7 @@ impl BackendDefinition {
 
     /// Whether `symbol`, a `value-production` symbol, occurs in an axiom of the definition other
     /// than at the root of the left-hand side, or in the right-hand side, of one of its own
-    /// executable function or simplification term equations; aliases are unfolded and rewrite
-    /// axioms are not read.
+    /// executable function or simplification term equations; aliases are unfolded.
     ///
     /// Such an occurrence can constrain the symbol's value at the arguments' value `ā` in a way
     /// its own equations do not show. Changing the symbol's interpretation at `ā` alone changes
@@ -1360,9 +1359,11 @@ impl BackendDefinition {
     /// constrained directly; in another head's right-hand side it moves that head's value, which
     /// the head's other equations may pin (`q(c) = k(f(m(1)))` beside `q(c) = m(1 /Int 0)`); and
     /// any other axiom (a non-executable or dropped algebraic equation, an overload, functional,
-    /// subsort or constructor axiom) is read by no part of the discharge. A rewrite axiom
-    /// relates configurations, and the backend takes its step only where the right-hand side is
-    /// defined: it identifies no term with another or with `\bottom`.
+    /// subsort or constructor axiom, a rewrite axiom) is read by no part of the discharge. A
+    /// rewrite axiom `l => r` states `l -> •r`, with `•` the one-step next symbol, so `•\bottom`
+    /// is `\bottom`: an occurrence in `l` or its `requires` can switch the instance on, and one in
+    /// `r` or its `ensures` can make `•r` empty (`k(f(m(1))) => m(1 /Int 0)` with `k` a
+    /// constructor makes `f(m(1))` undefined).
     pub(crate) fn value_production_constrained_elsewhere(&self, symbol: &Name) -> bool {
         self.constrained_value_productions
             .get_or_init(|| {
@@ -1400,9 +1401,6 @@ impl BackendDefinition {
                 }
             });
         };
-        if matches!(pattern, kore::Pattern::Rewrites { .. }) {
-            return;
-        }
         let executable = !attributes.has(KoreAttribute::NonExecutable)
             && algebraic_axiom_roots(pattern, attributes).is_none();
         // An executable term equation: `\implies(requires, \equals(head(..), right))`, or an
@@ -5345,6 +5343,7 @@ mod tests {
         let heads = [
             "own",
             "rewritten",
+            "ensured",
             "nonexec",
             "below",
             "simp",
@@ -5373,8 +5372,9 @@ mod tests {
         for axiom in [
             // Own equations: the root of the left-hand side and the right-hand side.
             equation("own", "k{}(VarX:SortA{})", "k{}(own{}(VarX:SortA{}))", "anywhere{}()"),
-            // A rewrite axiom is not read.
+            // A rewrite axiom, in its left-hand side, and in its right-hand side only.
             r"axiom{} \rewrites{SortA{}}(\and{SortA{}}(rewritten{}(c{}()), \top{SortA{}}()), rewritten{}(k{}(c{}()))) []".into(),
+            r"axiom{} \rewrites{SortA{}}(\and{SortA{}}(k{}(c{}()), \top{SortA{}}()), \and{SortA{}}(c{}(), \ceil{SortA{}, SortA{}}(ensured{}(c{}())))) []".into(),
             // The root of a non-executable equation.
             equation("nonexec", "c{}()", "c{}()", "anywhere{}(), non-executable{}()"),
             // Below the root of another head's left-hand side.
@@ -5401,7 +5401,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             constrained,
-            ["nonexec", "below", "simp", "ceil", "rhs", "aliased"]
+            [
+                "rewritten",
+                "ensured",
+                "nonexec",
+                "below",
+                "simp",
+                "ceil",
+                "rhs",
+                "aliased"
+            ]
         );
     }
 }
