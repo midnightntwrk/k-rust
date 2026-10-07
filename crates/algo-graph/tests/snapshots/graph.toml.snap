@@ -2575,6 +2575,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_theory"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_theory_noting_cuts"
+
 [[node.cost]]
 mode = "one term lineage"
 bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
@@ -2585,7 +2590,7 @@ bound = "one nested predicate simplification per evaluated rule condition, with 
 
 [[node.cost]]
 mode = "Unspecified application (UnspecifiedEvaluation)"
-bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage"
+bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage. At any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"

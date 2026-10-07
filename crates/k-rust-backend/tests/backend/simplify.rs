@@ -1367,6 +1367,173 @@ fn a_chain_of_unspecified_steps_at_the_root_runs_in_constant_stack() {
     assert_eq!(result.term, term(&definition, r#"\dv{SortString{}}("")"#));
 }
 
+/// An equation whose condition stays undecided only because it reached an application whose
+/// attempt is open leaves its subject unevaluated for want of that value, so an outcome holding
+/// the subject does not settle the attempt that produced it. With `A = substr("abc", 2, 1)`,
+/// `C = substr("abc", 3, 1)`, `A = C`, `C = k(0)`, `C = "c"` and the ordinary function
+/// `k(N) = "z" requires lengthString(A) = 7`, the definition gives both `"c"`: `C = k(0)` fails
+/// and `C = "c"` gives the value, whichever order `C`'s equations are listed in and whichever of
+/// the two is evaluated, with no diagnostic (`A` is never left unevaluated in a result).
+#[test]
+fn an_application_blocked_by_an_open_attempt_does_not_settle_the_attempt_it_ends() {
+    let guard = |index: i64| {
+        format!(
+            r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), ltInt{{}}(J:SortInt{{}}, I:SortInt{{}}))"#
+        )
+    };
+    let k = format!(
+        r#"
+        symbol k{{}}(SortInt{{}}) : SortString{{}} [function{{}}()]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \top{{R}}(),
+                \and{{R}}(
+                    \equals{{SortBool{{}}, R}}(
+                        eqInt{{}}(lengthString{{}}({a}), \dv{{SortInt{{}}}}("7")),
+                        \dv{{SortBool{{}}}}("true")
+                    ),
+                    \top{{R}}()
+                )
+            ),
+            \equals{{SortString{{}}, R}}(
+                k{{}}(N:SortInt{{}}),
+                \and{{SortString{{}}}}(\dv{{SortString{{}}}}("z"), \top{{SortString{{}}}}())
+            )
+        ) [label{{}}("k")]"#,
+        a = substr_of_abc(2, 1)
+    );
+    let a_is_c = substr_equation(
+        r#"substr{}(S:SortString{}, \dv{SortInt{}}("3"), J:SortInt{})"#,
+        &guard(2),
+        r#"label{}("a-is-c")"#,
+    );
+    let c_is_k = substr_equation(
+        r#"k{}(\dv{SortInt{}}("0"))"#,
+        &guard(3),
+        r#"label{}("c-is-k")"#,
+    );
+    let c_value = substr_equation(r#"\dv{SortString{}}("c")"#, &guard(3), r#"label{}("c")"#);
+    for equations in [
+        [k.clone(), a_is_c.clone(), c_is_k.clone(), c_value.clone()],
+        [k.clone(), a_is_c.clone(), c_value.clone(), c_is_k.clone()],
+    ] {
+        let definition = substr_definition(&equations);
+        for (i, j) in [(2, 1), (3, 1)] {
+            let input = term(&definition, &substr_of_abc(i, j));
+            let (result, diagnostics) = diagnostic::collect(|| {
+                simplify(&definition, &input, SimplificationOptions::default())
+            });
+            assert_eq!(
+                result.expect("no error").term,
+                term(&definition, r#"\dv{SortString{}}("c")"#),
+                "substr(abc, {i}, {j}) under {equations:?}"
+            );
+            assert_eq!(diagnostics, [], "substr(abc, {i}, {j}) under {equations:?}");
+        }
+    }
+}
+
+/// An application left unevaluated only for want of a value an open attempt is computing holds
+/// that value's place and is not reported. With `A = substr("abc", 2, 1)`, `A = C` and `C = "c"
+/// requires J < I orBool lengthString(A) > 5`, evaluating `C` meets `A` in the `requires`; `A`'s
+/// equation needs `C`, whose attempt is open, so `A` stays unevaluated there, and the `requires`
+/// holds whatever its value. Both are `"c"`, with no diagnostic.
+#[test]
+fn an_application_left_for_an_open_attempt_is_not_reported_unevaluated() {
+    let a = substr_of_abc(2, 1);
+    let definition = substr_definition(&[
+        substr_equation(
+            r#"substr{}(S:SortString{}, \dv{SortInt{}}("3"), J:SortInt{})"#,
+            r#"andBool{}(eqInt{}(I:SortInt{}, \dv{SortInt{}}("2")), ltInt{}(J:SortInt{}, I:SortInt{}))"#,
+            r#"label{}("a-is-c")"#,
+        ),
+        substr_equation(
+            r#"\dv{SortString{}}("c")"#,
+            &format!(
+                r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("3")), orBool{{}}(ltInt{{}}(J:SortInt{{}}, I:SortInt{{}}), gtInt{{}}(lengthString{{}}({a}), \dv{{SortInt{{}}}}("5"))))"#
+            ),
+            r#"label{}("c")"#,
+        ),
+    ]);
+    for (i, j) in [(3, 1), (2, 1)] {
+        let input = term(&definition, &substr_of_abc(i, j));
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result.expect("no error").term,
+            term(&definition, r#"\dv{SortString{}}("c")"#),
+            "substr(abc, {i}, {j})"
+        );
+        assert_eq!(diagnostics, [], "substr(abc, {i}, {j})");
+    }
+}
+
+/// An `ensures` that stays open becomes a condition of the equation's result. An attempt whose
+/// `ensures` names the application itself states the application through itself there, so it
+/// gives no value: `A = "v" ensures lengthString(A) = 1` leaves `A` unevaluated on its own, and
+/// beside `A = "v"` the value comes without that condition, in either order.
+#[test]
+fn an_attempt_whose_ensures_needs_its_application_gives_no_value() {
+    let ensured = r#"
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        ltInt{}(J:SortInt{}, I:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \top{R}()
+                )
+            ),
+            \equals{SortString{}, R}(
+                substr{}(S:SortString{}, I:SortInt{}, J:SortInt{}),
+                \and{SortString{}}(
+                    \dv{SortString{}}("v"),
+                    \equals{SortBool{}, SortString{}}(
+                        eqInt{}(
+                            lengthString{}(substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})),
+                            \dv{SortInt{}}("1")
+                        ),
+                        \dv{SortBool{}}("true")
+                    )
+                )
+            )
+        ) [label{}("ensured")]"#
+        .to_owned();
+    let plain = substr_equation(
+        r#"\dv{SortString{}}("v")"#,
+        r#"ltInt{}(J:SortInt{}, I:SortInt{})"#,
+        r#"label{}("plain")"#,
+    );
+    let simplified = |equations: &[String]| {
+        let definition = substr_definition(equations);
+        let input = term(&definition, &substr_of_abc(2, 1));
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        (definition, input, result.expect("no error"))
+    };
+    let (_, input, alone) = simplified(std::slice::from_ref(&ensured));
+    assert_eq!(alone.term, input);
+    assert!(alone.constraints().is_empty(), "{:?}", alone.constraints());
+    for equations in [
+        [ensured.clone(), plain.clone()],
+        [plain.clone(), ensured.clone()],
+    ] {
+        let (definition, _, result) = simplified(&equations);
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortString{}}("v")"#),
+            "{equations:?}"
+        );
+        assert!(
+            result.constraints().is_empty(),
+            "{equations:?}: {:?}",
+            result.constraints()
+        );
+    }
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not

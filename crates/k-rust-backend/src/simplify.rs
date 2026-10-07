@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage. At any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -4016,14 +4016,16 @@ fn simplify_root(
     // countAllOccurrences(S, "")`) and is undone, and the others are still tried. The
     // application stays unevaluated, as the verdict leaves it, only if none gives a value.
     let unspecified = matches!(unsupported, Some(UnsupportedHookReason::Unspecified { .. }));
-    // The lowest depth of the evaluation stack that a failed attempt on this application was
-    // contingent on (`UnspecifiedEvaluation`), handed on if the application stays unevaluated.
+    // The lowest depth of the evaluation stack that this application is left unevaluated for
+    // want of (`UnspecifiedEvaluation`): a failed attempt on it was contingent on an enclosing
+    // attempt, or an undecided condition of one of its equations reached an occurrence cut for an
+    // open attempt. Handed on if the application stays unevaluated.
     let mut contingent = None;
     // Whether this occurrence was cut: an attempt on the same application is open, which reports
     // the application if it stays unevaluated, while this occurrence only holds its place.
     let mut cut = false;
     let function_scan = if !unspecified {
-        apply_theory::<FunctionTheory>(
+        apply_theory_noting_cuts::<FunctionTheory>(
             definition,
             term,
             known_predicates,
@@ -4031,6 +4033,7 @@ fn simplify_root(
             active_conditions,
             solver,
             &mut indeterminate,
+            &mut contingent,
         )?
     } else if UnspecifiedEvaluation::reenter(term) {
         cut = true;
@@ -4073,11 +4076,11 @@ fn simplify_root(
                 match attempt {
                     // The `requires` holds, with whatever it reached left as it is, so it holds for
                     // every value of what it reached; the attempt goes on in the lineage, which
-                    // decides it on its outcome. A result that keeps the subject
-                    // (`Simplification::bottom_subject`) states it empty and has no lineage.
+                    // decides it on its outcome, the conditions its `ensures` left open included.
+                    // A result that keeps the subject (`Simplification::bottom_subject`) states it
+                    // empty and has no lineage.
                     EquationAttempt::Applied(result) => {
                         if result.term != *term {
-                            evaluation.clear_cuts();
                             opened = Some(evaluation);
                         }
                         Ok(EquationAttempt::Applied(result))
@@ -4118,7 +4121,7 @@ fn simplify_root(
         };
         return Ok((result, step, Some(rule), None));
     }
-    let simplification_scan = match apply_theory::<SimplificationTheory>(
+    let simplification_scan = match apply_theory_noting_cuts::<SimplificationTheory>(
         definition,
         term,
         known_predicates,
@@ -4126,6 +4129,7 @@ fn simplify_root(
         active_conditions,
         solver,
         &mut indeterminate,
+        &mut contingent,
     )? {
         TheoryScan::Applied(result, rule) => {
             return Ok((result, RootStep::Other, Some(rule), None));
@@ -4134,11 +4138,13 @@ fn simplify_root(
     };
     // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
     indeterminate.commit(|| Subject::Term(term.clone()));
-    // Kept only because attempts that reached an application below it on the stack failed, it is
-    // an occurrence cut for the attempt that holds it (`UnspecifiedEvaluation`).
+    // Kept only for want of a value an open attempt is computing, it is an occurrence cut for the
+    // attempt that holds it (`UnspecifiedEvaluation`), and like a reentered occurrence it only
+    // holds the place of an application reported where it stays unevaluated.
     if let Some(depth) = contingent {
         UnspecifiedEvaluation::cut(term, depth);
     }
+    let placeholder = cut || (unspecified && contingent.is_some());
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -4175,7 +4181,7 @@ fn simplify_root(
                 None
             };
             let reason = match unsupported {
-                Some(UnsupportedHookReason::Unspecified { .. }) if cut => None,
+                Some(UnsupportedHookReason::Unspecified { .. }) if placeholder => None,
                 Some(reason @ UnsupportedHookReason::Unspecified { .. }) => unevaluated(reason),
                 outcome => match uncomputed_reason(outcome, has_equations) {
                     Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
@@ -4197,7 +4203,7 @@ fn simplify_root(
                 .into());
             }
         } else if let Some(reason) = unsupported
-            && !cut
+            && !placeholder
         {
             diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
                 hook: hook.to_owned(),
@@ -4372,6 +4378,9 @@ struct UnspecifiedStack {
     /// The depth of each entry's application; an application is entered only when it is not on
     /// the stack, so each has one depth.
     depths: FxHashMap<Term, usize>,
+    /// The equation attempts that note the lowest depth of an occurrence cut while they run,
+    /// innermost last ([`CutWatch`]).
+    watches: Vec<CutWatchState>,
 }
 
 /// An open attempt's application, with the occurrences evaluation cut while that attempt was the
@@ -4393,7 +4402,9 @@ struct StackEntry {
 /// innermost attempt's application is tried with its other equations. If none gives a value, the
 /// application stays unevaluated, and that occurrence is in turn cut, at the reached depth, for
 /// the attempt that holds it ([`Self::cut`], from `simplify_root`), so contingency is handed down
-/// one open attempt at a time, and a failed attempt's cuts are dropped with it.
+/// one open attempt at a time, and a failed attempt's cuts are dropped with it. An application of
+/// any other kind whose equation's condition stayed undecided after reaching a cut occurrence is
+/// left unevaluated for want of that value too, and is cut in the same way ([`CutWatch`]).
 ///
 /// Each attempt is nested in the ones open when it started, so the entries form a stack;
 /// dropping an entry removes it and every entry above it.
@@ -4432,6 +4443,11 @@ impl UnspecifiedEvaluation {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| record_cut(stack, application, depth));
     }
 
+    /// Whether any attempt is open.
+    fn any_open() -> bool {
+        UNSPECIFIED_EVALUATIONS.with_borrow(|stack| !stack.entries.is_empty())
+    }
+
     /// The occurrences cut for this attempt so far.
     fn cuts(&self) -> Vec<(Term, usize)> {
         UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
@@ -4441,16 +4457,6 @@ impl UnspecifiedEvaluation {
                 .map(|entry| entry.cuts.clone())
                 .unwrap_or_default()
         })
-    }
-
-    /// Forget the occurrences cut so far: the equation's `requires` holds with them as they are,
-    /// so it holds whatever their values.
-    fn clear_cuts(&self) {
-        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
-            if let Some(entry) = stack.entries.get_mut(self.depth) {
-                entry.cuts.clear();
-            }
-        });
     }
 
     /// The lowest depth below this attempt's own at which an occurrence was cut for it.
@@ -4464,6 +4470,12 @@ impl UnspecifiedEvaluation {
 }
 
 fn record_cut(stack: &mut UnspecifiedStack, application: &Term, depth: usize) {
+    let level = stack.entries.len();
+    if let Some(watch) = stack.watches.last_mut()
+        && watch.level == level
+    {
+        watch.lowest = min_depth(watch.lowest, Some(depth));
+    }
     if let Some(innermost) = stack.entries.last_mut()
         && !innermost.cuts.iter().any(|(cut, _)| cut == application)
     {
@@ -4477,6 +4489,45 @@ impl Drop for UnspecifiedEvaluation {
             for entry in stack.entries.drain(self.depth.min(stack.entries.len())..) {
                 stack.depths.remove(&entry.application);
             }
+        });
+    }
+}
+
+/// What a [`CutWatch`] has noted.
+struct CutWatchState {
+    level: usize,
+    lowest: Option<usize>,
+}
+
+/// The lowest stack depth of an occurrence cut, while one equation attempt runs that opens no
+/// entry of its own (`apply_theory_noting_cuts`: every root scan but an `Unspecified`
+/// application's function equations), for the innermost attempt open when it started. An
+/// occurrence cut for an attempt opened during it is that attempt's own, and reaches this one only
+/// if that application is left unevaluated for want of it ([`UnspecifiedEvaluation::cut`]).
+struct CutWatch;
+
+impl CutWatch {
+    fn start() -> Self {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            let level = stack.entries.len();
+            stack.watches.push(CutWatchState {
+                level,
+                lowest: None,
+            });
+        });
+        CutWatch
+    }
+
+    fn lowest(&self) -> Option<usize> {
+        UNSPECIFIED_EVALUATIONS
+            .with_borrow(|stack| stack.watches.last().and_then(|watch| watch.lowest))
+    }
+}
+
+impl Drop for CutWatch {
+    fn drop(&mut self) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            stack.watches.pop();
         });
     }
 }
@@ -4713,6 +4764,54 @@ fn apply_theory<K: TermTheory>(
             active_conditions,
             solver,
         )
+    })
+}
+
+/// [`apply_theory`] at a root step while an `Unspecified` attempt is open, noting in `contingent`
+/// the lowest stack depth of an occurrence cut while an equation whose condition then stayed
+/// undecided was tried ([`CutWatch`]).
+///
+/// That condition may hold for some values of the occurrence, which an open attempt is computing,
+/// and be refuted for others, so the term it keeps unrewritten is kept for want of that value
+/// (`UnspecifiedEvaluation`). A condition that held, or was refuted, with the occurrence as it is
+/// holds, or is refuted, for every value of it.
+#[allow(clippy::too_many_arguments)]
+fn apply_theory_noting_cuts<K: TermTheory>(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    indeterminate: &mut IndeterminateAttempts,
+    contingent: &mut Option<usize>,
+) -> SimplifyResult<TheoryScan<K>> {
+    if !UnspecifiedEvaluation::any_open() {
+        return apply_theory::<K>(
+            definition,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+            indeterminate,
+        );
+    }
+    scan_term_theory::<K>(definition, term, indeterminate, |rule| {
+        let watch = CutWatch::start();
+        let attempt = apply_equation(
+            definition,
+            rule,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )?;
+        if let EquationAttempt::Indeterminate(_) = attempt {
+            *contingent = min_depth(*contingent, watch.lowest());
+        }
+        Ok(attempt)
     })
 }
 
