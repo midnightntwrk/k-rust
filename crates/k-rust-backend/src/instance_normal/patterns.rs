@@ -125,6 +125,91 @@ pub(crate) struct PatternFacts {
     /// computed them, when every equation's are [`Overlaps::Unbounded`]. An equation without an
     /// entry (one headed by a function, or a bare variable) has unbounded ones too.
     overlaps: Option<Arc<FxHashMap<usize, Overlaps>>>,
+    /// Which sorts' values can hold which sorts' values at an exposed position
+    /// ([`BackendDefinition::exposed_misses`]).
+    exposed: Arc<ExposedSorts>,
+}
+
+/// The sorts whose values can occur at an exposed position (below constructors and injections
+/// only) of a value of a sort: an edge from a constructor's result sort to each argument sort,
+/// and from a sort to each sort below it. A sort with a constructor argument of a sort
+/// variable, or a hooked sort without domain values (a collection), reaches every sort, and so
+/// does every sort when some constructor has a sort variable for its result.
+#[derive(Debug, Default)]
+struct ExposedSorts {
+    edges: BTreeMap<crate::term::Name, BTreeSet<crate::term::Name>>,
+    opaque: BTreeSet<crate::term::Name>,
+    every: bool,
+}
+
+impl ExposedSorts {
+    fn of(definition: &BackendDefinition) -> Self {
+        let mut exposed = Self::default();
+        for (name, info) in definition.sorts() {
+            if info.hook.is_some() && !info.has_domain_values {
+                exposed.opaque.insert(name.clone());
+            }
+        }
+        for (sup, subs) in definition.sort_graph().closures() {
+            exposed
+                .edges
+                .entry(sup.head().clone())
+                .or_default()
+                .extend(subs.iter().map(|sub| sub.head().clone()));
+        }
+        for symbol in definition.symbols().values() {
+            // The sort injection `inj{From, To}` is read through the subsort edges.
+            if symbol.attributes.head_role() != HeadRole::FreeConstructor || &*symbol.name == "inj"
+            {
+                continue;
+            }
+            let Sort::Application { name: result, .. } = &symbol.result_sort else {
+                exposed.every = true;
+                continue;
+            };
+            for argument in &symbol.argument_sorts {
+                match argument {
+                    Sort::Application { name, .. } => {
+                        exposed
+                            .edges
+                            .entry(result.clone())
+                            .or_default()
+                            .insert(name.clone());
+                    }
+                    Sort::Variable(_) => {
+                        exposed.opaque.insert(result.clone());
+                    }
+                }
+            }
+        }
+        exposed
+    }
+
+    /// Whether a value of sort `holder` can hold a value of sort `held` at an exposed position
+    /// (itself included).
+    fn may_hold(&self, holder: &Sort, held: &Sort) -> bool {
+        let (Sort::Application { name: holder, .. }, Sort::Application { name: held, .. }) =
+            (holder, held)
+        else {
+            return true;
+        };
+        if self.every {
+            return true;
+        }
+        let mut seen = BTreeSet::from([holder]);
+        let mut pending = vec![holder];
+        while let Some(sort) = pending.pop() {
+            if sort == held || self.opaque.contains(sort) {
+                return true;
+            }
+            for next in self.edges.get(sort).into_iter().flatten() {
+                if seen.insert(next) {
+                    pending.push(next);
+                }
+            }
+        }
+        false
+    }
 }
 
 /// What the instances of an equation's left-hand side that have a step besides the equation's
@@ -294,17 +379,36 @@ impl BackendDefinition {
         })
     }
 
-    /// Whether no reduct of an instance of `representative` that keeps its root is `subject`, a
-    /// term whose immediate subterms `subject_roots` must fix: a representative with the
-    /// subject's symbol when some pair of arguments is apart ([`Self::values_apart`]), and one
-    /// with another fixed root always (a reduct that changes the root is another
-    /// representative).
+    /// Whether no reduct of an instance of `representative`, a term an equation may identify
+    /// with another normal form, is `subject` or holds it at an exposed position (below
+    /// constructors, injections and collections only), `subject` being a term whose immediate
+    /// subterms `subject_roots` must fix: a representative with the subject's symbol when some
+    /// pair of arguments is apart ([`Self::values_apart`]); one with another equation head or a
+    /// domain value at its root always (a reduct that changes the root is another
+    /// representative); one with a constructor, injection or collection root when no argument's
+    /// value can be the subject or hold it exposed ([`Self::exposed_misses`]).
+    ///
+    /// The exposed positions count because constructors and injections are functional: when
+    /// the equation identifies `n(t)` with a normal form with another root, or with
+    /// `\bottom`, the two cannot be equal for a value `t`, so `t` is undefined
+    /// (`g(d) = k(g(j(c, d)))` beside `g(d) = m(1 /Int 0)` make `g(j(c, d))` undefined). Below
+    /// an equation head the identification says nothing about the argument: the head may be
+    /// partial. A collection is read like a constructor, which only answers `false` more often.
     fn representative_misses(
         &self,
         representative: &Term,
         subject: &Term,
         subject_roots: &mut dyn NormalForms,
     ) -> bool {
+        if matches!(
+            representative.shape(),
+            Shape::Application(HeadRole::FreeConstructor) | Shape::Injection | Shape::Collection(_)
+        ) {
+            return matches!(subject.kind(), TermKind::Application { .. })
+                && token::every_immediate_subterm(representative, |argument| {
+                    self.exposed_misses(argument, subject, subject_roots)
+                });
+        }
         match (representative.kind(), subject.kind()) {
             (
                 TermKind::Application {
@@ -326,13 +430,40 @@ impl BackendDefinition {
             }
             (_, TermKind::Application { .. }) => matches!(
                 representative.shape(),
-                Shape::DomainValue
-                    | Shape::Injection
-                    | Shape::Collection(_)
-                    | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead)
+                Shape::DomainValue | Shape::Application(HeadRole::EquationHead)
             ),
             _ => false,
         }
+    }
+
+    /// Whether the value of no instance of `argument`, an argument at an exposed position of a
+    /// representative ([`Self::representative_misses`]), is `subject` or holds it at an exposed
+    /// position: every representative of the argument's reducts
+    /// ([`Self::value_representatives`]) misses it. `false` past [`super::VALUE_QUESTIONS`] (the
+    /// question nests through the representatives' own exposed arguments) or when the
+    /// representatives are not bounded.
+    fn exposed_misses(
+        &self,
+        argument: &Term,
+        subject: &Term,
+        subject_roots: &mut dyn NormalForms,
+    ) -> bool {
+        if matches!(argument.kind(), TermKind::DomainValue { .. })
+            || !self.with_pattern_facts(|facts| {
+                facts.exposed.may_hold(&argument.sort(), &subject.sort())
+            })
+        {
+            return true;
+        }
+        let Some(_question) = ValueQuestion::open() else {
+            return false;
+        };
+        self.value_representatives(argument)
+            .is_some_and(|representatives| {
+                representatives.iter().all(|representative| {
+                    self.representative_misses(representative, subject, subject_roots)
+                })
+            })
     }
 
     /// Whether no reduct of an instance of the pattern `pattern` is `subject`, a normal form whose
@@ -1576,6 +1707,7 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
         value_roots,
         unbounded,
         overlaps: None,
+        exposed: Arc::new(ExposedSorts::of(definition)),
     };
     for _ in 0..bounds().pattern_fact_rounds {
         let approximation = Rc::new(facts.clone());
@@ -1932,5 +2064,21 @@ mod tests {
         ]);
         let subject = term(&definition, "v{}(m{}(d{}()))");
         let _ = definition.instance_normal(&subject);
+    }
+
+    /// `v(d) = c` and `v(d) = k(v(s(c)))` overlap at `v(d)`, and their sides do not meet: the
+    /// equations identify `c` with `k(v(s(c)))`. A constructor is functional, so for a value
+    /// `v(s(c))` the two would be distinct values; so `v(s(c))` is undefined, although no
+    /// equation reaches it and the overlap's reducts have other roots.
+    #[test]
+    fn an_overlap_that_identifies_a_constructor_term_holding_the_application_reaches_it() {
+        let definition = definition(&[
+            ("v", &["d{}()"], "c{}()"),
+            ("v", &["d{}()"], "k{}(v{}(s{}(c{}())))"),
+        ]);
+        let subject = term(&definition, "v{}(s{}(c{}()))");
+        assert!(definition.instance_normal(&subject).is_none());
+        let unrelated = term(&definition, "v{}(s{}(d{}()))");
+        assert!(definition.instance_normal(&unrelated).is_some());
     }
 }
