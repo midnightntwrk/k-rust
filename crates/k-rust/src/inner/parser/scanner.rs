@@ -10,7 +10,8 @@
 //! bound = "O(B x (L + Y) x m)"
 //! ```
 //!
-//! K global-winner scanning: longest match, then precedence, then lexeme key.
+//! K global-winner scanning: longest token, then precedence, then lexeme key. The newline a `$`
+//! anchor requires is not part of the token, so it does not lengthen the candidate.
 //!
 //! A winner costs O(L) lexeme attempts (terminals only when they start with the input's next
 //! byte) plus one attempt per layout pattern, each a regex match

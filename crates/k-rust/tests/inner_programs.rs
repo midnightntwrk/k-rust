@@ -553,6 +553,22 @@ fn regex_line_anchors_constrain_where_a_token_starts_and_ends() {
         let result = parser.parse(&Sort::new("Pgm"), program);
         assert_eq!(result.is_ok(), accepted, "{program:?}: {result:?}");
     }
+    for program in line_anchors::programs_with_a_token_at_a_buffer_boundary() {
+        let result = parser.parse(&Sort::new("Pgm"), &program);
+        assert!(result.is_ok(), "{} spaces: {result:?}", program.len() - 2);
+    }
+}
+
+#[test]
+fn regex_line_anchors_do_not_lengthen_a_token_in_the_longest_match_rule() {
+    let definition = lowered(line_anchors::TIE_DEFINITION, "TIE");
+    let parser =
+        ProgramParser::new(&definition, "TIE-SYNTAX").expect("program grammar should build");
+
+    for (program, accepted) in line_anchors::TIE_PROGRAMS {
+        let result = parser.parse(&Sort::new("Pgm"), program);
+        assert_eq!(result.is_ok(), accepted, "{program:?}: {result:?}");
+    }
 }
 
 #[test]

@@ -42,8 +42,9 @@ pub struct Regex {
     pub start_line: bool,
     pub body: RegexBody,
     /// `$`: the token ends a line, i.e. a `\n` follows it. The newline is not part of the token,
-    /// and the end of the text is not a line end: text after the last newline is an unterminated
-    /// line, and a Flex trailing context cannot be the end of the input either.
+    /// so it does not count in the longest-match comparison between candidate tokens either; and
+    /// the end of the text is not a line end: text after the last newline is an unterminated
+    /// line.
     pub end_line: bool,
 }
 
@@ -73,8 +74,11 @@ impl Regex {
 
     /// Render this regular expression as a deterministic Flex pattern.
     ///
-    /// A Flex rule's leading `^` and trailing `$` mean what the line anchors of a token regex
-    /// mean (see [`Regex::start_line`]) and apply to the whole rule, so both are printed as held.
+    /// A Flex rule's leading `^` and trailing `$` accept the token positions the line anchors of a
+    /// token regex accept (see [`Regex::start_line`]) and apply to the whole rule, so both are
+    /// printed as held. Flex's `$` is trailing context, though, whose newline Flex counts when it
+    /// compares candidate matches, so a scanner that must compare token lengths prints a
+    /// `$`-anchored rule from its body and checks the newline itself.
     /// This is a semantic input to Flex, not a byte-parity contract with K's renderer.
     pub fn to_flex_string(&self) -> String {
         print_flex_regex(self)

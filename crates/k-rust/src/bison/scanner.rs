@@ -29,8 +29,22 @@ pub(super) struct Scanner {
     tokens: Vec<Token>,
     kinds: BTreeMap<TokenKey, usize>,
     lexical: Vec<(String, String)>,
-    layout: Vec<String>,
-    line_markers: Vec<String>,
+    layout: Vec<FlexRule>,
+    line_markers: Vec<FlexRule>,
+}
+
+/// One Flex rule's regex: its Flex body and its line anchors.
+///
+/// A `$`-anchored token (or layout) competes in the longest-match rule with the length of its
+/// token, which does not include the newline `$` requires (K user manual, "`prec` attribute":
+/// longer tokens win, and precedence orders tokens of equal length). Flex's own `$` is trailing
+/// context, whose length Flex adds to the match it compares, so the rule is printed without `$`
+/// and its action rejects the match when no newline follows it (see [`Scanner::render`]).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct FlexRule {
+    start_line: bool,
+    body: String,
+    end_line: bool,
 }
 
 impl Scanner {
@@ -72,7 +86,7 @@ impl Scanner {
                                 sort.name
                             )));
                         };
-                        let rendered = render_regex(regex)?;
+                        let rendered = render_rule(regex)?;
                         if sort.is_frontend(FrontendSort::Layout) {
                             layout_declared = true;
                             layout.push(rendered);
@@ -131,7 +145,7 @@ impl Scanner {
             layout.extend(
                 crate::inner::DEFAULT_LAYOUT
                     .into_iter()
-                    .map(render_regex)
+                    .map(render_rule)
                     .collect::<Result<Vec<_>, _>>()?,
             );
         }
@@ -184,14 +198,43 @@ impl Scanner {
         tokens
     }
 
+    /// Render the Flex scanner.
+    ///
+    /// Every action starts with `KRUST_LOCATE`, which counts the newlines of the matched text
+    /// and sets the token's location; the default rule's `ECHO` runs it as well. The location is
+    /// set in the action rather than by `YY_USER_ACTION` and `%option yylineno`, which Flex runs
+    /// before the action, because a `$`-anchored rule's action may still reject its match, and a
+    /// rejected match must not move the line or column.
+    ///
+    /// A `$`-anchored rule `R` is printed as `R` with an action that executes `REJECT` unless
+    /// the character after the match is a newline; `REJECT` makes Flex take its next candidate
+    /// (the same length later in the rule order, then shorter matches, of any rule), so the winner
+    /// is the longest token among the candidates whose anchors hold, then the first in rule
+    /// order. The rule `R(.|\n)`, whose action always rejects, follows it: it makes the scanner
+    /// read the character after every match of `R` before choosing, so the character is in the
+    /// buffer even when `R`'s match ends where Flex's last read ended.
+    ///
+    /// Only a scanner with a `$`-anchored rule contains `REJECT`, which Flex supports at a cost:
+    /// it slows all of that scanner's matching, and that scanner stops with "input buffer
+    /// overflow, can't enlarge buffer because scanner uses REJECT" on a single token at least as
+    /// long as its 16 KiB input buffer.
     pub fn render(&self) -> Result<String, Error> {
         let mut output = String::from(
             "%{\n\
 #include \"node.h\"\n\
 #include \"parser.tab.h\"\n\
 char *filename;\n\
-#define YY_USER_ACTION yylloc->first_line = yylloc->last_line = yylineno; \\\n    yylloc->first_column = yycolumn; yylloc->last_column = yycolumn + yyleng - 1; \\\n   yycolumn += yyleng; \\\n   yylloc->filename = filename;\n\
+#define KRUST_LOCATE do { \\\n\
+  for (int krust_index = 0; krust_index < yyleng; ++krust_index) \\\n\
+    if (yytext[krust_index] == '\\n') { yylineno++; yycolumn = 0; } \\\n\
+  yylloc->first_line = yylloc->last_line = yylineno; \\\n\
+  yylloc->first_column = yycolumn; yylloc->last_column = yycolumn + yyleng - 1; \\\n\
+  yycolumn += yyleng; \\\n\
+  yylloc->filename = filename; \\\n\
+} while (0)\n\
+#define KRUST_AT_LINE_END (yyg->yy_hold_char == '\\n')\n\
 #define ECHO do {\\\n\
+  KRUST_LOCATE;\\\n\
   fprintf (stderr, \"%d:%d:%d:%d:syntax error: unexpected %s\\n\", yylloc->first_line, yylloc->first_column, yylloc->last_line, yylloc->last_column, yytext);\\\n\
   exit(1);\\\n\
 } while (0)\n\
@@ -199,8 +242,7 @@ void line_marker(char *, void *);\n\
 %}\n\n\
 %option reentrant bison-bridge\n\
 %option bison-locations\n\
-%option noyywrap\n\
-%option yylineno\n",
+%option noyywrap\n",
         );
         for (name, regex) in &self.lexical {
             writeln!(
@@ -211,26 +253,45 @@ void line_marker(char *, void *);\n\
             .expect("writing to a string cannot fail");
         }
         output.push_str("%%\n\n");
-        for regex in &self.line_markers {
-            writeln!(output, "{regex} line_marker(yytext, yyscanner);")
-                .expect("writing to a string cannot fail");
+        for rule in &self.line_markers {
+            rule.render(&mut output, "  line_marker(yytext, yyscanner);\n");
         }
-        for regex in &self.layout {
-            writeln!(output, "{regex} ;").expect("writing to a string cannot fail");
+        for rule in &self.layout {
+            rule.render(&mut output, "");
         }
         for token in &self.tokens {
-            writeln!(output, "{} {{", token.key.pattern()?)
-                .expect("writing to a string cannot fail");
-            writeln!(output, "  int kind = {};", token.kind + 1)
-                .expect("writing to a string cannot fail");
-            output.push_str(
-                "  *((char **)yylval) = malloc(strlen(yytext) + 1);\n\
+            token.key.rule()?.render(
+                &mut output,
+                &format!(
+                    "  int kind = {};\n\
+  *((char **)yylval) = malloc(strlen(yytext) + 1);\n\
   strcpy(*((char **)yylval), yytext);\n\
-  return kind;\n\
- }\n",
+  return kind;\n",
+                    token.kind + 1
+                ),
             );
         }
         Ok(output)
+    }
+}
+
+impl FlexRule {
+    /// Write this rule with `action` after the anchor check and the location bookkeeping, and,
+    /// for a `$`-anchored rule, the always-rejecting rule that follows it.
+    fn render(&self, output: &mut String, action: &str) {
+        let start = if self.start_line { "^" } else { "" };
+        let body = &self.body;
+        writeln!(output, "{start}{body} {{").expect("writing to a string cannot fail");
+        if self.end_line {
+            output.push_str("  if (!KRUST_AT_LINE_END) REJECT;\n");
+        }
+        output.push_str("  KRUST_LOCATE;\n");
+        output.push_str(action);
+        output.push_str(" }\n");
+        if self.end_line {
+            writeln!(output, "{start}({body})(.|\\n) REJECT;")
+                .expect("writing to a string cannot fail");
+        }
     }
 }
 
@@ -245,10 +306,23 @@ impl TokenKey {
         }
     }
 
+    /// The token as Bison's diagnostics name it: the Flex form of the literal or regex, `$`
+    /// included.
     pub fn pattern(&self) -> Result<String, Error> {
         match self {
             Self::Literal(value) => Ok(quote_c_string(value)),
-            Self::Regex(source) => render_regex(source),
+            Self::Regex(source) => Ok(parse_flex_regex(source)?.to_flex_string()),
+        }
+    }
+
+    fn rule(&self) -> Result<FlexRule, Error> {
+        match self {
+            Self::Literal(value) => Ok(FlexRule {
+                start_line: false,
+                body: quote_c_string(value),
+                end_line: false,
+            }),
+            Self::Regex(source) => render_rule(source),
         }
     }
 
@@ -260,10 +334,17 @@ impl TokenKey {
     }
 }
 
-fn render_regex(source: &str) -> Result<String, Error> {
-    parse_regex(source)
-        .map_err(|error| Error::render(format!("invalid regex {source:?}: {error}")))
-        .map(|regex| regex.to_flex_string())
+fn parse_flex_regex(source: &str) -> Result<crate::definition::Regex, Error> {
+    parse_regex(source).map_err(|error| Error::render(format!("invalid regex {source:?}: {error}")))
+}
+
+fn render_rule(source: &str) -> Result<FlexRule, Error> {
+    let regex = parse_flex_regex(source)?;
+    Ok(FlexRule {
+        start_line: regex.start_line,
+        body: regex.body.to_flex_string(),
+        end_line: regex.end_line,
+    })
 }
 
 #[cfg(test)]

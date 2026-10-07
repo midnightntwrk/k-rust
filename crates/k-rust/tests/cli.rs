@@ -9453,18 +9453,21 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Generate a Flex/Bison parser (`kast --gen-parser`) for `definition`'s `module` and start sort
+/// `Pgm`, run it on every program, and run the in-process parser on every program in one
+/// `--batch-case`/`--batch-reject-case` call; both must accept exactly the programs marked
+/// accepted.
 #[cfg(unix)]
-#[test]
-fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
+fn assert_both_scanners_decide(definition_source: &str, module: &str, programs: &[(String, bool)]) {
     let (root, definition) = fixture();
-    fs::write(&definition, line_anchors::DEFINITION).unwrap();
+    fs::write(&definition, definition_source).unwrap();
     let parser = root.join("anchor-parser");
     let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "kast",
             definition.to_str().unwrap(),
             "--module",
-            "ANCHOR-SYNTAX",
+            module,
             "--sort",
             "Pgm",
             "--gen-parser",
@@ -9483,23 +9486,23 @@ fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
         "kast",
         definition.to_str().unwrap(),
         "--module",
-        "ANCHOR-SYNTAX",
+        module,
         "--output",
         "json",
     ]);
-    for (index, (program, accepted)) in line_anchors::PROGRAMS.into_iter().enumerate() {
+    for (index, (program, accepted)) in programs.iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
         fs::write(&input, program).unwrap();
         let standalone = Command::new(&parser).arg(&input).output().unwrap();
         assert_eq!(
             standalone.status.success(),
-            accepted,
+            *accepted,
             "generated parser on {program:?}: {}{}",
             String::from_utf8_lossy(&standalone.stdout),
             String::from_utf8_lossy(&standalone.stderr)
         );
         in_process.args([
-            if accepted {
+            if *accepted {
                 "--batch-case"
             } else {
                 "--batch-reject-case"
@@ -9517,6 +9520,116 @@ fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+fn owned_programs(programs: &[(&str, bool)]) -> Vec<(String, bool)> {
+    programs
+        .iter()
+        .map(|(program, accepted)| ((*program).to_owned(), *accepted))
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
+    assert_both_scanners_decide(
+        line_anchors::DEFINITION,
+        "ANCHOR-SYNTAX",
+        &owned_programs(&line_anchors::PROGRAMS),
+    );
+}
+
+/// Flex's own `$` is trailing context, which Flex counts in its longest-match comparison; the
+/// exported scanner must compare token lengths, as the in-process scanner does.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
+    assert_both_scanners_decide(
+        line_anchors::TIE_DEFINITION,
+        "TIE-SYNTAX",
+        &owned_programs(&line_anchors::TIE_PROGRAMS),
+    );
+}
+
+/// The generated scanner reads its input file in chunks; an anchored token that ends where a
+/// chunk ends must still see the newline after it.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_read_boundary() {
+    let programs = line_anchors::programs_with_a_token_at_a_buffer_boundary()
+        .into_iter()
+        .map(|program| (program, true))
+        .collect::<Vec<_>>();
+    assert_both_scanners_decide(line_anchors::DEFINITION, "ANCHOR-SYNTAX", &programs);
+}
+
+/// A `$`-anchored candidate the generated scanner rejects, here one whose text spans a newline,
+/// must not move the line or column of the tokens scanned after it: the locations are those of
+/// the same definition without the anchored lexeme.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_locations_ignore_rejected_anchored_candidates() {
+    let parse = |anchored: bool| {
+        let (root, definition) = fixture();
+        let foo = if anchored {
+            "syntax Foo ::= r\"a(\\\\n[a-z])*$\" [token]\n  syntax Pgm ::= Foo \"!\"\n"
+        } else {
+            ""
+        };
+        fs::write(
+            &definition,
+            format!(
+                r#"
+module LOC-SYNTAX
+  syntax Bar [locations]
+  syntax Bar ::= r"[a-z]+" [token]
+  syntax Pgm ::= Bar Bar Bar
+  {foo}
+endmodule
+"#
+            ),
+        )
+        .unwrap();
+        let parser = root.join("locations-parser");
+        let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kast",
+                definition.to_str().unwrap(),
+                "--module",
+                "LOC-SYNTAX",
+                "--sort",
+                "Pgm",
+                "--gen-parser",
+            ])
+            .arg(&parser)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        // At `a`, `Foo`'s body matches `a\nb`, which a space follows, then `a`, which a newline
+        // follows; the second ties with `Bar` and loses on the lexeme order.
+        let input = root.join("input.pgm");
+        fs::write(&input, "a\nb c").unwrap();
+        let parsed = Command::new(&parser).arg(&input).output().unwrap();
+        assert!(
+            parsed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&parsed.stderr)
+        );
+        let output = String::from_utf8(parsed.stdout)
+            .unwrap()
+            .replace(input.to_str().unwrap(), "input.pgm");
+        fs::remove_dir_all(root).unwrap();
+        output
+    };
+
+    let plain = parse(false);
+    assert!(plain.contains("\\dv{SortInt{}}(\"2\")"), "{plain}");
+    assert_eq!(parse(true), plain);
 }
 
 #[cfg(unix)]
