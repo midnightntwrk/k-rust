@@ -483,10 +483,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::{
-        CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput, PARSE_ATTEMPTS,
-        PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext, ParseError,
-        ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition, SameSpanCycles,
-        ScanWinner, SourceId, Term, TermMetadata,
+        CHART_COMPLETION_CANDIDATES, DoomedEdges, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput,
+        PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext,
+        ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition,
+        SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata,
     };
     use super::*;
     use crate::definition::{
@@ -1061,6 +1061,7 @@ mod tests {
                     PriorityFilter::Ignored,
                     stand_in,
                     false,
+                    DoomedEdges::Kept,
                     &mut false,
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),
@@ -1086,8 +1087,9 @@ mod tests {
 
         /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`,
         /// whose scope errors below an operator the priority filter defers: the doomed nodes
-        /// it keeps are read by the preference among an ambiguity's readings, so skipping
-        /// items must keep every one of them (`Grammar::priority_admits`).
+        /// it keeps can be read by the preference among the readings of the root, so skipping
+        /// items must keep every one it can read (`Grammar::priority_admits`), and an attempt
+        /// that skipped the others and failed is made again keeping them (`DoomedEdges`).
         #[test]
         fn completion_pruning_matches_unfiltered_recognition_with_deferred_scopes(
             productions in prop::collection::vec(
@@ -1416,7 +1418,8 @@ mod tests {
     /// unfiltered recognition, and in the `z3-inference` build reported the ambiguity at
     /// 104-107 instead of 102-106. Where an ambiguity is reported is decided by sort inference
     /// after recognition, so the reported error is pinned per engine, and the forests are
-    /// compared directly.
+    /// compared directly. The input holds three `c`, each a token a rewrite node can hold, so
+    /// the full parse skips no edge to a doomed node either (`DoomedEdges`).
     #[test]
     fn edges_below_a_deferred_scope_error_are_kept() {
         let grammar = Grammar::from_sentences(&[
@@ -1451,6 +1454,7 @@ mod tests {
                     PriorityFilter::Enforced,
                     None,
                     false,
+                    DoomedEdges::Kept,
                     &mut false,
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),

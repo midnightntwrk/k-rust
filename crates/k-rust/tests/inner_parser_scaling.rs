@@ -482,6 +482,91 @@ fn operator_chains_in_rule_bodies_parse_in_chart_work_linear_in_their_length() {
     }
 }
 
+/// A rule-body shape: its name, the associativity of the chain, and the rule built from it.
+type RuleShape = (&'static str, &'static str, fn(&str) -> String);
+
+/// The completion candidates of loading `rule` beside a left- or right-associative `+` chain
+/// syntax, at the chain lengths 50, 100 and 200 that `rule` builds its body from.
+fn rule_chain_work(associativity: &str, rule: impl Fn(&str) -> String) -> [u64; 3] {
+    [50, 100, 200].map(|length| {
+        let chain = (0..length)
+            .map(|number| (number % 10).to_string())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let source = format!(
+            "module MAIN\n  imports INT\n  \
+             syntax E ::= Int | E \"+\" E [{associativity}, symbol(plus)]\n  \
+             syntax N ::= \"z\" [symbol(z)] | s(N) [symbol(s)]\n  \
+             syntax KItem ::= E | foo(E) [symbol(foo)] | bar(N) [symbol(bar)]\n  \
+             configuration <k> $PGM:K </k>\n  {}\nendmodule\n",
+            rule(&chain)
+        );
+        let before = measure::snapshot();
+        drop(load_with_prelude(&source));
+        measure::snapshot()
+            .delta(&before)
+            .get(Counter::ParserChartCompletionCandidates)
+    })
+}
+
+/// An operator chain written directly as a side of a rule's only rewrite, with nothing to
+/// delimit it from the rewrite, is parsed in chart work linear in its length. Every sum that
+/// starts after the first operand of a left-associative chain on the left of the `=>` (or ends
+/// before the last of a right-associative chain on its right) can take the rewrite as its last
+/// (first) operand; the reading `0 + ... + (k + ... => .K)` breaks the scope of the rewrite,
+/// but the priority filter keeps such a doomed reading for the preference among the readings of
+/// the root, so the chart held every one of those sums: cubic (eight times the work per
+/// doubling). With one rewrite in the rule, no doomed reading is read by that preference, so
+/// the first attempt skips the edges that build them (`DoomedEdges`). The same holds where a
+/// `)` the chain's parentheses need reappears after the rewrite (`foo(...) => bar(z)`).
+#[test]
+fn chains_beside_a_rules_only_rewrite_parse_in_chart_work_linear_in_their_length() {
+    let shapes: [RuleShape; 4] = [
+        ("left side in a cell", "left", |chain| {
+            format!("rule <k> {chain} => .K ... </k>")
+        }),
+        ("left side at the top", "left", |chain| {
+            format!("rule {chain} => .K")
+        }),
+        ("right side in a cell", "right", |chain| {
+            format!("rule <k> X:E => {chain} ... </k>")
+        }),
+        ("argument beside a later `)`", "left", |chain| {
+            format!("rule foo({chain}) => bar(z)")
+        }),
+    ];
+    let _measuring = measuring();
+    for (shape, associativity, rule) in shapes {
+        let [at_50, at_100, at_200] = rule_chain_work(associativity, rule);
+        let (first, second) = (at_100 - at_50, at_200 - at_100);
+        println!("{shape}: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200");
+        assert!(
+            second <= first * 5 / 2,
+            "{shape}: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+        );
+    }
+}
+
+/// A documented bound, not a goal: beside a second token that can begin a rewrite, sequence or
+/// `#let` (here a `~>`), a doomed reading of a chain written directly against the rewrite can
+/// be read by the preference among the readings of the root, so its edges are kept: the
+/// completion candidates grow about four times per doubling of the chain (and the time, which
+/// reads the callers waiting for each completion, about eight times). The test pins that the
+/// candidates grow no faster than that, with a margin, so that a worse regression fails.
+#[test]
+fn chains_beside_a_rewrite_and_a_sequence_keep_their_doomed_readings_within_a_bound() {
+    let _measuring = measuring();
+    let [at_50, at_100, at_200] = rule_chain_work("left", |chain| {
+        format!("rule <k> {chain} => .K ~> foo(0) ... </k>")
+    });
+    let (first, second) = (at_100 - at_50, at_200 - at_100);
+    println!("`=>` and `~>`: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200");
+    assert!(
+        second <= first * 10,
+        "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+    );
+}
+
 /// A list literal in a rule body, which the rule grammar also reads as the arguments of the
 /// generic application syntax (`foo(0, 1, ...)` as a `#KApply` of `foo` to a comma list whose
 /// elements may themselves be sublists), is parsed in work polynomial in its length. Those

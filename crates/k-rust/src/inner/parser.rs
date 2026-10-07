@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; a chain written directly as a side of a rewrite keeps every doomed reading that takes the rewrite as an operand (cubic) unless the input has only one token that can begin a rewrite, sequence or #let, where the first attempt skips them (DoomedEdges); the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -20,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
+//! bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 //! ```
 //!
 //! ```toml algorithm
@@ -252,6 +252,10 @@ struct Reach<'a> {
     remaining: Option<&'a RemainingTokens>,
     /// The position of the next token, where every caller's rest begins at the earliest.
     from: usize,
+    /// Which edges to a doomed node may be skipped.
+    doomed: DoomedEdges,
+    /// Set when an edge that `DoomedEdges::Kept` keeps is skipped.
+    doomed_pruned: &'a std::cell::Cell<bool>,
 }
 
 impl Reach<'_> {
@@ -359,6 +363,11 @@ impl RemainingTokens {
                     .partition_point(|deferral| *deferral < position),
             )
             .copied()
+    }
+
+    /// How many such witnesses the input holds.
+    fn deferral_count(&self) -> usize {
+        self.deferrals.len()
     }
 
     /// How many such witnesses come before `position`.
@@ -501,6 +510,10 @@ impl InstanceNodes {
 /// What a parse attempt skipped, for the decision to retry it.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Pruning {
+    /// Which edges to a doomed node the attempt may skip (`DoomedEdges`); set by the caller.
+    pub(super) doomed: DoomedEdges,
+    /// Whether the attempt skipped an edge that `DoomedEdges::Kept` keeps.
+    pub(super) doomed_pruned: bool,
     /// Whether the attempt skipped a prediction or a completion an unfiltered attempt makes.
     pub(super) pruned: bool,
     /// The last non-empty chart of the attempt's recognition of the whole input under the
@@ -519,6 +532,30 @@ pub(super) enum PriorityFilter {
     Ignored,
 }
 
+/// Whether a filtered recognition may skip an edge that would build a doomed node: one that
+/// breaks a relation but that the priority filter keeps for the preference among the readings
+/// of the root, because it, or a child checked before the breaking edge, holds a rewrite,
+/// sequence or `#let` below an operator (a scope error the filter defers).
+///
+/// The preference reads a doomed node only when it is, or lies inside, a reading of the root
+/// rooted at a rewrite, sequence or `#let`; every other doomed node is dropped by the filter
+/// after recognition, or discarded with the losing readings. Such a node contains a rewrite,
+/// sequence or `#let` node, and so a token of its first lexical item (`DeferredScopes`); a
+/// rewrite, sequence or `#let` node above it holds its own such token, outside every child.
+/// So in an input with one such token in all, no doomed node is read by the preference, and
+/// skipping the edges to them leaves every reading that can be the parse. What it changes is
+/// the forest a failed parse is explained from: an attempt that skipped one and failed is made
+/// again keeping them (`Grammar::parse_with_context_and_diagnostic_provenance`).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum DoomedEdges {
+    /// Keep every edge the filter could keep for the preference.
+    #[default]
+    Kept,
+    /// Skip every edge that breaks a relation when the input has one token that can begin a
+    /// rewrite, sequence or `#let`.
+    SkippedBesideOneScope,
+}
+
 /// The outcome of the recognition phase of one parse attempt.
 struct Recognition {
     charts: Vec<Chart>,
@@ -526,6 +563,8 @@ struct Recognition {
     parses: BTreeSet<Rc<PackedTerm>>,
     /// The first priority or associativity violation that removed a derivation, in chart order.
     first_violation: Option<ParseError>,
+    /// Whether an edge that `DoomedEdges::Kept` keeps was skipped.
+    doomed_pruned: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1374,14 +1413,30 @@ impl Grammar {
             provenance,
             diagnostic_provenance,
         };
-        let mut pruning = Pruning::default();
-        let result = self.parse_attempt(
+        let mut pruning = Pruning {
+            doomed: DoomedEdges::SkippedBesideOneScope,
+            ..Pruning::default()
+        };
+        let mut result = self.parse_attempt(
             start,
             input,
             context,
             PredictionMode::Filtered,
             &mut pruning,
         );
+        // Skipping the edges to doomed nodes keeps every reading that can be the parse, but not
+        // the forest a failure is computed from (`DoomedEdges`): such a failure is computed
+        // again keeping them.
+        if result.is_err() && pruning.doomed_pruned {
+            pruning = Pruning::default();
+            result = self.parse_attempt(
+                start,
+                input,
+                context,
+                PredictionMode::Filtered,
+                &mut pruning,
+            );
+        }
         // A failure without a derivation is explained from the chart, whose items the skipped
         // work changes: retry it with the skipped work restored where the diagnostic reads it.
         // A failure after recognition (an ambiguity, sort inference, a relation error of the
@@ -1438,6 +1493,7 @@ impl Grammar {
             charts,
             parses,
             first_violation,
+            doomed_pruned,
         } = self.recognize(
             start_id,
             start_position,
@@ -1447,10 +1503,12 @@ impl Grammar {
             PriorityFilter::Enforced,
             None,
             matches!(prediction_mode, PredictionMode::Retry { .. }),
+            pruning.doomed,
             &mut pruning.pruned,
             &mut scanner_cache,
             &priority_memos,
         )?;
+        pruning.doomed_pruned = doomed_pruned;
         if parses.is_empty() {
             pruning.furthest = Some(
                 charts
@@ -1458,6 +1516,17 @@ impl Grammar {
                     .rposition(|chart| !chart.states.is_empty())
                     .unwrap_or(0),
             );
+            // An attempt that skipped edges to doomed nodes and failed is made again keeping
+            // them, which explains the failure; this one is not explained.
+            if doomed_pruned {
+                return Err(self.no_parse(
+                    input,
+                    provenance,
+                    diagnostic_provenance,
+                    &charts,
+                    &mut scanner_cache,
+                ));
+            }
             return Err(match first_violation {
                 None => self.no_parse(
                     input,
@@ -1567,6 +1636,7 @@ impl Grammar {
                 PriorityFilter::Ignored,
                 Some(&stand_in),
                 false,
+                DoomedEdges::Kept,
                 pruned,
                 scanner_cache,
                 &priority_memos,
@@ -1592,6 +1662,7 @@ impl Grammar {
             PriorityFilter::Ignored,
             None,
             true,
+            DoomedEdges::Kept,
             pruned,
             scanner_cache,
             &priority_memos,
@@ -1641,6 +1712,7 @@ impl Grammar {
         filter: PriorityFilter,
         stand_in: Option<&Rc<PackedTerm>>,
         cut_repetitions: bool,
+        doomed: DoomedEdges,
         pruned: &mut bool,
         scanner_cache: &mut [ScanCacheEntry],
         priority_memos: &RefCell<PackedPriorityMemos>,
@@ -1663,6 +1735,7 @@ impl Grammar {
         // The tokens of the input from the first position a completion asks about them on,
         // read once, when the relations decide whether a node can reach the root.
         let mut remaining_tokens = None;
+        let doomed_pruned = std::cell::Cell::new(false);
         // The relations a skipped completion is judged by (`PredictionMode`): a retry judges
         // only whether the input can continue an item, never where the relations let its node
         // sit.
@@ -2030,6 +2103,8 @@ impl Grammar {
                                         root,
                                         remaining: remaining_tokens.as_ref(),
                                         from: canonical,
+                                        doomed,
+                                        doomed_pruned: &doomed_pruned,
                                     },
                                     &mut useful_completions,
                                     &mut reaching_nodes,
@@ -2130,6 +2205,7 @@ impl Grammar {
             charts,
             parses,
             first_violation,
+            doomed_pruned: doomed_pruned.get(),
         })
     }
 
@@ -2483,9 +2559,17 @@ impl Grammar {
             DeferredScopes::Unwitnessed => Admission::Yes,
             DeferredScopes::Witnessed(_) => match reach.remaining {
                 None => Admission::Yes,
-                Some(remaining) => remaining
-                    .first_deferral_from(caller.origin)
-                    .map_or(Admission::No, Admission::IfEndsAfter),
+                Some(remaining) => match remaining.first_deferral_from(caller.origin) {
+                    None => Admission::No,
+                    Some(_)
+                        if reach.doomed == DoomedEdges::SkippedBesideOneScope
+                            && remaining.deferral_count() == 1 =>
+                    {
+                        reach.doomed_pruned.set(true);
+                        Admission::No
+                    }
+                    Some(witness) => Admission::IfEndsAfter(witness),
+                },
             },
         }
     }
