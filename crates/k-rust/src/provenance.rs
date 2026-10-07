@@ -33,7 +33,7 @@
 //!
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
 //! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ; origin unions O(k) expected per visited node.
-//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions.
+//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions. A receipt's destination path shares its parent's (`AnchorPath`), a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack.
 //! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
@@ -78,6 +78,7 @@ use std::{
     borrow::Borrow,
     cell::OnceCell,
     collections::{BTreeMap, HashMap, HashSet},
+    fmt,
     hash::{Hash, Hasher},
     ops::Range,
     path::{Path, PathBuf},
@@ -746,7 +747,134 @@ pub struct DestinationAnchor {
     pub module: String,
     pub sentence: String,
     pub sentence_index: u32,
-    pub path: Vec<u32>,
+    pub path: AnchorPath,
+}
+
+/// The path of a destination anchor: the field of the sentence, then a child step per level.
+///
+/// The anchors a pass gives the nodes of a term it generates are its root's anchor extended by
+/// one step per level, so a path is held as its parent's path, shared, and its last step: a
+/// node's path costs constant memory whatever its depth, and annotating a term of N nodes
+/// costs O(N) rather than one copied path, as long as the node's depth, per node. A path
+/// compares, orders and formats as the sequence of steps it denotes, and is dropped one step at
+/// a time.
+#[derive(Clone, Default)]
+pub struct AnchorPath(Option<Arc<AnchorStep>>);
+
+struct AnchorStep {
+    parent: AnchorPath,
+    step: u32,
+    len: usize,
+}
+
+impl AnchorPath {
+    /// The empty path.
+    pub fn new() -> Self {
+        Self(None)
+    }
+
+    /// This path extended by `step`.
+    pub fn child(&self, step: u32) -> Self {
+        Self(Some(Arc::new(AnchorStep {
+            parent: self.clone(),
+            step,
+            len: self.len() + 1,
+        })))
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, |step| step.len)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// The steps of the path, from the field down.
+    pub fn to_vec(&self) -> Vec<u32> {
+        let mut steps = Vec::with_capacity(self.len());
+        let mut path = self;
+        while let Some(step) = &path.0 {
+            steps.push(step.step);
+            path = &step.parent;
+        }
+        steps.reverse();
+        steps
+    }
+}
+
+impl From<Vec<u32>> for AnchorPath {
+    fn from(steps: Vec<u32>) -> Self {
+        steps
+            .into_iter()
+            .fold(Self::new(), |path, step| path.child(step))
+    }
+}
+
+impl From<&[u32]> for AnchorPath {
+    fn from(steps: &[u32]) -> Self {
+        steps
+            .iter()
+            .fold(Self::new(), |path, step| path.child(*step))
+    }
+}
+
+impl PartialEq for AnchorPath {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(left), Some(right)) if Arc::ptr_eq(left, right) => true,
+            _ => self.len() == other.len() && self.to_vec() == other.to_vec(),
+        }
+    }
+}
+
+impl Eq for AnchorPath {}
+
+impl PartialEq<[u32]> for AnchorPath {
+    fn eq(&self, other: &[u32]) -> bool {
+        self.len() == other.len() && self.to_vec() == other
+    }
+}
+
+impl<const N: usize> PartialEq<[u32; N]> for AnchorPath {
+    fn eq(&self, other: &[u32; N]) -> bool {
+        *self == other[..]
+    }
+}
+
+impl PartialOrd for AnchorPath {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AnchorPath {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self == other {
+            return std::cmp::Ordering::Equal;
+        }
+        self.to_vec().cmp(&other.to_vec())
+    }
+}
+
+impl fmt::Debug for AnchorPath {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_list().entries(self.to_vec()).finish()
+    }
+}
+
+impl Drop for AnchorPath {
+    fn drop(&mut self) {
+        // Dropping the last reference to a step drops its parent: free the chain one step at a
+        // time while this path holds the only reference.
+        let mut next = self.0.take();
+        while let Some(step) = next {
+            next = match Arc::try_unwrap(step) {
+                Ok(mut step) => step.parent.0.take(),
+                Err(_) => None,
+            };
+        }
+    }
 }
 
 /// Structured provenance attached to a generated term or sentence.
@@ -767,7 +895,7 @@ impl OriginRecord {
                 "module": destination.module,
                 "sentence": destination.sentence,
                 "sentenceIndex": destination.sentence_index,
-                "path": destination.path,
+                "path": destination.path.to_vec(),
             })),
         })
     }
@@ -974,7 +1102,7 @@ fn record_generated_origins_inner(
                     module: module.name.clone(),
                     sentence: sentence_name.clone(),
                     sentence_index,
-                    path: Vec::new(),
+                    path: AnchorPath::new(),
                 }),
             };
             sentence.attributes_mut().set_origin_record(record);
@@ -1321,6 +1449,11 @@ fn hash_label(label: &Label, hasher: &mut FxHasher) {
 // Invariant: each recursive call hashes a strict subterm of `term`, so the term's size bounds
 // the calls.
 fn hash_term(term: &Term, hasher: &mut FxHasher) {
+    crate::stack::guarded(|| hash_term_level(term, hasher));
+}
+
+/// One level of [`hash_term`].
+fn hash_term_level(term: &Term, hasher: &mut FxHasher) {
     match term.unannotated() {
         Term::InjectedLabel(label) => {
             0_u8.hash(hasher);
@@ -1561,6 +1694,11 @@ fn united_origin_links<'a>(
 }
 
 fn collect_source_links(term: &Term, links: &mut LinkSet<ProvenanceLink>) {
+    crate::stack::guarded(|| collect_source_links_level(term, links));
+}
+
+/// One level of [`collect_source_links`].
+fn collect_source_links_level(term: &Term, links: &mut LinkSet<ProvenanceLink>) {
     // Invariant: `links` contains distinct source links for the term prefix already traversed in
     // first-encounter order; recursive calls visit proper subterms.
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
@@ -1599,6 +1737,145 @@ struct AnnotationContext<'a> {
     module: &'a str,
     sentence: &'a str,
     sentence_index: u32,
+    /// The fingerprints of the field being annotated and of its counterpart, when the field is
+    /// deep enough to need them.
+    fingerprints: Option<&'a FieldFingerprints>,
+}
+
+/// The structural fingerprints of a field after a pass and of its counterpart before it.
+struct FieldFingerprints {
+    after: Fingerprints,
+    before: Fingerprints,
+}
+
+/// The fields deeper than this are annotated with fingerprints: a shallower field compares its
+/// subterms directly, in time bounded by its size times this height.
+const FINGERPRINTED_HEIGHT: usize = 64;
+
+/// A fingerprint of every node of a term, by the node's address: a hash of what `Term` equality
+/// compares (the unannotated structure) and the number of nodes, computed bottom-up from the
+/// children's fingerprints without recursion. Equal terms have equal fingerprints, so differing
+/// fingerprints decide inequality at once; equal ones are confirmed by comparing the terms.
+/// The addresses are those of a term borrowed, or not yet changed, while it is annotated:
+/// annotating a node moves the node itself, never its descendants.
+struct Fingerprints(HashMap<usize, (u64, usize)>);
+
+impl Fingerprints {
+    fn of(term: &Term) -> Self {
+        let mut prints = HashMap::<usize, (u64, usize)>::new();
+        let mut pending = vec![(term, false)];
+        // Invariant: a node is popped a second time after all its children have fingerprints.
+        while let Some((node, children_done)) = pending.pop() {
+            let children = term_children(node);
+            if !children_done {
+                pending.push((node, true));
+                pending.extend(children.into_iter().map(|child| (child, false)));
+                continue;
+            }
+            let mut hasher = FxHasher::default();
+            let mut size = 1usize;
+            match node {
+                Term::Annotated { .. } => {
+                    let inner = prints[&address(children[0])];
+                    prints.insert(address(node), inner);
+                    continue;
+                }
+                Term::InjectedLabel(label) => {
+                    0_u8.hash(&mut hasher);
+                    hash_label(label, &mut hasher);
+                }
+                Term::Rewrite { .. } => 1_u8.hash(&mut hasher),
+                Term::As { .. } => 2_u8.hash(&mut hasher),
+                Term::Variable { name, sort } => {
+                    3_u8.hash(&mut hasher);
+                    name.hash(&mut hasher);
+                    sort.as_ref()
+                        .map(|sort| hash_sort(sort, &mut hasher))
+                        .hash(&mut hasher);
+                }
+                Term::Sequence(_) => 4_u8.hash(&mut hasher),
+                Term::Apply { label, .. } => {
+                    5_u8.hash(&mut hasher);
+                    hash_label(label, &mut hasher);
+                }
+                Term::Token { token, sort } => {
+                    6_u8.hash(&mut hasher);
+                    token.hash(&mut hasher);
+                    hash_sort(sort, &mut hasher);
+                }
+            }
+            children.len().hash(&mut hasher);
+            for child in &children {
+                let (hash, child_size) = prints[&address(child)];
+                hash.hash(&mut hasher);
+                size += child_size;
+            }
+            prints.insert(address(node), (hasher.finish(), size));
+        }
+        Self(prints)
+    }
+
+    fn get(&self, term: &Term) -> Option<(u64, usize)> {
+        self.0.get(&address(term)).copied()
+    }
+}
+
+fn address(term: &Term) -> usize {
+    std::ptr::from_ref(term) as usize
+}
+
+/// The direct subterms of `term`, an annotation's term included.
+fn term_children(term: &Term) -> Vec<&Term> {
+    match term {
+        Term::Annotated { term, .. } => vec![term],
+        Term::Rewrite { left, right } => vec![left, right],
+        Term::As { pattern, alias } => vec![pattern, alias],
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => items.iter().collect(),
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
+    }
+}
+
+/// Whether no path from `term` to a leaf has more than `bound` nodes, annotations not counted;
+/// it looks at most `bound` levels down, without recursion.
+fn height_at_most(term: &Term, bound: usize) -> bool {
+    let mut pending = vec![(term, 1usize)];
+    while let Some((node, depth)) = pending.pop() {
+        if depth > bound {
+            return false;
+        }
+        match node {
+            Term::Annotated { term, .. } => pending.push((term, depth)),
+            node @ (Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }) => pending.extend(
+                term_children(node)
+                    .into_iter()
+                    .map(|child| (child, depth + 1)),
+            ),
+        }
+    }
+    true
+}
+
+/// `after == before`, decided at once from their fingerprints when those differ.
+fn same_term(after: &Term, before: &Term, context: AnnotationContext<'_>) -> bool {
+    if let Some(fingerprints) = context.fingerprints
+        && let (Some(after_print), Some(before_print)) = (
+            fingerprints.after.get(after),
+            fingerprints.before.get(before),
+        )
+        && after_print != before_print
+    {
+        return false;
+    }
+    after == before
 }
 
 fn annotate_sentence_terms(
@@ -1610,31 +1887,55 @@ fn annotate_sentence_terms(
     sentence_name: &str,
     sentence_index: u32,
 ) {
-    let context = AnnotationContext {
-        pass,
-        module,
-        sentence: sentence_name,
-        sentence_index,
-    };
     for (field, term) in sentence.terms_mut() {
+        let before = before.and_then(|before| before.term(field));
+        let fingerprints = before
+            .filter(|before| {
+                !height_at_most(term, FINGERPRINTED_HEIGHT)
+                    || !height_at_most(before, FINGERPRINTED_HEIGHT)
+            })
+            .map(|before| FieldFingerprints {
+                after: Fingerprints::of(term),
+                before: Fingerprints::of(before),
+            });
+        let context = AnnotationContext {
+            pass,
+            module,
+            sentence: sentence_name,
+            sentence_index,
+            fingerprints: fingerprints.as_ref(),
+        };
         annotate_term(
             term,
-            before.and_then(|before| before.term(field)),
+            before,
             context,
             origins,
-            vec![field],
+            AnchorPath::new().child(field),
         );
     }
 }
 
+// A field's annotation descends once per level of the field, which nothing bounds; each level
+// runs on a stack segment of its own when the current one runs low.
 fn annotate_term(
     term: &mut Term,
     before: Option<&Term>,
     context: AnnotationContext<'_>,
     inherited_origins: &Arc<[ProvenanceLink]>,
-    path: Vec<u32>,
+    path: AnchorPath,
 ) {
-    if before.is_some_and(|candidate| term == candidate) {
+    crate::stack::guarded(|| annotate_level(term, before, context, inherited_origins, path));
+}
+
+/// One level of [`annotate_term`].
+fn annotate_level(
+    term: &mut Term,
+    before: Option<&Term>,
+    context: AnnotationContext<'_>,
+    inherited_origins: &Arc<[ProvenanceLink]>,
+    path: AnchorPath,
+) {
+    if before.is_some_and(|candidate| same_term(term, candidate, context)) {
         return;
     }
     let own_origins = term_origin_links(before, term, inherited_origins);
@@ -1657,7 +1958,7 @@ fn annotate_term(
 
     if let Some(before) = before
         && let Some(child) = only_child_mut(term)
-        && child == before
+        && same_term(child, before, context)
     {
         annotate_child(child, Some(before), 0, context, &own_origins, &path);
         return;
@@ -1830,11 +2131,9 @@ fn annotate_child(
     child: u32,
     context: AnnotationContext<'_>,
     origins: &Arc<[ProvenanceLink]>,
-    parent_path: &[u32],
+    parent_path: &AnchorPath,
 ) {
-    let mut path = parent_path.to_vec();
-    path.push(child);
-    annotate_term(term, before, context, origins, path);
+    annotate_term(term, before, context, origins, parent_path.child(child));
 }
 
 /// Primitive tokens and structural dots are deliberately origin-free.
@@ -2430,7 +2729,7 @@ mod tests {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
                 sentence_index: 0,
-                path: vec![0],
+                path: vec![0].into(),
             }),
         );
     }
@@ -2551,7 +2850,7 @@ mod tests {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
                 sentence_index: 0,
-                path: vec![0],
+                path: vec![0].into(),
             }),
         });
         let with_prior_origin = |label| {
@@ -2582,7 +2881,7 @@ mod tests {
                 module: "MAIN".into(),
                 sentence: "MAIN.rule".into(),
                 sentence_index: 0,
-                path: vec![0],
+                path: vec![0].into(),
             }),
         );
     }

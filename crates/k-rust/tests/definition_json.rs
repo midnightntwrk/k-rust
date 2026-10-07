@@ -738,7 +738,7 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
             module: "MAIN".into(),
             sentence: "subject".into(),
             sentence_index: 0,
-            path: vec![0, 1],
+            path: vec![0, 1].into(),
         }),
     });
     let body = Term::apply(

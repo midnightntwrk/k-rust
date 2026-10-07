@@ -7548,7 +7548,7 @@ fn equal_concretized_defaults_have_distinct_destination_paths() {
                 term.metadata()
                     .and_then(|metadata| metadata.origin.as_deref())
                     .and_then(|origin| origin.destination.as_ref())
-                    .map(|destination| (destination.path.clone(), destination.sentence_index)),
+                    .map(|destination| (destination.path.to_vec(), destination.sentence_index)),
             ));
         }
         match term.unannotated() {

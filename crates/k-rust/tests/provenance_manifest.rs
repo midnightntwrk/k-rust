@@ -226,3 +226,124 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
         .collect::<BTreeSet<_>>();
     assert_eq!(classified_generators, expected_generators);
 }
+
+/// The environment variable that makes [`deep_annotation_child`] run, in the child process of
+/// [`a_deep_generated_term_is_annotated_in_linear_memory`].
+const DEEP_ANNOTATION_CHILD: &str = "K_RUST_TEST_DEEP_ANNOTATION_CHILD";
+
+/// The work of [`a_deep_generated_term_is_annotated_in_linear_memory`]; it does
+/// nothing unless that test runs it in its child process.
+#[test]
+fn deep_annotation_child() {
+    use k_rust::definition::{Attributes, Sentence};
+    use k_rust::kast::{Label, Sort, Term};
+    if std::env::var_os(DEEP_ANNOTATION_CHILD).is_none() {
+        return;
+    }
+    const DEPTH: usize = 100_000;
+    let application = |label: &str, arguments| Term::Apply {
+        label: Label::new(label),
+        arguments,
+    };
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let rule = |leaf: &str| {
+        let deep = (0..DEPTH).fold(application(leaf, Vec::new()), |term, _| {
+            application("s", vec![term])
+        });
+        std::sync::Arc::new(Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(application("go", Vec::new())),
+                right: Box::new(application("done", vec![deep])),
+            },
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        })
+    };
+    let parsed = k_rust::outer::parse(
+        "deep.k",
+        "module MAIN\n syntax Nat ::= \"z\" | \"y\" | s(Nat)\n syntax KItem ::= \"go\" | done(Nat)\nendmodule\n",
+    )
+    .unwrap();
+    let mut before = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    before.modules[0].local_sentences.push(rule("z"));
+    let mut after = before.clone();
+    *after.modules[0].local_sentences.last_mut().unwrap() = rule("y");
+    // `record_generated_origins` compares each sentence with its counterpart by `Term` equality,
+    // which recurses per level (the documented bound of the KAST term traits), hence 64 MiB.
+    let bottom_path = std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(move || {
+            let annotated = k_rust::provenance::record_generated_origins(
+                &before,
+                after,
+                k_rust::provenance::GeneratingPass::ResolveFun,
+            );
+            let Sentence::Rule { body, .. } =
+                &**annotated.modules[0].local_sentences.last().unwrap()
+            else {
+                unreachable!("the rule stays a rule")
+            };
+            let Term::Rewrite { right, .. } = body.unannotated() else {
+                unreachable!("the body stays a rewrite")
+            };
+            let mut term = &**right;
+            let mut depth = 0;
+            while let Term::Apply { arguments, .. } = term.unannotated() {
+                match arguments.first() {
+                    Some(argument) => {
+                        term = argument;
+                        depth += 1;
+                    }
+                    None => break,
+                }
+            }
+            assert_eq!(depth, DEPTH + 1, "done and the s");
+            let path = term
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_deref())
+                .and_then(|origin| origin.destination.as_ref())
+                .expect("the changed leaf carries a receipt")
+                .path
+                .clone();
+            (path.len(), annotated)
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the annotation should finish");
+    // The body field, the rewrite's right side, `done`'s argument and one step per `s`.
+    assert_eq!(bottom_path.0, DEPTH + 3);
+    std::mem::forget(bottom_path.1);
+}
+
+/// A pass that changes the bottom of a deep term changes every node above it, and recording
+/// the pass's origins annotates each of them with a receipt naming its path: a rule whose right
+/// side is 100,000 levels deep, changed at its leaf, is annotated in a child process limited to
+/// 1 GiB of address space, with receipts whose paths share their parents' (the leaf's path has
+/// the 100,003 steps of its position). The annotation once compared the node with its
+/// counterpart (a walk of the whole subtree) at every level and copied the whole path into
+/// every receipt: O(N x h) time and memory, 308 MB at 8,000 levels and about 20 GB at 100,000;
+/// it now also continues on fresh stack segments rather than recursing on the caller's stack.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_deep_generated_term_is_annotated_in_linear_memory() {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -v 1048576 && exec "$0" "$@""#)
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "deep_annotation_child", "--nocapture"])
+        .args(["--test-threads", "1"])
+        .env(DEEP_ANNOTATION_CHILD, "1")
+        .output()
+        .expect("the test binary re-runs itself");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the annotation of a deep generated term failed under 1 GiB of address space ({}):\n{stdout}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
