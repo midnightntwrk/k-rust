@@ -2649,7 +2649,7 @@ mod cast_instances {
     fn argument_requirement(typing: &SentenceTyping) -> Option<Sort> {
         typing
             .positions
-            .get(&vec![0, 1, 0, 0])
+            .get(&[0, 1, 0, 0])
             .unwrap_or_else(|| panic!("no argument position in {:#?}", typing.positions))
             .required
             .clone()

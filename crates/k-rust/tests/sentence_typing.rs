@@ -170,7 +170,7 @@ fn rewrite_sides_require_their_least_upper_bound() {
     let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(
-        typing.branches.get(&vec![0]),
+        typing.branches.get(&[0]),
         Some(&BranchTyping {
             left: sorted(Some("Counter"), Some("KItem")),
             right: sorted(Some("Bool"), Some("KItem")),
@@ -570,14 +570,14 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
     let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(
-        typing.branches.get(&vec![0]),
+        typing.branches.get(&[0]),
         Some(&BranchTyping {
             left: sorted(Some("Nat"), Some("KItem")),
             right: sorted(Some("Counter"), Some("KItem")),
         })
     );
     assert_eq!(
-        typing.branches.get(&vec![0, 0]),
+        typing.branches.get(&[0, 0]),
         Some(&BranchTyping {
             left: sorted(Some("Nat"), Some("Nat")),
             right: sorted(Some("Counter"), Some("Counter")),
@@ -615,14 +615,14 @@ fn typing_reports_a_fixed_sort_schema_instance_that_compilation_rejects() {
     );
     let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
     assert_eq!(
-        typing.branches.get(&vec![0]),
+        typing.branches.get(&[0]),
         Some(&BranchTyping {
             left: sorted(Some("Nat"), Some("KItem")),
             right: sorted(Some("Bool"), Some("KItem")),
         })
     );
     assert_eq!(
-        typing.branches.get(&vec![0, 0]),
+        typing.branches.get(&[0, 0]),
         Some(&BranchTyping {
             left: sorted(Some("Nat"), Some("Nat")),
             right: sorted(Some("Bool"), Some("Bool")),
@@ -750,17 +750,17 @@ fn assert_view_injections_are_emitted(loaded: &LoadedDefinition, module: &str) -
             continue;
         };
         let kore = axiom_of(&kore, label);
-        let placements = typing.positions.iter().chain(
-            typing
-                .branches
-                .iter()
-                .flat_map(|(path, branches)| [(path, &branches.left), (path, &branches.right)]),
-        );
+        let placements = typing
+            .positions
+            .iter()
+            .chain(typing.branches.iter().flat_map(|(path, branches)| {
+                [(path.clone(), &branches.left), (path, &branches.right)]
+            }));
         for (path, position) in placements {
             let (Some(sort), Some(required)) = (&position.sort, &position.required) else {
                 continue;
             };
-            if sort == required || under_cast(sentence, path) {
+            if sort == required || under_cast(sentence, &path) {
                 continue;
             }
             let (Some(from), Some(to)) = (kore_sort(sort), kore_sort(required)) else {

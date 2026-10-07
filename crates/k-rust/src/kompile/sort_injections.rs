@@ -42,8 +42,8 @@ use super::passes::{ExpandedProgram, Injectable, Placement, PlacementKind, place
 mod typing;
 use super::view::View;
 pub use typing::{
-    BranchTyping, PositionTyping, SentenceTyper, SentenceTyping, SentenceTypingError,
-    sentence_typing,
+    BranchTyping, PathMap, PathTrie, PositionTyping, SentenceTyper, SentenceTyping,
+    SentenceTypingError, sentence_typing,
 };
 
 mod sentence_variables {
