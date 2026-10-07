@@ -1513,8 +1513,6 @@ pub(super) const REPRESENTATIVES: usize = 64;
 /// occurrence. FUN's reducts have about 100.
 pub(super) const REPRESENTATIVE_SIZE: usize = 2048;
 
-/// Whether `term` has at most `limit` nodes, counting a shared subterm at each occurrence; at
-/// most `limit + 1` nodes are visited, and the recursion is at most that deep.
 /// Whether `term`'s root is a total symbol: an application of `term` is defined whenever its
 /// immediate subterms are. Constructors and sort injections are `functional`, and a symbol
 /// declared `total` (or `functional`) is total whatever else it is, an `anywhere` equation
@@ -1534,6 +1532,8 @@ fn total_root(term: &Term) -> bool {
     }
 }
 
+/// Whether `term` has at most `limit` nodes, counting a shared subterm at each occurrence; at
+/// most `limit + 1` nodes are visited, and the recursion is at most that deep.
 fn within_size(term: &Term, limit: usize) -> bool {
     fn count(term: &Term, left: &mut usize) -> bool {
         if *left == 0 {
