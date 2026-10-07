@@ -2471,7 +2471,7 @@ bound = "n predicate simplifications plus up to n rebuilds of PathConditionRepla
 
 [[node.cost]]
 mode = "value-production ceil (value_production_definedness)"
-bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one instance-normality decision of its left-hand side's arguments (instance_normal.rs pattern_arguments_normal), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
@@ -2565,6 +2565,10 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 [[node.cost]]
 mode = "rule condition"
 bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+
+[[node.cost]]
+mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
+bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations, each deciding instance normality of the immediate subterms of the left-hand sides not yet shown, until a round adds none (at most e + 1 rounds); afterwards, per failed match, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"

@@ -16,6 +16,10 @@
 //! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
 //!
 //! [[cost]]
+//! mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
+//! bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations, each deciding instance normality of the immediate subterms of the left-hand sides not yet shown, until a round adds none (at most e + 1 rounds); afterwards, per failed match, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have"
+//!
+//! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
 //! ```
@@ -35,7 +39,7 @@
 //!
 //! [[cost]]
 //! mode = "value-production ceil (value_production_definedness)"
-//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one instance-normality decision of its left-hand side's arguments (instance_normal.rs pattern_arguments_normal), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -70,7 +74,7 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     matching::{
-        CollectionMatches, InjectionEquality, MatchFailed, MatchMode, MatchResult,
+        CollectionMatches, InjectionEquality, MatchMode, MatchResult,
         match_collection_remainders_all_in_definition, match_injection_equality,
         match_term_pairs_in_definition, match_terms_in_definition,
     },
@@ -101,8 +105,8 @@ pub(crate) mod scan;
 use result::{Accumulated, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
-    EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
-    TermTheory, TheoryScan, scan_group, scan_term_theory,
+    EquationAttempt, FailedMatch, FunctionTheory, GroupScan, IndeterminateAttempts,
+    SimplificationTheory, TermTheory, TheoryScan, scan_group, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -2024,13 +2028,14 @@ fn apply_ceil_theory(
 ///
 /// `value-production` states that an application no equation reduces is a value of its sort, so
 /// on every valuation where the arguments are defined and no equation reduces `f(a)`, `f(a)` is
-/// defined. An equation reduces an application only where its left-hand side matches it and its
-/// `requires` holds at that match. The equations that may match an instance of `term` are listed
-/// by `BackendDefinition::equations_reaching`, which needs `term`'s arguments to be
+/// defined. An equation reduces an application only where its left-hand side denotes it and its
+/// `requires` holds at that valuation. The equations that may reach an instance of `term` are
+/// listed by `BackendDefinition::equations_reaching`, which needs `term`'s arguments to be
 /// instance-normal and equation selection to be complete; each listed equation must have a
-/// `requires` that is refuted under `known_predicates` at its only match
-/// ([`requires_refuted_at_only_match`]). The definedness walk (`definedness::ceil_term`) discharges
-/// an application no equation can match on any instance; this step adds the applications whose
+/// `requires` that is refuted under `known_predicates` at the only valuation of its left-hand
+/// side denoting an instance of `term` ([`requires_refuted_at_only_match`]). The definedness
+/// walk (`definedness::ceil_term`) discharges an application no equation can match on any
+/// instance; this step adds the applications whose
 /// reaching equations a refuted `requires` sets aside, which needs the path condition only
 /// predicate simplification has. The result is equivalent to `\ceil(term)` under
 /// `known_predicates`, the contract of predicate simplification under assumptions.
@@ -2083,12 +2088,19 @@ fn value_production_definedness(
 
 /// Whether the equation `rule` cannot reduce `term` wherever `known_predicates` hold: its
 /// `requires` is not empty, equation matching of its left-hand side against `term` succeeds with
-/// a substitution `σ` that is the only match of every instance of `term`, and the simplifier
-/// refutes the `requires` instantiated by `σ` under `known_predicates`.
+/// a substitution `σ` such that every valuation of the left-hand side denoting an instance of
+/// `term` is the instance of `σ`, and the simplifier refutes the `requires` instantiated by `σ`
+/// under `known_predicates`.
 ///
-/// `σ` is the only match because the left-hand side has no collection pattern: matching then
-/// binds each of its variables by decomposing `term` at a fixed position, so an instance of
-/// `term` matches only at the instance of `σ`. A collection pattern may match an instance in
+/// The equation constrains the value its left-hand side denotes, so `σ` must be the only match
+/// on values, not only on syntax. It is when the left-hand side has no collection pattern and
+/// its arguments are instance-normal (`BackendDefinition::pattern_arguments_normal`): matching
+/// then binds each of its variables by decomposing `term` at a fixed position, and since the
+/// arguments of both sides are normal forms on every instance, a valuation of the left-hand
+/// side denotes an instance of `term` only by being that instance as a term, which is the
+/// instance of `σ`. A reducible argument (`w(h(X))` under `h(3) = h(1)`) lets another valuation
+/// (`X = 3`) denote the value of the matched instance (`w(h(1))`) with a `requires` this match
+/// never decides, so it answers `false`. A collection pattern may match an instance in
 /// several ways, and a match left `Indeterminate` decides nothing, so both answer `false`, as do a
 /// match that binds a variable outside the left-hand side and one that binds an element variable
 /// to a set pattern, which equation application does not use either. A `concrete` or `symbolic`
@@ -2105,11 +2117,14 @@ fn requires_refuted_at_only_match(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<bool> {
-    if rule.requires.is_empty() || has_collection_pattern(&rule.lhs) {
+    if rule.requires.is_empty()
+        || has_collection_pattern(&rule.lhs)
+        || !definition.pattern_arguments_normal(rule)
+    {
         return Ok(false);
     }
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
-        return requires_refuted_at_only_match(
+    match rename_apart(rule, &term.attributes().variables, known_predicates) {
+        Some((renamed, _)) => requires_refuted_at_match(
             definition,
             &renamed,
             term,
@@ -2117,8 +2132,31 @@ fn requires_refuted_at_only_match(
             options,
             active_conditions,
             solver,
-        );
+        ),
+        None => requires_refuted_at_match(
+            definition,
+            rule,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        ),
     }
+}
+
+/// The rest of [`requires_refuted_at_only_match`] for `rule`, the equation it vetted with its
+/// variables named apart from `term`'s: match, then decide the instantiated `requires`.
+#[allow(clippy::too_many_arguments)]
+fn requires_refuted_at_match(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<bool> {
     let MatchResult::Success(substitution) =
         match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
     else {
@@ -3965,26 +4003,62 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
-        return apply_equation(
+) -> SimplifyResult<EquationAttempt<Simplification, FailedMatch>> {
+    match rename_apart(rule, &term.attributes().variables, known_predicates) {
+        Some((renamed, _)) => apply_equation_named_apart(
             definition,
+            rule,
             &renamed,
             term,
             known_predicates,
             options,
             active_conditions,
             solver,
-        );
+        ),
+        None => apply_equation_named_apart(
+            definition,
+            rule,
+            rule,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        ),
     }
+}
+
+/// [`apply_equation`] for `rule`, the definition's equation `equation` with its variables named
+/// apart from `term`'s.
+#[allow(clippy::too_many_arguments)]
+fn apply_equation_named_apart(
+    definition: &BackendDefinition,
+    equation: &RewriteRule,
+    rule: &RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Simplification, FailedMatch>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let matched = match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term);
+    // Whether a failed match is about the value of `term` as well (`scan::FailedMatch`), asked
+    // of the definition's own equation, not its renamed copy. Only a term that can carry the
+    // certificate (`cacheable_equation_head`) needs the answer; any other gets `false`.
+    let failed = |refutation| {
+        FailedMatch::new(
+            refutation,
+            cacheable_equation_head(definition, term)
+                && definition.failed_match_is_about_values(equation, term),
+        )
+    };
     let substitution = match matched {
         MatchResult::Failed(_) => {
-            let failed = matched
+            let refutation = matched
                 .refutation()
                 .expect("a failed match states its refutation");
-            return Ok(EquationAttempt::NotApplicable(failed));
+            return Ok(EquationAttempt::NotApplicable(failed(refutation)));
         }
         MatchResult::Indeterminate {
             substitution,
@@ -3997,8 +4071,8 @@ fn apply_equation(
                 &remainder,
             ) {
                 CollectionMatches::Solutions(solutions) => solutions,
-                CollectionMatches::NoSolution(failed) => {
-                    return Ok(EquationAttempt::NotApplicable(failed));
+                CollectionMatches::NoSolution(refutation) => {
+                    return Ok(EquationAttempt::NotApplicable(failed(refutation)));
                 }
                 CollectionMatches::Undecided => {
                     return Ok(EquationAttempt::Indeterminate(

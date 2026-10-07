@@ -594,6 +594,12 @@ pub struct BackendDefinition {
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
     inhabited_sorts: OnceLock<BTreeSet<ClosedSort>>,
+    /// Facts about the left-hand sides of the function and simplification equations; computed
+    /// on first use by `instance_normal::patterns::pattern_facts`, read through
+    /// [`Self::pattern_arguments_normal`] and the exclusion test of instance normality. The
+    /// theories are fixed by `internalize`, so the facts hold for every later use and for the
+    /// definition's clones, which share the equations.
+    pattern_facts: OnceLock<crate::instance_normal::PatternFacts>,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -1302,7 +1308,9 @@ impl BackendDefinition {
     /// sort. Evidence that no equation reduces the application is either the simplifier's
     /// certificate on a ground normal form (`term::head::certified_ground_normal_form`) or
     /// instance normality (`instance_normal`): every equation equation selection could offer the
-    /// application or one of its instances fails to unify with it or to match it. Either holds
+    /// application or one of its instances fails to unify with it or to match it, counted only
+    /// for an equation whose left-hand side has instance-normal arguments, so that the failure
+    /// is about the values the left-hand side denotes (`pattern_arguments_normal`). Either holds
     /// for every valuation, so the answer does not depend on a path condition. Without the
     /// marker an equation head claims nothing about its irreducible applications, and a
     /// conditional equation whose left-hand side reaches the application withholds both kinds of
@@ -1312,6 +1320,12 @@ impl BackendDefinition {
         self.is_value_production_application(term)
             && (crate::term::head::certified_ground_normal_form(term)
                 || self.instance_normal(term).is_some())
+    }
+
+    /// The facts [`Self::pattern_arguments_normal`] reads once they are computed.
+    pub(crate) fn pattern_facts(&self) -> &crate::instance_normal::PatternFacts {
+        self.pattern_facts
+            .get_or_init(|| crate::instance_normal::pattern_facts(self))
     }
 
     /// Whether `term` is an application of a symbol the definition declares
@@ -1735,6 +1749,7 @@ impl BackendDefinition {
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
+            pattern_facts: OnceLock::new(),
             term_equation_in_predicate_theory: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]

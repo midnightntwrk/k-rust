@@ -18,12 +18,18 @@
 //!   no equation is headed by a constructor or an injection, so it is normal when its parts are;
 //! - an application of an `anywhere` symbol that is not a declared function is instance-normal
 //!   when its arguments are and every equation the evaluator may apply to it (headed by that
-//!   symbol or by a bare variable, of any priority, `requires` ignored) either does not
-//!   syntactically unify with it or is refuted on it by equation matching. An equation applies
-//!   to an instance only if the instance matches the equation's left-hand side, an instance
-//!   matches only if the two terms unify, and a refutation by equation matching holds for every
-//!   instance; ignoring `requires` only makes the test report more applications as possibly
-//!   rewritten;
+//!   symbol or by a bare variable, of any priority, `requires` ignored) is excluded: its
+//!   left-hand side has instance-normal arguments and either does not syntactically unify with
+//!   the application or is refuted on it by equation matching, or, for a left-hand side with
+//!   another argument, no reduct of that argument can be the application's at some position
+//!   (`patterns.rs`). An equation constrains the value its left-hand side denotes; with
+//!   instance-normal arguments on both sides, a valuation of the left-hand side denotes an
+//!   instance of the application only by being that instance as a term, an instance is one only
+//!   if the two terms unify, and a refutation by equation matching holds for every instance. A
+//!   left-hand side argument that is not instance-normal (`h(3)` under `h(3) = h(1)`) has
+//!   instances whose reducts are other normal forms (`h(1)`), so a failed syntactic test proves
+//!   nothing about such an equation. Ignoring `requires` only makes the test report more
+//!   applications as possibly rewritten;
 //! - a map, list or set term is instance-normal when its elements (keys, values, and the rest)
 //!   are and no equation offered its collection index or a bare variable applies to it, as
 //!   above: the collection axioms only identify representations of one collection value, which
@@ -57,14 +63,21 @@
 //! equations, the subject as the values it denotes. It treats a pair as possibly unifiable
 //! whenever its shape does not settle the question (a function or collection head, differing
 //! injection sources, a sort mismatch it cannot interpret), so an answer of "does not unify" is
-//! always a proof that no instance matches.
+//! always a proof that the two terms have no common syntactic instance. That is a proof about
+//! values only for a left-hand side with instance-normal arguments; the exclusion test uses it
+//! only for those, and decides the other equations by the reducts of their arguments
+//! (`patterns.rs`). Which equations have such arguments is computed once per definition, in
+//! rounds (`patterns::pattern_facts`), since deciding one left-hand side's arguments scans
+//! other equations.
 
+mod patterns;
 mod token;
 
 use std::{cell::RefCell, collections::HashMap};
 
 use rustc_hash::FxHashMap;
 
+pub(crate) use patterns::{PatternFacts, pattern_facts};
 pub(crate) use token::{InstanceNormal, NormalArguments};
 
 use crate::{
@@ -75,7 +88,7 @@ use crate::{
         Sort, Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, InheritedFromArguments, PatternReading, RootComparison,
-            classify_pattern, classify_value, compare_roots,
+            Scanned, classify_pattern, classify_value, compare_roots,
         },
     },
 };
@@ -138,9 +151,19 @@ impl BackendDefinition {
     /// for every instance of the subject (`matching::match_terms_in_definition`). The second
     /// test knows what the first does not: the sorts of injections and the productions of an
     /// overload family.
+    ///
+    /// Both tests are about syntactic instances, and an equation constrains the value its
+    /// left-hand side denotes. They answer for values when the left-hand side's arguments are
+    /// instance-normal ([`Self::pattern_arguments_normal`]). For any other equation the test is
+    /// whether the values its left-hand side's arguments can denote miss the subject's at some
+    /// position ([`Self::misses_values`]), whatever the syntax says.
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
-        !may_unify(self.sort_graph(), &rule.lhs, arguments)
-            || self.matching_refutes(&rule.lhs, arguments.subject())
+        if self.pattern_arguments_normal(rule) {
+            !may_unify(self.sort_graph(), &rule.lhs, arguments)
+                || self.matching_refutes(&rule.lhs, arguments.subject())
+        } else {
+            self.misses_values(&rule.lhs, arguments.subject(), &mut Scanned(self))
+        }
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
@@ -540,6 +563,241 @@ mod tests {
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize");
         definition.instance_normal(&term).is_some()
+    }
+
+    /// Equations whose left-hand side arguments hold as-patterns, as compiled anywhere rules
+    /// write them: `wrap(s(z #as G)) = wrap(G)`, `h(3) = h(1)`, and `w(k(h(3) #as G)) = mk(G)`.
+    /// An equation is excluded from a scan only when its left-hand side's arguments are normal
+    /// patterns: a conjunction is one when both conjuncts are, so `s(z #as G)` is (`wrap(z)` and
+    /// `wrap(s(s(z)))` stay instance-normal), while `h(3) #as G` is not, since `h(3)` reduces to
+    /// `h(1)`: `w(k(h(1)))`, which that equation makes `mk(h(3))`, is not instance-normal
+    /// although the equation does not unify with it as a term. `w(k(h(2)))` is: the reducts of
+    /// `h(3)` are `h(3)` and `h(1)`, and neither is `h(2)`.
+    #[test]
+    fn as_patterns_are_normal_when_their_conjuncts_are() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortNat{} []
+                sort SortAddress{} []
+                sort SortH{} []
+                sort SortK{} []
+                sort SortS{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol wrap{}(SortNat{}) : SortAddress{} [anywhere{}(), function{}(), value-production{}()]
+                symbol h{}(SortInt{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]
+                symbol k{}(SortH{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+                symbol mk{}(SortH{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol w{}(SortK{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortNat{}, R}(X0:SortNat{}, s{}(\and{SortNat{}}(z{}(), G:SortNat{}))),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortAddress{}, R}(
+                        wrap{}(X0:SortNat{}),
+                        \and{SortAddress{}}(wrap{}(G:SortNat{}), \top{SortAddress{}}())
+                    )
+                ) [anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("3")), \top{R}())
+                    ),
+                    \equals{SortH{}, R}(
+                        h{}(X0:SortInt{}),
+                        \and{SortH{}}(h{}(\dv{SortInt{}}("1")), \top{SortH{}}())
+                    )
+                ) [anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortK{}, R}(
+                                X0:SortK{},
+                                k{}(\and{SortH{}}(h{}(\dv{SortInt{}}("3")), G:SortH{}))
+                            ),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortS{}, R}(
+                        w{}(X0:SortK{}),
+                        \and{SortS{}}(mk{}(G:SortH{}), \top{SortS{}}())
+                    )
+                ) [anywhere{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(normal(&definition, "wrap{}(z{}())"));
+        assert!(normal(&definition, "wrap{}(s{}(s{}(z{}())))"));
+        assert!(!normal(&definition, "wrap{}(s{}(z{}()))"));
+        assert!(normal(&definition, r#"h{}(\dv{SortInt{}}("1"))"#));
+        assert!(!normal(
+            &definition,
+            r#"w{}(k{}(h{}(\dv{SortInt{}}("1"))))"#
+        ));
+        assert!(normal(&definition, r#"w{}(k{}(h{}(\dv{SortInt{}}("2"))))"#));
+    }
+
+    /// `app` is overloaded: `app(inj{V, E}(K0), inj{V, E}(K1)) = inj{V, E}(appV(K0, K1))`, so the
+    /// pattern `app(P1, P2)` is not normal on every instance, and
+    /// `cur(app(P1, P2), B) = cur(P1, B)` is not excluded from a scan by its syntax alone. The reducts of `app(P1, P2)` are `app`
+    /// applications and injections from `V` of `appV` applications, so none is `inj{N, E}(n)`
+    /// when `N` and `V` have no common subsort, nor when `N` is below `V` (an injection from `V`
+    /// of something other than an injection is not one from `N`): `cur(inj{N, E}(n), B)` is
+    /// instance-normal in both. When the equation's right-hand side is `inj{V, E}(K0)` instead
+    /// and `N` is below `V`, `K0 = inj{N, V}(n)` gives the reduct `inj{N, E}(n)`, and it is not.
+    #[test]
+    fn a_reducible_pattern_argument_misses_the_roots_its_values_cannot_have() {
+        let definition = |subsort: &str, right: &str| {
+            let source = format!(
+                r#"[]
+            module MAIN
+                sort SortE{{}} []
+                sort SortV{{}} []
+                sort SortN{{}} []
+                sort SortS{{}} []
+                symbol inj{{From, To}}(From) : To [sortInjection{{}}(), injective{{}}()]
+                symbol n{{}}() : SortN{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol appV{{}}(SortV{{}}, SortV{{}}) : SortV{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol app{{}}(SortE{{}}, SortE{{}}) : SortE{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                symbol cur{{}}(SortE{{}}, SortE{{}}) : SortS{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                axiom{{R}} \exists{{R}}(V:SortE{{}}, \equals{{SortE{{}}, R}}(V:SortE{{}}, inj{{SortN{{}}, SortE{{}}}}(F:SortN{{}})))
+                    [subsort{{SortN{{}}, SortE{{}}}}()]
+                axiom{{R}} \exists{{R}}(V:SortE{{}}, \equals{{SortE{{}}, R}}(V:SortE{{}}, inj{{SortV{{}}, SortE{{}}}}(F:SortV{{}})))
+                    [subsort{{SortV{{}}, SortE{{}}}}()]
+                {subsort}
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \in{{SortE{{}}, R}}(X0:SortE{{}}, inj{{SortV{{}}, SortE{{}}}}(K0:SortV{{}})),
+                            \and{{R}}(
+                                \in{{SortE{{}}, R}}(X1:SortE{{}}, inj{{SortV{{}}, SortE{{}}}}(K1:SortV{{}})),
+                                \top{{R}}()
+                            )
+                        )
+                    ),
+                    \equals{{SortE{{}}, R}}(
+                        app{{}}(X0:SortE{{}}, X1:SortE{{}}),
+                        \and{{SortE{{}}}}(
+                            inj{{SortV{{}}, SortE{{}}}}({right}),
+                            \top{{SortE{{}}}}()
+                        )
+                    )
+                ) [anywhere{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \in{{SortE{{}}, R}}(X0:SortE{{}}, app{{}}(P1:SortE{{}}, P2:SortE{{}})),
+                            \and{{R}}(\in{{SortE{{}}, R}}(X1:SortE{{}}, B:SortE{{}}), \top{{R}}())
+                        )
+                    ),
+                    \equals{{SortS{{}}, R}}(
+                        cur{{}}(X0:SortE{{}}, X1:SortE{{}}),
+                        \and{{SortS{{}}}}(cur{{}}(P1:SortE{{}}, B:SortE{{}}), \top{{SortS{{}}}}())
+                    )
+                ) [anywhere{{}}()]
+            endmodule []"#
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        };
+        let subject = "cur{}(inj{SortN{}, SortE{}}(n{}()), B:SortE{})";
+        let constructed = "appV{}(K0:SortV{}, K1:SortV{})";
+        let apart = definition("", constructed);
+        assert!(normal(&apart, subject));
+        assert!(!normal(
+            &apart,
+            "cur{}(app{}(P:SortE{}, Q:SortE{}), B:SortE{})"
+        ));
+        let n_below_v = r"axiom{R} \exists{R}(V:SortV{}, \equals{SortV{}, R}(V:SortV{}, inj{SortN{}, SortV{}}(F:SortN{})))
+                [subsort{SortN{}, SortV{}}()]";
+        assert!(normal(&definition(n_below_v, constructed), subject));
+        assert!(!normal(&definition(n_below_v, "K0:SortV{}"), subject));
+    }
+
+    /// The overloaded list constructor
+    /// `consE(inj{N, E}(K0), inj{Ns, Es}(K1)) = inj{Ns, Es}(consN(K0, K1))` makes `consE(E1, consE(E2, Es))` reducible, so `w(consE(E1, consE(E2, Es))) = mk` is
+    /// decided by the reducts of its argument. Those are `consE` applications and, by the overload
+    /// equation applied below and then at the root, injections of `consN(K0, consN(K0', K1'))`:
+    /// lists of at least two elements. So the equation misses `w(inj{Ns, Es}(consN(n, nilN)))`,
+    /// which is instance-normal, and reaches `w(inj{Ns, Es}(consN(n, consN(n, nilN))))`, which
+    /// is not.
+    #[test]
+    fn narrowing_follows_the_reducts_of_a_pattern_argument_through_its_subterms() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortN{} []
+                sort SortNs{} []
+                sort SortE{} []
+                sort SortEs{} []
+                sort SortS{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortN{}, SortE{}}(F:SortN{})))
+                    [subsort{SortN{}, SortE{}}()]
+                axiom{R} \exists{R}(V:SortEs{}, \equals{SortEs{}, R}(V:SortEs{}, inj{SortNs{}, SortEs{}}(F:SortNs{})))
+                    [subsort{SortNs{}, SortEs{}}()]
+                symbol n{}() : SortN{} [constructor{}(), functional{}(), injective{}()]
+                symbol nilN{}() : SortNs{} [constructor{}(), functional{}(), injective{}()]
+                symbol consN{}(SortN{}, SortNs{}) : SortNs{} [constructor{}(), functional{}(), injective{}()]
+                symbol consE{}(SortE{}, SortEs{}) : SortEs{} [anywhere{}(), function{}(), value-production{}()]
+                symbol mk{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol w{}(SortEs{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortE{}, R}(X0:SortE{}, inj{SortN{}, SortE{}}(K0:SortN{})),
+                            \and{R}(
+                                \in{SortEs{}, R}(X1:SortEs{}, inj{SortNs{}, SortEs{}}(K1:SortNs{})),
+                                \top{R}()
+                            )
+                        )
+                    ),
+                    \equals{SortEs{}, R}(
+                        consE{}(X0:SortE{}, X1:SortEs{}),
+                        \and{SortEs{}}(
+                            inj{SortNs{}, SortEs{}}(consN{}(K0:SortN{}, K1:SortNs{})),
+                            \top{SortEs{}}()
+                        )
+                    )
+                ) [anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortEs{}, R}(
+                                X0:SortEs{},
+                                consE{}(E1:SortE{}, consE{}(E2:SortE{}, Es:SortEs{}))
+                            ),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortS{}, R}(w{}(X0:SortEs{}), \and{SortS{}}(mk{}(), \top{SortS{}}()))
+                ) [anywhere{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(normal(
+            &definition,
+            "w{}(inj{SortNs{}, SortEs{}}(consN{}(n{}(), nilN{}())))"
+        ));
+        assert!(!normal(
+            &definition,
+            "w{}(inj{SortNs{}, SortEs{}}(consN{}(n{}(), consN{}(n{}(), nilN{}()))))"
+        ));
     }
 
     /// 5104f81b: the ground `wrap(s(z))` is concrete after normalization but not a normal form,

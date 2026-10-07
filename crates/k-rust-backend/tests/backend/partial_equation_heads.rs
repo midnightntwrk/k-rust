@@ -335,3 +335,122 @@ fn a_value_production_application_whose_reaching_equations_are_refuted_is_define
         Predicate::Ceil(internal_term(&unmarked, &format!("wrap{{}}({one})")))
     );
 }
+
+/// Value productions `h` and `w`, with `h(3, Z) = h(1, Z)` (so `h(3, Z)` and `h(1, Z)` denote one
+/// value) and an equation headed by `w` whose left-hand side is `w(h({pattern}, 0))`, with the
+/// condition `{requires}` and the right-hand side `mk({argument} /Int 0)`.
+const NON_NORMAL_PATTERN: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+        hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+            [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+        sort SortH{} []
+        sort SortS{} []
+        symbol mk{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol h{}(SortInt{}, SortInt{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]
+        symbol w{}(SortH{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(
+                    \in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("3")),
+                    \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarZ:SortInt{}), \top{R}())
+                )
+            ),
+            \equals{SortH{}, R}(
+                h{}(X0:SortInt{}, X1:SortInt{}),
+                \and{SortH{}}(h{}(\dv{SortInt{}}("1"), VarZ:SortInt{}), \top{SortH{}}())
+            )
+        ) [anywhere{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                {requires},
+                \and{R}(
+                    \in{SortH{}, R}(X0:SortH{}, h{}({pattern}, \dv{SortInt{}}("0"))),
+                    \top{R}()
+                )
+            ),
+            \equals{SortS{}, R}(
+                w{}(X0:SortH{}),
+                \and{SortS{}}(mk{}(divInt{}({argument}, \dv{SortInt{}}("0"))), \top{SortS{}}())
+            )
+        ) [anywhere{}()]
+    endmodule []"#;
+
+fn non_normal_pattern(pattern: &str, requires: &str, argument: &str) -> BackendDefinition {
+    internalize(
+        &NON_NORMAL_PATTERN
+            .replace("{pattern}", pattern)
+            .replace("{requires}", requires)
+            .replace("{argument}", argument),
+    )
+    .expect("the non-normal pattern definition should internalize")
+}
+
+fn ceil_w_h(first: &str, second: &str) -> String {
+    format!(r"\ceil{{SortS{{}}, SortS{{}}}}(w{{}}(h{{}}({first}, {second})))")
+}
+
+/// `\ceil(w(h(1, 0)))` and `\ceil(w(h(3, 0)))` under `definition`: both denote
+/// `\ceil(w(h(1, 0)))`, since `h(3, 0) = h(1, 0)`, and neither may simplify to `\top` when the
+/// definition makes `w(h(3, 0))` undefined.
+fn assert_w_h_keeps_its_obligation(definition: &BackendDefinition) {
+    let zero = r#"\dv{SortInt{}}("0")"#;
+    for first in [r#"\dv{SortInt{}}("1")"#, r#"\dv{SortInt{}}("3")"#] {
+        let query = ceil_w_h(first, zero);
+        assert_eq!(
+            simplified_predicate_under(definition, &query, &[]),
+            Predicate::Ceil(internal_term(
+                definition,
+                r#"w{}(h{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#
+            )),
+            "{query}"
+        );
+    }
+}
+
+/// `w(h(3, 0)) = mk(1 /Int 0)` makes `w(h(3, 0))` undefined, and `h(3, 0) = h(1, 0)` makes
+/// `w(h(1, 0))` the same value, so `\ceil(w(h(1, 0)))` is `\bottom`, and so is the instance
+/// `Y = 0` of `\ceil(w(h(1, Y)))`. The equation's left-hand side does not match `w(h(1, 0))` and
+/// does not unify with `w(h(1, Y))` as terms, but its argument `h(3, 0)` is not a normal form:
+/// that `h(3, 0)` and `h(1, 0)` differ as terms does not make them different values. So neither
+/// the failed match (the simplifier's normal-form certificate, on the ground application) nor
+/// the failed unification (instance normality, on the symbolic one) shows that the equation
+/// misses them, and both keep their obligation.
+#[test]
+fn an_equation_whose_pattern_argument_is_reducible_reaches_the_values_it_denotes() {
+    let definition = non_normal_pattern(
+        r#"\dv{SortInt{}}("3")"#,
+        r"\top{R}()",
+        r#"\dv{SortInt{}}("1")"#,
+    );
+    assert_w_h_keeps_its_obligation(&definition);
+    let symbolic = ceil_w_h(r#"\dv{SortInt{}}("1")"#, "Y:SortInt{}");
+    assert_eq!(
+        simplified_predicate_under(&definition, &symbolic, &[]),
+        Predicate::Ceil(internal_term(
+            &definition,
+            r#"w{}(h{}(\dv{SortInt{}}("1"), Y:SortInt{}))"#
+        )),
+        "{symbolic}"
+    );
+}
+
+/// `w(h(X, 0)) = mk(X /Int 0) requires X ==Int 3` makes `w(h(3, 0))` undefined, and
+/// `h(3, 0) = h(1, 0)` makes `w(h(1, 0))` the same value. Matching `w(h(X, 0))` against
+/// `w(h(1, 0))` succeeds only at `X = 1`, where the `requires` is false, but that match is not the
+/// only valuation of the left-hand side denoting `w(h(1, 0))`: `h(X, 0)` is not normal on every
+/// instance, and at `X = 3` the `requires` holds. So the refuted `requires` does not discharge
+/// the obligation.
+#[test]
+fn a_refuted_requires_does_not_discharge_definedness_through_a_reducible_pattern_argument() {
+    let definition = non_normal_pattern(
+        "VarX:SortInt{}",
+        r#"\equals{SortBool{}, R}(eqInt{}(VarX:SortInt{}, \dv{SortInt{}}("3")), \dv{SortBool{}}("true"))"#,
+        "VarX:SortInt{}",
+    );
+    assert_w_h_keeps_its_obligation(&definition);
+}
