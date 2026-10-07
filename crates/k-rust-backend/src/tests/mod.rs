@@ -2,6 +2,7 @@
 
 mod constructor_schemas;
 mod definedness;
+mod definedness_oracle;
 mod externalize;
 pub(crate) mod lean_bridge;
 mod matching;
