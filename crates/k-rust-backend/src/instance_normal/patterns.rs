@@ -20,6 +20,12 @@
 //! right-hand side with an open root (a variable, a function application) leaves the roots
 //! unbounded. This keeps FUN's overloaded application `P1 P2`, whose overload equation rewrites
 //! some instances to an injection from `Val`, apart from an injected `Name`.
+//!
+//! Narrowing ([`BackendDefinition::narrow`]) asks which right-hand sides an equation gives a
+//! reduct of a pattern, by matching the equation's left-hand side against the pattern. It reads
+//! that left-hand side by its values as well: a subterm's syntax counts only where the subterm's
+//! instances are normal forms (every subterm of a normal-argument equation's left-hand side, and
+//! otherwise a subterm shown normal), and any other subterm stands for any value.
 
 use std::{
     cell::RefCell,
@@ -262,7 +268,12 @@ impl BackendDefinition {
                 let RuleRhs::Term(right) = &equation.rhs else {
                     return None;
                 };
-                let Some(bindings) = self.narrow(&equation.lhs, &term, depth - 1) else {
+                let reading = if self.pattern_arguments_normal(equation) {
+                    LeftReading::Values
+                } else {
+                    LeftReading::Checked
+                };
+                let Some(bindings) = self.narrow(&equation.lhs, &term, depth - 1, reading) else {
                     continue;
                 };
                 for binding in bindings {
@@ -293,20 +304,30 @@ impl BackendDefinition {
     }
 
     /// The bindings of the variables of an equation's left-hand side `left` under which a reduct
-    /// of an instance of `term` (read up to reducts) that keeps `term`'s root is an instance of
-    /// `left`: one substitution per alternative, each binding a variable to a subterm of `term`
-    /// (read up to reducts) or leaving it unbound (any value). `None` when no such reduct is an
-    /// instance of `left`. A variable bound twice keeps its first binding: its value is a reduct
-    /// of both subterms, so either covers it.
-    fn narrow(&self, left: &Term, term: &Term, depth: usize) -> Option<Vec<Substitution>> {
+    /// of an instance of `term` (read up to reducts) that keeps `term`'s root has the value of an
+    /// instance of `left`: one substitution per alternative, each binding a variable to a subterm
+    /// of `term` (read up to reducts) or leaving it unbound (any value). `None` when no such
+    /// reduct has such a value. A variable bound twice keeps its first binding: its value is a
+    /// reduct of both subterms, so either covers it.
+    ///
+    /// `left` is read through its values (`reading`): a subterm of it is compared by its syntax
+    /// only when its instances are normal forms, so that the instance is the value; any other
+    /// subterm stands for any value and binds nothing ([`Self::narrow_argument`]).
+    fn narrow(
+        &self,
+        left: &Term,
+        term: &Term,
+        depth: usize,
+        reading: LeftReading,
+    ) -> Option<Vec<Substitution>> {
         let unknown = || Some(vec![Substitution::new()]);
         match (left.kind(), term.kind()) {
             (TermKind::Variable(variable), _) => {
                 Some(vec![Substitution::from([(variable.clone(), term.clone())])])
             }
             (TermKind::And(first, second), _) => {
-                let first = self.narrow(first, term, depth)?;
-                let second = self.narrow(second, term, depth)?;
+                let first = self.narrow(first, term, depth, reading)?;
+                let second = self.narrow(second, term, depth, reading)?;
                 combine(first, second)
             }
             (_, TermKind::Variable(_)) => unknown(),
@@ -316,7 +337,7 @@ impl BackendDefinition {
                 } else {
                     conjunct
                 };
-                self.narrow(left, conjunct, depth)
+                self.narrow(left, conjunct, depth, reading)
             }
             (
                 TermKind::Application {
@@ -335,7 +356,8 @@ impl BackendDefinition {
                 }
                 let mut alternatives = vec![Substitution::new()];
                 for (left_argument, term_argument) in left_arguments.iter().zip(term_arguments) {
-                    let argument = self.narrow_argument(left_argument, term_argument, depth)?;
+                    let argument =
+                        self.narrow_argument(left_argument, term_argument, depth, reading)?;
                     alternatives = combine(alternatives, argument)?;
                 }
                 Some(alternatives)
@@ -353,7 +375,7 @@ impl BackendDefinition {
                 },
             ) if left_target == term_target => {
                 if left_source == term_source {
-                    self.narrow_argument(left_operand, term_operand, depth)
+                    self.narrow_argument(left_operand, term_operand, depth, reading)
                 } else {
                     // A reduct of an injection from `term_source` is one from that sort or, its
                     // operand having reduced to an injection, from a sort below it: one from
@@ -373,6 +395,7 @@ impl BackendDefinition {
                             ),
                             term_operand,
                             depth,
+                            reading,
                         ),
                         None => unknown(),
                     }
@@ -410,27 +433,34 @@ impl BackendDefinition {
     }
 
     /// [`Self::narrow`] for an argument position: the argument `term` is read up to reducts, so
-    /// each of its representatives is matched.
-    fn narrow_argument(&self, left: &Term, term: &Term, depth: usize) -> Option<Vec<Substitution>> {
+    /// each of its representatives is matched. Under [`LeftReading::Checked`] the left-hand side
+    /// subterm `left` is compared by its syntax only when it is a normal pattern
+    /// ([`Self::normal_pattern`]), and then so is every subterm below it; otherwise its value is
+    /// any reduct of any of its instances, which this does not compute: it stands for any value
+    /// and binds none of its variables.
+    fn narrow_argument(
+        &self,
+        left: &Term,
+        term: &Term,
+        depth: usize,
+        reading: LeftReading,
+    ) -> Option<Vec<Substitution>> {
         if let TermKind::Variable(variable) = left.kind() {
             return Some(vec![Substitution::from([(variable.clone(), term.clone())])]);
+        }
+        if reading == LeftReading::Checked && !self.normal_pattern(left) {
+            return Some(vec![Substitution::new()]);
         }
         let Some(representatives) = self.representatives(term, depth) else {
             return Some(vec![Substitution::new()]);
         };
         let mut alternatives = Vec::new();
         for representative in &representatives {
-            if let Some(found) = self.narrow(left, representative, depth) {
+            if let Some(found) = self.narrow(left, representative, depth, LeftReading::Values) {
                 alternatives.extend(found);
             }
         }
-        if alternatives.is_empty() {
-            None
-        } else if alternatives.len() > REPRESENTATIVES {
-            Some(vec![Substitution::new()])
-        } else {
-            Some(alternatives)
-        }
+        bounded_alternatives(alternatives)
     }
 
     /// Whether no reduct with the root of `representative` is the normal form `subject`. A reduct
@@ -572,6 +602,29 @@ impl BackendDefinition {
             Some(facts) => read(&facts),
             None => read(self.pattern_facts()),
         }
+    }
+}
+
+/// How [`BackendDefinition::narrow`] reads an equation's left-hand side.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LeftReading {
+    /// Every subterm below the root is a normal pattern: the left-hand side of a normal-argument
+    /// equation ([`BackendDefinition::pattern_arguments_normal`]), or a subterm of a normal
+    /// pattern. Its syntax is its values.
+    Values,
+    /// Any other equation: each argument is checked before its syntax is used.
+    Checked,
+}
+
+/// The alternatives one narrowing found: `None` when there are none, the one alternative that
+/// binds nothing when there are more than [`REPRESENTATIVES`].
+fn bounded_alternatives(alternatives: Vec<Substitution>) -> Option<Vec<Substitution>> {
+    if alternatives.is_empty() {
+        None
+    } else if alternatives.len() > REPRESENTATIVES {
+        Some(vec![Substitution::new()])
+    } else {
+        Some(alternatives)
     }
 }
 

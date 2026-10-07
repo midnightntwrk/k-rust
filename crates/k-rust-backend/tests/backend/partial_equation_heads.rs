@@ -455,6 +455,21 @@ fn a_refuted_requires_does_not_discharge_definedness_through_a_reducible_pattern
     assert_w_h_keeps_its_obligation(&definition);
 }
 
+/// Integers, `mk` and `w : H -> S` (a value production), for the narrowing probes below; each
+/// adds its sorts, symbols and equations in place of `{rest}`.
+const NARROWING: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+        sort SortH{} []
+        sort SortS{} []
+        symbol inj{From, To}(From) : To [sortInjection{}()]
+        symbol mk{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol w{}(SortH{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+        {rest}
+    endmodule []"#;
+
 /// The anywhere equation `{head}(X0) = {right}` with `X0 \in {pattern}`, of argument sort
 /// `{argument}` and result sort `{result}`.
 fn anywhere_equation(
@@ -472,10 +487,26 @@ fn anywhere_equation(
     )
 }
 
+/// `w(… ) = mk(1 /Int 0)` with the given left-hand side argument: every instance is undefined.
+fn undefined_w(pattern: &str) -> String {
+    anywhere_equation(
+        "w",
+        "SortH{}",
+        "SortS{}",
+        pattern,
+        r#"mk{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#,
+    )
+}
+
 fn subsort(sub: &str, sup: &str) -> String {
     format!(
         r"axiom{{R}} \exists{{R}}(Value:{sup}, \equals{{{sup}, R}}(Value:{sup}, inj{{{sub}, {sup}}}(From:{sub}))) [subsort{{{sub}, {sup}}}()]"
     )
+}
+
+fn narrowing_definition(rest: &[String]) -> BackendDefinition {
+    internalize(&NARROWING.replace("{rest}", &rest.join("\n        ")))
+        .expect("the narrowing definition should internalize")
 }
 
 fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept: &str) {
@@ -485,6 +516,83 @@ fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept
         Predicate::Ceil(internal_term(definition, kept)),
         "{query}"
     );
+}
+
+/// `g(5) = f(0)`, `h(g(X)) = k2(X)` and `w(h(f(0))) = mk(1 /Int 0)`. Then
+/// `h(f(0)) = h(g(5)) = k2(5)`, so `w(k2(5))` is the undefined `w(h(f(0)))`. The `h` equation's
+/// argument `g(X)` is not normal on every instance, so that `g(X)` and `f(0)` differ as terms
+/// does not keep `k2(X)` from being a reduct of `h(f(0))`.
+#[test]
+fn narrowing_reads_a_reducible_left_hand_side_argument_up_to_its_values() {
+    let int_to = |head: &str, sort: &str, attributes: &str| {
+        format!("symbol {head}{{}}(SortInt{{}}) : {sort} [{attributes}]")
+    };
+    let value_production = "anywhere{}(), function{}(), value-production{}()";
+    let definition = narrowing_definition(&[
+        "sort SortG{} []".into(),
+        int_to("f", "SortG{}", value_production),
+        int_to("g", "SortG{}", value_production),
+        "symbol h{}(SortG{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        int_to(
+            "k2",
+            "SortH{}",
+            "constructor{}(), functional{}(), injective{}()",
+        ),
+        anywhere_equation(
+            "g",
+            "SortInt{}",
+            "SortG{}",
+            r#"\dv{SortInt{}}("5")"#,
+            r#"f{}(\dv{SortInt{}}("0"))"#,
+        ),
+        anywhere_equation(
+            "h",
+            "SortG{}",
+            "SortH{}",
+            "g{}(VarX:SortInt{})",
+            "k2{}(VarX:SortInt{})",
+        ),
+        undefined_w(r#"h{}(f{}(\dv{SortInt{}}("0")))"#),
+    ]);
+    let kept = r#"w{}(k2{}(\dv{SortInt{}}("5")))"#;
+    assert_ceil_kept(&definition, kept, "SortS{}", kept);
+}
+
+/// `g(8) = g(7)`, `h(g(X)) = k2(X)` and `w(h(g(7))) = mk(1 /Int 0)`, with `k2` a value
+/// production that no equation rewrites. Then `k2(8) = h(g(8)) = h(g(7))`, so `w(k2(8))` is
+/// undefined. Narrowing `h(g(X))` against `h(g(7))` succeeds at `X = 7` only, but `g(X)` is not
+/// normal on every instance: at `X = 8` its value is `g(7)` too, so `k2(8)` is a reduct of
+/// `h(g(7))` as well, which the binding `X = 7` alone does not cover.
+#[test]
+fn narrowing_binds_no_variable_through_a_reducible_left_hand_side_argument() {
+    let int_to = |head: &str, sort: &str| {
+        format!(
+            "symbol {head}{{}}(SortInt{{}}) : {sort} [anywhere{{}}(), function{{}}(), value-production{{}}()]"
+        )
+    };
+    let definition = narrowing_definition(&[
+        "sort SortG{} []".into(),
+        int_to("g", "SortG{}"),
+        "symbol h{}(SortG{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        int_to("k2", "SortH{}"),
+        anywhere_equation(
+            "g",
+            "SortInt{}",
+            "SortG{}",
+            r#"\dv{SortInt{}}("8")"#,
+            r#"g{}(\dv{SortInt{}}("7"))"#,
+        ),
+        anywhere_equation(
+            "h",
+            "SortG{}",
+            "SortH{}",
+            "g{}(VarX:SortInt{})",
+            "k2{}(VarX:SortInt{})",
+        ),
+        undefined_w(r#"h{}(g{}(\dv{SortInt{}}("7")))"#),
+    ]);
+    let kept = r#"w{}(k2{}(\dv{SortInt{}}("8")))"#;
+    assert_ceil_kept(&definition, kept, "SortS{}", kept);
 }
 
 /// `f(f(inj{K,F}(k(X)))) = c`: deciding whether the equation's argument `f(inj{K,F}(k(X)))` is
