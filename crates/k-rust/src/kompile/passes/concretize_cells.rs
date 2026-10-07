@@ -1457,19 +1457,20 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             .copied()
             .chain(added.iter().map(|(term, _)| term))
             .collect::<Vec<_>>();
-        // Invariant: for every ordered sort below `cell` before `list`, the added items or the items of `body_items` hold no item of that list; each ordered sort is visited once, with one walk of the added items and one of `ancestor`'s body.
+        // Invariant: for every ordered sort below `cell` before `list`, the added items or the items of `body_items` hold no item of that list; each ordered sort is visited once, with one walk of the added items and one of `ancestor`'s body (with the added items, for the path child).
         for list in self
             .model
             .lists
             .iter()
             .filter(|list| self.model.is_strictly_below(list, &cell.sort))
         {
+            let holds_path_child = self.holds_path_child(&cell.sort, list, &beside);
             // An added cell above `list` brings its own instance of the list's parent.
             let joining = added.iter().find(|(term, _)| {
                 self.model
                     .sort_for_term(term)
                     .is_none_or(|sort| !self.model.is_strictly_below(list, &sort))
-                    && self.moved_may_hold(term, list, &cell.sort, &beside)
+                    && self.moved_may_hold(term, list, holds_path_child)
             });
             if let Some((term, _)) = joining
                 && self.body_may_hold(&body_items, list)
@@ -1583,33 +1584,34 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         }
     }
 
-    /// Whether `term`, a cell item written beside the written cell `holder` (of sort
-    /// `holder_sort`) and moved into it, may be or hold an instance of `list` there, among the
-    /// items `beside` (`holder`'s body and the other moved items).
+    /// Whether `term`, a cell item written beside a written cell `H` and moved into it, may be
+    /// or hold an instance of `list` there; `holds_path_child` tells whether `H` already holds
+    /// the one cell of the child sort `D` of `H` on the path to `list`
+    /// ([`Self::holds_path_child`]).
     ///
     /// A term of unknown cell sort in `term` is a sibling of `term`'s cells, so it stands for
     /// children of an instance of their parent `P`: it may hold instances of `list` only when
-    /// `list` is below `P` and the child `C` of `holder` on the path to `list` is not already
-    /// written beside it, once (`C` not `multiplicity="*"`). When `P` is `holder`, a written `C`
-    /// is the only one, and the term cannot stand for another. When `P` is below `holder`,
-    /// `term` continues into the written `C` and is decided again there, as `C`'s added item.
-    fn moved_may_hold(
-        &self,
-        term: &Term,
-        list: &Sort,
-        holder_sort: &Sort,
-        beside: &[&Term],
-    ) -> bool {
-        let unknown = self
-            .model
-            .sort_for_term(term)
-            .and_then(|sort| self.model.parents.get(&sort))
-            .is_none_or(|parent| self.model.is_strictly_below(list, parent))
-            && self.child_toward(holder_sort, list).is_none_or(|child| {
-                self.model.is_repeated(&child)
-                    || !beside.iter().any(|item| self.is_written_cell(item, &child))
-            });
+    /// `list` is below `P` and `H` does not hold that one `D`. When `P` is `H`, the written `D`
+    /// is the only one, and the term cannot stand for another. When `P` is below `H`, `term`
+    /// continues into the written `D` and is decided again there, as `D`'s added item.
+    fn moved_may_hold(&self, term: &Term, list: &Sort, holds_path_child: bool) -> bool {
+        let unknown = !holds_path_child
+            && self
+                .model
+                .sort_for_term(term)
+                .and_then(|sort| self.model.parents.get(&sort))
+                .is_none_or(|parent| self.model.is_strictly_below(list, parent));
         self.item_may_hold(term, list, unknown)
+    }
+
+    /// Whether `items` (the body of a written cell of sort `holder` and the items moved into
+    /// it) hold the one cell of the child sort `D` of `holder` on the path to `list`: `D` is not
+    /// `multiplicity="*"` and an item is a cell of sort `D`.
+    fn holds_path_child(&self, holder: &Sort, list: &Sort, items: &[&Term]) -> bool {
+        self.child_toward(holder, list).is_some_and(|child| {
+            !self.model.is_repeated(&child)
+                && items.iter().any(|item| self.is_written_cell(item, &child))
+        })
     }
 
     /// The child sort of `ancestor` on the configured path down to `sort` (`sort` itself when
