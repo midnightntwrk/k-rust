@@ -6590,7 +6590,7 @@ bound = "two recognitions, the second with the relations ignored, plus either on
 
 [[node.cost]]
 mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-bound = "at most two parse attempts; the retry makes every prediction and skips completions as the filtered attempt does before the last chart it reached"
+bound = "at most two parse attempts; the retry makes every prediction and, before the last chart the filtered attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes that chain's quadratic p"
 
 [[node]]
 kind = "algorithm"

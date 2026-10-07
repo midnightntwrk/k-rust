@@ -738,6 +738,61 @@ mod tests {
             pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
         }
 
+        /// The same with associativity declared over groups of productions of different sorts,
+        /// where a production's node can be forbidden under another sort's production: a
+        /// recognition that skips such nodes before they are completed must still report the
+        /// violation, or the chart, that an unfiltered one reports.
+        #[test]
+        fn completion_pruning_matches_unfiltered_recognition_with_grouped_associativity(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..7, 0..5)),
+                1..9,
+            ),
+            groups in prop::collection::vec(
+                (0u8..3, prop::collection::btree_set(0usize..9, 1..4)),
+                1..3,
+            ),
+            input in "[abc ]{0,11}",
+        ) {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items)) in productions.iter().enumerate() {
+                let items = items
+                    .iter()
+                    .map(|item| match item {
+                        0..=2 => nt(&format!("S{item}")),
+                        3 => terminal("a"),
+                        4 => terminal("b"),
+                        5 => terminal("c"),
+                        _ => nt("S0"),
+                    })
+                    .collect();
+                sentences.push(production(&format!("S{result}"), items, &format!("p{index}")));
+            }
+            for (associativity, members) in &groups {
+                let tags = members
+                    .iter()
+                    .filter(|member| **member < productions.len())
+                    .map(|member| format!("p{member}"))
+                    .collect::<Vec<_>>();
+                if tags.is_empty() {
+                    continue;
+                }
+                sentences.push(Sentence::SyntaxAssociativity {
+                    associativity: match associativity {
+                        0 => crate::definition::Associativity::Left,
+                        1 => crate::definition::Associativity::Right,
+                        _ => crate::definition::Associativity::NonAssoc,
+                    },
+                    tags,
+                    attributes: Attributes::default(),
+                });
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
+        }
+
         #[test]
         fn indexed_prediction_matches_unfiltered_recognition(
             kinds in prop::collection::vec(0u8..10, 1..12),
@@ -746,6 +801,65 @@ mod tests {
             let grammar = indexed_grammar(&kinds);
             prop_assert_eq!(filtered(&grammar, &input), unfiltered(&grammar, &input));
         }
+    }
+
+    /// `a + a * b c` has one derivation, `plus(a, q(a))`, and the left associativity of the
+    /// group `plus q` forbids `q` as the right operand of `plus`: the input is grammatical and
+    /// the error is that violation. `a + a * b b` has no derivation; the longest prefix of a
+    /// sentence is `a + a * b`, which `q` would continue with `c`. The first attempt skips `q`'s
+    /// items, whose node the relation forbids where it could sit; the failed parse is then
+    /// recognized again for its diagnostic, which must not skip them.
+    #[test]
+    fn a_failed_parse_reports_the_grammars_violation_or_longest_prefix() {
+        let sentences = [
+            production("Start", vec![nt("E")], "start"),
+            production("E", vec![nt("E"), terminal("+"), nt("F")], "plus"),
+            production("E", vec![terminal("a")], "ea"),
+            production(
+                "E",
+                vec![
+                    nt("E"),
+                    terminal("+"),
+                    terminal("a"),
+                    terminal("*"),
+                    terminal("d"),
+                ],
+                "other",
+            ),
+            production("F", vec![terminal("a")], "fa"),
+            production(
+                "F",
+                vec![nt("F"), terminal("*"), terminal("b"), terminal("c")],
+                "q",
+            ),
+            Sentence::SyntaxAssociativity {
+                associativity: crate::definition::Associativity::Left,
+                tags: vec!["plus".to_owned(), "q".to_owned()],
+                attributes: Attributes::default(),
+            },
+        ];
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+        let violation = filtered(&grammar, "a + a * b c");
+        assert_eq!(violation, unfiltered(&grammar, "a + a * b c"));
+        assert!(
+            matches!(
+                &violation,
+                Err(ParseError::Associativity { parent, child, side })
+                    if parent == "plus" && child == "q" && *side == "right"
+            ),
+            "{violation:?}"
+        );
+
+        let no_parse = filtered(&grammar, "a + a * b b");
+        assert_eq!(no_parse, unfiltered(&grammar, "a + a * b b"));
+        assert!(
+            matches!(
+                &no_parse,
+                Err(ParseError::NoParse { expected, .. }) if expected == &["\"c\"".to_owned()]
+            ),
+            "{no_parse:?}"
+        );
     }
 
     /// A same-span cycle is reported when an item the input can continue reaches it, and not

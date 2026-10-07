@@ -20,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts; the retry makes every prediction and skips completions as the filtered attempt does before the last chart it reached"
+//! bound = "at most two parse attempts; the retry makes every prediction and, before the last chart the filtered attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes that chain's quadratic p"
 //! ```
 //!
 //! ```toml algorithm
@@ -207,13 +207,20 @@ enum PredictionMode {
     Filtered,
     /// Make every prediction and completion.
     Unfiltered,
-    /// Make every prediction, and skip completions that cannot contribute to a parse only
-    /// where the next token starts before `horizon`: the last chart a failed `Filtered` attempt
-    /// reached, which is the chart its no-parse diagnostic reads. Every scan of an unfiltered
-    /// recognition is made by an item that can contribute, so that chart is the same in every
-    /// mode. An item a completion adds is relocated to the position of the next token, so
-    /// nothing skipped where the next token starts before the horizon can reach its chart, and
-    /// its items are those of `Unfiltered`.
+    /// Make every prediction, and skip a completion only where the next token starts before
+    /// `horizon` (the last chart a failed `Filtered` attempt reached) and only when the input
+    /// cannot continue the item it would advance: its rest cannot begin with the next token,
+    /// nor complete through a nullable rest into an item whose rest can, whatever the priority
+    /// and associativity relations say. Such an item scans nothing and completes into nothing
+    /// that scans, so every chart from the horizon on, including the last non-empty one that
+    /// the no-parse diagnostic reads, has the items of `Unfiltered` (the `Filtered` attempt
+    /// keeps a subset of them, so its last chart is not after theirs). An item a completion
+    /// adds is relocated to the position of the next token, so nothing skipped where the next
+    /// token starts before the horizon can reach those charts. And every item of a derivation
+    /// of the whole input is kept, so when the relations reject every derivation the retry
+    /// meets a rejection and reports a violation, as `Unfiltered` does. `Filtered` also skips
+    /// items whose node the relations forbid wherever it could sit; that keeps every parse but
+    /// drops items that scan, so a retry must not.
     Retry { horizon: usize },
 }
 
@@ -1298,6 +1305,13 @@ impl Grammar {
         // Whether a node of a production starting in a chart can be part of a parse of the whole
         // input, whatever follows, by `(origin, production)`.
         let mut reaching_nodes = HashMap::new();
+        // The relations a skipped completion is judged by (`PredictionMode`): a retry judges
+        // only whether the input can continue an item, never where the relations let its node
+        // sit.
+        let usefulness_filter = match prediction_mode {
+            PredictionMode::Retry { .. } => PriorityFilter::Ignored,
+            PredictionMode::Filtered | PredictionMode::Unfiltered => filter,
+        };
         let root = (start_position, start_id);
         let cycles = self
             .same_span_cycles
@@ -1613,7 +1627,7 @@ impl Grammar {
                                     winner,
                                     analysis,
                                     cycles,
-                                    filter,
+                                    usefulness_filter,
                                     root,
                                     &mut useful_completions,
                                     &mut reaching_nodes,
@@ -1785,6 +1799,10 @@ impl Grammar {
     ///
     /// The answer depends only on `(origin, production)` and the final chart `origin`; it is
     /// memoized in `memo` and searched with an explicit stack, as there.
+    ///
+    /// Judged without the relations (`filter` ignored) every node is taken to reach the root:
+    /// this question is about where the relations let a node sit, and a recognition that must
+    /// keep every item the input can continue does not ask it.
     #[allow(clippy::too_many_arguments)]
     fn node_reaches_root(
         &self,
@@ -1796,6 +1814,9 @@ impl Grammar {
         root: (usize, usize),
         memo: &mut HashMap<(usize, usize), bool>,
     ) -> bool {
+        if filter == PriorityFilter::Ignored {
+            return true;
+        }
         if let Some(reaches) = memo.get(&(origin, production)) {
             return *reaches;
         }

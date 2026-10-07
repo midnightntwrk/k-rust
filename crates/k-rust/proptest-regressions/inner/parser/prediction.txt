@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 460a88f6e30f12e28b97526b13fb9a91c55a515f547df7ddbba08653746fa8af # shrinks to productions = [(1, [4], 0), (0, [1, 2], 0), (0, [4, 3], 0)], input = "b b"
 cc 5cc07bd1329472aae457662e781201ed670c9eaf21be8c4b0ba57f2f25298500 # shrinks to productions = [(1, [2, 3], 0), (0, [1], 0), (0, [], 0), (2, [2], 0), (2, [], 0)], input = ""
+cc 95696a7ec8739b0e445ff49662c1e42dc2f4c012a7b1f190d21153e1fb78a6f1 # shrinks to productions = [(1, [1]), (0, [2, 2, 2]), (1, []), (0, [5, 2, 1]), (2, [3, 0]), (0, [])], groups = [(0, {0})], input = "caa"
