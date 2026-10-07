@@ -35,10 +35,11 @@
 //! steps or in the steps its sides take, a value in which the application occurs, and no
 //! equation of another, total head whose left-hand side holds the application below total
 //! symbols has an undefined right-hand side there. The oracle applies it rather than testing
-//! it: a query is not checked when some application the query reaches by steps has a head
-//! that an overlap peak of the explored graph, whose two sides it cannot join, may make
-//! undefined that way ([`Peak`]), or that a root step of a total head's equation to a term in
-//! `U` holds below total symbols.
+//! it: a query is not checked when some application the query reaches by steps, or some
+//! undefined application in a term whose step leads to one holding the query (a left-hand side
+//! instance the certificate reads), has a head that an overlap peak of the explored graph,
+//! whose two sides it cannot join, may make undefined that way ([`Peak`]), or that a root step
+//! of a total head's equation to a term in `U` holds below total symbols.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -797,6 +798,19 @@ impl<'d> Universe<'d> {
         }
     }
 
+    /// The value-production heads of the applications in the term that are in `undefined`.
+    fn undefined_heads(&self, id: Id, undefined: &[bool], into: &mut BTreeSet<u32>) {
+        if let Node::App(symbol, _) = &self.nodes[id as usize]
+            && !self.is_constructor(*symbol)
+            && undefined[id as usize]
+        {
+            into.insert(*symbol);
+        }
+        for child in self.children(id) {
+            self.undefined_heads(child, undefined, into);
+        }
+    }
+
     /// The heads of the applications a term's definedness rests on directly: its own, and,
     /// under total symbols and injections, its arguments'. A term identified with `\bottom`
     /// makes one of these undefined; one under a partial head need not be.
@@ -1373,6 +1387,19 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         } else {
             heads.clone_from(&every_head);
         }
+        // The certificate also reads the left-hand side instances whose reducts hold the query
+        // (an equation instance identifies its two sides, so an undefined left-hand side
+        // instance makes the reduct undefined), and it decides the applications in them under
+        // the same assumption: the heads of the undefined applications in each step's term
+        // that does not hold the query but whose reduct does count too.
+        let mut holds = vec![None; count];
+        for (from, to, _) in &edges {
+            if contains(&universe, *to, id, &mut holds)
+                && !contains(&universe, *from, id, &mut holds)
+            {
+                universe.undefined_heads(*from, &undefined, &mut heads);
+            }
+        }
         let excused = peaks.iter().any(|peak| {
             heads.iter().any(|application| {
                 (*application != peak.head && peak.exposed.contains(application))
@@ -1419,6 +1446,22 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         queries,
         undefined: undefined_terms,
     }
+}
+
+/// Whether `term` holds `subterm` (itself included); `memo` caches the answers by term.
+fn contains(universe: &Universe<'_>, term: Id, subterm: Id, memo: &mut [Option<bool>]) -> bool {
+    if term == subterm {
+        return true;
+    }
+    if let Some(known) = memo[term as usize] {
+        return known;
+    }
+    let held = universe
+        .children(term)
+        .into_iter()
+        .any(|child| contains(universe, child, subterm, memo));
+    memo[term as usize] = Some(held);
+    held
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2591,6 +2634,45 @@ fn probes() -> Vec<Probe> {
                 ),
             vec![],
             vec![app("f", vec![cons("c")])],
+        )
+    });
+    // Round 7, from the random run with total heads (seed 0x5eed0006, case 16195, minimized):
+    // the peak of `g(X, 3) = f(c)` and `g(k(d), 3) = m(2 /Int 0)` at `g(k(d), 3)` makes `f(c)`
+    // undefined, so the ground left-hand side of `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))` is, and so
+    // `g(g(d, 2), 0)` is. The certificate of `g(g(d, 2), 0)` reads `f(c)` in that left-hand side
+    // and decides it under the documented assumption (the peak is at an instance of a `g`
+    // equation, one of whose sides has the head `f`); excused.
+    probes.push(Probe {
+        excused: true,
+        ..probe(
+            "round 7 assumption read in a left-hand side",
+            Definition::new(&["A"])
+                .constructor("c", &[], "A")
+                .constructor("d", &[], "A")
+                .constructor("k", &["A"], "A")
+                .constructor("m", &["Int"], "A")
+                .head("f", &["A"], "A")
+                .head("g", &["A", "Int"], "A")
+                .equation(
+                    app(
+                        "g",
+                        vec![app("g", vec![app("f", vec![cons("c")]), int(0)]), int(1)],
+                    ),
+                    app(
+                        "k",
+                        vec![app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)])],
+                    ),
+                )
+                .equation(
+                    app("g", vec![var("VarX", "A"), int(3)]),
+                    app("f", vec![cons("c")]),
+                )
+                .equation(
+                    app("g", vec![app("k", vec![cons("d")]), int(3)]),
+                    app("m", vec![div(int(2), int(0))]),
+                ),
+            vec![],
+            vec![app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)])],
         )
     });
     // Review 6, F1 and F2: `e : A -> A` a total equation head, `sz : A -> Int` a total

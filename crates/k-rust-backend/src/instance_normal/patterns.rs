@@ -57,6 +57,13 @@
 //! while the scan of `f(c)` sees no `f` equation. The certificate assumes no such equation
 //! instance exists.
 //!
+//! Each assumption is made for every application the certificate decides, the application
+//! itself and those it decides on the way, such as one in the left-hand side of an equation
+//! whose reduct holds the application: under `g(X, 3) = f(c)`, `g(k(d), 3) = m(2 /Int 0)` and
+//! `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))`, the peak at `g(k(d), 3)` makes `f(c)` undefined, hence
+//! the ground left-hand side `g(g(f(c), 0), 1)` and so `g(g(d, 2), 0)`, while the certificate
+//! of `g(g(d, 2), 0)` reads `f(c)` there as a value distinct from every other.
+//!
 //! The questions nest: deciding a left-hand side's argument decides the instance normality of
 //! the terms its reducts build, whose own equations are decided the same way. Their depth is
 //! bounded (`super::VALUE_QUESTIONS`, [`NARROWING_DEPTH`]), their breadth too
