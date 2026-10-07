@@ -3830,6 +3830,55 @@ fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
     );
 }
 
+/// `concrete` and `symbolic` do not restrict a rewrite step, but a variable both name is still
+/// one no term can match: kcompile reports it at the rule instead of compiling a definition the
+/// backend then refuses to load.
+#[test]
+fn kcompile_reports_a_concrete_and_symbolic_overlap_on_a_rewrite_rule_at_the_rule() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"module CO-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= f(Int) | g(Int)
+endmodule
+module CO
+  imports CO-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  rule <k> f(N) => g(N) ... </k> [concrete, symbolic(N)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "CO",
+            "--syntax-module",
+            "CO-SYNTAX",
+            "-o",
+        ])
+        .arg(root.join("out"))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "{}:9:3: Error[InconsistentFunctionRuleAttributes]: Rule cannot be both concrete and symbolic in the same variable: [N]",
+            definition.display()
+        )),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_search_final_reports_states_cut_by_the_depth_bound() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
