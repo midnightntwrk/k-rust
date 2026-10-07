@@ -13,7 +13,11 @@
 //! This transformation pass assigns UNIQUE_ID attributes to rules and claims and records no origins.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! Assign Java-compatible stable identifiers to rules and claims.
+//! Assign stable `UNIQUE_ID` identifiers to rules and claims.
+//!
+//! An identifier is a digest of the sentence's text in the identifier format of K's `kompile`, so
+//! that a definition compiled by either compiler names a sentence alike; the comments below that
+//! describe the hashed text describe that format.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeMap, convert::Infallible, fmt::Write};
@@ -37,7 +41,7 @@ const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
     AttributeKey::NonExecutable,
 ];
 
-/// Apply Java's `NumberSentences` transformation to every rule and claim.
+/// Give every rule and claim its `UNIQUE_ID` attribute.
 pub fn number_sentences(definition: &Definition) -> Definition {
     super::super::pipeline::run_standalone(definition, number_sentences_pass, None)
         .unwrap_or_else(|error| match error {})
@@ -127,8 +131,8 @@ pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> St
                 format_attributes(attributes)
             )
         }
-        // `NormalizeVariables.normalize(Sentence)` handles Rule and Context but not Claim in the
-        // pinned Java frontend. Preserve that observable quirk for compatible identifiers.
+        // A claim's text is hashed without variable normalization, unlike a rule's, so its
+        // identifier changes with its variable names; this is part of the identifier format.
         Sentence::Claim {
             body,
             requires,
@@ -152,8 +156,8 @@ pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> St
 }
 
 fn normalize_rule_variables(body: &Term, requires: &Term, ensures: &Term) -> [Term; 3] {
-    // Scala's KVariable equality is name-only; its sort lives in attributes and does not
-    // distinguish normalization identities.
+    // Variables are normalized by name alone: a name denotes one variable of the sentence
+    // whatever sorts its occurrences are annotated with.
     let mut variables = BTreeMap::<String, String>::new();
     let mut counter = 0usize;
     [body, requires, ensures].map(|term| normalize_term(term, &mut variables, &mut counter))
@@ -215,7 +219,7 @@ fn normalize_term(
 }
 
 fn normalize_label(label: &crate::kast::Label) -> crate::kast::Label {
-    // Java's hash text omits instantiated production parameters, but retains the explicit
+    // The hashed text omits instantiated production parameters, but keeps the explicit
     // polymorphic placeholder carried by generated subsort and ML sentences.
     if label.parameters.iter().any(|sort| sort.is_rigid_variable()) {
         crate::kast::Label::with_parameters(

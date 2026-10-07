@@ -96,7 +96,7 @@ impl ResolvedSource {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadOptions {
     pub markdown_selector: String,
-    /// Additional roots loaded before the entry source, such as Java's implicit prelude.
+    /// Additional roots loaded before the entry source, such as K's implicit prelude.
     pub implicit_sources: Vec<ResolvedSource>,
     /// Module attributes excluded by the selected backend before configuration and rule parsing.
     pub excluded_module_attributes: Vec<String>,

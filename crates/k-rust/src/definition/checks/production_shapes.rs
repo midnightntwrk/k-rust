@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Production and configuration shape checks.
 
@@ -130,7 +130,9 @@ fn is_cell_collection(sort: &Sort, sorts: &SortCatalog<'_>) -> bool {
         .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
 }
 
-/// Java `CheckHOLE`.
+/// A `strict` or `seqstrict` position and a context's `HOLE` may not have sort `K`: heating puts
+/// the term at the hole at the front of the computation as one `KItem`, and a term of sort `K`
+/// is a sequence of them.
 pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -197,7 +199,7 @@ pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckStreams`.
+/// The content of a cell marked `stream` must be a `List`, or a sort below it.
 pub fn check_streams(
     sentences: &[&Sentence],
     subsorts: &crate::definition::PartialOrder<Sort>,
@@ -234,7 +236,8 @@ pub fn check_streams(
     diagnostics
 }
 
-/// Java `CheckConfigurationCells`.
+/// Each cell sort occurs once in the configuration, and a cell with multiplicity `*` must name a
+/// `type` other than `Bag`, the default, which is not supported.
 pub fn check_configuration_cells(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,

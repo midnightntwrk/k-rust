@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Variable-binding checks and position-aware KAST traversal.
 
@@ -36,7 +36,9 @@ pub enum CheckMode {
     },
 }
 
-/// Java `CheckRHSVariables`, including pattern/value validation.
+/// Report the right-hand-side variables of rules, claims, contexts and context aliases that no
+/// binding position binds and no exemption covers (`RightHandSideBinding`), existential
+/// variables where the backend does not support them, and `#fun` or `#let` in a pattern position.
 pub fn check_rhs_variables(
     sentences: &[&Sentence],
     options: StructuralCheckOptions,

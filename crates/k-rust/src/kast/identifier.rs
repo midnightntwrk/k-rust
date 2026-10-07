@@ -1,4 +1,4 @@
-//! Java `ModuleToKORE`'s KORE identifier encoding and its inverse, with the `Lbl`/`Sort`/`Var`
+//! K's KORE identifier encoding of K names and its inverse, with the `Lbl`/`Sort`/`Var`
 //! prefixes.
 //!
 //! ASCII alphanumerics and `-` pass through; every other UTF-16 unit becomes a four-letter
@@ -33,9 +33,8 @@ const KEYWORDS: [&str; 8] = [
 const KEYWORD_CODE: &str = "Kywd";
 
 /// The mnemonic for each encodable ASCII unit; `encode` indexes it by unit, `decode` by code.
-/// Java's table also lists `-` for itself, but `-` is an identifier unit that is never encoded
-/// and a one-character code can never match a four-character slot, so that row is dead in both
-/// directions and is not carried.
+/// `-` has no row: it is an identifier unit that is never encoded, and a one-character code can
+/// never match a four-character slot.
 const TABLE: [(u16, &str); 32] = [
     (0x20, "Spce"),
     (0x21, "Bang"),
@@ -116,7 +115,7 @@ impl Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-/// Encode a K name with Java `ModuleToKORE`'s KORE identifier encoding.
+/// Encode a K name with K's KORE identifier encoding.
 pub fn encode(name: &str) -> String {
     if KEYWORDS.contains(&name) {
         return format!("{name}'{KEYWORD_CODE}'");

@@ -407,10 +407,10 @@ fn i107_is_sort_conflicts(
 
 #[test]
 fn is_sort_predicate_ignores_sorts_outside_the_parsed_definition() {
-    // reference: DefinitionParsing.parseDefinitionAndResolveBubbles retains the main closure and
-    // only entry modules whose visible sentences hold no bubble; Kompile.checkIsSortPredicates
-    // never sees a rule-bearing module that nothing imports (isSortPredicateBubbleModule.k and
-    // isSortPredicateOutsideClosure.k both exit 0 under k/result/bin/kompile).
+    // reference: isSortPredicateBubbleModule.k and isSortPredicateOutsideClosure.k both exit 0
+    // under k/result/bin/kompile. The parsed definition retains the main closure and only entry
+    // modules whose visible sentences hold no bubble, so the check never sees a rule-bearing
+    // module that nothing imports.
     let definition = resolved_definition(
         "MAIN",
         vec![

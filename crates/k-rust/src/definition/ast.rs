@@ -33,7 +33,7 @@ pub struct Location {
 
 /// Definition attributes as represented by KAST JSON.
 ///
-/// Values remain JSON values because the Java frontend emits a mixture of
+/// Values remain JSON values because KAST JSON attribute values are a mixture of
 /// strings and typed values, and unknown internal attributes must round-trip.
 /// Semantic equality ignores the reserved origin receipt and input-address carrier while
 /// [`Self::entries`] continues to expose both to provenance consumers.
@@ -55,7 +55,7 @@ pub struct AttributeConflict {
     pub values: Vec<Value>,
 }
 
-/// Typed loss report paired with the Java-compatible merge result.
+/// Typed loss report paired with the result of [`Attributes::merge`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttributeMergeError {
     pub merged: Attributes,
@@ -363,10 +363,11 @@ impl Attributes {
             .all(|key| is_provenance_only_attribute(key))
     }
 
-    /// Merge attributes using Scala `Att.mergeAttributes` semantics.
+    /// Merge attribute sets into one.
     ///
-    /// Equal key/value entries survive deduplication. If one key has multiple
-    /// distinct values, every value for that key is omitted from the result.
+    /// Equal key/value entries survive deduplication. A key given multiple distinct values has
+    /// no single merged value, so every value for that key is omitted from the result and the
+    /// key is reported as a conflict.
     /// The compiler-only origin receipt is retained only when all present receipts agree and never
     /// creates a semantic merge conflict; the merged attributes carry the union of every input
     /// address in first-occurrence order.

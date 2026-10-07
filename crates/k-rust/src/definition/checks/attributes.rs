@@ -1,6 +1,7 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
-//! Attribute well-formedness checks ported from Java `CheckAtt` and `CheckBracket`.
+//! Attribute well-formedness checks: which attributes each kind of sentence may carry, and what
+//! their values and the productions that carry them must satisfy (including `bracket`).
 
 use super::Sentence;
 use crate::definition::AttributeKey;

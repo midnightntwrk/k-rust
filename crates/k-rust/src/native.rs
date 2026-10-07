@@ -328,7 +328,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
 ///
-/// Relative requirements follow K's `ParserUtils.slurp` order: the first lookup directory, the requiring file's directory, the remaining lookup directories, and finally the configured or embedded builtin source.
+/// Relative requirements are looked up in this order: the first lookup directory, the requiring file's directory, the remaining lookup directories, and finally the configured or embedded builtin source.
 /// With no lookup directory, the builtin source therefore precedes the requiring file's directory.
 #[derive(Clone, Debug)]
 pub struct FileResolver {

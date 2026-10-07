@@ -200,7 +200,8 @@ impl ResolvedDefinition {
     }
 }
 
-/// Scala's `Module.matchKLabel`, including its two `#withConfig` cases.
+/// The symbol that heads a rule; under `#withConfig`, the head of its first argument, or of that
+/// argument's left-hand side when it is a rewrite.
 ///
 /// This is the one reading of the symbol that heads a rule. An alias `P #as V` matches exactly
 /// the terms `P` matches and binds `V` to the whole term, so it is peeled wherever the head is

@@ -26,7 +26,8 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-/// Add Java's synthetic `LANGUAGE-PARSING` module.
+/// Add the synthetic `LANGUAGE-PARSING` module, which publicly imports the main module, the syntax
+/// module, `K-TERM` and `ID-SYNTAX-PROGRAM-PARSING`.
 ///
 /// Full installations provide all four imports. Standalone `--no-prelude` definitions retain the
 /// same module boundary while importing only modules that actually exist.
@@ -83,9 +84,9 @@ pub(crate) fn add_semantics_module_pass(
 
 /// Mark rules and contexts whose left side begins with a variable in a main-cell K sequence.
 ///
-/// `KoreBackend` applies `new AddCoolLikeAtt(d.mainModule())` to every module's sentences, so the
-/// `maincell` attribute is looked up in the main module's productions for every rule, including
-/// the rules of an imported module that does not see the generated configuration itself.
+/// The `maincell` attribute is looked up in the main module's productions for every rule,
+/// including the rules of an imported module that does not see the generated configuration
+/// itself: every rule runs in the main module's configuration.
 pub fn add_cool_like_attributes(definition: &Definition) -> Definition {
     super::super::pipeline::run_standalone(definition, add_cool_like_attributes_pass, None)
         .unwrap_or_else(|error| match error {})
@@ -140,7 +141,8 @@ pub(crate) fn add_cool_like_attributes_pass(
     Ok(output)
 }
 
-/// Generate Java's final positive and `owise` negative sort-predicate rules.
+/// Generate the rules of the sort predicates: `isK(K) => true` for `K`; for any other sort `S`,
+/// `isS(S:S) => true` when `S` is placeable at `K`, and `isS(K) => false` as an `owise` rule.
 pub fn generate_sort_predicate_rules(
     definition: &Definition,
 ) -> Result<Definition, SortInjectionError> {

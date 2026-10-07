@@ -193,7 +193,8 @@ pub struct TermMetadata {
     pub origin: Option<Arc<OriginRecord>>,
 }
 
-/// A K term. Semantic variant order follows the Scala frontend's total ordering.
+/// A K term. Its total order (`Ord`) ranks the variants in declaration order before comparing
+/// their fields, ignoring annotations.
 ///
 /// A term is dropped with an explicit work list, so a term nested to any depth is dropped on
 /// any thread. Because of that `Drop`, a term cannot be destructured by move: match on

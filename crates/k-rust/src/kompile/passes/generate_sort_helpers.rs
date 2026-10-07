@@ -50,7 +50,8 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-/// Apply Java's `GenerateSortPredicateSyntax` transformation.
+/// Declare the sort predicate `isS` of every local sort whose role has one, and the `Bool` token
+/// sort the predicates' rules need when the main module has none.
 pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -224,7 +225,8 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
     ))
 }
 
-/// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.
+/// Declare the sort projections `project:S` and the named field and cell-map key projections of
+/// each module's productions, with their rules.
 pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(
         definition,

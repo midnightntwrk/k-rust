@@ -30,7 +30,8 @@ use crate::{
 
 use super::super::{TermConversionError, TermConverter};
 
-/// Apply Java's final `MinimizeTermConstruction` transformation before KORE emission.
+/// Reuse left-hand-side subterms that also occur on a rule's right-hand side through `#as`
+/// aliases, before KORE emission.
 pub fn minimize_term_construction(
     definition: &Definition,
 ) -> Result<Definition, TermConversionError> {
@@ -48,9 +49,9 @@ pub(crate) fn minimize_term_construction_pass(
     let resolved = input
         .resolved_raw()
         .map_err(|error| TermConversionError::Definition(error.clone()))?;
-    // Java constructs one minimizer from the final main module and applies it to every
-    // sentence visible through that module. In particular, compiler-generated symbols such as
-    // `<generatedTop>` may be declared in the main module while occurring in imported rules.
+    // One minimizer is built from the main module and applied to every sentence visible through
+    // it: compiler-generated symbols such as `<generatedTop>` may be declared in the main module
+    // while occurring in imported rules, so only the main module's productions cover them all.
     let main_module = resolved
         .module_id(&input.definition.main_module)
         .expect("resolved definition contains its main module");

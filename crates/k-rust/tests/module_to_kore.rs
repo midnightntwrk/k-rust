@@ -2695,7 +2695,7 @@ fn plugin_hook_namespaces_are_hooked_only_when_admitted() {
         })
     };
 
-    // Java's fixed builtin namespaces are hooked regardless of the plugin allow-list.
+    // K's builtin hook namespaces are hooked regardless of the plugin allow-list.
     assert_eq!(hooked(&[], "concat"), [(true, true), (true, true)]);
     // A plugin namespace is an ordinary symbol until `--hook-namespaces` admits it.
     assert_eq!(hooked(&[], "keccak"), [(false, false), (false, false)]);
@@ -2903,9 +2903,8 @@ fn rejects_malformed_utf16_in_kore_identifiers() {
     }
 }
 
-/// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`: every
-/// claim visible from the specification module that the definition module does not already
-/// contain, not only the specification module's local claims.
+/// A specification module emits every claim visible from it that the definition module does
+/// not already contain, not only its local claims.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn emits_claims_imported_into_the_specification_module() {

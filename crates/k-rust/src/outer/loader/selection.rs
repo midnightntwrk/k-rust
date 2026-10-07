@@ -36,7 +36,8 @@ pub struct SyntaxModule {
     pub fallback_warning: Option<Diagnostic>,
 }
 
-/// Resolve explicit or default syntax selection using ParserUtils' missing-default fallback.
+/// Resolve the syntax module: the explicit one, else `<MAIN>-SYNTAX`, else the main module with a
+/// warning.
 pub fn resolve_syntax_module(
     definition: &ResolvedDefinition,
     explicit: Option<&str>,
@@ -138,8 +139,9 @@ pub(super) fn select_modules(
         }
     }
 
-    // Java supplies the original default configuration separately after selection/exclusion.
-    // Retain its closure only when configuration resolution will need the fallback.
+    // The default configuration module is a fallback for a definition without a configuration
+    // after selection and exclusion; retain its closure only when configuration resolution will
+    // need it.
     if !has_configuration_after_exclusion(resolved, configuration, options)
         && let Some(default) = resolved.module_id(WellKnownModule::DefaultConfiguration.as_str())
         && !options

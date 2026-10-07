@@ -177,7 +177,7 @@ struct Alias {
     attributes: Attributes,
 }
 
-/// Apply Java's `ResolveStrict` definition transformation.
+/// Generate evaluation contexts from `strict`, `seqstrict` and `hybrid` productions.
 pub fn resolve_strict(definition: &Definition) -> Result<Definition, ResolveStrictError> {
     super::super::pipeline::run_standalone(
         definition,

@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Definition-wide KLabel integrity checks.
 
@@ -490,8 +490,10 @@ fn has_no_arg(rule: &Sentence, attribute: AttributeKey) -> bool {
 }
 
 fn attribute_names(rule: &Sentence, attribute: AttributeKey) -> BTreeSet<String> {
-    // Keep empty names: Java's `String.split`/`CollectionUtils.intersection`
-    // combination reports two empty attributes as the overlap `[]`.
+    // Keep empty names: a bare attribute, which names every variable, has the one name `""`, so a
+    // bare `concrete` and a bare `symbolic` overlap in it and are reported, with the overlap
+    // printed as `[]`. A bare attribute against a list of names shares no name with it and is
+    // not reported, although it also names the listed variables.
     rule.attributes()
         .string(attribute)
         .into_iter()

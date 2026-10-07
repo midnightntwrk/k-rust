@@ -32,7 +32,7 @@ impl fmt::Display for SubsortKItemError {
 
 impl std::error::Error for SubsortKItemError {}
 
-/// Apply Java's `Kompile.subsortKItem` module transformation.
+/// Declare every sort of each module, except parser sorts, a subsort of `KItem`.
 pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItemError> {
     super::super::pipeline::run_standalone(
         definition,

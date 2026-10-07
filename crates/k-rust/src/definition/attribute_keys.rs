@@ -126,7 +126,7 @@ use KeyClass::{Internal, Krust};
 use KeyParameter::{Forbidden, Optional, Required};
 
 attribute_keys! {
-    // K built-in keys (user-visible), declaration order of Java `Att` at base.
+    // K built-in keys (user-visible).
     Group = "group" (builtin(Required, ALL_SENTENCES), false),
     Label = "label" (builtin(Required, ALL_SENTENCES), true),
     AllPath = "all-path" (builtin(Forbidden, CLAIM | MODULE), false),
@@ -222,7 +222,7 @@ attribute_keys! {
     Total = "total" (builtin(Forbidden, PRODUCTION), true),
     UnparseAvoid = "unparseAvoid" (builtin(Forbidden, PRODUCTION), false),
     Unused = "unused" (builtin(Forbidden, PRODUCTION), false),
-    // K internal keys, declaration order of Java `Att` at base.
+    // K internal keys.
     Anonymous = "anonymous" (Internal, false),
     BracketLabel = "bracketLabel" (Internal, false),
     CellFragment = "cellFragment" (Internal, false),

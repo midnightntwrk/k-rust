@@ -1,6 +1,6 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
-//! Function-symbol matching checks ported from Java `CheckFunctions`.
+//! Function-symbol matching checks: where a rule's left-hand side may contain a function symbol.
 
 use std::collections::BTreeSet;
 

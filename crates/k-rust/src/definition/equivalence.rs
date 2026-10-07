@@ -153,7 +153,9 @@ fn encode_length(payload: &mut Vec<u8>, length: usize) {
     payload.extend_from_slice(&length.to_be_bytes());
 }
 
-/// Scala sentence equality, including `Production`'s custom equality override.
+/// Whether two sentences are the same declaration: structural equality, except that two
+/// productions are compared by label, parameters, sort, items, `klabel` (or, without one,
+/// label), and `function` and `symbol` attributes only.
 pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
     measure::bump(Counter::KompileSentenceEquivalenceChecks);
     match (left, right) {

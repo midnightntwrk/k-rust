@@ -10,7 +10,7 @@ use crate::{
     kast::Term,
 };
 
-/// Apply Java's `PropagateMacro` transformation.
+/// Mark each rule with the macro kind of the production its top-level rewrite's left side applies.
 pub fn propagate_macro_attributes(definition: &Definition) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(definition, propagate_macro_attributes_pass, None)
 }

@@ -14,7 +14,7 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! Java-compatible resolution of configuration cells marked with `stream`.
+//! Resolution of configuration cells marked with `stream`.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
@@ -59,8 +59,9 @@ struct StreamProduction {
 /// Instantiate K's builtin `STDIN-STREAM` and `STDOUT-STREAM` modules for user stream cells.
 ///
 /// This is the second ordered KORE-backend pass. It replaces generated cell initializers with the
-/// builtin stream contents, synthesizes stdin-unblocking rules for the one pattern supported by
-/// Java, imports selected stream sentences under the user's cell label, and empties the two
+/// builtin stream contents, synthesizes a stdin-unblocking rule for each rule that reads one item
+/// from the stdin cell (`<in> ListItem(V:Sort) => .List ... </in>`, the one reading pattern
+/// supported), imports selected stream sentences under the user's cell label, and empties the two
 /// template modules after instantiation.
 pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError> {
     super::super::pipeline::run_standalone(

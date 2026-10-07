@@ -254,8 +254,8 @@ impl std::error::Error for FreshGeneratorError {}
 
 /// All production views derived from one module's visible sentence set.
 ///
-/// IDs follow deterministic dependency-first sentence order. Scala-same
-/// productions are collapsed before IDs are assigned.
+/// IDs follow deterministic dependency-first sentence order. Productions equal under
+/// [`sentence_equivalent`] are collapsed before IDs are assigned.
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
     productions: Vec<CatalogSentence<'a>>,
