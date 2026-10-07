@@ -129,9 +129,11 @@ pub enum UnsupportedHookReason {
     /// documentation gives no value on these arguments, or the definition's documents disagree
     /// on whether a value exists. The application denotes whatever value the definition admits.
     /// It is left unevaluated, and it is not an unsupported-hook error on constructor-like
-    /// arguments, since there is no value for an implementation to compute. The verdict is final
-    /// for the application: the symbol's function equations, part of the definition that gives
-    /// no value there, are not applied to it.
+    /// arguments, since there is no value for an implementation to compute. The verdict reads
+    /// the hook's documentation only: the symbol's function equations, axioms of the definition
+    /// being run, still give the application the value they state, and where evaluating them
+    /// needs the value of the same application again they give none and it stays unevaluated
+    /// (`simplify::UnspecifiedEvaluation`).
     Unspecified {
         detail: String,
     },

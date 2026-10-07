@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_lineage", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -14,6 +14,10 @@
 //! [[cost]]
 //! mode = "rule condition"
 //! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+//!
+//! [[cost]]
+//! mode = "Unspecified application (UnspecifiedEvaluation)"
+//! bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications whose equation is being evaluated (one entry per nested such step) and one clone of the lineage's accumulated result per function step taken on one; an equation that reaches its own application again is evaluated once more down to that occurrence"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -49,7 +53,12 @@
 //! simplification per conjunct per round, budget-bounded re-entry through the ceil and
 //! predicate theories.
 
-use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeSet,
+    fmt,
+    sync::Arc,
+};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
@@ -3098,7 +3107,54 @@ fn simplify_with_budget(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let mut unspecified_steps = Vec::new();
+    let simplification = simplify_lineage(
+        definition,
+        term,
+        assumptions,
+        options,
+        remaining,
+        active_conditions,
+        solver,
+        execution,
+        &mut unspecified_steps,
+    )?;
+    // The first step of the lineage whose evaluation reached its own application again gave it
+    // no value (`UnspecifiedEvaluation`): the lineage ends on that application, unevaluated.
+    Ok(
+        match unspecified_steps
+            .into_iter()
+            .find(|step| step.evaluation.reentered())
+        {
+            Some(step) => step.before.finish(step.application),
+            None => simplification,
+        },
+    )
+}
+
+/// A function-equation step of a lineage on an application whose hook left it `Unspecified`,
+/// with the application and the lineage's result as it stood before the step.
+struct UnspecifiedStep {
+    evaluation: UnspecifiedEvaluation,
+    application: Term,
+    before: Accumulated,
+}
+
+/// The fixed point of `simplify_with_budget`, recording in `unspecified_steps` each step that
+/// applied a function equation to an `Unspecified` application, in the order taken.
+#[allow(clippy::too_many_arguments)]
+fn simplify_lineage(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
+    unspecified_steps: &mut Vec<UnspecifiedStep>,
 ) -> SimplifyResult<Simplification> {
     let mut term = term.clone();
     let mut accumulated = Accumulated::default();
@@ -3134,7 +3190,7 @@ fn simplify_with_budget(
             solver,
             execution.as_deref_mut(),
         )?;
-        let (root, root_step, root_equation) = simplify_root(
+        let (root, root_step, root_equation, unspecified) = simplify_root(
             definition,
             &children.term,
             assumptions.predicates,
@@ -3144,6 +3200,9 @@ fn simplify_with_budget(
             execution.as_deref_mut(),
         )?;
         let children = accumulated.absorb(children);
+        // An equation's result carries no undefined term, so the reports the step leaves are
+        // the children's, resolved below; the snapshot takes them from there.
+        let before_root = unspecified.as_ref().map(|_| accumulated.clone());
         let root = accumulated.absorb(root);
         if accumulated.undefined_term.is_none() {
             // A child's own report comes first: it names the innermost equation. Otherwise the
@@ -3162,6 +3221,15 @@ fn simplify_with_budget(
                 });
             }
             accumulated.undefined_term = undefined;
+        }
+        if let (Some(evaluation), Some(mut before)) = (unspecified, before_root) {
+            before.undefined_term = accumulated.undefined_term.clone();
+            before.contradicted_total = accumulated.contradicted_total.clone();
+            unspecified_steps.push(UnspecifiedStep {
+                evaluation,
+                application: children.term.clone(),
+                before,
+            });
         }
         if accumulated.undefined_term.is_none()
             && let Some(rule) = root_equation
@@ -3621,6 +3689,16 @@ enum RootStep {
     Other,
 }
 
+/// What `simplify_root` made of a root: the result, what produced it, the equation it applied,
+/// and, for a function equation applied to an `Unspecified` application, that application's
+/// entry on the evaluation stack, which the lineage keeps until it ends.
+type RootResult = (
+    Simplification,
+    RootStep,
+    Option<Arc<RewriteRule>>,
+    Option<UnspecifiedEvaluation>,
+);
+
 /// One root step: a builtin hook, else the function theory, else the simplification theory.
 ///
 /// A hooked symbol is a function symbol, and a KORE application is strict: `f(t1, .., tn)` is
@@ -3646,7 +3724,7 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> SimplifyResult<(Simplification, RootStep, Option<Arc<RewriteRule>>)> {
+) -> SimplifyResult<RootResult> {
     // A set holding an element twice, or a map binding a key twice (with the same value or
     // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
     // elements and keys, and syntactically equal terms denote the same element on every
@@ -3661,6 +3739,7 @@ fn simplify_root(
         return Ok((
             Simplification::repeated_collection(term),
             RootStep::Other,
+            None,
             None,
         ));
     }
@@ -3694,19 +3773,26 @@ fn simplify_root(
                 Simplification::hook(definition, term, outcome, hook, known_predicates),
                 RootStep::Other,
                 None,
+                None,
             ));
         }
     };
     // The diagnostics of the indeterminate equation attempts of either theory, committed only if
     // neither theory rewrites the term.
     let mut indeterminate = IndeterminateAttempts::default();
-    // An `Unspecified` verdict says the definition gives the application no value, its function
-    // equations included, which are part of it: they are not applied (for
-    // `countAllOccurrences(S, "")` they only recur without end). Simplification lemmas still are.
+    // An `Unspecified` verdict comes from the builtin documentation alone; the definition's
+    // function equations are axioms about the symbol and give the application the value they
+    // state. Where evaluating one needs the value of the same application again, they give it no
+    // value by evaluation (`countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`),
+    // and the application stays unevaluated as the verdict leaves it (`UnspecifiedEvaluation`).
     let unspecified = matches!(unsupported, Some(UnsupportedHookReason::Unspecified { .. }));
-    let function_scan = match if unspecified {
+    let mut evaluation = None;
+    let function_scan = if unspecified && UnspecifiedEvaluation::reenter(term) {
         TheoryScan::NotCacheable
     } else {
+        if unspecified {
+            evaluation = Some(UnspecifiedEvaluation::enter(term));
+        }
         apply_theory::<FunctionTheory>(
             definition,
             term,
@@ -3716,17 +3802,27 @@ fn simplify_root(
             solver,
             &mut indeterminate,
         )?
-    } {
+    };
+    let function_scan = match function_scan {
+        // The equation's conditions needed the application's own value.
+        TheoryScan::Applied(..)
+            if evaluation
+                .as_ref()
+                .is_some_and(UnspecifiedEvaluation::reentered) =>
+        {
+            TheoryScan::NotCacheable
+        }
         TheoryScan::Applied(result, rule) => {
             let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
                 RootStep::DeterminedFunctionStep
             } else {
                 RootStep::Other
             };
-            return Ok((result, step, Some(rule)));
+            return Ok((result, step, Some(rule), evaluation));
         }
         scan => scan,
     };
+    drop(evaluation);
     let simplification_scan = match apply_theory::<SimplificationTheory>(
         definition,
         term,
@@ -3736,7 +3832,9 @@ fn simplify_root(
         solver,
         &mut indeterminate,
     )? {
-        TheoryScan::Applied(result, rule) => return Ok((result, RootStep::Other, Some(rule))),
+        TheoryScan::Applied(result, rule) => {
+            return Ok((result, RootStep::Other, Some(rule), None));
+        }
         scan => scan,
     };
     // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
@@ -3749,6 +3847,7 @@ fn simplify_root(
         return Ok((
             Simplification::irreducible(term.clone()),
             RootStep::Other,
+            None,
             None,
         ));
     };
@@ -3817,7 +3916,70 @@ fn simplify_root(
     } else {
         term.clone()
     };
-    Ok((Simplification::irreducible(term), RootStep::Other, None))
+    Ok((
+        Simplification::irreducible(term),
+        RootStep::Other,
+        None,
+        None,
+    ))
+}
+
+thread_local! {
+    /// The applications whose hook left them `Unspecified` and whose function equation this
+    /// thread is evaluating, outermost first, each with whether that evaluation reached it again.
+    static UNSPECIFIED_EVALUATIONS: RefCell<Vec<(Term, bool)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// An `Unspecified` application whose function equation is being evaluated: from the equation's
+/// conditions to the end of the simplification lineage of its result.
+///
+/// An equation whose evaluation reaches the same application again needs that application's
+/// value to give one, so it gives none by evaluation: the inner occurrence is left as it is
+/// (`reenter`) and the outer lineage ends on the application unevaluated
+/// (`simplify_with_budget`). Leaving an application unevaluated is the identity, so this is
+/// sound whatever the equations say; a lineage that never reaches its application again is
+/// unaffected. Each lineage is a nested call, so the entries form a stack; dropping an entry
+/// removes it and every entry above it.
+struct UnspecifiedEvaluation {
+    depth: usize,
+}
+
+impl UnspecifiedEvaluation {
+    fn enter(application: &Term) -> Self {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
+            evaluations.push((application.clone(), false));
+            Self {
+                depth: evaluations.len() - 1,
+            }
+        })
+    }
+
+    /// Whether `application` is being evaluated, marking that evaluation as reached again.
+    fn reenter(application: &Term) -> bool {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| {
+            match evaluations
+                .iter_mut()
+                .find(|(evaluated, _)| evaluated == application)
+            {
+                Some((_, reentered)) => {
+                    *reentered = true;
+                    true
+                }
+                None => false,
+            }
+        })
+    }
+
+    fn reentered(&self) -> bool {
+        UNSPECIFIED_EVALUATIONS
+            .with_borrow(|evaluations| evaluations.get(self.depth).is_some_and(|entry| entry.1))
+    }
+}
+
+impl Drop for UnspecifiedEvaluation {
+    fn drop(&mut self) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|evaluations| evaluations.truncate(self.depth));
+    }
 }
 
 /// The definedness of the arguments of a hooked application the hook has evaluated: the

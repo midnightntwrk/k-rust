@@ -4151,11 +4151,14 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `countAllOccurrences(S, "")` and `replaceAll(S, "", R)` have no value the definition
-/// determines (`domains.md`'s equations give `count = 1 + count` for an empty needle), so a run
-/// ends with the application unevaluated and a warning, instead of applying those equations
-/// until the native stack runs out. A non-empty needle is counted and replaced. `s` hides the
-/// constants from the constant folder.
+/// `countAllOccurrences(S, "")` has no value the hook's documentation gives, and none its
+/// `domains.md` equations give by evaluation (they state `count = 1 + count` for an empty
+/// needle), so a run ends with the application unevaluated and a warning, instead of applying
+/// those equations until the native stack runs out. `replaceAll(S, "", R)` has the value its
+/// equation states, `replace(S, "", R, countAllOccurrences(S, ""))`, with the count unevaluated.
+/// A value the definition gives by its own equation is that value (`given`: `substrString` with
+/// reversed indices, which the hook's documentation leaves open). A non-empty needle is counted
+/// and replaced. `s` and `i` hide the constants from the constant folder.
 #[test]
 fn krun_leaves_counting_an_empty_needle_unevaluated() {
     const SOURCE: &str = r#"
@@ -4163,15 +4166,22 @@ module NEEDLE
   imports INT
   imports STRING
   configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "count" | "replace" | "nonempty"
+  syntax Pgm ::= "count" | "replace" | "given" | "nonempty"
   syntax KItem ::= r(K)
   syntax String ::= s(String) [function, total]
   rule s(S) => S
+  syntax Int ::= i(Int) [function, total]
+  rule i(I) => I
+  rule substrString(_, I, J) => "" requires J <Int I
   rule <k> count => r(countAllOccurrences(s("ab"), s(""))) </k>
   rule <k> replace => r(replaceAll(s("ab"), s(""), s("x"))) </k>
+  rule <k> given => r(substrString(s("abc"), i(2), i(1))) </k>
   rule <k> nonempty => r(countAllOccurrences(s("abab"), s("ab")) +Int lengthString(replaceAll(s("aaa"), s("aa"), s("bcd")))) </k>
 endmodule
 "#;
+    const COUNT: &str = "LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String{}(";
+    const REPLACE_ALL: &str = "LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(";
+    const REPLACE: &str = "Lblreplace'LParUndsCommUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String'Unds'Int{}(";
     let (root, definition) = fixture();
     fs::write(&definition, SOURCE).unwrap();
     let run = |program: &str| {
@@ -4200,27 +4210,27 @@ endmodule
             String::from_utf8(output.stderr).unwrap(),
         )
     };
-    for (program, symbol, hook) in [
-        (
-            "count",
-            "LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String{}(",
-            "STRING.countAllOccurrences",
-        ),
-        (
-            "replace",
-            "LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(",
-            "STRING.replaceAll",
-        ),
-    ] {
+    for program in ["count", "replace"] {
         let (success, stdout, stderr) = run(program);
         assert!(success, "{program}: {stdout}{stderr}");
-        assert!(stdout.contains(symbol), "{program}: {stdout}");
+        assert!(stdout.contains(COUNT), "{program}: {stdout}");
         assert!(
-            stderr.contains(&format!("hook {hook} was left unevaluated"))
+            stderr.contains("hook STRING.countAllOccurrences was left unevaluated")
                 && stderr.contains("the definition does not determine its value"),
             "{program}: {stderr}"
         );
     }
+    let (_, stdout, _) = run("replace");
+    assert!(
+        stdout.contains(REPLACE) && !stdout.contains(REPLACE_ALL),
+        "replace: {stdout}"
+    );
+    let (success, stdout, stderr) = run("given");
+    assert!(success, "given: {stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortString{}, SortKItem{}}(\dv{SortString{}}(""))"#),
+        "given: {stdout}"
+    );
     let (success, stdout, stderr) = run("nonempty");
     assert!(success, "nonempty: {stdout}{stderr}");
     assert!(

@@ -854,6 +854,112 @@ fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
     );
 }
 
+/// An `Unspecified` verdict comes from the builtin documentation alone; a function equation of
+/// the definition being run is an axiom about the symbol, and where one applies the application
+/// has the value it states.
+#[test]
+fn a_definition_equation_gives_an_unspecified_hook_application_its_value() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol substr{}(SortString{}, SortInt{}, SortInt{}) : SortString{}
+                [function{}(), total{}(), hook{}("STRING.substr")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortString{}, R}(S:SortString{}, \dv{SortString{}}("hello")),
+                        \and{R}(
+                            \in{SortInt{}, R}(I:SortInt{}, \dv{SortInt{}}("3")),
+                            \and{R}(
+                                \in{SortInt{}, R}(J:SortInt{}, \dv{SortInt{}}("1")),
+                                \top{R}()
+                            )
+                        )
+                    )
+                ),
+                \equals{SortString{}, R}(
+                    substr{}(S:SortString{}, I:SortInt{}, J:SortInt{}),
+                    \and{SortString{}}(\dv{SortString{}}(""), \top{SortString{}}())
+                )
+            ) [label{}("substr-reversed")]
+        "#,
+    );
+    let input = term(
+        &definition,
+        r#"substr{}(\dv{SortString{}}("hello"), \dv{SortInt{}}("3"), \dv{SortInt{}}("1"))"#,
+    );
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the equation gives the application a value");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortString{}}("")"#));
+}
+
+/// Where the definition's equations give an `Unspecified` application no value by evaluation,
+/// because evaluating the equation needs the value of the same application again (`domains.md`'s
+/// `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`), the application stays
+/// unevaluated with the diagnostic, as where the definition has no equation, instead of recurring
+/// until the stack runs out. A needle the hook counts is counted without the equations.
+#[test]
+fn an_unspecified_application_whose_equation_needs_its_own_value_stays_unevaluated() {
+    let definition = definition(
+        r#"
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol count{}(SortString{}, SortString{}) : SortInt{}
+                [function{}(), total{}(), hook{}("STRING.countAllOccurrences")]
+            hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\top{R}(), \top{R}())),
+                \equals{SortInt{}, R}(
+                    count{}(S:SortString{}, N:SortString{}),
+                    \and{SortInt{}}(
+                        plusInt{}(
+                            \dv{SortInt{}}("1"),
+                            count{}(S:SortString{}, N:SortString{})
+                        ),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("count-again")]
+        "#,
+    );
+    let empty = r#"count{}(\dv{SortString{}}("ab"), \dv{SortString{}}(""))"#;
+    let unevaluated = |source: &str| {
+        let input = term(&definition, source);
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(result.expect("no error").term, input);
+        assert!(
+            !diagnostics.is_empty()
+                && diagnostics.iter().all(|diagnostic| matches!(
+                    diagnostic,
+                    BackendDiagnostic::UnsupportedHookUnevaluated {
+                        hook,
+                        reason: UnsupportedHookReason::Unspecified { .. },
+                    } if hook == "STRING.countAllOccurrences"
+                )),
+            "{diagnostics:?}"
+        );
+    };
+
+    unevaluated(empty);
+    unevaluated(&format!(r#"plusInt{{}}(\dv{{SortInt{{}}}}("2"), {empty})"#));
+    let counted = term(
+        &definition,
+        r#"count{}(\dv{SortString{}}("abab"), \dv{SortString{}}("ab"))"#,
+    );
+    assert_eq!(
+        simplify(&definition, &counted, SimplificationOptions::default())
+            .expect("the hook counts a non-empty needle")
+            .term,
+        term(&definition, r#"\dv{SortInt{}}("2")"#)
+    );
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not
