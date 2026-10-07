@@ -13,6 +13,8 @@ live. The KRS normalization and comparison of those results always runs live.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from json import dumps as json_dumps
 from pathlib import Path
 import re
 import subprocess
@@ -121,6 +123,18 @@ class BehaviorSummary:
     rejection_count: int
     failure_count: int
     evidence_sha256: str
+    evidence: Mapping[str, Any] | None = None
+    """The normalized Java evidence of the actual route, which the native-run step compares with."""
+
+
+@dataclass(frozen=True)
+class NativeSummary:
+    execution_count: int
+    depth_state_count: int
+    search_count: int
+    evidence_sha256: str
+    reports: Mapping[str, Mapping[str, Any]]
+    """The `krs-exec/1` run report of every complete execution case, by case name."""
 
 
 def _without_address_space_limit(live: bool) -> tuple[str, ...]:
@@ -472,7 +486,163 @@ def compare_behavior(
             rejection_count=len(plan.rejection_cases),
             failure_count=len(plan.failure_cases),
             evidence_sha256=json_sha256(evidence),
+            evidence=evidence,
         )
+
+
+def configuration_variables(configurations: Sequence[str]) -> dict[str, str]:
+    """The `-c NAME=TEXT` bindings of krun-style `NAME=TEXT` configuration arguments."""
+
+    variables: dict[str, str] = {}
+    for configuration in configurations:
+        name, separator, text = configuration.partition("=")
+        if not separator or not name or name in variables:
+            raise GateError(f"invalid configuration argument {configuration!r}")
+        variables[name] = text
+    return variables
+
+
+def execution_input(case: ExecutionCase) -> str:
+    """The program text one execution case binds to `$PGM`."""
+
+    return case.input_text if case.input_text is not None else case.path.read_text(encoding="utf-8")
+
+
+def _difference(native: Any, java: Any) -> str:
+    """Both normalized results, abbreviated, for a native-versus-krun mismatch."""
+
+    def text(value: Any) -> str:
+        spelled = json_dumps(value)
+        return spelled if len(spelled) <= 1500 else f"{spelled[:1500]}..."
+
+    return f"native={text(native)}; krun={text(java)}"
+
+
+def _native_search_set(
+    session: krs_gate.Session, report: Mapping[str, Any], policy: Mapping[str, Any],
+) -> list[str]:
+    """The comparable set of normalized solution states, as `kast.frontier search_set` spells krun's."""
+
+    values: set[str] = set()
+    for solution in report["solutions"]:
+        normalized = session.kast_normalize("behavior", solution["state"], policy=policy)
+        values.update(session.kast_frontier("search_set", normalized))
+    return _comparable_set(session, values)
+
+
+def _comparable_set(session: krs_gate.Session, values: Any) -> list[str]:
+    """A `search_set` of solution states with collections canonicalized by the gate, as canonical JSON."""
+
+    return sorted({
+        json_dumps(
+            session.kast_inspect("collections", session.kast_inspect("search_solution", json.loads(value))),
+            sort_keys=True,
+        )
+        for value in values
+    })
+
+
+def compare_native(
+    *,
+    gate: Path,
+    definition_ir: Path,
+    module: str,
+    plan: BehaviorPlan,
+    policy: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+    divergences: Mapping[str, str],
+) -> NativeSummary:
+    """Run every execution case through `krs-exec` and require krun's normalized results.
+
+    One gate session loads the actual Definition IR and runs the `krs run` and
+    `krs search` code paths (`exec.run`, `exec.search`): a complete execution
+    and each depth state with strategy `any`, and each bounded search as a set.
+    Each result is normalized with the actual route's term policy and must
+    equal the Java evidence `compare_behavior` returned for the same case.
+    Failure cases stay Java-only: they exercise the LLVM backend's hook abort.
+
+    Builtin collections are canonicalized on both sides by the gate's
+    `collections` inspection, because the two backends associate them
+    differently.
+
+    `divergences` names the reviewed known divergences. `depth-zero`: LLVM
+    `krun --depth 0` prints the unevaluated initial-configuration function
+    application, while k-rust evaluates it before it counts steps; each
+    depth-zero state must show exactly that difference (krun's root label is
+    the divergence's pinned `krun_root`, and `krs run` is depth-bound after
+    zero steps), so a change on either side fails.
+    """
+
+    native: dict[str, Any] = {"execution": {}, "search": {}}
+    reports: dict[str, Mapping[str, Any]] = {}
+    depth_count = 0
+    search_count = 0
+    with krs_gate.Session(gate, environment=z3_environment()) as session:
+        session.load(definition_ir, module)
+        for case in plan.execution_cases:
+            inputs = {
+                "program": execution_input(case),
+                "program_name": case.path.name,
+                "variables": configuration_variables(case.configurations),
+            }
+            if case.run_to_completion:
+                report = session.exec_run(**inputs)
+                term = session.kast_inspect(
+                    "collections", session.kast_normalize("behavior", report["state"], policy=policy)
+                )
+                java = session.kast_inspect("collections", evidence["execution"][case.name]["term"])
+                if term != java:
+                    raise GateError(
+                        f"krs run final state differs from krun for {case.name}: " + _difference(term, java)
+                    )
+                if report["halt"] != "stuck":
+                    raise GateError(f"krs run of {case.name} halted {report['halt']}, not stuck")
+                native["execution"][case.name] = {"halt": report["halt"], "steps": report["steps"]}
+                reports[case.name] = report
+            for depth in case.depths:
+                key = f"{case.name}@{depth:03d}"
+                report = session.exec_run(**inputs, depth=depth)
+                if depth == 0 and "depth-zero" in divergences:
+                    java_root = session.kast_inspect("root_label", evidence["execution"][key])
+                    expected_root = divergences["depth-zero"]["krun_root"]
+                    if java_root != expected_root or report["halt"] != "depth-bound" or report["steps"] != 0:
+                        raise GateError(
+                            f"the depth-zero known divergence no longer describes {case.name}: "
+                            f"krun root {java_root!r}, krs run {report['halt']} after {report['steps']} steps"
+                        )
+                    native["execution"][key] = {"halt": report["halt"], "steps": 0, "divergence": "depth-zero"}
+                    depth_count += 1
+                    continue
+                term = session.kast_inspect(
+                    "collections", session.kast_normalize("behavior", report["state"], policy=policy)
+                )
+                java = session.kast_inspect("collections", evidence["execution"][key])
+                if term != java:
+                    raise GateError(
+                        f"krs run --depth {depth} state differs from krun for {case.name}: "
+                        + _difference(term, java)
+                    )
+                native["execution"][key] = {"halt": report["halt"], "steps": report["steps"]}
+                depth_count += 1
+            for depth in case.search_depths:
+                key = f"{case.name}@{depth:03d}"
+                report = session.exec_search(**inputs, depth=depth)
+                states = _native_search_set(session, report, policy)
+                java_states = _comparable_set(session, evidence["search"][key])
+                if states != java_states:
+                    raise GateError(
+                        f"krs search --depth {depth} set differs from krun --search for {case.name}: "
+                        + _difference(states, java_states)
+                    )
+                native["search"][key] = {"complete": report["complete"], "solutions": len(states)}
+                search_count += 1
+    return NativeSummary(
+        execution_count=len(native["execution"]) - depth_count,
+        depth_state_count=depth_count,
+        search_count=search_count,
+        evidence_sha256=json_sha256(native),
+        reports=reports,
+    )
 
 
 def term_policies(raw: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]:

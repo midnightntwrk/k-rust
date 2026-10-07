@@ -48,7 +48,23 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
 - IMP.7 `bounded-proofs`: bounded proof comparison for the 20 claims plus
   the depth-zero invocation;
 - IMP.8 `compatibility-reproduction`: stable-name, diagnostic-boundary,
-   clean-reproduction, and final byte-for-byte compatibility checks.
+   clean-reproduction, and final byte-for-byte compatibility checks;
+- IMP.9 `native-run-and-proofs`: every complete execution, depth state, and
+  bounded search of IMP.6 runs again through `krs-exec` (the `krs run` and
+  `krs search` code paths, in one `krs-gate` session over the emitted
+  Definition IR) and must equal krun's normalized result; one finished and
+  one stuck program also run through the real `krs run --output json`, whose
+  stdout must be the session's report and is pinned (`native_run`); and
+  `krs prove` proves every claim with Z3 at the Java proof bound, with each
+  verdict pinned in `native_proof_verdicts`. A verdict must agree with the
+  pinned Java status in `proof_outcomes` (`proved` with `proven`,
+  `incomplete` with `depth-bound`, `failed` with `disproved` or `failed`)
+  or be a named known divergence in `native_proof_divergences`, which
+  records both sides and fails closed when either changes. One execution
+  divergence is reviewed in `native_run_divergences` (with krun's root label): LLVM `krun --depth 0`
+  prints the unevaluated `initGeneratedTopCell` application, while `krs run
+  --depth 0` prints the evaluated initial configuration; every depth-zero
+  state must show exactly that difference.
 
 `--audit-all` runs every layer whose prerequisites passed and reports every
 failure instead of stopping at the first.
@@ -93,11 +109,13 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
   external file, so no external file is digested separately;
 - outputs KRS produces: the artifact and native artifact digests, the
   source-definition projection digests, the claim-free LLVM artifact digests,
-  the behavior summary, the compatibility report digest, and the manifest
-  digest of each reference snapshot (`reference_sha256`, see "Java K");
+  the behavior summary, the compatibility report digest, the native-run
+  summary (`native_run`) and `krs prove` verdicts (`native_proof_verdicts`),
+  and the manifest digest of each reference snapshot (`reference_sha256`, see "Java K");
 - reviewed comparison policy: claim labels, the source-definition and term
-  allowances, the native label map, and the 21 reference proof outcomes, which
-  describe the upstream reference route rather than KRS output.
+  allowances, the native label map, the 21 reference proof outcomes, which
+  describe the upstream reference route rather than KRS output, and the named
+  known divergences between `krs prove` and kore-exec (`native_proof_divergences`).
 
 KRS source is not pinned, so a change that leaves every output identical passes
 unchanged. After an intended output change, run the gate with `--record` (with

@@ -181,6 +181,92 @@ pub(crate) fn search_frontier(term: &Term) -> Result<&Term, String> {
     Ok(frontier)
 }
 
+/// Builtin collection concatenation labels, their unit labels, and whether they commute.
+const COLLECTIONS: [(&str, &str, bool); 3] = [
+    ("_Map_", ".Map", true),
+    ("_Set_", ".Set", true),
+    ("_List_", ".List", false),
+];
+
+/// Spell builtin Map, Set, and List terms unit-free, left-associated, and (where they commute) sorted.
+///
+/// The LLVM backend and k-rust print the same collection in different associations;
+/// K identifies them, so a cross-backend comparison canonicalizes both sides alike.
+pub(crate) fn canonical_collections(term: &Term) -> Result<Term, String> {
+    Ok(match term.unannotated() {
+        Term::Apply { label, arguments } => {
+            let arguments = arguments
+                .iter()
+                .map(canonical_collections)
+                .collect::<Result<Vec<_>, _>>()?;
+            let Some((_, unit, commutes)) = COLLECTIONS
+                .iter()
+                .find(|(concatenation, _, _)| *concatenation == label.name)
+            else {
+                return Ok(Term::Apply {
+                    label: label.clone(),
+                    arguments,
+                });
+            };
+            let mut elements = Vec::new();
+            let mut pending = arguments;
+            pending.reverse();
+            while let Some(item) = pending.pop() {
+                match &item {
+                    Term::Apply {
+                        label: inner,
+                        arguments: children,
+                    } if inner.name == label.name => {
+                        pending.extend(children.iter().rev().cloned());
+                    }
+                    Term::Apply { label: inner, .. } if inner.name == *unit => {}
+                    _ => elements.push(item),
+                }
+            }
+            if *commutes {
+                let mut keyed = elements
+                    .into_iter()
+                    .map(|element| Ok((reader::term_value(&element)?.to_string(), element)))
+                    .collect::<Result<Vec<_>, String>>()?;
+                keyed.sort_by(|left, right| left.0.cmp(&right.0));
+                elements = keyed.into_iter().map(|(_, element)| element).collect();
+            }
+            let mut elements = elements.into_iter();
+            let Some(first) = elements.next() else {
+                return Ok(Term::Apply {
+                    label: Label {
+                        name: (*unit).to_owned(),
+                        parameters: label.parameters.clone(),
+                    },
+                    arguments: Vec::new(),
+                });
+            };
+            elements.fold(first, |left, right| Term::Apply {
+                label: label.clone(),
+                arguments: vec![left, right],
+            })
+        }
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .iter()
+                .map(canonical_collections)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        other => other.clone(),
+    })
+}
+
+/// The state of one search solution: krun prints a solution as `#Equals(variable, state)`; any other term is itself.
+fn search_solution(term: &Term) -> &Term {
+    match term.unannotated() {
+        Term::Apply { label, arguments } if label.name == "#Equals" => match arguments.as_slice() {
+            [variable, state] if matches!(variable.unannotated(), Term::Variable { .. }) => state,
+            _ => term,
+        },
+        _ => term,
+    }
+}
+
 fn sentence_kind(sentence: &Sentence) -> &'static str {
     match sentence {
         Sentence::SyntaxSort { .. } => "syntax_sort",
@@ -308,6 +394,12 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
             }
         }
         "search_frontier" => reader::term_value(search_frontier(document.term()?)?),
+        "collections" => reader::term_value(&canonical_collections(document.term()?)?),
+        "search_solution" => reader::term_value(search_solution(document.term()?)),
+        "root_label" => Ok(match document.term()?.unannotated() {
+            Term::Apply { label, .. } => json!(label.name),
+            _ => Value::Null,
+        }),
         "k_head" => {
             let head = request
                 .get("head")
@@ -514,6 +606,81 @@ mod tests {
                 &document
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn collections_are_canonical_across_association_order_and_units() {
+        let map = |arguments| Term::apply("_Map_", arguments);
+        let unit = || Term::apply(".Map", vec![]);
+        let left = map(vec![
+            map_entry("x", "1"),
+            map(vec![map_entry("y", "2"), map_entry("z", "3")]),
+        ]);
+        let right = map(vec![
+            map(vec![map_entry("z", "3"), unit()]),
+            map(vec![map_entry("x", "1"), map_entry("y", "2")]),
+        ]);
+        let wrap = |term| Document::Term(Term::apply("<env>", vec![term]));
+        let action = json!({"action":"collections"});
+        assert_eq!(
+            handle(&action, &wrap(left)).unwrap(),
+            handle(&action, &wrap(right)).unwrap()
+        );
+        assert_eq!(
+            handle(&action, &wrap(map(vec![unit(), unit()]))).unwrap(),
+            reader::term_value(&Term::apply("<env>", vec![unit()])).unwrap()
+        );
+        let list = Term::apply(
+            "_List_",
+            vec![
+                Term::apply("b", vec![]),
+                Term::apply(
+                    "_List_",
+                    vec![Term::apply("a", vec![]), Term::apply(".List", vec![])],
+                ),
+            ],
+        );
+        let spelled = handle(&action, &Document::Term(list)).unwrap().to_string();
+        assert!(
+            spelled.find("\"b\"").unwrap() < spelled.find("\"a\"").unwrap(),
+            "{spelled}"
+        );
+    }
+
+    #[test]
+    fn search_solutions_unwrap_substitutions_and_roots_are_labels() {
+        let state = Term::apply("state", vec![]);
+        let solution = Term::apply(
+            "#Equals",
+            vec![
+                Term::Variable {
+                    name: "V0".into(),
+                    sort: None,
+                },
+                state.clone(),
+            ],
+        );
+        let unwrap = json!({"action":"search_solution"});
+        assert_eq!(
+            handle(&unwrap, &Document::Term(solution)).unwrap(),
+            reader::term_value(&state).unwrap()
+        );
+        assert_eq!(
+            handle(&unwrap, &Document::Term(state.clone())).unwrap(),
+            reader::term_value(&state).unwrap()
+        );
+        assert_eq!(
+            handle(&json!({"action":"root_label"}), &Document::Term(state)).unwrap(),
+            "state"
+        );
+        assert_eq!(
+            handle(
+                &json!({"action":"root_label"}),
+                &Document::Term(token("1", "Int"))
+            )
+            .unwrap(),
+            Value::Null
         );
     }
 

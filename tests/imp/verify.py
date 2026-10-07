@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field, replace
+import json
 import os
 from pathlib import Path
 import re
@@ -132,6 +133,8 @@ class Context:
     """Reference snapshots to finish once every layer passed."""
     java: dict[str, str] | None = None
     """The qualified live Java K toolchain, located once when a snapshot first runs live."""
+    behavior_evidence: Mapping[str, Any] | None = None
+    """The normalized Java evidence of IMP.6's actual route, which IMP.9 compares `krs run` with."""
 
     def upstream(self) -> dict[str, str]:
         """The upstream revision every IMP.4-IMP.8 snapshot reads."""
@@ -802,7 +805,110 @@ def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
         "evidence_sha256": summary.evidence_sha256,
     }
     context.pins.expect(("behavior", "expected"), observed)
+    context.behavior_evidence = summary.evidence
     return canonical_json(observed)
+
+
+NATIVE_CLI_CASES = ("while-followed.imp", "stuck-undefined-variable.calc")
+"""One finished and one stuck program that IMP.9 also runs through the real `krs run --output json`."""
+NATIVE_PROOF_DEPTH = 100
+"""The proof bound of every pinned Java proof outcome except `addition-depth-zero`."""
+AGREEING_VERDICTS = {
+    "proved": ("proven",),
+    "incomplete": ("depth-bound",),
+    "failed": ("disproved", "failed"),
+}
+"""The `krs prove` verdicts that agree with each pinned Java proof status."""
+
+
+def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifacts) -> str:
+    """Run the corpus and prove every claim through `krs-exec`, against IMP.6's krun evidence.
+
+    Every complete execution, depth state, and bounded search of the behavior
+    plan runs through the `krs run` and `krs search` code paths of one gate
+    session and must equal krun's normalized result. Two programs also run
+    through the real `krs run --output json`, which must print the session's
+    report; their stdout digests are pinned. `krs prove` proves every claim
+    at the Java proof bound with Z3; each verdict is pinned in
+    `native_proof_verdicts` and must agree with the pinned Java status in
+    `proof_outcomes`, or be a named known divergence in
+    `native_proof_divergences`. `native_run_divergences` names the reviewed
+    execution divergences (`depth-zero`, see `behavior.compare_native`).
+    """
+
+    if context.behavior_evidence is None:
+        raise GateError("IMP.6 did not leave krun evidence to compare with")
+    sys.path.insert(0, os.fspath(HERE / "oracle"))
+    import behavior
+    _, actual_policy = behavior.term_policies(context.pins["behavior"])
+    plan = behavior.plan_from_manifest(ROOT, context.corpus, context.pins["behavior"])
+    gate = context.target / "release/krs-gate"
+    definition_ir = artifacts.paths / "definition-ir.json"
+    run_divergences = table(context.pins.get("native_run_divergences", {}), "pins.native_run_divergences")
+    summary = behavior.compare_native(
+        gate=gate, definition_ir=definition_ir, module=MODULE, plan=plan,
+        policy=actual_policy, evidence=context.behavior_evidence, divergences=run_divergences,
+    )
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
+    cases = {case.name: case for case in plan.execution_cases}
+    cli_digests: dict[str, str] = {}
+    for name in NATIVE_CLI_CASES:
+        case = cases[name]
+        bindings = [
+            argument
+            for variable, text in behavior.configuration_variables(case.configurations).items()
+            for argument in ("-c", f"{variable}={text}")
+        ]
+        process = run(
+            krs_invocation(rust_build.krs).argv("run", case.path, *bindings, "--output", "json"),
+            timeout=900, environment=env,
+        )
+        printed = json.loads(process.stdout)
+        if printed.get("schema") != "krs-exec/1" or printed.get("run") != summary.reports[name]:
+            raise GateError(f"krs run --output json differs from the session's krs-exec report for {name}")
+        cli_digests[name] = sha256_text(process.stdout)
+    observed = {
+        "execution_count": summary.execution_count,
+        "depth_state_count": summary.depth_state_count,
+        "search_count": summary.search_count,
+        "evidence_sha256": summary.evidence_sha256,
+        "cli_sha256": cli_digests,
+    }
+    context.pins.expect(("native_run", "expected"), observed)
+
+    outcomes = table(context.pins.get("proof_outcomes"), "pins.proof_outcomes")
+    divergences = table(context.pins.get("native_proof_divergences", {}), "pins.native_proof_divergences")
+    with krs_gate.Session(gate, environment=z3_environment()) as session:
+        session.load(definition_ir, MODULE)
+        verdicts = {
+            report["claim"].rsplit(".", 1)[1]: report["verdict"]
+            for report in session.exec_prove(depth=NATIVE_PROOF_DEPTH)
+        }
+        [zero] = session.exec_prove(["addition-1"], depth=0)
+        verdicts["addition-depth-zero"] = zero["verdict"]
+    if set(verdicts) != set(outcomes):
+        raise GateError(f"krs prove cases differ from proof_outcomes: {sorted(verdicts)}")
+    diverging: dict[str, dict[str, str]] = {}
+    for name, verdict in sorted(verdicts.items()):
+        java = outcomes[name]["status"]
+        if verdict not in AGREEING_VERDICTS.get(java, ()):
+            diverging[name] = {"java": java, "native": verdict}
+        context.pins.expect(("native_proof_verdicts", name), verdict)
+    declared = {
+        name: {"java": entry.get("java"), "native": entry.get("native")}
+        for name, entry in divergences.items()
+    }
+    if diverging != declared:
+        raise GateError(
+            "krs prove and kore-exec disagree outside the named known divergences: "
+            f"observed={canonical_json(diverging)}, declared={canonical_json(declared)}"
+        )
+    proven = sum(verdict == "proven" for verdict in verdicts.values())
+    return (
+        f"{summary.execution_count} krs run executions, {summary.depth_state_count} depth states, and "
+        f"{summary.search_count} krs search sets equal krun; {len(cli_digests)} CLI reports pinned; "
+        f"krs prove: {proven} of {len(verdicts)} proven, {len(diverging)} named known divergences"
+    )
 
 
 def phase_proofs(context: Context, rust_build: RustBuild) -> str:
@@ -885,6 +991,7 @@ PHASES = (
     "parser-execution-search",
     "bounded-proofs",
     "compatibility-reproduction",
+    "native-run-and-proofs",
 )
 ARTIFACT_PHASES = 3
 """Preflight, the Rust checks, and every emitted artifact; `--artifacts-only` stops here."""
@@ -996,6 +1103,12 @@ def main() -> int:
                     arguments.audit_all,
                     lambda: phase_compatibility(context, cast(RustBuild, rust_build),
                                                 cast(Artifacts, artifacts)),
+                )
+                run_phase(
+                    9, PHASES[8], (PHASES[1], PHASES[2], PHASES[5]), passed, failures,
+                    arguments.audit_all,
+                    lambda: phase_native_run(context, cast(RustBuild, rust_build),
+                                             cast(Artifacts, artifacts)),
                 )
         except StopPhases:
             pass

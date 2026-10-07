@@ -2174,5 +2174,58 @@
     "behavior": "2939b868667993f88890ff06c691640c7372ffff88da59011ca2cae5b4bce6fe",
     "proofs": "39303deb34b3ffa601c268883d13e2713836a3af558a70719a2b9b12baf44226",
     "frontend-diagnostic": "f0be4b7d22fb678249bf1c3932b0ef12302fd5a69822afb083ac40be3663a426"
+  },
+  "native_proof_divergences": {
+    "bmc-loop-concrete": {
+      "java": "incomplete",
+      "native": "disproved",
+      "reason": "kore-exec stops at the stuck loop configuration, which kprove reports as one incomplete frontier state; k-rust proves that the same stuck leaf does not reach the right-hand side and reports disproved"
+    },
+    "bmc-loop-symbolic": {
+      "java": "incomplete",
+      "native": "disproved",
+      "reason": "kore-exec stops at the stuck loop configuration, which kprove reports as one incomplete frontier state; k-rust proves that the same stuck leaf does not reach the right-hand side and reports disproved"
+    }
+  },
+  "native_run_divergences": {
+    "depth-zero": {
+      "krun_root": "initGeneratedTopCell",
+      "reason": "LLVM krun --depth 0 prints the unevaluated initGeneratedTopCell application; k-rust evaluates the initial configuration's functions before it counts rewrite steps, so krs run --depth 0 prints the initial configuration"
+    }
+  },
+  "native_run": {
+    "expected": {
+      "execution_count": 30,
+      "depth_state_count": 246,
+      "search_count": 16,
+      "evidence_sha256": "d9f3cbd94e7263c8b788df48eec7b3d000e6db1c322b0a613a49f75137ccbabb",
+      "cli_sha256": {
+        "while-followed.imp": "6996ab8b00bf28d02d5b33399cc2094c6a6ec5e9f3a7ee356bea760803d094f3",
+        "stuck-undefined-variable.calc": "757555c3931e67f41152dbcb577ace34f880de2e5a2c7b1aa36244e4b25338b1"
+      }
+    }
+  },
+  "native_proof_verdicts": {
+    "addition-1": "proven",
+    "addition-2": "proven",
+    "addition-depth-zero": "depth-bound",
+    "addition-var": "proven",
+    "bmc-loop-concrete": "disproved",
+    "bmc-loop-symbolic": "disproved",
+    "branching": "proven",
+    "branching-deadcode": "proven",
+    "branching-program": "proven",
+    "context-alias": "proven",
+    "explicit-priority": "proven",
+    "partial-equation": "proven",
+    "pre-branch-proved": "proven",
+    "static-alias": "proven",
+    "sum-N": "depth-bound",
+    "sum-loop": "proven",
+    "sum-spec": "proven",
+    "total-equation": "proven",
+    "two-sum-spec": "depth-bound",
+    "while-cut-rule": "proven",
+    "while-cut-rule-delayed": "proven"
   }
 }

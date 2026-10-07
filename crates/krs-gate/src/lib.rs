@@ -163,6 +163,9 @@
 //! `final_environment` returns concrete Id-to-Int/Bool token strings from a generated top configuration with an empty K cell and an environment Map, rejecting duplicate keys.
 //! `if_complete: true` returns null when a concrete final environment cannot be extracted.
 //! `search_frontier` unwraps exactly `#Equals(Result, frontier)` and returns the frontier term.
+//! `search_solution` unwraps `#Equals(variable, state)` for any variable and returns any other term unchanged.
+//! `collections` returns the term with builtin Map, Set, and List concatenations flattened, unit-free, left-associated, and (for Map and Set) sorted, so terms from backends that associate collections differently compare equal.
+//! `root_label` returns the label name of the term's root application, or null.
 //! `k_head` requires `head` and returns whether the first item of the configuration's K sequence is an application with that label.
 //! `observe` requires a retained `state` name and an array of `cells` names.
 //! Its result maps each name to `kore`, the canonical content KORE text, and `size`, the element count for collection content or null otherwise.

@@ -107,8 +107,9 @@ impl Configuration {
         configuration_variables: BTreeMap<String, KastSort>,
     ) -> Result<Self, Box<dyn Error>> {
         let main_module = frontend_definition.main_module.clone();
+        let program_definition = with_resolved_group_tags(frontend_definition);
         let grammar: &'static Grammar = Box::leak(Box::new(Grammar {
-            program: ProgramGrammar::new(frontend_definition)?,
+            program: ProgramGrammar::new(&program_definition)?,
             variables: configuration_variables,
         }));
         let resolved = grammar.program.resolved();
@@ -421,6 +422,74 @@ impl Configuration {
     }
 }
 
+/// Resolve `syntax priority` and associativity tags that name a production `group` to the labels of its members.
+///
+/// k-rust's outer loader resolves a group tag to its productions' labels before it builds the flat
+/// definition, and the program parser's priority and associativity filters read labels. Definition IR
+/// reaches the flat definition through the structured adapter, which keeps the group names, so without
+/// this resolution the program grammar would ignore every precedence the author declared by group.
+/// Only the program-parsing copy is rewritten; the compiled KORE is unaffected.
+fn with_resolved_group_tags(definition: &Definition) -> Definition {
+    let mut groups: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    for sentence in definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        if let Sentence::Production {
+            label: Some(label),
+            attributes,
+            ..
+        } = &**sentence
+            && let Some(Value::String(tags)) = attributes.get("group")
+        {
+            for group in tags
+                .split(',')
+                .map(str::trim)
+                .filter(|group| !group.is_empty())
+            {
+                groups.entry(group).or_default().insert(label.name.clone());
+            }
+        }
+    }
+    let resolve = |tags: &[String]| -> Vec<String> {
+        let mut resolved = Vec::new();
+        for tag in tags {
+            match groups.get(tag.as_str()) {
+                Some(labels) => resolved.extend(labels.iter().cloned()),
+                None => resolved.push(tag.clone()),
+            }
+        }
+        resolved
+    };
+    let mut resolved = definition.clone();
+    for module in &mut resolved.modules {
+        for sentence in &mut module.local_sentences {
+            let replacement = match &**sentence {
+                Sentence::SyntaxPriority {
+                    priorities,
+                    attributes,
+                } => Sentence::SyntaxPriority {
+                    priorities: priorities.iter().map(|level| resolve(level)).collect(),
+                    attributes: attributes.clone(),
+                },
+                Sentence::SyntaxAssociativity {
+                    associativity,
+                    tags,
+                    attributes,
+                } => Sentence::SyntaxAssociativity {
+                    associativity: *associativity,
+                    tags: resolve(tags),
+                    attributes: attributes.clone(),
+                },
+                _ => continue,
+            };
+            *sentence = std::sync::Arc::new(replacement);
+        }
+    }
+    resolved
+}
+
 /// The sort `$PGM` is parsed at: its declared sort, or `KItem` when it is declared `K`.
 fn program_start_sort(declared: &KastSort) -> KastSort {
     if declared.is_builtin(BuiltinSort::K) {
@@ -432,7 +501,7 @@ fn program_start_sort(declared: &KastSort) -> KastSort {
 
 #[cfg(test)]
 mod tests {
-    use super::{Configuration, split_k_sequence};
+    use super::{Configuration, split_k_sequence, with_resolved_group_tags};
     use k_rust::{inner::ProgramParser, kast::Sort, names::BuiltinSort};
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -558,5 +627,68 @@ endmodule
             .unwrap();
         let pattern = configured["pattern"].as_str().unwrap();
         assert!(pattern.contains("Lblrun{}()"), "{pattern}");
+    }
+
+    #[test]
+    fn program_parsing_applies_priorities_declared_by_group_name() {
+        let parsed = k_rust::outer::parse(
+            "groups.k",
+            r#"
+module MAIN
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+               | Exp "*" Exp [symbol(mul), group(times), left]
+               | Exp "+" Exp [symbol(add), group(plus), left]
+  syntax priority times > plus
+  configuration <k> $PGM:Exp </k>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        // The structured adapter keeps group names where the outer loader resolved labels.
+        let mut structured = loaded.definition().clone();
+        for module in &mut structured.modules {
+            for sentence in &mut module.local_sentences {
+                if let k_rust::definition::Sentence::SyntaxPriority { attributes, .. } = &**sentence
+                {
+                    *sentence = std::sync::Arc::new(k_rust::definition::Sentence::SyntaxPriority {
+                        priorities: vec![vec!["times".to_owned()], vec!["plus".to_owned()]],
+                        attributes: attributes.clone(),
+                    });
+                }
+            }
+        }
+        let resolved = with_resolved_group_tags(&structured);
+        let priorities = resolved
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .find_map(|sentence| match &**sentence {
+                k_rust::definition::Sentence::SyntaxPriority { priorities, .. } => {
+                    Some(priorities.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            priorities,
+            vec![vec!["mul".to_owned()], vec!["add".to_owned()]]
+        );
+        let mut configuration = Configuration::new(
+            &structured,
+            BTreeMap::from([("PGM".to_owned(), Sort::new("Exp"))]),
+        )
+        .unwrap();
+        let program = configuration
+            .parse_program(&Sort::new("Exp"), "1 + 2 * 3")
+            .unwrap();
+        assert!(
+            program.to_kast_text().starts_with("add("),
+            "{}",
+            program.to_kast_text()
+        );
     }
 }
