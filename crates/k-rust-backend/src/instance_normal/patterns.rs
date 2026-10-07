@@ -97,7 +97,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     term::{
-        HeadRole, Sort, Term, TermKind, Variable,
+        FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable,
         head::{
             Fixed, Head, NormalForms, PatternReading, Scanned, Shape, classify_pattern,
             classify_value, compare_roots,
@@ -125,16 +125,19 @@ pub(crate) struct PatternFacts {
     /// computed them, when every equation's are [`Overlaps::Unbounded`]. An equation without an
     /// entry (one headed by a function, or a bare variable) has unbounded ones too.
     overlaps: Option<Arc<FxHashMap<usize, Overlaps>>>,
-    /// Which sorts' values can hold which sorts' values at an exposed position
+    /// Which sorts' terms can hold which sorts' terms at an exposed position
     /// ([`BackendDefinition::exposed_misses`]).
     exposed: Arc<ExposedSorts>,
 }
 
-/// The sorts whose values can occur at an exposed position (below constructors and injections
-/// only) of a value of a sort: an edge from a constructor's result sort to each argument sort,
-/// and from a sort to each sort below it. A sort with a constructor argument of a sort
-/// variable, or a hooked sort without domain values (a collection), reaches every sort, and so
-/// does every sort when some constructor has a sort variable for its result.
+/// The sorts whose terms can occur at an exposed position (below total symbols only,
+/// [`total_root`]) of a term of a sort: an edge from a total symbol's result sort to each
+/// argument sort, and from a sort to each sort below it. A sort that is the result of a total
+/// symbol with an argument of a sort variable, or a hooked sort without domain values (a
+/// collection), reaches every sort, and so does every sort when some total symbol has a sort
+/// variable for its result. The edges follow every total symbol, not only constructors: a
+/// reduct can hold a total function's application (`m(sz(t))`, `sz : A -> Int` total), and
+/// that application is undefined only when an argument is.
 #[derive(Debug, Default)]
 struct ExposedSorts {
     edges: BTreeMap<crate::term::Name, BTreeSet<crate::term::Name>>,
@@ -159,7 +162,8 @@ impl ExposedSorts {
         }
         for symbol in definition.symbols().values() {
             // The sort injection `inj{From, To}` is read through the subsort edges.
-            if symbol.attributes.head_role() != HeadRole::FreeConstructor || &*symbol.name == "inj"
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
+                || &*symbol.name == "inj"
             {
                 continue;
             }
@@ -185,7 +189,7 @@ impl ExposedSorts {
         exposed
     }
 
-    /// Whether a value of sort `holder` can hold a value of sort `held` at an exposed position
+    /// Whether a term of sort `holder` can hold a term of sort `held` at an exposed position
     /// (itself included).
     fn may_hold(&self, holder: &Sort, held: &Sort) -> bool {
         let (Sort::Application { name: holder, .. }, Sort::Application { name: held, .. }) =
@@ -380,60 +384,66 @@ impl BackendDefinition {
     }
 
     /// Whether no reduct of an instance of `representative`, a term an equation may identify
-    /// with another normal form, is `subject` or holds it at an exposed position (below
-    /// constructors, injections and collections only), `subject` being a term whose immediate
-    /// subterms `subject_roots` must fix: a representative with the subject's symbol when some
-    /// pair of arguments is apart ([`Self::values_apart`]); one with another equation head or a
-    /// domain value at its root always (a reduct that changes the root is another
-    /// representative); one with a constructor, injection or collection root when no argument's
-    /// value can be the subject or hold it exposed ([`Self::exposed_misses`]).
+    /// with another normal form, is `subject` or holds it at an exposed position (below total
+    /// symbols only), `subject` being a term whose immediate subterms `subject_roots` must fix.
+    /// The representative's root misses the subject when it is the subject's symbol and some
+    /// pair of arguments is apart ([`Self::values_apart`]), or when it is another constructor,
+    /// injection, collection, equation head or domain value (a reduct that changes the root is
+    /// another representative); a function, residual or uninterpreted root, or a variable, does
+    /// not. When the root is total ([`total_root`]), every argument's value must also miss the
+    /// subject at an exposed position ([`Self::exposed_misses`]).
     ///
-    /// The exposed positions count because constructors and injections are functional: when
-    /// the equation identifies `n(t)` with a normal form with another root, or with
-    /// `\bottom`, the two cannot be equal for a value `t`, so `t` is undefined
-    /// (`g(d) = k(g(j(c, d)))` beside `g(d) = m(1 /Int 0)` make `g(j(c, d))` undefined). Below
-    /// an equation head the identification says nothing about the argument: the head may be
-    /// partial. A collection is read like a constructor, which only answers `false` more often.
+    /// The exposed positions count because a total symbol applied to defined arguments is
+    /// defined: when the equation identifies `n(t)`, `n` total, with `\bottom`, `t` is undefined
+    /// (`g(d) = k(e(g(j(c, d))))` beside `g(d) = m(1 /Int 0)`, with `k` a constructor and `e` a
+    /// total equation head, make `g(j(c, d))` undefined). For a total head that is not a
+    /// constructor, an identification with another normal form says nothing about `t`, but the
+    /// representative does not record which of the two the other side is, so it is read as
+    /// the identification with `\bottom`. Below a partial head the identification says nothing
+    /// about the argument: the head itself may be undefined. A collection is read like a
+    /// constructor, which only answers `false` more often.
     fn representative_misses(
         &self,
         representative: &Term,
         subject: &Term,
         subject_roots: &mut dyn NormalForms,
     ) -> bool {
-        if matches!(
-            representative.shape(),
-            Shape::Application(HeadRole::FreeConstructor) | Shape::Injection | Shape::Collection(_)
-        ) {
-            return matches!(subject.kind(), TermKind::Application { .. })
-                && token::every_immediate_subterm(representative, |argument| {
-                    self.exposed_misses(argument, subject, subject_roots)
-                });
-        }
-        match (representative.kind(), subject.kind()) {
-            (
-                TermKind::Application {
-                    symbol: representative_symbol,
-                    sort_arguments: representative_sorts,
-                    arguments: representative_arguments,
-                },
-                TermKind::Application {
-                    symbol: subject_symbol,
-                    sort_arguments: subject_sorts,
-                    arguments: subject_arguments,
-                },
-            ) if representative_symbol.name == subject_symbol.name => {
-                representative_sorts == subject_sorts
-                    && representative_arguments.len() == subject_arguments.len()
-                    && representative_arguments.iter().zip(subject_arguments).any(
-                        |(pattern, subject)| self.values_apart(pattern, subject, subject_roots),
-                    )
+        let TermKind::Application {
+            symbol: subject_symbol,
+            sort_arguments: subject_sorts,
+            arguments: subject_arguments,
+        } = subject.kind()
+        else {
+            return false;
+        };
+        let root_misses = match representative.kind() {
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } if symbol.name == subject_symbol.name => {
+                sort_arguments == subject_sorts
+                    && arguments.len() == subject_arguments.len()
+                    && arguments
+                        .iter()
+                        .zip(subject_arguments)
+                        .any(|(pattern, subject)| {
+                            self.values_apart(pattern, subject, subject_roots)
+                        })
             }
-            (_, TermKind::Application { .. }) => matches!(
+            _ => matches!(
                 representative.shape(),
-                Shape::DomainValue | Shape::Application(HeadRole::EquationHead)
+                Shape::DomainValue
+                    | Shape::Injection
+                    | Shape::Collection(_)
+                    | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead)
             ),
-            _ => false,
-        }
+        };
+        root_misses
+            && (!total_root(representative)
+                || token::every_immediate_subterm(representative, |argument| {
+                    self.exposed_misses(argument, subject, subject_roots)
+                }))
     }
 
     /// Whether the value of no instance of `argument`, an argument at an exposed position of a
@@ -1501,6 +1511,25 @@ pub(super) const REPRESENTATIVE_SIZE: usize = 2048;
 
 /// Whether `term` has at most `limit` nodes, counting a shared subterm at each occurrence; at
 /// most `limit + 1` nodes are visited, and the recursion is at most that deep.
+/// Whether `term`'s root is a total symbol: an application of `term` is defined whenever its
+/// immediate subterms are. Constructors and sort injections are `functional`, and a symbol
+/// declared `total` (or `functional`) is total whatever else it is, an `anywhere` equation
+/// head included; a collection is counted as total, which only reads more of it. An
+/// application of a symbol not declared total, and a variable, a domain value or an `\and`,
+/// are not.
+fn total_root(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Application { symbol, .. } => {
+            symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
+        }
+        TermKind::Injection { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => true,
+        TermKind::DomainValue { .. } | TermKind::Variable(_) | TermKind::And(..) => false,
+    }
+}
+
 fn within_size(term: &Term, limit: usize) -> bool {
     fn count(term: &Term, left: &mut usize) -> bool {
         if *left == 0 {

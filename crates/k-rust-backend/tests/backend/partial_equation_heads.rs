@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError},
     rule::Predicate,
@@ -1255,5 +1257,106 @@ fn an_overlap_that_identifies_a_constructor_term_keeps_the_obligation_of_the_app
     .expect("the definition should internalize");
     for term in [r"v{}(s{}(c{}()))", r"k{}(v{}(s{}(c{}())))"] {
         assert_ceil_kept(&definition, term, "SortA{}", r"v{}(s{}(c{}()))");
+    }
+}
+
+/// `c, d : A`, `k, s : A -> A` and `m : Int -> A` constructors; `e : A -> A` a total equation
+/// head (`anywhere`, `total`), `g : A -> A` a value production and, where `{second}` uses it,
+/// `sz : A -> Int` a total function; `g(d) = m(1 /Int 0)` and `g(d) = {second}`, and with
+/// `conditional` also `g(m(I)) = c requires I ==Int 0`.
+fn total_head_definition(second: &str, conditional: bool) -> BackendDefinition {
+    let mut source = r#"[]
+        module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+        hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+            [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+        sort SortA{} []
+        symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol d{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol s{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortInt{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol e{}(SortA{}) : SortA{} [anywhere{}(), total{}()]
+        symbol g{}(SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]
+        {sz}
+        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, d{}()), \top{R}())), \equals{SortA{}, R}(g{}(X0:SortA{}), \and{SortA{}}(m{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))), \top{SortA{}}()))) [anywhere{}()]
+        "#
+    .replace(
+        "{sz}",
+        if second.contains("sz{}") {
+            "symbol sz{}(SortA{}) : SortInt{} [function{}(), total{}()]"
+        } else {
+            ""
+        },
+    );
+    writeln!(
+        source,
+        r"axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, d{{}}()), \top{{R}}())), \equals{{SortA{{}}, R}}(g{{}}(X0:SortA{{}}), \and{{SortA{{}}}}({second}, \top{{SortA{{}}}}()))) [anywhere{{}}()]"
+    )
+    .unwrap();
+    if conditional {
+        source.push_str(
+            r#"axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(eqInt{}(VarI:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortA{}, R}(X0:SortA{}, m{}(VarI:SortInt{})), \top{R}())), \equals{SortA{}, R}(g{}(X0:SortA{}), \and{SortA{}}(c{}(), \top{SortA{}}()))) [anywhere{}()]
+            "#,
+        );
+    }
+    source.push_str("endmodule []");
+    internalize(&source).expect("the total-head definition should internalize")
+}
+
+/// The second right-hand sides of `g(d)` that hold `{held}` below total symbols only: a
+/// constructor and a total equation head, a total equation head, a constructor and a total
+/// function into another sort, and a constructor.
+fn total_contexts(held: &str) -> [String; 4] {
+    [
+        format!("k{{}}(e{{}}({held}))"),
+        format!("e{{}}({held})"),
+        format!("m{{}}(sz{{}}({held}))"),
+        format!("k{{}}({held})"),
+    ]
+}
+
+/// Review 6, F1. `g(d) = m(1 /Int 0)` makes `g(d)` undefined, so `g(d) = C[g(m(1))]`, with
+/// `C` built from constructors and total symbols only, makes `C[g(m(1))]` undefined. A total
+/// symbol applied to defined arguments is defined, so `g(m(1))` is undefined. The conditional
+/// `g(m(I)) = c requires I ==Int 0` is refuted at `I = 1`, which must not discharge
+/// `\ceil(g(m(1)))`: the theory has models (`g(m(0)) = c`, `g(d)` and `g(m(1))` undefined),
+/// in each of which the obligation is false.
+#[test]
+fn a_refuted_requires_does_not_discharge_an_application_an_overlap_holds_below_total_symbols() {
+    let held = r#"g{}(m{}(\dv{SortInt{}}("1")))"#;
+    for second in total_contexts(held) {
+        let definition = total_head_definition(&second, true);
+        assert_ceil_kept(&definition, held, "SortA{}", held);
+    }
+}
+
+/// Review 6, F2: the same overlaps without a `requires`. `g(s(c))` is undefined in every model
+/// for each total context, while `g(s(d))`, which no overlap holds, stays a value (the
+/// `value-production` marker) where the context reads it apart.
+#[test]
+fn an_overlap_that_holds_an_application_below_total_symbols_keeps_its_obligation() {
+    let held = "g{}(s{}(c{}()))";
+    let apart = "g{}(s{}(d{}()))";
+    for (index, second) in total_contexts(held).into_iter().enumerate() {
+        let definition = total_head_definition(&second, false);
+        assert_ceil_kept(&definition, held, "SortA{}", held);
+        // With `sz`, `Int` terms can hold `A` terms below a total symbol, so the other
+        // representative `m(1 /Int 0)`, whose argument is a function application the overlap
+        // reading does not see through, may hold `g(s(d))`: a precision limit, not asserted.
+        if index != 2 {
+            assert_eq!(
+                simplified_predicate_under(
+                    &definition,
+                    &format!(r"\ceil{{SortA{{}}, SortA{{}}}}({apart})"),
+                    &[]
+                ),
+                Predicate::True,
+                "{second}"
+            );
+        }
     }
 }
