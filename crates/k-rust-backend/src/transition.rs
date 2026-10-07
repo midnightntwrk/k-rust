@@ -268,6 +268,13 @@ impl ExecutionEvaluationContext {
     pub(crate) fn restore(&mut self, snapshot: ExecutionIoState) {
         self.state = snapshot;
     }
+
+    /// Whether nothing was read or written since `snapshot`: input is only consumed and the
+    /// transcript only grows.
+    pub(crate) fn unchanged_since(&self, snapshot: &ExecutionIoState) -> bool {
+        self.state.cursor == snapshot.cursor
+            && self.state.transcript.len() == snapshot.transcript.len()
+    }
 }
 
 /// Effects owned by the committed prefix of one execution branch.

@@ -1295,6 +1295,54 @@ fn an_attempt_that_reaches_its_application_without_needing_it_gives_its_value() 
     }
 }
 
+/// The equations `substr(S, I, J) = substr(S, I - 1, J) +String substr(S, I, J)` (which
+/// evaluates the smaller application, then needs its own), `substr(S, I, J) = substr(S, I - 1,
+/// J)` and `substr(S, I, J) = ""` at `J = I - 1`: each level tries the first, which fails, then
+/// the second. The value the failed attempt computed for the smaller application is reused, so
+/// the work grows linearly with the depth, not twofold per level.
+#[test]
+fn retrying_after_a_failed_attempt_reuses_the_values_it_computed() {
+    let smaller =
+        r#"substr{}(S:SortString{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")), J:SortInt{})"#;
+    let own = r#"substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})"#;
+    let step = r#"ltInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#;
+    let definition = substr_definition(&[
+        substr_equation(
+            &format!(r#"concatString{{}}({smaller}, {own})"#),
+            step,
+            r#"label{}("both")"#,
+        ),
+        substr_equation(smaller, step, r#"label{}("smaller")"#),
+        substr_equation(
+            r#"\dv{SortString{}}("")"#,
+            r#"eqInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#,
+            r#"label{}("base")"#,
+        ),
+    ]);
+    let attempts = |depth: i64| {
+        let input = term(&definition, &substr_of_abc(depth, 0));
+        let before = snapshot();
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the equations give a value");
+        let attempts = snapshot()
+            .delta(&before)
+            .get(Counter::SimplifyEquationAttempts);
+        assert_eq!(
+            result.term,
+            term(&definition, r#"\dv{SortString{}}("")"#),
+            "depth {depth}"
+        );
+        attempts
+    };
+    let shallow = attempts(8);
+    let deep = attempts(16);
+    eprintln!("equation attempts: depth 8 {shallow}, depth 16 {deep}");
+    assert!(
+        deep <= 3 * shallow,
+        "doubling the depth multiplied the equation attempts from {shallow} to {deep}"
+    );
+}
+
 /// A chain of steps on `Unspecified` applications at the root (`substr(S, I, J) = substr(S,
 /// I - 1, J)` down to `""`) is a loop of the lineage, as for any function, not a recursion: it
 /// runs to its value at a depth far beyond what the native stack of the test thread holds for

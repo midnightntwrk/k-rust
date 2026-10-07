@@ -268,7 +268,8 @@ impl Accumulated {
             .append(ResultConditions::top_equation(obligations));
     }
 
-    /// Where the running result stands now, for [`Accumulated::rewind`].
+    /// Where the running result stands now, for [`Accumulated::rewind`] and
+    /// [`Accumulated::since`].
     pub(super) fn mark(&self) -> AccumulatedMark {
         AccumulatedMark {
             conditions: self.conditions.len(),
@@ -294,6 +295,20 @@ impl Accumulated {
     /// The conditions absorbed since `mark`.
     pub(super) fn constraints_since(&self, mark: &AccumulatedMark) -> &[Predicate] {
         &self.conditions.as_slice()[mark.conditions..]
+    }
+
+    /// What was absorbed since `mark`, as the result for `term`, without reports: the caller
+    /// takes it only where no report was raised.
+    pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
+        Simplification {
+            term,
+            conditions: self.conditions.since(mark.conditions),
+            applied_rules: self.applied_rules[mark.applied_rules..].to_vec(),
+            effects: self.effects[mark.effects..].to_vec(),
+            exhausted: None,
+            undefined_term: None,
+            contradicted_total: None,
+        }
     }
 
     /// The accumulated result for `term`.

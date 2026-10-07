@@ -814,7 +814,7 @@ impl ResultConditions {
         debug_assert!(self.assumptions_are_indices());
     }
 
-    /// The number of conjuncts, a mark that [`Self::truncate`] takes.
+    /// The number of conjuncts, a mark that [`Self::truncate`] and [`Self::since`] take.
     pub(crate) fn len(&self) -> usize {
         self.conjuncts.len()
     }
@@ -828,6 +828,22 @@ impl ResultConditions {
             .partition_point(|&index| (index as usize) < len);
         self.assumptions.truncate(kept);
         debug_assert!(self.assumptions_are_indices());
+    }
+
+    /// The conjuncts appended after the first `len`, each keeping its role.
+    pub(crate) fn since(&self, len: usize) -> Self {
+        let offset = conjunct_index(len);
+        let conditions = Self {
+            conjuncts: self.conjuncts[len..].to_vec(),
+            assumptions: self
+                .assumptions
+                .iter()
+                .filter(|&&index| index >= offset)
+                .map(|&index| index - offset)
+                .collect(),
+        };
+        debug_assert!(conditions.assumptions_are_indices());
+        conditions
     }
 
     /// The container invariant: the assumption indices ascend strictly and name conjuncts.

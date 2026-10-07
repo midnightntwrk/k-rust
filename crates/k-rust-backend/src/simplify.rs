@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, each retry evaluating again what the failed attempt evaluated"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -3314,6 +3314,9 @@ fn simplify_with_budget(
     // failed, the equations its application is retried without.
     let mut frames: Vec<UnspecifiedFrame> = Vec::new();
     let mut retry: Option<UnspecifiedRetry> = None;
+    // The values this lineage's nested lineages computed for `Unspecified` applications, open
+    // from the first such step on (`UnspecifiedValues`).
+    let mut values: Option<UnspecifiedValues> = None;
     // Each round simplifies the children then the root; the rounds end on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` grows only when
     // a failed attempt is undone. Invariant: `term` equals the input modulo `applied_rules` under
@@ -3391,6 +3394,14 @@ fn simplify_with_budget(
                 let rule = root_equation
                     .clone()
                     .expect("an Unspecified step applies an equation");
+                values.get_or_insert_with(|| {
+                    UnspecifiedValues::open(EvaluationContext::of(
+                        assumptions,
+                        options,
+                        active_conditions,
+                        execution.is_some(),
+                    ))
+                });
                 frames.push(UnspecifiedFrame {
                     evaluation: step.evaluation,
                     application: children.term.clone(),
@@ -3452,6 +3463,11 @@ fn simplify_with_budget(
         // The lineage has its outcome; each of its `Unspecified` steps is decided on it, the
         // latest first. A failed one is undone and its application tried again without it.
         let Some(failed) = failed_unspecified_frame(&frames, &end, &accumulated) else {
+            if let Some(values) = &values
+                && let Some(first) = frames.first()
+            {
+                values.record_in_enclosing(first, &end, &accumulated, execution.as_deref());
+            }
             return Ok(accumulated.finish(end));
         };
         frames.truncate(failed.index + 1);
@@ -3933,7 +3949,7 @@ fn simplify_root(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-    execution: Option<&mut ExecutionEvaluationContext>,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
     retry: Option<UnspecifiedRetry>,
 ) -> SimplifyResult<RootResult> {
     let known_predicates = assumptions.predicates;
@@ -3955,7 +3971,7 @@ fn simplify_root(
             None,
         ));
     }
-    let builtin = match execution {
+    let builtin = match execution.as_deref_mut() {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
     }?
@@ -4019,6 +4035,16 @@ fn simplify_root(
     } else if UnspecifiedEvaluation::reenter(term) {
         cut = true;
         TheoryScan::NotCacheable
+    } else if let Some((result, rule)) = UnspecifiedValues::recorded(
+        EvaluationContext::of(assumptions, options, active_conditions, execution.is_some()),
+        term,
+    ) {
+        let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+            RootStep::DeterminedFunctionStep
+        } else {
+            RootStep::Other
+        };
+        return Ok((result, step, Some(rule), None));
     } else {
         let UnspecifiedRetry {
             mut excluded,
@@ -4334,6 +4360,10 @@ thread_local! {
     /// equation attempt open, outermost first.
     static UNSPECIFIED_EVALUATIONS: RefCell<UnspecifiedStack> =
         RefCell::new(UnspecifiedStack::default());
+
+    /// The scopes of [`UnspecifiedValues`], outermost first: the values nested lineages computed
+    /// for `Unspecified` applications, each scope with the context they hold in.
+    static UNSPECIFIED_VALUES: RefCell<Vec<ValueScope>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Default)]
@@ -4448,6 +4478,139 @@ impl Drop for UnspecifiedEvaluation {
                 stack.depths.remove(&entry.application);
             }
         });
+    }
+}
+
+/// What a simplification of a term depends on besides the term and the definition: the
+/// assumptions it is taken under, the rule conditions being evaluated around it, whether it runs
+/// with a console, and the options. Two lineages alive at once whose contexts are equal share
+/// these objects, so a value one computed is a value for the other.
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct EvaluationContext {
+    predicates: usize,
+    predicate_count: usize,
+    path_condition: usize,
+    active_conditions: usize,
+    execution: bool,
+    options: SimplificationOptions,
+}
+
+impl EvaluationContext {
+    fn of(
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        active_conditions: &BTreeSet<(String, Term)>,
+        execution: bool,
+    ) -> Self {
+        Self {
+            predicates: assumptions.predicates.as_ptr() as usize,
+            predicate_count: assumptions.predicates.len(),
+            path_condition: std::ptr::from_ref(assumptions.path_condition) as usize,
+            active_conditions: std::ptr::from_ref(active_conditions) as usize,
+            execution,
+            options,
+        }
+    }
+}
+
+struct ValueScope {
+    context: EvaluationContext,
+    values: FxHashMap<Term, (Simplification, Arc<RewriteRule>)>,
+}
+
+/// The values that lineages nested in one lineage computed for `Unspecified` applications, kept
+/// for the rest of that lineage, so that an application evaluated in an attempt that failed is
+/// not evaluated again when the next equation reaches it.
+///
+/// A lineage opens its scope when it takes its first step on an `Unspecified` application, the
+/// only kind of lineage that retries, and closes it when it ends. A nested lineage whose first
+/// step was on such an application, and whose attempts all gave values, records the
+/// application's value ([`Self::record_in_enclosing`]) in the innermost enclosing scope of the
+/// same [`EvaluationContext`]; the scope's lineage holds that context's objects for as long as
+/// the scope is open, so the context names the same assumptions for every lineage that meets it.
+/// Every lineage result equals its input under its assumptions (a cut occurrence is left as it
+/// is, the identity), so a recorded value is a value of the application under that context
+/// whatever was on the evaluation stack when it was computed. Only a value whose derivation had
+/// no console effect, no exhausted budget and no undefined term is recorded, so reusing it
+/// neither drops an effect nor a report.
+struct UnspecifiedValues {
+    depth: usize,
+    context: EvaluationContext,
+}
+
+impl UnspecifiedValues {
+    fn open(context: EvaluationContext) -> Self {
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
+            scopes.push(ValueScope {
+                context,
+                values: FxHashMap::default(),
+            });
+            Self {
+                depth: scopes.len() - 1,
+                context,
+            }
+        })
+    }
+
+    /// The value recorded for `application` under `context`, with the equation of the step that
+    /// began its derivation.
+    fn recorded(
+        context: EvaluationContext,
+        application: &Term,
+    ) -> Option<(Simplification, Arc<RewriteRule>)> {
+        UNSPECIFIED_VALUES.with_borrow(|scopes| {
+            scopes
+                .iter()
+                .rev()
+                .filter(|scope| scope.context == context)
+                .find_map(|scope| scope.values.get(application).cloned())
+        })
+    }
+
+    /// Record, in the innermost enclosing scope of this lineage's context, the value the lineage
+    /// gave the application of its first `Unspecified` step `first`: the outcome `end` with what
+    /// was accumulated since that step.
+    fn record_in_enclosing(
+        &self,
+        first: &UnspecifiedFrame,
+        end: &Term,
+        accumulated: &Accumulated,
+        execution: Option<&ExecutionEvaluationContext>,
+    ) {
+        let effect_free = match (execution, &first.before.io) {
+            (Some(execution), Some(io)) => execution.unchanged_since(io),
+            (None, None) => true,
+            _ => false,
+        };
+        if !effect_free
+            || accumulated.exhausted.is_some()
+            || accumulated.undefined_term.is_some()
+            || *end == first.application
+        {
+            return;
+        }
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
+            let enclosing = self.depth.min(scopes.len());
+            if let Some(scope) = scopes[..enclosing]
+                .iter_mut()
+                .rev()
+                .find(|scope| scope.context == self.context)
+            {
+                scope.values.insert(
+                    first.application.clone(),
+                    (
+                        accumulated.since(&first.before.accumulated, end.clone()),
+                        Arc::clone(&first.rule),
+                    ),
+                );
+            }
+        });
+    }
+}
+
+impl Drop for UnspecifiedValues {
+    fn drop(&mut self) {
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| scopes.truncate(self.depth));
     }
 }
 
