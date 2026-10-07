@@ -58,11 +58,12 @@
 //! instance exists.
 //!
 //! Each assumption is made for every application the certificate decides, the application
-//! itself and those it decides on the way, such as one in the left-hand side of an equation
-//! whose reduct holds the application: under `g(X, 3) = f(c)`, `g(k(d), 3) = m(2 /Int 0)` and
-//! `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))`, the peak at `g(k(d), 3)` makes `f(c)` undefined, hence
-//! the ground left-hand side `g(g(f(c), 0), 1)` and so `g(g(d, 2), 0)`, while the certificate
-//! of `g(g(d, 2), 0)` reads `f(c)` there as a value distinct from every other.
+//! itself and those it decides on the way (in the arguments of left-hand sides and in the
+//! reducts it reads). An equation binds each argument of its head by membership in its argument
+//! pattern, so where an argument pattern's instance is undefined the equation states nothing:
+//! under `g(X, 3) = f(c)` and `g(k(d), 3) = m(2 /Int 0)`, which make `f(c)` undefined,
+//! `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))` identifies nothing, and reading `f(c)` there as a value
+//! only counts an identification that is not there.
 //!
 //! The questions nest: deciding a left-hand side's argument decides the instance normality of
 //! the terms its reducts build, whose own equations are decided the same way. Their depth is

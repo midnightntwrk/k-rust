@@ -7,8 +7,10 @@
 //! checks both against what the axioms of small definitions prove, without any of the backend's
 //! code.
 //!
-//! The oracle reads a definition as its axioms: each equation `l = r requires c` states
-//! `lσ = rσ` for every valuation `σ` of its variables to values at which `c` holds. It explores
+//! The oracle reads a definition as its axioms: each equation `h(p1, …, pn) = r requires c`,
+//! written as KORE binds each argument `Xi` of `h` by `Xi ∈ pi`, and so states `lσ = rσ` for
+//! every valuation `σ` of its variables to values at which `c` holds and every `piσ` is
+//! defined (an undefined `piσ` makes the membership false and the instance vacuous). It explores
 //! ground terms (hash-consed, injections composed) by rewriting any subterm that syntactically
 //! matches a left-hand side, evaluating `requires` only on Int literals (any other binding of
 //! a `requires` variable skips the step) and `X /Int 0` to `\bottom`. From the steps it derives
@@ -21,13 +23,15 @@
 //! - an application of a total symbol that is in `U`, with every argument but one in `D`, puts
 //!   that argument in `U` (were it defined too, the application would be);
 //! - for a step `C[lσ] -> C[rσ]`: `C[rσ] ∈ U` implies `C[lσ] ∈ U`, always (if every value of `σ`
-//!   is defined the equation instance makes the two equal, and otherwise `lσ` has an undefined
-//!   subterm); and when every value of `σ` is in `D`, the equation instance holds, so
-//!   `C[lσ] ∈ U` implies `C[rσ] ∈ U` and `C[lσ] ∈ D` iff `C[rσ] ∈ D`.
+//!   and every `piσ` is defined the equation instance makes the two equal, and otherwise `lσ`
+//!   has an undefined subterm); `C[lσ] ∈ D` implies `C[rσ] ∈ D` when every value of `σ` is in
+//!   `D` (a defined `lσ` has defined arguments); and when every value of `σ` and every `piσ` is
+//!   in `D`, the equation instance holds, so `C[lσ] ∈ U` implies `C[rσ] ∈ U` and `C[rσ] ∈ D`
+//!   implies `C[lσ] ∈ D`.
 //!
 //! Each rule holds in every model of the axioms, so `t ∈ U` proves `t` undefined. A definition
 //! whose exploration shows it inconsistent (`U` meets `D`, or two distinct constructor terms are
-//! equal through steps whose valuations are in `D`) is skipped: there every claim is valid.
+//! equal through steps whose instances hold) is skipped: there every claim is valid.
 //!
 //! The backend states an assumption it does not check (`instance_normal/patterns.rs`): a peak
 //! that does not meet, at an instance of an equation of another head than an application's,
@@ -35,11 +39,10 @@
 //! steps or in the steps its sides take, a value in which the application occurs, and no
 //! equation of another, total head whose left-hand side holds the application below total
 //! symbols has an undefined right-hand side there. The oracle applies it rather than testing
-//! it: a query is not checked when some application the query reaches by steps, or some
-//! undefined application in a term whose step leads to one holding the query (a left-hand side
-//! instance the certificate reads), has a head that an overlap peak of the explored graph,
-//! whose two sides it cannot join, may make undefined that way ([`Peak`]), or that a root step
-//! of a total head's equation to a term in `U` holds below total symbols. The assumption is the
+//! it: a query is not checked when some application the query reaches by steps has a head
+//! that an overlap peak of the explored graph, whose two sides it cannot join, may make
+//! undefined that way ([`Peak`]), or that a root step of a total head's equation to a term in
+//! `U` holds below total symbols. The assumption is the
 //! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
 //! application it decides, so an application that one of its own head's conditional equations
 //! matches (one the discharge can decide, where without it the obligation stays), at an
@@ -451,6 +454,10 @@ const BOTTOM: Id = 0;
 struct Step {
     to: Id,
     valuation: Vec<Id>,
+    /// The arguments of the redex: the instances of the left-hand side's argument patterns,
+    /// each of which the equation binds to its argument variable by membership, so the
+    /// equation instance holds only where they are defined.
+    arguments: Vec<Id>,
     path: Vec<u8>,
     head: u32,
 }
@@ -734,6 +741,7 @@ impl<'d> Universe<'d> {
                     steps.push(Step {
                         to,
                         valuation: valuation.values().copied().collect(),
+                        arguments: self.children(id),
                         path: Vec::new(),
                         head: symbol,
                     });
@@ -761,6 +769,7 @@ impl<'d> Universe<'d> {
                 steps.push(Step {
                     to,
                     valuation: step.valuation.clone(),
+                    arguments: step.arguments.clone(),
                     path,
                     head: step.head,
                 });
@@ -806,19 +815,6 @@ impl<'d> Universe<'d> {
         }
         for child in self.children(id) {
             self.heads_below(child, exposed, skip, into);
-        }
-    }
-
-    /// The value-production heads of the applications in the term that are in `undefined`.
-    fn undefined_heads(&self, id: Id, undefined: &[bool], into: &mut BTreeSet<u32>) {
-        if let Node::App(symbol, _) = &self.nodes[id as usize]
-            && !self.is_constructor(*symbol)
-            && undefined[id as usize]
-        {
-            into.insert(*symbol);
-        }
-        for child in self.children(id) {
-            self.undefined_heads(child, undefined, into);
         }
     }
 
@@ -1172,7 +1168,13 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         .flat_map(|from| {
             universe.steps[from]
                 .iter()
-                .map(|step| (*from, step.to, step.valuation.clone()))
+                .map(|step| {
+                    // The equation instance holds where the valuation's values and the redex's
+                    // arguments are defined.
+                    let mut instance = step.valuation.clone();
+                    instance.extend(&step.arguments);
+                    (*from, step.to, step.valuation.clone(), instance)
+                })
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -1213,20 +1215,26 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                 }
             }
         }
-        for (from, to, valuation) in &edges {
+        for (from, to, valuation, instance) in &edges {
             let (from, to) = (*from as usize, *to as usize);
             if undefined[to] && !undefined[from] {
                 undefined[from] = true;
                 changed = true;
             }
-            if valuation.iter().all(|value| defined[*value as usize]) {
+            if defined[from]
+                && !defined[to]
+                && valuation.iter().all(|value| defined[*value as usize])
+            {
+                defined[to] = true;
+                changed = true;
+            }
+            if instance.iter().all(|value| defined[*value as usize]) {
                 if undefined[from] && !undefined[to] {
                     undefined[to] = true;
                     changed = true;
                 }
-                if defined[from] != defined[to] {
+                if defined[to] && !defined[from] {
                     defined[from] = true;
-                    defined[to] = true;
                     changed = true;
                 }
             }
@@ -1253,8 +1261,8 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         }
         node
     }
-    for (from, to, valuation) in &edges {
-        if valuation.iter().all(|value| defined[*value as usize]) {
+    for (from, to, _, instance) in &edges {
+        if instance.iter().all(|value| defined[*value as usize]) {
             let (from, to) = (
                 find(&mut parent, *from as usize),
                 find(&mut parent, *to as usize),
@@ -1369,8 +1377,8 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
     // answers the `\ceil` of an application the definedness walk asks about: one at an exposed
     // position of a term the query reaches by steps. It rests on none of the documented
     // assumptions for that application, so such an application excuses no query. One below a
-    // partial head, or in a left-hand side instance the certificate reads, still does: there
-    // the certificate, or the evaluation of the partial head's equations, reads it.
+    // partial head still does: there the certificate, or the evaluation of the partial head's
+    // equations, reads it.
     let mut conditional_applications = HashSet::new();
     for id in 1..count {
         let id = Id::try_from(id).unwrap();
@@ -1426,19 +1434,6 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         } else {
             heads.clone_from(&every_head);
         }
-        // The certificate also reads the left-hand side instances whose reducts hold the query
-        // (an equation instance identifies its two sides, so an undefined left-hand side
-        // instance makes the reduct undefined), and it decides the applications in them under
-        // the same assumption: the heads of the undefined applications in each step's term
-        // that does not hold the query but whose reduct does count too.
-        let mut holds = vec![None; count];
-        for (from, to, _) in &edges {
-            if contains(&universe, *to, id, &mut holds)
-                && !contains(&universe, *from, id, &mut holds)
-            {
-                universe.undefined_heads(*from, &undefined, &mut heads);
-            }
-        }
         let excused = peaks.iter().any(|peak| {
             heads.iter().any(|application| {
                 (*application != peak.head && peak.exposed.contains(application))
@@ -1485,22 +1480,6 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         queries,
         undefined: undefined_terms,
     }
-}
-
-/// Whether `term` holds `subterm` (itself included); `memo` caches the answers by term.
-fn contains(universe: &Universe<'_>, term: Id, subterm: Id, memo: &mut [Option<bool>]) -> bool {
-    if term == subterm {
-        return true;
-    }
-    if let Some(known) = memo[term as usize] {
-        return known;
-    }
-    let held = universe
-        .children(term)
-        .into_iter()
-        .any(|child| contains(universe, child, subterm, memo));
-    memo[term as usize] = Some(held);
-    held
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2193,6 +2172,8 @@ struct Probe {
     definition: Definition,
     seeds: Vec<Pat>,
     undefined: Vec<Pat>,
+    /// Terms the oracle must not prove undefined: some model of the axioms defines them.
+    free: Vec<Pat>,
     excused: bool,
 }
 
@@ -2202,6 +2183,7 @@ fn probe(name: &str, definition: Definition, seeds: Vec<Pat>, undefined: Vec<Pat
         definition,
         seeds,
         undefined,
+        free: Vec::new(),
         excused: false,
     }
 }
@@ -2289,12 +2271,15 @@ fn probes() -> Vec<Probe> {
         vec![],
         vec![app("w", vec![app("k", vec![inj("C", "A", cons("c0"))])])],
     ));
-    // Review 2, F2: `g(5) = f(0)`, `h(g(X)) = k2(X)`, `w(h(f(0))) = mk(1 /Int 0)`.
+    // Review 2, F2: `g(5) = f(0)`, `h(g(X)) = k2(X)`, `w(h(f(0))) = mk(1 /Int 0)`. `f` is a
+    // total function: were `f(0)` undefined, the `g` and `w` equations, which bind their
+    // arguments by membership, would state nothing at `g(5)` and `h(f(0))`, and `w(k2(5))`
+    // would be undefined only in the models where `f(0)` is defined.
     probes.push(probe(
         "review 2 F2",
         Definition::new(&["G", "H"])
             .constructor("k2", &["Int"], "H")
-            .head("f", &["Int"], "G")
+            .total_function("f", &["Int"], "G")
             .head("g", &["Int"], "G")
             .head("h", &["G"], "H")
             .head("w", &["H"], "S")
@@ -2825,14 +2810,18 @@ fn probes() -> Vec<Probe> {
     });
     // Round 7, from the random run with total heads (seed 0x5eed0006, case 16195, minimized):
     // the peak of `g(X, 3) = f(c)` and `g(k(d), 3) = m(2 /Int 0)` at `g(k(d), 3)` makes `f(c)`
-    // undefined, so the ground left-hand side of `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))` is, and so
-    // `g(g(d, 2), 0)` is. The certificate of `g(g(d, 2), 0)` reads `f(c)` in that left-hand side
-    // and decides it under the documented assumption (the peak is at an instance of a `g`
-    // equation, one of whose sides has the head `f`); excused.
+    // undefined. The equation `g(g(f(c), 0), 1) = k(g(g(d, 2), 0))` binds its first argument by
+    // membership in `g(f(c), 0)`, which is then undefined, so it states nothing, and some model
+    // defines `g(g(d, 2), 0)`. Round 7 read the ground equation as an equality between its
+    // sides and excused the backend's claims on `g(g(d, 2), 0)`; the oracle must not prove it
+    // undefined.
+    // `f(c)` itself is undefined through the peak of two `g` equations whose side holds `f`:
+    // the documented cross-head assumption, excused.
     probes.push(Probe {
+        free: vec![app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)])],
         excused: true,
         ..probe(
-            "round 7 assumption read in a left-hand side",
+            "round 7 vacuous left-hand side",
             Definition::new(&["A"])
                 .constructor("c", &[], "A")
                 .constructor("d", &[], "A")
@@ -2858,8 +2847,11 @@ fn probes() -> Vec<Probe> {
                     app("g", vec![app("k", vec![cons("d")]), int(3)]),
                     app("m", vec![div(int(2), int(0))]),
                 ),
-            vec![],
-            vec![app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)])],
+            vec![
+                app("g", vec![app("k", vec![cons("d")]), int(3)]),
+                app("g", vec![app("g", vec![cons("d"), int(2)]), int(0)]),
+            ],
+            vec![app("f", vec![cons("c")])],
         )
     });
     // Review 7, F1: `f(m(I)) = c requires I ==Int 0` is refuted at `f(m(1))`, and `e(f(m(1))) =
@@ -3068,6 +3060,12 @@ fn the_reviewers_probes_claim_no_definedness_the_axioms_refute() {
                 &mut rng,
             );
             assert!(!verdicts.inconsistent, "{} is inconsistent", probe.name);
+            for term in &probe.free {
+                let term = pattern_kore(term);
+                if verdicts.undefined.contains(&term) {
+                    uncovered.push(format!("{}: {term} proven undefined", probe.name));
+                }
+            }
             for query in &probe.undefined {
                 let term = pattern_kore(query);
                 if !verdicts.undefined.contains(&term) {
