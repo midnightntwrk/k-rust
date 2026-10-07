@@ -46,7 +46,7 @@
 //! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
 //! application it decides, so an application that one of its own head's conditional equations
 //! matches (one the discharge can decide, where without it the obligation stays), at an
-//! exposed position of a term the query reaches, excuses nothing.
+//! exposed position of a normal form the query reaches, excuses nothing.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -1375,10 +1375,10 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
     // equations matches (without the discharge such an application keeps its obligation; with
     // no reaching equation the discharge and the certificate answer alike). The discharge
     // answers the `\ceil` of an application the definedness walk asks about: one at an exposed
-    // position of a term the query reaches by steps. It rests on none of the documented
+    // position of a normal form the query reaches by steps. It rests on none of the documented
     // assumptions for that application, so such an application excuses no query. One below a
-    // partial head still does: there the certificate, or the evaluation of the partial head's
-    // equations, reads it.
+    // partial head, or in a term the query's evaluation passes through, still does: there the
+    // certificate, or the evaluation of the enclosing equations, reads it.
     let mut conditional_applications = HashSet::new();
     for id in 1..count {
         let id = Id::try_from(id).unwrap();
@@ -1428,8 +1428,22 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         let (reached, complete) = universe.reachable(id);
         let mut heads = BTreeSet::new();
         if complete {
+            let none = HashSet::new();
             for reached in &reached {
-                universe.heads(*reached, &conditional_applications, &mut heads);
+                // The backend asks the `\ceil` of the applications of the normal form it
+                // evaluates the query to; an intermediate term's applications are only read by
+                // the evaluation and the certificate.
+                let normal = universe
+                    .steps
+                    .get(reached)
+                    .is_some_and(|steps| steps.is_empty())
+                    && !universe.loops.contains(reached);
+                let skip = if normal {
+                    &conditional_applications
+                } else {
+                    &none
+                };
+                universe.heads(*reached, skip, &mut heads);
             }
         } else {
             heads.clone_from(&every_head);
