@@ -7449,6 +7449,179 @@ fn rejects_a_cell_written_beside_its_only_possible_ancestor_through_a_repeated_c
     }
 }
 
+const LIST_BESIDE_REWRITE: &str = r#"<top> <k> 0 </k> <stack> <sp> 0 </sp> <c1> <x> 0 </x> </c1> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#;
+
+// The rewrite in <stack> is of <sp> cells on both sides, but its Bag variable B may stand for <fr>
+// cells of <stack>'s list, so the <fr> moved into <stack> (written beside it) or lifted into it
+// (written inside <c1>) has no stated position relative to B's cells.
+#[test]
+fn rejects_a_list_cell_placed_beside_a_rewrite_holding_a_term_of_unknown_cell_sort() {
+    for (rule, written) in [
+        (
+            "<k> 0 => 1 </k> <stack> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag) <c1> <x> X </x> </c1> ... </stack> <fr> <v> 2 </v> </fr>",
+            "Cell <fr> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+        (
+            "<k> 0 => 1 </k> <stack> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag) <c1> <x> X </x> <fr> <v> 2 </v> </fr> </c1> ... </stack>",
+            "Cell <fr> written inside <c1> belongs in the <stack> that holds <c1>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list",
+        ),
+    ] {
+        let errors = concretized_cell_rule(LIST_BESIDE_REWRITE, rule).unwrap_err();
+        assert_eq!(errors, [written], "{rule}");
+    }
+}
+
+const LIST_ITEMS: &str = r#"<top> <k> 0 </k> <stack> <sp> 0 </sp> <cur> <x> 0 </x> </cur> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#;
+
+const LIST_ITEM_SYNTAX: &str = "syntax Bag ::= bag(Int) [function]
+          syntax SpCell ::= sp(Int) [function]
+          syntax FrCell ::= fr(Int) [function]";
+
+// Every shape an item of a cell body can have after parsing (a cell, a variable, a rewrite, an
+// alias, an empty bag, a function application, which a left side may not hold outside a rewrite),
+// each written in <stack> beside a <fr> placed there, with whether it may be or hold an instance
+// of <stack>'s list of <fr> cells. A term of unknown cell sort may; a rewrite or an alias may if
+// any part of it may. (An alias of other cells is rejected by child ordering, whatever it holds.)
+const LIST_ITEM_SHAPES: &[(&str, bool)] = &[
+    ("<fr> <v> 1 </v> </fr>", true),
+    ("(<fr> <v> 1 </v> </fr> => .Bag)", true),
+    ("(.Bag => <fr> <v> 1 </v> </fr>)", true),
+    ("(<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag)", true),
+    ("(<sp> S </sp> => <sp> S </sp> B:Bag)", true),
+    ("(<sp> S </sp> <fr> <v> 1 </v> </fr> => <sp> 1 </sp>)", true),
+    ("(<fr> <v> 1 </v> </fr> #as F:FrCell)", true),
+    ("B:Bag", true),
+    ("F:FrCell", true),
+    ("(<sp> S </sp> => <sp> S </sp> bag(1))", true),
+    ("(.Bag => fr(1))", true),
+    ("(<sp> S </sp> => <sp> 1 </sp>)", false),
+    ("(<sp> S </sp> => sp(1))", false),
+    ("<sp> S </sp>", false),
+    ("P:SpCell", false),
+    (".Bag", false),
+];
+
+fn assert_list_cell_placed_or_rejected(rule: &str, in_list: bool, rejection: &str) {
+    let result = concretized_cell_rule_in(LIST_ITEM_SYNTAX, LIST_ITEMS, rule, "");
+    if in_list {
+        assert_eq!(result.unwrap_err(), [rejection], "{rule}");
+    } else {
+        let body = result.unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        // The placed <fr> is the only stated item of the list, followed by the rest of it.
+        assert!(
+            body.contains(r#"`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_"#),
+            "{rule}: {body}"
+        );
+    }
+}
+
+#[test]
+fn places_a_list_cell_written_beside_its_only_possible_parent_only_beside_items_outside_its_list() {
+    for (item, in_list) in LIST_ITEM_SHAPES {
+        assert_list_cell_placed_or_rejected(
+            &format!("<stack> {item} <cur> <x> X </x> </cur> ... </stack> <fr> <v> 2 </v> </fr>"),
+            *in_list,
+            "Cell <fr> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        );
+    }
+}
+
+#[test]
+fn places_a_misplaced_list_cell_lifted_into_its_parent_only_beside_items_outside_its_list() {
+    for (item, in_list) in LIST_ITEM_SHAPES {
+        assert_list_cell_placed_or_rejected(
+            &format!("<stack> {item} <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> ... </stack>"),
+            *in_list,
+            "Cell <fr> written inside <cur> belongs in the <stack> that holds <cur>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list",
+        );
+    }
+}
+
+// A cell of another sort moved or lifted into <stack> is part of its <fr> list when it may hold
+// <fr> cells: here a rewrite of <sp> cells whose Bag variable may stand for some.
+#[test]
+fn rejects_a_term_holding_list_cells_placed_beside_written_instances() {
+    for (rule, written) in [
+        (
+            "<stack> <fr> <v> 1 </v> </fr> <cur> <x> X </x> </cur> ... </stack> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag)",
+            "Cell <sp> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+        (
+            "<stack> <fr> <v> 1 </v> </fr> <cur> <x> X </x> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag) </cur> ... </stack>",
+            "Cell <sp> written inside <cur> belongs in the <stack> that holds <cur>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list",
+        ),
+    ] {
+        let errors = concretized_cell_rule(LIST_ITEMS, rule).unwrap_err();
+        assert_eq!(errors, [written], "{rule}");
+    }
+    // Without a <fr> written in <stack>, B's cells are the list's only stated items.
+    for rule in [
+        "<stack> <cur> <x> X </x> </cur> ... </stack> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag)",
+        "<stack> <cur> <x> X </x> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag) </cur> ... </stack>",
+    ] {
+        concretized_cell_rule(LIST_ITEMS, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+    }
+}
+
+// The <fr> written beside <a> goes into the one <p> of the one <a>. Only what that <p> may hold
+// can be part of its list; the frame of the written <p> is the rest of the list, after the placed
+// <fr>, as for a <fr> written in it.
+#[test]
+fn places_a_list_cell_written_beside_its_only_possible_ancestor_only_beside_items_outside_its_list()
+{
+    for (item, in_list) in [
+        ("<p> <y> 1 </y> ... </p>", false),
+        ("<p> ... <y> 1 </y> </p>", false),
+        ("<z> Z </z>", false),
+        ("<p> <fr> <v> 1 </v> </fr> ... </p>", true),
+        ("<p> B:Bag ... </p>", true),
+        ("<p> (<y> Y </y> B:Bag => <y> 1 </y> B:Bag) ... </p>", true),
+        ("(<p> <y> 1 </y> ... </p> => <p> <y> 2 </y> ... </p>)", true),
+        (
+            "(<p> <y> 1 </y> <fr> <v> 1 </v> </fr> </p> => <p> <y> 2 </y> </p>)",
+            true,
+        ),
+        ("P:PCell", true),
+        ("B:Bag", true),
+    ] {
+        let rule = format!("<a> {item} ... </a> <fr> <v> 2 </v> </fr>");
+        let result = concretized_cell_rule(NESTED_LIST_FRAMES, &rule);
+        if in_list {
+            assert_eq!(
+                result.unwrap_err(),
+                [
+                    "Cell <fr> written beside <a> belongs inside it: the configuration allows only one <a> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list"
+                ],
+                "{rule}"
+            );
+        } else {
+            let body = result.unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+            assert!(
+                body.contains(r#"`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_"#),
+                "{rule}: {body}"
+            );
+        }
+    }
+}
+
+// The <p> moved into <a> brings its own list of <fr> cells, stated by its body: nothing else in
+// <a> can be part of that list.
+#[test]
+fn places_a_cell_above_a_list_written_beside_its_only_possible_parent_with_its_list() {
+    for rule in [
+        "<a> <z> Z </z> B:Bag ... </a> <p> <fr> <v> 1 </v> </fr> ... </p>",
+        "<a> <z> Z </z> ... </a> <p> <fr> <v> 1 </v> </fr> ... </p>",
+    ] {
+        let body = concretized_cell_rule(NESTED_LIST_FRAMES, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        assert!(
+            body.contains(r#"`_FrCellList_`(`<fr>`(`<v>`(#token("1","Int"))),_"#),
+            "{rule}: {body}"
+        );
+    }
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
