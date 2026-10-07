@@ -457,11 +457,19 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Erro
             leaf.depth, leaf.halt_reason
         )));
     }
-    Ok(details[0].1[0].clone())
+    details[0].1[0].clone().map_err(|character| {
+        io::Error::other(format!(
+            "captured output writes each character of the stdout stream buffer as one byte, its code point; the buffer holds U+{:04X}, which is above 255 and no byte",
+            u32::from(character)
+        ))
+    })
 }
 
-fn stdout_stream_buffers(term: &Term) -> Vec<Vec<u8>> {
-    fn visit(term: &Term, memo: &mut HashMap<Term, Vec<Vec<u8>>>) -> Vec<Vec<u8>> {
+/// The console bytes of a `stdout` stream buffer, or the first character that is no byte.
+type StdoutBuffer = Result<Vec<u8>, char>;
+
+fn stdout_stream_buffers(term: &Term) -> Vec<StdoutBuffer> {
+    fn visit(term: &Term, memo: &mut HashMap<Term, Vec<StdoutBuffer>>) -> Vec<StdoutBuffer> {
         if let Some(buffers) = memo.get(term) {
             return buffers.clone();
         }
@@ -539,7 +547,7 @@ fn stdout_stream_buffers(term: &Term) -> Vec<Vec<u8>> {
     visit(term, &mut HashMap::new())
 }
 
-fn stdout_stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+fn stdout_stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<StdoutBuffer> {
     let PatternNode::Application { symbol, arguments } = pattern.node() else {
         return None;
     };
@@ -619,7 +627,7 @@ fn is_stream_descriptor<'a, S: PatternSource<'a>>(
         && domain_value(unwrap_injections(arguments[0].clone()), sort_name, value)
 }
 
-fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<StdoutBuffer> {
     let PatternNode::Application { symbol, arguments } = unwrap_injections(pattern).node() else {
         return None;
     };
@@ -653,8 +661,12 @@ fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
 }
 
 /// The console bytes of a `String` buffer: each character is one byte, its code point, as
-/// `IO.write` writes it; `None` when a code point is above 255, which is no byte.
-fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> Option<Vec<u8>> {
+/// `IO.write` writes it, or the first code point above 255, which is no byte; `None` when the
+/// pattern is no domain value of `sort_name`.
+fn domain_value_bytes<'a, S: PatternSource<'a>>(
+    pattern: S,
+    sort_name: &str,
+) -> Option<StdoutBuffer> {
     let PatternNode::DomainValue { sort, value } = pattern.node() else {
         return None;
     };
@@ -663,12 +675,14 @@ fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> 
     {
         return None;
     }
-    value
-        .as_utf8()
-        .ok()?
-        .chars()
-        .map(|character| u8::try_from(u32::from(character)).ok())
-        .collect()
+    Some(
+        value
+            .as_utf8()
+            .ok()?
+            .chars()
+            .map(|character| u8::try_from(u32::from(character)).map_err(|_| character))
+            .collect(),
+    )
 }
 
 impl Backend {
@@ -1501,7 +1515,7 @@ mod captured_stdout_tests {
         let doubled = app("pair", vec![shared.clone(), shared]);
         assert_eq!(
             stdout_stream_buffers(&doubled),
-            vec![vec![0, b'o', b'k', 255]; 2]
+            vec![Ok(vec![0, b'o', b'k', 255]); 2]
         );
 
         let missing = app("other", vec![]);
@@ -1565,7 +1579,11 @@ mod captured_stdout_tests {
         Term::domain_value(Sort::simple("SortInt"), value.to_string())
     }
 
-    fn sorted(mut buffers: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    fn sorted(buffers: Vec<Result<Vec<u8>, char>>) -> Vec<Vec<u8>> {
+        let mut buffers = buffers
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("every buffer holds bytes");
         buffers.sort();
         buffers
     }
@@ -1706,5 +1724,28 @@ mod captured_stdout_tests {
             let error = captured_stdout_buffer(&finals).unwrap_err().to_string();
             assert!(error.ends_with(message), "{error}");
         }
+    }
+
+    /// `backend.execution.captured_stdout`: the console writes each character as one byte, its
+    /// code point, so a buffer holding a code point above 255 is that error, as `IO.write`
+    /// refuses it, and not a missing buffer.
+    #[test]
+    fn captured_output_names_a_code_point_above_255() {
+        let lambda = leaf(
+            internal_stdout_cell("a\u{3bb}\n".as_bytes()),
+            Vec::new(),
+            HaltReason::Stuck,
+        );
+        let error = captured_stdout_buffer(&[&lambda]).unwrap_err().to_string();
+        assert!(
+            error.ends_with("the buffer holds U+03BB, which is above 255 and no byte"),
+            "{error}"
+        );
+        let latin = leaf(
+            internal_stdout_cell("\u{e9}".as_bytes()),
+            Vec::new(),
+            HaltReason::Stuck,
+        );
+        assert_eq!(captured_stdout_buffer(&[&latin]).unwrap(), [0xe9]);
     }
 }
