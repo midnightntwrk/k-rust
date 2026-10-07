@@ -860,3 +860,197 @@ fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
         Predicate::True
     );
 }
+
+/// `e, d : Int -> A`, `k : Int -> T` and `c : T` constructors, `f : A x T -> S` a value
+/// production with `f(e(Y), W) = f(d(Y), c)`, `f(V, k({second})) = f(d({second}), c)` and
+/// `{last}`. The first two overlap at the root, at `f(e(Y), k({second}))` with `Y` and
+/// `{second}` independent: `f(e(1), k(3))` has the normal forms of `f(d(1), c)` and of
+/// `f(d(3), c)`.
+fn root_overlap_definition(second: &str, last: String) -> BackendDefinition {
+    narrowing_definition(&[
+        r#"hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]"#.to_string(),
+        r#"hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]"#.into(),
+        "sort SortA{} []".into(),
+        "sort SortT{} []".into(),
+        "symbol e{}(SortInt{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol d{}(SortInt{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol k{}(SortInt{}) : SortT{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol c{}() : SortT{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol f{}(SortA{}, SortT{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        binary_anywhere_equation(
+            "f",
+            ("SortA{}", "SortT{}"),
+            "SortS{}",
+            ("e{}(VarY:SortInt{})", "VarW:SortT{}"),
+            "f{}(d{}(VarY:SortInt{}), c{}())",
+        ),
+        binary_anywhere_equation(
+            "f",
+            ("SortA{}", "SortT{}"),
+            "SortS{}",
+            ("VarV:SortA{}", &format!("k{{}}({second}:SortInt{{}})")),
+            &format!("f{{}}(d{{}}({second}:SortInt{{}}), c{{}}())"),
+        ),
+        last,
+    ])
+}
+
+const ROOT_OVERLAP_SUBJECT: &str = r#"f{}(d{}(\dv{SortInt{}}("1")), c{}())"#;
+
+/// [`root_overlap_definition`] with `f(d(X), c) = mk(X /Int 0) requires X ==Int 3` (review 4,
+/// F1): `f(d(1), c) = f(e(1), k(3)) = f(d(3), c) = mk(3 /Int 0)`, undefined. The `requires`
+/// is false at the only match of `f(d(1), c)`, but the root overlap reaches `f(d(1), c)`, so
+/// it discharges nothing, whether the second equation's variable is named like the first's
+/// (`VarY`) or not (`VarU`): the axioms are the same up to renaming their variables.
+#[test]
+fn a_root_overlap_is_read_apart_from_the_names_its_equations_share_under_a_refuted_requires() {
+    for second in ["VarY", "VarU"] {
+        let definition = root_overlap_definition(
+            second,
+            r#"axiom{R} \implies{R}(
+            \and{R}(\equals{SortBool{}, R}(eqInt{}(VarX:SortInt{}, \dv{SortInt{}}("3")), \dv{SortBool{}}("true")),
+              \and{R}(\in{SortA{}, R}(X0:SortA{}, d{}(VarX:SortInt{})), \and{R}(\in{SortT{}, R}(X1:SortT{}, c{}()), \top{R}()))),
+            \equals{SortS{}, R}(f{}(X0:SortA{}, X1:SortT{}), \and{SortS{}}(mk{}(divInt{}(VarX:SortInt{}, \dv{SortInt{}}("0"))), \top{SortS{}}()))
+        ) [anywhere{}()]"#
+                .into(),
+        );
+        assert_ceil_kept(
+            &definition,
+            ROOT_OVERLAP_SUBJECT,
+            "SortS{}",
+            ROOT_OVERLAP_SUBJECT,
+        );
+    }
+}
+
+/// [`root_overlap_definition`] with `f(d(3), c) = mk(1 /Int 0)`: `f(d(1), c)` is undefined by
+/// the same conversion and is not a value, whatever the second equation's variable is named.
+#[test]
+fn a_root_overlap_is_read_apart_from_the_names_its_equations_share() {
+    for second in ["VarY", "VarU"] {
+        let definition = root_overlap_definition(
+            second,
+            binary_anywhere_equation(
+                "f",
+                ("SortA{}", "SortT{}"),
+                "SortS{}",
+                (r#"d{}(\dv{SortInt{}}("3"))"#, "c{}()"),
+                UNDEFINED_MK,
+            ),
+        );
+        assert_ceil_kept(
+            &definition,
+            ROOT_OVERLAP_SUBJECT,
+            "SortS{}",
+            ROOT_OVERLAP_SUBJECT,
+        );
+    }
+}
+
+/// One sort `A`: constructors `k, s, m, m2 : A -> A` and `c, d : A`; value productions `p, h :
+/// A x A -> A`, `q : A x A x A -> A`, `v : A -> A` and `f : A -> S`; the equations `{rest}`,
+/// `q({first}, X, X) = c` and `f(p(A, s(Z))) = mk(1 /Int 0)`. With `{first}` = `c`, instance
+/// normality refutes `q(Z, s(Z), s(d))` (`Z = c`, then `s(c)` against `s(d)`) but not
+/// `q(Z1, s(Z2), s(d))`; with `k(c)`, likewise `q(k(Z), s(Z), s(d))`.
+fn chained_reducts_definition(first: &str, rest: &[String]) -> BackendDefinition {
+    let mut equations = vec![
+        "sort SortA{} []".to_string(),
+        "symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol s{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol m{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol m2{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol d{}() : SortA{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol p{}(SortA{}, SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol h{}(SortA{}, SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol q{}(SortA{}, SortA{}, SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol v{}(SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol f{}(SortA{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        r#"axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, {first}), \and{R}(\in{SortA{}, R}(X1:SortA{}, VarX:SortA{}), \and{R}(\in{SortA{}, R}(X2:SortA{}, VarX:SortA{}), \top{R}())))),
+            \equals{SortA{}, R}(q{}(X0:SortA{}, X1:SortA{}, X2:SortA{}), \and{SortA{}}(c{}(), \top{SortA{}}()))
+        ) [anywhere{}()]"#
+            .replace("{first}", first),
+        anywhere_equation(
+            "f",
+            "SortA{}",
+            "SortS{}",
+            "p{}(VarA:SortA{}, s{}(VarZ:SortA{}))",
+            UNDEFINED_MK,
+        ),
+    ];
+    equations.extend(rest.iter().cloned());
+    narrowing_definition(&equations)
+}
+
+const CHAINED_SUBJECT: &str = "f{}(m{}(m2{}(c{}())))";
+
+/// [`chained_reducts_definition`] with `q(c, X, X) = c`, `p(k(Y), V) = m(h(Y, V))` and `h(k({name}), V) =
+/// m2(q({name}, V, s(d)))`. By the axioms `f(m(m2(c))) = f(m(m2(q(c, s(d), s(d))))) =
+/// f(m(h(k(c), s(d)))) = f(p(k(k(c)), s(d))) = mk(1 /Int 0)`, undefined. Reading `f`'s
+/// argument `p(A, s(Z))`, the `h` equation's step leaves its own variable unbound beside the `f`
+/// equation's `Z`; named alike (`VarZ`), the two must still be read apart.
+#[test]
+fn a_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_left_hand_sides() {
+    for name in ["VarZ", "VarU"] {
+        let definition = chained_reducts_definition(
+            "c{}()",
+            &[
+                binary_anywhere_equation(
+                    "p",
+                    ("SortA{}", "SortA{}"),
+                    "SortA{}",
+                    ("k{}(VarY:SortA{})", "VarV:SortA{}"),
+                    "m{}(h{}(VarY:SortA{}, VarV:SortA{}))",
+                ),
+                binary_anywhere_equation(
+                    "h",
+                    ("SortA{}", "SortA{}"),
+                    "SortA{}",
+                    (&format!("k{{}}({name}:SortA{{}})"), "VarV:SortA{}"),
+                    &format!("m2{{}}(q{{}}({name}:SortA{{}}, VarV:SortA{{}}, s{{}}(d{{}}())))"),
+                ),
+            ],
+        );
+        assert_ceil_kept(&definition, CHAINED_SUBJECT, "SortS{}", CHAINED_SUBJECT);
+    }
+}
+
+/// [`chained_reducts_definition`] with `q(k(c), X, X) = c`, `p(k(Y), V) = m(h(c, V))`, `h(v(X), V) =
+/// m2(q(X, V, s(d)))` and `v(k({name})) = c`. `c` is the value of `v(k(c))`, so by the axioms
+/// `f(m(m2(c))) = f(m(m2(q(k(c), s(d), s(d))))) = f(m(h(v(k(c)), s(d)))) = f(m(h(c, s(d)))) =
+/// f(p(k(Y), s(d))) = mk(1 /Int 0)`, undefined. Reading `h(c, s(Z))` through the `v`
+/// equation binds the `h` equation's `X` to `k({name})` with `{name}` unbound; named like the
+/// `f` equation's `Z` (`VarZ`), the two must still be read apart.
+#[test]
+fn a_composed_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_left_hand_sides() {
+    for name in ["VarZ", "VarU"] {
+        let definition = chained_reducts_definition(
+            "k{}(c{}())",
+            &[
+                binary_anywhere_equation(
+                    "p",
+                    ("SortA{}", "SortA{}"),
+                    "SortA{}",
+                    ("k{}(VarY:SortA{})", "VarV:SortA{}"),
+                    "m{}(h{}(c{}(), VarV:SortA{}))",
+                ),
+                binary_anywhere_equation(
+                    "h",
+                    ("SortA{}", "SortA{}"),
+                    "SortA{}",
+                    ("v{}(VarX:SortA{})", "VarV:SortA{}"),
+                    "m2{}(q{}(VarX:SortA{}, VarV:SortA{}, s{}(d{}())))",
+                ),
+                anywhere_equation(
+                    "v",
+                    "SortA{}",
+                    "SortA{}",
+                    &format!("k{{}}({name}:SortA{{}})"),
+                    "c{}()",
+                ),
+            ],
+        );
+        assert_ceil_kept(&definition, CHAINED_SUBJECT, "SortS{}", CHAINED_SUBJECT);
+    }
+}
