@@ -43,6 +43,14 @@
 //! without being syntactic instances of `l`: under `g(5) = c1; f(c1) = k(0); f(g(X)) = mk(1 /Int
 //! 0)`, `k(0)` is undefined while no `k` equation exists.
 //!
+//! The questions nest: deciding a left-hand side's argument decides the instance normality of
+//! the terms its reducts build, whose own equations are decided the same way. Their depth is
+//! bounded (`super::VALUE_QUESTIONS`, [`NARROWING_DEPTH`]), their breadth too
+//! ([`REPRESENTATIVES`], [`REPRESENTATIVE_SIZE`]), and so is their work: each narrowing step is
+//! taken from a budget of the outermost question (`super::SCAN_WORK`) and, while the facts are
+//! computed, of the whole computation (`super::PATTERN_FACTS_WORK`). Past any bound the term
+//! read stands for any value, the conservative answer.
+//!
 //! Narrowing ([`BackendDefinition::narrow`]) asks which right-hand sides an equation gives a
 //! reduct of a pattern, by matching the equation's left-hand side against the pattern. It reads
 //! that left-hand side by its values as well: a subterm's syntax counts only where the subterm's
@@ -77,7 +85,8 @@ use std::{
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 use super::{
-    SCAN, Scan, ScanScope, ValueQuestion, compared_by_root, separated, sorts_differ, token,
+    SCAN, Scan, ScanScope, ValueQuestion, bounds, compared_by_root, facts_work_spent, separated,
+    sorts_differ, take_work, token, work_spent,
 };
 use crate::substitution::{Substitution, substitute};
 use crate::{
@@ -356,12 +365,13 @@ impl BackendDefinition {
     /// root rewrites it; the result is an instance of that equation's right-hand side, whose
     /// variables are bound by matching its left-hand side against the reduct
     /// ([`Self::narrow`]), and it may be rewritten at its own root again. The representatives
-    /// are the pattern and the right-hand sides so reached, up to [`REPRESENTATIVES`] terms and
-    /// [`NARROWING_DEPTH`] levels of nested patterns; past either bound they are the pattern and
+    /// are the pattern and the right-hand sides so reached, up to [`REPRESENTATIVES`] terms of at
+    /// most [`REPRESENTATIVE_SIZE`] nodes and [`NARROWING_DEPTH`] levels of nested patterns; past
+    /// any of these bounds, or the scan's narrowing budget, they are the pattern and
     /// every right-hand side its root's equations reach (`PatternFacts::value_roots`), which
     /// covers the same reducts with fewer bindings. An as-pattern is covered by either conjunct.
     fn value_representatives(&self, pattern: &Term) -> Option<Vec<Term>> {
-        self.representatives(pattern, NARROWING_DEPTH)
+        self.representatives(pattern, bounds().narrowing_depth)
     }
 
     fn representatives(&self, pattern: &Term, depth: usize) -> Option<Vec<Term>> {
@@ -390,6 +400,9 @@ impl BackendDefinition {
         }
         if self.normal_pattern(pattern) {
             return Some(vec![pattern.clone()]);
+        }
+        if work_spent() {
+            return None;
         }
         if depth == 0 {
             return self.reachable_representatives(pattern);
@@ -436,6 +449,9 @@ impl BackendDefinition {
                             .filter(|variable| !binding.contains_key(*variable)),
                     ));
                     let reduct = substitute(right, &binding);
+                    if !within_size(&reduct, bounds().representative_size) {
+                        return self.reachable_representatives(pattern);
+                    }
                     let shape = shape_hash(&reduct, &kept);
                     if representatives
                         .iter()
@@ -446,7 +462,7 @@ impl BackendDefinition {
                     {
                         continue;
                     }
-                    if representatives.len() == REPRESENTATIVES {
+                    if representatives.len() >= bounds().representatives {
                         return self.reachable_representatives(pattern);
                     }
                     representatives.push(reduct);
@@ -487,6 +503,9 @@ impl BackendDefinition {
         reading: LeftReading,
     ) -> Option<Vec<Substitution>> {
         let unknown = || Some(vec![Substitution::new()]);
+        if !take_work() {
+            return unknown();
+        }
         match (left.kind(), term.kind()) {
             (TermKind::Variable(variable), _) => {
                 Some(vec![Substitution::from([(variable.clone(), term.clone())])])
@@ -1041,7 +1060,7 @@ impl BackendDefinition {
                                 self.narrow(
                                     subterm,
                                     &renamed_fresh(normal_form),
-                                    NARROWING_DEPTH,
+                                    bounds().narrowing_depth,
                                     LeftReading::Values,
                                 ),
                                 &mut every,
@@ -1055,18 +1074,25 @@ impl BackendDefinition {
             return Overlaps::Absent;
         }
         let mut instances = Vec::new();
-        if every || alternatives.len() > REPRESENTATIVES {
-            instances.push(left.clone());
-        } else {
+        if !every && alternatives.len() <= bounds().representatives {
             for alternative in &alternatives {
-                let instance = canonical(
-                    &instantiate(left, &bind_aliases(left, alternative)),
-                    &|variable| !minted(variable),
-                );
+                let instance = instantiate(left, &bind_aliases(left, alternative));
+                // An instance past the size bound is covered by `left` itself, which every
+                // overlapped instance is an instance of. Without the bound, a non-linear
+                // left-hand side read against the previous round's representatives doubles
+                // them each round.
+                if !within_size(&instance, bounds().representative_size) {
+                    instances.clear();
+                    break;
+                }
+                let instance = canonical(&instance, &|variable| !minted(variable));
                 if !instances.contains(&instance) {
                     instances.push(instance);
                 }
             }
+        }
+        if instances.is_empty() {
+            instances.push(left.clone());
         }
         let mut reaching = Vec::new();
         for instance in &instances {
@@ -1240,7 +1266,7 @@ impl BackendDefinition {
     /// innermost, leftmost position one applies.
     fn reduce_unconditionally(&self, term: &Term) -> Term {
         let mut term = term.clone();
-        for _ in 0..JOIN_STEPS {
+        for _ in 0..bounds().join_steps {
             match self.unconditional_step(&term) {
                 Some(next) => term = next,
                 None => break,
@@ -1307,7 +1333,7 @@ impl BackendDefinition {
             self.narrow(
                 pattern,
                 &renamed_fresh(&other.lhs),
-                NARROWING_DEPTH,
+                bounds().narrowing_depth,
                 LeftReading::Values,
             )
             .unwrap_or_default(),
@@ -1351,7 +1377,7 @@ enum LeftReading {
 fn bounded_alternatives(alternatives: Vec<Substitution>) -> Option<Vec<Substitution>> {
     if alternatives.is_empty() {
         None
-    } else if alternatives.len() > REPRESENTATIVES {
+    } else if alternatives.len() > bounds().representatives {
         Some(vec![Substitution::new()])
     } else {
         Some(alternatives)
@@ -1360,14 +1386,35 @@ fn bounded_alternatives(alternatives: Vec<Substitution>) -> Option<Vec<Substitut
 
 /// The most representatives [`BackendDefinition::value_representatives`] keeps for one pattern,
 /// and the most alternatives one narrowing keeps, before falling back to coarser ones.
-const REPRESENTATIVES: usize = 64;
+pub(super) const REPRESENTATIVES: usize = 64;
+
+/// The most nodes a representative [`BackendDefinition::value_representatives`] builds, or an
+/// overlapped instance [`BackendDefinition::overlaps_of`] stores, may have, counting a shared
+/// subterm at each occurrence, before falling back to coarser ones. A right-hand side that
+/// repeats a variable doubles what is bound to it, so a chain of reducts can grow exponentially,
+/// and every walk of a term (comparison up to minted names, canonical renaming) visits each
+/// occurrence. FUN's reducts have about 100.
+pub(super) const REPRESENTATIVE_SIZE: usize = 2048;
+
+/// Whether `term` has at most `limit` nodes, counting a shared subterm at each occurrence; at
+/// most `limit + 1` nodes are visited, and the recursion is at most that deep.
+fn within_size(term: &Term, limit: usize) -> bool {
+    fn count(term: &Term, left: &mut usize) -> bool {
+        if *left == 0 {
+            return false;
+        }
+        *left -= 1;
+        token::every_immediate_subterm(term, |subterm| count(subterm, left))
+    }
+    count(term, &mut { limit })
+}
 
 /// The most steps each side of a peak takes in [`BackendDefinition::peak_joins`].
-const JOIN_STEPS: usize = 8;
+pub(super) const JOIN_STEPS: usize = 8;
 
 /// The levels of nested patterns whose representatives narrowing computes before falling back
 /// to coarser ones.
-const NARROWING_DEPTH: usize = 3;
+pub(super) const NARROWING_DEPTH: usize = 3;
 
 /// Every pairing of an alternative of `first` with one of `second`, the first's binding kept
 /// for a variable both bind; `None` when either has none. More than [`REPRESENTATIVES`]
@@ -1376,7 +1423,7 @@ fn combine(first: Vec<Substitution>, second: Vec<Substitution>) -> Option<Vec<Su
     if first.is_empty() || second.is_empty() {
         return None;
     }
-    if first.len() * second.len() > REPRESENTATIVES {
+    if first.len() * second.len() > bounds().representatives {
         return Some(vec![Substitution::new()]);
     }
     Some(
@@ -1652,6 +1699,22 @@ fn renamed_from(first: &Term, second: &Term, kept: &dyn Fn(&Variable) -> bool) -
     walk(first, second, kept, &mut Vec::new())
 }
 
+/// The scan memo's key of `term` when it holds names minted for copies: equal for two terms
+/// that differ only in those names ([`same_up_to_minted_names`]); `None` for any other term,
+/// which is looked up as it is.
+pub(super) fn copy_key(term: &Term) -> Option<u64> {
+    term.attributes()
+        .variables
+        .iter()
+        .any(minted)
+        .then(|| shape_hash(term, &|variable| !minted(variable)))
+}
+
+/// Whether `second` is `first` with the names minted for copies renamed one-to-one.
+pub(super) fn same_up_to_minted_names(first: &Term, second: &Term) -> bool {
+    first == second || renamed_from(first, second, &|variable| !minted(variable))
+}
+
 /// Whether `variable` is one [`fresh_names`] minted.
 fn minted(variable: &Variable) -> bool {
     variable.name.contains(MINTED_MARKER)
@@ -1712,8 +1775,10 @@ fn contains_conjunction(pattern: &Term) -> bool {
 /// every fact the round derives is sound, and the set keeps every equation once added. Each
 /// round's facts are a function of the previous round's, so the result does not depend on the
 /// order of the equations (each left-hand side is tested, and each equation's overlaps computed,
-/// in a scan scope of its own, from an empty memo). The rounds stop when one changes nothing, or
-/// after [`PATTERN_FACT_ROUNDS`], whose facts are sound too.
+/// in a scan scope of its own, from an empty memo). The rounds stop when one changes nothing,
+/// after [`PATTERN_FACT_ROUNDS`], or after the round in which the computation's narrowing
+/// budget (`super::PATTERN_FACTS_WORK`) is spent, whose facts are sound too: past the budget
+/// every narrowing binds nothing.
 ///
 /// The exclusion of an equation outside the set decides the instance normality of terms that are
 /// not subterms of the term asked: the arguments of other left-hand sides and right-hand sides
@@ -1749,7 +1814,7 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
         unbounded,
         overlaps: None,
     };
-    for _ in 0..PATTERN_FACT_ROUNDS {
+    for _ in 0..bounds().pattern_fact_rounds {
         let approximation = Rc::new(facts.clone());
         APPROXIMATION.with(|slot| *slot.borrow_mut() = Some(approximation));
         let added = rules
@@ -1776,7 +1841,7 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
                 .is_some_and(|known| *known == overlaps);
         facts.normal_rules.extend(added);
         facts.overlaps = Some(Arc::new(overlaps));
-        if unchanged {
+        if unchanged || facts_work_spent() {
             break;
         }
     }
@@ -1800,7 +1865,7 @@ fn has_fixed_root(left: &Term) -> bool {
 
 /// The most rounds [`pattern_facts`] computes. Each round's facts are sound, so stopping before
 /// they settle loses precision only.
-const PATTERN_FACT_ROUNDS: usize = 64;
+pub(super) const PATTERN_FACT_ROUNDS: usize = 64;
 
 /// [`PatternFacts::value_roots`] for every index of `theories` with a fixed root.
 fn value_roots(theories: &[&Theory; 2], unbounded: bool) -> BTreeMap<TermIndex, Option<Vec<Term>>> {
@@ -1867,7 +1932,15 @@ struct Computing {
 impl Computing {
     fn start() -> Self {
         Self {
-            caller_scan: SCAN.with(|scan| std::mem::take(&mut *scan.borrow_mut())),
+            caller_scan: SCAN.with(|scan| {
+                std::mem::replace(
+                    &mut *scan.borrow_mut(),
+                    Scan {
+                        facts_work: Some(0),
+                        ..Scan::default()
+                    },
+                )
+            }),
         }
     }
 }
@@ -2049,5 +2122,49 @@ mod tests {
             "h{}(c{}(), s{}(Z:SortA{}))",
             "m2{}(n{}(k{}(c{}()), s{}(d{}())))"
         ));
+    }
+
+    /// `p(m(p(X, X)), c) = c` reads its argument `p(X, X)` through the previous round's overlap
+    /// representatives of `p`, and the overlapped instance repeats what it binds `X` to, so each
+    /// round would double the stored instances. Beside it, `p(k(Y), h(s(d), d)) = p(m(c), Y)`.
+    /// The facts are computed within the size bound, so the question that asks for them ends
+    /// (whatever it answers: this test is about the bound).
+    #[test]
+    fn a_non_linear_left_hand_side_does_not_double_the_stored_instances_each_round() {
+        let definition = definition(&[
+            ("p", &["m{}(p{}(X:SortA{}, X:SortA{}))", "c{}()"], "c{}()"),
+            (
+                "p",
+                &["k{}(Y:SortA{})", "h{}(s{}(d{}()), d{}())"],
+                "p{}(m{}(c{}()), Y:SortA{})",
+            ),
+        ]);
+        let subject = term(&definition, "p{}(m{}(c{}()), c{}())");
+        let _ = definition.instance_normal(&subject);
+    }
+
+    /// `p(p(Y, Z), Z) = p(p(c, Z), Z)` overlaps itself below its root, so each round of the
+    /// pattern facts reads the previous round's overlap representatives of `p` and builds larger
+    /// ones; beside it, `p(d, d) = m(d)`, `v(p(k(c), Z)) = v(k(p(d, d)))` and `v(m(d)) = c`. The
+    /// facts are computed within their bounds, so the question that asks for them ends
+    /// (whatever it answers: this test is about the bounds).
+    #[test]
+    fn an_equation_that_overlaps_itself_below_its_root_is_read_within_bounded_work() {
+        let definition = definition(&[
+            ("v", &["m{}(d{}())"], "c{}()"),
+            (
+                "v",
+                &["p{}(k{}(c{}()), Z:SortA{})"],
+                "v{}(k{}(p{}(d{}(), d{}())))",
+            ),
+            ("p", &["d{}()", "d{}()"], "m{}(d{}())"),
+            (
+                "p",
+                &["p{}(Y:SortA{}, Z:SortA{})", "Z:SortA{}"],
+                "p{}(p{}(c{}(), Z:SortA{}), Z:SortA{})",
+            ),
+        ]);
+        let subject = term(&definition, "v{}(m{}(d{}()))");
+        let _ = definition.instance_normal(&subject);
     }
 }

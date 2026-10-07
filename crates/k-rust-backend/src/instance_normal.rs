@@ -212,10 +212,22 @@ struct Scan {
     scopes: usize,
     /// The instance normality of the terms decided or being decided during the call. Equation
     /// matching inside the scan asks about the subterms of the scanned term again; the answer
-    /// is a function of the term and the definition, so it is kept for the call.
+    /// is a function of the term and the definition, so it is kept for the call. It is the same
+    /// for two terms that differ only in the names of their variables (variables range over
+    /// values, and only their identity within the term is read), so terms are looked up up to
+    /// the names the pattern facts mint for their copies (`patterns::minted`): a question that
+    /// comes back to a fresh copy of a term being decided is recognized as coming back.
     memo: FxHashMap<Term, Decision>,
+    /// The entries of [`Self::memo`] whose terms hold names minted for copies, by a hash that
+    /// ignores those names, for the lookups the exact table misses.
+    copies: FxHashMap<u64, Vec<(Term, Decision)>>,
     /// The value questions (`patterns.rs` `misses_values`) open on this thread.
     open_value_questions: usize,
+    /// The narrowing steps (`patterns.rs`) taken since the outermost scan opened.
+    work: usize,
+    /// While the pattern facts are computed (`patterns::pattern_facts`), the narrowing steps
+    /// the whole computation has taken.
+    facts_work: Option<usize>,
 }
 
 /// A term's entry in the scan memo.
@@ -231,17 +243,45 @@ struct ScanScope(());
 
 impl ScanScope {
     fn enter() -> Self {
-        SCAN.with(|scan| scan.borrow_mut().scopes += 1);
+        SCAN.with(|scan| {
+            let mut scan = scan.borrow_mut();
+            if scan.scopes == 0 {
+                scan.work = 0;
+            }
+            scan.scopes += 1;
+        });
         Self(())
     }
 
     fn known(term: &Term) -> Option<Decision> {
-        SCAN.with(|scan| scan.borrow().memo.get(term).copied())
+        SCAN.with(|scan| {
+            let scan = scan.borrow();
+            if let Some(decision) = scan.memo.get(term) {
+                return Some(*decision);
+            }
+            let key = patterns::copy_key(term)?;
+            scan.copies
+                .get(&key)?
+                .iter()
+                .find(|(known, _)| patterns::same_up_to_minted_names(known, term))
+                .map(|(_, decision)| *decision)
+        })
     }
 
     fn record(term: &Term, decision: Decision) {
         SCAN.with(|scan| {
-            scan.borrow_mut().memo.insert(term.clone(), decision);
+            let mut scan = scan.borrow_mut();
+            scan.memo.insert(term.clone(), decision);
+            if let Some(key) = patterns::copy_key(term) {
+                let entries = scan.copies.entry(key).or_default();
+                match entries
+                    .iter_mut()
+                    .find(|(known, _)| patterns::same_up_to_minted_names(known, term))
+                {
+                    Some((_, known)) => *known = decision,
+                    None => entries.push((term.clone(), decision)),
+                }
+            }
         });
     }
 }
@@ -253,6 +293,7 @@ impl Drop for ScanScope {
             scan.scopes -= 1;
             if scan.scopes == 0 {
                 scan.memo.clear();
+                scan.copies.clear();
             }
         });
     }
@@ -267,7 +308,7 @@ impl ValueQuestion {
     fn open() -> Option<Self> {
         SCAN.with(|scan| {
             let mut scan = scan.borrow_mut();
-            (scan.open_value_questions < VALUE_QUESTIONS).then(|| {
+            (scan.open_value_questions < bounds().value_questions).then(|| {
                 scan.open_value_questions += 1;
                 Self(())
             })
@@ -287,6 +328,108 @@ impl Drop for ValueQuestion {
 /// every chain that comes back to a term, and this bound ends every other chain. A question
 /// asked past it answers "not excluded".
 const VALUE_QUESTIONS: usize = 8;
+
+/// Takes one narrowing step (`patterns.rs`) from the budgets of the outermost scan
+/// ([`Bounds::scan_work`]) and of the pattern facts' computation when one is running
+/// ([`Bounds::pattern_facts_work`]); `false`, taking nothing, once either is spent. A narrowing
+/// that is refused a step answers as one past any other bound: it binds nothing, so the term
+/// it reads stands for any value.
+fn take_work() -> bool {
+    let bounds = bounds();
+    SCAN.with(|scan| {
+        let mut scan = scan.borrow_mut();
+        if scan.work >= bounds.scan_work
+            || scan
+                .facts_work
+                .is_some_and(|work| work >= bounds.pattern_facts_work)
+        {
+            return false;
+        }
+        scan.work += 1;
+        if let Some(work) = &mut scan.facts_work {
+            *work += 1;
+        }
+        true
+    })
+}
+
+/// Whether the narrowing budgets ([`take_work`]) are spent.
+fn work_spent() -> bool {
+    let bounds = bounds();
+    SCAN.with(|scan| {
+        let scan = scan.borrow();
+        scan.work >= bounds.scan_work
+            || scan
+                .facts_work
+                .is_some_and(|work| work >= bounds.pattern_facts_work)
+    })
+}
+
+/// Whether the pattern facts' narrowing budget ([`take_work`]) is spent.
+fn facts_work_spent() -> bool {
+    let bounds = bounds();
+    SCAN.with(|scan| {
+        scan.borrow()
+            .facts_work
+            .is_some_and(|work| work >= bounds.pattern_facts_work)
+    })
+}
+
+/// The most narrowing steps one outermost scan takes. The questions a scan asks nest (a value
+/// question decides the instance normality of the terms it builds, each of which may ask
+/// value questions) and their number grows with the product of the representatives at each
+/// level, so [`VALUE_QUESTIONS`] alone bounds their depth but not their work. FUN's scans take a
+/// few hundred steps.
+const SCAN_WORK: usize = 20_000;
+
+/// The most narrowing steps the pattern facts take over all their rounds. A round can build
+/// larger representatives from the previous round's (an equation that overlaps itself below its
+/// root), so the rounds need not settle before [`patterns::PATTERN_FACT_ROUNDS`], and each
+/// costs more than the last. FUN's facts take about 3,300 steps in all.
+const PATTERN_FACTS_WORK: usize = 200_000;
+
+/// The bounds of the questions instance normality and the pattern facts ask. Past each bound
+/// the answer is the conservative one ("not excluded", "not normal", representatives without
+/// bindings, unbounded overlaps, a peak counted), so lowering any of them may only lose
+/// precision. (The work bounds also end every computation the others leave exponential.)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Bounds {
+    /// [`VALUE_QUESTIONS`].
+    pub(crate) value_questions: usize,
+    /// `patterns::REPRESENTATIVES`.
+    pub(crate) representatives: usize,
+    /// `patterns::REPRESENTATIVE_SIZE`.
+    pub(crate) representative_size: usize,
+    /// `patterns::NARROWING_DEPTH`.
+    pub(crate) narrowing_depth: usize,
+    /// `patterns::JOIN_STEPS`.
+    pub(crate) join_steps: usize,
+    /// `patterns::PATTERN_FACT_ROUNDS`.
+    pub(crate) pattern_fact_rounds: usize,
+    /// [`SCAN_WORK`].
+    pub(crate) scan_work: usize,
+    /// [`PATTERN_FACTS_WORK`].
+    pub(crate) pattern_facts_work: usize,
+}
+
+impl Bounds {
+    /// The bounds every build uses.
+    pub(crate) const DEFAULT: Self = Self {
+        value_questions: VALUE_QUESTIONS,
+        representatives: patterns::REPRESENTATIVES,
+        representative_size: patterns::REPRESENTATIVE_SIZE,
+        narrowing_depth: patterns::NARROWING_DEPTH,
+        join_steps: patterns::JOIN_STEPS,
+        pattern_fact_rounds: patterns::PATTERN_FACT_ROUNDS,
+        scan_work: SCAN_WORK,
+        pattern_facts_work: PATTERN_FACTS_WORK,
+    };
+}
+
+/// The bounds in force.
+fn bounds() -> Bounds {
+    Bounds::DEFAULT
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Side {
