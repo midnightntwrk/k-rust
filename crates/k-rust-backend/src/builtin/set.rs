@@ -1,6 +1,5 @@
-//! Deterministic `SET` hooks implemented by Kore's fallback evaluator: per-call operations on the
-//! internal set representation; a responsibility, not an algorithm; no counter of its own, no
-//! worklist.
+//! Deterministic `SET` hooks: per-call operations on the internal set representation; a
+//! responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::sync::Arc;
 

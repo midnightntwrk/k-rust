@@ -20,12 +20,12 @@
 //! bound = "O(n^k)"
 //! ```
 //!
-//! The recovery ladder of the one-rule step: what Booster delegates to Kore when a
-//! match is indeterminate, tried in order: simplification of the remainder pairs
-//! (`Counter::RewriteIndeterminateRecoveries`), the six splitting strategies (boolean,
-//! symbolic map key, map-not-in-keys, equality, ite, collection narrowing), overload and general
-//! unification, functional-symbolic and function-equality witnesses. Each strategy either
-//! produces partial matches with an empty or strictly shorter remainder or declines; the
+//! The recovery ladder of the one-rule step, tried in order when matching a rule against the
+//! configuration is indeterminate (neither a match nor a failure): simplification of the
+//! remainder pairs (`Counter::RewriteIndeterminateRecoveries`), the six splitting strategies
+//! (boolean, symbolic map key, map-not-in-keys, equality, ite, collection narrowing), overload
+//! and general unification, functional-symbolic and function-equality witnesses. Each strategy
+//! either produces partial matches with an empty or strictly shorter remainder or declines; the
 //! symbolic-map-key search is O(n^k) for k pattern entries against n subject entries.
 
 use std::{collections::BTreeSet, sync::Arc};
@@ -72,7 +72,7 @@ pub(crate) enum RecoveredMatch {
     },
 }
 
-/// Conservatively recover matches that Booster delegates to Kore.
+/// Conservatively resolve a match that matching left indeterminate.
 ///
 /// Both sides of each remainder are simplified after applying the partial substitution, and any
 /// conditions produced by simplification are retained. For a function pattern with one unbound
@@ -606,9 +606,10 @@ fn contains_function_pattern(term: &Term) -> bool {
 
 /// Narrow a concrete rule-map key against symbolic keys in a closed configuration map.
 ///
-/// Booster leaves this shape for Kore's unifier. Each possible key selection becomes an applied
-/// branch guarded by equality; ordinary rule remainder construction preserves the complementary
-/// disequalities on the original configuration.
+/// Matching cannot tell which symbolic key the rule's key denotes. The keys of a map are distinct,
+/// so the rule's key equals at most one of them: each possible key selection becomes an applied
+/// branch guarded by equality, and ordinary rule remainder construction preserves the
+/// complementary disequalities on the original configuration, the case that it equals none.
 pub(super) fn recover_symbolic_map_key_matches(
     definition: &BackendDefinition,
     substitution: Substitution,

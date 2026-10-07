@@ -141,7 +141,8 @@ pub(super) fn extend_unique(
 }
 
 /// Checks the equation-only `concrete` and `symbolic` application attributes.
-/// Rewrite rules never call this: Booster and Kore consult these attributes only for equations.
+/// Rewrite rules never call this: K defines `concrete` and `symbolic` as conditions on the
+/// application of equations (K user manual, "`concrete` and `symbolic` attributes").
 pub(crate) fn check_concreteness(
     rule: &RewriteRule,
     substitution: &Substitution,

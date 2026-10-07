@@ -169,7 +169,7 @@ pub fn decode_variable_name(wire: &str) -> Result<String, VariableNameError> {
     Ok(decoded)
 }
 
-/// Where a rule-side variable came from; Booster's `Rule#`/`Ex#` markers plus this port's `Eq#`.
+/// Where a rule-side variable came from, recorded as a marker on its name (`Rule#`, `Eq#`, `Ex#`).
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum VariableProvenance {
     /// Bound on a rewrite rule's left-hand side (`Rule#`).
@@ -365,8 +365,9 @@ impl<'a> HookName<'a> {
 
 /// Hook namespaces this backend dispatches beyond K's fixed builtin set.
 ///
-/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
-/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
+/// A plugin hook needs a backend that implements it, so KORE emitted for another backend treats
+/// these namespaces as hooked only when `kompile --hook-namespaces` names them; the Rust backend
+/// implements them natively, so KORE emitted for it admits them by default.
 pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
 
 /// The namespaces the backend evaluates natively or through the crypto plugin.

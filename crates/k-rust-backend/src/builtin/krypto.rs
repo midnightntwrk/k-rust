@@ -1,4 +1,4 @@
-//! Pure-Rust cryptographic hooks implemented by Kore's fallback evaluator.
+//! Pure-Rust cryptographic hooks.
 
 use std::sync::{Arc, LazyLock};
 
