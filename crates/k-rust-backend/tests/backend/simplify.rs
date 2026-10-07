@@ -1030,6 +1030,126 @@ fn an_unspecified_application_whose_equation_needs_its_own_value_stays_unevaluat
     );
 }
 
+/// The equations of an `Unspecified` application are axioms, each on its own: an equation whose
+/// evaluation needs the value of the same application again (in its `requires` or in the
+/// lineage of its result) gives no value by evaluation, and that fails that equation only. Where
+/// another equation applies, the application has the value that one states, whichever order the
+/// definition lists them in. An equation that applies but recurs is not refuted, so it still
+/// keeps a lower-priority equation from applying in its place.
+#[test]
+fn an_equation_that_needs_its_own_application_does_not_discard_another_equations_value() {
+    let substr = |rhs: &str, condition: &str, attributes: &str| {
+        format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({condition}, \dv{{SortBool{{}}}}("true")),
+                        \top{{R}}()
+                    )
+                ),
+                \equals{{SortString{{}}, R}}(
+                    substr{{}}(S:SortString{{}}, I:SortInt{{}}, J:SortInt{{}}),
+                    \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                )
+            ) [{attributes}]"#
+        )
+    };
+    let reversed = r#"ltInt{}(J:SortInt{}, I:SortInt{})"#;
+    let own = r#"substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})"#;
+    // `"x"` where `I < J` and the application's own length is above 5: refuted on reversed
+    // indices by its first conjunct, after its second has reached the application again.
+    let long = substr(
+        r#"\dv{SortString{}}("x")"#,
+        &format!(
+            r#"andBool{{}}(ltInt{{}}(I:SortInt{{}}, J:SortInt{{}}), gtInt{{}}(lengthString{{}}({own}), \dv{{SortInt{{}}}}("5")))"#
+        ),
+        r#"label{}("long")"#,
+    );
+    // The same guard with the conjuncts that hold on reversed indices: undecided, since the
+    // length of the unevaluated application is not known.
+    let undecided = substr(
+        r#"\dv{SortString{}}("x")"#,
+        &format!(
+            r#"andBool{{}}({reversed}, gtInt{{}}(lengthString{{}}({own}), \dv{{SortInt{{}}}}("5")))"#
+        ),
+        r#"label{}("undecided")"#,
+    );
+    // A result whose lineage reaches the application again.
+    let again = substr(
+        &format!(r#"concatString{{}}({own}, \dv{{SortString{{}}}}(""))"#),
+        reversed,
+        r#"label{}("again")"#,
+    );
+    let empty = substr(r#"\dv{SortString{}}("")"#, reversed, r#"label{}("empty")"#);
+    let owise = substr(
+        r#"\dv{SortString{}}("owise")"#,
+        r#"\dv{SortBool{}}("true")"#,
+        r#"label{}("owise"), priority{}("200")"#,
+    );
+    let definition = |equations: &[&str]| {
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
+                hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+                hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.lt")]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt")]
+                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+                {}
+            endmodule []"#,
+            equations.concat()
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    };
+    let input = r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("2"), \dv{SortInt{}}("1"))"#;
+    let simplified = |equations: &[&str]| {
+        let definition = definition(equations);
+        let input = term(&definition, input);
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        let result = result.expect("no error").term;
+        (definition, input, result)
+    };
+
+    for equations in [
+        [long.as_str(), empty.as_str()],
+        [empty.as_str(), long.as_str()],
+        [undecided.as_str(), empty.as_str()],
+        [empty.as_str(), undecided.as_str()],
+        [again.as_str(), empty.as_str()],
+        [empty.as_str(), again.as_str()],
+    ] {
+        let (definition, _, result) = simplified(&equations);
+        assert_eq!(
+            result,
+            term(&definition, r#"\dv{SortString{}}("")"#),
+            "{equations:?}"
+        );
+    }
+    // The only equation that applies recurs: no value, and the lower-priority equation does not
+    // apply in its place.
+    for equations in [
+        [again.as_str(), owise.as_str()],
+        [owise.as_str(), again.as_str()],
+    ] {
+        let (_, input, result) = simplified(&equations);
+        assert_eq!(result, input, "{equations:?}");
+    }
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not

@@ -196,7 +196,7 @@ impl Simplification {
 /// [`Accumulated::absorb`] appends a part's conditions, applied rules and effects, and keeps the
 /// first budget exhaustion; the caller resolves the part's undefined-term reports, which depend on
 /// the lineage, and sets `undefined_term` and `contradicted_total` itself.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct Accumulated {
     conditions: ResultConditions,
     pub(super) applied_rules: Vec<String>,

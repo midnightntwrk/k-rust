@@ -2553,17 +2553,17 @@ symbol = "simplify_with_budget"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "simplify_lineage"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_children"
 
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_root"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "unspecified_equation_attempt"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2585,7 +2585,7 @@ bound = "one nested predicate simplification per evaluated rule condition, with 
 
 [[node.cost]]
 mode = "Unspecified application (UnspecifiedEvaluation)"
-bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications whose equation is being evaluated (one entry per nested such step) and one clone of the lineage's accumulated result per function step taken on one; an equation that reaches its own application again is evaluated once more down to that occurrence"
+bound = "only at a root whose hook is Unspecified: one scan of the stack of Unspecified applications on which an equation is being tried (one entry per nested such attempt); each equation tried on one is evaluated through its conditions and the lineage of its result before the next is tried, and an attempt that reaches its own application again is discarded after being evaluated down to that occurrence"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
