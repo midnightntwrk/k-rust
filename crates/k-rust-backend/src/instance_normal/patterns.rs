@@ -147,16 +147,30 @@ pub(crate) struct PatternFacts {
 
 /// The sorts whose terms can occur at an exposed position (below total symbols only,
 /// [`total_root`]) of a term of a sort: an edge from a total symbol's result sort to each
-/// argument sort, and from a sort to each sort below it. A sort that is the result of a total
-/// symbol with an argument of a sort variable, or a hooked sort without domain values (a
-/// collection), reaches every sort, and so does every sort when some total symbol has a sort
-/// variable for its result. The edges follow every total symbol, not only constructors: a
-/// reduct can hold a total function's application (`m(sz(t))`, `sz : A -> Int` total), and
-/// that application is undefined only when an argument is.
+/// argument sort, and from a sort to each sort below it. The edges follow every total symbol,
+/// not only constructors: a reduct can hold a total function's application (`m(sz(t))`,
+/// `sz : A -> Int` total), and that application is undefined only when an argument is.
+///
+/// A sort-parametric symbol stands for each of its instantiations, and each gives the edges of
+/// its instance. With a result sort of fixed name `R`, an argument sort variable can be any
+/// sort, so `R` reaches every sort (`opaque`). With a sort variable `T` for its result, the
+/// instance at `T := X` gives `X` an edge to each argument sort with `T := X`: an argument of a
+/// fixed name `S` gives every sort an edge to `S` (`universal`; `ite{T}(Bool, T, T) : T` gives
+/// every sort an edge to `Bool`), an argument `T` gives `X` an edge to itself, and an argument
+/// sort variable other than `T` makes every sort reach every sort (`every`). A hooked sort
+/// without domain values (a collection) reaches every sort too.
+///
+/// In a kompiled definition these true edges connect every pair of sorts: `ite` gives every
+/// sort an edge to `Bool`, `_==K_` and the sort predicates `isS : K -> Bool` (all `total`) give
+/// `Bool` one to `K`, and `kseq : KItem, K -> K` with the subsorts of `KItem` lead to every
+/// user sort. There the gate cuts nothing, and only the reading of the representatives
+/// themselves does.
 #[derive(Debug, Default)]
 struct ExposedSorts {
     edges: BTreeMap<crate::term::Name, BTreeSet<crate::term::Name>>,
     opaque: BTreeSet<crate::term::Name>,
+    /// The sorts every sort has an edge to.
+    universal: BTreeSet<crate::term::Name>,
     every: bool,
 }
 
@@ -182,9 +196,20 @@ impl ExposedSorts {
             {
                 continue;
             }
-            let Sort::Application { name: result, .. } = &symbol.result_sort else {
-                exposed.every = true;
-                continue;
+            let result = match &symbol.result_sort {
+                Sort::Application { name, .. } => name,
+                Sort::Variable(result) => {
+                    for argument in &symbol.argument_sorts {
+                        match argument {
+                            Sort::Application { name, .. } => {
+                                exposed.universal.insert(name.clone());
+                            }
+                            Sort::Variable(variable) if variable == result => {}
+                            Sort::Variable(_) => exposed.every = true,
+                        }
+                    }
+                    continue;
+                }
             };
             for argument in &symbol.argument_sorts {
                 match argument {
@@ -215,8 +240,10 @@ impl ExposedSorts {
         if self.every {
             return true;
         }
+        // Every sort, the holder included, has an edge to each universal target.
         let mut seen = BTreeSet::from([holder]);
-        let mut pending = vec![holder];
+        seen.extend(&self.universal);
+        let mut pending = seen.iter().copied().collect::<Vec<_>>();
         while let Some(sort) = pending.pop() {
             if sort == held || self.opaque.contains(sort) {
                 return true;
@@ -1967,6 +1994,43 @@ mod tests {
         definition
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize")
+    }
+
+    /// A sort-parametric total symbol stands for each of its instantiations: `ite{T}(Bool, T, T)
+    /// : T` lets a term of any sort hold a `Bool` term (and one of its own sort) at an exposed
+    /// position, and no other; only an argument sort variable absent from the result, as in
+    /// `pick{T, U}(U) : T`, lets every sort hold every sort.
+    #[test]
+    fn a_parametric_total_symbol_exposes_the_sorts_of_its_instances() {
+        let exposed = |extra: &str| {
+            let source = format!(
+                r#"[]
+                module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                sort SortA{{}} []
+                sort SortB{{}} []
+                symbol a{{}}() : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol b{{}}() : SortB{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol ka{{}}(SortA{{}}) : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                hooked-symbol ite{{T}}(SortBool{{}}, T, T) : T
+                    [function{{}}(), functional{{}}(), total{{}}(), hook{{}}("KEQUAL.ite")]
+                {extra}
+                endmodule []"#
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            let definition = BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("definition should internalize");
+            ExposedSorts::of(&definition)
+        };
+        let sort = |name: &str| Sort::simple(name);
+        let instances = exposed("");
+        assert!(instances.may_hold(&sort("SortA"), &sort("SortBool")));
+        assert!(instances.may_hold(&sort("SortB"), &sort("SortBool")));
+        assert!(instances.may_hold(&sort("SortA"), &sort("SortA")));
+        assert!(!instances.may_hold(&sort("SortA"), &sort("SortB")));
+        assert!(!instances.may_hold(&sort("SortBool"), &sort("SortA")));
+        let free = exposed("symbol pick{T, U}(U) : T [function{}(), total{}()]");
+        assert!(free.may_hold(&sort("SortA"), &sort("SortB")));
     }
 
     /// Whether the ground term `ground` is an instance of `pattern`, each variable bound once.
