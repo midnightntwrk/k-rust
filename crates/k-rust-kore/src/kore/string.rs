@@ -35,6 +35,31 @@ impl LiteralEncoding {
             Sort::Application { .. } | Sort::Variable(_) => Self::Utf8,
         }
     }
+
+    /// The payload holding the code points of `text` in this encoding; `None` for `Bytes` when
+    /// a code point is above U+00FF, which names no byte.
+    pub fn store(self, text: &str) -> Option<KoreString> {
+        match self {
+            Self::Utf8 => Some(KoreString::from(text)),
+            Self::Bytes => text
+                .chars()
+                .map(|character| u8::try_from(u32::from(character)).ok())
+                .collect::<Option<Vec<u8>>>()
+                .map(KoreString::from),
+        }
+    }
+
+    /// The code points a payload of this encoding holds: for `Bytes` one per byte, the byte's
+    /// value; for `Utf8` its UTF-8 reading, by [`text_from_bytes`] if it is not UTF-8.
+    pub fn code_points(self, value: &KoreString) -> String {
+        match self {
+            Self::Bytes => value.as_bytes().iter().copied().map(char::from).collect(),
+            Self::Utf8 => match value.as_utf8() {
+                Ok(text) => text.to_owned(),
+                Err(_) => text_from_bytes(value.as_bytes()),
+            },
+        }
+    }
 }
 
 /// The code points of a byte sequence read as text: each valid UTF-8 sequence is its code point,
