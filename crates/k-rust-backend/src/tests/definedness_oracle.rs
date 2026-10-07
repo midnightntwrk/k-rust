@@ -42,7 +42,9 @@
 //! it: a query is not checked when some application the query reaches by steps has a head
 //! that an overlap peak of the explored graph, whose two sides it cannot join, may make
 //! undefined that way ([`Peak`]), or that a root step of a total head's equation to a term in
-//! `U` holds below total symbols. The assumption is the
+//! `U` holds below total symbols, or when a term the query reaches has a step whose redex has
+//! an argument in `U` (the evaluator applies such an equation instance although it states
+//! nothing, `docs/compatibility.md`, "Anywhere rules"). The assumption is the
 //! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
 //! application it decides, so an application that one of its own head's conditional equations
 //! matches (one the discharge can decide, where without it the obligation stays), at an
@@ -1465,16 +1467,33 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
         } else {
             heads.clone_from(&every_head);
         }
-        let excused = peaks.iter().any(|peak| {
-            heads.iter().any(|application| {
-                (*application != peak.head && peak.exposed.contains(application))
-                    || peak.bound.contains(application)
+        // A limit of the backend's evaluation, documented beside the assumption: it applies an
+        // equation whose left-hand side matches syntactically, reading the applications in its
+        // argument patterns as defined, although an undefined argument makes the instance state
+        // nothing. A query whose evaluation may take such a step (a step of a term it reaches
+        // with a redex argument in `U`) is not checked.
+        let vacuous_step = !complete
+            || reached.iter().any(|term| {
+                universe.steps.get(term).is_some_and(|steps| {
+                    steps.iter().any(|step| {
+                        step.arguments
+                            .iter()
+                            .any(|argument| undefined[*argument as usize])
+                    })
+                })
+            });
+        let excused = vacuous_step
+            || peaks.iter().any(|peak| {
+                heads.iter().any(|application| {
+                    (*application != peak.head && peak.exposed.contains(application))
+                        || peak.bound.contains(application)
+                })
             })
-        }) || held_below_total.iter().any(|(head, held)| {
-            heads
-                .iter()
-                .any(|application| application != head && held.contains(application))
-        });
+            || held_below_total.iter().any(|(head, held)| {
+                heads
+                    .iter()
+                    .any(|application| application != head && held.contains(application))
+            });
         let sort = universe.sort_of(id);
         let terminates = universe.terminates(id);
         queries.push(Query {
