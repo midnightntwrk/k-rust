@@ -29,9 +29,9 @@ KRS follows rustc-resolved identities, so modules, imports, aliases, visibility,
 The namespace separates emitted semantic identities from Rust crate names.
 Treat it as durable definition identity rather than presentation text.
 
-The `package.metadata.krs.definitions.main` table declares one definition facet whose `root` and `syntax-root` are both `crate`.
-The keys name the facet's semantic root module and its program-syntax module, and both default to `crate`.
-KRS currently records them in the composition plan but uses neither to restrict collection or to select a program grammar.
+The `package.metadata.krs.definitions.main` table declares one definition facet; it takes no keys.
+K decides what a program may contain with the main syntax module and what rules may use with the main module, so KRS emits a pair for each package: `KRS-TOUR-MINIMAL-SYNTAX` holds the grammar programs may use, and `KRS-TOUR-MINIMAL` imports it and adds the configuration and the rules.
+A `pub` production is program syntax; `internal` keeps machinery out of programs, and a production that is not `pub` is private to the package's rules.
 Composition later shows why larger definitions may select facets explicitly and combine dependency facets.
 
 ## Establish the edit loop

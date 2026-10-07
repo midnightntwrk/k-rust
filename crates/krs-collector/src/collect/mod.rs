@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use krs_ir::measure::Timings;
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
-    HostItemId, HostProvenanceError, ItemKind, PackageId, SchemaVersion, StableItemId,
+    HostItemId, HostProvenanceError, IntLiterals, ItemKind, PackageId, PackageSettings,
+    SchemaVersion, StableItemId,
 };
 
 use crate::facade::FacadeAliases;
@@ -36,6 +37,7 @@ pub struct PackageContext {
     package: PackageId,
     crate_root: String,
     manifest_path: PathBuf,
+    int_literals: IntLiterals,
 }
 
 impl PackageContext {
@@ -86,7 +88,22 @@ impl PackageContext {
             package,
             crate_root,
             manifest_path,
+            int_literals: IntLiterals::Signed,
         })
+    }
+
+    /// Sets the package's `int-literals` metadata, which selects the module
+    /// supplying integer literals to its program-syntax module.
+    #[must_use]
+    pub const fn with_int_literals(mut self, int_literals: IntLiterals) -> Self {
+        self.int_literals = int_literals;
+        self
+    }
+
+    /// Returns the package's `int-literals` metadata.
+    #[must_use]
+    pub const fn int_literals(&self) -> IntLiterals {
+        self.int_literals
     }
 
     /// Returns the stable, path-free package identity.
@@ -111,6 +128,7 @@ impl PackageContext {
 #[derive(Debug)]
 struct PreparedContext {
     package: PackageId,
+    int_literals: IntLiterals,
     crate_root: String,
     package_dir: PathBuf,
     facade: FacadeAliases,
@@ -386,14 +404,18 @@ fn resolve_pending_descriptors(
                 Descriptor::new(id, cfg, provenance, payload).map_err(descriptor_contract_error)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let bundle = DescriptorBundle::with_declarations(resolved, declaration_metadata).map_err(
-            |error| {
+        let settings = contexts.iter().map(|context| PackageSettings {
+            package: context.package.clone(),
+            int_literals: context.int_literals,
+        });
+        let bundle = DescriptorBundle::with_declarations(resolved, declaration_metadata)
+            .and_then(|bundle| bundle.with_package_settings(settings))
+            .map_err(|error| {
                 CollectionError::new(
                     CollectionErrorKind::InvalidStableIdentity,
                     format!("invalid declaration metadata coverage: {error}"),
                 )
-            },
-        )?;
+            })?;
         Ok(bundle)
     })
 }
@@ -478,6 +500,7 @@ fn prepare_contexts(
         }
         prepared.push(PreparedContext {
             package: context.package,
+            int_literals: context.int_literals,
             crate_root: context.crate_root,
             package_dir: package_dir.to_owned(),
             facade: FacadeAliases::from_manifest(&manifest)?,

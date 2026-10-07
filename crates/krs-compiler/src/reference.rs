@@ -176,6 +176,7 @@ pub fn expand_reference_source(
         }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
+            materialize_constructor_flags(item_struct);
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
             materialize_enum_productions(
@@ -347,20 +348,19 @@ fn materialize_enum_productions(
                 "readable enum syntax has no derived reference format",
             ))
         })?;
-        let materialized: syn::Attribute = if syntax.avoid() {
-            syn::parse_quote!(#[k::syntax(
-                #template,
-                group = #group,
-                avoid = true,
-                format = #format
-            )])
-        } else {
-            syn::parse_quote!(#[k::syntax(
-                #template,
-                group = #group,
-                format = #format
-            )])
-        };
+        // Keys in the canonical order of decision X2.
+        let avoid = syntax.avoid().then(|| quote!(avoid = true,));
+        let placement = syntax.placement().map(|flag| {
+            let key = format_ident!("{}", flag.as_str());
+            quote!(#key = true,)
+        });
+        let materialized: syn::Attribute = syn::parse_quote!(#[k::syntax(
+            #template,
+            group = #group,
+            #avoid
+            #placement
+            format = #format
+        )]);
         let syntax_index = output_variant
             .attrs
             .iter()
@@ -386,6 +386,35 @@ fn materialize_enum_productions(
         materialize_reference_strictness(output_variant, variant)?;
     }
     render_family_grammar(&declaration)
+}
+
+/// Writes the reference spelling `internal = true` / `program = true` for a
+/// bare placement flag in `#[k::constructor(..)]`; `#[k::function]` keeps its
+/// bare flags in both layers (decision X2).
+fn materialize_constructor_flags(item: &mut syn::ItemStruct) {
+    for attribute in &mut item.attrs {
+        if !attribute_is(attribute, "constructor") {
+            continue;
+        }
+        let syn::Meta::List(list) = &mut attribute.meta else {
+            continue;
+        };
+        let tokens = list.tokens.clone().into_iter().collect::<Vec<_>>();
+        let mut rewritten = TokenStream::new();
+        for (index, token) in tokens.iter().enumerate() {
+            rewritten.extend(std::iter::once(token.clone()));
+            let bare_flag = matches!(token, proc_macro2::TokenTree::Ident(ident) if ident == "internal" || ident == "program")
+                && (index == 0
+                    || matches!(&tokens[index - 1], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ','))
+                && tokens.get(index + 1).is_none_or(|next| {
+                    matches!(next, proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',')
+                });
+            if bare_flag {
+                rewritten.extend(quote!(= true));
+            }
+        }
+        list.tokens = rewritten;
+    }
 }
 
 fn materialize_reference_family_attribute(

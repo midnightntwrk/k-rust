@@ -519,7 +519,7 @@ def reference_runs(
             "--main-module",
             main_module,
             "--syntax-module",
-            main_module,
+            f"{main_module}-SYNTAX",
             "--backend",
             "llvm",
             "--emit-json",
@@ -577,7 +577,7 @@ def dollar_id_claims(
             "kompile/definition", "kompile",
             [
                 emitted / "definition.k", "--backend", "haskell", "--main-module", main_module,
-                "--syntax-module", main_module, "--output-definition", definition,
+                "--syntax-module", f"{main_module}-SYNTAX", "--output-definition", definition,
             ],
             timeout=240,
         )

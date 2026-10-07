@@ -1,9 +1,9 @@
 {
   "fixture_sha256": {
-    "Cargo.toml.in": "00abdc5f61524019928fab378ce671466e61b64b1015afff5908499ccf793495",
-    "claims/Cargo.toml.in": "6e758e1777b3ee0db0aef8ece92103b88d57c67eaf7d18d284ec5bdbd4bec44e",
+    "Cargo.toml.in": "b5fe9e90c4e35fb19a8019b2cbd593052ceb2ff629039a307ad1a26940431fdd",
+    "claims/Cargo.toml.in": "58153304ef472d198d0d9b8da7cd527a706287deab74a7762d5b272406a6b4f4",
     "claims/src/lib.rs": "3fbb35f1eae0e58ef06a5b66fdc2af0521a7104b6574d10f4ea6674bd743787f",
-    "dollar-ids/Cargo.toml.in": "71c1a35d94c4f3b5600a8da667bfebe46471bcd40fe888d1a496ae55fb59876b",
+    "dollar-ids/Cargo.toml.in": "60a8189268becfcf65d42230dc58119b8de52ed88cf537392c00870535d7ca19",
     "dollar-ids/src/lib.rs": "5e47a4aff68ed1ad285d39374b3b3081455138b05ee2304ee4c92d17bdc9c025",
     "src/lib.rs": "a863a61d5d844b602985dbcf94b8f12b820e1530ab6537b434d563f8c62e88c9"
   },

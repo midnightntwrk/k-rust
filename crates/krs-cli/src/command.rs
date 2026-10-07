@@ -89,6 +89,8 @@ pub enum Command {
     Check {
         /// Native backend dialect to check.
         backend: Backend,
+        /// Print each package's program-syntax partition instead of the summary.
+        partition: bool,
     },
     /// Print the deterministic layer-2 Rust reference surface.
     Expand,
@@ -138,7 +140,7 @@ impl Command {
     #[must_use]
     pub const fn backend(&self) -> Option<Backend> {
         match self {
-            Self::Check { backend } | Self::Build { backend, .. } => Some(*backend),
+            Self::Check { backend, .. } | Self::Build { backend, .. } => Some(*backend),
             Self::Expand
             | Self::EmitK { .. }
             | Self::Parse(_)
@@ -146,6 +148,18 @@ impl Command {
             | Self::Search(_)
             | Self::Prove(_) => None,
         }
+    }
+
+    /// Whether a `check` prints the program-syntax partition (`--partition`).
+    #[must_use]
+    pub const fn partition(&self) -> bool {
+        matches!(
+            self,
+            Self::Check {
+                partition: true,
+                ..
+            }
+        )
     }
 
     /// The artifact directory, for the commands that write one.
@@ -353,9 +367,9 @@ fn execute_with_sources(
     let prepared = prepare(stdout, measurement)?;
 
     let outcome = match &request.command {
-        Command::Check { backend } => measurement
+        Command::Check { backend, partition } => measurement
             .timings
-            .try_span("check.adapt", |_| check(&prepared, *backend))
+            .try_span("check.adapt", |_| check(&prepared, *backend, *partition))
             .map(CommandExecution::without_artifacts),
         Command::Expand => measurement
             .timings
@@ -439,7 +453,11 @@ fn lower_definition(
     lower_semantic_theory(semantic).map_err(CommandError::Lowering)
 }
 
-fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutcome, CommandError> {
+fn check(
+    prepared: &PreparedDefinition,
+    backend: Backend,
+    partition: bool,
+) -> Result<CommandOutcome, CommandError> {
     if !FRONTEND_CAPABILITIES.supports_backend(backend) {
         return Err(CommandError::UnsupportedBackend(backend));
     }
@@ -451,17 +469,45 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
             DefinitionCompileError::Adapter(error),
         )
     })?;
-    Ok(CommandOutcome {
-        stderr: Vec::new(),
-        exit_code: 0,
-        warnings: crate::DiagnosticReports::default(),
-        stdout: format!(
+    let stdout = if partition {
+        prepared.lowered.partition().render()
+    } else {
+        format!(
             "KRS check passed: {} descriptors, {} semantic modules\n",
             prepared.bundle.descriptors().len(),
             prepared.semantic.modules().len()
         )
-        .into_bytes(),
+    };
+    Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
+        warnings: partition_warnings(&prepared.lowered),
+        stdout: stdout.into_bytes(),
     })
+}
+
+/// Returns `warning[krs::partition::not-program-syntax]` for each `program`
+/// production that lowering placed in its package's semantics module.
+fn partition_warnings(lowered: &krs_compiler::LoweredDefinition) -> crate::DiagnosticReports {
+    let mut reports = crate::DiagnosticReports::default();
+    for warning in lowered.partition().warnings() {
+        let diagnostic = warning.to_diagnostic();
+        if let Some(envelope) =
+            crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+        {
+            reports.envelopes.push(envelope);
+        } else {
+            reports.unlocated.push(crate::UnlocatedDiagnostic {
+                code: krs_diagnostic::codes::partition::NOT_PROGRAM_SYNTAX.to_string(),
+                severity: crate::DiagnosticSeverity::Warning,
+                message: warning.message().to_owned(),
+                source: None,
+                generated_range: None,
+                notes: Vec::new(),
+            });
+        }
+    }
+    reports
 }
 
 fn expand(
@@ -555,7 +601,7 @@ fn emit(
         outcome: CommandOutcome {
             stderr: Vec::new(),
             exit_code: 0,
-            warnings: crate::DiagnosticReports::default(),
+            warnings: partition_warnings(&prepared.lowered),
             stdout,
         },
         artifacts,
@@ -586,8 +632,11 @@ fn build(
             native_command_error(prepared.lowered.source_map(), error)
         })
     })?;
-    let warnings =
+    let mut warnings = partition_warnings(&prepared.lowered);
+    let native =
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
+    warnings.envelopes.extend(native.envelopes);
+    warnings.unlocated.extend(native.unlocated);
     let files = vec![
         (
             "definition.kore".to_owned(),
@@ -1124,6 +1173,7 @@ mod tests {
         let base = CommandRequest {
             command: Command::Check {
                 backend: Backend::Llvm,
+                partition: false,
             },
             manifest_path: PathBuf::from("Cargo.toml"),
             root: FacetSelector {

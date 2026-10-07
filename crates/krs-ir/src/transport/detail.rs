@@ -51,6 +51,8 @@ details! {
         FixedConfigurationDescriptor => "fixed configuration descriptor",
         NestedCellDescriptor => "nested cell descriptor",
         RequiredGrammarPrimaryProvenanceKey => "required grammar primary provenance key",
+        Color => "production color",
+        Colors => "production colors",
     }
 }
 
@@ -158,6 +160,7 @@ details! {
     /// A grammar production validation failure.
     GrammarProductionReason {
         AliasFunctionMetadata => "alias metadata cannot be combined with function metadata",
+        InternalProgramMetadata => "`internal` cannot be combined with `program`",
         BracketConstructorField => "bracket nonterminal cannot claim a constructor field",
         BracketFieldName => "bracket nonterminal field must be `value`",
         BracketOwnerResultSortMismatch => "bracket owner and result sorts must be identical",

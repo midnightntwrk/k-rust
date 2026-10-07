@@ -164,24 +164,29 @@ fn theory() -> SemanticTheory {
 #[test]
 fn exact_source_snapshot_and_reordering_are_byte_identical() {
     let (_, emitted) = assert_lowering_contract(&theory());
-    expect_test::expect![[r#"module KRS-FOO-BAR
-  syntax KItem
-  syntax KResult
-  syntax Obj
+    expect_test::expect![[r#"
+        module KRS-FOO-BAR-SYNTAX
+          syntax KItem
+          syntax KResult
+          syntax Obj
 
-  syntax Obj ::= "bar" [symbol(bar)]
-  syntax Obj ::= "foo" [symbol(foo)]
+          syntax KItem ::= KResult
+          syntax KResult ::= Obj
+        endmodule
 
-  syntax KItem ::= KResult
-  syntax KResult ::= Obj
+        module KRS-FOO-BAR
+          imports KRS-FOO-BAR-SYNTAX
 
-  configuration
-    <k> foo </k>
+          syntax Obj ::= "bar" [symbol(bar)]
+          syntax Obj ::= "foo" [symbol(foo)]
+
+          configuration
+            <k> foo </k>
 
 
-  rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
-endmodule
-"#]]
+          rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
+        endmodule
+    "#]]
     .assert_eq(emitted.source());
 }
 

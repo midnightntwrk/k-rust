@@ -203,16 +203,12 @@ fn render_entrypoint_main(
     alias: &str,
     function: &[String],
 ) -> String {
-    output.push_str("\nconst SELECTED_FACETS: &[(&str, &str, &str, &str)] = &[\n");
+    output.push_str("\nconst SELECTED_FACETS: &[(&str, &str)] = &[\n");
     for facet in plan.facets() {
         output.push_str("    (");
         output.push_str(&rust_string(&facet.k_namespace));
         output.push_str(", ");
         output.push_str(&rust_string(&facet.definition));
-        output.push_str(", ");
-        output.push_str(&rust_string(&facet.root));
-        output.push_str(", ");
-        output.push_str(&rust_string(&facet.syntax_root));
         output.push_str("),\n");
     }
     output.push_str(
@@ -255,7 +251,11 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
         }
         output.push_str("std::path::Path::new(");
         output.push_str(&rust_string(&facet.manifest_path.to_string_lossy()));
-        output.push_str("))?,\n");
+        output.push_str("))?");
+        if facet.int_literals == krs_collector::IntLiterals::Unsigned {
+            output.push_str(".with_int_literals(__krs_collector_runtime::IntLiterals::Unsigned)");
+        }
+        output.push_str(",\n");
     }
     output.push_str("    ];\n");
     let descriptors = match plan.registration() {

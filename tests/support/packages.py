@@ -44,6 +44,7 @@ PACKAGES = (
     Package("tests/tour-imp/Cargo.toml", "tour-imp", "authored"),
     Package("tests/tour-composition/Cargo.toml", "tour-composition", "authored"),
     Package("tests/tour-negatives/Cargo.toml", "tour-negatives", "authored"),
+    Package("tests/grammar-lexing/Cargo.toml", "grammar-lexing", "authored"),
     Package("tests/imp/compatibility/diagnostics/krs-analysis/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/diagnostics/rust-expansion/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/stable-names/baseline/Cargo.toml", "imp", "fixture"),

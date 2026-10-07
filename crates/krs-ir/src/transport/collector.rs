@@ -10,8 +10,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::provenance::FrameKind;
 use crate::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, OriginFrame, OriginStack, ProvenanceKey, RangedOriginKind, SchemaVersion,
-    SourceFileId, SourceRange, StableItemId, TransformationOriginKind,
+    DescriptorProvenance, OriginFrame, OriginStack, PackageSettings, ProvenanceKey,
+    RangedOriginKind, SchemaVersion, SourceFileId, SourceRange, StableItemId,
+    TransformationOriginKind,
 };
 
 /// The collector wire version.
@@ -19,7 +20,7 @@ use crate::{
 /// The schema sample is pinned by `crates/krs-ir/tests/schema/collector-<version>.json`.
 /// A change to the wire shape or to a frame code must advance this version
 /// independently of the canonical descriptor schema.
-pub const VERSION: u32 = 41;
+pub const VERSION: u32 = 42;
 
 #[derive(Serialize)]
 struct CollectorRef<'a> {
@@ -29,6 +30,8 @@ struct CollectorRef<'a> {
     items: Vec<StableItemId>,
     descriptors: Vec<DescriptorRef<'a>>,
     declarations: &'a [DescriptorDeclaration],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    package_settings: &'a [PackageSettings],
 }
 
 #[derive(Serialize)]
@@ -169,6 +172,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
         items,
         descriptors,
         declarations: bundle.declarations(),
+        package_settings: bundle.package_settings(),
     }
 }
 
@@ -186,6 +190,8 @@ struct CollectorOwned {
     items: Vec<StableItemId>,
     descriptors: Vec<DescriptorOwned>,
     declarations: Vec<DescriptorDeclaration>,
+    #[serde(default)]
+    package_settings: Vec<PackageSettings>,
 }
 
 #[derive(Deserialize)]
@@ -369,5 +375,7 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
             Descriptor::new(id, cfg, provenance, payload).map_err(invalid)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    DescriptorBundle::with_declarations(descriptors, wire.declarations).map_err(invalid)
+    DescriptorBundle::with_declarations(descriptors, wire.declarations)
+        .and_then(|bundle| bundle.with_package_settings(wire.package_settings))
+        .map_err(invalid)
 }

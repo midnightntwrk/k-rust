@@ -15,8 +15,6 @@ language-host = { package = "krs", path = "../../../../crates/krs" }
 k-namespace = "ORG-KRS-COMPOSITION-BASE"
 
 [package.metadata.krs.definitions.base]
-root = "crate"
-syntax-root = "crate"
 
 [lints]
 workspace = true

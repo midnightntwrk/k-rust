@@ -103,14 +103,17 @@ pub fn lower_descriptor_bundle(
     };
     let mut modules = Vec::with_capacity(packages.len());
     for (package, package_descriptors) in packages {
-        modules.push(lower_package_module(
-            &package,
-            &package_descriptors,
-            &module_ids,
-            &declaration_catalog,
-            &semantic_sort_parents,
-            &production_catalog,
-        )?);
+        modules.push(
+            lower_package_module(
+                &package,
+                &package_descriptors,
+                &module_ids,
+                &declaration_catalog,
+                &semantic_sort_parents,
+                &production_catalog,
+            )?
+            .with_int_literals(bundle.int_literals(&package)),
+        );
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     if let Some((first, second)) = crate::overlap::first_head_rule_overlap(&modules, &head_rule_ids)

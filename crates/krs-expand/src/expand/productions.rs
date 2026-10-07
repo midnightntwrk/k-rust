@@ -72,9 +72,31 @@ pub(super) fn strictness_key_function<'a>(
     })
 }
 
+/// Rejects an `internal` or `program` flag on a production whose Rust item is
+/// not `pub`: a non-pub production is already private to the package's rules.
+pub(super) fn check_placement_visibility(
+    placement: Option<(krs_syntax::PlacementFlag, &Ident)>,
+    visibility: &syn::Visibility,
+) -> crate::Result<()> {
+    if let Some((flag, key)) = placement
+        && !matches!(visibility, syn::Visibility::Public(_))
+    {
+        return Err(ExpandError::new(
+            expand::INVALID_PLACEMENT_FLAG,
+            key.span(),
+            format!(
+                "`{}` applies only to a `pub` production; non-pub productions are already private",
+                flag.as_str()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn constructor_metadata_wire(
     group: Option<String>,
     avoid: bool,
+    placement: Option<krs_syntax::PlacementFlag>,
     format: Option<&krs_syntax::StructuredFormat>,
 ) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     use super::terms::wire_key;
@@ -96,6 +118,15 @@ pub(super) fn constructor_metadata_wire(
         attributes.push(Attribute::Avoid {
             key: wire_key(ProvenanceRole::ConstructorAvoid, 0),
         });
+    }
+    match placement {
+        Some(krs_syntax::PlacementFlag::Internal) => attributes.push(Attribute::Internal {
+            key: wire_key(ProvenanceRole::ConstructorInternal, 0),
+        }),
+        Some(krs_syntax::PlacementFlag::Program) => attributes.push(Attribute::Program {
+            key: wire_key(ProvenanceRole::ConstructorProgram, 0),
+        }),
+        None => {}
     }
     if let Some(format) = format {
         let mut fragments = Vec::new();

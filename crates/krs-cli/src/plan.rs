@@ -1,5 +1,5 @@
 use crate::metadata::{CargoMetadata, MetadataNode, MetadataPackage, MetadataTarget};
-use krs_collector::PackageContext;
+use krs_collector::{IntLiterals, PackageContext};
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_syntax::keyword;
 use serde::Serialize;
@@ -118,10 +118,9 @@ pub struct ResolvedFacet {
     pub cargo_source: String,
     /// Definition facet name.
     pub definition: String,
-    /// Rust module subtree selected by this facet.
-    pub root: String,
-    /// Effective program-syntax module subtree, defaulting to the whole crate.
-    pub syntax_root: String,
+    /// Module supplying program-syntax integer literals
+    /// (`package.metadata.krs.int-literals`).
+    pub int_literals: IntLiterals,
     /// Generated Cargo dependency alias.
     pub dependency_alias: String,
     /// Cargo's actual selected library target and `module_path!()` crate root.
@@ -352,8 +351,7 @@ impl CollectorPlan {
                 package_version: facet.package.version.clone(),
                 cargo_source: logical_cargo_source(facet.package, &workspace_members),
                 definition: facet.definition.clone(),
-                root: facet.root.clone(),
-                syntax_root: facet.syntax_root.clone(),
+                int_literals: facet.int_literals,
                 dependency_alias: aliases[&facet.package.id].clone(),
                 crate_root: library_target.name.clone(),
                 cargo_package_id: facet.package.id.clone(),
@@ -561,7 +559,8 @@ impl CollectorPlan {
     /// Absolute manifest paths remain confined to generated Cargo build files.
     /// Schema 2 adds the semantic `crate-root` selected from Cargo target
     /// metadata; readers must not interpret schema 1 bytes as carrying that
-    /// identity component.
+    /// identity component. Schema 3 removes the `root` and `syntax-root` facet
+    /// keys and adds the package's `int-literals` setting.
     ///
     /// # Errors
     ///
@@ -569,7 +568,7 @@ impl CollectorPlan {
     #[must_use = "canonical selection bytes must be consumed or persisted"]
     pub fn canonical_selection_json(&self) -> Result<Vec<u8>, serde_json::Error> {
         let document = CanonicalSelection {
-            schema: 2,
+            schema: 3,
             facets: self
                 .facets
                 .iter()
@@ -581,8 +580,7 @@ impl CollectorPlan {
                     cargo_source: &facet.cargo_source,
                     crate_root: &facet.crate_root,
                     definition: &facet.definition,
-                    root: &facet.root,
-                    syntax_root: &facet.syntax_root,
+                    int_literals: facet.int_literals.as_str(),
                     features: self.features_for(&facet.cargo_package_id),
                 })
                 .collect(),
@@ -625,7 +623,8 @@ impl CollectorPlan {
                         facet.package_name
                     ),
                 )
-            })?;
+            })?
+            .with_int_literals(facet.int_literals);
             contexts.push(context);
         }
         Ok(contexts)
@@ -658,9 +657,8 @@ struct CanonicalFacet<'a> {
     #[serde(rename = "crate-root")]
     crate_root: &'a str,
     definition: &'a str,
-    root: &'a str,
-    #[serde(rename = "syntax-root")]
-    syntax_root: &'a str,
+    #[serde(rename = "int-literals")]
+    int_literals: &'a str,
     features: BTreeSet<&'a String>,
 }
 
@@ -668,8 +666,7 @@ struct FacetRecord<'a> {
     package: &'a MetadataPackage,
     k_namespace: String,
     definition: String,
-    root: String,
-    syntax_root: String,
+    int_literals: IntLiterals,
     is_root: bool,
 }
 
@@ -837,18 +834,38 @@ fn resolve_facet<'a>(
                 ),
             )
         })?;
-    let root = optional_string(facet.get("root"), "root", package, definition)?
-        .unwrap_or_else(|| "crate".to_owned());
-    let syntax_root =
-        optional_string(facet.get("syntax-root"), "syntax-root", package, definition)?
-            .unwrap_or_else(|| "crate".to_owned());
+    for removed in ["root", "syntax-root"] {
+        if facet.contains_key(removed) {
+            return Err(PlanningError::new(
+                PlanningErrorKind::RemovedFacetKey,
+                format!(
+                    "package `{}` definition `{definition}` sets `{removed}`: the key was removed; program syntax is now `pub` minus `internal`",
+                    package.name
+                ),
+            ));
+        }
+    }
+    let int_literals = match krs.get("int-literals") {
+        None => IntLiterals::default(),
+        Some(value) => value
+            .as_str()
+            .and_then(IntLiterals::from_metadata)
+            .ok_or_else(|| {
+                PlanningError::new(
+                    PlanningErrorKind::InvalidIntLiterals,
+                    format!(
+                        "package `{}` sets `int-literals = {value}`; expected \"signed\" (the default, INT-SYNTAX) or \"unsigned\" (UNSIGNED-INT-SYNTAX)",
+                        package.name
+                    ),
+                )
+            })?,
+    };
 
     Ok(FacetRecord {
         package,
         k_namespace: namespace.to_owned(),
         definition: definition.to_owned(),
-        root,
-        syntax_root,
+        int_literals,
         is_root,
     })
 }
@@ -894,29 +911,6 @@ fn is_linkable_library_target(target: &MetadataTarget) -> bool {
         .iter()
         .any(|crate_type| matches!(crate_type.as_str(), "lib" | "rlib" | "dylib"));
     library_kind && rust_linkable_crate_type
-}
-
-fn optional_string(
-    value: Option<&Value>,
-    field: &str,
-    package: &MetadataPackage,
-    definition: &str,
-) -> Result<Option<String>, PlanningError> {
-    match value {
-        None => Ok(None),
-        Some(value) => value
-            .as_str()
-            .map(|text| Some(text.to_owned()))
-            .ok_or_else(|| {
-                PlanningError::new(
-                    PlanningErrorKind::InvalidDefinition,
-                    format!(
-                        "KRS definition `{}` in package `{}` has a non-string `{field}`",
-                        definition, package.name
-                    ),
-                )
-            }),
-    }
 }
 
 fn reachable_packages(
@@ -1205,6 +1199,10 @@ pub enum PlanningErrorKind {
     InventoryFeatureActive,
     /// Explicit registration would omit a non-semantics `krs` dependent.
     UnregisteredKrsDependent,
+    /// A definition facet sets the removed `root` or `syntax-root` key.
+    RemovedFacetKey,
+    /// The package's `int-literals` metadata is not `"signed"` or `"unsigned"`.
+    InvalidIntLiterals,
 }
 
 /// A typed collector planning failure.
@@ -1240,6 +1238,8 @@ impl ToDiagnostic for PlanningError {
             PlanningErrorKind::MissingNamespace => codes::plan::MISSING_NAMESPACE,
             PlanningErrorKind::MissingDefinition => codes::plan::MISSING_DEFINITION,
             PlanningErrorKind::InvalidDefinition => codes::plan::INVALID_DEFINITION,
+            PlanningErrorKind::RemovedFacetKey => codes::plan::REMOVED_FACET_KEY,
+            PlanningErrorKind::InvalidIntLiterals => codes::plan::INVALID_INT_LITERALS,
             PlanningErrorKind::MissingLibraryTarget => codes::plan::MISSING_LIBRARY_TARGET,
             PlanningErrorKind::AmbiguousLibraryTarget => codes::plan::AMBIGUOUS_LIBRARY_TARGET,
             PlanningErrorKind::InvalidPackageContext => codes::plan::INVALID_PACKAGE_CONTEXT,

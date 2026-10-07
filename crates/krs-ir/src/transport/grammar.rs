@@ -653,7 +653,41 @@ stage_shape! {
             /// Explicit result-predicate sort.
             result_sort: Box<S::Sort> => [box sort],
         },
+        /// `internal`: usable in rules but not program syntax.
+        Internal {
+            /// Flag provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// `program`: asserts that the production is program syntax.
+        Program {
+            /// Flag provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// One colour for every printed terminal.
+        Color {
+            /// Colour-literal provenance.
+            key: ProvenanceKey => [keep],
+            /// Colour name.
+            value: String => [keep],
+        },
+        /// One colour per printed terminal and per `%c`.
+        Colors {
+            /// Colour-list provenance.
+            key: ProvenanceKey => [keep],
+            /// Colour names with their own literal provenance, in source order.
+            values: Vec<DescriptorColorEntry> => [keep],
+        },
     }
+}
+
+/// One provenance-bearing entry of a production's `colors` list.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorColorEntry {
+    /// Colour-literal provenance.
+    pub key: ProvenanceKey,
+    /// Colour name.
+    pub value: String,
 }
 
 /// Descriptor-stage form of [`ProductionAttribute`].
@@ -1919,6 +1953,36 @@ impl DescriptorProduction {
                     validate_sort_reference(result_sort, provenance)?;
                     "strictness"
                 }
+                DescriptorProductionAttribute::Internal { key } => {
+                    require_key(key, provenance)?;
+                    "internal"
+                }
+                DescriptorProductionAttribute::Program { key } => {
+                    require_key(key, provenance)?;
+                    "program"
+                }
+                DescriptorProductionAttribute::Color { key, value } => {
+                    require_key(key, provenance)?;
+                    if value.is_empty() {
+                        return Err(GrammarTransportError::EmptyText(TransportField::Color));
+                    }
+                    "color"
+                }
+                DescriptorProductionAttribute::Colors { key, values } => {
+                    require_key(key, provenance)?;
+                    if values.is_empty() {
+                        return Err(GrammarTransportError::EmptyCollection(
+                            TransportField::Colors,
+                        ));
+                    }
+                    for entry in values {
+                        require_key(&entry.key, provenance)?;
+                        if entry.value.is_empty() {
+                            return Err(GrammarTransportError::EmptyText(TransportField::Color));
+                        }
+                    }
+                    "color"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -1941,6 +2005,11 @@ impl DescriptorProduction {
         if families.contains("alias") && families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::AliasFunctionMetadata,
+            ));
+        }
+        if families.contains("internal") && families.contains("program") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::InternalProgramMetadata,
             ));
         }
         let regex_count = self
@@ -2351,6 +2420,10 @@ impl DescriptorProduction {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps the exhaustive constructor attribute key catalog in one match."
+    )]
     fn collect_constructor_attribute_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
@@ -2430,6 +2503,26 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Alias { key } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;
+                }
+                DescriptorProductionAttribute::Internal { key } => {
+                    insert_exact(keys, key, ProvenanceRole::ConstructorInternal, 0)?;
+                }
+                DescriptorProductionAttribute::Program { key } => {
+                    insert_exact(keys, key, ProvenanceRole::ConstructorProgram, 0)?;
+                }
+                DescriptorProductionAttribute::Color { key, .. } => {
+                    insert_exact(keys, key, ProvenanceRole::ConstructorColor, 0)?;
+                }
+                DescriptorProductionAttribute::Colors { key, values } => {
+                    insert_exact(keys, key, ProvenanceRole::ConstructorColor, 0)?;
+                    for (ordinal, entry) in values.iter().enumerate() {
+                        insert_exact(
+                            keys,
+                            &entry.key,
+                            ProvenanceRole::ConstructorColorsEntry,
+                            checked_index(ordinal)?,
+                        )?;
+                    }
                 }
                 DescriptorProductionAttribute::Token { .. }
                 | DescriptorProductionAttribute::Bracket { .. } => {

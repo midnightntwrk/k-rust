@@ -79,6 +79,9 @@ details! {
         Strictness => "strictness",
         Token => "token",
         Total => "total",
+        Internal => "internal",
+        Program => "program",
+        Color => "color",
     }
 }
 

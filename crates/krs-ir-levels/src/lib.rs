@@ -30,8 +30,8 @@ pub use definition::{
     DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence,
     DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
-    ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
-    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ModuleRole, ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
     DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRewrite, IrRuleBody,

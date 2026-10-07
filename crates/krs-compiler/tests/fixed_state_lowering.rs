@@ -528,41 +528,47 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
 }
 
 fn assert_exact_source(source: &str) {
-    expect_test::expect![[r#"module KRS-CALC
-  imports ID-SYNTAX
-  imports MAP
+    expect_test::expect![[r#"
+        module KRS-CALC-SYNTAX
+          imports ID-SYNTAX
 
-  syntax Expr
-  syntax KResult
-  syntax Stmt
-  syntax Value
+          syntax Expr
+          syntax KResult
+          syntax Stmt
+          syntax Value
 
-  syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
-  syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
+          syntax Expr ::= Id
+          syntax Expr ::= Value
+          syntax KResult ::= Value
+        endmodule
 
-  syntax Expr ::= Id
-  syntax Expr ::= Value
-  syntax KResult ::= Value
+        module KRS-CALC
+          imports ID-SYNTAX
+          imports KRS-CALC-SYNTAX
+          imports MAP
 
-  syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
+          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
 
-  syntax right krsgroup-ef11204726b39d86ee1fe653
+          syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
 
-  configuration
-    <k color="green"> $PGM:Stmt </k>
-    <env color="yellow"> $ENV:Map </env>
+          syntax right krsgroup-ef11204726b39d86ee1fe653
+
+          configuration
+            <k color="green"> $PGM:Stmt </k>
+            <env color="yellow"> $ENV:Map </env>
 
 
-  rule [assign]:
-    <k> X:Id = V:Value ; => .K ... </k>
-    <env> E:Map => E:Map [ X:Id <- V:Value ] </env>
-  rule [step]:
-    <k> S1:Stmt S2:Stmt => S1:Stmt ~> S2:Stmt ... </k>
-  rule [var]:
-    <k> X:Id => V:Value ... </k>
-    <env> X:Id |-> V:Value ... </env>
-endmodule
-"#]]
+          rule [assign]:
+            <k> X:Id = V:Value ; => .K ... </k>
+            <env> E:Map => E:Map [ X:Id <- V:Value ] </env>
+          rule [step]:
+            <k> S1:Stmt S2:Stmt => S1:Stmt ~> S2:Stmt ... </k>
+          rule [var]:
+            <k> X:Id => V:Value ... </k>
+            <env> X:Id |-> V:Value ... </env>
+        endmodule
+    "#]]
     .assert_eq(source);
 }
 
@@ -581,6 +587,7 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
         BTreeMap::from([
             ("Expr", 1),
             ("KRS-CALC", 1),
+            ("KRS-CALC-SYNTAX", 1),
             ("KResult", 1),
             ("Stmt", 1),
             ("Value", 1),
@@ -592,7 +599,7 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
             ("var", 1),
         ])
     );
-    assert_eq!(emitted.symbol_map().entries().len(), 12);
+    assert_eq!(emitted.symbol_map().entries().len(), 13);
 
     let mut counts = BTreeMap::new();
     let mut missing_ranges = BTreeMap::new();
@@ -605,7 +612,7 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
     assert_eq!(
         counts,
         BTreeMap::from([
-            (SourceMapNodeKind::Module, 1),
+            (SourceMapNodeKind::Module, 2),
             (SourceMapNodeKind::SyntaxSort, 4),
             (SourceMapNodeKind::Subsort, 3),
             (SourceMapNodeKind::Production, 2),

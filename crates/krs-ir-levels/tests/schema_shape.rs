@@ -653,6 +653,7 @@ fn registry() -> Registry {
         assert!(classified.insert("DescriptorCellCollectionType".to_owned()));
     }
     trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
+    trace!(DescriptorColorEntry: DescriptorColorEntry);
     trace!(DescriptorContextAliasReference: DescriptorContextAliasReference);
     trace!(DescriptorFieldReference: DescriptorFieldReference);
     trace!(DescriptorGroupReference: DescriptorGroupReference);
@@ -693,6 +694,9 @@ fn registry() -> Registry {
     trace!(SymbolId: SymbolId);
     trace!(SymbolIdentity: SymbolIdentity);
     trace!(SymbolKind: SymbolKind);
+    trace!(IntLiterals: IntLiterals);
+    trace!(ModuleRole: ModuleRole);
+    trace!(PackageSettings: PackageSettings);
     trace!(TimingsDocument: TimingsDocument);
     trace!(TransformationOriginKind: TransformationOriginKind);
     trace!(TypeSlot: TypeSlot);

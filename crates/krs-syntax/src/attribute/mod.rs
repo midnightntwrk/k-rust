@@ -7,7 +7,7 @@ mod value;
 pub(crate) use constructor::ConstructorFamilyMode;
 pub use constructor::{
     ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionTotality,
-    VariantSyntaxAttribute,
+    PlacementFlag, VariantSyntaxAttribute,
 };
 pub use rule::{ClaimAttribute, ClaimBinder, ClaimModality, ExistsAttribute, RuleAttribute};
 pub use sort::{

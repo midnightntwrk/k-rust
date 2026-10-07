@@ -612,7 +612,7 @@ fn materialize_fixture(temporary: &Path, source: &str) -> PathBuf {
         .unwrap();
     let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
     let manifest = format!(
-        "[package]\nname = \"krs-cli-foo-bar-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-FOO-BAR\"\n\n[package.metadata.krs.definitions.main]\nroot = \"crate\"\nsyntax-root = \"crate\"\n\n[workspace]\n"
+        "[package]\nname = \"krs-cli-foo-bar-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-FOO-BAR\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
     );
     fs::write(project.join("Cargo.toml"), manifest).unwrap();
     project.join("Cargo.toml")

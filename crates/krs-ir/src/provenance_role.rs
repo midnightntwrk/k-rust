@@ -353,6 +353,15 @@ provenance_roles! {
     RuleRightLiteral => "rule_right_literal",
     /// Named record field in a rule result, in structural preorder.
     RuleRightRecordFieldName => "rule_right_record_field_name",
+    /// `internal` flag of a production: on the production attribute, or the
+    /// readable family flag of `#[k::constructors]` copied to every variant.
+    ConstructorInternal => "constructor_internal",
+    /// `program` flag asserting that a production is program syntax.
+    ConstructorProgram => "constructor_program",
+    /// `color` literal, or the `colors` list, of a production attribute.
+    ConstructorColor => "constructor_color",
+    /// One literal of a production's `colors` list, in source order.
+    ConstructorColorsEntry => "constructor_colors_entry",
 }
 
 impl Serialize for ProvenanceRole {

@@ -123,6 +123,8 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidClaimMetadata(L::RuleId),
     InvalidEquationRoot(L::RuleId),
     InvalidFormat,
+    InvalidColors,
+    InternalWithProgram,
     InvalidFunctionProduction,
     InvalidHookSignature(HookOperation),
     InvalidBn128PointConstructor {
@@ -1243,6 +1245,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut avoid = false;
     let mut format = false;
     let mut strictness = false;
+    let mut internal = false;
+    let mut program = false;
+    let mut colors = None;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1256,6 +1261,14 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Avoid { .. } => std::mem::replace(&mut avoid, true),
             ProductionAttribute::Format { .. } => std::mem::replace(&mut format, true),
             ProductionAttribute::Strictness { .. } => std::mem::replace(&mut strictness, true),
+            ProductionAttribute::Internal { .. } => std::mem::replace(&mut internal, true),
+            ProductionAttribute::Program { .. } => std::mem::replace(&mut program, true),
+            ProductionAttribute::Color { value, .. } => {
+                colors.replace(vec![value.as_str()]).is_some()
+            }
+            ProductionAttribute::Colors { values, .. } => colors
+                .replace(values.iter().map(String::as_str).collect())
+                .is_some(),
         };
         if already {
             let name = attribute
@@ -1293,9 +1306,17 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Token { .. }
             | ProductionAttribute::Group { .. }
             | ProductionAttribute::Bracket { .. }
-            | ProductionAttribute::Avoid { .. } => {}
+            | ProductionAttribute::Avoid { .. }
+            | ProductionAttribute::Internal { .. }
+            | ProductionAttribute::Program { .. }
+            | ProductionAttribute::Color { .. }
+            | ProductionAttribute::Colors { .. } => {}
         }
     }
+    if internal && program {
+        return Err(L::error(ValidationError::InternalWithProgram));
+    }
+    validate_production_colors::<L>(items, attributes, colors.as_deref())?;
     if total && !function {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
@@ -1357,6 +1378,63 @@ pub(crate) fn validate_production_shape<L: Validation>(
     }
     if bracket && fields.len() != 1 {
         return Err(L::error(ValidationError::InvalidBracketProduction));
+    }
+    Ok(())
+}
+
+/// Checks K's colour metadata (`color`, `colors`, `%c`, `%r`).
+///
+/// A colour must be nonempty and must not contain `,` or `)`, which would end
+/// the K attribute value. A `colors` list has one entry per printed terminal
+/// plus one per `%c` (K's `CheckAtt` rule). `%c` and `%r` require a colour,
+/// which is stricter than K: without one they have no effect.
+fn validate_production_colors<L: Validation>(
+    items: &[GrammarProductionItem<L::Sort>],
+    attributes: &[ProductionAttribute<L::Sort>],
+    colors: Option<&[&str]>,
+) -> Result<(), L::Error> {
+    let color_controls = attributes
+        .iter()
+        .filter_map(|attribute| match attribute {
+            ProductionAttribute::Format { fragments, .. } => Some(fragments),
+            _ => None,
+        })
+        .flatten()
+        .filter(|fragment| {
+            matches!(
+                fragment,
+                FormatFragment::ColorNext | FormatFragment::ColorReset
+            )
+        })
+        .collect::<Vec<_>>();
+    let Some(colors) = colors else {
+        return if color_controls.is_empty() {
+            Ok(())
+        } else {
+            Err(L::error(ValidationError::InvalidColors))
+        };
+    };
+    if colors
+        .iter()
+        .any(|color| color.is_empty() || color.contains([',', ')']))
+    {
+        return Err(L::error(ValidationError::InvalidColors));
+    }
+    let is_list = attributes
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Colors { .. }));
+    if is_list {
+        let terminals = items
+            .iter()
+            .filter(|item| !matches!(item.kind(), GrammarProductionItemKind::NonTerminal { .. }))
+            .count();
+        let color_next = color_controls
+            .iter()
+            .filter(|fragment| matches!(fragment, FormatFragment::ColorNext))
+            .count();
+        if colors.len() != terminals + color_next {
+            return Err(L::error(ValidationError::InvalidColors));
+        }
     }
     Ok(())
 }

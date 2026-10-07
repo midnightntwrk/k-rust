@@ -219,6 +219,10 @@ pub enum FormatFragment {
     Indent,
     /// K's `%d` indentation-decrease control.
     Dedent,
+    /// K's `%c` control: start printing in the production's next colour.
+    ColorNext,
+    /// K's `%r` control: reset the printing colour.
+    ColorReset,
 }
 
 /// Strictness strategy for a production.
@@ -395,6 +399,33 @@ pub enum ProductionAttribute<S> {
         /// Sort whose values satisfy the cooling/result predicate.
         result_sort: ProductionResultSort<S>,
     },
+    /// Usable in rules but not program syntax. Semantic IR only: lowering
+    /// consumes it when it places the production in the semantics module.
+    Internal {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
+    /// Asserts that the production is program syntax. Semantic IR only:
+    /// lowering consumes it and warns when the production cannot be placed in
+    /// the program-syntax module.
+    Program {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
+    /// K's `color(name)`: one colour for every printed terminal.
+    Color {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Colour name, not checked against K's colour table.
+        value: String,
+    },
+    /// K's `colors(a,b,..)`: one colour per printed terminal and per `%c`.
+    Colors {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Colour names in printing order.
+        values: Vec<String>,
+    },
 }
 
 impl<S> ProductionAttribute<S> {
@@ -412,7 +443,11 @@ impl<S> ProductionAttribute<S> {
             | Self::Bracket { origin }
             | Self::Avoid { origin }
             | Self::Format { origin, .. }
-            | Self::Strictness { origin, .. } => origin,
+            | Self::Strictness { origin, .. }
+            | Self::Internal { origin }
+            | Self::Program { origin }
+            | Self::Color { origin, .. }
+            | Self::Colors { origin, .. } => origin,
         }
     }
 
@@ -431,6 +466,11 @@ impl<S> ProductionAttribute<S> {
             Self::Avoid { .. } => Some(crate::ProductionAttributeFamily::Avoid),
             Self::Format { .. } => Some(crate::ProductionAttributeFamily::Format),
             Self::Strictness { .. } => Some(crate::ProductionAttributeFamily::Strictness),
+            Self::Internal { .. } => Some(crate::ProductionAttributeFamily::Internal),
+            Self::Program { .. } => Some(crate::ProductionAttributeFamily::Program),
+            Self::Color { .. } | Self::Colors { .. } => {
+                Some(crate::ProductionAttributeFamily::Color)
+            }
         }
     }
 }

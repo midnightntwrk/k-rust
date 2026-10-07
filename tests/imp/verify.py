@@ -57,6 +57,7 @@ PROBE_MANIFEST = HERE / "oracle/artifact-probe/Cargo.toml"
 PACKAGE = "krs-imp-definition"
 DEFINITION = "main"
 MODULE = "KRS-IMP"
+SYNTAX_MODULE = f"{MODULE}-SYNTAX"
 REFERENCE_MODULE = "KRS-IMP-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-imp-expanded"
@@ -106,16 +107,24 @@ def require_exact_summary(
 
 
 def _verify_replacement_parity(authored: Path, replacement: Path, gate: Path, environment: Mapping[str, str]) -> None:
-    facts = krs_gate.ir_query(gate, replacement, {
-        "kind": "replacement_parity", "reference": os.fspath(authored),
-        "module": MODULE, "module_path": ["imp"],
-        "k_namespace": MODULE,
-        "replaced_k_tail_cells": REPLACED_K_TAIL_CELLS,
-        "preserved_map_remainder_cells": PRESERVED_MAP_REMAINDER_CELLS,
-    }, environment=environment)
-    expected = load_json(HERE / "replacement-parity.json")
+    def parity(module: str) -> dict[str, Any]:
+        return krs_gate.ir_query(gate, replacement, {
+            "kind": "replacement_parity", "reference": os.fspath(authored),
+            "module": module, "module_path": ["imp"],
+            "k_namespace": MODULE,
+            "replaced_k_tail_cells": REPLACED_K_TAIL_CELLS,
+            "preserved_map_remainder_cells": PRESERVED_MAP_REMAINDER_CELLS,
+        }, environment=environment)
+
+    expected = dict(load_json(HERE / "replacement-parity.json"))
+    syntax_sentence_count = expected.pop("syntax_sentence_count")
+    facts = parity(MODULE)
     if facts != expected:
         raise GateError(f"typed replacement parity differs: {facts!r}")
+    # The grammar is in the program-syntax module; its sentences must match too.
+    syntax = parity(SYNTAX_MODULE)
+    if {**syntax, "sentence_count": None} != {**facts, "sentence_count": None} or syntax["sentence_count"] != syntax_sentence_count:
+        raise GateError(f"typed replacement parity of {SYNTAX_MODULE} differs: {syntax!r}")
 
 
 @dataclass
@@ -564,7 +573,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             "kompile/actual-haskell",
             [
                 actual_source, "--backend", "haskell", "--main-module", MODULE,
-                "--syntax-module", MODULE, "--emit-json", "--output-definition", actual,
+                "--syntax-module", SYNTAX_MODULE, "--emit-json", "--output-definition", actual,
             ],
             600,
             (
@@ -577,7 +586,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             "kompile/actual-llvm",
             [
                 actual_source, "--backend", "llvm", "--main-module", MODULE,
-                "--syntax-module", MODULE, "--emit-json", "--output-definition", actual_failure,
+                "--syntax-module", SYNTAX_MODULE, "--emit-json", "--output-definition", actual_failure,
             ],
             900,
             (),

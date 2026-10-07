@@ -12,5 +12,3 @@ k.workspace = true
 k-namespace = "DIAGNOSTIC-OVERLAP"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"

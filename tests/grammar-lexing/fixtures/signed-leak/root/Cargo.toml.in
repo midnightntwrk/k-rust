@@ -1,0 +1,15 @@
+[package]
+name = "krs-grammar-unsigned-root"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = @KRS_CRATE_PATH@ }
+signed-base = { package = "krs-grammar-signed-base", path = "../base" }
+
+[package.metadata.krs]
+k-namespace = "KRS-UNSIGNED-ROOT"
+int-literals = "unsigned"
+
+[package.metadata.krs.definitions.main]

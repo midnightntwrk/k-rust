@@ -287,7 +287,7 @@ impl<'a> Adapter<'a> {
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));
         }
-        let mut imports = builtin_imports(module, ImportPolicy::NativeFrontend)
+        let mut imports = builtin_imports(module, ImportPolicy::NativeFrontend.for_module(module))
             .into_iter()
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();

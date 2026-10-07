@@ -183,6 +183,10 @@ fn constructor_like(
     }
     let declaration = krs_syntax::ConstructorDeclaration::parse_tokens(raw_item.to_token_stream())?;
     attribute.validate_declaration(&declaration)?;
+    super::productions::check_placement_visibility(
+        attribute.placement().zip(attribute.placement_key()),
+        &raw_item.vis,
+    )?;
     if let Some(strictness) = &strictness {
         strictness.validate_fields(
             declaration
@@ -721,6 +725,7 @@ fn constructor_grammar(
     let mut attributes = super::productions::constructor_metadata_wire(
         attribute.group.as_ref().map(syn::LitStr::value),
         attribute.avoid,
+        attribute.placement(),
         attribute.structured_format(),
     )?;
     attributes.splice(

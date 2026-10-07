@@ -24,9 +24,10 @@ The root package exposes `main` and renames two dependencies:
 // [!include ~/snippets/composition-root.Cargo.toml]
 ```
 
-`root` and `syntax-root` name the facet's semantic root module and its program-syntax module.
-KRS currently records both in the composition plan but uses neither to restrict collection or to select a program grammar.
+A facet table needs no keys: every package emits a program-syntax module `<NS>-SYNTAX` and a semantics module `<NS>`, and each production chooses its module through its Rust visibility and `internal` flag.
 The package-level `k-namespace` keeps emitted K names explicit.
+The package-level `int-literals` key selects the module that supplies integer literals to the package's program syntax: `"signed"` (the default, `INT-SYNTAX`) or `"unsigned"` (`UNSIGNED-INT-SYNTAX`).
+An unsigned package cannot compose a signed dependency whose program syntax uses integers, because K imports are unions and the signed literals would leak into programs.
 
 Cargo package names, Rust crate names, and local dependency aliases are different identities here.
 The root imports package `base-semantics` as `semantic-base`, which Rust exposes as `semantic_base` in paths:

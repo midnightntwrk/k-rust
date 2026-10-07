@@ -15,3 +15,4 @@ pub use collect::{
 };
 pub use error::{CollectionError, CollectionErrorKind};
 pub use facade::{FacadeAliases, package_facade_aliases};
+pub use krs_ir::IntLiterals;

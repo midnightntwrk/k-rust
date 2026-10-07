@@ -14,8 +14,8 @@ use krs_ir::{
     SentenceKind, SourceMapKey, StableText,
 };
 use krs_ir_levels::{
-    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ProductionSentence,
-    SymbolId,
+    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ModuleRole,
+    ProductionSentence, SymbolId,
     k_surface::{DefinitionIndex, ImportPolicy, VariableNaming, builtin_imports},
 };
 
@@ -169,7 +169,21 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     let context = EmitContext::new(definition);
     let mut writer = Writer::default();
     let mut claims = Vec::new();
-    for (index, module) in definition.modules().iter().enumerate() {
+    // Each package's program-syntax module precedes the semantics module that
+    // imports it, as in the K tutorials' `IMP-SYNTAX`/`IMP` pairs.
+    let mut modules = definition.modules().iter().collect::<Vec<_>>();
+    modules.sort_by_key(|module| {
+        let name = module.id().as_str();
+        match module.role() {
+            ModuleRole::ProgramSyntax => (
+                name.strip_suffix(crate::partition::PROGRAM_SYNTAX_SUFFIX)
+                    .unwrap_or(name),
+                0,
+            ),
+            ModuleRole::Semantics => (name, 1),
+        }
+    });
+    for (index, module) in modules.into_iter().enumerate() {
         if index != 0 {
             writer.push("\n");
         }
@@ -422,7 +436,7 @@ pub fn definition_module_imports(module: &DefinitionModule) -> BTreeSet<String> 
         .iter()
         .map(|id| id.as_str().to_owned())
         .chain(
-            builtin_imports(module, ImportPolicy::SourceText)
+            builtin_imports(module, ImportPolicy::SourceText.for_module(module))
                 .into_iter()
                 .map(str::to_owned),
         )

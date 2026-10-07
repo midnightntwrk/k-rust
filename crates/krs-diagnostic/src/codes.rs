@@ -58,6 +58,8 @@ register_codes! {
         INVALID_REGISTRATION_MODE: "krs::plan::invalid-registration-mode" => "The registration mode does not apply to this plan.",
         INVENTORY_FEATURE_ACTIVE: "krs::plan::inventory-feature-active" => "Explicit registration conflicts with the inventory feature.",
         UNREGISTERED_KRS_DEPENDENT: "krs::plan::unregistered-krs-dependent" => "Explicit registration would omit a KRS dependent.",
+        REMOVED_FACET_KEY: "krs::plan::removed-facet-key" => "A definition facet uses the removed `root` or `syntax-root` key.",
+        INVALID_INT_LITERALS: "krs::plan::invalid-int-literals" => "The package `int-literals` metadata is not \"signed\" or \"unsigned\".",
     }
     /// Diagnostics from canonical K emission.
     emit {
@@ -176,6 +178,12 @@ register_codes! {
     rust_expansion {
         UNCODED_ERROR: "krs::rust-expansion::uncoded-error" => "Rust expansion reported an error without a diagnostic code.",
     }
+    /// Diagnostics from the program-syntax partition of each package.
+    partition {
+        NOT_PROGRAM_SYNTAX: "krs::partition::not-program-syntax" => "A production marked `program` cannot be program syntax and is placed in the semantics module.",
+        MIXED_GROUP: "krs::partition::mixed-group" => "A precedence or associativity group mixes `internal` and program-syntax productions.",
+        SIGNED_INTEGER_LEAK: "krs::partition::signed-integer-leak" => "An unsigned package's program syntax imports a signed package's program syntax.",
+    }
     /// Diagnostics from Rust token parsing and KRS syntax validation.
     syntax {
         RESERVED_BINDER: "krs::syntax::reserved-binder" => "An authored binder contains the marker reserved for generated identifiers.",
@@ -251,6 +259,7 @@ register_codes! {
         UNKNOWN_HOOK: "krs::expand::unknown-hook" => "A hook path does not name a supported KRS hook operation.",
         FUNCTION_ALIAS_CONFLICT: "krs::expand::function-alias-conflict" => "A function production is also declared as a static alias.",
         INVALID_AVOID_METADATA: "krs::expand::invalid-avoid-metadata" => "An avoid argument explicitly supplies false instead of omitting the metadata.",
+        INVALID_PLACEMENT_FLAG: "krs::expand::invalid-placement-flag" => "An `internal` or `program` flag is false, repeated, combined with the other, or on a non-pub item.",
         DUPLICATE_STRICTNESS: "krs::expand::duplicate-strictness" => "A constructor declares more than one strictness strategy.",
         ALIAS_MARKER_FORM: "krs::expand::alias-marker-form" => "A constructor alias helper does not use marker syntax.",
         DUPLICATE_ALIAS: "krs::expand::duplicate-alias" => "A constructor declares its alias helper more than once.",

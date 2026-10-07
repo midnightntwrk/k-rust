@@ -26,8 +26,6 @@ syn = { version = "2.0.119", features = ["full"] }
 k-namespace = "KRS-KWASM"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"
 
 [lints.rust]
 warnings = "deny"

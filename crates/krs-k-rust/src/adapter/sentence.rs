@@ -224,6 +224,16 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Format { fragments, .. } => {
                 attributes.insert("format", json!(native_format(fragments)));
             }
+            DefinitionProductionAttribute::Color { value, .. } => {
+                attributes.insert("color", json!(value));
+            }
+            DefinitionProductionAttribute::Colors { values, .. } => {
+                attributes.insert("colors", json!(values.join(",")));
+            }
+            DefinitionProductionAttribute::Internal { .. }
+            | DefinitionProductionAttribute::Program { .. } => {
+                unreachable!("Definition IR validation rejects placement attributes")
+            }
             DefinitionProductionAttribute::Strictness {
                 kind,
                 using,
@@ -804,6 +814,8 @@ fn native_format(fragments: &[FormatFragment]) -> String {
             FormatFragment::Newline => output.push_str("%n"),
             FormatFragment::Indent => output.push_str("%i"),
             FormatFragment::Dedent => output.push_str("%d"),
+            FormatFragment::ColorNext => output.push_str("%c"),
+            FormatFragment::ColorReset => output.push_str("%r"),
         }
     }
     output

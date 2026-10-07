@@ -211,8 +211,6 @@ k = {{ package = "krs", path = "{ROOT / 'crates' / 'krs'}" }}
 k-namespace = "{NAMESPACE}"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"
 
 [workspace]
 resolver = "3"

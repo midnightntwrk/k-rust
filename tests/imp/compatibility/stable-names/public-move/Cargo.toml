@@ -12,8 +12,6 @@ k = { package = "krs", path = "../../../../../crates/krs" }
 k-namespace = "KRS-IMP-STABLE-NAMES"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"
 
 [workspace]
 resolver = "3"

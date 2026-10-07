@@ -9,7 +9,9 @@ use syn::{
     parse_quote,
 };
 
-use crate::attribute::{ConstructorFamilyMode, ConstructorsAttribute, VariantSyntaxAttribute};
+use crate::attribute::{
+    ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, VariantSyntaxAttribute,
+};
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -376,6 +378,9 @@ impl EnumConstructorDeclaration {
             let mut syntax = helpers.syntax;
             if let Some(syntax) = &mut syntax {
                 syntax.validate_fields(fields.iter().map(ConstructorField::name))?;
+                if let Some(internal) = attribute.internal() {
+                    syntax.inherit_placement(PlacementFlag::Internal, internal.clone())?;
+                }
                 if open_family {
                     if reference_family && helpers.format.is_some() {
                         return Err(unsupported_enum(

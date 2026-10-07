@@ -9,6 +9,7 @@ mod emit;
 mod error;
 mod lowering;
 mod overlap;
+pub mod partition;
 mod reference;
 mod semantic;
 mod sidecar;

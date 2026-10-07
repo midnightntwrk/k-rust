@@ -213,9 +213,27 @@ fn emit_production_attribute(
                     FormatFragment::Newline => writer.push("%n"),
                     FormatFragment::Indent => writer.push("%i"),
                     FormatFragment::Dedent => writer.push("%d"),
+                    FormatFragment::ColorNext => writer.push("%c"),
+                    FormatFragment::ColorReset => writer.push("%r"),
                 }
             }
             writer.push(")");
+        }
+        ProductionAttribute::Color { value, .. } => {
+            writer.push("color(");
+            writer.push(value);
+            writer.push(")");
+        }
+        ProductionAttribute::Colors { values, .. } => {
+            writer.push("colors(");
+            writer.push(&values.join(","));
+            writer.push(")");
+        }
+        ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+            return Err(EmitError::UnsupportedShape {
+                node: "production attribute",
+                detail: "`internal` and `program` are consumed by lowering".to_owned(),
+            });
         }
         ProductionAttribute::Strictness {
             kind,

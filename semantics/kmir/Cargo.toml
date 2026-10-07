@@ -24,8 +24,6 @@ serde_json = "1"
 k-namespace = "KRS-KMIR"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"
 
 [lints.rust]
 warnings = "deny"

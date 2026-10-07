@@ -52,6 +52,28 @@ pub struct DescriptorBundle {
     descriptors: SortedByKey<Descriptor>,
     /// Exact Rust API metadata for every collected descriptor.
     declarations: SortedByKey<DescriptorDeclaration>,
+    /// Package metadata that differs from the defaults, one entry per package,
+    /// ordered by package identity. Omitted when every package uses defaults.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    package_settings: Vec<PackageSettings>,
+}
+
+/// Non-default `package.metadata.krs` settings of one collected package.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageSettings {
+    /// Package the settings belong to.
+    pub package: crate::PackageId,
+    /// Program-syntax integer literal module (`int-literals`).
+    pub int_literals: crate::IntLiterals,
+}
+
+impl PackageSettings {
+    /// Whether every setting has its default value.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.int_literals == crate::IntLiterals::default()
+    }
 }
 
 #[derive(Deserialize)]
@@ -60,13 +82,16 @@ struct DescriptorBundleWire {
     protocol_version: SchemaVersion,
     descriptors: Vec<Descriptor>,
     declarations: Vec<DescriptorDeclaration>,
+    #[serde(default)]
+    package_settings: Vec<PackageSettings>,
 }
 
 impl TryFrom<DescriptorBundleWire> for DescriptorBundle {
     type Error = DescriptorDeclarationError;
 
     fn try_from(wire: DescriptorBundleWire) -> Result<Self, Self::Error> {
-        Self::validated(wire.protocol_version, wire.descriptors, wire.declarations)
+        Self::validated(wire.protocol_version, wire.descriptors, wire.declarations)?
+            .with_package_settings(wire.package_settings)
     }
 }
 
@@ -124,7 +149,50 @@ impl DescriptorBundle {
             protocol_version,
             descriptors,
             declarations: SortedByKey::new(declarations),
+            package_settings: Vec::new(),
         })
+    }
+
+    /// Replaces the bundle's package settings. Default-valued entries are
+    /// dropped, so a bundle whose packages all use defaults stays unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Rejects two entries for one package.
+    pub fn with_package_settings(
+        mut self,
+        settings: impl IntoIterator<Item = PackageSettings>,
+    ) -> Result<Self, DescriptorDeclarationError> {
+        let mut settings = settings
+            .into_iter()
+            .filter(|setting| !setting.is_default())
+            .collect::<Vec<_>>();
+        settings.sort();
+        for pair in settings.windows(2) {
+            if pair[0].package == pair[1].package {
+                return Err(DescriptorDeclarationError::DuplicatePackageSettings(
+                    pair[0].package.to_string(),
+                ));
+            }
+        }
+        self.package_settings = settings;
+        Ok(self)
+    }
+
+    /// Returns the non-default package settings in canonical order.
+    #[must_use]
+    pub fn package_settings(&self) -> &[PackageSettings] {
+        &self.package_settings
+    }
+
+    /// Returns the `int-literals` setting of one package.
+    #[must_use]
+    pub fn int_literals(&self, package: &crate::PackageId) -> crate::IntLiterals {
+        self.package_settings
+            .iter()
+            .find(|setting| &setting.package == package)
+            .map(|setting| setting.int_literals)
+            .unwrap_or_default()
     }
 
     /// Rebuilds every set-like bundle collection from permuted inputs.
@@ -155,6 +223,7 @@ impl DescriptorBundle {
             protocol_version: SchemaVersion::CURRENT,
             descriptors: SortedByKey::new(Vec::new()),
             declarations: SortedByKey::new(Vec::new()),
+            package_settings: Vec::new(),
         }
     }
 
@@ -299,6 +368,8 @@ pub enum DescriptorDeclarationError {
     Extra(Box<StableItemId>),
     /// An ID received more than one metadata entry.
     Duplicate(Box<StableItemId>),
+    /// A package received more than one settings entry.
+    DuplicatePackageSettings(String),
     /// An explicit symbol had no exact parser-owned origin.
     MissingSymbolOrigin(Box<StableItemId>),
     /// A stable-symbol origin existed without explicit symbol metadata.
@@ -318,6 +389,9 @@ impl fmt::Display for DescriptorDeclarationError {
             Self::Missing(id) => write!(formatter, "missing declaration metadata for {id}"),
             Self::Extra(id) => write!(formatter, "declaration metadata names unknown {id}"),
             Self::Duplicate(id) => write!(formatter, "duplicate declaration metadata for {id}"),
+            Self::DuplicatePackageSettings(package) => {
+                write!(formatter, "duplicate package settings for {package}")
+            }
             Self::MissingSymbolOrigin(id) => {
                 write!(
                     formatter,

@@ -46,6 +46,20 @@ pub(crate) fn constructors(
     let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attributes)?;
     let item: ItemEnum = syn::parse2(item)?;
     let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)?;
+    if let Some(internal) = attribute.internal() {
+        super::productions::check_placement_visibility(
+            Some((krs_syntax::PlacementFlag::Internal, internal)),
+            &declaration.item().vis,
+        )?;
+    }
+    for variant in declaration.variants() {
+        if let Some(syntax) = variant.syntax() {
+            super::productions::check_placement_visibility(
+                syntax.placement().zip(syntax.placement_key()),
+                &declaration.item().vis,
+            )?;
+        }
+    }
     let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let nonce = expansion_nonce(env, "constructors", declaration.sort_name(), fallback);
@@ -496,6 +510,7 @@ fn expand_enum_variant(
         super::productions::constructor_metadata_wire(
             group.or_else(|| syntax.group().map(syn::LitStr::value)),
             syntax.avoid(),
+            syntax.placement(),
             syntax.structured_format(),
         )?
     } else {

@@ -291,18 +291,24 @@ fn collect_struct_invocations(
                 TokenRange::for_tokens(&item_struct.ident).map_err(source_syntax)?,
             ));
         }
-        output.push(parsed_invocation(
-            ProvenanceRole::ConstructorSort,
-            item_struct.ident.to_string(),
-            anchors,
-            ParsedInvocationPayload::Declaration,
-        )?);
-        output.push(parsed_invocation(
-            ProvenanceRole::ConstructorDeclaration,
-            item_struct.ident.to_string(),
-            grammar_anchors,
-            ParsedInvocationPayload::Declaration,
-        )?);
+        output.push(with_visibility(
+            parsed_invocation(
+                ProvenanceRole::ConstructorSort,
+                item_struct.ident.to_string(),
+                anchors,
+                ParsedInvocationPayload::Declaration,
+            )?,
+            constructor_visibility.clone(),
+        ));
+        output.push(with_visibility(
+            parsed_invocation(
+                ProvenanceRole::ConstructorDeclaration,
+                item_struct.ident.to_string(),
+                grammar_anchors,
+                ParsedInvocationPayload::Declaration,
+            )?,
+            constructor_visibility.clone(),
+        ));
     }
     collect_struct_constructors(
         item_struct,
@@ -508,22 +514,29 @@ fn collect_enum_invocations(
             ParsedInvocationPayload::Declaration,
         )?);
     }
+    let variant_visibility = rust_visibility(&item_enum.vis)?;
     for variant in declaration.variants() {
         let anchors = declaration
             .variant_provenance(variant)
             .map_err(source_syntax)?;
-        output.push(parsed_invocation(
-            ProvenanceRole::ConstructorSort,
-            variant.name().to_string(),
-            anchors.clone(),
-            ParsedInvocationPayload::Declaration,
-        )?);
-        output.push(parsed_invocation(
-            ProvenanceRole::ConstructorDeclaration,
-            variant.name().to_string(),
-            anchors,
-            ParsedInvocationPayload::Declaration,
-        )?);
+        output.push(with_visibility(
+            parsed_invocation(
+                ProvenanceRole::ConstructorSort,
+                variant.name().to_string(),
+                anchors.clone(),
+                ParsedInvocationPayload::Declaration,
+            )?,
+            variant_visibility.clone(),
+        ));
+        output.push(with_visibility(
+            parsed_invocation(
+                ProvenanceRole::ConstructorDeclaration,
+                variant.name().to_string(),
+                anchors,
+                ParsedInvocationPayload::Declaration,
+            )?,
+            variant_visibility.clone(),
+        ));
     }
     if let Some(anchors) = declaration.precedence_provenance().map_err(source_syntax)? {
         output.push(parsed_invocation(
@@ -1091,13 +1104,11 @@ fn attribute_tokens(attribute: &Attribute) -> Result<TokenStream, CollectionErro
     }
 }
 
-pub(super) fn declaration_metadata(
-    resolver: &AttributeResolver<'_>,
-    visibility: &syn::Visibility,
-    attributes: &[Attribute],
-    target: AttributeMacro,
-) -> Result<(RustVisibility, Option<krs_syntax::SymbolAttribute>), CollectionError> {
-    let visibility = match visibility {
+/// Returns the exact authored visibility of one declaration. Enum variants and
+/// function structs carry the visibility of their item: it decides whether
+/// their production is program syntax.
+fn rust_visibility(visibility: &syn::Visibility) -> Result<RustVisibility, CollectionError> {
+    Ok(match visibility {
         syn::Visibility::Inherited => RustVisibility::Inherited,
         syn::Visibility::Public(_) => RustVisibility::Public,
         syn::Visibility::Restricted(restricted) => {
@@ -1110,7 +1121,16 @@ pub(super) fn declaration_metadata(
                 .with_span(restricted.span())
             })?
         }
-    };
+    })
+}
+
+pub(super) fn declaration_metadata(
+    resolver: &AttributeResolver<'_>,
+    visibility: &syn::Visibility,
+    attributes: &[Attribute],
+    target: AttributeMacro,
+) -> Result<(RustVisibility, Option<krs_syntax::SymbolAttribute>), CollectionError> {
+    let visibility = rust_visibility(visibility)?;
     let symbols = attributes
         .iter()
         .enumerate()

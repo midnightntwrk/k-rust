@@ -169,7 +169,7 @@ fn control_character_round_trips_through_generated_rust_and_toml() {
     root.metadata["krs"]["definitions"]
         .as_object_mut()
         .unwrap()
-        .insert(definition.clone(), json!({"root": "crate"}));
+        .insert(definition.clone(), json!({}));
     let mut request = request(false);
     request.root.definition = definition.clone();
     let generated =
@@ -242,6 +242,68 @@ fn missing_and_ambiguous_selections_are_rejected() {
             .kind(),
         PlanningErrorKind::MissingPackage
     );
+}
+
+#[test]
+fn removed_facet_keys_and_invalid_int_literals_are_rejected() {
+    for key in ["root", "syntax-root"] {
+        let mut metadata = metadata(false);
+        let root = metadata
+            .packages
+            .iter_mut()
+            .find(|package| package.id == ROOT_ID)
+            .unwrap();
+        root.metadata["krs"]["definitions"]["main"] = json!({ key: "crate" });
+        let error = CollectorPlan::resolve(&metadata, &request(false)).unwrap_err();
+        assert_eq!(error.kind(), PlanningErrorKind::RemovedFacetKey);
+        assert!(
+            error
+                .to_string()
+                .contains("the key was removed; program syntax is now `pub` minus `internal`"),
+            "{error}"
+        );
+    }
+
+    let mut metadata = metadata(false);
+    let root = metadata
+        .packages
+        .iter_mut()
+        .find(|package| package.id == ROOT_ID)
+        .unwrap();
+    root.metadata["krs"]["int-literals"] = json!("natural");
+    assert_eq!(
+        CollectorPlan::resolve(&metadata, &request(false))
+            .unwrap_err()
+            .kind(),
+        PlanningErrorKind::InvalidIntLiterals
+    );
+}
+
+#[test]
+fn int_literals_reach_the_canonical_selection_and_generated_collector() {
+    let mut metadata = metadata(false);
+    let root = metadata
+        .packages
+        .iter_mut()
+        .find(|package| package.id == ROOT_ID)
+        .unwrap();
+    root.metadata["krs"]["int-literals"] = json!("unsigned");
+    let plan = CollectorPlan::resolve(&metadata, &request(false)).unwrap();
+    let canonical = String::from_utf8(plan.canonical_selection_json().unwrap()).unwrap();
+    assert!(
+        canonical.contains("\"int-literals\": \"unsigned\""),
+        "{canonical}"
+    );
+    assert!(
+        canonical.contains("\"int-literals\": \"signed\""),
+        "{canonical}"
+    );
+    assert!(!canonical.contains("syntax-root"));
+    let contexts = plan.package_contexts().unwrap();
+    assert!(contexts.iter().any(|context| {
+        context.package().k_namespace() == "ORG-EXAMPLE-ROOT"
+            && context.int_literals() == krs_collector::IntLiterals::Unsigned
+    }));
 }
 
 #[test]
@@ -360,14 +422,14 @@ fn metadata(reordered: bool) -> CargoMetadata {
             "fixture-root",
             "root",
             Some("ORG-EXAMPLE-ROOT"),
-            Some(json!({ "main": { "root": "crate", "syntax-root": "crate::syntax" } })),
+            Some(json!({ "main": {} })),
         ),
         package(
             SAME_A_ID,
             "same-name",
             "same-dash",
             Some("ORG-EXAMPLE-SAME-A"),
-            Some(json!({ "core": { "root": "crate" } })),
+            Some(json!({ "core": {} })),
         ),
         package(
             SAME_B_ID,

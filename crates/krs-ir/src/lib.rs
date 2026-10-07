@@ -50,14 +50,14 @@ pub use bundle::{
     ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
     ConstructorFieldDescriptor, Descriptor, DescriptorBundle, DescriptorDeclaration,
     DescriptorDeclarationError, DescriptorError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind, SortDescriptor,
-    SortPayload,
+    DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
+    SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
     CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
-    HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint,
+    HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -121,23 +121,23 @@ pub use transport::configuration::{
 pub use transport::grammar::{
     Arguments, ArgumentsError, CellTermField, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
-    DescriptorCellTermField, DescriptorContextAliasReference, DescriptorFieldReference,
-    DescriptorFormatFragment, DescriptorGroupReference, DescriptorLexicalPrecedence,
-    DescriptorLiteral, DescriptorPrecedenceChain, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
-    DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
-    DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
-    GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
-    HostApplicationTarget, HostBuiltinRegistry, HostBuiltinRegistryError, HostCellTermField,
-    HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
-    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction,
-    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
-    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, NamedTermArgument,
-    Production, ProductionAttribute as TransportProductionAttribute,
-    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition,
-    StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
-    TermArgumentRef, enum_variant_disambiguator,
+    DescriptorCellTermField, DescriptorColorEntry, DescriptorContextAliasReference,
+    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
+    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorPrecedenceChain,
+    DescriptorProduction, DescriptorProductionAttribute, DescriptorProductionItem,
+    DescriptorProductionOwner, DescriptorRuleCondition, DescriptorRuleLabel,
+    DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
+    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor, GrammarTransportError,
+    HostApplicationIdentity, HostApplicationReference, HostApplicationTarget, HostBuiltinRegistry,
+    HostBuiltinRegistryError, HostCellTermField, HostContextAliasReference,
+    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
+    HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction, HostProductionAttribute,
+    HostProductionItem, HostProductionOwner, HostRuleCondition, HostSortReference,
+    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, NamedTermArgument, Production,
+    ProductionAttribute as TransportProductionAttribute, ProductionItem as TransportProductionItem,
+    ProductionOwner, RuleCondition, StageGrammarDescriptor, StructuredRule,
+    StructuredRuleDescriptor, Term, TermArgument, TermArgumentRef, enum_variant_disambiguator,
 };
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
@@ -176,7 +176,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(39);
+    pub const CURRENT: Self = Self(40);
 }
 
 impl Default for SchemaVersion {

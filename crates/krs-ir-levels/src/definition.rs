@@ -335,6 +335,15 @@ impl DefinitionIr {
     pub const fn main_module(&self) -> &ModuleId {
         &self.main_module
     }
+    /// Returns the main module's program-syntax module `<MAIN>-SYNTAX`, which
+    /// both K and k-rust select by default to parse programs.
+    #[must_use]
+    pub fn syntax_module(&self) -> Option<&DefinitionModule> {
+        let name = format!("{}-SYNTAX", self.main_module.as_str());
+        self.modules
+            .iter()
+            .find(|module| module.role == ModuleRole::ProgramSyntax && module.id.as_str() == name)
+    }
     /// Returns modules in canonical ID order.
     #[must_use]
     pub fn modules(&self) -> &[DefinitionModule] {
@@ -625,12 +634,49 @@ impl krs_ir::testing::CanonicalContract for DefinitionIr {
     }
 }
 
+/// What a generated module is for. Each package emits a program-syntax module
+/// `<NS>-SYNTAX` and a semantics module `<NS>` that imports it.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleRole {
+    /// The grammar programs may use: K's default syntax module of the main
+    /// module. Builtin sorts are imported only through their `-SYNTAX` modules.
+    ProgramSyntax,
+    /// Everything rules may use, the configuration, and the rules.
+    #[default]
+    Semantics,
+}
+
+impl ModuleRole {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes the field by reference."
+    )]
+    fn is_semantics(&self) -> bool {
+        *self == Self::Semantics
+    }
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+fn is_signed(value: &krs_ir::IntLiterals) -> bool {
+    *value == krs_ir::IntLiterals::Signed
+}
+
 /// One generated K module.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DefinitionModule {
     origin: NodeOrigin,
     id: ModuleId,
+    #[serde(default, skip_serializing_if = "ModuleRole::is_semantics")]
+    role: ModuleRole,
+    #[serde(default, skip_serializing_if = "is_signed")]
+    int_literals: krs_ir::IntLiterals,
     imports: BTreeSet<ModuleId>,
     production_groups: SortedByKey<ProductionGroupIdentity>,
     sentences: SortedByKey<DefinitionSentence>,
@@ -649,10 +695,21 @@ impl DefinitionModule {
         Self {
             origin,
             id,
+            role: ModuleRole::Semantics,
+            int_literals: krs_ir::IntLiterals::Signed,
             imports: imports.into_iter().collect(),
             production_groups: SortedByKey::new(production_groups),
             sentences: SortedByKey::new(sentences),
         }
+    }
+
+    /// Marks this module as a package's program-syntax module, whose integer
+    /// literals come from the package's `int-literals` setting.
+    #[must_use]
+    pub const fn into_program_syntax(mut self, int_literals: krs_ir::IntLiterals) -> Self {
+        self.role = ModuleRole::ProgramSyntax;
+        self.int_literals = int_literals;
+        self
     }
 
     /// Rebuilds every set-like module collection from permuted inputs.
@@ -665,13 +722,29 @@ impl DefinitionModule {
         krs_ir::testing::permute(&mut imports, seed);
         krs_ir::testing::permute(&mut production_groups, seed);
         krs_ir::testing::permute(&mut sentences, seed);
-        Self::new(
+        let module = Self::new(
             self.origin.clone(),
             self.id.clone(),
             imports,
             production_groups,
             sentences,
-        )
+        );
+        match self.role {
+            ModuleRole::ProgramSyntax => module.into_program_syntax(self.int_literals),
+            ModuleRole::Semantics => module,
+        }
+    }
+
+    /// Returns what the module is for.
+    #[must_use]
+    pub const fn role(&self) -> ModuleRole {
+        self.role
+    }
+    /// Returns the program-syntax integer literal setting (meaningful for a
+    /// [`ModuleRole::ProgramSyntax`] module).
+    #[must_use]
+    pub const fn int_literals(&self) -> krs_ir::IntLiterals {
+        self.int_literals
     }
 
     /// Returns node provenance.
@@ -1234,6 +1307,15 @@ pub enum DefinitionValidationError {
     InvalidStrictnessField,
     /// Format metadata was empty or referenced a nonexistent item.
     InvalidFormat,
+    /// Colour metadata was invalid: an empty colour or one containing `,` or
+    /// `)`, a `colors` list whose length is not the terminal count plus the
+    /// number of `%c`, or `%c`/`%r` without a colour.
+    InvalidColors,
+    /// A production was marked both `internal` and `program`.
+    InternalWithProgram,
+    /// A production kept `internal` or `program`, which lowering consumes when
+    /// it places productions in the program-syntax or semantics module.
+    SemanticOnlyProductionAttribute(SymbolId),
     /// A bracket production did not contain exactly one nonterminal.
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
@@ -1394,6 +1476,16 @@ impl fmt::Display for DefinitionValidationError {
                 .write_str("strictness fields must be nonempty, distinct named nonterminals"),
             Self::InvalidFormat => formatter.write_str(
                 "format metadata must be nonempty and reference existing production items",
+            ),
+            Self::InvalidColors => formatter.write_str(
+                "colour metadata must name nonempty colours without `,` or `)`; `colors` needs one colour per terminal and per `%c`, and `%c`/`%r` need a colour",
+            ),
+            Self::InternalWithProgram => {
+                formatter.write_str("a production cannot be both `internal` and `program`")
+            }
+            Self::SemanticOnlyProductionAttribute(id) => write!(
+                formatter,
+                "production {id} keeps `internal` or `program` metadata, which lowering consumes"
             ),
             Self::InvalidBracketProduction => formatter
                 .write_str("bracket metadata requires exactly one nonterminal grammar item"),
@@ -1638,7 +1730,14 @@ fn validate_production(
             | ProductionAttribute::Token { .. }
             | ProductionAttribute::Bracket { .. }
             | ProductionAttribute::Avoid { .. }
-            | ProductionAttribute::Format { .. } => {}
+            | ProductionAttribute::Format { .. }
+            | ProductionAttribute::Color { .. }
+            | ProductionAttribute::Colors { .. } => {}
+            ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+                return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
+                    sentence.symbol.id.clone(),
+                ));
+            }
         }
     }
     validate_production_shape::<DefinitionLevel>(

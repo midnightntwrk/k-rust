@@ -18,7 +18,5 @@ mock-collector = { path = "../mock-collector" }
 k-namespace = "ORG-EXAMPLE-ROOT"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate::syntax"
 
 [workspace]

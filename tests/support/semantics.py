@@ -432,7 +432,7 @@ def reference_definition(
     run(
         [
             kompile, semantics, "--backend", "haskell", "--main-module", port.module,
-            "--syntax-module", port.module, "--emit-json", "--output-definition", definition,
+            "--syntax-module", f"{port.module}-SYNTAX", "--emit-json", "--output-definition", definition,
             *(["--hook-namespaces", " ".join(port.hook_namespaces)] if port.hook_namespaces else []),
         ],
         timeout=900,

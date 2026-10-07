@@ -11,8 +11,6 @@ krs = { path = @KRS_CRATE_PATH@ }
 k-namespace = "ORG-KRS-CLI-DOLLAR-IDS"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"
 
 [workspace]
 resolver = "3"

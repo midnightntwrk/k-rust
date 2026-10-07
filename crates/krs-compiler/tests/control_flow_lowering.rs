@@ -25,9 +25,9 @@ use krs_ir_levels::{
 };
 use krs_test_support::kompile_reference;
 
-const CALC_SYNTAX: &str = "KRS-CALC-SYNTAX";
+const CALC_SYNTAX: &str = "KRS-CALC-GRAMMAR";
 const CALC: &str = "KRS-CALC";
-const IMP_SYNTAX: &str = "KRS-IMP-SYNTAX";
+const IMP_SYNTAX: &str = "KRS-IMP-GRAMMAR";
 const IMP: &str = "KRS-IMP";
 
 fn package() -> PackageId {
@@ -954,67 +954,89 @@ fn control_flow_theory(options: ControlOptions) -> Result<SemanticTheory, Semant
 }
 
 fn assert_exact_source(source: &str) {
-    expect_test::expect![[r#"module KRS-CALC
-  imports KRS-CALC-SYNTAX
-  imports MAP
+    expect_test::expect![[r#"
+        module KRS-CALC-SYNTAX
+          imports KRS-CALC-GRAMMAR-SYNTAX
+        endmodule
 
-  configuration
-    <k color="green"> $PGM:Stmt </k>
-    <env color="yellow"> $ENV:Map </env>
+        module KRS-CALC
+          imports KRS-CALC-GRAMMAR
+          imports KRS-CALC-SYNTAX
+          imports MAP
 
-endmodule
+          configuration
+            <k color="green"> $PGM:Stmt </k>
+            <env color="yellow"> $ENV:Map </env>
 
-module KRS-CALC-SYNTAX
-  imports BOOL-SYNTAX
-  imports ID-SYNTAX
+        endmodule
 
-  syntax Expr
-  syntax KResult
-  syntax Stmt
-  syntax Value
+        module KRS-CALC-GRAMMAR-SYNTAX
+          imports BOOL-SYNTAX
+          imports ID-SYNTAX
 
-  syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
-  syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
+          syntax Expr
+          syntax KResult
+          syntax Stmt
+          syntax Value
 
-  syntax Expr ::= Id
-  syntax Expr ::= Value
-  syntax Value ::= Bool
-  syntax KResult ::= Value
+          syntax Expr ::= Id
+          syntax Expr ::= Value
+          syntax Value ::= Bool
+          syntax KResult ::= Value
+        endmodule
 
-  syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
+        module KRS-CALC-GRAMMAR
+          imports ID-SYNTAX
+          imports KRS-CALC-GRAMMAR-SYNTAX
 
-  syntax right krsgroup-ef11204726b39d86ee1fe653
-endmodule
+          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
 
-module KRS-IMP
-  imports BOOL-SYNTAX
-  imports KRS-CALC
-  imports KRS-IMP-SYNTAX
+          syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
 
-  rule [block]:
-    <k> { S:Stmt } => S:Stmt ~> { } ... </k>
-  rule [done]:
-    <k> { } => .K ... </k>
-  rule [if-else]:
-    <k> if ( C:Expr ) S:Stmt => if ( C:Expr ) S:Stmt else { } ... </k>
-  rule [if-false]:
-    <k> if ( false ) _ else S2:Stmt => S2:Stmt ... </k>
-  rule [if-true]:
-    <k> if ( true ) S1:Stmt else _ => S1:Stmt ... </k>
-  rule [while]:
-    <k> while ( C:Expr ) S:Stmt => if ( C:Expr ) { S:Stmt while ( C:Expr ) S:Stmt } else { } ... </k>
-endmodule
+          syntax right krsgroup-ef11204726b39d86ee1fe653
+        endmodule
 
-module KRS-IMP-SYNTAX
-  imports KRS-CALC-SYNTAX
+        module KRS-IMP-SYNTAX
+          imports KRS-CALC-SYNTAX
+          imports KRS-IMP-GRAMMAR-SYNTAX
+        endmodule
 
-  syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
-  syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
-  syntax Stmt ::= "if" "(" Expr ")" Stmt [symbol(ifThen), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
-  syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
-  syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
-endmodule
-"#]]
+        module KRS-IMP
+          imports BOOL-SYNTAX
+          imports KRS-CALC
+          imports KRS-IMP-GRAMMAR
+          imports KRS-IMP-SYNTAX
+
+          rule [block]:
+            <k> { S:Stmt } => S:Stmt ~> { } ... </k>
+          rule [done]:
+            <k> { } => .K ... </k>
+          rule [if-else]:
+            <k> if ( C:Expr ) S:Stmt => if ( C:Expr ) S:Stmt else { } ... </k>
+          rule [if-false]:
+            <k> if ( false ) _ else S2:Stmt => S2:Stmt ... </k>
+          rule [if-true]:
+            <k> if ( true ) S1:Stmt else _ => S1:Stmt ... </k>
+          rule [while]:
+            <k> while ( C:Expr ) S:Stmt => if ( C:Expr ) { S:Stmt while ( C:Expr ) S:Stmt } else { } ... </k>
+        endmodule
+
+        module KRS-IMP-GRAMMAR-SYNTAX
+          imports KRS-CALC-GRAMMAR-SYNTAX
+        endmodule
+
+        module KRS-IMP-GRAMMAR
+          imports KRS-CALC-GRAMMAR
+          imports KRS-IMP-GRAMMAR-SYNTAX
+
+          syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
+          syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
+          syntax Stmt ::= "if" "(" Expr ")" Stmt [symbol(ifThen), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+          syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
+          syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+        endmodule
+    "#]]
     .assert_eq(source);
 }
 

@@ -487,6 +487,16 @@ pub struct SemanticModule {
     configuration: Option<SemanticConfiguration>,
     context_aliases: SortedByKey<SemanticContextAlias>,
     rules: SortedByKey<SemanticRule>,
+    #[serde(default, skip_serializing_if = "is_signed")]
+    int_literals: krs_ir::IntLiterals,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+fn is_signed(value: &krs_ir::IntLiterals) -> bool {
+    *value == krs_ir::IntLiterals::Signed
 }
 
 impl SemanticModule {
@@ -555,7 +565,21 @@ impl SemanticModule {
             configuration,
             context_aliases: SortedByKey::new(context_aliases),
             rules: SortedByKey::new(rules),
+            int_literals: krs_ir::IntLiterals::Signed,
         }
+    }
+
+    /// Sets the package's program-syntax integer literal module.
+    #[must_use]
+    pub const fn with_int_literals(mut self, int_literals: krs_ir::IntLiterals) -> Self {
+        self.int_literals = int_literals;
+        self
+    }
+
+    /// Returns the package's program-syntax integer literal module.
+    #[must_use]
+    pub const fn int_literals(&self) -> krs_ir::IntLiterals {
+        self.int_literals
     }
 
     /// Rebuilds every set-like module collection from permuted inputs.
@@ -591,6 +615,7 @@ impl SemanticModule {
             context_aliases,
             rules,
         )
+        .with_int_literals(self.int_literals)
     }
 
     /// Returns this module's stable identity.
@@ -1212,6 +1237,12 @@ pub enum SemanticValidationError {
     InvalidStrictnessField,
     /// Format metadata was empty or referenced a nonexistent item.
     InvalidFormat,
+    /// Colour metadata was invalid: an empty colour or one containing `,` or
+    /// `)`, a `colors` list whose length is not the terminal count plus the
+    /// number of `%c`, or `%c`/`%r` without a colour.
+    InvalidColors,
+    /// A production was marked both `internal` and `program`.
+    InternalWithProgram,
     /// A bracket production did not have exactly one nonterminal.
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
@@ -1361,6 +1392,12 @@ impl fmt::Display for SemanticValidationError {
             Self::InvalidFormat => formatter.write_str(
                 "format metadata must be nonempty and reference existing production items",
             ),
+            Self::InvalidColors => formatter.write_str(
+                "colour metadata must name nonempty colours without `,` or `)`; `colors` needs one colour per terminal and per `%c`, and `%c`/`%r` need a colour",
+            ),
+            Self::InternalWithProgram => {
+                formatter.write_str("a production cannot be both `internal` and `program`")
+            }
             Self::InvalidBracketProduction => formatter
                 .write_str("bracket metadata requires exactly one nonterminal grammar item"),
             Self::DanglingProductionGroup(group) => {

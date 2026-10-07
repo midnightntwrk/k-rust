@@ -8,6 +8,11 @@
   },
   "modules": [
     "KRS-FRAMEWORK",
+    "KRS-TOUR-MINIMAL",
+    "KRS-TOUR-MINIMAL-SYNTAX"
+  ],
+  "semantic_modules": [
+    "KRS-FRAMEWORK",
     "KRS-TOUR-MINIMAL"
   ],
   "productions": [
@@ -28,7 +33,8 @@
     "foo-to-bar"
   ],
   "imports": [
-    "KRS-FRAMEWORK"
+    "KRS-FRAMEWORK",
+    "KRS-TOUR-MINIMAL-SYNTAX"
   ],
   "subsorts": [
     {

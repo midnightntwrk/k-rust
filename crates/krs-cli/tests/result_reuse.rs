@@ -38,7 +38,7 @@ impl Fixture {
         fs::write(
             &manifest,
             format!(
-                "[package]\nname = \"krs-result-reuse-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-RESULT-REUSE\"\n\n[package.metadata.krs.definitions.main]\nroot = \"crate\"\nsyntax-root = \"crate\"\n\n[workspace]\n"
+                "[package]\nname = \"krs-result-reuse-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-RESULT-REUSE\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
             ),
         )
         .unwrap();

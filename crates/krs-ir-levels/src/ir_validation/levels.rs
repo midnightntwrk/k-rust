@@ -62,6 +62,8 @@ macro_rules! validation_error {
             }
             ValidationError::InvalidEquationRoot(id) => $public::InvalidEquationRoot($identity(id)),
             ValidationError::InvalidFormat => $public::InvalidFormat,
+            ValidationError::InvalidColors => $public::InvalidColors,
+            ValidationError::InternalWithProgram => $public::InternalWithProgram,
             ValidationError::InvalidFunctionProduction => $public::InvalidFunctionProduction,
             ValidationError::InvalidBn128PointConstructor {
                 hook,

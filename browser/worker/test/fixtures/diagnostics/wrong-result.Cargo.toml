@@ -12,5 +12,3 @@ k.workspace = true
 k-namespace = "DIAGNOSTIC-WRONG-RESULT"
 
 [package.metadata.krs.definitions.main]
-root = "crate"
-syntax-root = "crate"

@@ -290,6 +290,66 @@ pub struct BuiltinSortSpec {
     pub k_module: Option<&'static str>,
     /// K module imported by the printer when no operation of this sort is used.
     pub k_syntax_module: Option<&'static str>,
+    /// K module that declares the sort's program syntax (its tokens) without
+    /// its operations, imported by a package's `<NS>-SYNTAX` module. `None`
+    /// for a sort with a K module but no `-SYNTAX` variant (Map, List, Set in
+    /// K 7.1.337): a program-syntax production cannot mention such a sort.
+    /// Int reads `INT-SYNTAX` here; an `int-literals = "unsigned"` package
+    /// selects `UNSIGNED-INT-SYNTAX` instead (see [`IntLiterals`]).
+    pub k_program_syntax_module: Option<&'static str>,
+}
+
+impl BuiltinSortSpec {
+    /// Whether a program-syntax module can mention this sort: K supplies it
+    /// without a module (`K`) or through a `-SYNTAX` module.
+    #[must_use]
+    pub const fn has_program_syntax(&self) -> bool {
+        self.k_module.is_none() || self.k_program_syntax_module.is_some()
+    }
+}
+
+/// Which K module supplies a package's program-syntax integer literals
+/// (`package.metadata.krs.int-literals`).
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IntLiterals {
+    /// `INT-SYNTAX`: programs may write signed literals such as `-1`.
+    #[default]
+    Signed,
+    /// `UNSIGNED-INT-SYNTAX`: `-1` in a program is a unary minus applied to `1`.
+    Unsigned,
+}
+
+impl IntLiterals {
+    /// Returns the Cargo metadata spelling (`"signed"` or `"unsigned"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Signed => "signed",
+            Self::Unsigned => "unsigned",
+        }
+    }
+
+    /// Parses the Cargo metadata spelling.
+    #[must_use]
+    pub fn from_metadata(value: &str) -> Option<Self> {
+        match value {
+            "signed" => Some(Self::Signed),
+            "unsigned" => Some(Self::Unsigned),
+            _ => None,
+        }
+    }
+
+    /// Returns the program-syntax module of a builtin sort under this setting.
+    #[must_use]
+    pub const fn program_syntax_module(self, sort: BuiltinSort) -> Option<&'static str> {
+        match (sort, self) {
+            (BuiltinSort::Int, Self::Unsigned) => Some("UNSIGNED-INT-SYNTAX"),
+            _ => sort.spec().k_program_syntax_module,
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -302,63 +362,72 @@ macro_rules! __krs_builtin_sort_catalog {
                 marker_name: KSequence,
                 k_name: "K",
                 k_module: None,
-                k_syntax_module: None
+                k_syntax_module: None,
+                k_program_syntax_module: None
             }
             /// Arbitrary-precision integer domain from pinned module `INT`.
             Int {
                 marker_name: Int,
                 k_name: "Int",
                 k_module: Some("INT"),
-                k_syntax_module: Some("INT-SYNTAX")
+                k_syntax_module: Some("INT-SYNTAX"),
+                k_program_syntax_module: Some("INT-SYNTAX")
             }
             /// Boolean domain from pinned module `BOOL`.
             Bool {
                 marker_name: Bool,
                 k_name: "Bool",
                 k_module: Some("BOOL"),
-                k_syntax_module: Some("BOOL-SYNTAX")
+                k_syntax_module: Some("BOOL-SYNTAX"),
+                k_program_syntax_module: Some("BOOL-SYNTAX")
             }
             /// Finite map collection from pinned module `MAP`.
             Map {
                 marker_name: Map,
                 k_name: "Map",
                 k_module: Some("MAP"),
-                k_syntax_module: Some("MAP")
+                k_syntax_module: Some("MAP"),
+                k_program_syntax_module: None
             }
             /// Identifier token domain from pinned module `ID-SYNTAX`.
             Id {
                 marker_name: Id,
                 k_name: "Id",
                 k_module: Some("ID-SYNTAX"),
-                k_syntax_module: Some("ID-SYNTAX")
+                k_syntax_module: Some("ID-SYNTAX"),
+                k_program_syntax_module: Some("ID-SYNTAX")
             }
             /// Byte-string domain from pinned module `BYTES`.
             Bytes {
                 marker_name: Bytes,
                 k_name: "Bytes",
                 k_module: Some("BYTES"),
-                k_syntax_module: Some("BYTES")
+                k_syntax_module: Some("BYTES"),
+                k_program_syntax_module: Some("BYTES-SYNTAX")
             }
             /// String token domain from pinned module `STRING-SYNTAX`.
             String {
                 marker_name: String,
                 k_name: "String",
                 k_module: Some("STRING-SYNTAX"),
-                k_syntax_module: Some("STRING-SYNTAX")
+                k_syntax_module: Some("STRING-SYNTAX"),
+                k_program_syntax_module: Some("STRING-SYNTAX")
             }
             /// Associative finite sequence domain from pinned module `LIST`.
             List {
                 marker_name: List,
                 k_name: "List",
                 k_module: Some("LIST"),
-                k_syntax_module: Some("LIST")
+                k_syntax_module: Some("LIST"),
+                k_program_syntax_module: None
             }
             /// Associative, commutative finite set domain from pinned module `SET`.
             Set {
                 marker_name: Set,
                 k_name: "Set",
                 k_module: Some("SET"),
-                k_syntax_module: Some("SET")
+                k_syntax_module: Some("SET"),
+                k_program_syntax_module: None
             }
         }
     };
@@ -369,7 +438,8 @@ macro_rules! define_builtin_sorts {
         marker_name: $marker:ident,
         k_name: $name:literal,
         k_module: $module:expr,
-        k_syntax_module: $syntax_module:expr
+        k_syntax_module: $syntax_module:expr,
+        k_program_syntax_module: $program_syntax_module:expr
     })*) => {
         /// Frontend-neutral identities for K sorts supplied by the K language rather
         /// than declared as generated KRS symbols.
@@ -393,6 +463,7 @@ macro_rules! define_builtin_sorts {
                             k_name: $name,
                             k_module: $module,
                             k_syntax_module: $syntax_module,
+                            k_program_syntax_module: $program_syntax_module,
                         };
                         &SPEC
                     },)*

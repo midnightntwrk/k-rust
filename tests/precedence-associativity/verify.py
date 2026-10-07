@@ -75,7 +75,7 @@ def main() -> int:
                 "--main-module",
                 MODULE,
                 "--syntax-module",
-                MODULE,
+                f"{MODULE}-SYNTAX",
                 "--backend",
                 "llvm",
                 "--output-definition",

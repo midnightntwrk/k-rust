@@ -261,6 +261,14 @@ impl Sample for DescriptorFieldReference {
         }]
     }
 }
+impl Sample for DescriptorColorEntry {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            value: sample::<String>(),
+        }]
+    }
+}
 impl Sample for DescriptorGroupReference {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -383,6 +391,24 @@ impl Sample for Span {
 impl Sample for StrictnessKind {
     fn samples() -> Vec<Self> {
         vec![Self::Strict]
+    }
+}
+impl Sample for IntLiterals {
+    fn samples() -> Vec<Self> {
+        vec![Self::Unsigned]
+    }
+}
+impl Sample for ModuleRole {
+    fn samples() -> Vec<Self> {
+        vec![Self::ProgramSyntax]
+    }
+}
+impl Sample for PackageSettings {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            package: sample::<PackageId>(),
+            int_literals: IntLiterals::Unsigned,
+        }]
     }
 }
 impl Sample for SymbolKind {
@@ -937,8 +963,22 @@ impl Sample for DescriptorProductionAttribute {
                     fields: sample::<Vec<DescriptorFieldReference>>(),
                     result_sort: sample::<Box<DescriptorSortReference>>(),
                 },
+                Self::Internal {
+                    key: sample::<ProvenanceKey>(),
+                },
+                Self::Program {
+                    key: sample::<ProvenanceKey>(),
+                },
+                Self::Color {
+                    key: sample::<ProvenanceKey>(),
+                    value: sample::<String>(),
+                },
+                Self::Colors {
+                    key: sample::<ProvenanceKey>(),
+                    values: sample::<Vec<DescriptorColorEntry>>(),
+                },
             ],
-            11,
+            15,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -952,6 +992,10 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Avoid { .. } => 8,
                 Self::Format { .. } => 9,
                 Self::Strictness { .. } => 10,
+                Self::Internal { .. } => 11,
+                Self::Program { .. } => 12,
+                Self::Color { .. } => 13,
+                Self::Colors { .. } => 14,
             },
         )
     }
@@ -1188,8 +1232,10 @@ impl Sample for FormatFragment {
                 Self::Newline,
                 Self::Indent,
                 Self::Dedent,
+                Self::ColorNext,
+                Self::ColorReset,
             ],
-            5,
+            7,
             "FormatFragment",
             |value| match value {
                 Self::Literal(..) => 0,
@@ -1197,6 +1243,8 @@ impl Sample for FormatFragment {
                 Self::Newline => 2,
                 Self::Indent => 3,
                 Self::Dedent => 4,
+                Self::ColorNext => 5,
+                Self::ColorReset => 6,
             },
         )
     }
@@ -1329,8 +1377,22 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                     fields: sample::<Vec<ProductionFieldReference>>(),
                     result_sort: sample::<ProductionResultSort<S>>(),
                 },
+                Self::Internal {
+                    origin: sample::<NodeOrigin>(),
+                },
+                Self::Program {
+                    origin: sample::<NodeOrigin>(),
+                },
+                Self::Color {
+                    origin: sample::<NodeOrigin>(),
+                    value: sample::<String>(),
+                },
+                Self::Colors {
+                    origin: sample::<NodeOrigin>(),
+                    values: sample::<Vec<String>>(),
+                },
             ],
-            11,
+            15,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1344,6 +1406,10 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                 Self::Avoid { .. } => 8,
                 Self::Format { .. } => 9,
                 Self::Strictness { .. } => 10,
+                Self::Internal { .. } => 11,
+                Self::Program { .. } => 12,
+                Self::Color { .. } => 13,
+                Self::Colors { .. } => 14,
             },
         )
     }
@@ -1803,8 +1869,22 @@ impl Sample for WireProductionAttribute {
                     fields: sample::<Vec<DescriptorFieldReference>>(),
                     result_sort: sample::<Box<WireSortReference>>(),
                 },
+                Self::Internal {
+                    key: sample::<ProvenanceKey>(),
+                },
+                Self::Program {
+                    key: sample::<ProvenanceKey>(),
+                },
+                Self::Color {
+                    key: sample::<ProvenanceKey>(),
+                    value: sample::<String>(),
+                },
+                Self::Colors {
+                    key: sample::<ProvenanceKey>(),
+                    values: sample::<Vec<DescriptorColorEntry>>(),
+                },
             ],
-            11,
+            15,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1818,6 +1898,10 @@ impl Sample for WireProductionAttribute {
                 Self::Avoid { .. } => 8,
                 Self::Format { .. } => 9,
                 Self::Strictness { .. } => 10,
+                Self::Internal { .. } => 11,
+                Self::Program { .. } => 12,
+                Self::Color { .. } => 13,
+                Self::Colors { .. } => 14,
             },
         )
     }

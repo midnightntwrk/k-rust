@@ -22,6 +22,8 @@ struct CacheRequest<'a> {
     dependencies: &'a [FacetSelector],
     cfg: &'a [KrsCfg],
     backend: Option<&'static str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    partition: bool,
     registration: &'static str,
 }
 
@@ -65,9 +67,14 @@ struct FileEntry {
 impl ResultCache {
     pub(super) fn new(directory: &Path, collector: &Path, request: &CommandRequest) -> Self {
         let kind = request.command.kind().as_str();
+        let partition = if request.command.partition() {
+            "-partition"
+        } else {
+            ""
+        };
         let name = match request.command.backend() {
-            Some(backend) => format!("krs-result-{kind}-{}.bin", backend.as_str()),
-            None => format!("krs-result-{kind}.bin"),
+            Some(backend) => format!("krs-result-{kind}-{}{partition}.bin", backend.as_str()),
+            None => format!("krs-result-{kind}{partition}.bin"),
         };
         Self {
             path: directory.join(name),
@@ -231,6 +238,7 @@ fn request_key(request: &CommandRequest) -> String {
         dependencies,
         cfg,
         backend: command.backend().map(Backend::as_str),
+        partition: command.partition(),
         registration: match registration {
             RegistrationMode::Inventory => "inventory",
             RegistrationMode::Explicit => "explicit",

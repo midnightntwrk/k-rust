@@ -30,8 +30,8 @@ pub use attribute::{
     AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder, ClaimModality,
     ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute, ContextAliasAttribute,
     EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionTotality, InitAttribute,
-    PriorityAttribute, RuleAttribute, SimplificationAttribute, SortAttribute, SubsortAttribute,
-    SymbolAttribute, VariantSyntaxAttribute,
+    PlacementFlag, PriorityAttribute, RuleAttribute, SimplificationAttribute, SortAttribute,
+    SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,

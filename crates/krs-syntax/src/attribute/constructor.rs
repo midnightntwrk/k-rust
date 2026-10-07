@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
@@ -29,6 +30,156 @@ pub struct ConstructorAttribute {
     syntax_template: Option<SyntaxTemplate>,
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
+    placement: PlacementFlags,
+}
+
+/// Which module a production asks to be placed in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlacementFlag {
+    /// `internal`: usable in rules, including by dependents, but not program syntax.
+    Internal,
+    /// `program`: asserts that the production is program syntax.
+    Program,
+}
+
+impl PlacementFlag {
+    /// Returns the flag's spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Internal => "internal",
+            Self::Program => "program",
+        }
+    }
+
+    /// Returns the provenance role of the flag.
+    #[must_use]
+    pub const fn role(self) -> ProvenanceRole {
+        match self {
+            Self::Internal => ProvenanceRole::ConstructorInternal,
+            Self::Program => ProvenanceRole::ConstructorProgram,
+        }
+    }
+}
+
+/// The optional `internal` or `program` flag of one production attribute,
+/// anchored at its key.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PlacementFlags {
+    flag: Option<(PlacementFlag, Ident)>,
+}
+
+impl PlacementFlags {
+    /// Parses one `internal` or `program` key whose identifier was consumed.
+    /// The reference spelling `key = true` is accepted when `assignment` is
+    /// allowed; `key = false` is rejected because it is not metadata.
+    fn parse(
+        &mut self,
+        flag: PlacementFlag,
+        key: Ident,
+        input: ParseStream<'_>,
+        assignment: bool,
+    ) -> Result<(), ParseError> {
+        match &self.flag {
+            Some((existing, _)) if *existing == flag => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: flag.as_str(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            Some(_) => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidArgumentValue {
+                        name: flag.as_str(),
+                        expected: "omitted: a production is either `internal` or `program`, not both",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            None => {}
+        }
+        if input.peek(Token![=]) {
+            if !assignment {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidArgumentValue {
+                        name: flag.as_str(),
+                        expected: "a bare flag in `#[k::function]`",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            input.parse::<Token![=]>()?;
+            parse_flag_value(flag.as_str(), input.parse()?)?;
+        }
+        self.flag = Some((flag, key));
+        Ok(())
+    }
+
+    /// Sets a flag inherited from an enclosing family attribute.
+    pub(crate) fn inherit(&mut self, flag: PlacementFlag, key: Ident) -> Result<(), SyntaxError> {
+        match &self.flag {
+            None => {
+                self.flag = Some((flag, key));
+                Ok(())
+            }
+            Some((existing, own)) => Err(SyntaxError::new(
+                if *existing == flag {
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: flag.as_str(),
+                    }
+                } else {
+                    SyntaxErrorKind::InvalidArgumentValue {
+                        name: existing.as_str(),
+                        expected: "omitted in an `internal` family: a production is either `internal` or `program`, not both",
+                    }
+                },
+                own.span(),
+            )),
+        }
+    }
+
+    pub(crate) fn flag(&self) -> Option<PlacementFlag> {
+        self.flag.as_ref().map(|(flag, _)| *flag)
+    }
+
+    pub(crate) fn key(&self) -> Option<&Ident> {
+        self.flag.as_ref().map(|(_, key)| key)
+    }
+
+    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        self.flag
+            .iter()
+            .map(|(flag, key)| {
+                Ok(ProvenanceAnchor::new(
+                    flag.role(),
+                    0,
+                    TokenRange::for_tokens(key)?,
+                ))
+            })
+            .collect()
+    }
+}
+
+fn parse_flag_value(name: &'static str, value: Expr) -> Result<(), ParseError> {
+    match value {
+        Expr::Lit(syn::ExprLit {
+            attrs,
+            lit: syn::Lit::Bool(literal),
+        }) if attrs.is_empty() && literal.value => Ok(()),
+        value => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name,
+                expected: "omitted or the Rust Boolean literal `true`",
+            },
+            value.span(),
+        )
+        .into()),
+    }
 }
 
 /// Arguments of `#[k::function(total, sort = ..., syntax = "...")]`.
@@ -113,6 +264,7 @@ impl Parse for FunctionAttribute {
 pub struct ConstructorsAttribute {
     sort: Path,
     mode: ConstructorFamilyMode,
+    internal: Option<Ident>,
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +306,13 @@ impl ConstructorsAttribute {
     pub(crate) const fn mode(&self) -> &ConstructorFamilyMode {
         &self.mode
     }
+
+    /// Returns the readable family flag `internal`, which makes every variant
+    /// production `internal`.
+    #[must_use]
+    pub const fn internal(&self) -> Option<&Ident> {
+        self.internal.as_ref()
+    }
 }
 
 impl Parse for ConstructorsAttribute {
@@ -176,6 +335,7 @@ pub struct VariantSyntaxAttribute {
     syntax_template: SyntaxTemplate,
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
+    placement: PlacementFlags,
 }
 
 impl VariantSyntaxAttribute {
@@ -207,6 +367,27 @@ impl VariantSyntaxAttribute {
     #[must_use]
     pub const fn format(&self) -> Option<&LitStr> {
         self.format.as_ref()
+    }
+
+    /// Returns the production's `internal` or `program` flag, including an
+    /// `internal` inherited from the family attribute.
+    #[must_use]
+    pub fn placement(&self) -> Option<PlacementFlag> {
+        self.placement.flag()
+    }
+
+    /// Returns the key the placement flag is anchored at.
+    #[must_use]
+    pub fn placement_key(&self) -> Option<&Ident> {
+        self.placement.key()
+    }
+
+    pub(crate) fn inherit_placement(
+        &mut self,
+        flag: PlacementFlag,
+        key: Ident,
+    ) -> Result<(), SyntaxError> {
+        self.placement.inherit(flag, key)
     }
 
     /// Returns the parsed structured unparse format, when present.
@@ -280,6 +461,7 @@ impl VariantSyntaxAttribute {
                 TokenRange::for_tokens(avoid)?,
             ));
         }
+        anchors.extend(self.placement.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConstructorFormat,
@@ -293,6 +475,18 @@ impl VariantSyntaxAttribute {
 }
 
 impl ConstructorAttribute {
+    /// Returns the production's `internal` or `program` flag.
+    #[must_use]
+    pub fn placement(&self) -> Option<PlacementFlag> {
+        self.placement.flag()
+    }
+
+    /// Returns the key the placement flag is anchored at.
+    #[must_use]
+    pub fn placement_key(&self) -> Option<&Ident> {
+        self.placement.key()
+    }
+
     /// Returns the checked syntax template, when explicitly authored.
     #[must_use]
     pub const fn syntax_template(&self) -> Option<&SyntaxTemplate> {
@@ -387,6 +581,7 @@ impl ConstructorAttribute {
                 TokenRange::for_tokens(avoid)?,
             ));
         }
+        anchors.extend(self.placement.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConstructorFormat,
@@ -513,9 +708,18 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
     let mut group = None;
     let mut avoid = None;
     let mut format = None;
+    let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
         let key: Ident = input.parse()?;
+        if let Some(flag) = placement_flag(&key) {
+            placement.parse(flag, key, input, true)?;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
         let key_kind = ConstructorKey::parse(&key)?;
         match key_kind {
             ConstructorKey::Sort if sort.is_some() => {
@@ -600,19 +804,41 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         syntax_template,
         structured_format,
         avoid_literal: avoid,
+        placement,
     })
 }
 
+fn placement_flag(key: &Ident) -> Option<PlacementFlag> {
+    match key.to_string().as_str() {
+        "internal" => Some(PlacementFlag::Internal),
+        "program" => Some(PlacementFlag::Program),
+        _ => None,
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "One keyed loop parses every function production argument."
+)]
 fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
     let missing_span = input.span();
     let mut totality = None;
     let mut sort = None;
     let mut syntax = None;
     let mut hook = None;
+    let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
+        if let Some(flag) = placement_flag(&key) {
+            placement.parse(flag, key, input, false)?;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
         match key_name.as_str() {
             "total" | "partial" if totality.is_some() => {
                 return Err(SyntaxError::new(
@@ -701,21 +927,55 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             syntax_template: Some(syntax_template),
             structured_format: None,
             avoid_literal: None,
+            placement,
         },
         totality,
         hook,
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One keyed loop parses every family argument and its exclusions."
+)]
 fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
     let mut result = None;
     let mut reference = None;
+    let mut internal = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
         match key_name.as_str() {
+            "internal" if internal.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "internal" },
+                    key.span(),
+                )
+                .into());
+            }
+            "internal" => {
+                if input.peek(Token![=]) {
+                    return Err(SyntaxError::new(
+                        SyntaxErrorKind::InvalidArgumentValue {
+                            name: "internal",
+                            expected: "a bare family flag in `#[k::constructors]`",
+                        },
+                        key.span(),
+                    )
+                    .into());
+                }
+                internal = Some(key);
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>()?;
+                if input.is_empty() {
+                    break;
+                }
+                continue;
+            }
             "sort" if sort.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "sort" },
@@ -806,6 +1066,7 @@ fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttri
         } else {
             ConstructorFamilyMode::Legacy
         },
+        internal,
     })
 }
 
@@ -824,12 +1085,21 @@ fn parse_variant_syntax_stream(
     let mut group = None;
     let mut avoid = None;
     let mut format = None;
+    let mut placement = PlacementFlags::default();
 
     if !input.is_empty() {
         input.parse::<Token![,]>()?;
     }
     while !input.is_empty() {
         let key: Ident = input.parse()?;
+        if let Some(flag) = placement_flag(&key) {
+            placement.parse(flag, key, input, true)?;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
         let key_kind = VariantSyntaxKey::parse(&key)?;
         match key_kind {
             VariantSyntaxKey::Group if group.is_some() => {
@@ -882,5 +1152,6 @@ fn parse_variant_syntax_stream(
         syntax_template,
         structured_format,
         avoid_literal: avoid,
+        placement,
     })
 }

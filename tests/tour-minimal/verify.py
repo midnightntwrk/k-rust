@@ -104,7 +104,7 @@ def verify_artifacts(directory: Path, gate: Path, environment: dict[str, str]) -
         if tour["imports"] != expected["imports"]:
             raise GateError(f"unexpected framework imports: {tour}")
         semantic = session.ir_query(directory, {"kind": "semantic_modules"})["rows"]
-        if sorted(row["name"] for row in semantic) != expected["modules"]:
+        if sorted(row["name"] for row in semantic) != expected["semantic_modules"]:
             raise GateError(f"unexpected semantic modules: {semantic}")
         tour_semantic = [row for row in semantic if row["name"] == MODULE][0]
         if tour_semantic["production_count"] != 2 or tour_semantic["rule_count"] != 1 or not tour_semantic["has_configuration"]:

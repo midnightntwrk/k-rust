@@ -16,7 +16,7 @@ const BOUNDS: &[(&str, u64, u64)] = &[
     ("bundle.provenance_bytes", 58_938, 5_900),
     ("collector.host_descriptors", 34, 4),
     ("declarations.total", 34, 4),
-    ("definition.modules", 2, 0),
+    ("definition.modules", 3, 0),
     ("definition.sentences", 33, 4),
     ("definition.sentences.configuration", 1, 0),
     ("definition.sentences.production", 3, 0),

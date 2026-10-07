@@ -195,7 +195,7 @@ def compile_definitions(
             "kompile/actual-haskell",
             [
                 actual_source, "--backend", "haskell", "--main-module", ACTUAL_MODULE,
-                "--syntax-module", ACTUAL_MODULE, "--emit-json", "--output-definition", actual_definition,
+                "--syntax-module", f"{ACTUAL_MODULE}-SYNTAX", "--emit-json", "--output-definition", actual_definition,
             ],
         ),
         (

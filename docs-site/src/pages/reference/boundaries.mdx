@@ -30,6 +30,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 | Surface | Status | Exact boundary |
 | --- | --- | --- |
 | repeated cells | qualified | `multiplicity = "*"` parses with Bag/List/Map/Set; only Map has language-scale end-to-end evidence |
+| program syntax | qualified | each package emits `<NS>-SYNTAX` and `<NS>`; a production over `Map`, `List`, or `Set` is never program syntax, because K has no `-SYNTAX` module for them |
 | typed hooks | qualified | only the typed catalog exported by KRS; no arbitrary hook or raw-attribute escape hatch |
 | KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |
 | one-path claims | unqualified | grammar acceptance exists, but no positive end-to-end authored fixture currently qualifies the backend route |

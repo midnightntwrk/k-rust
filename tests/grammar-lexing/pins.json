@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282"
+  },
+  "emitted": {
+    "krs-grammar-partition": {
+      "definition.k": "87f5252a286baa77683ff1a8d51f499ba4c3270e946f8494d0b1a3fb5e639a05"
+    },
+    "krs-grammar-kevm-case": {
+      "definition.k": "7178a9655be22238ced57022cf24050078bb6a1836ed41d41993537ac559e337"
+    }
+  },
+  "partition": {
+    "krs-grammar-partition": "KRS-PART-SYNTAX (program syntax)\n  sort Exp\n  sort Value\n  subsort Value ::= Int\n  subsort Exp ::= Value\n  subsort Value ::= Bool\n  production ExpSyntax::And\n  production ExpSyntax::Neg\nKRS-PART (pub productions that are not program syntax)\n  (none)\n",
+    "krs-grammar-kevm-case": "KRS-EVM-SYNTAX (program syntax)\n  sort Command\n  sort LogEntry\n  production Commands::Done\n  production Commands::Emit\nKRS-EVM (pub productions that are not program syntax)\n  production BlockHashLookup: argument `hashes: List`: K has no LIST-SYNTAX module\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n",
+    "krs-grammar-program-warning": "KRS-PROGRAM-WARNING-SYNTAX (program syntax)\n  sort LogEntry\nKRS-PROGRAM-WARNING (pub productions that are not program syntax)\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n"
+  },
+  "partition_warnings": {
+    "krs-grammar-partition": [],
+    "krs-grammar-kevm-case": [],
+    "krs-grammar-program-warning": [
+      "warning[krs::partition::not-program-syntax]: `LogRecord::Entry` is marked `program` but its field `topics: List` needs K's LIST module, which has no -SYNTAX variant; it is placed in KRS-PROGRAM-WARNING and programs cannot contain it"
+    ]
+  },
+  "reference_sha256": {
+    "krs-grammar-partition": "4c5747a00ebeb3727dc8f3e899b8686679b4b4c26948319fe282c46d5066a0ce",
+    "krs-grammar-kevm-case": "d615bb4ae65f48f48a8a005e1fad3a18a7d3bbc1a3f447807fd8313eda3617ad"
+  },
+  "outcomes": {
+    "krs-grammar-partition": {
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-bool-operator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "internal-inc": {
+        "parse": "rejected",
+        "run": null
+      },
+      "int-operator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "unsigned-literal": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "spaced-negation": {
+        "parse": "accepted",
+        "run": "0"
+      }
+    },
+    "krs-grammar-kevm-case": {
+      "emit": {
+        "parse": "accepted",
+        "run": "done"
+      },
+      "log-entry": {
+        "parse": "rejected",
+        "run": null
+      },
+      "block-hash": {
+        "parse": "rejected",
+        "run": null
+      }
+    }
+  },
+  "diagnostics": {
+    "removed-root": [
+      "error[krs::plan::removed-facet-key]: could not plan collector: package `krs-grammar-removed-root` definition `main` sets `root`: the key was removed; program syntax is now `pub` minus `internal`"
+    ],
+    "removed-syntax-root": [
+      "error[krs::plan::removed-facet-key]: could not plan collector: package `krs-grammar-removed-syntax-root` definition `main` sets `syntax-root`: the key was removed; program syntax is now `pub` minus `internal`"
+    ],
+    "invalid-int-literals": [
+      "error[krs::plan::invalid-int-literals]: could not plan collector: package `krs-grammar-invalid-int-literals` sets `int-literals = \"natural\"`; expected \"signed\" (the default, INT-SYNTAX) or \"unsigned\" (UNSIGNED-INT-SYNTAX)"
+    ],
+    "internal-not-pub": [
+      "error[krs::rust-expansion::uncoded-error]: `internal` applies only to a `pub` production; non-pub productions are already private"
+    ],
+    "mixed-group": [
+      "error[krs::partition::mixed-group]: group `ops_tier0` mixes `internal` production `Ops::Hidden` with program-syntax production `Ops::Visible`; K priorities and associativity apply per module, so mark both `internal` or neither"
+    ],
+    "signed-leak": [
+      "error[krs::partition::signed-integer-leak]: `KRS-UNSIGNED-ROOT-SYNTAX` uses `int-literals = \"unsigned\"` but imports `KRS-SIGNED-BASE-SYNTAX`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
+    ]
+  }
+}

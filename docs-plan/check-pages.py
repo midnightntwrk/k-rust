@@ -413,7 +413,7 @@ def main() -> None:
 
     composition = page_for_route("/advanced/composition").read_text(encoding="utf-8")
     metadata_keys = review.get("metadata_keys")
-    if metadata_keys != ["k-namespace", "root", "syntax-root"]:
+    if metadata_keys != ["k-namespace", "int-literals"]:
         fail("surface_review.metadata_keys must acknowledge the current facet shape")
     missing_metadata = [key for key in metadata_keys if f"`{key}`" not in composition]
     if missing_metadata:

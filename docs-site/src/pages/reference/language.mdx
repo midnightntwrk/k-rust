@@ -45,6 +45,26 @@ Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 
+## Program syntax and the module pair
+
+K decides what a program may contain with the main syntax module and what rules may use with the main module.
+KRS therefore emits two modules for each package: `<NS>-SYNTAX` holds the grammar programs may use, and `<NS>` imports it and adds everything only rules may use, the configuration, and the rules.
+Each production chooses its module; the Rust module that declares it plays no part.
+
+| Production | Module | In programs |
+| --- | --- | --- |
+| `pub` | `<NS>-SYNTAX` | yes |
+| `pub` and `internal` | `<NS>` | no; rules, including a dependent package's, may use it |
+| not `pub` (also `pub(crate)` and `pub(in ..)`) | `<NS>` | no |
+| `pub` with a `Map`, `List`, or `Set` result or field | `<NS>`, placed automatically because K has no MAP-SYNTAX, LIST-SYNTAX, or SET-SYNTAX module | no |
+
+`internal` is the bare flag `#[k::syntax("...", internal)]` on a variant, `internal = true` in the reference layer and on `#[k::constructor]`, a bare flag on `#[k::function]`, or the family flag `#[k::constructors(sort = ..., result = ..., internal)]`, which marks every variant.
+`program` is spelled the same way and asserts that a production is program syntax; when KRS must place it in `<NS>` anyway, it reports the warning `krs::partition::not-program-syntax`.
+`krs check --partition` prints each package's partition: the contents of `<NS>-SYNTAX`, then the `pub` productions placed in `<NS>` with the reason.
+
+Builtin operations such as `+Int` and `andBool` are never program syntax, because `<NS>-SYNTAX` imports builtin sorts only through `INT-SYNTAX`, `BOOL-SYNTAX`, `ID-SYNTAX`, `STRING-SYNTAX`, and `BYTES-SYNTAX`.
+`int-literals = "unsigned"` in `[package.metadata.krs]` selects `UNSIGNED-INT-SYNTAX` instead, so a program's `-1` is a unary minus applied to `1`; rules keep signed literals because `<NS>` imports K's integer module.
+
 ## Checked islands
 
 | Island | Result |

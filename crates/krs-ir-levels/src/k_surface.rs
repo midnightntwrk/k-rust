@@ -140,6 +140,24 @@ pub enum ImportPolicy {
     /// Every configuration must require Map because frontend expansion lowers external variables through `Map:lookup`.
     /// Claim `ensures` terms must contribute requirements.
     NativeFrontend,
+    /// Imports of a package's program-syntax module `<NS>-SYNTAX`, shared by
+    /// both consumers.
+    /// Each required sort must select its catalog `k_program_syntax_module`
+    /// (Int under the module's `int-literals` setting), so builtin operations
+    /// such as `+Int` and `andBool` are never program syntax.
+    ProgramSyntax,
+}
+
+impl ImportPolicy {
+    /// Selects this consumer policy for a semantics module and
+    /// [`Self::ProgramSyntax`] for a program-syntax module.
+    #[must_use]
+    pub fn for_module(self, module: &DefinitionModule) -> Self {
+        match module.role() {
+            crate::ModuleRole::ProgramSyntax => Self::ProgramSyntax,
+            crate::ModuleRole::Semantics => self,
+        }
+    }
 }
 
 /// Returns a module's builtin imports under the selected consumer policy.
@@ -222,6 +240,14 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
     }
     if policy == ImportPolicy::NativeFrontend {
         requirements.sorts.extend(&requirements.operations);
+    }
+    if policy == ImportPolicy::ProgramSyntax {
+        let int_literals = module.int_literals();
+        return requirements
+            .sorts
+            .into_iter()
+            .filter_map(|sort| int_literals.program_syntax_module(sort))
+            .collect();
     }
     requirements
         .sorts
@@ -649,6 +675,43 @@ mod tests {
         assert_eq!(
             builtin_imports(&module, ImportPolicy::NativeFrontend),
             BTreeSet::from(["BOOL", "INT"]),
+        );
+    }
+
+    #[test]
+    fn program_syntax_policy_imports_only_syntax_modules() {
+        let subsort = |name: &str, sort: BuiltinSort| {
+            DefinitionSentence::Subsort(crate::SubsortSentence::new(
+                origin(name),
+                DefinitionSortRef::Builtin(sort),
+                DefinitionSortRef::Declared(symbol_id("sort")),
+            ))
+        };
+        let module = import_module(vec![
+            subsort("syntax-int", BuiltinSort::Int),
+            subsort("syntax-bool", BuiltinSort::Bool),
+            subsort("syntax-bytes", BuiltinSort::Bytes),
+            subsort("syntax-map", BuiltinSort::Map),
+        ]);
+        assert_eq!(
+            ImportPolicy::SourceText.for_module(&module),
+            ImportPolicy::SourceText
+        );
+        let signed = module
+            .clone()
+            .into_program_syntax(krs_ir::IntLiterals::Signed);
+        assert_eq!(
+            ImportPolicy::NativeFrontend.for_module(&signed),
+            ImportPolicy::ProgramSyntax
+        );
+        assert_eq!(
+            builtin_imports(&signed, ImportPolicy::ProgramSyntax),
+            BTreeSet::from(["BOOL-SYNTAX", "BYTES-SYNTAX", "INT-SYNTAX"]),
+        );
+        let unsigned = module.into_program_syntax(krs_ir::IntLiterals::Unsigned);
+        assert_eq!(
+            builtin_imports(&unsigned, ImportPolicy::ProgramSyntax),
+            BTreeSet::from(["BOOL-SYNTAX", "BYTES-SYNTAX", "UNSIGNED-INT-SYNTAX"]),
         );
     }
 

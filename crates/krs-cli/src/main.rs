@@ -63,6 +63,7 @@ Options:
   --counters FILE            Write krs-counters/1 work counters as JSON
   --message-format human|json Diagnostic output (default: human)
   --no-reuse                 Run the collector and compiler even on an unchanged input
+  --partition                With check, print each package's program-syntax partition
   --stdin                    Format stdin with facade alias k and write the result to stdout
   --edition YEAR             Rust edition for --stdin (default: 2024)
   --check                    Report files that are not canonically formatted
@@ -288,6 +289,7 @@ struct RunOptions {
     no_reuse: bool,
     message_format: Option<MessageFormat>,
     measure: MeasureOptions,
+    partition: bool,
 }
 
 #[derive(Debug)]
@@ -357,6 +359,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
         match argument {
             Short('h') | Long("help") => return Ok(ParseResult::Help),
             Long("no-reuse") => options.no_reuse = true,
+            Long("partition") if kind == CommandKind::Check => options.partition = true,
             Long("message-format") => {
                 let value = option_value(parser, "message format")?;
                 let selected = match value.as_str() {
@@ -645,6 +648,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         no_reuse,
         message_format,
         measure,
+        partition,
     } = options;
     if package.is_some() && package_id.is_some() {
         return Err(usage("--package and --package-id cannot be combined"));
@@ -684,6 +688,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         }
         CommandKind::Check => Command::Check {
             backend: backend.unwrap_or(Backend::Llvm),
+            partition,
         },
         CommandKind::Expand => Command::Expand,
         CommandKind::EmitK => Command::EmitK {
@@ -1050,7 +1055,8 @@ mod tests {
         assert_eq!(
             request.command,
             Command::Check {
-                backend: Backend::Haskell
+                backend: Backend::Haskell,
+                partition: false,
             }
         );
         assert_eq!(request.root.package, PackageSelector::Id("exact-id".into()));

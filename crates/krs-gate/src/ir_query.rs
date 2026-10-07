@@ -1414,7 +1414,7 @@ mod tests {
         assert_eq!(files["has_claims"], false);
         let modules = read(json!({"kind":"modules"}));
         assert_eq!(modules["main_module"], "KRS-FOO-BAR");
-        assert_eq!(modules["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(modules["rows"].as_array().unwrap().len(), 2);
         let semantic = read(json!({"kind":"semantic_modules"}));
         assert_eq!(semantic["rows"][0]["production_count"], 2);
         assert_eq!(semantic["rows"][0]["rule_count"], 1);
@@ -2080,13 +2080,19 @@ mod tests {
                         }
                     })
                     .collect();
-                krs_ir_levels::DefinitionModule::new(
+                let rebuilt = krs_ir_levels::DefinitionModule::new(
                     module.origin().clone(),
                     module.id().clone(),
                     module.imports().iter().cloned().collect(),
                     module.production_groups().to_vec(),
                     sentences,
-                )
+                );
+                match module.role() {
+                    krs_ir_levels::ModuleRole::ProgramSyntax => {
+                        rebuilt.into_program_syntax(module.int_literals())
+                    }
+                    krs_ir_levels::ModuleRole::Semantics => rebuilt,
+                }
             })
             .collect();
         let expanded = DefinitionIr::new(definition.main_module().clone(), modules).unwrap();

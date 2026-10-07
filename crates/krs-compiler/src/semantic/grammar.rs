@@ -258,5 +258,19 @@ fn lower_production_attribute(
                 semantic_sort_ref(&result_sort.sort),
             ),
         },
+        DescriptorProductionAttribute::Internal { key } => ProductionAttribute::Internal {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+        },
+        DescriptorProductionAttribute::Program { key } => ProductionAttribute::Program {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+        },
+        DescriptorProductionAttribute::Color { key, value } => ProductionAttribute::Color {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            value: value.clone(),
+        },
+        DescriptorProductionAttribute::Colors { key, values } => ProductionAttribute::Colors {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            values: values.iter().map(|entry| entry.value.clone()).collect(),
+        },
     })
 }

@@ -8,11 +8,12 @@ use krs_ir::{
     FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
     FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    GroupAssociativitySentence, IrIdentityError, ModuleId, NodeOrigin, OriginFrame, OriginStack,
-    PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
+    GroupAssociativitySentence, IntLiterals, IrIdentityError, ModuleId, NodeOrigin, OriginFrame,
+    OriginStack, PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, SourceMapKey, StableItemId,
     StableText, TransformationOriginKind, lower_hex,
 };
+use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
     DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
@@ -21,9 +22,13 @@ use krs_ir_levels::{
     RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
     SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
     SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    k_surface::{ImportPolicy, builtin_imports},
 };
 use sha2::{Digest, Sha256};
 
+use crate::partition::{
+    ModulePlacement, Partition, PartitionError, is_framework_module, program_syntax_module_name,
+};
 use crate::{SourceMap, SymbolMap};
 
 /// A checked Definition IR and the target-neutral sidecars shared by adapters.
@@ -32,6 +37,7 @@ pub struct LoweredDefinition {
     definition: DefinitionIr,
     symbol_map: SymbolMap,
     source_map: SourceMap,
+    partition: Partition,
 }
 
 impl LoweredDefinition {
@@ -51,6 +57,12 @@ impl LoweredDefinition {
     #[must_use]
     pub const fn source_map(&self) -> &SourceMap {
         &self.source_map
+    }
+
+    /// Returns the program-syntax partition of every package.
+    #[must_use]
+    pub const fn partition(&self) -> &Partition {
+        &self.partition
     }
 }
 
@@ -126,6 +138,8 @@ pub enum LoweringError {
     InvalidDefinition(DefinitionValidationError),
     /// A sidecar could not be derived honestly from the constructed Definition IR.
     InvalidSidecar(String),
+    /// The program-syntax partition is invalid.
+    Partition(PartitionError),
 }
 
 impl fmt::Display for LoweringError {
@@ -165,6 +179,7 @@ impl fmt::Display for LoweringError {
                 write!(formatter, "invalid lowered Definition IR: {error}")
             }
             Self::InvalidSidecar(detail) => write!(formatter, "invalid lowered sidecar: {detail}"),
+            Self::Partition(error) => error.fmt(formatter),
         }
     }
 }
@@ -186,9 +201,17 @@ impl ToDiagnostic for LoweringError {
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidDefinition(_) => codes::analysis::INVALID_DEFINITION,
             Self::InvalidSidecar(_) => codes::analysis::INVALID_SIDECAR,
+            Self::Partition(PartitionError::MixedGroup { .. }) => codes::partition::MIXED_GROUP,
+            Self::Partition(PartitionError::SignedIntegerLeak { .. }) => {
+                codes::partition::SIGNED_INTEGER_LEAK
+            }
         };
         let location = match self {
             Self::NameCollision { second_origin, .. } => second_origin
+                .exact_authored_range()
+                .map_or(Location::None, Location::Source),
+            Self::Partition(PartitionError::MixedGroup { origin, .. }) => origin
+                .origin()
                 .exact_authored_range()
                 .map_or(Location::None, Location::Source),
             _ => Location::None,
@@ -230,21 +253,34 @@ impl From<IrIdentityError> for LoweringError {
 /// Returns [`LoweringError`] for unsupported shapes, invalid templates or
 /// names, naming/source-map collisions, or a failed Definition IR invariant.
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
+    let partition = Partition::of(theory).map_err(LoweringError::Partition)?;
     let names = NamingPass::run(theory)?;
     let mut origins = OriginPass::default();
     let mut declared_production_groups = BTreeSet::new();
-    let lowered_modules = theory
-        .modules()
-        .iter()
-        .map(|module| {
+    let mut lowered_modules = Vec::new();
+    for module in theory.modules() {
+        let mut lower = |part| {
             lower_module(
                 module,
+                part,
                 &names,
                 &mut origins,
                 &mut declared_production_groups,
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        };
+        if let Some(placement) = partition.module(module.id()) {
+            // The program-syntax module is lowered first so that each group
+            // with a program-syntax member is declared there.
+            lowered_modules.push(
+                lower(ModulePart::ProgramSyntax(placement))?
+                    .into_program_syntax(module.int_literals()),
+            );
+            lowered_modules.push(lower(ModulePart::Semantics(placement))?);
+        } else {
+            lowered_modules.push(lower(ModulePart::Whole)?);
+        }
+    }
+    check_signed_integer_leak(&lowered_modules)?;
     let main_module = names.module(select_main_module(theory)?.id())?;
     let definition = DefinitionIr::new(main_module, lowered_modules)?;
     let symbol_map = SymbolMap::from_definition(&definition)
@@ -255,12 +291,81 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         definition,
         symbol_map,
         source_map,
+        partition,
     })
+}
+
+/// Which part of a package module one Definition module holds.
+#[derive(Clone, Copy)]
+enum ModulePart<'a> {
+    /// The unpartitioned framework module.
+    Whole,
+    /// `<NS>-SYNTAX`: sort declarations and the program-syntax grammar.
+    ProgramSyntax(&'a ModulePlacement),
+    /// `<NS>`: the rest of the grammar, the configuration, and the rules.
+    Semantics(&'a ModulePlacement),
+}
+
+impl ModulePart<'_> {
+    const fn has_sorts(self) -> bool {
+        !matches!(self, Self::Semantics(_))
+    }
+
+    const fn has_semantics(self) -> bool {
+        !matches!(self, Self::ProgramSyntax(_))
+    }
+
+    fn has(self, is_syntax: impl FnOnce(&ModulePlacement) -> bool) -> bool {
+        match self {
+            Self::Whole => true,
+            Self::ProgramSyntax(placement) => is_syntax(placement),
+            Self::Semantics(placement) => !is_syntax(placement),
+        }
+    }
+}
+
+/// Rejects an `int-literals = "unsigned"` program-syntax module that reaches
+/// a signed program-syntax module importing `INT-SYNTAX`: K imports are
+/// unions, so the signed literal would become program syntax.
+fn check_signed_integer_leak(modules: &[DefinitionModule]) -> Result<(), LoweringError> {
+    let syntax_modules = modules
+        .iter()
+        .filter(|module| module.role() == ModuleRole::ProgramSyntax)
+        .map(|module| (module.id(), module))
+        .collect::<BTreeMap<_, _>>();
+    for module in syntax_modules.values() {
+        if module.int_literals() != IntLiterals::Unsigned {
+            continue;
+        }
+        let mut pending = module.imports().iter().collect::<Vec<_>>();
+        let mut seen = BTreeSet::new();
+        while let Some(import) = pending.pop() {
+            if !seen.insert(import) {
+                continue;
+            }
+            let Some(imported) = syntax_modules.get(import) else {
+                continue;
+            };
+            if imported.int_literals() == IntLiterals::Signed
+                && builtin_imports(imported, ImportPolicy::ProgramSyntax).contains("INT-SYNTAX")
+            {
+                return Err(LoweringError::Partition(
+                    PartitionError::SignedIntegerLeak {
+                        module: module.id().as_str().to_owned(),
+                        signed: imported.id().as_str().to_owned(),
+                    },
+                ));
+            }
+            pending.extend(imported.imports());
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
 struct NamingPass {
     modules: BTreeMap<ModuleId, ModuleId>,
+    syntax_modules: BTreeMap<ModuleId, ModuleId>,
     sorts: BTreeMap<StableItemId, SymbolIdentity>,
     productions: BTreeMap<StableItemId, SymbolIdentity>,
     fixed_cells: BTreeMap<krs_ir::SemanticId, SymbolId>,
@@ -290,6 +395,19 @@ impl NamingPass {
             )?;
             pass.modules
                 .insert(module.id().clone(), module.id().clone());
+            if !is_framework_module(module.id()) {
+                let syntax = program_syntax_module_name(module.id().as_str());
+                validate_module_name(&syntax)?;
+                claim(
+                    &mut modules,
+                    syntax.clone(),
+                    format!("program-syntax module of {}", module.id().as_str()),
+                    CollisionNamespace::Module,
+                    module.origin(),
+                )?;
+                pass.syntax_modules
+                    .insert(module.id().clone(), ModuleId::new(syntax)?);
+            }
             for sort in module.sorts() {
                 let owner = stable_symbol_text(sort.id(), sort.explicit_symbol());
                 let id = SymbolId::new(format!("sort:{}", lower_hex(owner.as_bytes())))?;
@@ -424,6 +542,21 @@ impl NamingPass {
                 detail: format!("no naming entry for {id}"),
             })
     }
+
+    /// Returns the module a program-syntax module imports for `id`: its
+    /// `<NS>-SYNTAX` module, or the framework module itself.
+    fn syntax_module(&self, id: &ModuleId) -> Result<ModuleId, LoweringError> {
+        if is_framework_module(id) {
+            return self.module(id);
+        }
+        self.syntax_modules
+            .get(id)
+            .cloned()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "module reference",
+                detail: format!("no program-syntax naming entry for {id}"),
+            })
+    }
 }
 
 fn name_fixed_cells(
@@ -496,13 +629,19 @@ impl OriginPass {
 )]
 fn lower_module(
     module: &SemanticModule,
+    part: ModulePart<'_>,
     names: &NamingPass,
     origins: &mut OriginPass,
     declared_production_groups: &mut BTreeSet<ProductionGroupId>,
 ) -> Result<DefinitionModule, LoweringError> {
     let mut sentences = Vec::new();
     let mut group_origins = BTreeMap::<ProductionGroupId, &NodeOrigin>::new();
-    for production in module.productions() {
+    let productions = module
+        .productions()
+        .iter()
+        .filter(|production| part.has(|placement| placement.production_is_syntax(production.id())))
+        .collect::<Vec<_>>();
+    for production in &productions {
         for attribute in production.attributes() {
             if let ProductionAttribute::Group { origin, group } = attribute {
                 group_origins.entry(group.clone()).or_insert(origin);
@@ -521,13 +660,23 @@ fn lower_module(
             )?)
         })
         .collect::<Result<Vec<_>, LoweringError>>()?;
-    for sort in module.sorts() {
+    let sorts = if part.has_sorts() {
+        module.sorts()
+    } else {
+        &[]
+    };
+    for sort in sorts {
         sentences.push(DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
             origins.lower(sort.origin(), "syntax-sort", Some(sort.id()), None)?,
             names.sort(sort.id())?,
         )?));
     }
-    for subsort in module.subsorts() {
+    for (_, subsort) in module
+        .subsorts()
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| part.has(|placement| placement.subsort_is_syntax(*index)))
+    {
         let item = match subsort.subsort() {
             SemanticSortRef::Declared(item) => Some(item),
             SemanticSortRef::Builtin(_) => None,
@@ -548,7 +697,7 @@ fn lower_module(
         )));
     }
 
-    for production in module.productions() {
+    for production in productions {
         sentences.push(DefinitionSentence::Production(ProductionSentence::new(
             origins.lower(
                 production.origin(),
@@ -563,7 +712,12 @@ fn lower_module(
         )?));
     }
 
-    for (index, precedence) in module.precedences().iter().enumerate() {
+    for (index, precedence) in module
+        .precedences()
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| part.has(|placement| placement.precedence_is_syntax(*index)))
+    {
         sentences.push(DefinitionSentence::Precedence(
             PrecedenceRelation::new(
                 origins.lower(
@@ -581,7 +735,12 @@ fn lower_module(
             })?,
         ));
     }
-    for (index, associativity) in module.associativities().iter().enumerate() {
+    for (index, associativity) in module
+        .associativities()
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| part.has(|placement| placement.associativity_is_syntax(*index)))
+    {
         sentences.push(DefinitionSentence::Associativity(
             GroupAssociativitySentence::new(
                 origins.lower(
@@ -597,6 +756,22 @@ fn lower_module(
                 node: "associativity",
                 detail: error.to_string(),
             })?,
+        ));
+    }
+
+    if !part.has_semantics() {
+        let id = names.syntax_module(module.id())?;
+        let imports = module
+            .imports()
+            .iter()
+            .map(|import| names.syntax_module(import))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        return Ok(DefinitionModule::new(
+            origins.lower(module.origin(), "module", None, Some(id.as_str()))?,
+            id,
+            imports.into_iter().collect(),
+            production_groups,
+            sentences,
         ));
     }
 
@@ -661,11 +836,14 @@ fn lower_module(
         )?));
     }
 
-    let imports = module
+    let mut imports = module
         .imports()
         .iter()
         .map(|import| names.module(import))
         .collect::<Result<BTreeSet<_>, _>>()?;
+    if matches!(part, ModulePart::Semantics(_)) {
+        imports.insert(names.syntax_module(module.id())?);
+    }
     Ok(DefinitionModule::new(
         origins.lower(module.origin(), "module", None, Some(module.id().as_str()))?,
         names.module(module.id())?,
@@ -1183,6 +1361,10 @@ fn lower_production_items(
         .collect()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps exhaustive production attribute lowering in one match."
+)]
 fn lower_production_attributes(
     production: &SemanticProduction,
     names: &NamingPass,
@@ -1192,6 +1374,14 @@ fn lower_production_attributes(
         .attributes()
         .iter()
         .enumerate()
+        // `internal` and `program` select the module a production is placed
+        // in; they are not K attributes.
+        .filter(|(_, attribute)| {
+            !matches!(
+                attribute,
+                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. }
+            )
+        })
         .map(|(index, attribute)| {
             let origin = origins.lower(
                 attribute.origin(),
@@ -1229,6 +1419,17 @@ fn lower_production_attributes(
                     origin,
                     fragments: fragments.clone(),
                 },
+                ProductionAttribute::Color { value, .. } => ProductionAttribute::Color {
+                    origin,
+                    value: value.clone(),
+                },
+                ProductionAttribute::Colors { values, .. } => ProductionAttribute::Colors {
+                    origin,
+                    values: values.clone(),
+                },
+                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+                    unreachable!("placement attributes are filtered above")
+                }
                 ProductionAttribute::Strictness {
                     kind,
                     using,

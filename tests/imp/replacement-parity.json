@@ -64,6 +64,7 @@
     "var": "var",
     "while": "while"
   },
-  "sentence_count": 77,
-  "subsort_count": 3
+  "sentence_count": 35,
+  "subsort_count": 3,
+  "syntax_sentence_count": 47
 }
