@@ -161,17 +161,12 @@ impl DeclarationModules {
         self.definition_with(self.semantics.clone())
     }
 
-    /// Wrap the concrete-syntax module in K's standard KORE prelude.
-    pub fn syntax_definition(&self) -> KoreDefinition {
-        self.definition_with(self.syntax.clone())
-    }
-
     /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
     pub fn print_semantics_definition(&self, printer: crate::kore::printer::Printer) -> String {
         self.print_definition_with(printer, &self.semantics)
     }
 
-    /// Print [`Self::syntax_definition`] without cloning the syntax module into it.
+    /// Print the concrete-syntax module wrapped in K's standard KORE prelude.
     pub fn print_syntax_definition(&self, printer: crate::kore::printer::Printer) -> String {
         self.print_definition_with(printer, &self.syntax)
     }

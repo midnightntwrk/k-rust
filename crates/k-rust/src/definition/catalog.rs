@@ -505,24 +505,12 @@ impl<'a> ProductionCatalog<'a> {
         self.local.contains(&id)
     }
 
-    pub fn productions_by_label(&self) -> &BTreeMap<LabelHead, Vec<ProductionId>> {
-        &self.by_label
-    }
-
     pub fn productions_for(&self, label: &LabelHead) -> &[ProductionId] {
         self.by_label.get(label).map_or(&[], Vec::as_slice)
     }
 
-    pub fn productions_by_sort(&self) -> &BTreeMap<SortHead, Vec<ProductionId>> {
-        &self.by_sort
-    }
-
     pub fn productions_for_sort(&self, sort: &SortHead) -> &[ProductionId] {
         self.by_sort.get(sort).map_or(&[], Vec::as_slice)
-    }
-
-    pub fn token_productions_by_sort(&self) -> &BTreeMap<Sort, Vec<ProductionId>> {
-        &self.token_by_sort
     }
 
     pub fn token_productions_for(&self, sort: &Sort) -> &[ProductionId] {

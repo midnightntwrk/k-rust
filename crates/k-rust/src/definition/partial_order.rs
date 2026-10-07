@@ -192,10 +192,6 @@ impl<T: Clone + Ord> PartialOrder<T> {
         self.less_than(lesser, greater)
     }
 
-    pub fn greater_than_eq(&self, greater: &T, lesser: &T) -> bool {
-        self.less_than_eq(lesser, greater)
-    }
-
     pub fn in_some_relation(&self, first: &T, second: &T) -> bool {
         self.less_than(first, second) || self.greater_than(first, second)
     }
