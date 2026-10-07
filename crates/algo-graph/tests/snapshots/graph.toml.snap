@@ -4587,7 +4587,7 @@ id = "kompile.cells.concretize"
 provenance = "declared"
 area = "kompile"
 name = "cell concretization"
-variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents"
+variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents; L = repeated cell sorts whose collection is a List"
 no_counter = "cell concretization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileCellsConcretize"
@@ -4623,7 +4623,7 @@ bound = "O(P + C x |children| + r^2) per module plus the forced views.subsorts, 
 
 [[node.cost]]
 mode = "sentence concretization"
-bound = "O(N x D x |children|)"
+bound = "O(N x D x (|children| + L))"
 
 [[node]]
 kind = "algorithm"
