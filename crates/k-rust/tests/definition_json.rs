@@ -322,7 +322,7 @@ fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + '
 /// Both definition readers decode the terms of a document with explicit work stacks, and a term
 /// is dropped with an explicit work list, so a definition whose rule body is 100,000
 /// applications deep is read and dropped on a 1 MiB thread. Each document takes about 9 MB,
-/// and the test peaks at about 210 MB of resident memory in a debug build.
+/// and the test peaks at about 210 MB of resident memory unoptimized (opt-level 0).
 #[test]
 fn definitions_of_any_depth_are_read_on_a_small_stack() {
     let levels = 100_000;
