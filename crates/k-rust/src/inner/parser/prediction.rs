@@ -1362,9 +1362,12 @@ mod tests {
     /// below an operator: the scope error is deferred, so that a reading rooted at the rewrite
     /// can be preferred over it, and until then the doomed node, with every edge below it, is
     /// part of the forest. Under `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and
-    /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous, and where the ambiguity is reported depends
-    /// on those doomed nodes. A first attempt that skipped every item whose edge the filter
-    /// rejects, the deferred ones included, reported it at 104-107 instead of 102-106.
+    /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous. A first attempt that skipped every item
+    /// whose edge the filter rejects, the deferred ones included, built a smaller forest than an
+    /// unfiltered recognition, and in the `z3-inference` build reported the ambiguity at
+    /// 104-107 instead of 102-106. Where an ambiguity is reported is decided by sort inference
+    /// after recognition, so the reported error is pinned per engine, and the forests are
+    /// compared directly.
     #[test]
     fn edges_below_a_deferred_scope_error_are_kept() {
         let grammar = Grammar::from_sentences(&[
@@ -1381,18 +1384,55 @@ mod tests {
             production("S0", vec![], "p5"),
         ])
         .unwrap();
+        let forest = |mode: PredictionMode| {
+            let input = "a c c c";
+            let start = grammar.sort_id(grammar.sort_denotations.denote(&Sort::new("Start")));
+            let mut scanner_cache = vec![None; input.len() + 1];
+            let start_position = grammar.canonical_position(input, 0, &mut scanner_cache);
+            grammar
+                .recognize(
+                    start.unwrap(),
+                    start_position,
+                    input,
+                    ParseProvenance {
+                        source: SourceId(7),
+                        base_offset: 100,
+                    },
+                    mode,
+                    PriorityFilter::Enforced,
+                    None,
+                    &mut false,
+                    &mut scanner_cache,
+                    &std::cell::RefCell::new(PackedPriorityMemos::default()),
+                )
+                .map(|recognition| recognition.parses)
+        };
+        let unfiltered_forest = forest(PredictionMode::Unfiltered);
+        assert!(
+            unfiltered_forest
+                .as_ref()
+                .is_ok_and(|parses| !parses.is_empty()),
+            "{unfiltered_forest:?}"
+        );
+        assert_eq!(forest(PredictionMode::Filtered), unfiltered_forest);
+
+        #[cfg(feature = "z3-inference")]
+        let (parses, start, end) = (2, 102, 106);
+        #[cfg(not(feature = "z3-inference"))]
+        let (parses, start, end) = (14, 100, 107);
         let expected = unfiltered(&grammar, "a c c c");
         assert!(
             matches!(
                 &expected,
                 Err(ParseError::Ambiguous {
+                    parses: reported,
                     span: Some(TermSpan {
-                        start: 102,
-                        end: 106,
+                        start: reported_start,
+                        end: reported_end,
                         ..
                     }),
                     ..
-                })
+                }) if (*reported, *reported_start, *reported_end) == (parses, start, end)
             ),
             "{expected:?}"
         );
