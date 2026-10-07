@@ -1581,3 +1581,18 @@ fn a_refuted_requires_does_not_discharge_an_application_its_own_equations_ensure
         "contexts whose obligation is not kept"
     );
 }
+
+/// Review 9, F2: the contexts of [`own_ensures_contexts`] about `f(c)`, which no equation
+/// matches. In the second and third, the two equations at `f(k(c))` have one right-hand side
+/// term `c`, but their `ensures` differ, so the instance `f(k(c))` identifies `c` conjoined
+/// with one `ensures` with `c` conjoined with the other, which pins the definedness of the
+/// application the `ensures` mention. The obligation stays in each.
+#[test]
+fn an_overlap_of_equations_with_an_ensures_keeps_the_obligation_of_an_application_it_mentions() {
+    let held = "f{}(c{}())";
+    assert_eq!(
+        contexts_not_keeping(&own_ensures_contexts(held), held),
+        Vec::<usize>::new(),
+        "contexts whose obligation is not kept"
+    );
+}

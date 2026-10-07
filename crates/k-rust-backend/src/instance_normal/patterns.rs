@@ -34,20 +34,24 @@
 //! equation is also set aside only where no reduct of an overlapped instance of `l` is the
 //! subject ([`BackendDefinition::overlaps_miss`], computed with the pattern facts). Peaks that
 //! meet identify nothing and are not counted: an overload equation's step, which matching reads
-//! through, and a peak whose two sides meet under a few unconditional steps.
+//! through, and a peak of two equations without an `ensures` whose two sides meet under a few
+//! steps of equations without a `requires` or an `ensures`. An equation with an `ensures`
+//! identifies its instance with `\bottom` where the `ensures` fails, which pins whatever decides
+//! it; no reduct shows that, so the reducts of an overlapped instance that such an equation may
+//! rewrite are not bounded.
 //!
-//! The scan of an application asks the equations offered at its index, so it sees the overlaps
-//! of equations with that head. The certificate assumes that a peak at an instance of an
-//! equation of another head, one of whose sides has the application's head, meets, and that so
-//! do peaks at terms that equation matching matches up to the subsort or overload axioms
+//! The scan of an application asks the equations offered at its index, so it sees the overlaps of
+//! equations with that head. The certificate assumes that a peak at an instance of an equation of
+//! another head, one of whose sides (with its `ensures`) has the application's head, meets, and
+//! that so do peaks at terms that equation matching matches up to the subsort or overload axioms
 //! without being syntactic instances of `l`: under `g(5) = c1; f(c1) = k(0); f(g(X)) = mk(1 /Int
-//! 0)`, `k(0)` is undefined while no `k` equation exists. It also reads a peak only for the
-//! normal forms it identifies, not for what it says about the values the equations of its two
-//! paths bind: the variables range over values, so where the two paths do not meet, one of the
-//! bound values is undefined (`h(q(3, Y)) = 1 /Int 0` and `h(X) = 3` at `h(q(3, c))` make
-//! `q(3, c)`, and so `g(d)` under `q(I, X) = g(d)`, undefined, while the scan of `g(d)` sees no
-//! `h` equation). The certificate assumes no peak that does not meet binds, in its two steps or
-//! in the steps its sides take, a value in which the application occurs.
+//! 0)`, `k(0)` is undefined while no `k` equation exists. It also reads a peak only for the normal
+//! forms it identifies, not for what it says about the values the equations of its two paths bind:
+//! the variables range over values, so where the two paths do not meet, one of the bound values is
+//! undefined (`h(q(3, Y)) = 1 /Int 0` and `h(X) = 3` at `h(q(3, c))` make `q(3, c)`, and so `g(d)`
+//! under `q(I, X) = g(d)`, undefined, while the scan of `g(d)` sees no `h` equation). The
+//! certificate assumes no peak that does not meet binds, in its two steps or in the steps its sides
+//! take, a value in which the application occurs.
 //!
 //! Nor does the certificate read the equations of other heads for what they say about the
 //! application's definedness without a peak. A total symbol is defined on defined arguments,
@@ -130,7 +134,8 @@ pub(crate) struct PatternFacts {
     normal_rules: FxHashSet<usize>,
     /// The roots the reducts of a term can have besides its own, by the term's index: the
     /// right-hand sides of the equations indexed there, and transitively those indexed by their
-    /// roots. `None` when some such right-hand side has an open root. An index with no equations
+    /// roots. `None` when some such right-hand side has an open root, or some such equation an
+    /// `ensures` ([`BackendDefinition::value_representatives`]). An index with no equations
     /// has none besides the term's own root.
     value_roots: Arc<BTreeMap<TermIndex, Option<Vec<Stored>>>>,
     /// Some equation is indexed by a bare variable, so it may rewrite a term of any root to
@@ -553,6 +558,12 @@ impl BackendDefinition {
     /// any of these bounds, or the scan's narrowing budget, they are the pattern and
     /// every right-hand side its root's equations reach (`PatternFacts::value_roots`), which
     /// covers the same reducts with fewer bindings. An as-pattern is covered by either conjunct.
+    ///
+    /// The representatives are also what an identification of an overlapped instance may
+    /// concern ([`Self::overlaps_miss`]). An equation with an `ensures` identifies its instance
+    /// with `\bottom` where the `ensures` fails, which pins whatever decides the `ensures`, and
+    /// no reduct shows that; so a step it may take leaves the representatives unbounded, as a
+    /// right-hand side that is not a term does.
     fn value_representatives(&self, pattern: &Term) -> Option<Vec<Term>> {
         self.representatives(pattern, bounds().narrowing_depth)
     }
@@ -621,6 +632,11 @@ impl BackendDefinition {
                 let Some(bindings) = self.narrow(&equation.lhs, &term, depth - 1, reading) else {
                     continue;
                 };
+                // Where its `ensures` fails, the equation identifies the instance with
+                // `\bottom`, which pins whatever decides the `ensures`: no reduct shows that.
+                if !equation.ensures.is_empty() {
+                    return None;
+                }
                 for binding in bindings {
                     // A variable narrowing leaves unbound stands for any value, independent of
                     // the term's variables of the same name.
@@ -1292,6 +1308,13 @@ impl BackendDefinition {
     /// (`lσ` is an instance of `other`'s left-hand side too). A joining peak sends both of its
     /// sides to one term, so the instance identifies no two normal forms through it.
     ///
+    /// Only equations without an `ensures` can join this way. An equation `l = r ensures E`
+    /// states `lσ = rσ ∧ Eσ`: where `Eσ` fails it identifies `lσ` with `\bottom`. Two sides that
+    /// meet as terms then still identify `rσ ∧ E1σ` with the other side conjoined with its own
+    /// `ensures`, which pins whatever decides the `ensures`: `f(k(c)) = c ensures P` beside
+    /// `f(k(c)) = c ensures Q` forces `P` and `Q` to agree, and so constrains the definedness of
+    /// the applications in them. So the answer is `false` when either equation has an `ensures`.
+    ///
     /// The proof is built from real steps: both sides (`rσ`, and `other`'s reduct in place) are
     /// reduced by up to [`JOIN_STEPS`] steps of unconditional equations (no `requires`, no
     /// `ensures`), innermost first, and must meet. A side that does not meet within them leaves
@@ -1308,6 +1331,9 @@ impl BackendDefinition {
         let (RuleRhs::Term(right), RuleRhs::Term(other_right)) = (&rule.rhs, &other.rhs) else {
             return false;
         };
+        if !rule.ensures.is_empty() || !other.ensures.is_empty() {
+            return false;
+        }
         let valuation = &bind_aliases(&rule.lhs, valuation);
         let instance = instantiate(&rule.lhs, valuation);
         // The variables of `l` that the valuation leaves unbound are the instance's own.
@@ -1853,7 +1879,8 @@ fn value_roots(
 }
 
 /// The right-hand sides of the equations indexed by `start`, and of those indexed by the roots
-/// of the right-hand sides met, transitively; `None` when one has an open root.
+/// of the right-hand sides met, transitively; `None` when one has an open root or its equation
+/// an `ensures`.
 fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Stored>> {
     let mut visited = BTreeSet::from([start.clone()]);
     let mut pending = vec![start.clone()];
@@ -1867,6 +1894,9 @@ fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Sto
             let RuleRhs::Term(right) = &equation.rhs else {
                 return None;
             };
+            if !equation.ensures.is_empty() {
+                return None;
+            }
             match right.shape() {
                 Shape::DomainValue
                 | Shape::Injection
