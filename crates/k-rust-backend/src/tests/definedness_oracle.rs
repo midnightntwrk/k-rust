@@ -15,8 +15,11 @@
 //! the least sets `U` (provably undefined) and `D` (provably defined) closed under:
 //!
 //! - `\bottom` is in `U`; a term with a subterm in `U` is in `U` (application is strict);
-//! - Int literals, and constructor applications and injections whose arguments are in `D`, are
-//!   in `D` (constructors are `functional`);
+//! - Int literals, and injections and applications of total symbols (constructors, and heads
+//!   and functions declared `total`) whose arguments are in `D`, are in `D` (a total symbol is
+//!   defined on defined arguments);
+//! - an application of a total symbol that is in `U`, with every argument but one in `D`, puts
+//!   that argument in `U` (were it defined too, the application would be);
 //! - for a step `C[lσ] -> C[rσ]`: `C[rσ] ∈ U` implies `C[lσ] ∈ U`, always (if every value of `σ`
 //!   is defined the equation instance makes the two equal, and otherwise `lσ` has an undefined
 //!   subterm); and when every value of `σ` is in `D`, the equation instance holds, so
@@ -28,11 +31,14 @@
 //!
 //! The backend states an assumption it does not check (`instance_normal/patterns.rs`): a peak
 //! that does not meet, at an instance of an equation of another head than an application's,
-//! does not reach that application's head, and no peak that does not meet binds, in its two
-//! steps or in the steps its sides take, a value in which the application occurs. The oracle
-//! applies it rather than testing it: a query is not
-//! checked when some application the query reaches by steps has a head that an overlap peak of
-//! the explored graph, whose two sides it cannot join, may make undefined that way ([`Peak`]).
+//! does not reach that application's head, no peak that does not meet binds, in its two
+//! steps or in the steps its sides take, a value in which the application occurs, and no
+//! equation of another, total head whose left-hand side holds the application below total
+//! symbols has an undefined right-hand side there. The oracle applies it rather than testing
+//! it: a query is not checked when some application the query reaches by steps has a head
+//! that an overlap peak of the explored graph, whose two sides it cannot join, may make
+//! undefined that way ([`Peak`]), or that a root step of a total head's equation to a term in
+//! `U` holds below total symbols.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -170,10 +176,25 @@ struct Symbol {
     arguments: Vec<String>,
     result: String,
     constructor: bool,
+    /// For a symbol that is not a constructor: whether it is declared total, and how.
+    totality: Totality,
+}
+
+/// How a symbol that is not a constructor is declared.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Totality {
+    /// `anywhere, function, value-production`: partial, its equations decide it.
+    Production,
+    /// `anywhere, total`: an equation head defined on defined arguments.
+    Head,
+    /// `function, total`: a declared function defined on defined arguments, with no equations
+    /// here.
+    Function,
 }
 
 /// A definition over the hooked `Int` and `Bool`, with the sorts, subsorts, constructors,
-/// value-production heads and anywhere equations given; `mk : Int -> S` is always declared.
+/// value-production heads, total heads and functions, and anywhere equations given;
+/// `mk : Int -> S` is always declared.
 #[derive(Clone, Debug, Default)]
 struct Definition {
     sorts: Vec<String>,
@@ -194,22 +215,40 @@ impl Definition {
         definition.constructor("mk", &["Int"], "S")
     }
 
-    fn symbol(mut self, name: &str, arguments: &[&str], result: &str, constructor: bool) -> Self {
+    fn symbol(
+        mut self,
+        name: &str,
+        arguments: &[&str],
+        result: &str,
+        constructor: bool,
+        totality: Totality,
+    ) -> Self {
         self.symbols.push(Symbol {
             name: name.into(),
             arguments: arguments.iter().map(|sort| (*sort).into()).collect(),
             result: result.into(),
             constructor,
+            totality,
         });
         self
     }
 
     fn constructor(self, name: &str, arguments: &[&str], result: &str) -> Self {
-        self.symbol(name, arguments, result, true)
+        self.symbol(name, arguments, result, true, Totality::Production)
     }
 
     fn head(self, name: &str, arguments: &[&str], result: &str) -> Self {
-        self.symbol(name, arguments, result, false)
+        self.symbol(name, arguments, result, false, Totality::Production)
+    }
+
+    /// An `anywhere` equation head declared `total`.
+    fn total_head(self, name: &str, arguments: &[&str], result: &str) -> Self {
+        self.symbol(name, arguments, result, false, Totality::Head)
+    }
+
+    /// A function declared `total`, with no equations.
+    fn total_function(self, name: &str, arguments: &[&str], result: &str) -> Self {
+        self.symbol(name, arguments, result, false, Totality::Function)
     }
 
     /// `sub < sup`; the closure must be given explicitly.
@@ -260,10 +299,11 @@ hooked-symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(
             .unwrap();
         }
         for symbol in &self.symbols {
-            let attributes = if symbol.constructor {
-                "constructor{}(), functional{}(), injective{}()"
-            } else {
-                "anywhere{}(), function{}(), value-production{}()"
+            let attributes = match (symbol.constructor, symbol.totality) {
+                (true, _) => "constructor{}(), functional{}(), injective{}()",
+                (false, Totality::Production) => "anywhere{}(), function{}(), value-production{}()",
+                (false, Totality::Head) => "anywhere{}(), total{}()",
+                (false, Totality::Function) => "function{}(), total{}()",
             };
             writeln!(
                 source,
@@ -738,6 +778,13 @@ impl<'d> Universe<'d> {
         self.definition.symbols[symbol as usize].constructor
     }
 
+    /// Whether an application of `symbol` is defined whenever its arguments are: a constructor,
+    /// or a symbol declared `total`.
+    fn is_total(&self, symbol: u32) -> bool {
+        let symbol = &self.definition.symbols[symbol as usize];
+        symbol.constructor || symbol.totality != Totality::Production
+    }
+
     /// The value-production heads of the term.
     fn heads(&self, id: Id, into: &mut BTreeSet<u32>) {
         if let Node::App(symbol, _) = &self.nodes[id as usize]
@@ -750,19 +797,20 @@ impl<'d> Universe<'d> {
         }
     }
 
-    /// The heads of the applications a term's definedness rests on directly: its own, or,
-    /// under constructors and injections (which are total), its arguments'. A term identified
-    /// with `\bottom` makes one of these undefined; one under another head need not be.
+    /// The heads of the applications a term's definedness rests on directly: its own, and,
+    /// under total symbols and injections, its arguments'. A term identified with `\bottom`
+    /// makes one of these undefined; one under a partial head need not be.
     fn exposed_heads(&self, id: Id, into: &mut BTreeSet<u32>) {
-        match &self.nodes[id as usize] {
-            Node::App(symbol, _) if !self.is_constructor(*symbol) => {
+        if let Node::App(symbol, _) = &self.nodes[id as usize] {
+            if !self.is_constructor(*symbol) {
                 into.insert(*symbol);
             }
-            _ => {
-                for child in self.children(id) {
-                    self.exposed_heads(child, into);
-                }
+            if !self.is_total(*symbol) {
+                return;
             }
+        }
+        for child in self.children(id) {
+            self.exposed_heads(child, into);
         }
     }
 
@@ -1113,14 +1161,29 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                 changed = true;
             }
             if !defined[id] {
-                let structural = match &universe.nodes[id] {
-                    Node::Int(_) => true,
-                    Node::App(symbol, _) => universe.is_constructor(*symbol),
-                    Node::Inj(..) => true,
+                let total = match &universe.nodes[id] {
+                    Node::Int(_) | Node::Inj(..) => true,
+                    Node::App(symbol, _) => universe.is_total(*symbol),
                     Node::Bottom => false,
                 };
-                if structural && children.iter().all(|child| defined[*child as usize]) {
+                if total && children.iter().all(|child| defined[*child as usize]) {
                     defined[id] = true;
+                    changed = true;
+                }
+            }
+            // A total application with every argument but one defined is undefined only when
+            // that argument is.
+            let total_application = match &universe.nodes[id] {
+                Node::App(symbol, _) => universe.is_total(*symbol),
+                Node::Inj(..) => true,
+                Node::Bottom | Node::Int(_) => false,
+            };
+            if total_application && undefined[id] {
+                let mut open = children.iter().filter(|child| !defined[**child as usize]);
+                if let (Some(only), None) = (open.next(), open.next())
+                    && !undefined[*only as usize]
+                {
+                    undefined[*only as usize] = true;
                     changed = true;
                 }
             }
@@ -1251,6 +1314,29 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
             }
         }
     }
+    // The documented assumption about equations of other heads: an equation of a total head
+    // whose instance has an undefined right-hand side makes an application its left-hand side
+    // holds below total symbols undefined (the total root is defined on defined arguments), and
+    // the scan of that application does not read the other head's equations. Each such step at
+    // the root of an explored term, with the heads it may make undefined that way.
+    let mut held_below_total: Vec<(u32, BTreeSet<u32>)> = Vec::new();
+    for from in &expanded {
+        let Node::App(root, _) = &universe.nodes[*from as usize] else {
+            continue;
+        };
+        if universe.is_constructor(*root) || !universe.is_total(*root) {
+            continue;
+        }
+        for step in universe.steps[from].iter() {
+            if step.path.is_empty() && undefined[step.to as usize] {
+                let mut held = BTreeSet::new();
+                for child in universe.children(*from) {
+                    universe.exposed_heads(child, &mut held);
+                }
+                held_below_total.push((step.head, held));
+            }
+        }
+    }
     let mut candidates = Vec::new();
     for query in queries {
         let id = universe.ground(query);
@@ -1292,6 +1378,10 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                 (*application != peak.head && peak.exposed.contains(application))
                     || peak.bound.contains(application)
             })
+        }) || held_below_total.iter().any(|(head, held)| {
+            heads
+                .iter()
+                .any(|application| application != head && held.contains(application))
         });
         let sort = universe.sort_of(id);
         let terminates = universe.terminates(id);
@@ -1462,10 +1552,11 @@ fn describe(definition: &Definition) -> String {
         writeln!(
             text,
             "    {} {}({}) : {}",
-            if symbol.constructor {
-                "constructor"
-            } else {
-                "head"
+            match (symbol.constructor, symbol.totality) {
+                (true, _) => "constructor",
+                (false, Totality::Production) => "head",
+                (false, Totality::Head) => "total head",
+                (false, Totality::Function) => "total function",
             },
             symbol.name,
             symbol.arguments.join(", "),
@@ -1559,7 +1650,10 @@ const INT_VARIABLES: [&str; 2] = ["VarI", "VarJ"];
 
 struct Generator<'r> {
     rng: &'r mut Rng,
+    /// The heads that have equations: value productions and total equation heads.
     heads: Vec<Symbol>,
+    /// Total functions, which have no equations and occur in right-hand sides only.
+    functions: Vec<Symbol>,
 }
 
 impl Generator<'_> {
@@ -1567,6 +1661,14 @@ impl Generator<'_> {
         self.heads
             .iter()
             .filter(|head| head.result == sort)
+            .cloned()
+            .collect()
+    }
+
+    fn functions_of(&self, sort: &str) -> Vec<Symbol> {
+        self.functions
+            .iter()
+            .filter(|function| function.result == sort)
             .cloned()
             .collect()
     }
@@ -1650,6 +1752,11 @@ impl Generator<'_> {
             let head = self.rng.pick(&heads).clone();
             return self.head_application(&head, depth, false, scope);
         }
+        let functions = self.functions_of(sort);
+        if depth > 0 && !functions.is_empty() && self.rng.percent(15) {
+            let function = self.rng.pick(&functions).clone();
+            return self.head_application(&function, depth, false, scope);
+        }
         match sort {
             "S" => {
                 if depth > 0 && self.rng.percent(40) {
@@ -1720,6 +1827,28 @@ fn random_definition(rng: &mut Rng) -> Definition {
             arguments,
             result: result.into(),
             constructor: false,
+            totality: Totality::Production,
+        });
+    }
+    // Total symbols, which pass definedness to their arguments: an `anywhere` head `e : A -> A`
+    // (which may have equations) and a function `sz : A -> Int` (which has none).
+    let mut functions = Vec::new();
+    if rng.percent(40) {
+        heads.push(Symbol {
+            name: "e".into(),
+            arguments: vec!["A".into()],
+            result: "A".into(),
+            constructor: false,
+            totality: Totality::Head,
+        });
+    }
+    if rng.percent(30) {
+        functions.push(Symbol {
+            name: "sz".into(),
+            arguments: vec!["A".into()],
+            result: "Int".into(),
+            constructor: false,
+            totality: Totality::Function,
         });
     }
     let mut definition = Definition::new(&["A"])
@@ -1730,7 +1859,12 @@ fn random_definition(rng: &mut Rng) -> Definition {
         .constructor("j", &["A", "A"], "A")
         .constructor("m", &["Int"], "A");
     definition.symbols.extend(heads.iter().cloned());
-    let mut generator = Generator { rng, heads };
+    definition.symbols.extend(functions.iter().cloned());
+    let mut generator = Generator {
+        rng,
+        heads,
+        functions,
+    };
     let equations = 2 + generator.rng.below(5);
     let mut previous: Option<Symbol> = None;
     for _ in 0..equations {
@@ -2436,6 +2570,69 @@ fn probes() -> Vec<Probe> {
                     )],
                 )],
                 vec![app("f", vec![app("m", vec![int(0)])])],
+            ));
+        }
+    }
+    // Round 7, from the random run with total heads (seed 0x5eed0006, case 2466, minimized):
+    // `e(f(X)) = m(1 /Int 0)` with `e` total makes `f(c)` undefined, which the scan of `f(c)`
+    // does not see (no `f` equation, no peak); the documented assumption, excused.
+    probes.push(Probe {
+        excused: true,
+        ..probe(
+            "round 7 total head of another equation",
+            Definition::new(&["A"])
+                .constructor("c", &[], "A")
+                .constructor("m", &["Int"], "A")
+                .total_head("e", &["A"], "A")
+                .head("f", &["A"], "A")
+                .equation(
+                    app("e", vec![app("f", vec![var("VarX", "A")])]),
+                    app("m", vec![div(int(1), int(0))]),
+                ),
+            vec![],
+            vec![app("f", vec![cons("c")])],
+        )
+    });
+    // Review 6, F1 and F2: `e : A -> A` a total equation head, `sz : A -> Int` a total
+    // function; `g(d) = m(1 /Int 0)` beside `g(d) = C[g(t)]` with `C` built from total symbols
+    // only, so `g(t)` is undefined; F1 adds `g(m(I)) = c requires I ==Int 0`, refuted at
+    // `g(m(1))`.
+    for (label, held, conditional) in [
+        ("F1", app("g", vec![app("m", vec![int(1)])]), true),
+        ("F2", app("g", vec![app("s", vec![cons("c")])]), false),
+    ] {
+        for (context, second) in [
+            ("k(e(_))", app("k", vec![app("e", vec![held.clone()])])),
+            ("e(_)", app("e", vec![held.clone()])),
+            ("m(sz(_))", app("m", vec![app("sz", vec![held.clone()])])),
+            ("k(_)", app("k", vec![held.clone()])),
+        ] {
+            let mut definition = Definition::new(&["A"])
+                .constructor("c", &[], "A")
+                .constructor("d", &[], "A")
+                .constructor("k", &["A"], "A")
+                .constructor("s", &["A"], "A")
+                .constructor("m", &["Int"], "A")
+                .total_head("e", &["A"], "A")
+                .total_function("sz", &["A"], "Int")
+                .head("g", &["A"], "A")
+                .equation(
+                    app("g", vec![cons("d")]),
+                    app("m", vec![div(int(1), int(0))]),
+                )
+                .equation(app("g", vec![cons("d")]), second);
+            if conditional {
+                definition = definition.conditional(
+                    app("g", vec![app("m", vec![int_var("VarI")])]),
+                    cons("c"),
+                    requires_eq("VarI", 0),
+                );
+            }
+            probes.push(probe(
+                &format!("review 6 {label} ({context})"),
+                definition,
+                vec![],
+                vec![held.clone()],
             ));
         }
     }
