@@ -2,7 +2,7 @@
 //! id = "parser.inference.portable"
 //! name = "portable sort inference by bound propagation"
 //! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts", "Grammar::infer_ambiguous_sorts_portable", "Grammar::maximal_typing_groups"]
-//! variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
+//! variable = "V = sort-bound vertices; E = bound edges; S = concrete sorts among the bounds; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "variable realization"
-//! bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
+//! bound = "O((V + E) x S) for the concrete bounds every variable reaches (one strongly-connected-component pass per direction), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 //! ```
 //!
 //! Portable bound-propagation sort inference for monomorphic trees and forests.
@@ -148,9 +148,17 @@ struct Solver<'a> {
     /// `Grammar::insert_inferred_casts` walks the tree in the same order and reads them back by
     /// position, so a node is identified without a path, which would be as long as its depth.
     parameters: Vec<Vec<usize>>,
+    /// Every slot of `parameters`.
+    parameter_slots: HashSet<usize>,
     constraint_cache: BTreeSet<(SortRef, SortRef)>,
     next_anonymous: usize,
 }
+
+/// The concrete sorts each variable reaches along its bounds of one direction.
+type ConcreteBounds = Vec<Rc<BTreeSet<Sort>>>;
+
+/// The sort of every variable, and of every parameter slot of each parametric production.
+type Realization = (BTreeMap<VariableId, Sort>, Vec<Vec<Sort>>);
 
 impl Grammar {
     /// Infer the sorts of a packed forest and lower the result with `lower`.
@@ -513,8 +521,7 @@ impl Grammar {
         if top_sort.in_inference_domain() || !solver.is_parameter_ref(&inferred) {
             solver.constrain(inferred, SortRef::Concrete(top_sort.clone()))?;
         }
-        let variable_sorts = solver.realize_variables()?;
-        let parameter_sorts = solver.realize_parameters()?;
+        let (variable_sorts, parameter_sorts) = solver.realize()?;
         let mut typing = BTreeMap::new();
         let mut unidentified_variable = false;
         for (id, sort) in &variable_sorts {
@@ -806,6 +813,7 @@ impl<'a> Solver<'a> {
             variables: BTreeMap::new(),
             typing_variables: BTreeMap::new(),
             parameters: Vec::new(),
+            parameter_slots: HashSet::new(),
             constraint_cache: BTreeSet::new(),
             next_anonymous: 0,
         }
@@ -846,6 +854,7 @@ impl<'a> Solver<'a> {
                     });
                     if let Some(slots) = &parameter_slots {
                         self.parameters.push(slots.clone());
+                        self.parameter_slots.extend(slots.iter().copied());
                     }
                     let parameter_substitution = production
                         .parametric_origin
@@ -1049,7 +1058,7 @@ impl<'a> Solver<'a> {
         let SortRef::Variable(variable) = sort else {
             return false;
         };
-        self.parameters.iter().any(|slots| slots.contains(variable))
+        self.parameter_slots.contains(variable)
     }
 
     fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), PortableError> {
@@ -1101,34 +1110,42 @@ impl<'a> Solver<'a> {
         })
     }
 
-    fn realize_variables(&self) -> Result<BTreeMap<VariableId, Sort>, PortableError> {
-        self.variables
+    /// The sort of every variable, and of every parameter slot of each parametric production
+    /// in pre-order, chosen from the concrete bounds each reaches ([`Self::concrete_bounds`]).
+    fn realize(&self) -> Result<Realization, PortableError> {
+        let upper = self.concrete_bounds(true);
+        let lower = self.concrete_bounds(false);
+        let variables = self
+            .variables
             .iter()
             .map(|(id, variable)| {
-                self.realize_variable(*variable)
+                self.realize_variable(*variable, &upper, &lower)
                     .map(|sort| (id.clone(), sort))
             })
-            .collect()
-    }
-
-    fn realize_parameters(&self) -> Result<Vec<Vec<Sort>>, PortableError> {
-        self.parameters
+            .collect::<Result<_, _>>()?;
+        let parameters = self
+            .parameters
             .iter()
             .map(|slots| {
                 slots
                     .iter()
-                    .map(|slot| self.realize_variable(*slot))
+                    .map(|slot| self.realize_variable(*slot, &upper, &lower))
                     .collect::<Result<Vec<_>, _>>()
             })
-            .collect()
+            .collect::<Result<_, _>>()?;
+        Ok((variables, parameters))
     }
 
-    fn realize_variable(&self, variable: usize) -> Result<Sort, PortableError> {
+    fn realize_variable(
+        &self,
+        variable: usize,
+        upper: &ConcreteBounds,
+        lower: &ConcreteBounds,
+    ) -> Result<Sort, PortableError> {
         if self.bounds[variable].lower.is_empty() && self.bounds[variable].upper.is_empty() {
             return Ok(Sort::new("K"));
         }
-        let upper = self.concrete_bounds(variable, true, &mut BTreeSet::new());
-        let lower = self.concrete_bounds(variable, false, &mut BTreeSet::new());
+        let (upper, lower) = (&*upper[variable], &*lower[variable]);
         if upper.is_empty() && lower.is_empty() {
             return Ok(Sort::new("K"));
         }
@@ -1167,33 +1184,125 @@ impl<'a> Solver<'a> {
         }
     }
 
-    fn concrete_bounds(
-        &self,
-        variable: usize,
-        upper: bool,
-        visited: &mut BTreeSet<usize>,
-    ) -> BTreeSet<Sort> {
-        crate::stack::guarded(|| {
-            // Invariant: `visited` is the current DFS path; recursion follows one bound edge and
-            // returns only reachable concrete sorts.
-            if !visited.insert(variable) {
-                return BTreeSet::new();
-            }
-            let bounds = if upper {
+    /// For each variable, the concrete sorts it reaches along its upper (`upper`) or lower
+    /// bounds: its own concrete bounds and, through each variable bound, that variable's.
+    ///
+    /// Propagation (`constrain`) closes the bounds over concrete sorts in one direction only, so
+    /// a chain of parameter slots `v_n <= ... <= v_1 <= Nat` (a nesting of a parametric
+    /// production) leaves `Nat` to be found at the end of the chain from every slot. A sort is
+    /// reachable along some path exactly when it is reachable along a simple one, so the sets
+    /// are computed once for all variables over the strongly connected components of the bound
+    /// graph (Tarjan's algorithm with an explicit stack; components are completed after every
+    /// component they reach): a component's set joins its members' concrete bounds with the
+    /// sets of the components they reach, and a component with no concrete bound of its own
+    /// that reaches one set shares it. O((V + E) x S) for S concrete sorts.
+    fn concrete_bounds(&self, upper: bool) -> ConcreteBounds {
+        let edges = |variable: usize| {
+            if upper {
                 &self.bounds[variable].upper
             } else {
                 &self.bounds[variable].lower
-            };
-            bounds
+            }
+        };
+        let successors = |variable: usize| {
+            edges(variable)
                 .iter()
-                .flat_map(|bound| match bound {
-                    SortRef::Concrete(sort) => BTreeSet::from([sort.clone()]),
-                    SortRef::Variable(variable) => {
-                        self.concrete_bounds(*variable, upper, &mut visited.clone())
-                    }
+                .filter_map(|bound| match bound {
+                    SortRef::Variable(next) => Some(*next),
+                    SortRef::Concrete(_) => None,
                 })
-                .collect()
-        })
+                .collect::<Vec<_>>()
+        };
+        let count = self.bounds.len();
+        let empty = Rc::new(BTreeSet::new());
+        let mut sets: Vec<Option<Rc<BTreeSet<Sort>>>> = vec![None; count];
+        let mut index = vec![usize::MAX; count];
+        let mut low_link = vec![0; count];
+        let mut on_stack = vec![false; count];
+        let mut component_stack = Vec::new();
+        let mut next_index = 0;
+        for root in 0..count {
+            if index[root] != usize::MAX {
+                continue;
+            }
+            // Invariant: `frames` is the depth-first path from `root`; each frame holds a
+            // variable, its successors, and how many of them it has examined.
+            let mut frames = vec![(root, successors(root), 0usize)];
+            index[root] = next_index;
+            low_link[root] = next_index;
+            next_index += 1;
+            component_stack.push(root);
+            on_stack[root] = true;
+            while let Some((variable, next, examined)) = frames.last_mut() {
+                let variable = *variable;
+                if let Some(&successor) = next.get(*examined) {
+                    *examined += 1;
+                    if index[successor] == usize::MAX {
+                        index[successor] = next_index;
+                        low_link[successor] = next_index;
+                        next_index += 1;
+                        component_stack.push(successor);
+                        on_stack[successor] = true;
+                        frames.push((successor, successors(successor), 0));
+                    } else if on_stack[successor] {
+                        low_link[variable] = low_link[variable].min(index[successor]);
+                    }
+                    continue;
+                }
+                frames.pop();
+                if let Some((parent, _, _)) = frames.last() {
+                    low_link[*parent] = low_link[*parent].min(low_link[variable]);
+                }
+                if low_link[variable] != index[variable] {
+                    continue;
+                }
+                let mut members = Vec::new();
+                loop {
+                    let member = component_stack
+                        .pop()
+                        .expect("the component's root is stacked");
+                    on_stack[member] = false;
+                    members.push(member);
+                    if member == variable {
+                        break;
+                    }
+                }
+                let mut own = BTreeSet::new();
+                let mut reached: Vec<&Rc<BTreeSet<Sort>>> = Vec::new();
+                for member in &members {
+                    for bound in edges(*member) {
+                        match bound {
+                            SortRef::Concrete(sort) => {
+                                own.insert(sort.clone());
+                            }
+                            SortRef::Variable(next) => {
+                                if let Some(set) = &sets[*next]
+                                    && !reached.iter().any(|known| Rc::ptr_eq(known, set))
+                                {
+                                    reached.push(set);
+                                }
+                            }
+                        }
+                    }
+                }
+                let set = match reached.as_slice() {
+                    [] if own.is_empty() => Rc::clone(&empty),
+                    [only] if own.is_empty() => Rc::clone(only),
+                    _ => {
+                        for set in reached {
+                            own.extend(set.iter().cloned());
+                        }
+                        Rc::new(own)
+                    }
+                };
+                for member in members {
+                    sets[member] = Some(Rc::clone(&set));
+                }
+            }
+        }
+        sets.into_iter()
+            .map(|set| set.expect("every variable belongs to a component"))
+            .collect()
     }
 }
 
