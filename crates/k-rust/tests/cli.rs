@@ -9638,6 +9638,27 @@ endmodule
     assert_eq!(parse(true), plain);
 }
 
+/// Two regex lexemes of equal precedence that match equal-length text are tried in the order of
+/// their canonical forms by both scanners, and regexes with the same canonical form are one
+/// lexeme in both: `(a)` (canonical `a`) and `[a-z]` tie on `a`, and `[a-z]` comes first
+/// although `(a)` comes first by source text; `(1)` and `1` are one lexeme, so both of its
+/// productions are reachable.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_orders_and_identifies_regex_lexemes_by_canonical_form() {
+    let definition = r##"
+module ORDER-SYNTAX
+  syntax A ::= r"(a)" [token]
+  syntax B ::= r"[a-z]" [token]
+  syntax X ::= r"(1)" [token]
+  syntax Y ::= r"1" [token]
+  syntax Pgm ::= A "!" | B "?" | X "#" | Y "%"
+endmodule
+"##;
+    let programs = [("a?", true), ("a!", false), ("1#", true), ("1%", true)];
+    assert_both_scanners_decide(definition, "ORDER-SYNTAX", &owned_programs(&programs));
+}
+
 /// A scanner with a `$`-anchored rule uses Flex's `REJECT`; it must still accept a program
 /// whose scan for one match runs far ahead of the token that wins (here an unclosed `<`
 /// candidate over 20000 spaces before the literal `<` wins), and a single token longer than

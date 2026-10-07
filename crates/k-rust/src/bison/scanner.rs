@@ -10,7 +10,12 @@ use super::{Error, quote_c_string};
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum TokenKey {
     Literal(String),
-    /// K's standalone Flex scanner identifies regex tokens by their body.
+    /// A regex token, identified and ordered by its canonical form
+    /// ([`crate::definition::Regex::to_canonical_string`]), as the in-process scanner identifies
+    /// and orders its regex lexemes: regexes with the same canonical form have the same syntax
+    /// tree, so they are one token whatever their spelling, and two different regex tokens of
+    /// equal precedence that match equal-length text are tried in the same order by both
+    /// scanners (the token order is the Flex rule order, see [`Scanner::new`]).
     ///
     /// The legacy KAST `precedeRegex` and `followRegex` fields are enforced by the in-process
     /// scanner, but the pinned standalone generator has no corresponding lookaround mechanism.
@@ -104,7 +109,7 @@ impl Scanner {
                         })
                         .transpose()?;
                     for item in items {
-                        let Some(key) = TokenKey::from_item(item) else {
+                        let Some(key) = TokenKey::from_item(item)? else {
                             continue;
                         };
                         let precedence = declared.unwrap_or(match key {
@@ -185,7 +190,7 @@ impl Scanner {
     }
 
     pub fn kind(&self, item: &ProductionItem) -> Result<usize, Error> {
-        let key = TokenKey::from_item(item)
+        let key = TokenKey::from_item(item)?
             .ok_or_else(|| Error::render("a nonterminal has no scanner token"))?;
         self.kinds.get(&key).copied().ok_or_else(|| {
             Error::render(format!("missing scanner token for {}", key.description()))
@@ -370,13 +375,15 @@ impl FlexRule {
 }
 
 impl TokenKey {
-    fn from_item(item: &ProductionItem) -> Option<Self> {
+    fn from_item(item: &ProductionItem) -> Result<Option<Self>, Error> {
         match item {
-            ProductionItem::NonTerminal { .. } => None,
+            ProductionItem::NonTerminal { .. } => Ok(None),
             ProductionItem::Terminal(value) => {
-                (!value.is_empty()).then(|| Self::Literal(value.clone()))
+                Ok((!value.is_empty()).then(|| Self::Literal(value.clone())))
             }
-            ProductionItem::RegexTerminal { regex, .. } => Some(Self::Regex(regex.clone())),
+            ProductionItem::RegexTerminal { regex, .. } => Ok(Some(Self::Regex(
+                parse_flex_regex(regex)?.to_canonical_string(),
+            ))),
         }
     }
 
@@ -385,7 +392,7 @@ impl TokenKey {
     pub fn pattern(&self) -> Result<String, Error> {
         match self {
             Self::Literal(value) => Ok(quote_c_string(value)),
-            Self::Regex(source) => Ok(parse_flex_regex(source)?.to_flex_string()),
+            Self::Regex(canonical) => Ok(parse_flex_regex(canonical)?.to_flex_string()),
         }
     }
 
@@ -396,14 +403,14 @@ impl TokenKey {
                 body: quote_c_string(value),
                 end_line: false,
             }),
-            Self::Regex(source) => render_rule(source),
+            Self::Regex(canonical) => render_rule(canonical),
         }
     }
 
     pub fn description(&self) -> String {
         match self {
             Self::Literal(value) => format!("{value:?}"),
-            Self::Regex(source) => format!("r{source:?}"),
+            Self::Regex(canonical) => format!("r{canonical:?}"),
         }
     }
 }
