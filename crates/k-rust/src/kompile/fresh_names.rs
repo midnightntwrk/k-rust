@@ -118,7 +118,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mint_skips_used_names_and_advances_the_counter_like_java() {
+    fn mint_skips_used_names_and_advances_the_counter_past_them() {
         let terms = [
             Term::Variable {
                 name: "_Gen0".into(),

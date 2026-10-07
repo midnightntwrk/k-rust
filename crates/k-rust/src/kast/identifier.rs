@@ -279,7 +279,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn encodes_java_kore_identifier_edge_cases() {
+    fn encodes_identifier_edge_cases() {
         assert_eq!(encode("_+_"), "'UndsPlusUnds'");
         assert_eq!(
             encode("<generatedTop>-fragment"),

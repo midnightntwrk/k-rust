@@ -2517,7 +2517,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_backend_follows_the_reference_implication_matrix() {
+    fn persistent_backend_answers_implications_between_bottom_top_and_a_regular_pattern() {
         let bottom = r#"\bottom{SortS{}}()"#;
         let top = r#"\top{SortS{}}()"#;
         let regular = "a{}()";

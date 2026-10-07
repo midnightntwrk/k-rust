@@ -3389,7 +3389,7 @@ endmodule
     }
 
     #[test]
-    fn invalid_requests_report_the_reference_error_shape() {
+    fn invalid_requests_get_an_invalid_request_error_echoing_the_request() {
         let cases = vec![
             ("empty batch", json!([]), Some(json!([]))),
             ("non-object", json!(42), Some(json!(42))),
@@ -3784,7 +3784,7 @@ endmodule
     }
 
     #[test]
-    fn indeterminate_implication_uses_the_reference_wire_status() {
+    fn an_indeterminate_implication_has_status_indeterminate_and_no_condition() {
         let pattern = parse_pattern("value{}()").unwrap();
         let response = implication_result(
             &pattern,
@@ -3848,7 +3848,7 @@ endmodule
     }
 
     #[test]
-    fn implication_special_cases_follow_the_reference_matrix() {
+    fn implications_between_bottom_top_and_a_regular_pattern_have_fixed_verdicts() {
         let bottom = r#"\bottom{SortK{}}()"#;
         let top = r#"\top{SortK{}}()"#;
         let regular = "value{}()";
@@ -5436,7 +5436,7 @@ endmodule
     }
 
     #[test]
-    fn add_module_reports_reference_validation_errors() {
+    fn add_module_reports_invalid_and_duplicate_modules_with_their_error_codes() {
         let mut service = service();
 
         let malformed = request(

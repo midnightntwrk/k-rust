@@ -430,7 +430,7 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
 }
 
 #[test]
-fn config_dependent_sort_predicate_has_the_reference_error() {
+fn config_dependent_sort_predicate_is_rejected_with_a_replacement_hint() {
     let definition = lowered(indoc! {r#"
         module MAIN
           syntax Bool

@@ -493,7 +493,7 @@ fn expected(mode: MatchMode) -> [[Outcome; 9]; 9] {
 }
 
 #[test]
-fn matches_the_reference_dispatch_grid() {
+fn matching_outcomes_follow_the_term_kind_grid_in_every_mode() {
     let kinds = kinds();
     let sorts = sort_graph();
     for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
@@ -510,7 +510,7 @@ fn matches_the_reference_dispatch_grid() {
 }
 
 #[test]
-fn returns_the_reference_oriented_substitution() {
+fn rewrite_matching_binds_the_pattern_variable_to_the_subject() {
     let pattern = application(constructor(), var("X", sort()));
     let subject = application(constructor(), domain_value(sort(), "value"));
     assert_eq!(

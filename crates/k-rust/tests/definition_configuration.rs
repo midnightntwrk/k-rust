@@ -341,7 +341,7 @@ macro_rules! assert_configuration_snapshot {
 }
 
 #[test]
-fn generates_java_cell_fragment_collection_and_initializer_families() {
+fn generates_cell_fragment_collection_and_initializer_families() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]

@@ -111,7 +111,7 @@ fn fixture() -> ResolvedDefinition {
 }
 
 #[test]
-fn merge_attributes_reports_conflicts_and_preserves_the_java_result() {
+fn merge_attributes_reports_conflicts_and_omits_conflicting_keys() {
     let first = attrs(&[("same", json!(1)), ("conflict", json!("left"))]);
     let second = attrs(&[
         ("same", json!(1)),

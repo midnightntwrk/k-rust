@@ -124,7 +124,7 @@ fn upstream_reduced_definition_round_trips_structurally() {
 }
 
 #[test]
-fn every_java_json_sentence_has_a_round_trip() {
+fn every_kast_json_sentence_kind_round_trips() {
     let empty = empty_attributes;
     let truth = || bool_token("true");
     let variable = || Term::variable("X");

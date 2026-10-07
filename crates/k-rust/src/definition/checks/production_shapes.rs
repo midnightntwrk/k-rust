@@ -289,7 +289,7 @@ fn strict_positions(
     if value.is_empty() {
         return Ok((1..=arity).collect());
     }
-    let components = java_split(value, ';');
+    let components = split_without_trailing_empty_pieces(value, ';');
     if components.len() == 1 {
         let component = components[0].trim();
         if component.starts_with(|character: char| character.is_ascii_digit()) {
@@ -316,7 +316,7 @@ fn parse_positions(
     arity: usize,
     sentence: &Sentence,
 ) -> Result<Vec<usize>, Diagnostic> {
-    let values = java_split(value, ',');
+    let values = split_without_trailing_empty_pieces(value, ',');
     let display = format!("[{}]", values.join(", "));
     let mut positions = Vec::new();
     for value in values {
@@ -341,7 +341,7 @@ fn parse_positions(
     Ok(positions)
 }
 
-fn java_split(value: &str, separator: char) -> Vec<&str> {
+fn split_without_trailing_empty_pieces(value: &str, separator: char) -> Vec<&str> {
     if value.is_empty() {
         return vec![""];
     }

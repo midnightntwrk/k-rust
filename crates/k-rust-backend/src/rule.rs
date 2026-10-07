@@ -4181,7 +4181,7 @@ mod tests {
     }
 
     #[test]
-    fn classifies_simplifications_with_the_reference_default_priority() {
+    fn classifies_a_simplification_without_a_priority_at_priority_fifty() {
         let classified = classify(
             r#"axiom{R} \implies{R}(
                 \top{R}(),

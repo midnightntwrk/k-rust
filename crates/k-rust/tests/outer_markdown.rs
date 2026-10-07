@@ -162,7 +162,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
 }
 
 #[test]
-fn selector_supports_java_boolean_syntax_and_tag_spellings() {
+fn selector_supports_boolean_operators_grouping_and_both_tag_spellings() {
     let source = indoc! {r#"
         ```{.k a}
         selected-a

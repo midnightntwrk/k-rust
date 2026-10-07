@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_reference_sentence_spelling() {
+    fn unique_id_text_numbers_rule_variables_by_first_occurrence() {
         let sentence = Sentence::Rule {
             body: Term::Rewrite {
                 left: Box::new(Term::Apply {

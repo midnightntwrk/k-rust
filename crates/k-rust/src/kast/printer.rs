@@ -149,7 +149,7 @@ mod tests {
     use crate::kast::ast::{Label, Sort, Term};
 
     #[test]
-    fn matches_reference_spelling() {
+    fn prints_backquoted_labels_and_sorted_tokens() {
         let term = Term::Apply {
             label: Label::new("_+Int_"),
             arguments: vec![
