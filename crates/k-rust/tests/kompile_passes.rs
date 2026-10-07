@@ -6691,10 +6691,21 @@ fn concretized_cell_rule_with(
     rule: &str,
     attributes: &str,
 ) -> Result<String, Vec<String>> {
+    concretized_cell_rule_in("", configuration, rule, attributes)
+}
+
+/// [`concretized_cell_rule_with`] in a module that also declares `syntax`.
+fn concretized_cell_rule_in(
+    syntax: &str,
+    configuration: &str,
+    rule: &str,
+    attributes: &str,
+) -> Result<String, Vec<String>> {
     let source = format!(
         r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
+          {syntax}
           configuration {configuration}
           rule {rule} [label(probe){attributes}]
           syntax K
@@ -6997,6 +7008,140 @@ fn rejects_a_misplaced_cell_with_no_enclosing_cell_to_hold_it() {
         errors,
         [
             "Cell <k> written inside <a> belongs outside <a> in the configuration, and the rule has no enclosing cell to hold it"
+        ]
+    );
+}
+
+// A lifted cell leaves its written parent only through cell bags. Crossing anything else would
+// change what the term denotes, so each of these rules is rejected rather than compiled with the
+// cell dropped or moved.
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_function_argument() {
+    let errors = concretized_cell_rule_in(
+        "syntax Int ::= f(ACell) [function]",
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "f(<a> <b> X </b> <k> 5 </k> </a>) => X",
+        "",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the symbol f(_)_MAIN_Int_ACell"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_function_argument_in_a_cell_bag() {
+    let errors = concretized_cell_rule_in(
+        "syntax Bag ::= g(ACell) [function]",
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<top> g(<a> <b> X </b> <k> 5 </k> </a>) ... </top>",
+        "",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the symbol g(_)_MAIN_Bag_ACell"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_an_alias_pattern() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<top> (<a> <b> X => 1 </b> <k> 5 </k> ... </a> #as A) ... </top>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would take it out of an alias pattern (#as)"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_k_sequence() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <s> 0 </s> <a> <b> 0 </b> </a> </top>",
+        "<k> <a> <b> X </b> <s> 5 </s> ... </a> ~> K => K </k>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <s> written inside <a> belongs outside <a> in the configuration, and moving it there would take it out of a K sequence"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_the_contents_of_a_leaf_cell() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <s> 0 </s> <a> <b> 0 </b> </a> </top>",
+        "<k> <a> <b> X </b> <s> 5 </s> ... </a> </k>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <s> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the contents of the leaf cell <k>"
+        ]
+    );
+}
+
+// A complete cell (one argument per declared child, no `#dots`/`#noDots`) states all of its
+// children, so a cell lifted out of one of them has no place inside it.
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_complete_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> <a> <b> <c> 0 </c> </b> </a> </top>
+          rule <a> <b> <c> X => 1 </c> <k> 5 </k> </b> </a> [label(probe)]
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let mut definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let rule = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| {
+            matches!(&***sentence, Sentence::Rule { attributes, .. }
+                if attributes.get_str("label") == Some("probe"))
+        })
+        .expect("fixture has the probe rule");
+    let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(rule) else {
+        unreachable!()
+    };
+    // Make the written <a> complete: its one argument is the written <b>.
+    let Term::Apply { label, arguments } = body.unannotated() else {
+        panic!("the probe body should be the written <a>: {body:?}")
+    };
+    assert_eq!(label.name, "<a>");
+    let written_b = arguments[1].clone();
+    *body = application("<a>", vec![written_b]);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let error = concretize_cells(&definition).unwrap_err();
+    let messages = error
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        messages,
+        [
+            "Cell <k> written inside <b> belongs outside <b> in the configuration, and moving it there would cross the complete cell <a>"
         ]
     );
 }
