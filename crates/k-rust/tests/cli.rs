@@ -9494,10 +9494,16 @@ fn assert_both_scanners_decide(definition_source: &str, module: &str, programs: 
         let input = root.join(format!("program-{index}.pgm"));
         fs::write(&input, program).unwrap();
         let standalone = Command::new(&parser).arg(&input).output().unwrap();
+        let shown = if program.len() > 64 {
+            let prefix = program.chars().take(32).collect::<String>();
+            format!("{prefix:?}... ({} bytes)", program.len())
+        } else {
+            format!("{program:?}")
+        };
         assert_eq!(
             standalone.status.success(),
             *accepted,
-            "generated parser on {program:?}: {}{}",
+            "generated parser on {shown}: {}{}",
             String::from_utf8_lossy(&standalone.stdout),
             String::from_utf8_lossy(&standalone.stderr)
         );
@@ -9552,8 +9558,8 @@ fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
     );
 }
 
-/// The generated scanner reads its input file in chunks; an anchored token that ends where a
-/// chunk ends must still see the newline after it.
+/// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
+/// chunk must still see the newline after it.
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_read_boundary() {
@@ -9630,6 +9636,30 @@ endmodule
     let plain = parse(false);
     assert!(plain.contains("\\dv{SortInt{}}(\"2\")"), "{plain}");
     assert_eq!(parse(true), plain);
+}
+
+/// A scanner with a `$`-anchored rule uses Flex's `REJECT`; it must still accept a program
+/// whose scan for one match runs far ahead of the token that wins (here an unclosed `<`
+/// candidate over 20000 spaces before the literal `<` wins), and a single token longer than
+/// Flex's default 16 KiB input buffer.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_anchored_scanner_accepts_long_lookahead_and_long_tokens() {
+    let definition = r#"
+module LOOKAHEAD-SYNTAX
+  syntax Q ::= r"<[a-z ]*>" [token]
+  syntax Foo ::= r"a$" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo
+endmodule
+"#;
+    let programs = [
+        (format!("<{}z", " ".repeat(20_000)), true),
+        (format!("<{}>", "a".repeat(20_000)), true),
+        (format!("<{}", "a".repeat(20_000)), false),
+        ("a\n".to_owned(), true),
+        ("a".to_owned(), false),
+    ];
+    assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
 }
 
 #[cfg(unix)]
