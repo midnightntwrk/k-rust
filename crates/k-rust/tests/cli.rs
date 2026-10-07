@@ -3830,6 +3830,55 @@ fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
     );
 }
 
+/// `concrete` and `symbolic` do not restrict a rewrite step, but a variable both name is still
+/// one no term can match: kcompile reports it at the rule instead of compiling a definition the
+/// backend then refuses to load.
+#[test]
+fn kcompile_reports_a_concrete_and_symbolic_overlap_on_a_rewrite_rule_at_the_rule() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"module CO-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= f(Int) | g(Int)
+endmodule
+module CO
+  imports CO-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  rule <k> f(N) => g(N) ... </k> [concrete, symbolic(N)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "CO",
+            "--syntax-module",
+            "CO-SYNTAX",
+            "-o",
+        ])
+        .arg(root.join("out"))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "{}:9:3: Error[InconsistentFunctionRuleAttributes]: Rule cannot be both concrete and symbolic in the same variable: [N]",
+            definition.display()
+        )),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_search_final_reports_states_cut_by_the_depth_bound() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -9824,10 +9873,16 @@ fn assert_both_scanners_decide(definition_source: &str, module: &str, programs: 
         let input = root.join(format!("program-{index}.pgm"));
         fs::write(&input, program).unwrap();
         let standalone = Command::new(&parser).arg(&input).output().unwrap();
+        let shown = if program.len() > 64 {
+            let prefix = program.chars().take(32).collect::<String>();
+            format!("{prefix:?}... ({} bytes)", program.len())
+        } else {
+            format!("{program:?}")
+        };
         assert_eq!(
             standalone.status.success(),
             *accepted,
-            "generated parser on {program:?}: {}{}",
+            "generated parser on {shown}: {}{}",
             String::from_utf8_lossy(&standalone.stdout),
             String::from_utf8_lossy(&standalone.stderr)
         );
@@ -9882,8 +9937,8 @@ fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
     );
 }
 
-/// The generated scanner reads its input file in chunks; an anchored token that ends where a
-/// chunk ends must still see the newline after it.
+/// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
+/// chunk must still see the newline after it.
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_read_boundary() {
@@ -9960,6 +10015,51 @@ endmodule
     let plain = parse(false);
     assert!(plain.contains("\\dv{SortInt{}}(\"2\")"), "{plain}");
     assert_eq!(parse(true), plain);
+}
+
+/// Two regex lexemes of equal precedence that match equal-length text are tried in the order of
+/// their canonical forms by both scanners, and regexes with the same canonical form are one
+/// lexeme in both: `(a)` (canonical `a`) and `[a-z]` tie on `a`, and `[a-z]` comes first
+/// although `(a)` comes first by source text; `(1)` and `1` are one lexeme, so both of its
+/// productions are reachable.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_orders_and_identifies_regex_lexemes_by_canonical_form() {
+    let definition = r##"
+module ORDER-SYNTAX
+  syntax A ::= r"(a)" [token]
+  syntax B ::= r"[a-z]" [token]
+  syntax X ::= r"(1)" [token]
+  syntax Y ::= r"1" [token]
+  syntax Pgm ::= A "!" | B "?" | X "#" | Y "%"
+endmodule
+"##;
+    let programs = [("a?", true), ("a!", false), ("1#", true), ("1%", true)];
+    assert_both_scanners_decide(definition, "ORDER-SYNTAX", &owned_programs(&programs));
+}
+
+/// A scanner with a `$`-anchored rule uses Flex's `REJECT`; it must still accept a program
+/// whose scan for one match runs far ahead of the token that wins (here an unclosed `<`
+/// candidate over 20000 spaces before the literal `<` wins), and a single token longer than
+/// Flex's default 16 KiB input buffer.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_anchored_scanner_accepts_long_lookahead_and_long_tokens() {
+    let definition = r#"
+module LOOKAHEAD-SYNTAX
+  syntax Q ::= r"<[a-z ]*>" [token]
+  syntax Foo ::= r"a$" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo
+endmodule
+"#;
+    let programs = [
+        (format!("<{}z", " ".repeat(20_000)), true),
+        (format!("<{}>", "a".repeat(20_000)), true),
+        (format!("<{}", "a".repeat(20_000)), false),
+        ("a\n".to_owned(), true),
+        ("a".to_owned(), false),
+    ];
+    assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
 }
 
 #[cfg(unix)]

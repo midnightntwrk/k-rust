@@ -2291,6 +2291,40 @@ fn concrete_and_symbolic_overlaps_on_function_rules_are_reported_once() {
 }
 
 #[test]
+fn concrete_and_symbolic_overlaps_on_rewrite_rules_are_reported() {
+    // Neither rule is a simplification rule or a rule of a function label. The attributes do not
+    // restrict a rewrite step, but a variable both name is one no term can match, whatever the
+    // rule kind; disjoint attributes stay accepted.
+    let constructor = production(Some("overlapC"), "Int", &[], Attributes::default());
+    let lhs = || Term::apply("overlapC", Vec::new());
+    let rules = vec![
+        constructor,
+        concrete_symbolic_rule(lhs(), &[("concrete", json!("")), ("symbolic", json!(""))]),
+        concrete_symbolic_rule(lhs(), &[("concrete", json!("")), ("symbolic", json!("X"))]),
+        concrete_symbolic_rule(
+            token("0"),
+            &[("concrete", json!("X, Y")), ("symbolic", json!("Y"))],
+        ),
+        concrete_symbolic_rule(
+            token("2"),
+            &[("concrete", json!("X")), ("symbolic", json!("Y"))],
+        ),
+        concrete_symbolic_rule(token("3"), &[("concrete", json!(""))]),
+    ];
+
+    let mut messages = function_rule_attribute_messages(rules);
+    messages.sort();
+    assert_eq!(
+        messages,
+        [
+            "Rule cannot be both concrete and symbolic in the same variable.",
+            "Rule cannot be both concrete and symbolic in the same variable: [X]",
+            "Rule cannot be both concrete and symbolic in the same variable: [Y]",
+        ]
+    );
+}
+
+#[test]
 fn definition_runner_checks_every_module_and_definition_wide_invariants() {
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
         main_module: "MAIN".into(),

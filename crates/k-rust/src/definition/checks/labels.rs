@@ -397,16 +397,12 @@ pub(super) fn check_function_rule_attributes_with_views(
     let productions = views.production_catalog(module);
     let rules = definition.rule_catalog(module);
     let mut diagnostics = Vec::new();
-    let mut function_rule_ids = BTreeSet::new();
 
-    // Invariant: `diagnostics` holds the attribute-policy errors of the rules of every entry of `productions.function_labels()` before `function`, and `function_rule_ids` their ids; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
+    // Invariant: `diagnostics` holds the attribute-policy errors of the rules of every entry of `productions.function_labels()` before `function`; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
     for function in productions.function_labels() {
         let function_rules = rules
             .rules()
             .filter(|(_, rule)| LabelHead::from(&match_rule_label(rule)) == *function)
-            .inspect(|(id, _)| {
-                function_rule_ids.insert(*id);
-            })
             .map(|(_, rule)| rule)
             .collect::<Vec<_>>();
         let all_concrete = function_rules.iter().all(|rule| {
@@ -443,15 +439,12 @@ pub(super) fn check_function_rule_attributes_with_views(
     }
 
     // A pattern is concrete when it has no variables or unevaluated functions and symbolic
-    // otherwise, so a variable both attributes name can never be matched and the rule never
-    // applies. Checked once per rule, on every rule the attributes restrict: simplification rules
-    // and the rules of function labels.
-    for (id, rule) in rules.rules() {
+    // otherwise, so no term satisfies a variable both attributes name. Checked once on every rule
+    // that carries both: on an equation the rule could never apply, and on a rewrite rule, where
+    // the attributes do not restrict the step, the text still states what no term satisfies.
+    for (_, rule) in rules.rules() {
         let attributes = rule.attributes();
-        if !(attributes.has(AttributeKey::Simplification) || function_rule_ids.contains(&id))
-            || !attributes.has(AttributeKey::Concrete)
-            || !attributes.has(AttributeKey::Symbolic)
-        {
+        if !attributes.has(AttributeKey::Concrete) || !attributes.has(AttributeKey::Symbolic) {
             continue;
         }
         let overlap = match (

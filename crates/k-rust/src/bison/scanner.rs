@@ -10,7 +10,12 @@ use super::{Error, quote_c_string};
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum TokenKey {
     Literal(String),
-    /// K's standalone Flex scanner identifies regex tokens by their body.
+    /// A regex token, identified and ordered by its canonical form
+    /// ([`crate::definition::Regex::to_canonical_string`]), as the in-process scanner identifies
+    /// and orders its regex lexemes: regexes with the same canonical form have the same syntax
+    /// tree, so they are one token whatever their spelling, and two different regex tokens of
+    /// equal precedence that match equal-length text are tried in the same order by both
+    /// scanners (the token order is the Flex rule order, see [`Scanner::new`]).
     ///
     /// The legacy KAST `precedeRegex` and `followRegex` fields are enforced by the in-process
     /// scanner, but the pinned standalone generator has no corresponding lookaround mechanism.
@@ -104,7 +109,7 @@ impl Scanner {
                         })
                         .transpose()?;
                     for item in items {
-                        let Some(key) = TokenKey::from_item(item) else {
+                        let Some(key) = TokenKey::from_item(item)? else {
                             continue;
                         };
                         let precedence = declared.unwrap_or(match key {
@@ -185,7 +190,7 @@ impl Scanner {
     }
 
     pub fn kind(&self, item: &ProductionItem) -> Result<usize, Error> {
-        let key = TokenKey::from_item(item)
+        let key = TokenKey::from_item(item)?
             .ok_or_else(|| Error::render("a nonterminal has no scanner token"))?;
         self.kinds.get(&key).copied().ok_or_else(|| {
             Error::render(format!("missing scanner token for {}", key.description()))
@@ -210,15 +215,31 @@ impl Scanner {
     /// the character after the match is a newline; `REJECT` makes Flex take its next candidate
     /// (the same length later in the rule order, then shorter matches, of any rule), so the winner
     /// is the longest token among the candidates whose anchors hold, then the first in rule
-    /// order. The rule `R(.|\n)`, whose action always rejects, follows it: it makes the scanner
-    /// read the character after every match of `R` before choosing, so the character is in the
-    /// buffer even when `R`'s match ends where Flex's last read ended.
+    /// order.
     ///
-    /// Only a scanner with a `$`-anchored rule contains `REJECT`, which Flex supports at a cost:
-    /// it slows all of that scanner's matching, and that scanner stops with "input buffer
-    /// overflow, can't enlarge buffer because scanner uses REJECT" on a single token at least as
-    /// long as its 16 KiB input buffer.
+    /// Only a scanner with a `$`-anchored rule contains `REJECT`. Such a scanner keeps one DFA
+    /// state per character scanned for the current match, in a state buffer Flex sizes for its
+    /// input buffer; Flex therefore cannot enlarge that input buffer, and a scanner reading its
+    /// input in chunks stops ("input buffer overflow, can't enlarge buffer because scanner uses
+    /// REJECT") as soon as the text scanned for one match, which includes the lookahead for a
+    /// longer candidate that then fails, outgrows the buffer. So this scanner reads its whole
+    /// input into one buffer before scanning (`YY_USER_INIT`) and sizes the state buffer for it:
+    /// no match can scan past that buffer, and the character after every match, the one the
+    /// anchor check reads, is in it.
+    /// It only stops on input that does not fit in memory or in Flex's `int` buffer sizes, with
+    /// an error. `REJECT` also slows all of that scanner's matching.
     pub fn render(&self) -> Result<String, Error> {
+        let rules = self
+            .tokens
+            .iter()
+            .map(|token| token.key.rule())
+            .collect::<Result<Vec<_>, _>>()?;
+        let uses_reject = self
+            .line_markers
+            .iter()
+            .chain(&self.layout)
+            .chain(&rules)
+            .any(|rule| rule.end_line);
         let mut output = String::from(
             "%{\n\
 #include \"node.h\"\n\
@@ -239,7 +260,17 @@ char *filename;\n\
   exit(1);\\\n\
 } while (0)\n\
 void line_marker(char *, void *);\n\
-%}\n\n\
+",
+        );
+        if uses_reject {
+            output.push_str(
+                "#include <limits.h>\n\
+static void krust_scan_whole_input(yyscan_t yyscanner);\n\
+#define YY_USER_INIT krust_scan_whole_input(yyscanner);\n",
+            );
+        }
+        output.push_str(
+            "%}\n\n\
 %option reentrant bison-bridge\n\
 %option bison-locations\n\
 %option noyywrap\n",
@@ -259,8 +290,8 @@ void line_marker(char *, void *);\n\
         for rule in &self.layout {
             rule.render(&mut output, "");
         }
-        for token in &self.tokens {
-            token.key.rule()?.render(
+        for (token, rule) in self.tokens.iter().zip(&rules) {
+            rule.render(
                 &mut output,
                 &format!(
                     "  int kind = {};\n\
@@ -271,13 +302,65 @@ void line_marker(char *, void *);\n\
                 ),
             );
         }
+        if uses_reject {
+            output.push_str(SCAN_WHOLE_INPUT);
+        }
         Ok(output)
     }
 }
 
+/// The user-code section of a scanner that uses `REJECT` (see [`Scanner::render`]): read all of
+/// `yyin` into one buffer that ends with Flex's two end-of-buffer characters, scan that buffer,
+/// and give Flex a state buffer for it before `yylex` allocates its default one. One match pushes
+/// a state for its start, one per character it reads, and one per end-of-buffer character it
+/// reads (at most both), so `length + 3` states suffice; this is the bound Flex's own state buffer
+/// keeps for its own buffers, which hold at most `YY_BUF_SIZE - 1` characters in
+/// `YY_BUF_SIZE + 2` states. A buffer from `yy_scan_buffer` is never refilled, so Flex never has
+/// to enlarge it; the buffer is marked as Flex's own so that `yylex_destroy` frees it, and the
+/// line and column start where `yy_create_buffer` would start them.
+const SCAN_WHOLE_INPUT: &str = "%%\n\n\
+static void krust_scan_whole_input(yyscan_t yyscanner) {\n\
+  struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
+  FILE *input = yyin ? yyin : stdin;\n\
+  size_t capacity = 65536, length = 0;\n\
+  char *buffer = (char *)yyalloc(capacity, yyscanner);\n\
+  if (!buffer)\n\
+    YY_FATAL_ERROR(\"out of dynamic memory in krust_scan_whole_input()\");\n\
+  for (;;) {\n\
+    if (capacity - length <= 2) {\n\
+      if (capacity > (size_t)INT_MAX)\n\
+        YY_FATAL_ERROR(\"input too large for the scanner\");\n\
+      capacity *= 2;\n\
+      buffer = (char *)yyrealloc(buffer, capacity, yyscanner);\n\
+      if (!buffer)\n\
+        YY_FATAL_ERROR(\"out of dynamic memory in krust_scan_whole_input()\");\n\
+    }\n\
+    size_t count = fread(buffer + length, 1, capacity - length - 2, input);\n\
+    if (count == 0) {\n\
+      if (ferror(input))\n\
+        YY_FATAL_ERROR(\"input in flex scanner failed\");\n\
+      break;\n\
+    }\n\
+    length += count;\n\
+  }\n\
+  if (length > (size_t)INT_MAX - 3)\n\
+    YY_FATAL_ERROR(\"input too large for the scanner\");\n\
+  buffer[length] = YY_END_OF_BUFFER_CHAR;\n\
+  buffer[length + 1] = YY_END_OF_BUFFER_CHAR;\n\
+  YY_BUFFER_STATE state = yy_scan_buffer(buffer, length + 2, yyscanner);\n\
+  if (!state)\n\
+    YY_FATAL_ERROR(\"could not scan the input buffer\");\n\
+  state->yy_is_our_buffer = 1;\n\
+  yyset_lineno(1, yyscanner);\n\
+  yyset_column(0, yyscanner);\n\
+  yyg->yy_state_buf =\n\
+      (yy_state_type *)yyalloc((length + 3) * sizeof(yy_state_type), yyscanner);\n\
+  if (!yyg->yy_state_buf)\n\
+    YY_FATAL_ERROR(\"out of dynamic memory in krust_scan_whole_input()\");\n\
+}\n";
+
 impl FlexRule {
-    /// Write this rule with `action` after the anchor check and the location bookkeeping, and,
-    /// for a `$`-anchored rule, the always-rejecting rule that follows it.
+    /// Write this rule with `action` after the anchor check and the location bookkeeping.
     fn render(&self, output: &mut String, action: &str) {
         let start = if self.start_line { "^" } else { "" };
         let body = &self.body;
@@ -288,21 +371,19 @@ impl FlexRule {
         output.push_str("  KRUST_LOCATE;\n");
         output.push_str(action);
         output.push_str(" }\n");
-        if self.end_line {
-            writeln!(output, "{start}({body})(.|\\n) REJECT;")
-                .expect("writing to a string cannot fail");
-        }
     }
 }
 
 impl TokenKey {
-    fn from_item(item: &ProductionItem) -> Option<Self> {
+    fn from_item(item: &ProductionItem) -> Result<Option<Self>, Error> {
         match item {
-            ProductionItem::NonTerminal { .. } => None,
+            ProductionItem::NonTerminal { .. } => Ok(None),
             ProductionItem::Terminal(value) => {
-                (!value.is_empty()).then(|| Self::Literal(value.clone()))
+                Ok((!value.is_empty()).then(|| Self::Literal(value.clone())))
             }
-            ProductionItem::RegexTerminal { regex, .. } => Some(Self::Regex(regex.clone())),
+            ProductionItem::RegexTerminal { regex, .. } => Ok(Some(Self::Regex(
+                parse_flex_regex(regex)?.to_canonical_string(),
+            ))),
         }
     }
 
@@ -311,7 +392,7 @@ impl TokenKey {
     pub fn pattern(&self) -> Result<String, Error> {
         match self {
             Self::Literal(value) => Ok(quote_c_string(value)),
-            Self::Regex(source) => Ok(parse_flex_regex(source)?.to_flex_string()),
+            Self::Regex(canonical) => Ok(parse_flex_regex(canonical)?.to_flex_string()),
         }
     }
 
@@ -322,14 +403,14 @@ impl TokenKey {
                 body: quote_c_string(value),
                 end_line: false,
             }),
-            Self::Regex(source) => render_rule(source),
+            Self::Regex(canonical) => render_rule(canonical),
         }
     }
 
     pub fn description(&self) -> String {
         match self {
             Self::Literal(value) => format!("{value:?}"),
-            Self::Regex(source) => format!("r{source:?}"),
+            Self::Regex(canonical) => format!("r{canonical:?}"),
         }
     }
 }
@@ -398,6 +479,43 @@ mod tests {
             scanner.kind(&right_items[0]).unwrap()
         );
         assert_eq!(scanner.render().unwrap().matches("return kind;").count(), 1);
+    }
+
+    fn token_production(regex: &str) -> Sentence {
+        Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("Token"),
+            items: vec![ProductionItem::RegexTerminal {
+                precede_regex: None,
+                regex: regex.into(),
+                follow_regex: None,
+            }],
+            attributes: Attributes::default(),
+        }
+    }
+
+    /// Only a scanner with a `$`-anchored rule uses `REJECT`, and only such a scanner reads its
+    /// whole input before scanning; any other scanner keeps Flex's chunked reading.
+    #[test]
+    fn only_a_scanner_with_an_end_anchored_rule_rejects_and_reads_its_whole_input() {
+        for (regex, anchored) in [("[a-z]+", false), ("^[a-z]+", false), ("[a-z]+$", true)] {
+            let rendered = Scanner::new(&[token_production(regex)])
+                .unwrap()
+                .render()
+                .unwrap();
+            assert_eq!(rendered.contains("REJECT"), anchored, "{regex}");
+            assert_eq!(
+                rendered.contains("#define YY_USER_INIT krust_scan_whole_input(yyscanner);"),
+                anchored,
+                "{regex}"
+            );
+            assert_eq!(
+                rendered.contains("static void krust_scan_whole_input(yyscan_t yyscanner) {"),
+                anchored,
+                "{regex}"
+            );
+        }
     }
 
     #[test]
