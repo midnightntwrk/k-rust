@@ -6576,9 +6576,14 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::node_reaches_root"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "InstanceNodes::intern"
+
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"

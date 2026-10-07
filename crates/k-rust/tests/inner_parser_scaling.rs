@@ -101,6 +101,55 @@ fn deep_programs_parse_in_allocation_linear_in_their_depth() {
     );
 }
 
+/// A nesting of a parametric production (`syntax {S} S ::= wrap(S)`) is parsed in work linear in
+/// its depth, read at the sort of its argument (`p(wrap(...(z)))`) or above it (`wrap(...(z))`
+/// as a `KItem`): a nesting 2,000 levels deep allocates, and compares packed nodes, at most
+/// about twice what one 1,000 levels deep does. Portable sort inference once walked, from every
+/// parameter slot, the chain of slots above it to find its bound (cloning the path at every
+/// step); list completion instantiated every node once per node above it; and the instances of
+/// `wrap` read at `Nat` and at `KItem` over one span were built as distinct equal nodes all the
+/// way up, so the chart compared each new node with its twin down to the bottom.
+#[test]
+fn parametric_nestings_parse_in_work_linear_in_their_depth() {
+    let _measuring = measuring();
+    let parser = parser(
+        "module MAIN\n  syntax Nat ::= \"z\"\n  syntax {S} S ::= wrap(S)\n  syntax KItem ::= p(Nat)\nendmodule\n",
+    );
+    fn nesting(depth: usize) -> String {
+        format!("{}z{}", "wrap(".repeat(depth), ")".repeat(depth))
+    }
+    fn applied(depth: usize) -> String {
+        format!("p({})", nesting(depth))
+    }
+    let shapes = [
+        ("p(wrap(...))", applied as fn(usize) -> String),
+        ("wrap(...)", nesting),
+    ];
+    for (shape, program) in shapes {
+        let [small, large] = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(1 << 30)
+                .spawn_scoped(scope, || {
+                    [1_000, 2_000].map(|depth| parse_work(&parser, "KItem", &program(depth)))
+                })
+                .expect("the worker should spawn")
+                .join()
+                .expect("the parses should finish")
+        });
+        for counter in [
+            Counter::AllocatedBytes,
+            Counter::ParserPackedStructuralComparisons,
+        ] {
+            let (small, large) = (small.get(counter), large.get(counter));
+            println!("{shape}: {counter:?} {small} at 1,000 levels, {large} at 2,000");
+            assert!(
+                large <= small * 5 / 2 + 16,
+                "{shape}: {counter:?} {small} at 1,000 levels, {large} at 2,000"
+            );
+        }
+    }
+}
+
 /// The Earley chart's completions and the bytes of parsing one shape at two lengths.
 fn chart_work_at_two_sizes(
     source: &str,

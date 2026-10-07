@@ -1,14 +1,14 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root"]
+//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "InstanceNodes::intern"]
 //! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; u = (chart, production, next token) and (chart, production) pairs whose usefulness the completion lookahead decides, each once, by a search over the waiting items of the charts it reaches"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, which complete every enclosing list or chain at every position (quadratic p) without it; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -232,6 +232,51 @@ impl PredictionMode {
             Self::Filtered => true,
             Self::Unfiltered => false,
             Self::Retry { horizon } => position < horizon,
+        }
+    }
+}
+
+/// The nodes a recognition built for instances of parametric productions, by production of the
+/// parsed term, span and children.
+///
+/// Every concrete instance of one parametric production is one production of the parsed term
+/// (`Production::term_production`), so instances that complete over one span with the same
+/// children build one node, as the forest means it: under `syntax {S} S ::= wrap(S)`, the `wrap`
+/// of a `Nat` read at `Nat` and at `KItem` are the same `wrap` node. Built separately, they are
+/// equal but distinct, and so are the nodes above them, all the way up a nesting, so that
+/// comparing two of them (a chart deciding whether a derivation is new) descends the whole
+/// nesting: quadratic work in its depth. Interned, each pair is one node and the comparison
+/// stops at the first level. Keys name children by address; the table holds every node it
+/// names, and so its children, for the rest of the recognition, so an address is not reused.
+#[derive(Default)]
+struct InstanceNodes(HashMap<(usize, usize, usize, Vec<*const PackedTerm>), Rc<PackedTerm>>);
+
+impl InstanceNodes {
+    /// The node equal to `term`, built over `start..end`, that this recognition built first.
+    fn intern(&mut self, term: Rc<PackedTerm>, start: usize, end: usize) -> Rc<PackedTerm> {
+        let PackedNode::Production {
+            production,
+            children,
+            ..
+        } = &term.node
+        else {
+            return term;
+        };
+        let key = (
+            *production,
+            start,
+            end,
+            children.iter().map(Rc::as_ptr).collect::<Vec<_>>(),
+        );
+        match self.0.entry(key) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                if entry.get().node == term.node {
+                    Rc::clone(entry.get())
+                } else {
+                    term
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => Rc::clone(entry.insert(term)),
         }
     }
 }
@@ -1312,6 +1357,7 @@ impl Grammar {
             PredictionMode::Retry { .. } => PriorityFilter::Ignored,
             PredictionMode::Filtered | PredictionMode::Unfiltered => filter,
         };
+        let mut instance_nodes = InstanceNodes::default();
         let root = (start_position, start_id);
         let cycles = self
             .same_span_cycles
@@ -1546,6 +1592,11 @@ impl Grammar {
                                 position,
                                 provenance,
                             );
+                            let term = if production.term_production.is_some() {
+                                instance_nodes.intern(term, state.origin, position)
+                            } else {
+                                term
+                            };
                             match match filter {
                                 PriorityFilter::Enforced => self.filter_or_defer_packed_priority(
                                     Rc::clone(&term),
