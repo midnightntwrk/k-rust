@@ -153,7 +153,8 @@ mapfile -t cases < <(
     ((.pairings // ["kore/llvm", "haskell/rust"]) | join(" ")),
     (.expect // "accept"),
     (.reason // ""),
-    (.["reference-error"] // "")
+    (.["reference-error"] // ""),
+    ((.["lifted-cells"] // []) | tojson)
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
@@ -165,7 +166,7 @@ reference_comparator=$(reference_build_comparator "$workspace" "${krust_gate_z3_
 reference_cache_begin "$work"
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect reason reference_error <<<"$fixture"
+    comparisons pairings expect reason reference_error lifted_cells <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -360,9 +361,11 @@ for fixture in "${cases[@]}"; do
     fi
     if [[ " $effective_comparisons " == *" semantic-kore "* ]]; then
       echo "[$name:$pairing] comparing semantic KORE"
+      # N45: only the semantic comparison reads the axioms whose written cell the reference discards.
       if ! comparison_output=$(
         K_REFERENCE_KORE="$semantic_reference" \
         K_RUST_KORE="$rust/definition.kore" \
+        K_DIFFERENTIAL_LIFTED_CELLS="$lifted_cells" \
         compare_artifacts emitted_kore_matches_the_reference_frontend --nocapture 2>&1); then
         printf '%s\n' "$comparison_output" >&2
         exit 1

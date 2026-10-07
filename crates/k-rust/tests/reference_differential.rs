@@ -558,6 +558,14 @@ fn emitted_kore_matches_the_reference_frontend() {
     println!("field-projection totality derived from the reference's axioms (N43): {projections}");
     let lambdas = normalize_unsupported_lambda_totality(&mut reference);
     println!("lambda totality the reference's equations do not support withdrawn (N44): {lambdas}");
+    let lifted = lifted_cells_from_environment();
+    let lifted_cells = normalize_lifted_cells(&reference, &mut actual, &lifted)
+        .unwrap_or_else(|error| panic!("{error}"));
+    println!(
+        "cells written inside another cell, which the reference discards, compared as its \
+         variable (N45): {lifted_cells} in {} axioms",
+        lifted.len()
+    );
     compare_definitions(reference, actual);
 }
 
@@ -1739,6 +1747,402 @@ fn normalize_unsupported_lambda_totality(reference: &mut Definition) -> usize {
     withdrawn.len()
 }
 
+/// N45: one entry of a compile case's `lifted-cells` manifest key. The rule whose KORE axiom
+/// carries the label `rule` writes the cell `<cell>` inside a cell that the configuration does not
+/// place it under; the port compiles it into the instance of its configured parent that holds the
+/// cell it was written in (docs/compatibility.md#cells-written-inside-another-cell).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LiftedCell {
+    rule: String,
+    cell: String,
+}
+
+/// N45: the `lifted-cells` entries the compile gate passes in `K_DIFFERENTIAL_LIFTED_CELLS`, a
+/// JSON array of `{"rule": ..., "cell": ...}` objects; none when the variable is unset or empty.
+fn lifted_cells_from_environment() -> Vec<LiftedCell> {
+    let Ok(json) = env::var("K_DIFFERENTIAL_LIFTED_CELLS") else {
+        return Vec::new();
+    };
+    if json.trim().is_empty() {
+        return Vec::new();
+    }
+    let entries: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|error| panic!("K_DIFFERENTIAL_LIFTED_CELLS is not JSON: {error}"));
+    entries
+        .as_array()
+        .expect("K_DIFFERENTIAL_LIFTED_CELLS is a JSON array")
+        .iter()
+        .map(|entry| {
+            let field = |name: &str| {
+                entry[name]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| panic!("lifted-cells entry {entry} needs a string {name}"))
+                    .to_owned()
+            };
+            LiftedCell {
+                rule: field("rule"),
+                cell: field("cell"),
+            }
+        })
+        .collect()
+}
+
+/// N45: compare an axiom whose rule writes a cell inside a cell that does not contain it in the
+/// configuration against the reference axiom in which that cell is absent. For each entry, the
+/// axiom labelled `rule` must exist exactly once on each side; the two axioms are walked in
+/// parallel through equal heads, and wherever the port has an application of the cell symbol
+/// `<cell>` (declared with `cell{}()`) and the reference has a variable of that symbol's sort that
+/// its own cell completion generated (`Var'Unds'<stem>N`), the port's application is replaced
+/// by one fresh generated variable of that stem per reference variable, so N4 numbers it as the
+/// reference's. Everything else in the axiom is compared afterwards exactly as before. An entry
+/// that replaces nothing is stale: the reference states the cell there (or the axioms differ
+/// before reaching it), and the entry is refused. A named reference variable at that position
+/// is refused as well: a rule that names the cell's content is not one whose cell was dropped.
+/// Returns the number of applications replaced.
+fn normalize_lifted_cells(
+    reference: &Definition,
+    actual: &mut Definition,
+    lifted: &[LiftedCell],
+) -> Result<usize, String> {
+    let labelled = |definition: &Definition, rule: &str| {
+        definition
+            .modules
+            .iter()
+            .enumerate()
+            .flat_map(|(module, declarations)| {
+                declarations
+                    .sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| (module, index, sentence))
+            })
+            .filter(|(_, _, sentence)| {
+                matches!(sentence, Sentence::Axiom { .. })
+                    && sentence_attribute(sentence, "label").as_deref() == Some(rule)
+            })
+            .map(|(module, index, _)| (module, index))
+            .collect::<Vec<_>>()
+    };
+    let mut replaced = 0;
+    for entry in lifted {
+        let symbol = format!("Lbl'-LT-'{}'-GT-'", entry.cell);
+        let sort = actual
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    result_sort,
+                    attributes,
+                    ..
+                } if declared.name == symbol && has_kore_attribute(attributes, "cell") => {
+                    Some(result_sort.clone())
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                format!(
+                    "N45: k-rust declares no cell symbol {symbol} for <{}>",
+                    entry.cell
+                )
+            })?;
+        let [(reference_module, reference_index)] = labelled(reference, &entry.rule)[..] else {
+            return Err(format!(
+                "N45: the reference must state exactly one axiom labelled {}",
+                entry.rule
+            ));
+        };
+        let [(actual_module, actual_index)] = labelled(actual, &entry.rule)[..] else {
+            return Err(format!(
+                "N45: k-rust must state exactly one axiom labelled {}",
+                entry.rule
+            ));
+        };
+        let Sentence::Axiom {
+            pattern: reference_pattern,
+            ..
+        } = &reference.modules[reference_module].sentences[reference_index]
+        else {
+            unreachable!("labelled selects axioms");
+        };
+        let Sentence::Axiom {
+            pattern: actual_pattern,
+            ..
+        } = &mut actual.modules[actual_module].sentences[actual_index]
+        else {
+            unreachable!("labelled selects axioms");
+        };
+        let mut lifting = CellLifting {
+            symbol: &symbol,
+            sort: &sort,
+            used: BTreeSet::new(),
+            fresh: BTreeMap::new(),
+            replaced: 0,
+            error: None,
+        };
+        collect_variable_names(actual_pattern, &mut lifting.used);
+        lifting.walk(reference_pattern, actual_pattern);
+        if let Some(error) = lifting.error {
+            return Err(format!("N45: {}: {error}", entry.rule));
+        }
+        if lifting.replaced == 0 {
+            return Err(format!(
+                "N45: {} has no position where k-rust states <{}> and the reference a variable \
+                 its cell completion generated; the reference no longer discards the cell (or \
+                 the axioms differ before it), so the lifted-cells entry is stale",
+                entry.rule, entry.cell
+            ));
+        }
+        replaced += lifting.replaced;
+    }
+    Ok(replaced)
+}
+
+/// N45: the parallel walk of one reference axiom and its port counterpart.
+struct CellLifting<'a> {
+    symbol: &'a str,
+    sort: &'a Sort,
+    /// Every variable name of the port axiom, and the fresh names chosen so far.
+    used: BTreeSet<String>,
+    /// The fresh port name chosen for each generated reference variable.
+    fresh: BTreeMap<String, String>,
+    replaced: usize,
+    error: Option<String>,
+}
+
+impl CellLifting<'_> {
+    fn walk(&mut self, reference: &Pattern, actual: &mut Pattern) {
+        if let (Pattern::Variable(variable), Pattern::Application { symbol, .. }) =
+            (reference, &*actual)
+            && symbol.name == self.symbol
+            && variable.sort == *self.sort
+        {
+            let Some(stem) = generated_stem(&variable.name) else {
+                self.error.get_or_insert_with(|| {
+                    format!(
+                        "the reference names the variable {} where k-rust states the cell",
+                        variable.name
+                    )
+                });
+                return;
+            };
+            let name = match self.fresh.get(&variable.name) {
+                Some(name) => name.clone(),
+                None => {
+                    let name = (0..)
+                        .map(|index| format!("Var'Unds'{stem}{index}"))
+                        .find(|name| !self.used.contains(name))
+                        .expect("an unused generated name exists");
+                    self.used.insert(name.clone());
+                    self.fresh.insert(variable.name.clone(), name.clone());
+                    name
+                }
+            };
+            *actual = Pattern::Variable(Variable {
+                kind: variable.kind,
+                name,
+                sort: variable.sort.clone(),
+            });
+            self.replaced += 1;
+            return;
+        }
+        match (reference, actual) {
+            (
+                Pattern::Application {
+                    symbol: reference_symbol,
+                    arguments: reference_arguments,
+                },
+                Pattern::Application { symbol, arguments },
+            ) if reference_symbol == symbol && reference_arguments.len() == arguments.len() => {
+                self.walk_all(reference_arguments, arguments);
+            }
+            (
+                Pattern::AssociativeApplication {
+                    associativity: reference_associativity,
+                    symbol: reference_symbol,
+                    arguments: reference_arguments,
+                },
+                Pattern::AssociativeApplication {
+                    associativity,
+                    symbol,
+                    arguments,
+                },
+            ) if reference_associativity == associativity
+                && reference_symbol == symbol
+                && reference_arguments.len() == arguments.len() =>
+            {
+                self.walk_all(reference_arguments, arguments);
+            }
+            (
+                Pattern::And {
+                    sort: reference_sort,
+                    arguments: reference_arguments,
+                },
+                Pattern::And { sort, arguments },
+            )
+            | (
+                Pattern::Or {
+                    sort: reference_sort,
+                    arguments: reference_arguments,
+                },
+                Pattern::Or { sort, arguments },
+            ) if reference_sort == sort && reference_arguments.len() == arguments.len() => {
+                self.walk_all(reference_arguments, arguments);
+            }
+            (
+                Pattern::Not {
+                    argument: reference_argument,
+                    ..
+                },
+                Pattern::Not { argument, .. },
+            )
+            | (
+                Pattern::Next {
+                    argument: reference_argument,
+                    ..
+                },
+                Pattern::Next { argument, .. },
+            )
+            | (
+                Pattern::Ceil {
+                    argument: reference_argument,
+                    ..
+                },
+                Pattern::Ceil { argument, .. },
+            )
+            | (
+                Pattern::Floor {
+                    argument: reference_argument,
+                    ..
+                },
+                Pattern::Floor { argument, .. },
+            ) => self.walk(reference_argument, argument),
+            (
+                Pattern::Implies {
+                    left: reference_left,
+                    right: reference_right,
+                    ..
+                },
+                Pattern::Implies { left, right, .. },
+            )
+            | (
+                Pattern::Iff {
+                    left: reference_left,
+                    right: reference_right,
+                    ..
+                },
+                Pattern::Iff { left, right, .. },
+            )
+            | (
+                Pattern::Rewrites {
+                    left: reference_left,
+                    right: reference_right,
+                    ..
+                },
+                Pattern::Rewrites { left, right, .. },
+            )
+            | (
+                Pattern::Equals {
+                    left: reference_left,
+                    right: reference_right,
+                    ..
+                },
+                Pattern::Equals { left, right, .. },
+            )
+            | (
+                Pattern::In {
+                    left: reference_left,
+                    right: reference_right,
+                    ..
+                },
+                Pattern::In { left, right, .. },
+            ) => {
+                self.walk(reference_left, left);
+                self.walk(reference_right, right);
+            }
+            (
+                Pattern::Exists {
+                    variable: reference_variable,
+                    body: reference_body,
+                    ..
+                },
+                Pattern::Exists { variable, body, .. },
+            )
+            | (
+                Pattern::Forall {
+                    variable: reference_variable,
+                    body: reference_body,
+                    ..
+                },
+                Pattern::Forall { variable, body, .. },
+            )
+            | (
+                Pattern::Mu {
+                    variable: reference_variable,
+                    body: reference_body,
+                },
+                Pattern::Mu { variable, body },
+            )
+            | (
+                Pattern::Nu {
+                    variable: reference_variable,
+                    body: reference_body,
+                },
+                Pattern::Nu { variable, body },
+            ) if reference_variable == variable => self.walk(reference_body, body),
+            _ => {}
+        }
+    }
+
+    fn walk_all(&mut self, reference: &[Pattern], actual: &mut [Pattern]) {
+        for (reference, actual) in reference.iter().zip(actual) {
+            self.walk(reference, actual);
+        }
+    }
+}
+
+/// N45: every variable name in `pattern`, bound or free.
+fn collect_variable_names(pattern: &Pattern, names: &mut BTreeSet<String>) {
+    match pattern {
+        Pattern::Variable(variable) => {
+            names.insert(variable.name.clone());
+        }
+        Pattern::Application { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. } => {
+            for argument in arguments {
+                collect_variable_names(argument, names);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => collect_variable_names(argument, names),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            collect_variable_names(left, names);
+            collect_variable_names(right, names);
+        }
+        Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. }
+        | Pattern::Mu { variable, body }
+        | Pattern::Nu { variable, body } => {
+            names.insert(variable.name.clone());
+            collect_variable_names(body, names);
+        }
+        Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+}
+
 /// N43 adds the claim and the functional axiom the reference's own no-junk axiom and projection
 /// equation derive (the port's output for `project:FInt:one`), and leaves every projection whose
 /// derivation is missing a premise unchanged.
@@ -1867,6 +2271,145 @@ fn unsupported_lambda_totality_normalizer_withdraws_only_uncovered_claims() {
     assert!(covered.modules[0].sentences.iter().any(|sentence| matches!(sentence,
         Sentence::SymbolDeclaration { symbol, attributes, .. }
             if symbol.name == "Lbl'Hash'lambdaG'UndsUnds'" && has_kore_attribute(attributes, "total"))));
+}
+
+/// N45 fixtures: the configuration `<generatedTop> <k/> <frame/> <stack/> </generatedTop>` and
+/// a rule `probe` that, like KMIR's `setupCalleeClosure`, writes `<stack>` inside `<frame>`. The
+/// port matches the head of the stack and updates it; a reference that discards the cell has a
+/// generated `SortStackCell` variable in the stack's place on both sides.
+const LIFTED_PORT_LEFT: &str = r"Lbl'-LT-'stack'-GT-'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(VarCALLER:SortInt{}), Var'Unds'Gen0:SortList{}))";
+const LIFTED_PORT_RIGHT: &str = r#"Lbl'-LT-'stack'-GT-'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(\dv{SortInt{}}("0")), Var'Unds'Gen0:SortList{}))"#;
+const LIFTED_REFERENCE_STACK: &str = r"Var'Unds'Gen7:SortStackCell{}";
+
+fn lifted_cell_definition(k_result: &str, stack_left: &str, stack_right: &str) -> Definition {
+    let source = r#"[] module TEST
+        sort SortInt{} []
+        sort SortList{} []
+        sort SortKCell{} []
+        sort SortFrameCell{} []
+        sort SortStackCell{} []
+        sort SortGeneratedTopCell{} []
+        symbol LblListItem{}(SortInt{}) : SortList{} [function{}()]
+        symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{} [function{}()]
+        symbol Lbl'-LT-'k'-GT-'{}(SortInt{}) : SortKCell{} [cell{}(), constructor{}()]
+        symbol Lbl'-LT-'frame'-GT-'{}(SortInt{}) : SortFrameCell{} [cell{}(), constructor{}()]
+        symbol Lbl'-LT-'stack'-GT-'{}(SortList{}) : SortStackCell{} [cell{}(), constructor{}()]
+        symbol Lbl'-LT-'generatedTop'-GT-'{}(SortKCell{}, SortFrameCell{}, SortStackCell{}) : SortGeneratedTopCell{} [cell{}(), constructor{}()]
+        axiom{} \rewrites{SortGeneratedTopCell{}}(
+            \and{SortGeneratedTopCell{}}(
+                Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(\dv{SortInt{}}("1")), Lbl'-LT-'frame'-GT-'{}(VarF:SortInt{}), STACK_LEFT),
+                \top{SortGeneratedTopCell{}}()),
+            \and{SortGeneratedTopCell{}}(
+                Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(\dv{SortInt{}}("K_RESULT")), Lbl'-LT-'frame'-GT-'{}(VarF:SortInt{}), STACK_RIGHT),
+                \top{SortGeneratedTopCell{}}()))
+            [UNIQUE'Unds'ID{}("p"), label{}("TEST.probe")]
+        endmodule []"#;
+    parse_definition(
+        &source
+            .replace("K_RESULT", k_result)
+            .replace("STACK_LEFT", stack_left)
+            .replace("STACK_RIGHT", stack_right),
+    )
+    .unwrap()
+}
+
+fn lifted_cell_entry(rule: &str, cell: &str) -> [LiftedCell; 1] {
+    [LiftedCell {
+        rule: rule.into(),
+        cell: cell.into(),
+    }]
+}
+
+/// N45 accepts the lifted shape: with the port's `<stack>` applications replaced by the
+/// reference's generated variable, the axioms are equal. Without the entry they differ, and an
+/// entry for another rule or for a cell both sides state does not apply.
+#[test]
+fn lifted_cell_normalizer_accepts_the_axiom_with_the_discarded_cell_present() {
+    let reference = lifted_cell_definition("2", LIFTED_REFERENCE_STACK, LIFTED_REFERENCE_STACK);
+    let port = || lifted_cell_definition("2", LIFTED_PORT_LEFT, LIFTED_PORT_RIGHT);
+    let report = compare_definitions_with(reference.clone(), port(), CompareOptions::default());
+    assert!(matches!(report.verdict, CompareVerdict::Differs(_)));
+
+    let mut actual = port();
+    assert_eq!(
+        normalize_lifted_cells(
+            &reference,
+            &mut actual,
+            &lifted_cell_entry("TEST.probe", "stack")
+        ),
+        Ok(2)
+    );
+    let report = compare_definitions_with(reference.clone(), actual, CompareOptions::default());
+    assert_eq!(report.verdict, CompareVerdict::Equal);
+
+    let mut actual = port();
+    let error = normalize_lifted_cells(
+        &reference,
+        &mut actual,
+        &lifted_cell_entry("TEST.other", "stack"),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("exactly one axiom labelled TEST.other"),
+        "{error}"
+    );
+    let error = normalize_lifted_cells(
+        &reference,
+        &mut actual,
+        &lifted_cell_entry("TEST.probe", "frame"),
+    )
+    .unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    assert_eq!(actual, port());
+    assert_eq!(normalize_lifted_cells(&reference, &mut actual, &[]), Ok(0));
+    assert_eq!(actual, port());
+}
+
+/// N45 compares everything else in the axiom: a port axiom that differs outside the lifted
+/// cell, or that states the cell on one side only where the reference shares one variable
+/// between both, still differs after the normalization.
+#[test]
+fn lifted_cell_normalizer_rejects_a_port_axiom_that_differs_elsewhere() {
+    let entry = lifted_cell_entry("TEST.probe", "stack");
+    let reference = lifted_cell_definition("2", LIFTED_REFERENCE_STACK, LIFTED_REFERENCE_STACK);
+    for (k_result, right, replaced) in [
+        ("3", LIFTED_PORT_RIGHT, 2),
+        ("2", r"Var'Unds'Gen9:SortStackCell{}", 1),
+    ] {
+        let mut actual = lifted_cell_definition(k_result, LIFTED_PORT_LEFT, right);
+        assert_eq!(
+            normalize_lifted_cells(&reference, &mut actual, &entry),
+            Ok(replaced)
+        );
+        let report = compare_definitions_with(reference.clone(), actual, CompareOptions::default());
+        assert!(
+            matches!(report.verdict, CompareVerdict::Differs(_)),
+            "{k_result} {right}"
+        );
+    }
+}
+
+/// N45 refuses an entry whose reference states the cell (the reference no longer discards it,
+/// so the entry is stale) and a reference that names the cell's variable (a rule that names
+/// the cell is not one whose cell was dropped).
+#[test]
+fn lifted_cell_normalizer_rejects_a_reference_with_a_concrete_cell_in_that_position() {
+    let entry = lifted_cell_entry("TEST.probe", "stack");
+    let mut actual = lifted_cell_definition("2", LIFTED_PORT_LEFT, LIFTED_PORT_RIGHT);
+    let original = actual.clone();
+    let reference = lifted_cell_definition("2", LIFTED_PORT_LEFT, LIFTED_PORT_RIGHT);
+    let error = normalize_lifted_cells(&reference, &mut actual, &entry).unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    assert_eq!(actual, original);
+
+    let reference = lifted_cell_definition("2", LIFTED_PORT_LEFT, LIFTED_PORT_LEFT);
+    let error = normalize_lifted_cells(&reference, &mut actual, &entry).unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+
+    let named = r"VarSTACK:SortStackCell{}";
+    let reference = lifted_cell_definition("2", named, named);
+    let error = normalize_lifted_cells(&reference, &mut actual, &entry).unwrap_err();
+    assert!(error.contains("names the variable VarSTACK"), "{error}");
 }
 
 /// A value-production head loses its compiler-added marker and optional verifier function;

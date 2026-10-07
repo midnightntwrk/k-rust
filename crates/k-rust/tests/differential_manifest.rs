@@ -1186,6 +1186,125 @@ fn reference_result_simplification_needs_a_reason_and_program_results() {
     assert_eq!(with_simplification, ["star-cell-heating-set"]);
 }
 
+/// N45: `lifted-cells` is a non-empty array of `{rule, cell}` tables on an accepted
+/// `[[compile]]` case with a written `lifted-cells-reason`; the renderer refuses anything else,
+/// only `mir` carries it, and the compile gate passes it to the semantic KORE comparison only.
+#[test]
+fn lifted_cells_need_a_reason_and_an_accepted_compile_case() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-lifted-cells");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let entry = "lifted-cells = [{ rule = \"TEST.probe\", cell = \"stack\" }]\n";
+    let reason = "lifted-cells-reason = \"probe writes <stack> inside <frame>\"\n";
+    for (manifest, valid) in [
+        (case("compile", &format!("{entry}{reason}")), true),
+        (case("compile", entry), false),
+        (case("compile", reason), false),
+        (
+            case("compile", &format!("{entry}lifted-cells-reason = \" \"\n")),
+            false,
+        ),
+        (
+            case("compile", &format!("lifted-cells = []\n{reason}")),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!("lifted-cells = [{{ rule = \"TEST.probe\" }}]\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!(
+                    "lifted-cells = [{{ rule = \"TEST.probe\", cell = \"<stack>\" }}]\n{reason}"
+                ),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!(
+                    "lifted-cells = [{{ rule = \"TEST.probe\", cell = \"stack\", why = \"x\" }}]\n{reason}"
+                ),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!(
+                    "lifted-cells = [{{ rule = \"TEST.probe\", cell = \"stack\" }}, {{ rule = \"TEST.probe\", cell = \"stack\" }}]\n{reason}"
+                ),
+            ),
+            false,
+        ),
+        (
+            case("compile", &format!("expect = \"reject\"\n{entry}{reason}")),
+            false,
+        ),
+        (case("execution", &format!("{entry}{reason}")), false),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_lifted_cells = manifest["compile"]
+        .as_array()
+        .expect("compile cases")
+        .iter()
+        .filter(|entry| entry.get("lifted-cells").is_some())
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_lifted_cells, ["mir"]);
+
+    // The entries reach the semantic KORE comparison and no other.
+    let uses = COMPILE_SCRIPT
+        .match_indices("K_DIFFERENTIAL_LIFTED_CELLS=")
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [use_index] = uses.as_slice() else {
+        panic!("the compile gate passes the lifted cells once: {uses:?}");
+    };
+    let rest = &COMPILE_SCRIPT[*use_index..];
+    assert!(
+        rest.starts_with("K_DIFFERENTIAL_LIFTED_CELLS=\"$lifted_cells\" \\\n"),
+        "the lifted cells are passed as the manifest renders them"
+    );
+    let command = &rest[..rest.find("); then").expect("the comparison is a condition")];
+    assert!(
+        command.contains("compare_artifacts emitted_kore_matches_the_reference_frontend"),
+        "the lifted cells are an environment entry of the comparison command"
+    );
+    let section = &COMPILE_SCRIPT[..*use_index];
+    let start = section
+        .rfind("comparing semantic KORE")
+        .expect("the semantic KORE comparison precedes the lifted cells");
+    assert!(
+        !section[start..].contains("compare_artifacts"),
+        "the lifted cells belong to the semantic KORE comparison"
+    );
+}
+
 /// Run the execution gate on `case` against fake reference tools, a fake reference RPC server
 /// that only listens, a fake RPC client that answers `simplify` with `\bottom` (or with an error
 /// when `FAKE_RPC_ERROR=1`), and a fake comparator that records which reference result it got
@@ -1475,13 +1594,15 @@ fn every_gate_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     let expected = (1..=28)
         .filter(|id| *id != 2)
-        .chain([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44])
+        .chain([
+            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        ])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, and N30 through N44 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N45 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()

@@ -203,6 +203,8 @@ The driver uses `"not-run (budget)"` when the case budget prevents the confirmat
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
 No gate comparison drops a disjunct because the port's simplifier reduces it to `\bottom`: that would let the code under test remove the reference's copy of a branch the port lost.
 When the reference reports branches it did not refute, an execution case may instead carry `reference-result-simplification-reason`, and the execution gate compares the port's result against the reference result as the reference's own simplifier (one `simplify` request to the Haskell backend's `kore-rpc`) rewrites it, printing the reason with the N41 label; that evidence comes from the reference, not the port.
+A compile case may carry `lifted-cells`, the rule labels and cells of rules that write a cell inside a cell that does not contain it, with a written `lifted-cells-reason`; the semantic KORE comparison then compares those axioms with the port's cell replaced by the variable the reference has in its place (N45, [Cells written inside another cell](compatibility.md#cells-written-inside-another-cell)).
+The manifest names those cells, not the port's own cell completion, so the code under test does not decide which of its axioms are excused.
 
 ## Harness recipes
 

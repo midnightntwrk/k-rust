@@ -295,6 +295,22 @@ A translated initializer's body-derived identifier is aligned with the reference
 The parsed-definition comparison removes only the exact private module and its imports and translates the same initializer reads before injection.
 It counts all rewrites, rejects a reference declaring or using either private transport symbol, and retains unrelated equations, lookups, projections and no-junk alternatives.
 
+## Cells written inside another cell
+
+A rule mentions only the cells it needs, and cell completion places each one where the configuration declares it, filling in the cells the rule omits.
+A cell `C` written directly inside a cell `P` that the configuration does not place it under states something no configuration satisfies (`C` inside `P`), so completion must decide what the rule means.
+When the configured parent `Q` of `C` is a strict ancestor of `P`, Rust places `C` as a child of the instance of `Q` that holds `P`: every cell that contains `C` in the compiled rule also contains `P`, so the compiled rule keeps every containment fact the rule writes except the impossible one, and adds none.
+If that instance already has a cell of `C`'s sort that is not `multiplicity="*"`, the rule is rejected with a located error.
+Every other misplaced cell is rejected with a located error: one whose configured parent is not an ancestor of `P` (placing it would put it in another branch the rule never wrote), one written inside a cell of its own sort or inside one of its descendants, and one whose move would cross a rewrite arrow, an `#as` pattern, a K sequence, any other symbol, or the outermost cell of the rule.
+Rust never discards a written cell.
+The cell and the update it states are part of the rule's meaning: a compiled rule without them matches configurations whose `C` has any content and leaves `C` unchanged, which is a different rewrite relation from the one the rule writes.
+
+This is a recorded divergence from the pinned K frontend, which discards such a cell and compiles the rule as if it did not mention it.
+The pinned KMIR semantics has two such rules, `setupCalleeClosure` and `setupCalleeClosure2` (`kmir.md:558-626`), which write `<stack>` inside `<currentFrame>` while the configuration places `<stack>` beside `<currentFrame>` under `<kmir>`.
+Rust compiles their `<stack>` under `<kmir>`: the rules apply only when a caller frame is on the stack, and mark its `TUPLE` and `CLOSURE` locals `Moved`.
+In the reference's axioms the stack's place holds the variable its completion generates for an unmentioned cell, on both sides of the rewrite.
+N45 ([Comparison contract](#comparison-contract)) compares those two axioms with exactly that cell application in the port replaced by the reference's variable.
+
 ## Domain values
 
 A literal `#token("s", "S")`, emitted as `\dv{S}("s")`, denotes the element of `S` that `s` names in `S`'s literal domain, and the emitted definition declares that domain only by the attribute `hasDomainValues` on the declaration of `S`'s head.
@@ -1033,6 +1049,12 @@ A claim is supported when the lambda has exactly one equation, unconditional, wh
 A definition that states no equation for the lambda (a syntax definition) gives no evidence either way, and its claim stays compared as written.
 `let-test`'s `#lambdaF__` (pattern `inj{Int,Exp}(BAR)` on an `Exp` parameter) and `fun-llvm`'s `#lambdaF2__` (pattern `F3:FooT ~> .K` on a `K` parameter) and the lambda that applies it to an arbitrary `K` are withdrawn; the port withholds the same claims ([Configuration value transport](#configuration-value-transport)).
 A supported claim stays, so a port that withholds it, or claims a projection the reference cannot derive, still differs; both print the number of declarations they change.
+N45 applies only to the k-rust side of the semantic KORE compile comparison, and only to the axioms a compile case lists in its `lifted-cells` manifest key, each entry naming a rule label and a cell, with a written `lifted-cells-reason` that `scripts/reference-manifest.py` requires.
+It covers the divergence [Cells written inside another cell](#cells-written-inside-another-cell) states: the port compiles a cell the rule writes inside the wrong parent, the reference discards it, and the reference therefore has nothing to compare the cell against.
+The labelled axiom of each side is walked in parallel with the other through equal heads; where the port applies the listed cell's symbol and the reference has a variable of that cell's sort that its own completion generated, the application is replaced by one fresh generated variable per reference variable, so N4 numbers it as the reference's.
+The whole axiom is then compared as before, so a port axiom that differs anywhere else, or that breaks the reference's sharing of the variable between the two sides of the rewrite, still differs.
+An entry whose labelled axiom is missing or repeated on either side, whose reference position holds a named variable, or that replaces nothing (the reference states the cell there, so it no longer discards it) fails the comparison; it prints the number of applications replaced and of listed axioms (`mir`: 4 in 2).
+Which cells a rule writes in the wrong parent is stated by the manifest entry and its reason, checked against the rule's source, not by the port's own completion, whose decision the comparison is meant to test.
 The conformance driver's surface-text comparison (`scripts/conformance/run.py` `execution_text_diff`) applies the same N4 reading to kprint's `?Name:Sort` tokens as C7: the rule existentials both engines instantiate through a fresh counter are compared modulo a bijective, sort-preserving renaming by first occurrence per disjunct, applied before the C1 sort.
 Every other variable, including the search pattern's own variables and any `?` variable the recipe's `--pattern` text names, and every string literal are compared literally, so lost sharing, a changed sort, or a renamed pattern variable remains a mismatch.
 When that text comparison fails, C8 (`compare_simplified_kore`) re-runs the reference recipe with `--output kore`, simplifies that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compares the two simplified patterns with the structural execution comparator without `K_DIFFERENTIAL_DEFINITION`, so N4 renaming applies and N15 does not.
