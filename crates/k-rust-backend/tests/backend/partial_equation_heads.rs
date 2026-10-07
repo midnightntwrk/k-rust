@@ -1234,29 +1234,16 @@ fn the_representatives_past_the_bound_are_fresh_copies_of_the_right_hand_sides()
     }
 }
 
-/// `v(d) = c` and `v(d) = k(v(s(c)))` do not meet at `v(d)`: they identify `c` with
-/// `k(v(s(c)))`, so `v(s(c))` is undefined (a constructor is functional, so for a value
-/// `v(s(c))` the two sides would be distinct values), although no equation reaches it. Its
-/// obligation, and that of `k(v(s(c)))`, stay.
+/// `g(d) = m(1 /Int 0)` and `g(d) = k(g(s(c)))` do not meet at `g(d)`: the first makes `g(d)`
+/// undefined, so the second makes `k(g(s(c)))` undefined, and `k` is a constructor (defined on
+/// defined arguments), so `g(s(c))` is undefined in every model (one is `g(d)` and `g(s(c))`
+/// undefined), although no equation reaches it. Its obligation, and that of `k(g(s(c)))`, stay.
 #[test]
 fn an_overlap_that_identifies_a_constructor_term_keeps_the_obligation_of_the_application_it_holds()
 {
-    let definition = internalize(
-        r#"[]
-        module MAIN
-        sort SortA{} []
-        symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
-        symbol d{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
-        symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
-        symbol s{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
-        symbol v{}(SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]
-        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, d{}()), \top{R}())), \equals{SortA{}, R}(v{}(X0:SortA{}), \and{SortA{}}(c{}(), \top{SortA{}}()))) [anywhere{}()]
-        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, d{}()), \top{R}())), \equals{SortA{}, R}(v{}(X0:SortA{}), \and{SortA{}}(k{}(v{}(s{}(c{}()))), \top{SortA{}}()))) [anywhere{}()]
-        endmodule []"#,
-    )
-    .expect("the definition should internalize");
-    for term in [r"v{}(s{}(c{}()))", r"k{}(v{}(s{}(c{}())))"] {
-        assert_ceil_kept(&definition, term, "SortA{}", r"v{}(s{}(c{}()))");
+    let definition = total_head_definition("k{}(g{}(s{}(c{}())))", false);
+    for term in ["g{}(s{}(c{}()))", "k{}(g{}(s{}(c{}())))"] {
+        assert_ceil_kept(&definition, term, "SortA{}", "g{}(s{}(c{}()))");
     }
 }
 

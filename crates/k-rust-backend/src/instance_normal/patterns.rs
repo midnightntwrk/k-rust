@@ -2095,14 +2095,15 @@ mod tests {
         let _ = definition.instance_normal(&subject);
     }
 
-    /// `v(d) = c` and `v(d) = k(v(s(c)))` overlap at `v(d)`, and their sides do not meet: the
-    /// equations identify `c` with `k(v(s(c)))`. A constructor is functional, so for a value
-    /// `v(s(c))` the two would be distinct values; so `v(s(c))` is undefined, although no
-    /// equation reaches it and the overlap's reducts have other roots.
+    /// `v(d) = k(d)` and `v(d) = k(v(s(c)))` overlap at `v(d)`, and their sides do not meet: the
+    /// equations identify `k(d)` with `k(v(s(c)))`. A constructor is defined on defined arguments
+    /// and injective, so in every model `v(s(c))` is `d` (were it undefined, `k(v(s(c)))` would
+    /// be too, unlike `k(d)`): `v(s(c))` is not a normal form distinct from every other one,
+    /// although no equation reaches it and the overlap's reducts have another root.
     #[test]
     fn an_overlap_that_identifies_a_constructor_term_holding_the_application_reaches_it() {
         let definition = definition(&[
-            ("v", &["d{}()"], "c{}()"),
+            ("v", &["d{}()"], "k{}(d{}())"),
             ("v", &["d{}()"], "k{}(v{}(s{}(c{}())))"),
         ]);
         let subject = term(&definition, "v{}(s{}(c{}()))");
