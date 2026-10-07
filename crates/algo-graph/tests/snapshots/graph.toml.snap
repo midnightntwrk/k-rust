@@ -6521,7 +6521,7 @@ id = "parser.earley.recognize"
 provenance = "declared"
 area = "parser"
 name = "agenda-driven Earley recognition"
-variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; L = registered lexemes; u = (chart, production, next token) and (chart, production) pairs whose usefulness the completion lookahead decides, each once, by a search over the waiting items of the charts it reaches, each item judged by the relations at its edge and by whether the tokens left in the input can finish it (O(L / 64) for its FIRST set)"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = (chart, production, next token) pairs whose usefulness the completion lookahead decides, each once, and (chart, production) pairs whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the priority relation at its edge (in a grammar without rewrite, sequence or #let) and by where the input's next token its rest can begin with lies (O(P log B))"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserEarleyRecognize"
@@ -6589,11 +6589,16 @@ symbol = "RemainingTokens::new"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Reach::rest_follows"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
 symbol = "InstanceNodes::intern"
 
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort, which complete every enclosing list or chain at every position (quadratic p) without it; the tokens left in the input are read once, O(B) scanner reads, the first time a completion is judged; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"

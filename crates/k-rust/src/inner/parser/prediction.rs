@@ -38,10 +38,11 @@ use k_rust_kore::measure::{self, Counter};
 #[cfg(test)]
 use super::Sort;
 use super::{Grammar, Item};
+use crate::kast::InternalLabel;
 
 /// A set of scanner lexeme ids, one bit per id; ids are dense indexes into the scanner.
 #[derive(Clone, Default, Eq, PartialEq)]
-struct LexemeSet {
+pub(super) struct LexemeSet {
     words: Vec<u64>,
 }
 
@@ -143,6 +144,29 @@ pub(super) struct PredictionAnalysis {
     /// For each active production and each dot position, what the items from the dot to the end
     /// can begin with; `None` for a production the predictor never adds.
     rests: Vec<Option<ProductionRests>>,
+    /// The productions the predictor adds that build a rewrite, a sequence or a `#let`, whose
+    /// scope errors the priority filter defers, as the tokens their nodes contain.
+    deferred_scopes: DeferredScopes,
+}
+
+/// Where a node whose scope error the priority filter defers (one built by a production
+/// labelled `#KRewrite`, `#KSequence` or `#let`) can lie in the input.
+#[derive(Clone, Debug)]
+pub(super) enum DeferredScopes {
+    /// The grammar builds no such node.
+    Absent,
+    /// Every such node contains a token of one of these lexemes (each production's first
+    /// lexical item), so a span without one contains none.
+    Witnessed(LexemeSet),
+    /// Some such production has no lexical item, so any span may contain its node.
+    Unwitnessed,
+}
+
+impl DeferredScopes {
+    /// Whether a token of `lexeme` witnesses a deferred node (`Witnessed` only).
+    pub(super) fn witnesses(&self, lexeme: usize) -> bool {
+        matches!(self, Self::Witnessed(lexemes) if lexemes.contains(lexeme))
+    }
 }
 
 /// The FIRST sets and nullability of the suffixes of one production's items.
@@ -316,27 +340,58 @@ impl PredictionAnalysis {
                 nullable,
             });
         }
+        let deferred = |index: usize| {
+            grammar.productions[index]
+                .parse_label
+                .as_deref()
+                .is_some_and(|label| {
+                    [
+                        InternalLabel::KRewrite,
+                        InternalLabel::KSequence,
+                        InternalLabel::Let,
+                    ]
+                    .iter()
+                    .any(|deferred| label == deferred.as_str())
+                })
+        };
+        let mut deferred_scopes = DeferredScopes::Absent;
+        for index in grammar.by_result.iter().flatten() {
+            let production = &grammar.productions[*index];
+            if !deferred(*index) && !production.term_production.is_some_and(deferred) {
+                continue;
+            }
+            let witness = production
+                .items
+                .iter()
+                .filter(|item| !matches!(item, Item::NonTerminal(_)))
+                .find_map(|item| grammar.scanner.lexeme_id(item));
+            deferred_scopes = match (deferred_scopes, witness) {
+                (DeferredScopes::Unwitnessed, _) | (_, None) => DeferredScopes::Unwitnessed,
+                (DeferredScopes::Absent, Some(lexeme)) => {
+                    let mut lexemes = LexemeSet::default();
+                    lexemes.insert(lexeme);
+                    DeferredScopes::Witnessed(lexemes)
+                }
+                (DeferredScopes::Witnessed(mut lexemes), Some(lexeme)) => {
+                    lexemes.insert(lexeme);
+                    DeferredScopes::Witnessed(lexemes)
+                }
+            };
+        }
         Self {
             first_items,
             epsilon,
             first,
             buckets,
             rests,
+            deferred_scopes,
         }
     }
 
-    /// Whether the items of `production` from `dot` on can begin with some lexeme for which
-    /// `occurs` holds; `true` for a production the analysis does not cover.
-    pub(super) fn rest_can_start_with_any(
-        &self,
-        production: usize,
-        dot: usize,
-        occurs: impl Fn(usize) -> bool,
-    ) -> bool {
-        match self.rests.get(production).and_then(Option::as_ref) {
-            Some(rests) => rests.first[dot].iter().any(occurs),
-            None => true,
-        }
+    /// Where the nodes whose scope errors the priority filter defers can lie
+    /// (`Grammar::boundary_admits`).
+    pub(super) fn deferred_scopes(&self) -> &DeferredScopes {
+        &self.deferred_scopes
     }
 
     /// Whether the items of `production` from `dot` on can begin with the lexeme `winner`, the
@@ -437,7 +492,7 @@ mod tests {
     use crate::definition::{
         Attributes, ProductionCatalog, ProductionItem, Sentence, SortDenotations,
     };
-    use crate::kast::Label;
+    use crate::kast::{Label, TermSpan};
     fn nt(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(sort),
@@ -1028,6 +1083,82 @@ mod tests {
             }
         }
 
+        /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`,
+        /// whose scope errors below an operator the priority filter defers: the doomed nodes
+        /// it keeps are read by the preference among an ambiguity's readings, so skipping
+        /// items must keep every one of them (`Grammar::priority_admits`).
+        #[test]
+        fn completion_pruning_matches_unfiltered_recognition_with_deferred_scopes(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..8, 0..5)),
+                1..9,
+            ),
+            levels in prop::collection::btree_map(0usize..9, 0u8..3, 1..7),
+            associativity in prop::collection::vec((0u8..4, 0usize..9), 0..3),
+            scoped in prop::collection::btree_map(0usize..9, 0u8..3, 1..4),
+            random_input in "[abc ]{0,11}",
+            choices in prop::collection::vec(any::<u8>(), 0..24),
+        ) {
+            let scoped_label = |index: usize| scoped.get(&index).map(|kind| match kind {
+                0 => "#KRewrite",
+                1 => "#KSequence",
+                _ => "#let",
+            });
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items)) in productions.iter().enumerate() {
+                let items = items
+                    .iter()
+                    .map(|item| match item {
+                        0..=2 => nt(&format!("S{item}")),
+                        3 => terminal("a"),
+                        4 => terminal("b"),
+                        5 => terminal("c"),
+                        6 => terminal("d"),
+                        _ => nt("S0"),
+                    })
+                    .collect();
+                let label = scoped_label(index).map_or_else(|| format!("p{index}"), str::to_owned);
+                sentences.push(production(&format!("S{result}"), items, &label));
+            }
+            let input = derived_sentence(&productions, &choices).unwrap_or(random_input);
+            let label = |member: &usize| (*member < productions.len() && scoped_label(*member).is_none()).then(|| format!("p{member}"));
+            let priorities = (0u8..3)
+                .map(|level| {
+                    levels
+                        .iter()
+                        .filter(|(_, at)| **at == level)
+                        .filter_map(|(member, _)| label(member))
+                        .collect::<Vec<_>>()
+                })
+                .filter(|group| !group.is_empty())
+                .collect::<Vec<_>>();
+            if priorities.len() >= 2 {
+                sentences.push(Sentence::SyntaxPriority {
+                    priorities,
+                    attributes: Attributes::default(),
+                });
+            }
+            for (associativity, member) in &associativity {
+                let Some(tag) = label(member) else {
+                    continue;
+                };
+                sentences.push(Sentence::SyntaxAssociativity {
+                    associativity: match associativity {
+                        0 => continue,
+                        1 => crate::definition::Associativity::Left,
+                        2 => crate::definition::Associativity::Right,
+                        _ => crate::definition::Associativity::NonAssoc,
+                    },
+                    tags: vec![tag],
+                    attributes: Attributes::default(),
+                });
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
+        }
+
         #[test]
         fn indexed_prediction_matches_unfiltered_recognition(
             kinds in prop::collection::vec(0u8..10, 1..12),
@@ -1177,6 +1308,52 @@ mod tests {
             unfiltered(&behind_a_dead_item, "caa"),
             Err(ParseError::CyclicDerivation(_))
         ));
+    }
+
+    /// In a grammar with a rewrite, the priority filter keeps a node whose child is a rewrite
+    /// below an operator: the scope error is deferred, so that a reading rooted at the rewrite
+    /// can be preferred over it, and until then the doomed node, with every edge below it, is
+    /// part of the forest. Under `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and
+    /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous, and where the ambiguity is reported depends
+    /// on those doomed nodes. A first attempt that skipped every item whose edge the filter
+    /// rejects, the deferred ones included, reported it at 104-107 instead of 102-106.
+    #[test]
+    fn edges_below_a_deferred_scope_error_are_kept() {
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("S0")], "start"),
+            production("S1", vec![], "p0"),
+            production("S2", vec![terminal("a")], "p1"),
+            production("S2", vec![nt("S0"), terminal("c")], "p2"),
+            production(
+                "S2",
+                vec![nt("S2"), nt("S0"), terminal("c")],
+                InternalLabel::KRewrite.as_str(),
+            ),
+            production("S0", vec![nt("S2"), nt("S0")], "p4"),
+            production("S0", vec![], "p5"),
+        ])
+        .unwrap();
+        let expected = unfiltered(&grammar, "a c c c");
+        assert!(
+            matches!(
+                &expected,
+                Err(ParseError::Ambiguous {
+                    span: Some(TermSpan {
+                        start: 102,
+                        end: 106,
+                        ..
+                    }),
+                    ..
+                })
+            ),
+            "{expected:?}"
+        );
+        let mut pruning = Pruning::default();
+        assert_eq!(
+            attempt(&grammar, "a c c c", PredictionMode::Filtered, &mut pruning),
+            expected
+        );
+        assert_eq!(filtered(&grammar, "a c c c"), expected);
     }
 
     #[test]

@@ -429,36 +429,57 @@ fn operator_chains_parse_in_chart_work_linear_in_their_length_under_the_prelude(
 /// An operator chain in a rule body, whose grammar also has the rewrite, the casts and the
 /// matching-logic connectives at every sort, is parsed in chart work linear in its length: the
 /// work of loading the definition grows by about as much from 100 to 200 operands as from 50
-/// to 100, where the cubic chart of the chain made it grow eight times as much.
+/// to 100, where the cubic chart of the chain made it grow eight times as much. A sum starting
+/// after the first operand could be the left operand of the rule's own `=>`, which comes only
+/// after the `)` that closes `foo(`; and, beside a higher-priority `*`, the operand of a `*`,
+/// which the priority forbids, while a rewrite below the `*` (a scope error the filter defers,
+/// keeping such a reading) would need a `=>` inside the parentheses.
 #[test]
 fn operator_chains_in_rule_bodies_parse_in_chart_work_linear_in_their_length() {
-    let definition = |length: usize| {
+    let one_operator = "syntax E ::= Int | E \"+\" E [left, symbol(plus)]";
+    let arithmetic =
+        "syntax E ::= Int | E \"*\" E [left, symbol(mul)] > E \"+\" E [left, symbol(plus)]";
+    let definition = |syntax: &str, separators: [&str; 2], length: usize| {
         let chain = (0..length)
-            .map(|number| (number % 10).to_string())
-            .collect::<Vec<_>>()
-            .join(" + ");
+            .map(|number| {
+                let operand = (number % 10).to_string();
+                match number {
+                    0 => operand,
+                    _ => format!("{}{operand}", separators[(number - 1) % 2]),
+                }
+            })
+            .collect::<String>();
         format!(
-            "module MAIN\n  imports INT\n  imports BOOL\n  \
-             syntax E ::= Int | E \"+\" E [left, symbol(plus)]\n  \
+            "module MAIN\n  imports INT\n  imports BOOL\n  {syntax}\n  \
              syntax KItem ::= foo(E) [symbol(foo)]\n  rule foo({chain}) => .K\nendmodule\n"
         )
     };
+    let shapes = [
+        ("`+` chain", one_operator, [" + ", " + "]),
+        (
+            "alternating `*` and `+` under `*` > `+`",
+            arithmetic,
+            [" * ", " + "],
+        ),
+    ];
     let _measuring = measuring();
-    let [at_50, at_100, at_200] = [50, 100, 200].map(|length| {
-        let before = measure::snapshot();
-        drop(load_with_prelude(&definition(length)));
-        measure::snapshot()
-            .delta(&before)
-            .get(Counter::ParserChartCompletionCandidates)
-    });
-    let (first, second) = (at_100 - at_50, at_200 - at_100);
-    println!(
-        "rule-body chain: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
-    );
-    assert!(
-        second <= first * 5 / 2,
-        "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
-    );
+    for (shape, syntax, separators) in shapes {
+        let [at_50, at_100, at_200] = [50, 100, 200].map(|length| {
+            let before = measure::snapshot();
+            drop(load_with_prelude(&definition(syntax, separators, length)));
+            measure::snapshot()
+                .delta(&before)
+                .get(Counter::ParserChartCompletionCandidates)
+        });
+        let (first, second) = (at_100 - at_50, at_200 - at_100);
+        println!(
+            "rule-body {shape}: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+        );
+        assert!(
+            second <= first * 5 / 2,
+            "{shape}: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+        );
+    }
 }
 
 /// A list literal in a rule body, which the rule grammar also reads as the arguments of the
