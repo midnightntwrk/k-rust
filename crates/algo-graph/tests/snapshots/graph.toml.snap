@@ -2568,7 +2568,7 @@ bound = "one nested predicate simplification per evaluated rule condition, with 
 
 [[node.cost]]
 mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
-bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations, each deciding instance normality of the immediate subterms of the left-hand sides not yet shown, until a round adds none (at most e + 1 rounds); afterwards, per failed match, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have"
+bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations, each deciding instance normality of the immediate subterms of the left-hand sides not yet shown, until a round adds none (at most e + 1 rounds); afterwards, per failed match, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have, which decides the instance normality of the terms it builds (each term at most once per scan, a term in progress answered at once) with at most VALUE_QUESTIONS (8) such walks nested on a thread (instance_normal.rs)"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
