@@ -7622,6 +7622,95 @@ fn places_a_cell_above_a_list_written_beside_its_only_possible_parent_with_its_l
     }
 }
 
+// <a> is the only <a>, so the <d> written beside it is in it, in some <r> of it: what the rule
+// states when <d> is written inside <a> (the second spelling), or inside an <r> written beside
+// <a> (the third). <a> holds no other <r> the <d> could be in, and <r>'s collection is
+// commutative, so the fresh <r> completion builds around <d> is that "some <r>". All three
+// spellings compile to one rule.
+#[test]
+fn places_a_cell_written_beside_its_only_possible_ancestor_in_a_fresh_commutative_instance() {
+    for collection in ["Map", "Set"] {
+        let configuration = format!(
+            r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="{collection}"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#
+        );
+        let bodies = [
+            "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+            "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+            "<a> <x> X </x> ... </a> <r> <d> 5 => 6 </d> ... </r>",
+        ]
+        .map(|rule| {
+            concretized_cell_rule(&configuration, rule)
+                .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"))
+        });
+        assert_eq!(bodies[0], bodies[1], "{collection}");
+        assert_eq!(bodies[0], bodies[2], "{collection}");
+    }
+    let body = concretized_cell_rule(
+        r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#,
+        "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(`<x>`(X),`_RCellMap_`(`<r>`(_DotVar3,`<d>`(#token("5","Int")=>#token("6","Int"))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// The <d> written beside the one <a> would need a fresh <r> in it, and the rule does not state
+// that <d> is in that one rather than in an <r> that is in <a> already or may be: one written
+// there, one a variable of <a> may stand for, or one completion builds around another cell moved
+// into <a> with <d>. A List <r> would also give the fresh <r> a position the rule does not state.
+// The <d> then stays beside <a>, where it needs a second <a>.
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_ancestor_when_its_repeated_parent_is_not_fresh()
+{
+    let map = r#"<top> <k> 0 </k> <a> <x> 0 </x> <w> <u> 0 </u> </w> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#;
+    let list = r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="List"> <d> 0 </d> </r> </a> </top>"#;
+    let rejection = r#"Attempting to concatenate cells not of multiplicity="*": TopCell"#;
+    for (configuration, rule, moved) in [
+        (
+            map,
+            "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> ... </a> <d> 5 => 6 </d>",
+            "",
+        ),
+        (map, "<a> <x> X </x> B:Bag ... </a> <d> 5 => 6 </d>", ""),
+        (
+            map,
+            "<a> <x> X </x> ... </a> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d>",
+            "",
+        ),
+        (
+            map,
+            "<a> <x> X </x> ... </a> <w> <u> 1 </u> <r> <rid> 1 </rid> ... </r> </w> <d> 5 => 6 </d>",
+            " (after moving <r> written inside <w> to where the configuration declares it)",
+        ),
+        (list, "<a> <x> X </x> ... </a> <d> 5 => 6 </d>", ""),
+    ] {
+        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
+        assert_eq!(errors, [format!("{rejection}{moved}")], "{rule}");
+    }
+}
+
+// The <a> written in <top> is in one of many <r> cells, and the rule does not state that the <d>
+// written beside it is in that <r>: <d> is not placed in the written <a>. Completion then needs a
+// second <r> for it, and cannot also group the <s> into one.
+#[test]
+fn leaves_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
+    let configuration = r#"<top> <k> 0 </k> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s> 0 </s> <a> <e> 0 </e> <d> 0 </d> </a> </r> </top>"#;
+    let errors = concretized_cell_rule(
+        configuration,
+        "<s> 1 </s> <a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
+    )
+    .unwrap_err();
+    assert_eq!(errors, ["Ambiguous completion: <r>"]);
+    let body =
+        concretized_cell_rule(configuration, "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>").unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),_DotVar3)),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
+    );
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
