@@ -31,3 +31,5 @@ mod support;
 mod term_order;
 #[path = "backend/unification.rs"]
 mod unification;
+#[path = "backend/unspecified_oracle.rs"]
+mod unspecified_oracle;

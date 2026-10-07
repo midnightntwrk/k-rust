@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt, one in the values and one in the failed evaluations recorded for the lineage's context, a failed evaluation compared by the applications on the stack up to the deepest open attempt it reached (one pointer comparison while that prefix stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); an evaluation that ends unevaluated after a failed attempt is recorded in the innermost scope of its context open when it began and is not repeated in that scope while the stack holds the same applications up to the deepest open attempt it reached (a later evaluation re-decides only the other equations' conditions); the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage. At any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records, each recorded evaluation checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions included. Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -1302,7 +1302,11 @@ fn simplify_rule_predicates(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
     let key = (condition_key.0.to_owned(), condition_key.1.clone());
-    if active_conditions.contains(&key) {
+    let active = active_conditions.contains(&key);
+    // An evaluation reused elsewhere must find the key as it found it here (`Reads`).
+    UnspecifiedEvaluation::read_key(&key, active);
+    if active {
+        note_condition_reentry();
         return Ok(predicates.to_vec());
     }
     let mut active_conditions = active_conditions.clone();
@@ -3571,14 +3575,7 @@ fn simplify_with_budget(
                 let rule = root_equation
                     .clone()
                     .expect("an Unspecified step applies an equation");
-                values.get_or_insert_with(|| {
-                    UnspecifiedValues::open(EvaluationContext::of(
-                        assumptions,
-                        options,
-                        active_conditions,
-                        execution.is_some(),
-                    ))
-                });
+                values.get_or_insert_with(UnspecifiedValues::open);
                 frames.push(UnspecifiedFrame {
                     evaluation: step.evaluation,
                     application: children.term.clone(),
@@ -3642,7 +3639,20 @@ fn simplify_with_budget(
             if let Some(values) = &values
                 && let Some(first) = frames.first()
             {
-                values.record_in_enclosing(first, &end, &accumulated, execution.as_deref());
+                values.record_in_enclosing(
+                    first,
+                    &end,
+                    &accumulated,
+                    execution.as_deref(),
+                    &EvaluationGiven {
+                        assumptions,
+                        options,
+                        active: active_conditions,
+                        // Effect-free: the console is where it was when the evaluation began.
+                        console: execution.as_deref().map(ExecutionEvaluationContext::cursor),
+                        solver,
+                    },
+                );
             }
             return Ok(accumulated.finish(end));
         };
@@ -3657,7 +3667,7 @@ fn simplify_with_budget(
         } = frame;
         // What the failed attempt reached and whether its lineage ran out of budget stay facts
         // of the application's evaluation after the attempt is undone.
-        history.reached = max_depth(history.reached, evaluation.reached_below());
+        history.reads.merge(&evaluation.reads_below(), usize::MAX);
         history.exhausted |= accumulated.exhausted.is_some();
         drop(evaluation);
         accumulated.rewind(&before.accumulated);
@@ -4148,6 +4158,15 @@ fn simplify_root(
             None,
         ));
     }
+    // A console hook reads the console when there is one, so an evaluation that reaches one
+    // depends on whether it runs with it (`Reads`).
+    if let TermKind::Application { symbol, .. } = term.kind()
+        && let Some(hook) = symbol.attributes.hook.as_deref()
+        && hook.starts_with("IO.")
+        && matches!(hook, "IO.getc" | "IO.read" | "IO.putc" | "IO.write")
+    {
+        UnspecifiedEvaluation::read_console();
+    }
     let builtin = match execution.as_deref_mut() {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
@@ -4215,42 +4234,52 @@ fn simplify_root(
     } else if UnspecifiedEvaluation::reenter(term) {
         cut = true;
         TheoryScan::NotCacheable
-    } else if let Some((result, rule)) = UnspecifiedValues::recorded(
-        EvaluationContext::of(assumptions, options, active_conditions, execution.is_some()),
-        term,
-    ) {
-        let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
-            RootStep::DeterminedFunctionStep
-        } else {
-            RootStep::Other
-        };
-        return Ok((result, step, Some(rule), None));
     } else {
-        let context =
-            EvaluationContext::of(assumptions, options, active_conditions, execution.is_some());
-        // A retry continues the application's evaluation. A new one starts where an evaluation
-        // of the same application that failed under the same open attempts ended, if one is
-        // recorded (`UnspecifiedValues::failed`): what its attempts found failing would fail
-        // again, so only its last scan is repeated.
-        let mut history = retry.unwrap_or_else(|| {
-            let scopes = UnspecifiedValues::open_scopes();
-            match UnspecifiedValues::failed(context, term) {
-                Some(failed) => {
-                    UnspecifiedEvaluation::reach(failed.reached);
-                    UnspecifiedRetry {
-                        excluded: failed.excluded,
-                        contingent: failed.contingent,
-                        reached: failed.reached,
-                        scopes,
-                        exhausted: false,
-                    }
-                }
-                None => UnspecifiedRetry {
-                    scopes,
-                    ..UnspecifiedRetry::default()
-                },
+        // The console the evaluation would read: its position, when there is one. A failed
+        // attempt's reads are undone, so an evaluation that ends unevaluated ends where it began.
+        let given = EvaluationGiven {
+            assumptions,
+            options,
+            active: active_conditions,
+            console: execution.as_deref().map(ExecutionEvaluationContext::cursor),
+            solver,
+        };
+        let recorded = UnspecifiedValues::recorded(term, &given);
+        // A recorded value is the value an evaluation now would give; a recorded failure is where
+        // its evaluation would end, so only its last scan is repeated (`UnspecifiedValues`). A
+        // retry continues the application's evaluation.
+        let mut history = match (retry, recorded) {
+            (Some(history), _) => history,
+            (None, Some((RecordedOutcome::Value(result, rule), reads))) => {
+                UnspecifiedEvaluation::reach(&reads);
+                let step =
+                    if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+                        RootStep::DeterminedFunctionStep
+                    } else {
+                        RootStep::Other
+                    };
+                return Ok((result, step, Some(rule), None));
             }
-        });
+            (
+                None,
+                Some((
+                    RecordedOutcome::Failed {
+                        excluded,
+                        contingent,
+                    },
+                    reads,
+                )),
+            ) => {
+                UnspecifiedEvaluation::reach(&reads);
+                UnspecifiedRetry {
+                    excluded,
+                    contingent,
+                    reads,
+                    exhausted: false,
+                }
+            }
+            (None, None) => UnspecifiedRetry::default(),
+        };
         let diagnostics = diagnostic::mark();
         let mut opened = None;
         let scan =
@@ -4283,6 +4312,13 @@ fn simplify_root(
                     EquationAttempt::Applied(result) => {
                         if result.term != *term {
                             opened = Some(evaluation);
+                        } else if !result.constraints().contains(&Predicate::False) {
+                            // The equation's result is the application itself (`A = A`): it
+                            // states the application through itself and gives no value, as a
+                            // result that still holds it after more steps does.
+                            history.reads.merge(&evaluation.reads_below(), usize::MAX);
+                            history.excluded.push(Arc::clone(rule));
+                            return Ok(EquationAttempt::Recurred);
                         }
                         Ok(EquationAttempt::Applied(result))
                     }
@@ -4292,13 +4328,13 @@ fn simplify_root(
                     EquationAttempt::Indeterminate(reason) => {
                         history.contingent =
                             min_depth(history.contingent, evaluation.contingent_cut());
-                        history.reached = max_depth(history.reached, evaluation.reached_below());
+                        history.reads.merge(&evaluation.reads_below(), usize::MAX);
                         Ok(EquationAttempt::Indeterminate(reason))
                     }
                     // A refuted `requires` was refuted with whatever it reached left as it is, so it
                     // is refuted for every value of it.
                     attempt => {
-                        history.reached = max_depth(history.reached, evaluation.reached_below());
+                        history.reads.merge(&evaluation.reads_below(), usize::MAX);
                         Ok(attempt)
                     }
                 }
@@ -4317,9 +4353,9 @@ fn simplify_root(
             return Ok((result, step, Some(rule), unspecified));
         }
         // The evaluation ends with the application unevaluated. If an attempt failed in it, it is
-        // recorded for later evaluations under the same open attempts.
+        // recorded with what it read, for later evaluations that would read the same.
         if !history.excluded.is_empty() && !history.exhausted {
-            UnspecifiedValues::record_failed(context, term, &history);
+            UnspecifiedValues::record_failed(term, &history, &given);
         }
         contingent = history.contingent;
         scan
@@ -4461,19 +4497,91 @@ struct UnspecifiedStep {
 /// ([`UnspecifiedValues::record_failed`]).
 ///
 /// `excluded` are the equations whose attempts failed, `contingent` the lowest stack depth any
-/// failure, or any undecided `requires`, was contingent on, and `reached` the deepest depth below
-/// the application's own of an open attempt that any of its attempts reached: the stack up to
-/// there is what the evaluation read of it. `scopes` is the number of value scopes open when the
-/// evaluation began, among which a failed evaluation is recorded, and `exhausted` whether an
-/// attempt's lineage ran out of iteration budget, in which case its failure may be the budget's
-/// and it is not recorded.
+/// failure, or any undecided `requires`, was contingent on, `reads` what its attempts read of
+/// their surroundings ([`Reads`]), and `exhausted` whether an attempt's lineage ran out of
+/// iteration budget, in which case its failure may be the budget's and it is not recorded.
 #[derive(Default)]
 struct UnspecifiedRetry {
     excluded: Vec<Arc<RewriteRule>>,
     contingent: Option<usize>,
-    reached: Option<usize>,
-    scopes: usize,
+    reads: Reads,
     exhausted: bool,
+}
+
+/// A rule condition being evaluated (`simplify_rule_predicates`): the rule and the term it is
+/// evaluated for.
+type ConditionKey = (String, Term);
+
+/// The number of applications and condition keys a [`Reads`] lists before it keeps only the
+/// sufficient check of its absences.
+const READS_BOUND: usize = 256;
+
+/// What an evaluation read of its surroundings, besides the term, the definition and what it is
+/// given ([`EvaluationGiven`]): everything else that can make the same evaluation elsewhere
+/// differ ([`UnspecifiedValues`]).
+///
+/// - `reached`: the deepest open attempt it reached below where it began (an occurrence cut for
+///   it, or a record it reused that had reached it); the stack up to there is read.
+/// - `absent`: the `Unspecified` applications it found with no attempt open (and evaluated, or
+///   reused a record for).
+/// - `active`: the rule-condition keys it found active, whose condition it left unsimplified;
+///   `inserted`: those it found inactive, and evaluated.
+/// - `console`: whether it reached a console hook, which reads the console when there is one: a
+///   read takes the input from the console's position.
+///
+/// `absent` and `inserted` together hold at most [`READS_BOUND`] entries; past that `unbounded`
+/// is set and they are dropped, and a record keeps only the sufficient check that nothing is open
+/// or active now that was not when it began.
+#[derive(Clone, Default)]
+struct Reads {
+    reached: Option<usize>,
+    absent: FxHashSet<Term>,
+    active: FxHashSet<ConditionKey>,
+    inserted: FxHashSet<ConditionKey>,
+    unbounded: bool,
+    console: bool,
+}
+
+impl Reads {
+    fn absent(&mut self, application: &Term) {
+        if !self.unbounded {
+            self.absent.insert(application.clone());
+            self.bound();
+        }
+    }
+
+    fn key(&mut self, key: &ConditionKey, active: bool) {
+        if active {
+            self.active.insert(key.clone());
+        } else if !self.unbounded {
+            self.inserted.insert(key.clone());
+            self.bound();
+        }
+    }
+
+    fn bound(&mut self) {
+        if self.absent.len() + self.inserted.len() > reads_bound() {
+            self.unbounded = true;
+            self.absent = FxHashSet::default();
+            self.inserted = FxHashSet::default();
+        }
+    }
+
+    /// Add what `other` read, keeping of its `reached` only a depth below `below`.
+    fn merge(&mut self, other: &Reads, below: usize) {
+        self.reached = max_depth(self.reached, other.reached.filter(|&depth| depth < below));
+        self.active.extend(other.active.iter().cloned());
+        self.console |= other.console;
+        if other.unbounded {
+            self.unbounded = true;
+            self.absent = FxHashSet::default();
+            self.inserted = FxHashSet::default();
+        } else if !self.unbounded {
+            self.absent.extend(other.absent.iter().cloned());
+            self.inserted.extend(other.inserted.iter().cloned());
+            self.bound();
+        }
+    }
 }
 
 /// One attempt of a function equation `rule` on an `Unspecified` `application`, which a lineage
@@ -4590,9 +4698,103 @@ thread_local! {
     static UNSPECIFIED_EVALUATIONS: RefCell<UnspecifiedStack> =
         RefCell::new(UnspecifiedStack::default());
 
-    /// The scopes of [`UnspecifiedValues`], outermost first: the values nested lineages computed
-    /// for `Unspecified` applications, each scope with the context they hold in.
-    static UNSPECIFIED_VALUES: RefCell<Vec<ValueScope>> = const { RefCell::new(Vec::new()) };
+    /// The records of [`UnspecifiedValues`], kept while a scope is open.
+    static UNSPECIFIED_VALUES: RefCell<RecordTable> = RefCell::new(RecordTable::default());
+}
+
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// Whether this thread reuses evaluations of `Unspecified` applications
+    /// ([`without_unspecified_reuse`]).
+    static UNSPECIFIED_REUSE: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Run `action` with the reuse of `Unspecified` evaluations turned off on this thread: no value a
+/// nested lineage computed and no failed evaluation is recorded or served
+/// ([`UnspecifiedValues`]), so every application is evaluated afresh where it is reached. Reuse is
+/// memoization, so the results must not change; tests compare the two. Only with the
+/// `test-switches` feature, which no normal build enables.
+#[cfg(feature = "test-switches")]
+pub fn without_unspecified_reuse<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNSPECIFIED_REUSE.set(self.0);
+        }
+    }
+    let _restore = Restore(UNSPECIFIED_REUSE.replace(false));
+    action()
+}
+
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// The bound of a [`Reads`] on this thread ([`with_reads_bound`]).
+    static READS_BOUND_NOW: Cell<usize> = const { Cell::new(READS_BOUND) };
+}
+
+/// Run `action` with [`Reads`] bounded at `bound` entries on this thread in place of
+/// [`READS_BOUND`], so that a test reaches the check a record keeps past its bound with small
+/// definitions. Only with the `test-switches` feature.
+#[cfg(feature = "test-switches")]
+pub fn with_reads_bound<T>(bound: usize, action: impl FnOnce() -> T) -> T {
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            READS_BOUND_NOW.set(self.0);
+        }
+    }
+    let _restore = Restore(READS_BOUND_NOW.replace(bound));
+    action()
+}
+
+/// The number of entries a [`Reads`] lists before it keeps only the sufficient check:
+/// [`READS_BOUND`], except under [`with_reads_bound`].
+#[inline(always)]
+fn reads_bound() -> usize {
+    #[cfg(feature = "test-switches")]
+    {
+        READS_BOUND_NOW.get()
+    }
+    #[cfg(not(feature = "test-switches"))]
+    {
+        READS_BOUND
+    }
+}
+
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// How many times this thread found a rule condition it was asked to evaluate already being
+    /// evaluated ([`condition_reentries`]).
+    static CONDITION_REENTRIES: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many times this thread found a rule condition it was asked to evaluate already being
+/// evaluated for the same term, and left it unsimplified (`simplify_rule_predicates`). Only with
+/// the `test-switches` feature: a test uses it to tell an outcome that this re-entry left
+/// undecided.
+#[cfg(feature = "test-switches")]
+pub fn condition_reentries() -> u64 {
+    CONDITION_REENTRIES.get()
+}
+
+#[inline(always)]
+fn note_condition_reentry() {
+    #[cfg(feature = "test-switches")]
+    CONDITION_REENTRIES.set(CONDITION_REENTRIES.get() + 1);
+}
+
+/// Whether evaluations of `Unspecified` applications are reused: always, except under
+/// [`without_unspecified_reuse`].
+#[inline(always)]
+fn unspecified_reuse() -> bool {
+    #[cfg(feature = "test-switches")]
+    {
+        UNSPECIFIED_REUSE.get()
+    }
+    #[cfg(not(feature = "test-switches"))]
+    {
+        true
+    }
 }
 
 #[derive(Default)]
@@ -4611,14 +4813,14 @@ struct UnspecifiedStack {
 
 /// An open attempt's application, with the occurrences evaluation cut while that attempt was the
 /// innermost one open: each occurrence with the depth of the stack entry it was cut for.
-/// `prefix` is the applications of this entry and every entry below it, and `reached` the deepest
-/// depth of an open attempt reached while this entry was open (by a cut for it, a record reused
-/// for it, or an entry above it that was removed).
+/// `prefix` is the applications of this entry and every entry below it, and `reads` what the
+/// evaluation read of its surroundings while this entry was the innermost one open, or in an
+/// entry above it that was removed ([`Reads`], `reached` below this entry's own depth).
 struct StackEntry {
     application: Term,
     cuts: Vec<(Term, usize)>,
     prefix: Arc<StackPrefix>,
-    reached: Option<usize>,
+    reads: Reads,
 }
 
 /// The applications on the evaluation stack from the bottom up to one entry, as a list sharing
@@ -4698,7 +4900,7 @@ impl UnspecifiedEvaluation {
                 application: application.clone(),
                 cuts: Vec::new(),
                 prefix,
-                reached: None,
+                reads: Reads::default(),
             });
             stack.depths.insert(application.clone(), depth);
             Self { depth }
@@ -4710,6 +4912,9 @@ impl UnspecifiedEvaluation {
     fn reenter(application: &Term) -> bool {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
             let Some(&depth) = stack.depths.get(application) else {
+                if let Some(innermost) = stack.entries.last_mut() {
+                    innermost.reads.absent(application);
+                }
                 return false;
             };
             record_cut(stack, application, depth);
@@ -4723,12 +4928,31 @@ impl UnspecifiedEvaluation {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| record_cut(stack, application, depth));
     }
 
-    /// Record that the innermost open attempt reached the open attempt at `depth`, through a
-    /// failed evaluation it reused ([`UnspecifiedValues::failed`]).
-    fn reach(depth: Option<usize>) {
+    /// Record that the innermost open attempt read what a record it reused read
+    /// ([`UnspecifiedValues::recorded`]).
+    fn reach(reads: &Reads) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            let depth = stack.entries.len().saturating_sub(1);
+            if let Some(innermost) = stack.entries.last_mut() {
+                innermost.reads.merge(reads, depth);
+            }
+        });
+    }
+
+    /// Record that the innermost open attempt found the rule-condition `key` active, or not.
+    fn read_key(key: &ConditionKey, active: bool) {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
             if let Some(innermost) = stack.entries.last_mut() {
-                innermost.reached = max_depth(innermost.reached, depth);
+                innermost.reads.key(key, active);
+            }
+        });
+    }
+
+    /// Record that the innermost open attempt reached a console hook.
+    fn read_console() {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            if let Some(innermost) = stack.entries.last_mut() {
+                innermost.reads.console = true;
             }
         });
     }
@@ -4758,14 +4982,15 @@ impl UnspecifiedEvaluation {
             .min()
     }
 
-    /// The deepest depth below this attempt's own of an open attempt reached while it was open.
-    fn reached_below(&self) -> Option<usize> {
+    /// What this attempt read of its surroundings while it was open, an open attempt reached
+    /// counting only below its own depth.
+    fn reads_below(&self) -> Reads {
         UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
-            stack
-                .entries
-                .get(self.depth)
-                .and_then(|entry| entry.reached)
-                .filter(|&depth| depth < self.depth)
+            let mut reads = Reads::default();
+            if let Some(entry) = stack.entries.get(self.depth) {
+                reads.merge(&entry.reads, self.depth);
+            }
+            reads
         })
     }
 }
@@ -4778,7 +5003,11 @@ fn record_cut(stack: &mut UnspecifiedStack, application: &Term, depth: usize) {
         watch.lowest = min_depth(watch.lowest, Some(depth));
     }
     if let Some(innermost) = stack.entries.last_mut() {
-        innermost.reached = max_depth(innermost.reached, Some(depth));
+        // An occurrence of its own application is its own work; only an attempt below it is a
+        // read of its surroundings.
+        if depth + 1 < level {
+            innermost.reads.reached = max_depth(innermost.reads.reached, Some(depth));
+        }
         if !innermost.cuts.iter().any(|(cut, _)| cut == application) {
             innermost.cuts.push((application.clone(), depth));
         }
@@ -4795,7 +5024,7 @@ impl Drop for UnspecifiedEvaluation {
                 ..
             } = stack;
             let start = self.depth.min(entries.len());
-            let mut reached = None;
+            let mut reads = Reads::default();
             for (depth, entry) in entries.drain(start..).enumerate() {
                 let depth = start + depth;
                 depths.remove(&entry.application);
@@ -4803,12 +5032,12 @@ impl Drop for UnspecifiedEvaluation {
                     vacated.resize(depth + 1, None);
                 }
                 vacated[depth] = Some(entry.prefix);
-                // What a removed attempt reached below this one was reached by the work of the
-                // attempt now innermost.
-                reached = max_depth(reached, entry.reached.filter(|&reached| reached < start));
+                // What a removed attempt read (an open attempt reached below this one) was read
+                // by the work of the attempt now innermost.
+                reads.merge(&entry.reads, start);
             }
             if let Some(innermost) = entries.last_mut() {
-                innermost.reached = max_depth(innermost.reached, reached);
+                innermost.reads.merge(&reads, start - 1);
             }
         });
     }
@@ -4853,191 +5082,290 @@ impl Drop for CutWatch {
     }
 }
 
-/// What a simplification of a term depends on besides the term and the definition: the
-/// assumptions it is taken under, the rule conditions being evaluated around it, whether it runs
-/// with a console, and the options. Two lineages alive at once whose contexts are equal share
-/// these objects, so a value one computed is a value for the other.
-#[derive(Clone, Copy, Eq, PartialEq)]
-struct EvaluationContext {
-    predicates: usize,
-    predicate_count: usize,
-    path_condition: usize,
-    active_conditions: usize,
-    execution: bool,
-    options: SimplificationOptions,
+/// The assumptions of an evaluation by content: its known predicates other than `\top` (an
+/// assumption that holds trivially assumes nothing) and its path-condition replacements.
+struct AssumptionContent {
+    predicates: Vec<Predicate>,
+    substitution: Substitution,
+    replacements: Vec<(Term, Term)>,
 }
 
-impl EvaluationContext {
-    fn of(
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active_conditions: &BTreeSet<(String, Term)>,
-        execution: bool,
-    ) -> Self {
+impl AssumptionContent {
+    fn of(assumptions: &TermAssumptions<'_>) -> Self {
         Self {
-            predicates: assumptions.predicates.as_ptr() as usize,
-            predicate_count: assumptions.predicates.len(),
-            path_condition: std::ptr::from_ref(assumptions.path_condition) as usize,
-            active_conditions: std::ptr::from_ref(active_conditions) as usize,
-            execution,
-            options,
+            predicates: assumptions
+                .predicates
+                .iter()
+                .filter(|predicate| **predicate != Predicate::True)
+                .cloned()
+                .collect(),
+            substitution: assumptions.path_condition.substitution.clone(),
+            replacements: assumptions.path_condition.replacements.clone(),
         }
     }
+
+    fn holds(&self, assumptions: &TermAssumptions<'_>) -> bool {
+        self.predicates.iter().eq(assumptions
+            .predicates
+            .iter()
+            .filter(|predicate| **predicate != Predicate::True))
+            && self.replacements == assumptions.path_condition.replacements
+            && self.substitution == assumptions.path_condition.substitution
+    }
 }
 
-struct ValueScope {
-    context: EvaluationContext,
-    values: FxHashMap<Term, (Simplification, Arc<RewriteRule>)>,
-    failures: FxHashMap<Term, FailedEvaluation>,
-}
-
-/// An evaluation of an `Unspecified` application that ended with the application unevaluated
-/// after some attempt failed ([`UnspecifiedRetry`]): the equations that failed, the contingency
-/// it handed on, and the deepest open attempt it reached, with the applications on the stack up
-/// to that depth (`prefix`).
+/// The evaluation of an `Unspecified` application recorded for reuse: the value a nested lineage
+/// gave it, with the equation of its first step, or a failed evaluation, which ended with it
+/// unevaluated after some attempt failed: the equations that failed and the contingency it
+/// handed on ([`UnspecifiedRetry`]).
 #[derive(Clone)]
-struct FailedEvaluation {
-    excluded: Vec<Arc<RewriteRule>>,
-    contingent: Option<usize>,
-    reached: Option<usize>,
-    prefix: Option<Arc<StackPrefix>>,
+enum RecordedOutcome {
+    Value(Simplification, Arc<RewriteRule>),
+    Failed {
+        excluded: Vec<Arc<RewriteRule>>,
+        contingent: Option<usize>,
+    },
 }
 
-/// The values that lineages nested in one lineage computed for `Unspecified` applications, kept
-/// for the rest of that lineage, so that an application evaluated in an attempt that failed is
-/// not evaluated again when the next equation reaches it.
-///
-/// A lineage opens its scope when it takes its first step on an `Unspecified` application, the
-/// only kind of lineage that retries, and closes it when it ends. A nested lineage whose first
-/// step was on such an application, and whose attempts all gave values, records the
-/// application's value ([`Self::record_in_enclosing`]) in the innermost enclosing scope of the
-/// same [`EvaluationContext`]; the scope's lineage holds that context's objects for as long as
-/// the scope is open, so the context names the same assumptions for every lineage that meets it.
-/// Every lineage result equals its input under its assumptions (a cut occurrence is left as it
-/// is, the identity), so a recorded value is a value of the application under that context
-/// whatever was on the evaluation stack when it was computed. Only a value whose derivation had
-/// no console effect, no exhausted budget and no undefined term is recorded, so reusing it
-/// neither drops an effect nor a report.
-///
-/// A scope also keeps the evaluations of `Unspecified` applications that failed
-/// ([`Self::record_failed`]), recorded in the innermost scope of their context that was open when
-/// the evaluation began. Unlike a value, a failure depends on the open attempts it reached, so it
-/// is served ([`Self::failed`]) only while the stack holds the same applications up to the
-/// deepest one; a new evaluation then starts as the failed one's last retry, its failed
-/// equations excluded. Excluding an equation never gives a value (it keeps the application
-/// unevaluated, or leaves another equation to give one in its own attempt), and the contingency
-/// depth it hands on names the same open attempt.
-struct UnspecifiedValues {
-    depth: usize,
-    context: EvaluationContext,
+/// What an evaluation of an `Unspecified` application is given besides the application and the
+/// definition: the assumptions, the options and the active rule-condition keys it runs under,
+/// the console's read position (if there is a console) and the solver that decides its
+/// conditions.
+struct EvaluationGiven<'a> {
+    assumptions: &'a TermAssumptions<'a>,
+    options: SimplificationOptions,
+    active: &'a BTreeSet<ConditionKey>,
+    console: Option<usize>,
+    solver: &'a dyn SmtSolver,
 }
+
+/// The solver by address: a nested simplification (a ceil equation's predicates) decides its
+/// conditions with another solver than the evaluation around it, which may decide fewer.
+fn solver_address(solver: &dyn SmtSolver) -> usize {
+    std::ptr::from_ref(solver).cast::<()>().addr()
+}
+
+/// One recorded evaluation, with everything a fresh evaluation at another point would read
+/// differently ([`UnspecifiedValues`]).
+struct Record {
+    outcome: RecordedOutcome,
+    assumptions: AssumptionContent,
+    options: SimplificationOptions,
+    solver: usize,
+    /// The console's read position when the evaluation began, if there was a console.
+    console: Option<usize>,
+    reads: Reads,
+    /// The stack up to `reads.reached`.
+    reached: Option<Arc<StackPrefix>>,
+    /// The stack and the active rule-condition keys when the evaluation began.
+    stack: Option<Arc<StackPrefix>>,
+    active: BTreeSet<ConditionKey>,
+}
+
+impl Record {
+    /// Whether an evaluation of the application now would read what this one read at every step,
+    /// and so compute the same outcome.
+    fn holds(&self, stack: &UnspecifiedStack, given: &EvaluationGiven<'_>) -> bool {
+        if self.options != given.options
+            || self.solver != solver_address(given.solver)
+            || (self.reads.console && self.console != given.console)
+            || !self.assumptions.holds(given.assumptions)
+        {
+            return false;
+        }
+        let active = given.active;
+        // The open attempts it reached are open at the same depths.
+        let same_reached = match (self.reads.reached, &self.reached) {
+            (Some(depth), Some(prefix)) => stack
+                .entries
+                .get(depth)
+                .is_some_and(|entry| StackPrefix::same(&entry.prefix, prefix)),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same_reached || !self.reads.active.iter().all(|key| active.contains(key)) {
+            return false;
+        }
+        // No key it inserted is active now: none is active that was not when it began, or none of
+        // those it inserted.
+        let keys = active.iter().all(|key| self.active.contains(key))
+            || (!self.reads.unbounded
+                && active.iter().all(|key| !self.reads.inserted.contains(key)));
+        if !keys {
+            return false;
+        }
+        // No application it found not open is open now. Up to `reached` the stack is the one it
+        // began on, whose applications it found open; above, every application open now was open
+        // when it began, or is none of those it found not open.
+        let above = &stack.entries[self.reads.reached.map_or(0, |depth| depth + 1)..];
+        if above.is_empty() {
+            return true;
+        }
+        let top = &stack.entries[stack.entries.len() - 1].prefix;
+        if let Some(begun) = &self.stack
+            && StackPrefix::same(top, begun)
+        {
+            return true;
+        }
+        let mut begun = FxHashSet::default();
+        let mut prefix = self.stack.as_ref();
+        while let Some(link) = prefix {
+            begun.insert(&link.application);
+            prefix = link.below.as_ref();
+        }
+        above.iter().all(|entry| begun.contains(&entry.application))
+            || (!self.reads.unbounded
+                && above
+                    .iter()
+                    .all(|entry| !self.reads.absent.contains(&entry.application)))
+    }
+}
+
+/// The records of evaluations of `Unspecified` applications ([`UnspecifiedValues`]).
+#[derive(Default)]
+struct RecordTable {
+    scopes: usize,
+    records: FxHashMap<Term, Vec<Record>>,
+}
+
+/// The evaluations of `Unspecified` applications kept for reuse while a lineage that took a step
+/// on one is open, so that an application evaluated in an attempt that failed is not evaluated
+/// again when the next equation, or a rule condition, reaches it.
+///
+/// A lineage opens a scope when it takes its first step on an `Unspecified` application, the
+/// only kind of lineage that retries, and closes it when it ends; the records are kept until the
+/// outermost scope closes. A nested lineage whose first step was on such an application, and
+/// whose attempts all gave values, records the application's value
+/// ([`Self::record_in_enclosing`]); an evaluation that ended with the application unevaluated
+/// after some attempt failed records the equations that failed and the contingency it handed on
+/// ([`Self::record_failed`]). A value is recorded only if its derivation had no console effect,
+/// no exhausted budget and no undefined term, a failure only if no attempt ran out of budget.
+///
+/// Reuse is memoization: a record is served ([`Self::recorded`]) only where an evaluation of the
+/// application would read of its surroundings what the recorded one read ([`Reads`]): the open
+/// attempts it reached at the same depths, none of the applications it found not open, the
+/// rule-condition keys it found active and none of those it inserted, the console at the same
+/// position (or no console) if it reached a console hook, the same options, the same solver and
+/// the same assumptions by content (`\top` being no assumption) ([`EvaluationGiven`]). The
+/// evaluation is a function of those reads, so it would compute the recorded outcome; a served
+/// value is that evaluation's value, and a served failure starts the evaluation as its last
+/// retry, the failed equations excluded and the same contingency handed on. The one difference
+/// is the budget: a reused outcome does not spend what the evaluation would. What the record
+/// read is added to the evaluation that serves it ([`UnspecifiedEvaluation::reach`]).
+struct UnspecifiedValues;
 
 impl UnspecifiedValues {
-    fn open(context: EvaluationContext) -> Self {
-        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
-            scopes.push(ValueScope {
-                context,
-                values: FxHashMap::default(),
-                failures: FxHashMap::default(),
-            });
-            Self {
-                depth: scopes.len() - 1,
-                context,
-            }
-        })
+    fn open() -> Self {
+        UNSPECIFIED_VALUES.with_borrow_mut(|table| table.scopes += 1);
+        Self
     }
 
-    /// How many scopes are open.
-    fn open_scopes() -> usize {
-        UNSPECIFIED_VALUES.with_borrow(Vec::len)
-    }
-
-    /// The failed evaluation of `application` recorded under `context` that still holds: the
-    /// stack has the same applications as when it was recorded, up to the deepest open attempt
-    /// it reached.
-    fn failed(context: EvaluationContext, application: &Term) -> Option<FailedEvaluation> {
-        UNSPECIFIED_VALUES.with_borrow(|scopes| {
+    /// The recorded evaluation of `application` that an evaluation now would repeat, with what it
+    /// read.
+    fn recorded(
+        application: &Term,
+        given: &EvaluationGiven<'_>,
+    ) -> Option<(RecordedOutcome, Reads)> {
+        if !unspecified_reuse() {
+            return None;
+        }
+        UNSPECIFIED_VALUES.with_borrow(|table| {
+            let records = table.records.get(application)?;
             UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
-                scopes
+                records
                     .iter()
-                    .rev()
-                    .filter(|scope| scope.context == context)
-                    .filter_map(|scope| scope.failures.get(application))
-                    .find(|failed| match (failed.reached, &failed.prefix) {
-                        (Some(depth), Some(prefix)) => stack
-                            .entries
-                            .get(depth)
-                            .is_some_and(|entry| StackPrefix::same(&entry.prefix, prefix)),
-                        (None, None) => true,
-                        _ => false,
-                    })
-                    .cloned()
+                    .find(|record| record.holds(stack, given))
+                    .map(|record| (record.outcome.clone(), record.reads.clone()))
             })
         })
     }
 
-    /// Record the evaluation `history` of `application` under `context`, which ended with the
-    /// application unevaluated, in the innermost scope of that context open when it began.
-    fn record_failed(context: EvaluationContext, application: &Term, history: &UnspecifiedRetry) {
-        let prefix = match history.reached {
-            Some(depth) => {
-                let Some(prefix) = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
-                    stack
-                        .entries
-                        .get(depth)
-                        .map(|entry| Arc::clone(&entry.prefix))
-                }) else {
-                    return;
-                };
-                Some(prefix)
-            }
-            None => None,
+    fn record(
+        application: &Term,
+        outcome: RecordedOutcome,
+        mut reads: Reads,
+        begun_below: usize,
+        given: &EvaluationGiven<'_>,
+    ) {
+        if !unspecified_reuse() || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes == 0) {
+            return;
+        }
+        // A key it found active that it had inserted itself, and that was not active when it
+        // began, is a read of its own work: it was active only inside its own evaluation of that
+        // condition. A key active when it began is a read of its surroundings wherever it was
+        // found active, even if the evaluation also met it where it was not (a condition decided
+        // with no rule condition active).
+        if !reads.unbounded {
+            let inserted = std::mem::take(&mut reads.inserted);
+            reads
+                .active
+                .retain(|key| !inserted.contains(key) || given.active.contains(key));
+            reads.inserted = inserted;
+        }
+        let (reached, stack) = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+            let prefix = |depth: usize| {
+                stack
+                    .entries
+                    .get(depth)
+                    .map(|entry| Arc::clone(&entry.prefix))
+            };
+            (
+                reads.reached.and_then(prefix),
+                begun_below.checked_sub(1).and_then(prefix),
+            )
+        });
+        if reads.reached.is_some() && reached.is_none() {
+            return;
+        }
+        let record = Record {
+            outcome,
+            assumptions: AssumptionContent::of(given.assumptions),
+            options: given.options,
+            solver: solver_address(given.solver),
+            console: given.console,
+            reads,
+            reached,
+            stack,
+            active: given.active.clone(),
         };
-        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
-            let enclosing = history.scopes.min(scopes.len());
-            if let Some(scope) = scopes[..enclosing]
-                .iter_mut()
-                .rev()
-                .find(|scope| scope.context == context)
-            {
-                scope.failures.insert(
-                    application.clone(),
-                    FailedEvaluation {
-                        excluded: history.excluded.clone(),
-                        contingent: history.contingent,
-                        reached: history.reached,
-                        prefix,
-                    },
-                );
-            }
+        UNSPECIFIED_VALUES.with_borrow_mut(|table| {
+            table
+                .records
+                .entry(application.clone())
+                .or_default()
+                .push(record);
         });
     }
 
-    /// The value recorded for `application` under `context`, with the equation of the step that
-    /// began its derivation.
-    fn recorded(
-        context: EvaluationContext,
-        application: &Term,
-    ) -> Option<(Simplification, Arc<RewriteRule>)> {
-        UNSPECIFIED_VALUES.with_borrow(|scopes| {
-            scopes
-                .iter()
-                .rev()
-                .filter(|scope| scope.context == context)
-                .find_map(|scope| scope.values.get(application).cloned())
-        })
+    /// Record the evaluation `history` of `application`, which ended with the application
+    /// unevaluated, begun on the stack as it is now.
+    fn record_failed(application: &Term, history: &UnspecifiedRetry, given: &EvaluationGiven<'_>) {
+        let depth = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| stack.entries.len());
+        Self::record(
+            application,
+            RecordedOutcome::Failed {
+                excluded: history.excluded.clone(),
+                contingent: history.contingent,
+            },
+            history.reads.clone(),
+            depth,
+            given,
+        );
     }
 
-    /// Record, in the innermost enclosing scope of this lineage's context, the value the lineage
-    /// gave the application of its first `Unspecified` step `first`: the outcome `end` with what
-    /// was accumulated since that step.
+    /// Record the value this lineage gave the application of its first `Unspecified` step
+    /// `first`: the outcome `end` with what was accumulated since that step.
     fn record_in_enclosing(
         &self,
         first: &UnspecifiedFrame,
         end: &Term,
         accumulated: &Accumulated,
         execution: Option<&ExecutionEvaluationContext>,
+        given: &EvaluationGiven<'_>,
     ) {
+        if !unspecified_reuse() {
+            return;
+        }
         let effect_free = match (execution, &first.before.io) {
             (Some(execution), Some(io)) => execution.unchanged_since(io),
             (None, None) => true,
@@ -5050,28 +5378,36 @@ impl UnspecifiedValues {
         {
             return;
         }
-        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
-            let enclosing = self.depth.min(scopes.len());
-            if let Some(scope) = scopes[..enclosing]
-                .iter_mut()
-                .rev()
-                .find(|scope| scope.context == self.context)
-            {
-                scope.values.insert(
-                    first.application.clone(),
-                    (
-                        accumulated.since(&first.before.accumulated, end.clone()),
-                        Arc::clone(&first.rule),
-                    ),
-                );
+        // What the evaluation read: its failed attempts, and the attempts of this lineage still
+        // open, the first one's and those above it.
+        let depth = first.evaluation.depth;
+        let mut reads = first.history.reads.clone();
+        UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+            for entry in stack.entries.iter().skip(depth) {
+                reads.merge(&entry.reads, depth);
             }
         });
+        Self::record(
+            &first.application,
+            RecordedOutcome::Value(
+                accumulated.since(&first.before.accumulated, end.clone()),
+                Arc::clone(&first.rule),
+            ),
+            reads,
+            depth,
+            given,
+        );
     }
 }
 
 impl Drop for UnspecifiedValues {
     fn drop(&mut self) {
-        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| scopes.truncate(self.depth));
+        UNSPECIFIED_VALUES.with_borrow_mut(|table| {
+            table.scopes -= 1;
+            if table.scopes == 0 {
+                table.records.clear();
+            }
+        });
     }
 }
 
@@ -6164,6 +6500,514 @@ mod tests {
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
         assert!(!result.term.attributes().evaluated);
+    }
+
+    /// A value recorded with what its evaluation read: one computed with the console after
+    /// reaching a console hook is not reused where there is none. `T = substr("abc", 4, 1)`
+    /// reads the console (empty: nothing changes), `A = substr("abc", 2, 1) = g(T)` and `g(Z) =
+    /// "seen" requires lengthString(T) == 0`: the condition is decided without the console, where
+    /// `T` cannot be read, so `g("")` stays unevaluated, as it does with reuse turned off.
+    #[cfg(feature = "test-switches")]
+    #[test]
+    fn a_value_read_from_the_console_is_not_reused_without_it() {
+        let guard = |index: &str| {
+            format!(
+                r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), eqInt{{}}(J:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+            )
+        };
+        let t = r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#;
+        let equation = |lhs: &str, requires: &str, rhs: &str, label: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                            \top{{R}}()
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}({lhs}, \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}()))
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let substr = "substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})";
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+                hooked-symbol readConsole{{}}(SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), hook{{}}("IO.read"), impure{{}}()]
+                symbol g{{}}(SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
+                {g}
+                {t_reads}
+                {a_is_g}
+            endmodule []"#,
+            g = equation(
+                "g{}(Z:SortString{})",
+                &format!(r#"eqInt{{}}(lengthString{{}}({t}), \dv{{SortInt{{}}}}("0"))"#),
+                r#"\dv{SortString{}}("seen")"#,
+                "g"
+            ),
+            t_reads = equation(
+                substr,
+                &guard("4"),
+                r#"readConsole{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#,
+                "t"
+            ),
+            a_is_g = equation(substr, &guard("2"), &format!("g{{}}({t})"), "a"),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let a = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("2"), \dv{SortInt{}}("1"))"#,
+        );
+        let run = || {
+            let mut execution =
+                crate::transition::ExecutionIoState::new(Vec::new()).begin_evaluation();
+            let (result, _) = diagnostic::collect(|| {
+                simplify_in_execution_with_solver(
+                    &definition,
+                    &a,
+                    &[],
+                    SimplificationOptions::default(),
+                    &NoSolver,
+                    &mut execution,
+                )
+            });
+            unstopped(result).expect("no error").term
+        };
+        let reused = run();
+        let fresh = without_unspecified_reuse(run);
+        assert_eq!(reused, term(&definition, r#"g{}(\dv{SortString{}}(""))"#));
+        assert_eq!(reused, fresh);
+    }
+
+    /// A failed evaluation that read the console is not reused once the console has moved on:
+    /// its attempts read input that a later evaluation would not read. `F = substr("abc", 4, 1)
+    /// = g(read())` with `g("x") = F ++ ""` (no value) and `g("y") = "v"`, inside `T =
+    /// substr("abc", 5, 1) = F ++ read() ++ F` on the input `"xy"`: the first `F` reads `"x"`
+    /// and fails (its read undone), `T` reads `"x"`, and the second `F` reads `"y"` and is `"v"`,
+    /// as it is with reuse turned off.
+    #[cfg(feature = "test-switches")]
+    #[test]
+    fn a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on() {
+        let guard = |index: &str| {
+            format!(
+                r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), eqInt{{}}(J:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+            )
+        };
+        let f = r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#;
+        let read = r#"readConsole{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#;
+        let equation = |lhs: &str, requires: &str, rhs: &str, label: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                            \top{{R}}()
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}({lhs}, \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}()))
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let substr = "substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})";
+        let is = |value: &str| {
+            format!(r#"eqString{{}}(Z:SortString{{}}, \dv{{SortString{{}}}}("{value}"))"#)
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
+                hooked-symbol eqString{{}}(SortString{{}}, SortString{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.eq")]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+                hooked-symbol readConsole{{}}(SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), hook{{}}("IO.read"), impure{{}}()]
+                symbol g{{}}(SortString{{}}) : SortString{{}} [function{{}}()]
+                {g_x}
+                {g_y}
+                {f_is_g}
+                {t_reads}
+            endmodule []"#,
+            g_x = equation(
+                "g{}(Z:SortString{})",
+                &is("x"),
+                &format!(r#"concatString{{}}({f}, \dv{{SortString{{}}}}(""))"#),
+                "g-x"
+            ),
+            g_y = equation(
+                "g{}(Z:SortString{})",
+                &is("y"),
+                r#"\dv{SortString{}}("v")"#,
+                "g-y"
+            ),
+            f_is_g = equation(substr, &guard("4"), &format!("g{{}}({read})"), "f"),
+            t_reads = equation(
+                substr,
+                &guard("5"),
+                &format!("concatString{{}}({f}, concatString{{}}({read}, {f}))"),
+                "t"
+            ),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let t = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("5"), \dv{SortInt{}}("1"))"#,
+        );
+        let run = || {
+            let mut execution =
+                crate::transition::ExecutionIoState::new(b"xy".to_vec()).begin_evaluation();
+            let (result, _) = diagnostic::collect(|| {
+                simplify_in_execution_with_solver(
+                    &definition,
+                    &t,
+                    &[],
+                    SimplificationOptions::default(),
+                    &NoSolver,
+                    &mut execution,
+                )
+            });
+            unstopped(result).expect("no error").term
+        };
+        let reused = run();
+        let fresh = without_unspecified_reuse(run);
+        let expected = term(
+            &definition,
+            &format!(r#"concatString{{}}({f}, \dv{{SortString{{}}}}("xv"))"#),
+        );
+        assert_eq!(reused, expected);
+        assert_eq!(fresh, expected);
+    }
+
+    /// A value recorded under one solver is not reused under another, which may decide fewer of
+    /// its conditions. `U = substr("abc", 4, 1)` is `"a"` if `g(3) > 0` (first priority), else
+    /// `"v"`, with `g` given no equation: a solver that refutes every condition gives `"v"`; with
+    /// none, the first equation's condition is undecided and `U` stays unevaluated, as it does
+    /// when nothing was recorded before.
+    #[test]
+    fn a_value_computed_with_a_solver_is_not_reused_without_it() {
+        /// Refutes every condition; not zero-sized, so it has an address of its own.
+        struct Refuting(#[allow(dead_code)] u8);
+        impl SmtSolver for Refuting {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<crate::smt::Satisfiability, SmtError>> {
+                unreachable!()
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Refuted))
+            }
+        }
+        let equation = |requires: &str, rhs: &str, priority: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(
+                            \in{{SortString{{}}, R}}(X0:SortString{{}}, S:SortString{{}}),
+                            \and{{R}}(
+                                \in{{SortInt{{}}, R}}(X1:SortInt{{}}, \dv{{SortInt{{}}}}("4")),
+                                \and{{R}}(
+                                    \in{{SortInt{{}}, R}}(X2:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                                    \top{{R}}()
+                                )
+                            )
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}(
+                        substr{{}}(X0:SortString{{}}, X1:SortInt{{}}, X2:SortInt{{}}),
+                        \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                    )
+                ) [priority{{}}("{priority}")]"#
+            )
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                {}
+                {}
+            endmodule []"#,
+            equation(
+                r#"gtInt{}(g{}(\dv{SortInt{}}("3")), \dv{SortInt{}}("0"))"#,
+                r#"\dv{SortString{}}("a")"#,
+                "10"
+            ),
+            equation(
+                r#"\dv{SortBool{}}("true")"#,
+                r#"\dv{SortString{}}("v")"#,
+                "20"
+            ),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let u = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#,
+        );
+        let evaluate = |solver: &dyn SmtSolver| {
+            let (result, _) = diagnostic::collect(|| {
+                simplify_with_solver(
+                    &definition,
+                    &u,
+                    &[],
+                    SimplificationOptions::default(),
+                    solver,
+                )
+            });
+            unstopped(result).expect("no error").term
+        };
+        let fresh = evaluate(&NoSolver);
+        assert_eq!(fresh, u);
+        let _scope = UnspecifiedValues::open();
+        assert_eq!(
+            evaluate(&Refuting(0)),
+            term(&definition, r#"\dv{SortString{}}("v")"#)
+        );
+        assert_eq!(evaluate(&NoSolver), fresh);
+    }
+
+    /// A rule-condition key that was active around an evaluation stays among what it read, even
+    /// if the evaluation also found it inactive (in a nested simplification with no rule
+    /// condition active, as a ceil equation's predicates are): where that key is not active, a
+    /// fresh evaluation decides the condition it left unsimplified, so the record is not served.
+    /// A key it found active only inside its own evaluation of that condition is its own work.
+    #[test]
+    fn a_record_keeps_a_rule_condition_key_active_around_it_among_its_reads() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("application")"#);
+        let around: ConditionKey = (
+            "around".to_owned(),
+            term(&definition, r#"\dv{SortString{}}("k")"#),
+        );
+        let own: ConditionKey = (
+            "own".to_owned(),
+            term(&definition, r#"\dv{SortString{}}("k")"#),
+        );
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let given = |active: &BTreeSet<ConditionKey>| {
+            UnspecifiedValues::recorded(
+                &application,
+                &EvaluationGiven {
+                    assumptions: &assumptions,
+                    options: SimplificationOptions::default(),
+                    active,
+                    console: None,
+                    solver: &NoSolver,
+                },
+            )
+            .is_some()
+        };
+        let _scope = UnspecifiedValues::open();
+        // It found both keys inactive, then both active; `around` was active when it began.
+        let mut reads = Reads::default();
+        reads.key(&around, false);
+        reads.key(&own, false);
+        reads.key(&around, true);
+        reads.key(&own, true);
+        let began = BTreeSet::from([around.clone()]);
+        UnspecifiedValues::record(
+            &application,
+            RecordedOutcome::Failed {
+                excluded: Vec::new(),
+                contingent: None,
+            },
+            reads,
+            0,
+            &EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &began,
+                console: None,
+                solver: &NoSolver,
+            },
+        );
+        assert!(given(&began));
+        assert!(!given(&BTreeSet::new()));
+    }
+
+    /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
+    /// the evaluation that serves it. `Z = substr("abc", 4, 1) = "z"` is evaluated, and so read
+    /// not open, by `X = keep(Z, "x")` (a value, in its attempt), by `X2 = keep(Z, X2)` (a
+    /// failure, in its failed attempt), and by the refuted `requires` (`lengthString(Z) == 5`) of
+    /// `V`'s first equation, which is the first priority, before `V = "v"` (a value, in an
+    /// attempt before its own). Each equation is stated for its application alone, so no other
+    /// evaluation reads `Z`. Evaluated twice inside the same open attempt, the second evaluation
+    /// of each is served from its record, and the attempt has read that `Z` was not open.
+    #[test]
+    fn a_served_evaluation_adds_what_it_read_to_the_attempt_that_serves_it() {
+        let at = |index: &str| {
+            format!(
+                r#"substr{{}}(\dv{{SortString{{}}}}("abc"), \dv{{SortInt{{}}}}("{index}"), \dv{{SortInt{{}}}}("1"))"#
+            )
+        };
+        // The arguments are matched through `\in` constraints before the `requires` is decided.
+        let equation = |index: &str, requires: &str, rhs: &str, attributes: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(
+                            \in{{SortString{{}}, R}}(X0:SortString{{}}, S:SortString{{}}),
+                            \and{{R}}(
+                                \in{{SortInt{{}}, R}}(X1:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")),
+                                \and{{R}}(
+                                    \in{{SortInt{{}}, R}}(X2:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                                    \top{{R}}()
+                                )
+                            )
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}(
+                        substr{{}}(X0:SortString{{}}, X1:SortInt{{}}, X2:SortInt{{}}),
+                        \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                    )
+                ) [{attributes}]"#
+            )
+        };
+        let z = at("4");
+        let always = r#"\dv{SortBool{}}("true")"#;
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+                symbol keep{{}}(SortString{{}}, SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\top{{R}}(), \top{{R}}())),
+                    \equals{{SortString{{}}, R}}(
+                        keep{{}}(K:SortString{{}}, L:SortString{{}}),
+                        \and{{SortString{{}}}}(L:SortString{{}}, \top{{SortString{{}}}}())
+                    )
+                ) [label{{}}("keep")]
+                {}
+            endmodule []"#,
+            [
+                equation("4", always, r#"\dv{SortString{}}("z")"#, r#"label{}("z")"#),
+                equation(
+                    "3",
+                    always,
+                    &format!(r#"keep{{}}({z}, \dv{{SortString{{}}}}("x"))"#),
+                    r#"label{}("x")"#
+                ),
+                equation(
+                    "5",
+                    always,
+                    &format!("keep{{}}({z}, {})", at("5")),
+                    r#"label{}("x2")"#
+                ),
+                equation(
+                    "7",
+                    &format!(r#"eqInt{{}}(lengthString{{}}({z}), \dv{{SortInt{{}}}}("5"))"#),
+                    r#"\dv{SortString{}}("a")"#,
+                    r#"label{}("v-refuted"), priority{}("10")"#
+                ),
+                equation(
+                    "7",
+                    always,
+                    r#"\dv{SortString{}}("v")"#,
+                    r#"label{}("v"), priority{}("20")"#
+                ),
+            ]
+            .concat()
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let z = term(&definition, &z);
+        let open = term(&definition, &at("9"));
+        let _scope = UnspecifiedValues::open();
+        for (index, value) in [("3", Some("x")), ("5", None), ("7", Some("v"))] {
+            let input = term(&definition, &at(index));
+            let evaluate = || {
+                let attempt = UnspecifiedEvaluation::enter(&open);
+                let (result, _) = diagnostic::collect(|| {
+                    simplify(&definition, &input, SimplificationOptions::default())
+                });
+                let result = unstopped(result).expect("no error").term;
+                (result, attempt.reads_below())
+            };
+            let expected = match value {
+                Some(value) => term(&definition, &format!(r#"\dv{{SortString{{}}}}("{value}")"#)),
+                None => input.clone(),
+            };
+            let (first, first_reads) = evaluate();
+            assert_eq!(first, expected, "substr(abc, {index}, 1), first");
+            assert!(
+                first_reads.absent.contains(&z),
+                "substr(abc, {index}, 1), first"
+            );
+            let (served, served_reads) = evaluate();
+            assert_eq!(served, expected, "substr(abc, {index}, 1), served");
+            assert!(
+                served_reads.absent.contains(&z),
+                "substr(abc, {index}, 1), served"
+            );
+        }
     }
 
     /// A cancellation observed by the predicate simplifier is returned on the outer layer with
