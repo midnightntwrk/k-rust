@@ -19,13 +19,13 @@
 //! id = "parser.disambiguation.resolve_applications"
 //! name = "resolution of application nodes against visible productions"
 //! sites = ["Grammar::resolve_packed_applications"]
-//! variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
+//! variable = "N = application nodes; R = productions in the grammar; K = KList nodes below the applications; a = distinct argument vectors of one application no longer than its label's longest arity"
 //! counters = ["ParserPackedApplicationResolutions"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x a x R)"
+//! bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -145,14 +145,14 @@
 //! inference paths remain independent oracles and must produce the same accepted tree.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use super::{
     AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm,
-    Production, cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
+    Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term, TermSpan, string};
 
@@ -171,6 +171,17 @@ fn packed_sets_share_nodes(
 
 type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
+/// Argument vectors, each a sequence of packed nodes.
+type ArgumentLists = Rc<Vec<Vec<Rc<PackedTerm>>>>;
+/// What one application-resolution pass keeps: the argument vectors of a `#KList` node up to
+/// a length, and its shortest one's length, by node identity (each entry keeps its node alive
+/// so that its address is not reused), and the structural comparisons its orderings made.
+#[derive(Default)]
+struct KListMemo {
+    flattened: HashMap<(*const PackedTerm, usize), (Rc<PackedTerm>, ArgumentLists)>,
+    shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
+    order: StructuralOrder,
+}
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
 
@@ -1272,13 +1283,14 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveApplications);
-        self.resolve_packed_applications_memo(term, &mut HashMap::new())
+        self.resolve_packed_applications_memo(term, &mut HashMap::new(), &mut KListMemo::default())
     }
 
     fn resolve_packed_applications_memo(
         &self,
         term: Rc<PackedTerm>,
         memo: &mut PackedTransformMemo,
+        klists: &mut KListMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         crate::stack::guarded(|| {
             // Invariant: every memoized identity has its complete `#KApply` resolution; recursion only
@@ -1298,10 +1310,12 @@ impl Grammar {
                     PackedNode::Ambiguity(alternatives) => {
                         let mut resolved = BTreeSet::new();
                         let mut first_error = None;
-                        for alternative in packed_terms_in_structural_order(alternatives) {
-                            match self
-                                .resolve_packed_applications_memo(Rc::clone(&alternative), memo)
-                            {
+                        for alternative in klists.order.sorted(alternatives) {
+                            match self.resolve_packed_applications_memo(
+                                Rc::clone(&alternative),
+                                memo,
+                                klists,
+                            ) {
                                 Ok(alternative) => match &alternative.node {
                                     PackedNode::Ambiguity(nested) => {
                                         resolved.extend(nested.iter().cloned())
@@ -1336,7 +1350,11 @@ impl Grammar {
                         let children = children
                             .iter()
                             .map(|child| {
-                                self.resolve_packed_applications_memo(Rc::clone(child), memo)
+                                self.resolve_packed_applications_memo(
+                                    Rc::clone(child),
+                                    memo,
+                                    klists,
+                                )
                             })
                             .collect::<Result<Vec<_>, _>>()?;
                         if self.productions[*production]
@@ -1363,11 +1381,32 @@ impl Grammar {
                                     arity: 0,
                                 }
                             })?;
-                            let argument_lists = self.flatten_packed_klist(arguments)?;
-                            let arities =
-                                argument_lists.iter().map(Vec::len).collect::<BTreeSet<_>>();
+                            // Only argument vectors as long as some production of the label
+                            // can match; an application with none reports the shortest
+                            // reading of its arguments.
+                            let longest = self
+                                .productions
+                                .iter()
+                                .enumerate()
+                                .filter(|(candidate, candidate_production)| {
+                                    *candidate != *production
+                                        && candidate_production.record.is_none()
+                                        && candidate_production.label.as_ref().is_some_and(
+                                            |candidate_label| candidate_label.name == label,
+                                        )
+                                })
+                                .map(|(_, candidate_production)| {
+                                    production_arity(candidate_production)
+                                })
+                                .max();
+                            let argument_lists = match longest {
+                                Some(longest) => {
+                                    self.flatten_packed_klist(arguments, longest, klists)?
+                                }
+                                None => Rc::default(),
+                            };
                             let mut candidates = BTreeSet::new();
-                            for arguments in argument_lists {
+                            for arguments in argument_lists.iter() {
                                 for (candidate, candidate_production) in
                                     self.productions.iter().enumerate()
                                 {
@@ -1395,7 +1434,7 @@ impl Grammar {
                             if candidates.is_empty() {
                                 Err(ParseError::UnknownApplication {
                                     label,
-                                    arity: arities.first().copied().unwrap_or(0),
+                                    arity: self.shortest_packed_klist(arguments, klists),
                                 })
                             } else {
                                 Ok(PackedTerm::ambiguity(candidates))
@@ -1409,21 +1448,49 @@ impl Grammar {
         })
     }
 
+    /// The argument vectors that the readings of `term`, a `#KList` reading of an
+    /// application's arguments, flatten to, those at most `longest` long, each once.
+    ///
+    /// The readings of a comma list are an ambiguous `K "," K` tree whose sublists may also
+    /// read as single elements, so their number is exponential in the list's length, while
+    /// the packed forest shares every sublist. Each node's vectors are computed once
+    /// (`klists`), and a vector longer than every arity of the label is dropped as soon as it
+    /// is built, since appending never shortens it.
     fn flatten_packed_klist(
         &self,
         term: &Rc<PackedTerm>,
-    ) -> Result<Vec<Vec<Rc<PackedTerm>>>, ParseError> {
+        longest: usize,
+        klists: &mut KListMemo,
+    ) -> Result<ArgumentLists, ParseError> {
         crate::stack::guarded(|| {
-            let flattened = match &term.node {
+            let key = (Rc::as_ptr(term), longest);
+            if let Some((_, flattened)) = klists.flattened.get(&key) {
+                return Ok(Rc::clone(flattened));
+            }
+            let mut seen = HashSet::new();
+            let mut flattened = Vec::new();
+            let mut keep = |arguments: Vec<Rc<PackedTerm>>| {
+                if arguments.len() <= longest
+                    && seen.insert(arguments.iter().map(Rc::as_ptr).collect::<Vec<_>>())
+                {
+                    flattened.push(arguments);
+                }
+            };
+            match &term.node {
                 PackedNode::InstantiatedProduction { .. } => {
                     unreachable!("instantiated productions are created after K-list flattening")
                 }
+                // The vectors are a set (an application's candidates are), so the
+                // alternatives are read in any order.
                 PackedNode::Ambiguity(alternatives) => {
-                    let mut flattened = Vec::new();
-                    for alternative in packed_terms_in_structural_order(alternatives) {
-                        flattened.extend(self.flatten_packed_klist(&alternative)?);
+                    for alternative in alternatives {
+                        for arguments in self
+                            .flatten_packed_klist(alternative, longest, klists)?
+                            .iter()
+                        {
+                            keep(arguments.clone());
+                        }
                     }
-                    flattened
                 }
                 PackedNode::Production {
                     production,
@@ -1434,25 +1501,69 @@ impl Grammar {
                     .as_ref()
                     .map(|label| label.name.as_str())
                 {
-                    Some("#EmptyKList") => vec![Vec::new()],
+                    Some("#EmptyKList") => keep(Vec::new()),
                     Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
-                        let left = self.flatten_packed_klist(&children[0])?;
-                        let right = self.flatten_packed_klist(&children[1])?;
-                        left.into_iter()
-                            .flat_map(|left| {
-                                right.iter().map(move |right| {
-                                    let mut combined = left.clone();
-                                    combined.extend(right.iter().cloned());
-                                    combined
-                                })
-                            })
-                            .collect()
+                        let left = self.flatten_packed_klist(&children[0], longest, klists)?;
+                        let right = self.flatten_packed_klist(&children[1], longest, klists)?;
+                        for left in left.iter() {
+                            for right in right.iter() {
+                                if left.len() + right.len() <= longest {
+                                    keep(left.iter().chain(right).cloned().collect());
+                                }
+                            }
+                        }
                     }
-                    _ => vec![vec![Rc::clone(term)]],
+                    _ => keep(vec![Rc::clone(term)]),
                 },
-                PackedNode::Term(_) => vec![vec![Rc::clone(term)]],
-            };
+                PackedNode::Term(_) => keep(vec![Rc::clone(term)]),
+            }
+            let flattened = Rc::new(flattened);
+            klists
+                .flattened
+                .insert(key, (Rc::clone(term), Rc::clone(&flattened)));
             Ok(flattened)
+        })
+    }
+
+    /// The length of the shortest argument vector a reading of `term`, a `#KList` reading of an
+    /// application's arguments, flattens to (as [`Self::flatten_packed_klist`] without a bound),
+    /// computed once per node.
+    fn shortest_packed_klist(&self, term: &Rc<PackedTerm>, klists: &mut KListMemo) -> usize {
+        crate::stack::guarded(|| {
+            if let Some((_, shortest)) = klists.shortest.get(&Rc::as_ptr(term)) {
+                return *shortest;
+            }
+            let shortest = match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after K-list flattening")
+                }
+                PackedNode::Ambiguity(alternatives) => alternatives
+                    .iter()
+                    .map(|alternative| self.shortest_packed_klist(alternative, klists))
+                    .min()
+                    .unwrap_or(0),
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                } => match self.productions[*production]
+                    .label
+                    .as_ref()
+                    .map(|label| label.name.as_str())
+                {
+                    Some("#EmptyKList") => 0,
+                    Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
+                        self.shortest_packed_klist(&children[0], klists)
+                            + self.shortest_packed_klist(&children[1], klists)
+                    }
+                    _ => 1,
+                },
+                PackedNode::Term(_) => 1,
+            };
+            klists
+                .shortest
+                .insert(Rc::as_ptr(term), (Rc::clone(term), shortest));
+            shortest
         })
     }
 

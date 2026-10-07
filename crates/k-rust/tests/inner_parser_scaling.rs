@@ -462,3 +462,44 @@ fn operator_chains_in_rule_bodies_parse_in_chart_work_linear_in_their_length() {
         "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
     );
 }
+
+/// A list literal in a rule body, which the rule grammar also reads as the arguments of the
+/// generic application syntax (`foo(0, 1, ...)` as a `#KApply` of `foo` to a comma list whose
+/// elements may themselves be sublists), is parsed in work polynomial in its length. Those
+/// readings are a real ambiguity of the rule grammar, one per way of cutting the list into
+/// elements, so the packed forest holds a node for each sublist with an alternative for each
+/// cut (cubic in the length) and every pass over it is at least that; `foo`'s arity removes
+/// them only after parsing. But each was once also built unshared, as an argument vector, and
+/// the alternatives of every ambiguity were ordered by comparing the shared readings below
+/// them anew for each ambiguity: the bytes doubled with each element (sixteen times as many
+/// from 16 to 20 elements as from 12 to 16), where they now grow by less than four times.
+#[test]
+fn list_literals_in_rule_bodies_parse_in_polynomial_work() {
+    let definition = |length: usize| {
+        let elements = (0..length)
+            .map(|number| (number % 10).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "module MAIN\n  imports INT\n  syntax Ints ::= List{{Int, \",\"}}\n  \
+             syntax KItem ::= foo(Ints) [symbol(foo)]\n  rule foo({elements}) => .K\nendmodule\n"
+        )
+    };
+    let allocated = || {
+        let mut totals = Snapshot::default();
+        measure::set_allocation_counters(&mut totals);
+        totals.get(Counter::AllocatedBytes)
+    };
+    let _measuring = measuring();
+    let [at_12, at_16, at_20] = [12, 16, 20].map(|length| {
+        let before = allocated();
+        drop(load_with_prelude(&definition(length)));
+        allocated() - before
+    });
+    let (first, second) = (at_16.saturating_sub(at_12), at_20.saturating_sub(at_16));
+    println!("rule-body list: {at_12}, {at_16} and {at_20} bytes at 12, 16 and 20 elements");
+    assert!(
+        second <= first * 4,
+        "{at_12}, {at_16} and {at_20} bytes at 12, 16 and 20 elements"
+    );
+}

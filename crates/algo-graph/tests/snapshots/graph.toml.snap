@@ -6207,7 +6207,7 @@ symbol = "Grammar::collapse_packed_record_productions"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
+bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -6465,7 +6465,7 @@ id = "parser.disambiguation.resolve_applications"
 provenance = "declared"
 area = "parser"
 name = "resolution of application nodes against visible productions"
-variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
+variable = "N = application nodes; R = productions in the grammar; K = KList nodes below the applications; a = distinct argument vectors of one application no longer than its label's longest arity"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveApplications"
@@ -6482,7 +6482,7 @@ symbol = "Grammar::resolve_packed_applications"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x a x R)"
+bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -6660,6 +6660,11 @@ symbol = "packed_terms_in_structural_order"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "StructuralOrder::sorted"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "PackedTerm::cmp"
 
 [[node.cost]]
@@ -6672,7 +6677,11 @@ bound = "O(P x A log A)"
 
 [[node.cost]]
 mode = "packed_terms_in_structural_order"
-bound = "O(n log n) structural comparisons, each with a fresh pair memo"
+bound = "O(n log n) structural comparisons sharing one pair memo"
+
+[[node.cost]]
+mode = "StructuralOrder::sorted, the orderings of one pass"
+bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
 
 [[node]]
 kind = "algorithm"

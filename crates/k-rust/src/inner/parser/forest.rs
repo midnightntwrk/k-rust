@@ -14,7 +14,7 @@
 //! ```toml algorithm
 //! id = "parser.forest.order"
 //! name = "structural ordering of packed parse forests"
-//! sites = ["cmp_packed_structurally", "packed_terms_in_structural_order", "PackedTerm::cmp"]
+//! sites = ["cmp_packed_structurally", "packed_terms_in_structural_order", "StructuralOrder::sorted", "PackedTerm::cmp"]
 //! variable = "N = compared subtree nodes when fingerprints tie; P = distinct node pairs reached by one structural comparison; A = alternatives of one compared ambiguity; n = terms in the ordered set"
 //! counters = ["ParserPackedStructuralComparisons"]
 //!
@@ -28,7 +28,11 @@
 //!
 //! [[cost]]
 //! mode = "packed_terms_in_structural_order"
-//! bound = "O(n log n) structural comparisons, each with a fresh pair memo"
+//! bound = "O(n log n) structural comparisons sharing one pair memo"
+//!
+//! [[cost]]
+//! mode = "StructuralOrder::sorted, the orderings of one pass"
+//! bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
 //! ```
 //!
 //! ```toml algorithm
@@ -562,13 +566,48 @@ pub(super) fn cmp_packed_structurally(
     left: &Rc<PackedTerm>,
     right: &Rc<PackedTerm>,
 ) -> std::cmp::Ordering {
+    StructuralOrder::default().cmp(left, right)
+}
+
+/// The structural comparisons of packed nodes made so far by one pass, so that each pair of
+/// nodes is compared once however many orderings meet it: the order of a pair is a function
+/// of the two nodes. A pass that orders the alternatives of every ambiguity of a forest would
+/// otherwise compare the shared subforests below them again for each ambiguity above.
+#[derive(Default)]
+pub(super) struct StructuralOrder {
+    pairs: std::collections::HashMap<(*const PackedTerm, *const PackedTerm), std::cmp::Ordering>,
+    /// Every node a recorded pair names, kept alive while the pairs are, so that no other node
+    /// takes its address meanwhile.
+    nodes: std::collections::HashMap<*const PackedTerm, Rc<PackedTerm>>,
+}
+
+impl StructuralOrder {
+    /// The order of [`cmp_packed_structurally`].
+    pub(super) fn cmp(
+        &mut self,
+        left: &Rc<PackedTerm>,
+        right: &Rc<PackedTerm>,
+    ) -> std::cmp::Ordering {
+        compare_packed_structurally(left, right, self)
+    }
+
+    /// `terms` in the order of [`cmp_packed_structurally`].
+    pub(super) fn sorted(&mut self, terms: &BTreeSet<Rc<PackedTerm>>) -> Vec<Rc<PackedTerm>> {
+        let mut terms = terms.iter().cloned().collect::<Vec<_>>();
+        terms.sort_by(|left, right| self.cmp(left, right));
+        terms
+    }
+}
+
+fn compare_packed_structurally(
+    left: &Rc<PackedTerm>,
+    right: &Rc<PackedTerm>,
+    order: &mut StructuralOrder,
+) -> std::cmp::Ordering {
     fn compare(
         left: &Rc<PackedTerm>,
         right: &Rc<PackedTerm>,
-        memo: &mut std::collections::HashMap<
-            (*const PackedTerm, *const PackedTerm),
-            std::cmp::Ordering,
-        >,
+        memo: &mut StructuralOrder,
     ) -> std::cmp::Ordering {
         crate::stack::guarded(|| {
             // Invariant: every memoized pair has a complete structural ordering, and recursion only
@@ -579,7 +618,7 @@ pub(super) fn cmp_packed_structurally(
                 return Ordering::Equal;
             }
             let key = (Rc::as_ptr(left), Rc::as_ptr(right));
-            if let Some(ordering) = memo.get(&key) {
+            if let Some(ordering) = memo.pairs.get(&key) {
                 return *ordering;
             }
             let ordering = match (&left.node, &right.node) {
@@ -649,21 +688,21 @@ pub(super) fn cmp_packed_structurally(
                         .unwrap_or_else(|| left.len().cmp(&right.len()))
                 }
             };
-            memo.insert(key, ordering);
-            memo.insert((key.1, key.0), ordering.reverse());
+            memo.pairs.insert(key, ordering);
+            memo.pairs.insert((key.1, key.0), ordering.reverse());
+            memo.nodes.entry(key.0).or_insert_with(|| Rc::clone(left));
+            memo.nodes.entry(key.1).or_insert_with(|| Rc::clone(right));
             ordering
         })
     }
 
-    compare(left, right, &mut std::collections::HashMap::new())
+    compare(left, right, order)
 }
 
 pub(super) fn packed_terms_in_structural_order(
     terms: &BTreeSet<Rc<PackedTerm>>,
 ) -> Vec<Rc<PackedTerm>> {
-    let mut terms = terms.iter().cloned().collect::<Vec<_>>();
-    terms.sort_by(cmp_packed_structurally);
-    terms
+    StructuralOrder::default().sorted(terms)
 }
 
 pub(super) fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {

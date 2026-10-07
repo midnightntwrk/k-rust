@@ -22,7 +22,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
+//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 //! ```
 //!
 //! Generation and collapse of Scala-compatible record productions.
@@ -41,7 +41,8 @@ use crate::kast::{Sort, Term, TermSpan};
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, RecordProduction, RecordProductionKind,
-    canonical_packed_error, cmp_packed_structurally, packed_terms_in_structural_order,
+    StructuralOrder, canonical_packed_error, cmp_packed_structurally,
+    packed_terms_in_structural_order,
 };
 #[cfg(test)]
 use super::{ParsedParts, ParsedTerm};
@@ -234,7 +235,14 @@ impl Grammar {
         let mut generated = BTreeMap::new();
         let mut next = 0;
         let mut memo = HashMap::new();
-        self.collapse_packed_records(term, &mut names, &mut generated, &mut next, &mut memo)
+        self.collapse_packed_records(
+            term,
+            &mut names,
+            &mut generated,
+            &mut next,
+            &mut memo,
+            &mut StructuralOrder::default(),
+        )
     }
 
     fn collapse_packed_records(
@@ -244,6 +252,7 @@ impl Grammar {
         generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
         memo: &mut PackedRecordMemo,
+        order: &mut StructuralOrder,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         crate::stack::guarded(|| {
             let identity = Rc::as_ptr(&term);
@@ -258,21 +267,22 @@ impl Grammar {
                 PackedNode::Ambiguity(alternatives) => {
                     let mut retained = BTreeSet::new();
                     let mut errors = Vec::new();
-                    // Invariant: every processed alternative is memoized recursively, and `retained`
-                    // holds the successful flattened results in deterministic structural order.
-                    for alternative in packed_terms_in_structural_order(alternatives) {
+                    // Invariant: every processed alternative is memoized recursively, and the
+                    // alternatives are processed in deterministic structural order, which is the
+                    // order generated names are allocated in; `retained` holds the successful
+                    // flattened results.
+                    for alternative in order.sorted(alternatives) {
                         match self.collapse_packed_records(
                             Rc::clone(&alternative),
                             names,
                             generated,
                             next,
                             memo,
+                            order,
                         ) {
                             Ok(collapsed) => match &collapsed.node {
                                 PackedNode::Ambiguity(nested) => {
-                                    for nested in packed_terms_in_structural_order(nested) {
-                                        retained.insert(nested);
-                                    }
+                                    retained.extend(nested.iter().cloned());
                                 }
                                 _ => {
                                     retained.insert(collapsed);
@@ -294,7 +304,7 @@ impl Grammar {
                 } if self.productions[*production].record.is_some() => self
                     .collapse_packed_record(*production, children, metadata, names, generated, next)
                     .and_then(|collapsed| {
-                        self.collapse_packed_records(collapsed, names, generated, next, memo)
+                        self.collapse_packed_records(collapsed, names, generated, next, memo, order)
                     }),
                 PackedNode::Production {
                     production,
@@ -312,6 +322,7 @@ impl Grammar {
                             generated,
                             next,
                             memo,
+                            order,
                         ) {
                             Ok(collapsed) => collapsed_children.push(collapsed),
                             Err(error) => errors.push((Rc::clone(child), error)),

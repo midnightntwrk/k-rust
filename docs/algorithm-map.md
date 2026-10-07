@@ -187,11 +187,11 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
 - parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) plus, per… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
-- parser.disambiguation.resolve_applications — O(N x a x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
+- parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
 - parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
 - parser.forest.cycle_check — O(N) expected (hashed visited set and build table) — at k-rust/inner/parser/cycles.rs `check_same_span_repetition`
-- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +2 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
+- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +3 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
 - parser.grammar.build — O(S x I) plus declared relation and… — at k-rust/inner/parser/grammar.rs `Grammar::from_collected_sentences`
 - parser.grammar.lists — O(R + L x R) +1 mode — at k-rust/inner/parser/lists.rs `Grammar::initialize_user_lists`
 - parser.grammar.parametric — O(S x P + T) — at k-rust/inner/parser/parametric.rs `concretize_parametric_productions`
