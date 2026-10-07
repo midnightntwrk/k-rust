@@ -6705,6 +6705,178 @@ mod tests {
         assert!(!given(&BTreeSet::new()));
     }
 
+    /// A record is served only where no application it found not open is open, also when the
+    /// stack ends with the application on which its evaluation began: `R`'s evaluation began on
+    /// `[A]` and found `X` not open. On `[A]` it is served; on `[X, A]`, whose top is `A` too, a
+    /// fresh evaluation would find `X` open and cut it, so it is not.
+    #[test]
+    fn a_record_is_not_served_where_an_application_it_found_not_open_is_open_below_the_top() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let [r, a, x] = ["r", "a", "x"]
+            .map(|name| term(&definition, &format!(r#"\dv{{SortString{{}}}}("{name}")"#)));
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let active = BTreeSet::new();
+        let given = EvaluationGiven {
+            assumptions: &assumptions,
+            options: SimplificationOptions::default(),
+            active: &active,
+            console: None,
+            solver: &NoSolver,
+        };
+        let served = || UnspecifiedValues::recorded(&r, &given).is_some();
+        let _scope = UnspecifiedValues::open();
+        let on_a = UnspecifiedEvaluation::enter(&a);
+        let mut reads = Reads::default();
+        reads.absent(&x);
+        UnspecifiedValues::record(
+            &r,
+            RecordedOutcome::Failed {
+                excluded: Vec::new(),
+                contingent: None,
+            },
+            reads,
+            1,
+            &given,
+        );
+        assert!(served(), "on the stack it began on");
+        drop(on_a);
+        let on_x = UnspecifiedEvaluation::enter(&x);
+        let on_a = UnspecifiedEvaluation::enter(&a);
+        assert!(!served(), "with X open below A");
+        drop(on_a);
+        drop(on_x);
+    }
+
+    /// `\top` assumes nothing: a record made under the assumptions `P, \top`, as a `requires` of
+    /// one predicate evaluates its terms under `P` (`\top` in place of itself), is served under
+    /// `P` alone, and the other way round, so that such a `requires` reuses what was evaluated
+    /// around it.
+    #[test]
+    fn a_record_made_under_top_is_served_without_it() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let [made_under_top, made_under_none] = ["top", "none"]
+            .map(|name| term(&definition, &format!(r#"\dv{{SortString{{}}}}("{name}")"#)));
+        let path_condition = PathConditionReplacements::new(&[]);
+        let active = BTreeSet::new();
+        let under = |predicates: &[Predicate], application: &Term, record: bool| {
+            let assumptions = TermAssumptions {
+                predicates,
+                path_condition: &path_condition,
+            };
+            let given = EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &active,
+                console: None,
+                solver: &NoSolver,
+            };
+            if record {
+                UnspecifiedValues::record(
+                    application,
+                    RecordedOutcome::Failed {
+                        excluded: Vec::new(),
+                        contingent: None,
+                    },
+                    Reads::default(),
+                    0,
+                    &given,
+                );
+            }
+            UnspecifiedValues::recorded(application, &given).is_some()
+        };
+        let p = Predicate::Ceil(term(&definition, r#"\dv{SortString{}}("p")"#));
+        let with_top = [p.clone(), Predicate::True];
+        let without = [p];
+        let _scope = UnspecifiedValues::open();
+        assert!(under(&with_top, &made_under_top, true));
+        assert!(under(&without, &made_under_top, false));
+        assert!(under(&without, &made_under_none, true));
+        assert!(under(&with_top, &made_under_none, false));
+    }
+
+    /// A record is served only under the same path condition as well as the same predicates:
+    /// the path condition is given beside the predicates, not computed from them. A `\ceil`
+    /// conjunct is simplified with its sibling conjuncts among the predicates but under the path
+    /// condition of the known predicates alone (`simplify_predicates_with_budget`), where a
+    /// sibling equality `X = "c"` does not rewrite `X`; elsewhere the same predicates come with
+    /// the path condition they state, which does.
+    #[test]
+    fn a_record_is_not_served_under_another_path_condition_with_the_same_predicates() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("application")"#);
+        let equality = [Predicate::Equals(
+            term(&definition, "X:SortString{}"),
+            term(&definition, r#"\dv{SortString{}}("c")"#),
+        )];
+        let stated = PathConditionReplacements::new(&equality);
+        let unstated = PathConditionReplacements::new(&[]);
+        assert!(!stated.substitution.is_empty());
+        let active = BTreeSet::new();
+        let under = |path_condition: &PathConditionReplacements, record: bool| {
+            let assumptions = TermAssumptions {
+                predicates: &equality,
+                path_condition,
+            };
+            let given = EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &active,
+                console: None,
+                solver: &NoSolver,
+            };
+            if record {
+                UnspecifiedValues::record(
+                    &application,
+                    RecordedOutcome::Failed {
+                        excluded: Vec::new(),
+                        contingent: None,
+                    },
+                    Reads::default(),
+                    0,
+                    &given,
+                );
+            }
+            UnspecifiedValues::recorded(&application, &given).is_some()
+        };
+        let _scope = UnspecifiedValues::open();
+        assert!(
+            under(&unstated, true),
+            "under the path condition it was recorded under"
+        );
+        assert!(
+            !under(&stated, false),
+            "under the path condition the predicates state"
+        );
+    }
+
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
     /// the evaluation that serves it. `Z = substr("abc", 4, 1) = "z"` is evaluated, and so read
     /// not open, by `X = keep(Z, "x")` (a value, in its attempt), by `X2 = keep(Z, X2)` (a
