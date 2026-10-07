@@ -4935,6 +4935,22 @@ impl AssumptionContent {
             && self.replacements == assumptions.path_condition.replacements
             && self.substitution == assumptions.path_condition.substitution
     }
+
+    /// A hash of the predicates of `assumptions` other than `\top`: assumptions of the same
+    /// content ([`Self::holds`]) have the same hash. The path condition is left to
+    /// [`Self::holds`].
+    fn hash(assumptions: &TermAssumptions<'_>) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = rustc_hash::FxHasher::default();
+        for predicate in assumptions
+            .predicates
+            .iter()
+            .filter(|predicate| **predicate != Predicate::True)
+        {
+            predicate.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
 }
 
 /// The evaluation of an `Unspecified` application recorded for reuse: the value a nested lineage
@@ -5044,11 +5060,19 @@ impl Record {
     }
 }
 
-/// The records of evaluations of `Unspecified` applications ([`UnspecifiedValues`]).
+/// The records of evaluations of `Unspecified` applications ([`UnspecifiedValues`]): those of
+/// each application, by the hash of the predicates they were made under
+/// ([`AssumptionContent::hash`]), in the order they were made.
+///
+/// A record is served only under assumptions of the same content ([`Record::holds`]), which have
+/// the same hash, so every record that could be served is in the list of that hash; that list
+/// keeps the order of the records in it, so its first record that holds is the first of all the
+/// application's records that holds. Indexing changes which records a lookup scans, not which
+/// one it serves.
 #[derive(Default)]
 struct RecordTable {
     scopes: usize,
-    records: FxHashMap<Term, Vec<Record>>,
+    records: FxHashMap<Term, FxHashMap<u64, Vec<Record>>>,
 }
 
 /// The evaluations of `Unspecified` applications kept for reuse while a lineage that took a step
@@ -5093,7 +5117,10 @@ impl UnspecifiedValues {
             return None;
         }
         UNSPECIFIED_VALUES.with_borrow(|table| {
-            let records = table.records.get(application)?;
+            let records = table
+                .records
+                .get(application)?
+                .get(&AssumptionContent::hash(given.assumptions))?;
             UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
                 records
                     .iter()
@@ -5151,10 +5178,13 @@ impl UnspecifiedValues {
             stack,
             active: given.active.clone(),
         };
+        let hash = AssumptionContent::hash(given.assumptions);
         UNSPECIFIED_VALUES.with_borrow_mut(|table| {
             table
                 .records
                 .entry(application.clone())
+                .or_default()
+                .entry(hash)
                 .or_default()
                 .push(record);
         });
