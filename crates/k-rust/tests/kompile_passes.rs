@@ -7622,6 +7622,8 @@ fn places_a_cell_above_a_list_written_beside_its_only_possible_parent_with_its_l
     }
 }
 
+const LIST_BESIDE_SIBLINGS: &str = r#"<top> <k> 0 </k> <a> <x> 0 </x> <z> 0 </z> <p> <y> 0 </y> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </top>"#;
+
 const REPEATED_LIST_PARENTS: &str = r#"<top> <k> 0 </k> <a> <z> 0 </z> <w> <u> 0 </u> </w> <p multiplicity="*" type="Map"> <pid> 0 </pid> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </top>"#;
 
 // After completion <c1> holds only its own children, so neither the Bag variable in its body nor a
@@ -7665,6 +7667,13 @@ fn places_a_cell_beside_terms_of_unknown_cell_sort_that_cannot_reach_its_list() 
             REPEATED_LIST_PARENTS,
             "<k> 0 => 1 </k> <a> <z> Z </z> <p> <pid> 1 </pid> <fr> <v> 1 </v> </fr> ... </p> ... </a> (<u> U </u> B:Bag => <u> 1 </u> B:Bag)",
             "<k> 0 => 1 </k> <a> <z> Z </z> <p> <pid> 1 </pid> <fr> <v> 1 </v> </fr> ... </p> (<u> U </u> B:Bag => <u> 1 </u> B:Bag) ... </a>",
+        ),
+        // The one <p> arrives in <a> only with the cells moved there, beside the <z> rewrite: it
+        // is still the only one, and B (unlike B2, already in <a>) cannot stand for another.
+        (
+            LIST_BESIDE_SIBLINGS,
+            "<k> 0 => 1 </k> <a> <x> X </x> B2:Bag ... </a> <p> <fr> <v> 1 </v> </fr> ... </p> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag)",
+            "<k> 0 => 1 </k> <a> <x> X </x> B2:Bag <p> <fr> <v> 1 </v> </fr> ... </p> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag) ... </a>",
         ),
     ] {
         let placed = concretized_cell_rule(configuration, rule)
