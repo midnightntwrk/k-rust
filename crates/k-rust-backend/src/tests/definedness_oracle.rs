@@ -42,8 +42,8 @@
 //! of a total head's equation to a term in `U` holds below total symbols. The assumption is the
 //! certificate's: the value-production discharge of `simplify.rs` rests on none of it for the
 //! application it decides, so an application that one of its own head's conditional equations
-//! matches (one the discharge can decide, where without it the obligation stays) excuses
-//! nothing.
+//! matches (one the discharge can decide, where without it the obligation stays), at an
+//! exposed position of a term the query reaches, excuses nothing.
 //! A peak not shown joinable within the bound counts as not joinable, and a search cut short
 //! counts every head, which only checks fewer queries.
 //!
@@ -790,37 +790,35 @@ impl<'d> Universe<'d> {
         symbol.constructor || symbol.totality != Totality::Production
     }
 
-    /// The value-production heads of the applications in the term, but those in `skip`.
+    /// The value-production heads of the applications in the term, but those in `skip` at an
+    /// exposed position (the term itself, or below total symbols and injections only).
     fn heads(&self, id: Id, skip: &HashSet<Id>, into: &mut BTreeSet<u32>) {
-        if let Node::App(symbol, _) = &self.nodes[id as usize]
-            && !self.is_constructor(*symbol)
-            && !skip.contains(&id)
-        {
-            into.insert(*symbol);
+        self.heads_below(id, true, skip, into);
+    }
+
+    fn heads_below(&self, id: Id, exposed: bool, skip: &HashSet<Id>, into: &mut BTreeSet<u32>) {
+        let mut exposed = exposed;
+        if let Node::App(symbol, _) = &self.nodes[id as usize] {
+            if !self.is_constructor(*symbol) && !(exposed && skip.contains(&id)) {
+                into.insert(*symbol);
+            }
+            exposed &= self.is_total(*symbol);
         }
         for child in self.children(id) {
-            self.heads(child, skip, into);
+            self.heads_below(child, exposed, skip, into);
         }
     }
 
-    /// The value-production heads of the applications in the term that are in `undefined`, but
-    /// those in `skip`.
-    fn undefined_heads(
-        &self,
-        id: Id,
-        undefined: &[bool],
-        skip: &HashSet<Id>,
-        into: &mut BTreeSet<u32>,
-    ) {
+    /// The value-production heads of the applications in the term that are in `undefined`.
+    fn undefined_heads(&self, id: Id, undefined: &[bool], into: &mut BTreeSet<u32>) {
         if let Node::App(symbol, _) = &self.nodes[id as usize]
             && !self.is_constructor(*symbol)
             && undefined[id as usize]
-            && !skip.contains(&id)
         {
             into.insert(*symbol);
         }
         for child in self.children(id) {
-            self.undefined_heads(child, undefined, skip, into);
+            self.undefined_heads(child, undefined, into);
         }
     }
 
@@ -1367,9 +1365,12 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
     // The applications the value-production discharge of `simplify.rs` can decide beyond the
     // certificate: those that the left-hand side of one of their own head's conditional
     // equations matches (without the discharge such an application keeps its obligation; with
-    // no reaching equation the discharge and the certificate answer alike). The documented
-    // assumptions are the certificate's, and the discharge rests on none of them for the
-    // application it decides, so these applications excuse no query.
+    // no reaching equation the discharge and the certificate answer alike). The discharge
+    // answers the `\ceil` of an application the definedness walk asks about: one at an exposed
+    // position of a term the query reaches by steps. It rests on none of the documented
+    // assumptions for that application, so such an application excuses no query. One below a
+    // partial head, or in a left-hand side instance the certificate reads, still does: there
+    // the certificate, or the evaluation of the partial head's equations, reads it.
     let mut conditional_applications = HashSet::new();
     for id in 1..count {
         let id = Id::try_from(id).unwrap();
@@ -1435,7 +1436,7 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
             if contains(&universe, *to, id, &mut holds)
                 && !contains(&universe, *from, id, &mut holds)
             {
-                universe.undefined_heads(*from, &undefined, &conditional_applications, &mut heads);
+                universe.undefined_heads(*from, &undefined, &mut heads);
             }
         }
         let excused = peaks.iter().any(|peak| {
