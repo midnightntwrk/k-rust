@@ -49,6 +49,14 @@
 //! `h` equation). The certificate assumes no peak that does not meet binds, in its two steps or
 //! in the steps its sides take, a value in which the application occurs.
 //!
+//! Nor does the certificate read the equations of other heads for what they say about the
+//! application's definedness without a peak. A total symbol is defined on defined arguments,
+//! so an equation of a total head whose left-hand side holds the application below total
+//! symbols, and whose right-hand side is undefined there, makes the application undefined:
+//! `e(f(X)) = m(1 /Int 0)`, `e` an `anywhere` head declared `total`, makes `f(c)` undefined,
+//! while the scan of `f(c)` sees no `f` equation. The certificate assumes no such equation
+//! instance exists.
+//!
 //! The questions nest: deciding a left-hand side's argument decides the instance normality of
 //! the terms its reducts build, whose own equations are decided the same way. Their depth is
 //! bounded (`super::VALUE_QUESTIONS`, [`NARROWING_DEPTH`]), their breadth too
