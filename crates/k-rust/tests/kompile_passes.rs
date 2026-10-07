@@ -7622,6 +7622,85 @@ fn places_a_cell_above_a_list_written_beside_its_only_possible_parent_with_its_l
     }
 }
 
+const REPEATED_LIST_PARENTS: &str = r#"<top> <k> 0 </k> <a> <z> 0 </z> <w> <u> 0 </u> </w> <p multiplicity="*" type="Map"> <pid> 0 </pid> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </top>"#;
+
+// After completion <c1> holds only its own children, so neither the Bag variable in its body nor a
+// rewrite holding one can be part of <stack>'s list of <fr> cells; and in <a>, whose one <p> is
+// written, the Bag variable of the <z> rewrite moved into <a> stands for children of <a> other
+// than that <p>, so it cannot be part of the <p>'s list either. Each rule, with a <fr> written
+// beside <stack> or inside <c1>, or a rewrite written beside <a>, is the rule written with that
+// cell in place, and compiles to it.
+#[test]
+fn places_a_cell_beside_terms_of_unknown_cell_sort_that_cannot_reach_its_list() {
+    for (configuration, rule, written) in [
+        (
+            LIST_BESIDE_REWRITE,
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> <x> X </x> B:Bag </c1> ... </stack> <fr> <v> 2 </v> </fr>",
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> <x> X </x> B:Bag </c1> <fr> <v> 2 </v> </fr> ... </stack>",
+        ),
+        (
+            LIST_BESIDE_REWRITE,
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> <x> X </x> B:Bag <fr> <v> 2 </v> </fr> </c1> ... </stack>",
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> <x> X </x> B:Bag </c1> <fr> <v> 2 </v> </fr> ... </stack>",
+        ),
+        (
+            LIST_BESIDE_REWRITE,
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> (<x> X </x> B:Bag => <x> 1 </x> B:Bag) </c1> ... </stack> <fr> <v> 2 </v> </fr>",
+            "<k> 0 => 1 </k> <stack> <sp> S </sp> <c1> (<x> X </x> B:Bag => <x> 1 </x> B:Bag) </c1> <fr> <v> 2 </v> </fr> ... </stack>",
+        ),
+        (
+            NESTED_LIST_FRAMES,
+            "<k> 0 => 1 </k> <a> <p> <fr> <v> 1 </v> </fr> ... </p> ... </a> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag)",
+            "<k> 0 => 1 </k> <a> <p> <fr> <v> 1 </v> </fr> ... </p> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag) ... </a>",
+        ),
+        // The one <p> written on both sides of a rewrite is still the only one.
+        (
+            NESTED_LIST_FRAMES,
+            "<k> 0 => 1 </k> <a> (<p> <fr> <v> 1 </v> </fr> ... </p> => <p> <fr> <v> 2 </v> </fr> ... </p>) ... </a> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag)",
+            "<k> 0 => 1 </k> <a> (<p> <fr> <v> 1 </v> </fr> ... </p> => <p> <fr> <v> 2 </v> </fr> ... </p>) (<z> Z </z> B:Bag => <z> 1 </z> B:Bag) ... </a>",
+        ),
+        // The Bag variable of the <u> rewrite stands for children of <w>, none above <fr>, whatever
+        // <a> holds: here many <p> cells, each with its own list.
+        (
+            REPEATED_LIST_PARENTS,
+            "<k> 0 => 1 </k> <a> <z> Z </z> <p> <pid> 1 </pid> <fr> <v> 1 </v> </fr> ... </p> ... </a> (<u> U </u> B:Bag => <u> 1 </u> B:Bag)",
+            "<k> 0 => 1 </k> <a> <z> Z </z> <p> <pid> 1 </pid> <fr> <v> 1 </v> </fr> ... </p> (<u> U </u> B:Bag => <u> 1 </u> B:Bag) ... </a>",
+        ),
+    ] {
+        let placed = concretized_cell_rule(configuration, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        let in_place = concretized_cell_rule(configuration, written)
+            .unwrap_or_else(|errors| panic!("{written}: {errors:?}"));
+        assert_eq!(placed, in_place, "{rule}");
+    }
+}
+
+// A Bag variable moved into <a> may still be part of a list: when the child of <a> on the way to
+// the list is not written in <a> (a <y> rewrite would go into a fresh <p>, beside whatever F
+// stands for), or is written on one side of a rewrite only (B may stand for a <p> on the other
+// side), or when the variable reaches the list's own parent (the <y> rewrite goes into the
+// written <p>, where B may stand for <fr> cells beside the written one).
+#[test]
+fn rejects_a_moved_term_of_unknown_cell_sort_that_may_reach_a_list() {
+    for (rule, written) in [
+        (
+            "<k> 0 => 1 </k> <a> <z> Z </z> F:Bag ... </a> (<y> Y </y> B:Bag => <y> 1 </y> B:Bag)",
+            "Cell <y> written beside <a> belongs inside it: the configuration allows only one <a> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+        (
+            "<k> 0 => 1 </k> <a> (.Bag => <p> <fr> <v> 1 </v> </fr> ... </p>) ... </a> (<z> Z </z> B:Bag => <z> 1 </z> B:Bag)",
+            "Cell <z> written beside <a> belongs inside it: the configuration allows only one <a> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+        (
+            "<k> 0 => 1 </k> <a> <p> <fr> <v> 1 </v> </fr> ... </p> ... </a> (<y> Y </y> B:Bag => <y> 1 </y> B:Bag)",
+            "Cell <y> written beside <p> belongs inside it: the configuration allows only one <p> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+    ] {
+        let errors = concretized_cell_rule(NESTED_LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(errors, [written], "{rule}");
+    }
+}
+
 // <a> is the only <a>, so the <d> written beside it is in it, in some <r> of it: what the rule
 // states when <d> is written inside <a> (the second spelling), or inside an <r> written beside
 // <a> (the third). <a> holds no other <r> the <d> could be in, and <r>'s collection is
@@ -7644,6 +7723,32 @@ fn places_a_cell_written_beside_its_only_possible_ancestor_in_a_fresh_commutativ
         });
         assert_eq!(bodies[0], bodies[1], "{collection}");
         assert_eq!(bodies[0], bodies[2], "{collection}");
+        // With a <p> between <a> and <r>, the fresh <r> is built in the one <p> of <a>, written
+        // or not, beside that <p>'s `...`, which stands for its other children (other <r> cells
+        // among them) and is not an <r> the <d> could be in.
+        let configuration = format!(
+            r#"<top> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multiplicity="*" type="{collection}"> <rid> 0 </rid> <d> 0 </d> <e> 0 </e> </r> </p> </a> </top>"#
+        );
+        for (rule, written) in [
+            (
+                "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+                "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+            ),
+            (
+                "<a> <p> <y> 1 </y> ... </p> ... </a> <d> 5 => 6 </d>",
+                "<a> <p> <y> 1 </y> <d> 5 => 6 </d> ... </p> ... </a>",
+            ),
+            (
+                "<a> <x> X </x> ... </a> <p> <y> 1 </y> ... </p> <d> 5 => 6 </d>",
+                "<a> <x> X </x> <p> <y> 1 </y> <d> 5 => 6 </d> ... </p> ... </a>",
+            ),
+        ] {
+            let placed = concretized_cell_rule(&configuration, rule)
+                .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+            let in_place = concretized_cell_rule(&configuration, written)
+                .unwrap_or_else(|errors| panic!("{written}: {errors:?}"));
+            assert_eq!(placed, in_place, "{collection}: {rule}");
+        }
     }
     let body = concretized_cell_rule(
         r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#,
