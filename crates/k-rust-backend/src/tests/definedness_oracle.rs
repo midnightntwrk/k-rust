@@ -1817,14 +1817,14 @@ impl Generator<'_> {
         match sort {
             "Int" => {
                 if self.rng.percent(50) {
-                    var(self.rng.pick(&INT_VARIABLES), "Int")
+                    var(self.rng.pick::<&str>(&INT_VARIABLES), "Int")
                 } else {
                     int(i64::try_from(self.rng.below(4)).unwrap())
                 }
             }
             _ => {
                 if self.rng.percent(40) {
-                    return var(self.rng.pick(&A_VARIABLES), "A");
+                    return var(self.rng.pick::<&str>(&A_VARIABLES), "A");
                 }
                 self.constructor_term(depth, |generator, sort, depth| generator.left(sort, depth))
             }
@@ -1837,7 +1837,7 @@ impl Generator<'_> {
         mut argument: impl FnMut(&mut Self, &str, usize) -> Pat,
     ) -> Pat {
         if depth == 0 || self.rng.percent(30) {
-            return cons(self.rng.pick(&["c", "d"]));
+            return cons(self.rng.pick::<&str>(&["c", "d"]));
         }
         match self.rng.below(4) {
             0 => app("n", vec![argument(self, "A", depth - 1)]),
@@ -1883,7 +1883,7 @@ impl Generator<'_> {
             }
             "Int" => {
                 if !in_scope.is_empty() && self.rng.percent(50) {
-                    var(self.rng.pick(&in_scope), "Int")
+                    var(self.rng.pick(&in_scope).as_str(), "Int")
                 } else if depth > 0 && self.rng.percent(10) {
                     let dividend = self.right("Int", depth - 1, scope);
                     let divisor = self.divisor(scope);
@@ -1894,7 +1894,7 @@ impl Generator<'_> {
             }
             _ => {
                 if !in_scope.is_empty() && self.rng.percent(35) {
-                    return var(self.rng.pick(&in_scope), "A");
+                    return var(self.rng.pick(&in_scope).as_str(), "A");
                 }
                 self.constructor_term(depth, |generator, sort, depth| {
                     generator.right(sort, depth, scope)
@@ -1912,7 +1912,7 @@ impl Generator<'_> {
         if integers.is_empty() || self.rng.percent(60) {
             int(0)
         } else {
-            var(self.rng.pick(&integers), "Int")
+            var(self.rng.pick(&integers).as_str(), "Int")
         }
     }
 }
