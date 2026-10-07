@@ -2,7 +2,7 @@
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
 //! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "Grammar::priority_admits", "RemainingTokens::new", "Reach::rest_follows", "InstanceNodes::intern"]
-//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = (chart, production, next token) pairs whose usefulness the completion lookahead decides, each once, and (chart, production) pairs whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the priority relation at its edge (in a grammar without rewrite, sequence or #let) and by where the input's next token its rest can begin with lies (O(P log B))"
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
@@ -421,6 +421,14 @@ impl Admission {
         }
     }
 }
+
+/// A node the root-reachability searches judge: its origin, the production that builds it, and
+/// the production of the node it is in the forest (`Grammar::stands_for`).
+type NodeKey = (usize, usize, usize);
+
+/// A completion `Grammar::completion_useful` judges: the node, the scanner's next token, and
+/// how many witnesses of a deferred scope error come before the position.
+type CompletionKey = (NodeKey, Option<usize>, usize);
 
 /// What the root-reachability searches of one recognition learned of a node
 /// (`Grammar::node_reaches_root`): it can be part of a parse when its callers' rests may begin
@@ -951,6 +959,22 @@ struct Production {
 }
 
 impl Production {
+    /// Whether a node of this production is its only child itself (`build_packed_term`): an
+    /// unlabelled or transparent production with one nonterminal that is not a token, record or
+    /// bracket adds no node to the forest, so the filters judge the child wherever it stands.
+    fn passes_child_through(&self) -> bool {
+        !self.token
+            && self.record.is_none()
+            && !self.bracket
+            && (self.transparent || self.label.is_none())
+            && self
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::NonTerminal(_)))
+                .count()
+                == 1
+    }
+
     /// Whether the production recognizes machine-integer literals. A literal such as `3p8`
     /// spells its width after the `p`/`P`, so it denotes a value of the machine-integer sort of
     /// that width: its sort parameter comes from the token text, not from the instantiation that
@@ -1611,10 +1635,11 @@ impl Grammar {
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
         // Whether a completion over `[origin, position]` of a production is useful when the
-        // scanner's next token is `winner`, by `(origin, production, winner)`.
+        // scanner's next token is `winner`, by `(origin, production, stands for, winner, region)`
+        // (`Grammar::completion_useful`).
         let mut useful_completions = HashMap::new();
         // Whether a node of a production starting in a chart can be part of a parse of the whole
-        // input, by `(origin, production)`.
+        // input, by `(origin, production, stands for)` (`Grammar::node_reaches_root`).
         let mut reaching_nodes = HashMap::new();
         // The tokens of the input from the first position a completion asks about them on,
         // read once, when the relations decide whether a node can reach the root.
@@ -1986,6 +2011,7 @@ impl Grammar {
                                 && !self.advanced_item_useful(
                                     earlier,
                                     advanced,
+                                    self.stands_for(advanced.production, state.production),
                                     winner,
                                     Reach {
                                         analysis,
@@ -2112,15 +2138,18 @@ impl Grammar {
     /// (`None` where no token follows): its remaining items can begin with that token, or they
     /// can all match the empty string and the completion of its production is useful
     /// ([`Self::completion_useful`]). `earlier` holds the charts before the current position,
-    /// which are final.
+    /// which are final. `stands_for` is the production of the node the advanced item's node is
+    /// in the forest ([`Self::stands_for`]).
+    #[allow(clippy::too_many_arguments)]
     fn advanced_item_useful(
         &self,
         earlier: &[Chart],
         advanced: State,
+        stands_for: usize,
         winner: Option<usize>,
         reach: Reach<'_>,
-        memo: &mut HashMap<(usize, usize, Option<usize>, usize), bool>,
-        reaching: &mut HashMap<(usize, usize), Reaching>,
+        memo: &mut HashMap<CompletionKey, bool>,
+        reaching: &mut HashMap<NodeKey, Reaching>,
     ) -> bool {
         if reach
             .analysis
@@ -2131,8 +2160,7 @@ impl Grammar {
                 .is_some_and(|after| {
                     self.node_reaches_root(
                         earlier,
-                        advanced.origin,
-                        advanced.production,
+                        (advanced.origin, advanced.production, stands_for),
                         after,
                         reach,
                         reaching,
@@ -2144,13 +2172,26 @@ impl Grammar {
             .rest_is_nullable(advanced.production, advanced.dot)
             && self.completion_useful(
                 earlier,
-                advanced.origin,
-                advanced.production,
+                (advanced.origin, advanced.production, stands_for),
                 winner,
                 reach,
                 memo,
                 reaching,
             )
+    }
+
+    /// The production of the node that a node of `production` over a child built by `child` is
+    /// in the forest: the child's own when `production` passes its child through
+    /// ([`Production::passes_child_through`]), so that the relations judge the node they will
+    /// see at each edge. A `child` that itself passes its child through stands for a node of a
+    /// production the search does not know; it is judged as itself, which has no label, and no
+    /// relation rejects it.
+    fn stands_for(&self, production: usize, child: usize) -> usize {
+        if self.productions[production].passes_child_through() {
+            child
+        } else {
+            production
+        }
     }
 
     /// Whether a node of `production` starting in chart `origin`, whose callers' rests begin at
@@ -2167,12 +2208,16 @@ impl Grammar {
     /// the left operand of the rule's own rewrite, whose `=>` comes after the `)` that closes
     /// the call around the chain, so that the rewrite would end where no `)` is left. So its
     /// items are part of no parse. A production on a same-span or productive unary cycle can,
-    /// as in [`Self::completion_useful`].
+    /// as in [`Self::completion_useful`]. A node is `(origin, production, stands for)`: each
+    /// edge is judged with the production of the node the filters will see there
+    /// ([`Self::stands_for`]), so that a sum that becomes an operand through an unlabelled
+    /// production (`#RuleE ::= E` in a rule grammar whose argument positions admit rewrites) is
+    /// judged as the sum.
     ///
-    /// The answer depends on `(origin, production)`, the final chart `origin` and `after`, and
-    /// a later `after` only removes tokens the rests can use; it is memoized in `memo` by
-    /// `(origin, production)` as the bounds of `after` it is known for ([`Reaching`]), and
-    /// searched with an explicit stack, as in [`Self::completion_useful`].
+    /// The answer depends on the node, the final chart `origin` and `after`, and a later
+    /// `after` only removes tokens the rests can use; it is memoized in `memo` by node as the
+    /// bounds of `after` it is known for ([`Reaching`]), and searched with an explicit stack, as
+    /// in [`Self::completion_useful`].
     ///
     /// Judged without the relations (`filter` ignored) every node is taken to reach the root:
     /// this question is about where a node can sit in a parse, and a recognition that must
@@ -2180,19 +2225,15 @@ impl Grammar {
     fn node_reaches_root(
         &self,
         earlier: &[Chart],
-        origin: usize,
-        production: usize,
+        node: NodeKey,
         after: usize,
         reach: Reach<'_>,
-        memo: &mut HashMap<(usize, usize), Reaching>,
+        memo: &mut HashMap<NodeKey, Reaching>,
     ) -> bool {
         if reach.filter == PriorityFilter::Ignored {
             return true;
         }
-        if let Some(reaches) = memo
-            .get(&(origin, production))
-            .and_then(|known| known.known(after))
-        {
+        if let Some(reaches) = memo.get(&node).and_then(|known| known.known(after)) {
             return reaches;
         }
         let reaches_by_itself = |origin: usize, production: usize| {
@@ -2202,10 +2243,10 @@ impl Grammar {
         };
         // The earliest `after` each node was pushed with: a node pushed again with the same or
         // a later one can reach no more than it could then.
-        let mut visited = HashMap::from([((origin, production), after)]);
+        let mut visited = HashMap::from([(node, after)]);
         // Each frame: the node, its `after`, the waiting items examined, and the rest
         // (production, dot) of the caller that admitted the node below it (none for the first).
-        let mut stack = vec![(origin, production, after, 0usize, None::<(usize, usize)>)];
+        let mut stack = vec![(node, after, 0usize, None::<(usize, usize)>)];
         // Invariant: `stack` is a chain of nodes, each admitted by an item waiting for it whose
         // rest the tokens from the node's `after` on can follow and whose node is the next,
         // with that next node's `after` past the first token the rest scans; `visited` holds
@@ -2214,7 +2255,8 @@ impl Grammar {
         // The latest `after` with which the node of the top frame, by the path found, reaches
         // the root.
         let found = 'search: loop {
-            let Some((origin, production, after, next_caller, _)) = stack.last_mut() else {
+            let Some(((origin, production, stands_for), after, next_caller, _)) = stack.last_mut()
+            else {
                 break 'search None;
             };
             if *next_caller == 0 && reaches_by_itself(*origin, *production) {
@@ -2232,13 +2274,17 @@ impl Grammar {
             let Some(caller_after) = reach
                 .rest_follows(caller.production, caller.dot + 1, *after)
                 .and_then(|caller_after| {
-                    self.boundary_admits(caller, *production, reach)
+                    self.boundary_admits(caller, *stands_for, reach)
                         .after(caller_after)
                 })
             else {
                 continue;
             };
-            let node = (caller.origin, caller.production);
+            let node = (
+                caller.origin,
+                caller.production,
+                self.stands_for(caller.production, *stands_for),
+            );
             let rest = (caller.production, caller.dot + 1);
             let known = memo.get(&node).copied().unwrap_or_default();
             match known.known(caller_after) {
@@ -2259,7 +2305,7 @@ impl Grammar {
                         .is_none_or(|pushed| caller_after < *pushed)
                     {
                         visited.insert(node, caller_after);
-                        stack.push((node.0, node.1, caller_after, 0, Some(rest)));
+                        stack.push((node, caller_after, 0, Some(rest)));
                     }
                 }
             }
@@ -2269,9 +2315,9 @@ impl Grammar {
                 // Pass the bound down the path: each node reaches the root, by it, with any
                 // `after` up to the latest at which the rest that admits it into the next node
                 // can still begin.
-                for (origin, production, after, _, rest) in stack.into_iter().rev() {
+                for (node, after, _, rest) in stack.into_iter().rev() {
                     debug_assert!(after <= latest);
-                    let known = memo.entry((origin, production)).or_default();
+                    let known = memo.entry(node).or_default();
                     known.reaches_up_to = known.reaches_up_to.max(Some(latest));
                     if let Some((rest_production, rest_dot)) = rest {
                         latest = reach
@@ -2302,21 +2348,20 @@ impl Grammar {
     /// prediction. An item that can continue with `winner` counts only when its node can be part
     /// of a parse of the whole input ([`Self::node_reaches_root`]).
     ///
-    /// The answer depends only on `(origin, production, winner)` and the final chart `origin`
-    /// (and, through [`Self::node_reaches_root`], on the tokens that remain, which only shrink),
-    /// so it is memoized in `memo`. The search over the chain of callers uses an explicit
+    /// The answer depends only on the node `(origin, production, stands for)` (as in
+    /// [`Self::node_reaches_root`]), `winner` and the final chart `origin` (and, through
+    /// [`Self::node_reaches_root`], on the tokens that remain, which only shrink), so it is
+    /// memoized in `memo`. The search over the chain of callers uses an explicit
     /// stack; when it finds no useful item, no item it visited reaches one, and all of them are
     /// recorded as useless.
-    #[allow(clippy::too_many_arguments)]
     fn completion_useful(
         &self,
         earlier: &[Chart],
-        origin: usize,
-        production: usize,
+        node: NodeKey,
         winner: Option<usize>,
         reach: Reach<'_>,
-        memo: &mut HashMap<(usize, usize, Option<usize>, usize), bool>,
-        reaching: &mut HashMap<(usize, usize), Reaching>,
+        memo: &mut HashMap<CompletionKey, bool>,
+        reaching: &mut HashMap<NodeKey, Reaching>,
     ) -> bool {
         // A caller completed here through a nullable rest ends here, so whether its node holds
         // a witness of a deferred scope error (`Admission::IfEndsAfter`) depends on how many
@@ -2324,16 +2369,16 @@ impl Grammar {
         let region = reach
             .remaining
             .map_or(0, |remaining| remaining.deferrals_before(reach.from));
-        if let Some(useful) = memo.get(&(origin, production, winner, region)) {
+        if let Some(useful) = memo.get(&(node, winner, region)) {
             return *useful;
         }
-        let mut visited = HashSet::from([(origin, production)]);
-        let mut stack = vec![(origin, production, 0usize)];
+        let mut visited = HashSet::from([node]);
+        let mut stack = vec![(node, 0usize)];
         // Invariant: `stack` is a chain of completions, each of which some caller of the one
         // before it would complete through a nullable rest; `visited` holds every completion
         // pushed, and the third component counts the callers of each already examined.
         let found = 'search: loop {
-            let Some((origin, production, next_caller)) = stack.last_mut() else {
+            let Some(((origin, production, stands_for), next_caller)) = stack.last_mut() else {
                 break 'search false;
             };
             if *next_caller == 0
@@ -2351,11 +2396,16 @@ impl Grammar {
                 continue;
             };
             *next_caller += 1;
-            let admission = self.boundary_admits(caller, *production, reach);
+            let admission = self.boundary_admits(caller, *stands_for, reach);
             if admission == Admission::No {
                 continue;
             }
             let dot = caller.dot + 1;
+            let caller_node = (
+                caller.origin,
+                caller.production,
+                self.stands_for(caller.production, *stands_for),
+            );
             if reach
                 .analysis
                 .rest_can_start_with(caller.production, dot, winner)
@@ -2363,14 +2413,7 @@ impl Grammar {
                     .rest_follows(caller.production, dot, reach.from)
                     .and_then(|after| admission.after(after))
                     .is_some_and(|after| {
-                        self.node_reaches_root(
-                            earlier,
-                            caller.origin,
-                            caller.production,
-                            after,
-                            reach,
-                            reaching,
-                        )
+                        self.node_reaches_root(earlier, caller_node, after, reach, reaching)
                     })
             {
                 break 'search true;
@@ -2380,33 +2423,34 @@ impl Grammar {
             {
                 continue;
             }
-            match memo.get(&(caller.origin, caller.production, winner, region)) {
+            match memo.get(&(caller_node, winner, region)) {
                 Some(true) => break 'search true,
                 Some(false) => {}
                 None => {
-                    if visited.insert((caller.origin, caller.production)) {
-                        stack.push((caller.origin, caller.production, 0));
+                    if visited.insert(caller_node) {
+                        stack.push((caller_node, 0));
                     }
                 }
             }
         };
         if found {
-            for (origin, production, _) in stack {
-                memo.insert((origin, production, winner, region), true);
+            for (node, _) in stack {
+                memo.insert((node, winner, region), true);
             }
         } else {
-            for (origin, production) in visited {
-                memo.insert((origin, production, winner, region), false);
+            for node in visited {
+                memo.insert((node, winner, region), false);
             }
         }
         found
     }
 
     /// Whether `caller` can hold a node built by `child` at its dot in a reading the filters
-    /// keep. The associativity boundary [`Self::filter_associative_boundary`] drops the node
-    /// before the caller packs it, in every grammar (judged from `child`'s own parse label; a
-    /// production without one passes its child's label up, which is not known here, so it is
-    /// kept). The priority filter judges the edge when the caller completes
+    /// keep; `child` is the production of the node the filters see there
+    /// ([`Self::stands_for`]). The associativity boundary [`Self::filter_associative_boundary`]
+    /// drops the node before the caller packs it, in every grammar (judged from `child`'s own
+    /// parse label; a production without one whose node stands for a node of an unknown
+    /// production passes that node's label up, which is not known here, so it is kept). The priority filter judges the edge when the caller completes
     /// ([`Self::priority_admits`]): a violation drops the caller's node, unless the filter has
     /// already met, in an earlier child or in another reading of this one, a rewrite, sequence
     /// or `#let` below an operator, a scope error it defers so that a reading rooted at the

@@ -1404,6 +1404,47 @@ mod tests {
         assert_eq!(filtered(&grammar, "a c c c"), expected);
     }
 
+    /// An operator whose operands are recognized at a sort that derives the operator's own sort
+    /// through an unlabelled production (`R ::= E`, as a rule grammar's `#RuleE ::= E` where
+    /// argument positions admit rewrites) holds the operand node itself: that production adds
+    /// no node to the forest, so the relations judge the sum at the `+`. Root reachability must
+    /// judge it there too, or no partial sum of a left-associative chain is skipped: the
+    /// completions grew fourfold with each doubling of the operands (2,552, 10,102 and 40,202 at
+    /// 50, 100 and 200), where they now grow in proportion (200, 400 and 800).
+    #[test]
+    fn a_chain_through_an_operand_that_passes_its_node_through_skips_forbidden_sums() {
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("E")], "start"),
+            production("E", vec![nt("R"), terminal("+"), nt("R")], "plus"),
+            production("E", vec![terminal("a")], "a"),
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("R"),
+                items: vec![nt("E")],
+                attributes: Attributes::default(),
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: crate::definition::Associativity::Left,
+                tags: vec!["plus".to_owned()],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        let [at_50, at_100, at_200] = [50, 100, 200].map(|length| {
+            let input = vec!["a"; length].join(" + ");
+            CHART_COMPLETION_CANDIDATES.set(0);
+            let parsed = filtered(&grammar, &input);
+            assert!(parsed.is_ok(), "{parsed:?}");
+            CHART_COMPLETION_CANDIDATES.get()
+        });
+        println!("{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands");
+        assert!(
+            at_200 - at_100 <= (at_100 - at_50) * 5 / 2,
+            "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+        );
+    }
+
     #[test]
     fn filters_impossible_waiters_without_a_prior_caller() {
         let mut sentences = vec![
