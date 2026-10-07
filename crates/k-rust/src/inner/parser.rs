@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
@@ -1446,6 +1446,7 @@ impl Grammar {
             prediction_mode,
             PriorityFilter::Enforced,
             None,
+            matches!(prediction_mode, PredictionMode::Retry { .. }),
             &mut pruning.pruned,
             &mut scanner_cache,
             &priority_memos,
@@ -1518,7 +1519,12 @@ impl Grammar {
     /// operand of a `=>` that never comes) does not. The input is therefore recognized again
     /// with the relations ignored: when that recognition also fails, the input has no derivation
     /// at all and the error is the place where it stops; otherwise the error is a violation of a
-    /// derivation of the whole input.
+    /// derivation of the whole input, read from the forest of those derivations. That forest
+    /// leaves out a node that repeats itself over one span (`Grammar::recognize`): no reading
+    /// passes the relations, so the repetition is no cycle of a reading, and the derivations
+    /// without it break the relations as every derivation does. Reporting instead the violation
+    /// the failed recognition met first would make the error depend on the order it met items
+    /// in, and on which items it skipped, including items no derivation of the input contains.
     ///
     /// Whether a derivation exists, and the items of the last chart where none does, do not
     /// depend on the parse forest, which for an ambiguous grammar (every chain of a binary
@@ -1560,6 +1566,7 @@ impl Grammar {
                 prediction_mode,
                 PriorityFilter::Ignored,
                 Some(&stand_in),
+                false,
                 pruned,
                 scanner_cache,
                 &priority_memos,
@@ -1584,10 +1591,13 @@ impl Grammar {
             prediction_mode,
             PriorityFilter::Ignored,
             None,
+            true,
             pruned,
             scanner_cache,
             &priority_memos,
         ) else {
+            // Only a recognition error other than a repetition (which this recognition cuts)
+            // ends here; the violation met first is then the only one known.
             return first_violation;
         };
         if parses.is_empty() {
@@ -1612,6 +1622,14 @@ impl Grammar {
     /// every completed node is that node, so the recognition decides which items exist without
     /// building a forest (`Grammar::explain_violation`); it is used only with the relations
     /// ignored, and only for a grammar without same-span cycles.
+    ///
+    /// With `cut_repetitions`, a node that repeats itself over one span is left out of the
+    /// forest instead of being reported as a cycle. Only a recognition made for the diagnostic of
+    /// a failed parse cuts: a retry (`PredictionMode::Retry`), and the recognition with the
+    /// relations ignored that explains a violation. A repetition adds no item (the node it
+    /// repeats already completed the same state), so the charts are those of a recognition that
+    /// reports it; and a failed parse has no reading the relations allow, so the repetition is
+    /// part of no reading of the input the recognition could report as infinitely ambiguous.
     #[allow(clippy::too_many_arguments)]
     fn recognize(
         &self,
@@ -1622,6 +1640,7 @@ impl Grammar {
         prediction_mode: PredictionMode,
         filter: PriorityFilter,
         stand_in: Option<&Rc<PackedTerm>>,
+        cut_repetitions: bool,
         pruned: &mut bool,
         scanner_cache: &mut [ScanCacheEntry],
         priority_memos: &RefCell<PackedPriorityMemos>,
@@ -1651,15 +1670,6 @@ impl Grammar {
             PredictionMode::Retry { .. } => PriorityFilter::Ignored,
             PredictionMode::Filtered | PredictionMode::Unfiltered => filter,
         };
-        // A retry recognizes a failed parse again only for its diagnostic: the items of the last
-        // chart reached and the violation met. It cuts a node that repeats itself over one span
-        // instead of reporting a cycle: the repetition adds no item (the node it repeats already
-        // completed the same state) and has passed the filter, and the first attempt, which
-        // keeps every derivation the relations allow, found none, so the repetition is part of
-        // no reading of the input that the relations allow. The recognitions with the relations
-        // ignored that explain a violation (`Grammar::explain_violation`) keep their own rule.
-        let cut_repetitions = matches!(prediction_mode, PredictionMode::Retry { .. })
-            && filter == PriorityFilter::Enforced;
         let mut instance_nodes = InstanceNodes::default();
         let root = (start_position, start_id);
         let cycles = self

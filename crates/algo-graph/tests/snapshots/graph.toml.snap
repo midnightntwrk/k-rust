@@ -6606,7 +6606,7 @@ bound = "recognition plus the post-recognition passes called at the end of parse
 
 [[node.cost]]
 mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second"
+bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
 
 [[node.cost]]
 mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"

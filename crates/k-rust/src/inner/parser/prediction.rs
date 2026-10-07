@@ -1060,6 +1060,7 @@ mod tests {
                     mode,
                     PriorityFilter::Ignored,
                     stand_in,
+                    false,
                     &mut false,
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),
@@ -1167,6 +1168,54 @@ mod tests {
             let grammar = indexed_grammar(&kinds);
             prop_assert_eq!(filtered(&grammar, &input), unfiltered(&grammar, &input));
         }
+    }
+
+    /// `b a` under `S0 ::= "" | S2 | "" [#KRewrite] | S0 S1 [p6]`, `S1 ::= S1 S0 [p4] | "b"
+    /// [p7]`, `S2 ::= "a" | "a"` with `p4 p6 > p7` is derived only as `p6(ε, p4(p7(b), a))`
+    /// (and with more empty `S0` in it), so every derivation breaks `p4 > p7` and the input is
+    /// grammatical: the error is that violation. A recognition that builds every item also
+    /// meets `p6(ε, p7(b))` over `b`, which breaks `p6 > p7` but which no derivation contains
+    /// (nothing can follow it with `a`); the explanation's recognition with the relations
+    /// ignored meets a same-span repetition (`S1 ::= S1 S0` over an empty `S0`), and the
+    /// violation that recognition met first was reported in its place, so the error depended on
+    /// which items the recognition skipped. The explanation cuts the repetition and reports the
+    /// violation of the input's derivations, whatever was skipped.
+    #[test]
+    fn a_failed_parse_reports_a_violation_of_a_derivation_of_the_input() {
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("S0")], "start"),
+            production("S0", vec![], "p0"),
+            production("S0", vec![nt("S2")], "p1"),
+            production("S0", vec![], InternalLabel::KRewrite.as_str()),
+            production("S2", vec![terminal("a")], "p3"),
+            production("S1", vec![nt("S1"), nt("S0")], "p4"),
+            production("S2", vec![terminal("a")], "p5"),
+            production("S0", vec![nt("S0"), nt("S1")], "p6"),
+            production("S1", vec![terminal("b")], "p7"),
+            Sentence::SyntaxPriority {
+                priorities: vec![
+                    vec!["p4".to_owned(), "p6".to_owned()],
+                    vec!["p7".to_owned()],
+                ],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        let expected = Err(ParseError::Priority {
+            parent: "p4".to_owned(),
+            child: "p7".to_owned(),
+        });
+        assert_eq!(unfiltered(&grammar, "b a"), expected);
+        assert_eq!(
+            attempt(
+                &grammar,
+                "b a",
+                PredictionMode::Filtered,
+                &mut Pruning::default()
+            ),
+            expected
+        );
+        assert_eq!(filtered(&grammar, "b a"), expected);
     }
 
     /// `a + a * b c` has one derivation, `plus(a, q(a))`, and the left associativity of the
@@ -1401,6 +1450,7 @@ mod tests {
                     mode,
                     PriorityFilter::Enforced,
                     None,
+                    false,
                     &mut false,
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),
