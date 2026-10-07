@@ -30,10 +30,20 @@
 
 use std::fmt::{Display, Write};
 
+/// A K token regex: a body and two line anchors, which constrain where in the scanned text a token
+/// may be, not what it contains.
+///
+/// The anchors apply to the whole body, alternation included (`^a|b$` is `^(a|b)$`); the parser
+/// accepts `^` only as the first and `$` only as the last character of the whole regex.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Regex {
+    /// `^`: the token starts a line, i.e. it starts at the start of the scanned text or right
+    /// after a `\n`.
     pub start_line: bool,
     pub body: RegexBody,
+    /// `$`: the token ends a line, i.e. a `\n` follows it. The newline is not part of the token,
+    /// and the end of the text is not a line end: text after the last newline is an unterminated
+    /// line, and a Flex trailing context cannot be the end of the input either.
     pub end_line: bool,
 }
 
@@ -46,32 +56,37 @@ impl Regex {
         }
     }
 
-    /// The canonical form, which `Display` prints: a start anchor is printed on both ends and a
-    /// lone end anchor is dropped, the same anchor rule as [`Self::to_flex_pattern`].
+    /// The canonical form, which `Display` prints: the parsed regex in K syntax, with exactly the
+    /// anchors it holds. Two regexes with the same canonical form denote the same tokens; reparsing
+    /// it gives back an equal [`Regex`].
     pub fn to_canonical_string(&self) -> String {
-        print_regex(self, self.start_line)
-    }
-
-    /// Print the regex as written, with exactly the anchors the AST holds.
-    pub fn to_source_string(&self) -> String {
-        print_regex(self, self.end_line)
+        let mut output = String::new();
+        if self.start_line {
+            output.push('^');
+        }
+        print_union(&self.body, &mut output).expect("writing to a string cannot fail");
+        if self.end_line {
+            output.push('$');
+        }
+        output
     }
 
     /// Render this regular expression as a deterministic Flex pattern.
     ///
+    /// A Flex rule's leading `^` and trailing `$` mean what the line anchors of a token regex
+    /// mean (see [`Regex::start_line`]) and apply to the whole rule, so both are printed as held.
     /// This is a semantic input to Flex, not a byte-parity contract with K's renderer.
     pub fn to_flex_string(&self) -> String {
         print_flex_regex(self)
     }
 
-    /// Translate K's regex AST to a Rust regex body with Flex's anchor semantics.
+    /// Translate K's regex AST to a Rust regex body, keeping the line anchors beside it: Rust
+    /// regex anchors match at different positions, so the matcher applies them itself.
     pub fn to_flex_pattern(&self) -> Result<FlexPattern, UnexpandedLexical> {
         Ok(FlexPattern {
             body: self.body.to_rust_string()?,
             start_line: self.start_line,
-            // A start anchor anchors both ends and a lone end anchor is dropped. This is not what
-            // the anchors say (`$` alone should anchor the end); see `to_canonical_string`.
-            end_line: self.start_line,
+            end_line: self.end_line,
         })
     }
 }
@@ -729,18 +744,6 @@ impl Parser {
     }
 }
 
-fn print_regex(regex: &Regex, end_line: bool) -> String {
-    let mut output = String::new();
-    if regex.start_line {
-        output.push('^');
-    }
-    print_union(&regex.body, &mut output).expect("writing to a string cannot fail");
-    if end_line {
-        output.push('$');
-    }
-    output
-}
-
 fn print_flex_regex(regex: &Regex) -> String {
     let mut output = String::new();
     if regex.start_line {
@@ -748,9 +751,7 @@ fn print_flex_regex(regex: &Regex) -> String {
     }
     print_flex_union(&transform_flex_body(&regex.body), &mut output)
         .expect("writing to a string cannot fail");
-    // The anchor rule of `Regex::to_flex_pattern`: both anchors for a start-anchored regex, and
-    // none for a lone end anchor.
-    if regex.start_line {
+    if regex.end_line {
         output.push('$');
     }
     output

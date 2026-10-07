@@ -12,6 +12,9 @@ use std::{
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
 use regex::Regex;
 
+#[path = "support/line_anchors.rs"]
+mod line_anchors;
+
 const DEFINITION: &str = r#"
 requires "base.k"
 
@@ -9446,6 +9449,72 @@ endmodule
             .unwrap();
         assert!(!output.status.success());
     }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
+    let (root, definition) = fixture();
+    fs::write(&definition, line_anchors::DEFINITION).unwrap();
+    let parser = root.join("anchor-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "ANCHOR-SYNTAX",
+            "--sort",
+            "Pgm",
+            "--gen-parser",
+        ])
+        .arg(&parser)
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+
+    let mut in_process = Command::new(env!("CARGO_BIN_EXE_krust"));
+    in_process.args([
+        "kast",
+        definition.to_str().unwrap(),
+        "--module",
+        "ANCHOR-SYNTAX",
+        "--output",
+        "json",
+    ]);
+    for (index, (program, accepted)) in line_anchors::PROGRAMS.into_iter().enumerate() {
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
+        let standalone = Command::new(&parser).arg(&input).output().unwrap();
+        assert_eq!(
+            standalone.status.success(),
+            accepted,
+            "generated parser on {program:?}: {}{}",
+            String::from_utf8_lossy(&standalone.stdout),
+            String::from_utf8_lossy(&standalone.stderr)
+        );
+        in_process.args([
+            if accepted {
+                "--batch-case"
+            } else {
+                "--batch-reject-case"
+            },
+            &format!("case-{index}"),
+            "Pgm",
+            program,
+        ]);
+    }
+    let batch = in_process.output().unwrap();
+    assert!(
+        batch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&batch.stderr)
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
