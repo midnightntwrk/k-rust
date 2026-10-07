@@ -1668,6 +1668,63 @@ fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
     }
 }
 
+/// TB02-R3-F1: invalid UTF-8 is refused in every domain value whose sort is not
+/// `BYTES.Bytes`-hooked, at any polarity: `STRING.token2string` turns any token into a
+/// String byte for byte. Bytes keeps every byte sequence (review F3).
+#[test]
+fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
+    let validator = NativeValidator::bind(support::load("tb02token.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("token fixture");
+    let mut tokens = backend(&side, "TB02TOKEN");
+    let negate = |value: Pattern| Pattern::Not {
+        sort: kore_sort("SortString"),
+        argument: Box::new(value),
+    };
+    for source in [
+        r#"\dv{SortId{}}("\x80")"#,
+        r#"\dv{SortId{}}("\xff")"#,
+        r#"\dv{SortTok{}}("\x80")"#,
+        r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
+        r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
+        r#"\dv{SortInt{}}("\x80")"#,
+    ] {
+        let value =
+            k_rust::kore::parser::parse_pattern(source).expect("invalid UTF-8 parses as bytes");
+        for input in [value.clone(), negate(value)] {
+            let admission = bridge::validate_test_initial_state(&mut tokens, &input);
+            assert!(
+                matches!(
+                    admission,
+                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                ),
+                "{source}: {input:?}: {admission:?}"
+            );
+        }
+    }
+    for source in [
+        r#"\dv{SortId{}}("A")"#,
+        r#"\dv{SortId{}}("\u0080")"#,
+        r#"\dv{SortTok{}}("\xc3\xa9")"#,
+        r#"Lbltok2s{}(\dv{SortTok{}}("\u0080"))"#,
+    ] {
+        let value = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
+        for input in [value.clone(), negate(value)] {
+            let admission = bridge::validate_test_initial_state(&mut tokens, &input);
+            assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
+        }
+    }
+    let validator = NativeValidator::bind(support::load("tb02bytes.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("Bytes fixture");
+    let mut bytes = backend(&side, "TB02BYTES");
+    for source in [r#"\dv{SortBytes{}}("\x80")"#, r#"\dv{SortBytes{}}("\xff")"#] {
+        let value = k_rust::kore::parser::parse_pattern(source).expect("Bytes value");
+        for input in [value.clone(), negate(value)] {
+            let admission = bridge::validate_test_initial_state(&mut bytes, &input);
+            assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
+        }
+    }
+}
+
 /// TB02-R2-F1: every test-written Float token is refused at any polarity,
 /// including the rule literal and k-rust's hook-produced canonical spelling.
 #[test]

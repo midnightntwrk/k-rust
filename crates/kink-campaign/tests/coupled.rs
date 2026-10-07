@@ -7507,6 +7507,159 @@ fn audit_vi_t11_invalid_utf8_string_inputs_are_refused() {
     });
 }
 
+/// TB02-R3-F1: `STRING.token2string` copies a token's bytes into a String unchanged, so an
+/// invalid-UTF-8 token of any token sort (K's `Id`, a user `[token]` sort) reaches the
+/// review F1 String guards without a String domain value. The mutants are those of
+/// `audit_vi_t11_invalid_utf8_string_inputs_are_refused`, equivalent on K Strings.
+#[test]
+fn audit_vi_t11_review3_invalid_utf8_token_inputs_are_refused() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("tb02token.k"), CompileOptions::default());
+        validator.compile_baseline().expect("token fixture");
+        let baseline = validator.baseline();
+        let id2string = "Id2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id";
+        let mut failures = Vec::new();
+        for (head, label, patch) in [
+            (
+                "stringRange",
+                "TB02TOKEN.range",
+                Patch::new(vec![replaced(
+                    baseline,
+                    "TB02TOKEN.range",
+                    &[1],
+                    ei_bool(false),
+                )])
+                .expect("false range"),
+            ),
+            (
+                "stringPoint",
+                "TB02TOKEN.point",
+                Patch::new(vec![
+                    replaced(
+                        baseline,
+                        "TB02TOKEN.point",
+                        &[0, 0, 0],
+                        so_var("S", "String"),
+                    ),
+                    replaced(
+                        baseline,
+                        "TB02TOKEN.point",
+                        &[1],
+                        Term::apply("pointGuard", vec![so_var("S", "String")]),
+                    ),
+                ])
+                .expect("guarded point"),
+            ),
+        ] {
+            let generation = fixed(baseline, &[(label, &[0])], "tb02-token", &patch);
+            let observation = vec![StepEventSpec {
+                constructor: "fire7".into(),
+                pre: support::k_config(
+                    app(head, vec![support::var("S", "SortString")]),
+                    "SortProg",
+                    "R",
+                    "C",
+                ),
+                post: Some(support::k_config(
+                    app("done", vec![support::int(7)]),
+                    "SortProg",
+                    "R",
+                    "C2",
+                )),
+                payload: vec![],
+            }];
+            let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+            let plan = PatternPlan::new(
+                &vocabulary,
+                vec![],
+                vec![PatternArm {
+                    atoms: vec![Atom {
+                        constructor: "fire7".into(),
+                        payload: vec![],
+                    }],
+                    relations: vec![],
+                }],
+                None,
+            )
+            .expect("fire plan");
+            let oracles = [
+                whole_term(),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::State(StateProjection::ExitStop {
+                        exit_code_cell: None,
+                    }),
+                )
+                .expect("exit"),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .expect("fire"),
+            ];
+            for (id, hook, source, invalid) in [
+                (
+                    "id-invalid-x80",
+                    id2string,
+                    r#"\dv{SortId{}}("\x80")"#,
+                    true,
+                ),
+                (
+                    "id-invalid-xff",
+                    id2string,
+                    r#"\dv{SortId{}}("\xff")"#,
+                    true,
+                ),
+                (
+                    "tok-invalid-x80",
+                    "tok2s",
+                    r#"\dv{SortTok{}}("\x80")"#,
+                    true,
+                ),
+                ("id-ascii", id2string, r#"\dv{SortId{}}("A")"#, false),
+                ("id-unicode", id2string, r#"\dv{SortId{}}("\u0080")"#, false),
+                ("tok-unicode", "tok2s", r#"\dv{SortTok{}}("\u0080")"#, false),
+            ] {
+                let token = k_rust::kore::parser::parse_pattern(source).expect("token argument");
+                let tests = [case(
+                    id,
+                    support::initial_state(app(head, vec![app(hook, vec![token])]), "SortProg"),
+                    &oracles,
+                )];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "TB02TOKEN",
+                    observation: &observation,
+                    classify: &tv01_classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let result = ViResult::of(&campaign, &generation, mode);
+                    eprintln!("TB02-R3-TOKEN {head} {id} {mode:?}: {result:?}");
+                    let expected = if invalid {
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                    } else {
+                        ViResult::Ran {
+                            tests: vec![(id.into(), TestRun::Compared(vec![A, A, A]))],
+                            status: MutantStatus::Survived,
+                            killing: vec![],
+                        }
+                    };
+                    if result != expected {
+                        failures.push(format!("{head} {id} {mode:?}: {result:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "unsafe token inputs: {failures:?}");
+    });
+}
+
 /// F4: origin authorization permits these writes, but local patch application refuses
 /// production insertion and changing a rule sentence into a production.
 #[test]

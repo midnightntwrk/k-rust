@@ -80,8 +80,10 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence, cano
 /// Term equality with non-total applications on both operands is refused: both may be
 /// undefined at one valuation, so solver refutation does not refute matching-logic equality.
 /// Free set variables are refused explicitly; local set binders remain local (TB-02).
-/// String domain values and bare String patterns must contain valid UTF-8 at any polarity;
-/// invalid bytes can satisfy String guards that no K String satisfies (TB-02 review F1).
+/// Every domain value of a sort not hooked `BYTES.Bytes`, and every bare String pattern, must
+/// contain valid UTF-8 at any polarity: invalid bytes can satisfy String guards that no K
+/// String satisfies (TB-02 review F1), and `STRING.token2string` carries a token's bytes
+/// into a String unchanged (TB-02 review 3, F1).
 /// Float domain values are refused at any polarity: token spelling and Float equality
 /// disagree, even for a hook-produced canonical spelling (TB-02 review 2, F1).
 /// Campaign admission maps failure through its existing baseline oracle refusal gate.
@@ -112,19 +114,22 @@ pub fn validate_test_initial_state(
                         .into(),
                 ));
             }
-            let invalid_string = match node {
+            // Only a Bytes value is a byte sequence. STRING.token2string copies any token
+            // sort's bytes into a String, so every other domain value must be UTF-8 text
+            // (TB-02 review 3, F1); an unknown or variable sort is not Bytes.
+            let invalid_text = match node {
                 Pattern::String(value) => value.as_utf8().is_err(),
                 Pattern::DomainValue { sort, value } => {
                     value.as_utf8().is_err()
-                        && matches!(sort, Sort::Application { name, .. }
+                        && !matches!(sort, Sort::Application { name, .. }
                             if definition.sorts().get(name.as_str()).is_some_and(|sort|
-                                sort.hook.as_deref() == Some("STRING.String")))
+                                sort.hook.as_deref() == Some("BYTES.Bytes")))
                 }
                 _ => false,
             };
-            if invalid_string {
+            if invalid_text {
                 return Err(ExecutionAdapterFailure::InvalidState(
-                    "test state contains a String value whose bytes are not valid UTF-8".into(),
+                    "test state contains a non-Bytes value whose bytes are not valid UTF-8".into(),
                 ));
             }
             if let Pattern::Application { symbol, .. }
