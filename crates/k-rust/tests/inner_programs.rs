@@ -10,6 +10,9 @@ use k_rust::inner::{NoParseInput, ParseError, ProgramError, ProgramParser, parse
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::provenance::SourceId;
 
+#[path = "support/line_anchors.rs"]
+mod line_anchors;
+
 fn lowered(source: &str, main_module: &str) -> Definition {
     let parsed = k_rust::outer::parse("program.k", source).expect("definition should parse");
     k_rust::outer::lower(&parsed, main_module).expect("definition should lower")
@@ -541,31 +544,84 @@ fn reference_regex_backslash_d_is_a_literal_d() {
 }
 
 #[test]
-fn reference_regex_line_anchors_follow_flex_printing() {
-    let definition = lowered(
-        include_str!("fixtures/reference/inner/regex/anchor.k"),
-        "ANCHOR",
-    );
+fn regex_line_anchors_constrain_where_a_token_starts_and_ends() {
+    let definition = lowered(line_anchors::DEFINITION, "ANCHOR");
     let parser =
         ProgramParser::new(&definition, "ANCHOR-SYNTAX").expect("program grammar should build");
 
-    for source in ["a", " a", "a\n"] {
-        let _ = parser
-            .parse(&Sort::new("Foo"), source)
-            .unwrap_or_else(|error| {
-                panic!("lone end anchor should be dropped for {source:?}: {error}")
-            });
+    for (program, accepted) in line_anchors::PROGRAMS {
+        let result = parser.parse(&Sort::new("Pgm"), program);
+        assert_eq!(result.is_ok(), accepted, "{program:?}: {result:?}");
     }
-    let _ = parser
-        .parse(&Sort::new("Bar"), "b\n")
-        .expect("a start anchor should imply an end anchor before a newline");
-    for source in ["b", " b\n"] {
-        let result = parser.parse(&Sort::new("Bar"), source);
-        assert!(
-            result.is_err(),
-            "anchored regex unexpectedly parsed {source:?}: {result:?}"
-        );
+    for program in line_anchors::programs_with_a_token_at_a_buffer_boundary() {
+        let result = parser.parse(&Sort::new("Pgm"), &program);
+        assert!(result.is_ok(), "{} spaces: {result:?}", program.len() - 2);
     }
+}
+
+#[test]
+fn regex_line_anchors_do_not_lengthen_a_token_in_the_longest_match_rule() {
+    let definition = lowered(line_anchors::TIE_DEFINITION, "TIE");
+    let parser =
+        ProgramParser::new(&definition, "TIE-SYNTAX").expect("program grammar should build");
+
+    for (program, accepted) in line_anchors::TIE_PROGRAMS {
+        let result = parser.parse(&Sort::new("Pgm"), program);
+        assert_eq!(result.is_ok(), accepted, "{program:?}: {result:?}");
+    }
+}
+
+#[test]
+fn regex_line_anchors_make_distinct_lexemes() {
+    // `^a` and `^a$` (and `a` and `a$`) accept different token positions, so a scanner must not
+    // treat them as one lexeme.
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Start ::= r"^a" [token]
+              syntax Both ::= r"^a$" [token]
+              syntax Plain ::= r"b" [token]
+              syntax End ::= r"b$" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
+
+    // Only inputs where one lexeme alone matches: where both match with the same length, the
+    // scanner picks one token for both sorts.
+    for (sort, program, accepted) in [
+        ("Start", "a", true),
+        ("Both", "a", false),
+        ("Plain", "b", true),
+        ("End", "b", false),
+    ] {
+        let result = parser.parse(&Sort::new(sort), program);
+        assert_eq!(result.is_ok(), accepted, "{sort} {program:?}: {result:?}");
+    }
+}
+
+#[test]
+fn an_end_anchored_layout_that_matches_the_empty_string_is_rejected() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax #Layout ::= r" *$"
+              syntax Foo ::= r"a" [token]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let error = ProgramParser::new(&definition, "MAIN").unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            ProgramError::Grammar { ref error, .. }
+                if matches!(error.as_ref(), ParseError::EmptyLayout)
+        ),
+        "{error:?}"
+    );
 }
 
 #[test]

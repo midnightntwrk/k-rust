@@ -71,14 +71,32 @@ regex_error_snapshot!(empty_character_class_error, "[]");
 regex_error_snapshot!(oversized_repetition_error, "a{999999999999}");
 
 #[test]
-fn canonical_printer_drops_a_lone_end_anchor_and_source_printer_keeps_it() {
-    let start = regex::parse("^a").unwrap();
-    let end = regex::parse("a$").unwrap();
-
-    assert_eq!(start.to_canonical_string(), "^a$");
-    assert_eq!(end.to_canonical_string(), "a");
-    assert_eq!(start.to_source_string(), "^a");
-    assert_eq!(end.to_source_string(), "a$");
+fn canonical_printer_keeps_each_anchor_as_written() {
+    for (source, canonical) in [
+        ("a", "a"),
+        ("^a", "^a"),
+        ("a$", "a$"),
+        ("^a$", "^a$"),
+        ("^a|b$", "^a|b$"),
+        // The anchors apply to the whole top-level alternation, so the group is redundant.
+        ("^(a|b)$", "^a|b$"),
+    ] {
+        assert_eq!(
+            regex::parse(source).unwrap().to_canonical_string(),
+            canonical,
+            "{source}"
+        );
+    }
+    // Distinct anchors are distinct regexes, so they have distinct canonical forms.
+    let forms =
+        ["a", "^a", "a$", "^a$"].map(|source| regex::parse(source).unwrap().to_canonical_string());
+    assert_eq!(
+        forms
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        4
+    );
 }
 
 #[test]
@@ -156,11 +174,24 @@ fn flex_printer_groups_non_ascii_code_points_and_factors_classes() {
 }
 
 #[test]
-fn flex_printer_anchors_both_ends_after_a_start_anchor_and_drops_a_lone_end_anchor() {
-    assert_eq!(regex::parse("a").unwrap().to_flex_string(), "a");
-    assert_eq!(regex::parse("^a").unwrap().to_flex_string(), "^a$");
-    assert_eq!(regex::parse("a$").unwrap().to_flex_string(), "a");
-    assert_eq!(regex::parse("^a$").unwrap().to_flex_string(), "^a$");
+fn flex_printer_keeps_each_anchor_as_written() {
+    // A Flex rule's leading `^` and trailing `$` apply to the whole rule, alternation included,
+    // which is the scope a K token regex's anchors have.
+    for (source, flex) in [
+        ("a", "a"),
+        ("^a", "^a"),
+        ("a$", "a$"),
+        ("^a$", "^a$"),
+        ("^a|b$", "^a|b$"),
+        ("^(a|b)", "^a|b"),
+        ("(a|b)$", "a|b$"),
+    ] {
+        assert_eq!(
+            regex::parse(source).unwrap().to_flex_string(),
+            flex,
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -202,12 +233,22 @@ fn rust_printer_escapes_rust_metacharacters() {
 }
 
 #[test]
-fn flex_pattern_anchors_both_ends_after_a_start_anchor_and_drops_a_lone_end_anchor() {
-    let end_only = regex::parse("a$").unwrap().to_flex_pattern().unwrap();
-    let start_only = regex::parse("^b").unwrap().to_flex_pattern().unwrap();
-
-    assert!(!end_only.start_line && !end_only.end_line);
-    assert!(start_only.start_line && start_only.end_line);
+fn flex_pattern_carries_each_anchor_as_written() {
+    for (source, start_line, end_line) in [
+        ("a", false, false),
+        ("^a", true, false),
+        ("a$", false, true),
+        ("^a$", true, true),
+        ("^a|b", true, false),
+        ("a|b$", false, true),
+    ] {
+        let pattern = regex::parse(source).unwrap().to_flex_pattern().unwrap();
+        assert_eq!(
+            (pattern.start_line, pattern.end_line),
+            (start_line, end_line),
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -225,6 +266,13 @@ fn misplaced_anchors_and_empty_alternatives_are_rejected_and_anchors_are_parsed(
     for invalid in ["^", "$", "^$", "a^b", "a$b", "$a^", "|", "a|", "|a"] {
         assert!(regex::parse(invalid).is_err(), "{invalid}");
     }
+    // An anchor is a property of the whole regex: inside a group or next to an inner `|` it is a
+    // syntax error, not an anchor of that alternative.
+    for invalid in [
+        "(^a)", "(a$)", "a|^b", "a$|b", "(a|^b)", "(a$|b)", "^(^a)", "(a$)$", "^a|^b", "a$|b$",
+    ] {
+        assert!(regex::parse(invalid).is_err(), "{invalid}");
+    }
 
     let start = regex::parse("^ab").unwrap();
     assert!(start.start_line);
@@ -235,14 +283,20 @@ fn misplaced_anchors_and_empty_alternatives_are_rejected_and_anchors_are_parsed(
     let both = regex::parse("^a$").unwrap();
     assert!(both.start_line && both.end_line);
 
-    assert_eq!(regex::parse("\\^ab").unwrap().to_source_string(), "\\^ab");
-    assert_eq!(regex::parse("a\\$b").unwrap().to_source_string(), "a\\$b");
-    assert_eq!(regex::parse("a|b").unwrap().to_source_string(), "a|b");
-    assert_eq!(regex::parse("ab|c").unwrap().to_source_string(), "ab|c");
+    assert_eq!(
+        regex::parse("\\^ab").unwrap().to_canonical_string(),
+        "\\^ab"
+    );
+    assert_eq!(
+        regex::parse("a\\$b").unwrap().to_canonical_string(),
+        "a\\$b"
+    );
+    assert_eq!(regex::parse("a|b").unwrap().to_canonical_string(), "a|b");
+    assert_eq!(regex::parse("ab|c").unwrap().to_canonical_string(), "ab|c");
 }
 
 #[test]
-fn token_regex_corpus_round_trips_through_the_source_printer() {
+fn token_regex_corpus_round_trips_through_the_canonical_printer() {
     // Curated directly from parser/outer/RegexTest.java at the README-pinned K commit.
     let corpus = [
         "#([a-fA-F0-9][a-fA-F0-9])*",
@@ -269,10 +323,10 @@ fn token_regex_corpus_round_trips_through_the_source_printer() {
     ];
     for source in corpus {
         let parsed = regex::parse(source).unwrap_or_else(|error| panic!("{source}: {error}"));
-        let printed = parsed.to_source_string();
+        let printed = parsed.to_canonical_string();
         let reparsed = regex::parse(&printed).unwrap();
         assert_eq!(parsed, reparsed, "{source} -> {printed}");
-        assert_eq!(printed, reparsed.to_source_string());
+        assert_eq!(printed, reparsed.to_canonical_string());
     }
 }
 
@@ -416,10 +470,10 @@ proptest! {
     #[test]
     fn generated_source_round_trips(source in regex_source()) {
         let parsed = regex::parse(&source).unwrap();
-        let printed = parsed.to_source_string();
+        let printed = parsed.to_canonical_string();
         let reparsed = regex::parse(&printed).unwrap();
         prop_assert_eq!(&parsed, &reparsed);
-        prop_assert_eq!(printed, reparsed.to_source_string());
+        prop_assert_eq!(printed, reparsed.to_canonical_string());
     }
 
     #[test]
