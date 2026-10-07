@@ -2923,31 +2923,26 @@ impl<'a> Encoding<'a> {
     }
 
     /// Check only a surviving candidate, after model application has pruned dead alternatives.
+    /// The nodes are visited in pre-order with an explicit stack, so a candidate of any depth is
+    /// checked on any thread.
     #[cfg(debug_assertions)]
     fn assert_candidate_of_module(&self, term: &ParsedTerm) {
-        match term {
-            ParsedTerm::Ambiguity(alternatives) => {
-                for alternative in alternatives {
-                    self.assert_candidate_of_module(alternative);
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            match term {
+                ParsedTerm::Ambiguity(alternatives) => pending.extend(alternatives.iter().rev()),
+                ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    ..
+                } => {
+                    self.assert_label_instance_of_module(*production, parameters);
+                    pending.extend(children.iter().rev());
                 }
+                ParsedTerm::Production { children, .. } => pending.extend(children.iter().rev()),
+                ParsedTerm::Term(_) => {}
             }
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                ..
-            } => {
-                self.assert_label_instance_of_module(*production, parameters);
-                for child in children {
-                    self.assert_candidate_of_module(child);
-                }
-            }
-            ParsedTerm::Production { children, .. } => {
-                for child in children {
-                    self.assert_candidate_of_module(child);
-                }
-            }
-            ParsedTerm::Term(_) => {}
         }
     }
 
