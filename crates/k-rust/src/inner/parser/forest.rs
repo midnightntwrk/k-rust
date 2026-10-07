@@ -63,7 +63,10 @@ use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
 use super::{PACKED_STRUCTURAL_COMPARISONS, UNPACKED_NODES};
 use super::{ParseProvenance, Production, mint_literal_sort, term_metadata};
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// An owned parse tree. Its copies and comparisons descend one level at a time under
+/// `crate::stack::guarded` and its drop frees one node at a time, so a tree of any depth is
+/// copied, compared and dropped on any thread.
+#[derive(Debug)]
 pub(super) enum ParsedTerm {
     Production {
         production: usize,
@@ -80,6 +83,102 @@ pub(super) enum ParsedTerm {
     Term(Term),
     Ambiguity(BTreeSet<ParsedTerm>),
 }
+
+impl Clone for ParsedTerm {
+    fn clone(&self) -> Self {
+        crate::stack::guarded(|| match self {
+            Self::Production {
+                production,
+                children,
+                metadata,
+            } => Self::Production {
+                production: *production,
+                children: children.clone(),
+                metadata: metadata.clone(),
+            },
+            Self::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => Self::InstantiatedProduction {
+                production: *production,
+                parameters: parameters.clone(),
+                children: children.clone(),
+                metadata: metadata.clone(),
+            },
+            Self::Term(term) => Self::Term(term.clone()),
+            Self::Ambiguity(alternatives) => Self::Ambiguity(alternatives.clone()),
+        })
+    }
+}
+
+/// Trees are ordered by variant (`Production`, `InstantiatedProduction`, `Term`, `Ambiguity`),
+/// then by their fields in declaration order, as a derived order would.
+impl Ord for ParsedTerm {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let rank = |term: &Self| match term {
+            Self::Production { .. } => 0,
+            Self::InstantiatedProduction { .. } => 1,
+            Self::Term(_) => 2,
+            Self::Ambiguity(_) => 3,
+        };
+        crate::stack::guarded(|| match (self, other) {
+            (
+                Self::Production {
+                    production,
+                    children,
+                    metadata,
+                },
+                Self::Production {
+                    production: other_production,
+                    children: other_children,
+                    metadata: other_metadata,
+                },
+            ) => production
+                .cmp(other_production)
+                .then_with(|| children.cmp(other_children))
+                .then_with(|| metadata.cmp(other_metadata)),
+            (
+                Self::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                },
+                Self::InstantiatedProduction {
+                    production: other_production,
+                    parameters: other_parameters,
+                    children: other_children,
+                    metadata: other_metadata,
+                },
+            ) => production
+                .cmp(other_production)
+                .then_with(|| parameters.cmp(other_parameters))
+                .then_with(|| children.cmp(other_children))
+                .then_with(|| metadata.cmp(other_metadata)),
+            (Self::Term(term), Self::Term(other_term)) => term.cmp(other_term),
+            (Self::Ambiguity(alternatives), Self::Ambiguity(other_alternatives)) => {
+                alternatives.cmp(other_alternatives)
+            }
+            _ => rank(self).cmp(&rank(other)),
+        })
+    }
+}
+
+impl PartialOrd for ParsedTerm {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for ParsedTerm {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for ParsedTerm {}
 
 /// Dropping an owned parse tree frees its nodes one at a time rather than recursing into them,
 /// so a tree of any depth is dropped on any thread, including the subtrees a pass discards when
