@@ -1488,6 +1488,80 @@ fn an_application_blocked_by_an_open_attempt_does_not_settle_the_attempt_it_ends
     }
 }
 
+/// A failed attempt is undone with the iteration budget it spent, so the budget left to the
+/// application's other equations does not depend on the order they are listed in. `A =
+/// substr("abc", 2, 1)` has an equation whose result takes five counted steps (simplification
+/// equations of `s`) before it needs `A` again, and one whose result takes five
+/// counted steps to `"v"`. Under a budget of eight, `A` is `"v"` in either order.
+#[test]
+fn a_failed_attempt_returns_the_budget_it_spent_to_the_other_equations() {
+    let s = r#"
+        symbol s{}(SortInt{}, SortString{}) : SortString{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        ltInt{}(\dv{SortInt{}}("0"), N:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \top{R}()
+                )
+            ),
+            \equals{SortString{}, R}(
+                s{}(N:SortInt{}, X:SortString{}),
+                \and{SortString{}}(
+                    s{}(minusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), X:SortString{}),
+                    \top{SortString{}}()
+                )
+            )
+        ) [label{}("s-down"), simplification{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortString{}, R}(
+                s{}(\dv{SortInt{}}("0"), X:SortString{}),
+                \and{SortString{}}(X:SortString{}, \top{SortString{}}())
+            )
+        ) [label{}("s-done"), simplification{}()]
+        "#
+    .to_owned();
+    let reversed = r#"ltInt{}(J:SortInt{}, I:SortInt{})"#;
+    let again = substr_equation(
+        r#"s{}(\dv{SortInt{}}("4"), substr{}(S:SortString{}, I:SortInt{}, J:SortInt{}))"#,
+        reversed,
+        r#"label{}("again")"#,
+    );
+    let value = substr_equation(
+        r#"s{}(\dv{SortInt{}}("4"), \dv{SortString{}}("v"))"#,
+        reversed,
+        r#"label{}("value")"#,
+    );
+    for equations in [
+        [s.clone(), again.clone(), value.clone()],
+        [s.clone(), value.clone(), again.clone()],
+    ] {
+        let definition = substr_definition(&equations);
+        let input = term(&definition, &substr_of_abc(2, 1));
+        let (result, _) = diagnostic::collect(|| {
+            simplify(
+                &definition,
+                &input,
+                SimplificationOptions {
+                    max_iterations: 8,
+                    ..SimplificationOptions::default()
+                },
+            )
+        });
+        assert_eq!(
+            result
+                .expect("the budget suffices for the equation that gives the value")
+                .term,
+            term(&definition, r#"\dv{SortString{}}("v")"#),
+            "{equations:?}"
+        );
+    }
+}
+
 /// An application left unevaluated only for want of a value an open attempt is computing holds
 /// that value's place and is not reported. With `A = substr("abc", 2, 1)`, `A = C` and `C = "c"
 /// requires J < I orBool lengthString(A) > 5`, evaluating `C` meets `A` in the `requires`; `A`'s

@@ -4310,6 +4310,113 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Run `krust krun` on the program `a` of the module `ATTEMPT` written to `definition` with
+/// `rules`, with the console on and `stdin` as its input.
+fn run_attempt_module(definition: &Path, input: &Path, rules: &str, stdin: &[u8]) -> Output {
+    fs::write(
+        definition,
+        format!(
+            r#"
+module ATTEMPT
+  imports DOMAINS
+  imports K-IO
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "a"
+  syntax KItem ::= r(K)
+  syntax Int ::= n(Int) [function]
+  rule n(I) => I
+  syntax String ::= keep(K, String) [function]
+  rule keep(_, X) => X
+  {rules}
+  rule <k> a => r(substrString("abc", n(2), n(1))) </k>
+endmodule
+"#
+        ),
+    )
+    .unwrap();
+    output_with_stdin(
+        Command::new(env!("CARGO_BIN_EXE_krust")).args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "ATTEMPT",
+            "--syntax-module",
+            "ATTEMPT",
+            "--sort",
+            "Pgm",
+            input.to_str().unwrap(),
+            "--io",
+            "on",
+        ]),
+        stdin,
+    )
+}
+
+/// A value an attempt computed with a console effect is computed again, effect included, when
+/// the next equation needs it: the failed attempt's effect was undone, so reusing the value
+/// without the effect would lose it. `T = substr("abc", 4, 1)` writes `T wrote` and is `"t"`;
+/// `A = substr("abc", 2, 1)` first tries `keep(T, A)`, which fails, then `keep(T, "v")`. The
+/// run ends with `"v"` and `T wrote` written once.
+#[test]
+fn krun_repeats_the_effects_of_a_value_a_failed_attempt_computed() {
+    const RULES: &str = r#"
+  rule substrString(_, 4, J) => keep(#write(2, "T wrote\n"), "t") requires J <Int 4
+  rule substrString(S, 2, J) => keep(substrString(S, 4, J), substrString(S, 2, J)) requires J <Int 2
+  rule substrString(S, 2, J) => keep(substrString(S, 4, J), "v") requires J <Int 2
+"#;
+    let (root, definition) = fixture();
+    let input = root.join("a.attempt");
+    fs::write(&input, "a").unwrap();
+    let output = run_attempt_module(&definition, &input, RULES, b"");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}{stderr}");
+    assert!(
+        stdout.contains(r#"inj{SortString{}, SortKItem{}}(\dv{SortString{}}("v"))"#),
+        "{stdout}"
+    );
+    assert_eq!(stderr.matches("T wrote").count(), 1, "{stderr}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A rule condition is decided without the console, so a value computed with the console is not
+/// served to it, even one whose computation changed nothing (reading the empty input): otherwise
+/// the condition's verdict would depend on whether the execution happened to compute that value
+/// before. `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether
+/// `A` computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g`
+/// stays unevaluated.
+#[test]
+fn krun_decides_a_condition_alike_whether_the_execution_computed_its_value_before() {
+    let rules = |a: &str| {
+        format!(
+            r#"
+  syntax String ::= rd(IOString) [function]
+  rule rd(S:String) => S
+  syntax String ::= g(String) [function]
+  rule g(_) => "seen" requires lengthString(substrString("abc", 4, 1)) ==Int 0
+  rule substrString(_, 4, J) => rd(#read(#stdin, 1)) requires J <Int 4
+  rule substrString(S, 2, J) => {a} requires J <Int 2
+"#
+        )
+    };
+    let (root, definition) = fixture();
+    let input = root.join("a.attempt");
+    fs::write(&input, "a").unwrap();
+    let results = ["g(substrString(S, 4, J))", r#"g("")"#].map(|a| {
+        let output = run_attempt_module(&definition, &input, &rules(a), b"");
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{a}: {stdout}{stderr}");
+        assert!(
+            !stdout.contains(r#"\dv{SortString{}}("seen")"#),
+            "{a}: {stdout}"
+        );
+        stdout
+    });
+    assert_eq!(results[0], results[1]);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An application on constructor-like arguments of a `total` hook this backend has no evaluator
 /// for (`expFloat`) has a value the backend does not compute. Term simplification leaves it
 /// unevaluated with a warning, so a run whose result does not depend on it ends with that result
