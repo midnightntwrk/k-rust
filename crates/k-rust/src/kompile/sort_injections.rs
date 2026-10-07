@@ -15,12 +15,12 @@
 //! ```
 //!
 //! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
-//! Work is O(term nodes times production and subsort queries), plus, for each application of a parametric production, an instance search: the candidate values of each sort parameter are gathered by scanning the declared sorts per argument, and every assignment in the product of the candidate sets of each connected group of parameters is checked against the group's constraints, keeping the pointwise-least ones; the search is exponential in the size of a connected group, not in the number of parameters.
+//! Work is O(term nodes times production and subsort queries), each node's natural sort being inferred once per expected sort within one injection (`NaturalSorts`), plus, for each application of a parametric production, an instance search: the candidate values of each sort parameter are gathered by scanning the declared sorts per argument, and every assignment in the product of the candidate sets of each connected group of parameters is checked against the group's constraints, keeping the pointwise-least ones; the search is exponential in the size of a connected group, not in the number of parameters.
 //! `KompileInjectionsInserted` measures its variable work, and the shared pass scaffolding counts resolutions and copied sentences.
 //!
 //! Production-aware insertion of explicit KORE subsort injections.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -758,6 +758,58 @@ pub struct SortInjector<'view, 'definition> {
     sorts: View<'view, SortCatalog<'definition>>,
     subsorts: View<'view, PartialOrder<Sort>>,
     next_sort_parameter: Cell<usize>,
+    /// The natural sorts inferred in the current memoized call ([`Self::memoized`]).
+    natural_sorts: RefCell<NaturalSorts>,
+}
+
+/// The natural sorts the injector inferred during one call, by node.
+///
+/// The natural sort of a node under an expected sort is a function of the node and that sort,
+/// the injector's views being immutable, unless its inference draws a fresh sort parameter. A
+/// parametric production's sort depends on its arguments' sorts, so inferring it walks the
+/// node's whole subtree, and injection infers the sort of every node again, from the top and
+/// from each level down: a chain of a parametric production was injected in time quadratic in
+/// its depth. Recording each nontrivial inference makes it once per node and expected sort.
+///
+/// A node is identified by its address, which is sound only while the nodes recorded live and
+/// stay in place: the memo is active only inside [`SortInjector::memoized`], whose callers
+/// borrow the terms they pass for the whole call, it is cleared when the outermost such call
+/// ends, and it is suspended ([`SortInjector::unmemoized`]) while a term built during the call
+/// is inferred, since such a term may be dropped and its address reused before the call ends.
+#[derive(Clone, Debug, Default)]
+struct NaturalSorts {
+    /// The memoized calls in progress; the memo is active while this is positive.
+    depth: usize,
+    /// The suspensions in progress; the memo is used only while this is zero.
+    suspended: usize,
+    /// The natural sort of each recorded node, by its address, expected sort and arity mode.
+    sorts: BTreeMap<(usize, Option<Sort>, bool), Sort>,
+    /// The natural sorts inferred so far, to tell an inference that walked a subtree.
+    inferences: usize,
+}
+
+/// An inference that made at most this many inferences below its node is not recorded: it
+/// costs about what a lookup does, and recording every node would only fill the memo.
+const RECORDED_INFERENCES: usize = 4;
+
+/// Leaves a memoized call or a suspension when dropped, also on unwinding.
+struct NaturalSortsScope<'a> {
+    natural_sorts: &'a RefCell<NaturalSorts>,
+    suspension: bool,
+}
+
+impl Drop for NaturalSortsScope<'_> {
+    fn drop(&mut self) {
+        let mut natural_sorts = self.natural_sorts.borrow_mut();
+        if self.suspension {
+            natural_sorts.suspended -= 1;
+        } else {
+            natural_sorts.depth -= 1;
+            if natural_sorts.depth == 0 {
+                natural_sorts.sorts.clear();
+            }
+        }
+    }
 }
 
 impl<'definition> SortInjector<'definition, 'definition> {
@@ -776,6 +828,7 @@ impl<'definition> SortInjector<'definition, 'definition> {
             sorts: View::Owned(definition.sort_catalog(module)),
             subsorts: View::Owned(subsorts),
             next_sort_parameter: Cell::new(0),
+            natural_sorts: RefCell::default(),
         })
     }
 }
@@ -793,18 +846,44 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             sorts: View::Borrowed(views.sort_catalog(module)),
             subsorts: View::Borrowed(subsorts),
             next_sort_parameter: Cell::new(0),
+            natural_sorts: RefCell::default(),
         })
+    }
+
+    /// Run `work` with the natural-sort memo active ([`NaturalSorts`]). Every term `work`
+    /// infers sorts of must stay alive and in place until `work` returns, except terms it
+    /// builds itself, which it infers inside [`Self::unmemoized`].
+    pub(crate) fn memoized<T>(&self, work: impl FnOnce() -> T) -> T {
+        self.natural_sorts.borrow_mut().depth += 1;
+        let _scope = NaturalSortsScope {
+            natural_sorts: &self.natural_sorts,
+            suspension: false,
+        };
+        work()
+    }
+
+    /// Run `work` with the natural-sort memo suspended, for a term built during a memoized
+    /// call, which may not live until it ends.
+    pub(crate) fn unmemoized<T>(&self, work: impl FnOnce() -> T) -> T {
+        self.natural_sorts.borrow_mut().suspended += 1;
+        let _scope = NaturalSortsScope {
+            natural_sorts: &self.natural_sorts,
+            suspension: true,
+        };
+        work()
     }
 
     /// Add injections to a standalone term in the supplied top-level sort.
     pub fn inject(&self, term: &Term, expected: &Sort) -> Result<Term, SortInjectionError> {
-        self.inject_with_position(term, expected, false)
+        self.memoized(|| self.inject_with_position(term, expected, false))
     }
 
     /// Infer a standalone term's top sort and add every injection below it.
     pub fn inject_at_top(&self, term: &Term) -> Result<Term, SortInjectionError> {
-        let top = self.term_sort(term, None)?;
-        self.inject_with_position(term, &top, false)
+        self.memoized(|| {
+            let top = self.term_sort(term, None)?;
+            self.inject_with_position(term, &top, false)
+        })
     }
 
     /// Instantiate an expanded value at its carried position and reject any remaining sentence variable.
@@ -816,8 +895,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ) -> Result<(Term, Sort), SortInjectionError> {
         let term = value.term();
         let position = value.position();
-        let sort = self.term_sort(term, Some(position))?;
-        let injected = self.inject_with_position(term, &sort, false)?;
+        let (injected, sort) = self.memoized(|| {
+            let sort = self.term_sort(term, Some(position))?;
+            Ok::<_, SortInjectionError>((self.inject_with_position(term, &sort, false)?, sort))
+        })?;
         self.require_ground(&injected, GroundInput::Value)?;
         Ok((injected, sort))
     }
@@ -908,8 +989,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             body.clone()
         };
         let top = self.fresh_sort_parameter();
-        let actual = self.term_sort(&body, Some(&top))?;
-        self.inject_with_position(&body, &actual, false)
+        self.memoized(|| {
+            let actual = self.term_sort(&body, Some(&top))?;
+            self.inject_with_position(&body, &actual, false)
+        })
     }
 
     fn fresh_sort_parameter(&self) -> Sort {
@@ -1118,7 +1201,37 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         expected: Option<&Sort>,
         allow_trailing_arguments: bool,
     ) -> Result<Sort, SortInjectionError> {
-        crate::stack::guarded(|| self.natural_sort_level(term, expected, allow_trailing_arguments))
+        let key = {
+            let mut natural_sorts = self.natural_sorts.borrow_mut();
+            natural_sorts.inferences += 1;
+            (natural_sorts.depth > 0 && natural_sorts.suspended == 0).then(|| {
+                (
+                    std::ptr::from_ref(term) as usize,
+                    expected.cloned(),
+                    allow_trailing_arguments,
+                )
+            })
+        };
+        if let Some(key) = &key
+            && let Some(sort) = self.natural_sorts.borrow().sorts.get(key)
+        {
+            return Ok(sort.clone());
+        }
+        let (inferences, parameters) = (
+            self.natural_sorts.borrow().inferences,
+            self.next_sort_parameter.get(),
+        );
+        let sort = crate::stack::guarded(|| {
+            self.natural_sort_level(term, expected, allow_trailing_arguments)
+        })?;
+        let mut natural_sorts = self.natural_sorts.borrow_mut();
+        if let Some(key) = key
+            && natural_sorts.inferences - inferences > RECORDED_INFERENCES
+            && self.next_sort_parameter.get() == parameters
+        {
+            natural_sorts.sorts.insert(key, sort.clone());
+        }
+        Ok(sort)
     }
 
     /// One level of [`Self::natural_sort`], which runs it with stack for one more level.
@@ -1267,7 +1380,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let (actual, downcast) = self.sort_and_downcast(term, Some(expected), false)?;
         if let Some(projection) = downcast {
             let projected = semantic_projection(term, projection);
-            return self.inject_with_position(&projected, expected, is_lhs);
+            return self.unmemoized(|| self.inject_with_position(&projected, expected, is_lhs));
         }
         if actual == *expected {
             return self.visit_children(term, &actual, is_lhs);
@@ -1507,7 +1620,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             } else {
                 Term::apply(cell_map_key_label(expected), vec![visited.clone()])
             };
-            let key = self.inject_with_position(&key, key_sort, is_lhs)?;
+            let key = self.unmemoized(|| self.inject_with_position(&key, key_sort, is_lhs))?;
             return Ok(Some(Term::apply(element_label, vec![key, visited])));
         }
         Ok(None)
@@ -2620,6 +2733,42 @@ mod tests {
     };
     use crate::definition::{PartialOrder, ResolvedDefinition, Sentence, production_identity};
     use crate::kast::{Label, Sort, Term, TermMetadata, parser::parse_term};
+
+    /// Injecting a chain of a parametric production infers each node's sort once: the sort of
+    /// `wrap(t)` under `syntax {S} S ::= wrap(S)` is the sort of `t`, so inferring it walks the
+    /// whole chain below, and injection once repeated that walk at every level and then once
+    /// more for each child, inferring O(depth²) sorts (12 s at 4,000 levels in a release build).
+    /// A chain of 2,000 levels now makes at most 2.5 times the inferences of one of 1,000, and
+    /// after the call the memo is empty.
+    #[test]
+    fn a_parametric_chain_is_injected_with_one_inference_per_node() {
+        let parsed = crate::outer::parse(
+            "chain.k",
+            "module MAIN\n syntax Nat ::= \"z\" [symbol(z)]\n syntax {S} S ::= wrap(S) [symbol(wrap)]\nendmodule\n",
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let inferences = |depth: usize| {
+            let chain = (0..depth).fold(Term::apply("z", Vec::new()), |term, _| {
+                Term::apply("wrap", vec![term])
+            });
+            let before = injector.natural_sorts.borrow().inferences;
+            let injected = injector.inject_at_top(&chain).unwrap();
+            let Term::Apply { label, .. } = injected.unannotated() else {
+                panic!("the chain stays an application")
+            };
+            assert_eq!(label.parameters, [Sort::new("Nat")]);
+            assert!(injector.natural_sorts.borrow().sorts.is_empty());
+            injector.natural_sorts.borrow().inferences - before
+        };
+        let (small, large) = (inferences(1_000), inferences(2_000));
+        assert!(
+            large <= small * 5 / 2,
+            "{small} inferences at 1,000 levels, {large} at 2,000"
+        );
+    }
 
     #[test]
     fn sentence_sort_variables_classifies_only_whole_predicate_sorts() {

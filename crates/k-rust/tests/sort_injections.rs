@@ -3022,10 +3022,9 @@ fn first_argument_depth(term: &Term) -> usize {
 /// conversion of an injected term to KORE each descend once per level of the term, and nothing
 /// bounds that depth; a term of any depth is processed on a small stack. A chain of 100,000
 /// applications of a constructor is injected and converted as a standalone term, and injected as
-/// the right-hand side of a rule, on a thread of 1 MiB; a chain of 500 applications of a
-/// parametric production, whose sort is inferred from its argument's at every level, on a thread
-/// of 64 KiB. (Injecting such a chain takes time super-linear in its depth, 12 s at 2,000 levels
-/// in the `dev` profile, hence its smaller depth.)
+/// the right-hand side of a rule, on a thread of 1 MiB; a chain of 100,000 applications of a
+/// parametric production, whose sort is inferred from its argument's at every level, on a
+/// thread of 64 KiB.
 #[test]
 fn terms_of_any_depth_are_injected_and_converted_on_a_small_stack() {
     const DEPTH: usize = 100_000;
@@ -3055,7 +3054,7 @@ fn terms_of_any_depth_are_injected_and_converted_on_a_small_stack() {
         ensures: truth(),
         attributes: Attributes::default(),
     };
-    let (constructors, parametric) = (chain("s", DEPTH), chain("wrap", 500));
+    let (constructors, parametric) = (chain("s", DEPTH), chain("wrap", DEPTH));
     std::thread::Builder::new()
         .stack_size(1 << 20)
         .spawn(move || {
@@ -3077,7 +3076,7 @@ fn terms_of_any_depth_are_injected_and_converted_on_a_small_stack() {
                     .spawn_scoped(scope, || {
                         let injector = SortInjector::new(&resolved, "MAIN").unwrap();
                         let injected = injector.inject_at_top(&parametric).unwrap();
-                        assert!(first_argument_depth(&injected) > 500);
+                        assert!(first_argument_depth(&injected) > DEPTH);
                         term_to_kore_from_resolved(&resolved, "MAIN", &injected).unwrap();
                     })
                     .expect("the worker should spawn")
