@@ -7226,6 +7226,67 @@ fn places_a_misplaced_bag_cell_beside_written_instances() {
     );
 }
 
+const BESIDE_PARENT: &str = "<top> <a> <x> 0 </x> </a> <c> <d> 0 </d> <e> 0 </e> </c> </top>";
+
+// <top> has one <c>, so a <d> written beside the written <c> is inside that <c>.
+#[test]
+fn places_a_cell_written_beside_its_only_possible_parent_inside_it() {
+    let body = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <e> 1 </e> ... </c>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<a>`(`<x>`(X)),`<c>`(`<d>`(#token("5","Int")=>#token("6","Int")),`<e>`(#token("1","Int")))),_DotVar0)"#
+    );
+}
+
+// The <c> written beside <d> is completed again with <d>, which goes into the <m> written in it.
+#[test]
+fn places_a_cell_written_beside_its_only_possible_ancestor_in_the_closest_written_one() {
+    let body = concretized_cell_rule(
+        "<top> <a> <x> 0 </x> </a> <c> <m> <d> 0 </d> <n> 0 </n> </m> <e> 0 </e> </c> </top>",
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <m> <n> 1 </n> ... </m> ... </c>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<a>`(`<x>`(X)),`<c>`(`<m>`(`<d>`(#token("5","Int")=>#token("6","Int")),`<n>`(#token("1","Int"))),_DotVar2)),_DotVar0)"#
+    );
+}
+
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_parent_written_closed() {
+    let errors = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <e> 1 </e> </c>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <d> written beside <c> belongs inside it: the configuration allows only one <c> there, and it is written closed (without ...), so it has no other children"
+        ]
+    );
+}
+
+// The written <c> is a rewrite: adding <d> to it would put <d> on both of its sides.
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_parent_written_as_a_rewrite() {
+    let errors = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 </d> (<c> <e> 1 </e> ... </c> => <c> <e> 2 </e> ... </c>)",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <d> written beside <c> belongs inside it: the configuration allows only one <c> there, and that <c> is not written as a cell body <d> can be added to"
+        ]
+    );
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
