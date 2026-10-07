@@ -53,8 +53,9 @@ use k_rust::kore::{
     ast::{Pattern, Sort, VariableKind},
     codec, walk,
 };
+use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
-use k_rust_backend::term::{FunctionType, SymbolType};
+use k_rust_backend::term::{FunctionType, Sort as BackendSort, SymbolType};
 use kink_pattern::{
     CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventPresence, ExecutionStop,
     ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
@@ -86,6 +87,12 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence, cano
 /// into a String unchanged (TB-02 review 3, F1).
 /// Float domain values are refused at any polarity: token spelling and Float equality
 /// disagree, even for a hook-produced canonical spelling (TB-02 review 2, F1).
+/// A definition that declares `STRING.token2string` over an argument sort, or
+/// `STRING.string2token` into a result sort, that is builtin, hooked or a sort variable is
+/// refused for every test state: k-rust's hooks copy bytes between such a sort and String
+/// unchanged, which K reads as code points, and the definition reaches them from canonical
+/// input (TB-02 review 4, F1). Only unhooked, non-builtin token sorts (`Id`, a user `[token]`
+/// sort) keep the hooks.
 /// Campaign admission maps failure through its existing baseline oracle refusal gate.
 pub fn validate_test_initial_state(
     backend: &mut Backend,
@@ -102,6 +109,31 @@ pub fn validate_test_initial_state(
         )));
     }
     backend.with_solver(None, |definition, _| {
+        // The token hooks read any domain value and write any result sort byte for byte, so
+        // over Bytes they turn byte 80 into a String no K String equals, or a String's UTF-8
+        // into a Bytes token K reads one byte per code point. A canonical test reaches them
+        // through the definition's rules, so the whole definition is refused (TB-02 review 4).
+        let token_sort = |sort: &BackendSort| {
+            matches!(sort, BackendSort::Application { name, arguments }
+                if arguments.is_empty()
+                    && !BuiltinSort::ALL.iter().any(|builtin| sort.is_builtin(*builtin))
+                    && definition.sorts().get(name).is_some_and(|sort| sort.hook.is_none()))
+        };
+        if let Some(symbol) =
+            definition
+                .symbols()
+                .values()
+                .find(|symbol| match symbol.attributes.hook.as_deref() {
+                    Some("STRING.token2string") => !symbol.argument_sorts.iter().all(token_sort),
+                    Some("STRING.string2token") => !token_sort(&symbol.result_sort),
+                    _ => false,
+                })
+        {
+            return Err(ExecutionAdapterFailure::InvalidState(format!(
+                "definition declares {} with a token hook over a builtin or hooked sort",
+                symbol.name
+            )));
+        }
         let mut work = vec![(state, false)];
         while let Some((node, negated)) = work.pop() {
             if let Pattern::DomainValue { sort, .. } = node

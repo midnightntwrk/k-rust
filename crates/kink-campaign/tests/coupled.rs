@@ -7660,6 +7660,138 @@ fn audit_vi_t11_review3_invalid_utf8_token_inputs_are_refused() {
     });
 }
 
+/// TB02-R4-F1: k-rust's `STRING.token2string` reads any domain value and `STRING.string2token`
+/// writes any result sort. Declared over Bytes they move bytes between Bytes and String
+/// unchanged, while K reads both literals as code points, so each reaches a guard that no K
+/// value satisfies: the review F1 String range, and a two-byte width of a one-byte token. The
+/// route needs no test-written Bytes value (`mkb`) and no test-written application (`start`),
+/// so a definition that declares either hook over a builtin or hooked sort is refused for
+/// every test. Controls run in the same definitions and are refused too.
+#[test]
+fn audit_vi_t11_review4_token_hooks_over_builtin_sorts_are_refused() {
+    with_stack(|| {
+        let parse =
+            |source: &str| k_rust::kore::parser::parse_pattern(source).expect("domain value");
+        let b2s = |source: &str| app("stringRange", vec![app("b2s", vec![parse(source)])]);
+        let mkb = |value: i64| {
+            app(
+                "stringRange",
+                vec![app("b2s", vec![app("mkb", vec![support::int(value)])])],
+            )
+        };
+        let width = |source: &str| app("bytesWidth", vec![parse(source)]);
+        let mut failures = Vec::new();
+        for (fixture, module, head, label, rows) in [
+            (
+                "tb02bytestoken.k",
+                "TB02BYTESTOKEN",
+                "stringRange",
+                "TB02BYTESTOKEN.range",
+                vec![
+                    ("bytes-x80", b2s(r#"\dv{SortBytes{}}("\x80")"#)),
+                    ("bytes-xff", b2s(r#"\dv{SortBytes{}}("\xff")"#)),
+                    ("bytes-A", b2s(r#"\dv{SortBytes{}}("A")"#)),
+                    ("mkb-128", mkb(128)),
+                    ("mkb-65", mkb(65)),
+                    ("start-128", app("start", vec![support::int(128)])),
+                    ("start-65", app("start", vec![support::int(65)])),
+                    ("done-1", app("done", vec![support::int(1)])),
+                ],
+            ),
+            (
+                "tb02stringtoken.k",
+                "TB02STRINGTOKEN",
+                "bytesWidth",
+                "TB02STRINGTOKEN.width",
+                vec![
+                    ("string-e9", width(r#"\dv{SortString{}}("é")"#)),
+                    ("string-A", width(r#"\dv{SortString{}}("A")"#)),
+                    ("done-1", app("done", vec![support::int(1)])),
+                ],
+            ),
+        ] {
+            let validator =
+                NativeValidator::bind(support::load(fixture), CompileOptions::default());
+            validator.compile_baseline().expect("token hook fixture");
+            let baseline = validator.baseline();
+            let patch = Patch::new(vec![replaced(baseline, label, &[1], ei_bool(false))])
+                .expect("false requires");
+            let generation = fixed(baseline, &[(label, &[0])], "tb02-r4", &patch);
+            let observation = vec![StepEventSpec {
+                constructor: "fire7".into(),
+                pre: support::k_config(
+                    app(head, vec![support::var("S", "SortString")]),
+                    "SortProg",
+                    "R",
+                    "C",
+                ),
+                post: Some(support::k_config(
+                    app("done", vec![support::int(7)]),
+                    "SortProg",
+                    "R",
+                    "C2",
+                )),
+                payload: vec![],
+            }];
+            let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+            let plan = PatternPlan::new(
+                &vocabulary,
+                vec![],
+                vec![PatternArm {
+                    atoms: vec![Atom {
+                        constructor: "fire7".into(),
+                        payload: vec![],
+                    }],
+                    relations: vec![],
+                }],
+                None,
+            )
+            .expect("fire plan");
+            let oracles = [
+                whole_term(),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::State(StateProjection::ExitStop {
+                        exit_code_cell: None,
+                    }),
+                )
+                .expect("exit"),
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .expect("fire"),
+            ];
+            for (id, program) in rows {
+                let tests = [case(
+                    id,
+                    support::initial_state(program, "SortProg"),
+                    &oracles,
+                )];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module,
+                    observation: &observation,
+                    classify: &tv01_classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let result = ViResult::of(&campaign, &generation, mode);
+                    eprintln!("TB02-R4-TOKEN {module} {id} {mode:?}: {result:?}");
+                    if result != ViResult::Refused(CampaignFailureKind::BaselineOracleFailed) {
+                        failures.push(format!("{module} {id} {mode:?}: {result:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "token hooks over Bytes: {failures:?}");
+    });
+}
+
 /// F4: origin authorization permits these writes, but local patch application refuses
 /// production insertion and changing a rule sentence into a production.
 #[test]

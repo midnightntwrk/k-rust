@@ -1725,6 +1725,72 @@ fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
     }
 }
 
+/// TB02-R4-F1: a definition declaring `STRING.token2string` over a builtin argument sort or
+/// `STRING.string2token` into a builtin result sort is refused for every test state, at any
+/// polarity, canonical or not: the hooks move bytes between Bytes and String unchanged and
+/// the definition alone reaches them. The same hooks over unhooked token sorts (`Id`, a user
+/// `[token]` sort) stay admitted (`audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity`).
+#[test]
+fn audit_vi_t11_review4_token_hooks_over_builtin_sorts_refuse_every_state() {
+    for (fixture, module, programs) in [
+        (
+            "tb02bytestoken.k",
+            "TB02BYTESTOKEN",
+            vec![
+                support::app("Lbldone", vec![support::int(1)]),
+                support::app("Lblstart", vec![support::int(128)]),
+                support::app(
+                    "LblstringRange",
+                    vec![support::app(
+                        "Lblb2s",
+                        vec![
+                            k_rust::kore::parser::parse_pattern(r#"\dv{SortBytes{}}("A")"#)
+                                .expect("Bytes value"),
+                        ],
+                    )],
+                ),
+            ],
+        ),
+        (
+            "tb02stringtoken.k",
+            "TB02STRINGTOKEN",
+            vec![
+                support::app("Lbldone", vec![support::int(1)]),
+                support::app(
+                    "LblbytesWidth",
+                    vec![
+                        k_rust::kore::parser::parse_pattern(r#"\dv{SortString{}}("A")"#)
+                            .expect("String value"),
+                    ],
+                ),
+            ],
+        ),
+    ] {
+        let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
+        let side = validator.compile_baseline().expect("token hook fixture");
+        let mut backend = backend(&side, module);
+        for program in programs {
+            let state = support::initial_state(program, "SortProg");
+            for input in [
+                state.clone(),
+                Pattern::Not {
+                    sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(state),
+                },
+            ] {
+                let admission = bridge::validate_test_initial_state(&mut backend, &input);
+                assert!(
+                    matches!(
+                        admission,
+                        Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                    ),
+                    "{module}: {input:?}: {admission:?}"
+                );
+            }
+        }
+    }
+}
+
 /// TB02-R2-F1: every test-written Float token is refused at any polarity,
 /// including the rule literal and k-rust's hook-produced canonical spelling.
 #[test]
