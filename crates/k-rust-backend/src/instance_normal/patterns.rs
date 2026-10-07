@@ -261,7 +261,11 @@ impl BackendDefinition {
     /// Deciding a left-hand side argument scans the equations that could reach it, whose own
     /// exclusion asks this question about their left-hand sides. The answers are therefore
     /// computed once per definition, in rounds, by [`pattern_facts`]: no equation's answer rests
-    /// on itself, and the set does not depend on the order equations are asked in.
+    /// on itself, and, since every question of a round reads the previous round's facts, the
+    /// set does not depend on the order equations are asked in while the computation's
+    /// `super::PATTERN_FACTS_WORK` budget lasts. Once it is spent, the equations asked later in
+    /// that round get the conservative answer, so past the budget the set depends on that order
+    /// (deterministically for a given definition), which loses precision only.
     pub(crate) fn pattern_arguments_normal(&self, rule: &RewriteRule) -> bool {
         let key = rule_key(rule);
         self.with_pattern_facts(|facts| facts.normal_rules.contains(&key))
