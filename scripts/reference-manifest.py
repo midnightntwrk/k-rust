@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from string import Template
 import sys
@@ -145,6 +146,55 @@ def validate_reference_result_simplification(manifest: dict) -> None:
                 raise ValueError(f"{key} on execution case {name} cannot be combined with {other}")
 
 
+LIFTED_CELL_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+
+
+def validate_lifted_cells(manifest: dict) -> None:
+    """N45: an accepted [[compile]] case lists the axioms whose rule writes a cell inside a cell
+    that does not contain it in the configuration (lifted-cells, one {rule, cell} table per
+    axiom: the KORE label of the rule and the cell's name without its angle brackets), and says
+    why in lifted-cells-reason. The semantic KORE comparison reads nothing else."""
+    keys = ("lifted-cells", "lifted-cells-reason")
+    for section in ("kast", "execution", "proof", "rpc", "symbolic"):
+        for case in manifest.get(section, []):
+            for key in keys:
+                if key in case:
+                    raise ValueError(
+                        f"{key} on {section} case {case.get('name')} is only read for compile"
+                    )
+    for case in manifest.get("compile", []):
+        name = case.get("name")
+        entries = case.get("lifted-cells")
+        reason = case.get("lifted-cells-reason")
+        if entries is None:
+            if reason is not None:
+                raise ValueError(f"lifted-cells-reason on compile case {name} has no lifted-cells")
+            continue
+        if case.get("expect", "accept") != "accept":
+            raise ValueError(f"lifted-cells on compile case {name} needs an accept case")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"lifted-cells on compile case {name} must be a non-empty array")
+        seen = set()
+        for entry in entries:
+            if (
+                not isinstance(entry, dict)
+                or set(entry) != {"rule", "cell"}
+                or not isinstance(entry["rule"], str)
+                or not entry["rule"].strip()
+                or not isinstance(entry["cell"], str)
+                or not LIFTED_CELL_NAME.fullmatch(entry["cell"])
+            ):
+                raise ValueError(
+                    f"lifted-cells entry {entry!r} on compile case {name} must be "
+                    "{rule = <label>, cell = <alphanumeric cell name>}"
+                )
+            if (entry["rule"], entry["cell"]) in seen:
+                raise ValueError(f"lifted-cells entry {entry!r} on compile case {name} is repeated")
+            seen.add((entry["rule"], entry["cell"]))
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"lifted-cells on compile case {name} need a written lifted-cells-reason")
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
@@ -153,6 +203,7 @@ def main() -> int:
         validate_compile_outcomes(manifest)
         validate_reference_kompile_options(manifest)
         validate_reference_result_simplification(manifest)
+        validate_lifted_cells(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

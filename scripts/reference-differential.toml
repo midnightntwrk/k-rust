@@ -468,6 +468,11 @@ comparisons = [
   "macro-kore",
   "parsed-definition",
 ]
+lifted-cells = [
+  { rule = "KMIR-CONTROL-FLOW.setupCalleeClosure", cell = "stack" },
+  { rule = "KMIR-CONTROL-FLOW.setupCalleeClosure2", cell = "stack" },
+]
+lifted-cells-reason = "setupCalleeClosure and setupCalleeClosure2 (kmir.md:558-626) write <stack> (ListItem(CALLERFRAME => #updateStackLocal(#updateStackLocal(CALLERFRAME, TUPLE, Moved), CLOSURE, Moved))) _:List </stack> inside <currentFrame> ... </currentFrame>, and the configuration (rt/configuration.md:34-57) places <stack> beside <currentFrame> under <kmir>, a strict ancestor of <currentFrame>. Both rules require a caller frame on the stack and mark its TUPLE and CLOSURE locals Moved; k-rust compiles that <stack> under <kmir>, and the pinned reference discards it (its axioms have a generated StackCell variable on both sides)."
 
 [[compile]]
 name = "wasm"
