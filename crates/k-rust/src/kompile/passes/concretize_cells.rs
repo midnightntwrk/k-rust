@@ -2,7 +2,7 @@
 //! id = "kompile.cells.concretize"
 //! name = "cell concretization"
 //! sites = ["concretize_cells", "concretize_cells_pass", "CellModel::new", "Concretizer::sentence"]
-//! variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents; L = repeated cell sorts whose collection is a List"
+//! variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents; L = repeated cell sorts, of any collection type"
 //! counters = []
 //! no_counter = "cell concretization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
@@ -226,6 +226,8 @@ struct CellModel {
     levels: BTreeMap<Sort, usize>,
     root: Sort,
     close_operators: BTreeMap<Sort, (Label, bool, bool)>,
+    /// The cell sorts that are the instances of an ordered (`type="List"`) repeated child.
+    lists: Vec<Sort>,
 }
 
 impl CellModel {
@@ -277,6 +279,7 @@ impl CellModel {
                 levels: BTreeMap::new(),
                 root: Sort::builtin(BuiltinSort::GeneratedTopCell),
                 close_operators: BTreeMap::new(),
+                lists: Vec::new(),
             });
         }
         let cell_sorts = raw_cells
@@ -562,6 +565,12 @@ impl CellModel {
                 attributes.has(AttributeKey::Comm),
             ));
         }
+        let lists = cells
+            .values()
+            .flat_map(|cell: &Cell| &cell.children)
+            .filter(|child| child.multiplicity == Multiplicity::Star && child.ordered)
+            .map(|child| child.sort.clone())
+            .collect();
         Ok(Self {
             cells,
             by_label,
@@ -573,6 +582,7 @@ impl CellModel {
             levels,
             root,
             close_operators,
+            lists,
         })
     }
 
@@ -1259,17 +1269,22 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
 
     /// Move each of `items`, the cell items written in one instance of `cell` and below it,
     /// into the item of an ancestor sort written beside it, when that instance of `cell` holds
-    /// only one cell of each sort on the configuration's path from `cell` down to the item's
-    /// configured parent (no cell on that path is `multiplicity="*"`) and only one item of the
-    /// ancestor's sort is written: the configuration then makes that written cell, and the one
-    /// instance of the item's parent inside it, the ones that hold the item. The closest such
-    /// ancestor is used, and it is completed again with the items moved into it.
+    /// only one cell of each sort on the configuration's path from `cell` down to that ancestor
+    /// (no cell on that path is `multiplicity="*"`) and only one item of the ancestor's sort is
+    /// written: the configuration then makes that written cell the one that holds the item. The
+    /// closest such ancestor is used, and it is completed again with the items moved into it.
     ///
     /// Without this, completion would wrap the item in a fresh instance of the ancestor, a second
     /// instance where the configuration allows one. An ancestor written closed (no `...`) or not
-    /// as a cell body cannot take the item, and the rule is rejected. When a `multiplicity="*"`
-    /// cell lies on the path, the rule does not state which of its instances holds the item, and
-    /// the item is left where it is written.
+    /// as a cell body cannot take the item, and the rule is rejected.
+    ///
+    /// When a `multiplicity="*"` cell `R` lies on the path below that ancestor, the rule writes
+    /// the item in some instance of `R` inside it, and completing the item there builds a fresh
+    /// one. The item is moved only when that is what the rule states: `R`'s collection is
+    /// commutative, and nothing in the ancestor or moved into it with the item may be, hold or
+    /// become an instance of `R`. Otherwise, and when a `multiplicity="*"` cell lies above the
+    /// ancestor, the rule does not state which instance holds the item, and the item is left
+    /// where it is written.
     fn place_in_written_ancestors(
         &self,
         cell: &Cell,
@@ -1303,24 +1318,57 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             // Invariant: `holder` is the index of the written item of the closest ancestor so far (from `cell` down) of which the rule writes one item, and no ancestor visited so far is repeated; each ancestor is visited once.
             for ancestor in ancestors.into_iter().rev() {
                 if self.model.is_repeated(ancestor) {
-                    // An instance of `cell` may hold many instances of `ancestor`, and the
-                    // rule does not state which of them holds the item.
-                    return None;
+                    // An instance of `cell` may hold many instances of `ancestor`: only a holder
+                    // written above it is the one instance that holds the item.
+                    return holder.map(|index| (index, Some(ancestor)));
                 }
                 if let Some([index]) = written.get(ancestor).map(Vec::as_slice) {
                     holder = Some(*index);
                 }
             }
-            holder
+            holder.map(|index| (index, None))
         };
+        let candidates = sorts
+            .iter()
+            .map(|sort| sort.as_ref().and_then(holder))
+            .collect::<Vec<_>>();
+        // Whether an item that reaches its holder `into` through the repeated cell sort
+        // `repeated` is in a fresh instance of `repeated` there by what the rule states: the
+        // collection is commutative, so a fresh instance is "some instance" of it, and nothing in
+        // the holder, and no other item moving into it, may be, hold or become an instance of
+        // it, which the item could be in instead. The item itself becomes one.
+        let fresh_instance_is_stated = |into: usize, repeated: &Sort| {
+            !self.is_ordered_instance(repeated)
+                && !self
+                    .cell_body(&items[into].0)
+                    .is_some_and(|(_, body, _)| self.body_may_hold(&flatten_cells(body), repeated))
+                && items
+                    .iter()
+                    .zip(&candidates)
+                    .filter(|((term, riders), candidate)| {
+                        candidate.is_some_and(|(holder, _)| holder == into)
+                            && self.may_become_instance(term, riders, repeated)
+                    })
+                    .count()
+                    == 1
+        };
+        let mut stated = BTreeMap::<(usize, &Sort), bool>::new();
         let mut incoming = vec![Vec::new(); items.len()];
         let mut any = false;
-        // Invariant: `incoming[holder]` lists, in written order, the items before `index` that move into item `holder`; each item is visited once, O(D) each.
-        for (index, sort) in sorts.iter().enumerate() {
-            if let Some(into) = sort.as_ref().and_then(holder) {
-                incoming[into].push(index);
-                any = true;
+        // Invariant: `incoming[holder]` lists, in written order, the items before `index` that move into item `holder`; `stated` holds the decision for each holder and repeated sort met before `index`; each item is visited once, O(D) each, and each pair of a holder and a repeated sort costs one walk of the holder's body and of the items.
+        for (index, candidate) in candidates.iter().enumerate() {
+            let Some((into, repeated)) = *candidate else {
+                continue;
+            };
+            if let Some(repeated) = repeated
+                && !*stated
+                    .entry((into, repeated))
+                    .or_insert_with(|| fresh_instance_is_stated(into, repeated))
+            {
+                continue;
             }
+            incoming[into].push(index);
+            any = true;
         }
         if !any {
             return Ok(items);
@@ -1352,9 +1400,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// Complete the written cell `ancestor` again with `added`, cell items written beside it
     /// (as siblings in one body) that belong inside it.
     ///
-    /// An added instance of an ordered (`type="List"`) repeated cell has a stated position only
-    /// among the instances written with it, so it is added only when nothing in `ancestor` may be
-    /// part of the same list ([`Self::may_hold_instance`]); the rule is rejected otherwise.
+    /// An added instance of an ordered (`type="List"`) repeated cell, or an added term that may
+    /// hold one, has a stated position only among the items written with it, so it is added only
+    /// when nothing in `ancestor` may be part of the same list ([`Self::body_may_hold`]); the rule
+    /// is rejected otherwise.
     fn place_in_written_cell(
         &self,
         (ancestor, mut ancestor_riders): (Term, Vec<MovedCell>),
@@ -1403,21 +1452,32 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             ));
         }
         let body_items = flatten_cells(body);
-        let ordered = added
+        // Invariant: for every ordered sort below `cell` before `list`, the added items or the items of `body_items` hold no item of that list; each ordered sort is visited once, with one walk of the added items and one of `ancestor`'s body.
+        for list in self
+            .model
+            .lists
             .iter()
-            .filter_map(|(term, _)| self.model.sort_for_term(term))
-            .filter(|sort| self.is_ordered_instance(sort))
-            .collect::<BTreeSet<_>>();
-        // Invariant: no item of `body_items` may be part of the list of an ordered sort before `sort`; each distinct ordered sort of the added items is visited once, with one walk of `ancestor`'s body.
-        for sort in ordered {
-            if body_items
-                .iter()
-                .any(|child| self.may_hold_instance(child, &sort))
+            .filter(|list| self.model.is_strictly_below(list, &cell.sort))
+        {
+            // An added cell above `list` brings its own instance of the list's parent.
+            let joining = added.iter().find(|(term, _)| {
+                self.model
+                    .sort_for_term(term)
+                    .is_none_or(|sort| !self.model.is_strictly_below(list, &sort))
+                    && self.may_hold_instance(term, list)
+            });
+            if let Some((term, _)) = joining
+                && self.body_may_hold(&body_items, list)
             {
-                let item = name(&sort);
+                let item = self
+                    .model
+                    .sort_for_term(term)
+                    .map(|sort| name(&sort))
+                    .unwrap_or_default();
                 return Err(format!(
-                    "{}, the {item} cells in it form a list, and the rule does not state its position among the other items of that list",
-                    reason(&item)
+                    "{}, the {} cells in it form a list, and the rule does not state its position among the other items of that list",
+                    reason(&item),
+                    name(list)
                 ));
             }
         }
@@ -1447,37 +1507,105 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         })
     }
 
-    /// Whether `term`, an item of a cell body, may be or hold an instance of the cell sort
-    /// `sort` in that cell: a term of `sort`, a term whose cell sort is unknown (a variable or a
-    /// mixed term may stand for such instances), or a term of a cell sort above `sort` that is not
-    /// a cell body or whose body has such an item.
-    fn may_hold_instance(&self, term: &Term, sort: &Sort) -> bool {
-        match self.model.sort_for_term(term) {
-            None => true,
-            Some(term_sort) if term_sort == *sort => true,
-            Some(term_sort) if self.model.is_strictly_below(sort, &term_sort) => {
-                let body = match term.unannotated() {
-                    Term::Apply { label, arguments } => self
-                        .model
-                        .cell_for_label(label)
-                        .filter(|cell| !cell.children.is_empty())
-                        .and_then(|_| incomplete_parts(arguments).ok()),
-                    Term::Variable { .. }
-                    | Term::Token { .. }
-                    | Term::InjectedLabel(_)
-                    | Term::Rewrite { .. }
-                    | Term::As { .. }
-                    | Term::Sequence(_)
-                    | Term::Annotated { .. } => None,
-                };
-                body.is_none_or(|(_, body, _)| {
-                    flatten_cells(body)
-                        .into_iter()
-                        .any(|item| self.may_hold_instance(item, sort))
-                })
-            }
-            Some(_) => false,
+    /// The `...` markers and the body of `term` when it is a cell written as a cell body (an
+    /// incomplete cell), or `None`.
+    fn cell_body<'t>(&self, term: &'t Term) -> Option<(bool, &'t Term, bool)> {
+        match term.unannotated() {
+            Term::Apply { label, arguments } => self
+                .model
+                .cell_for_label(label)
+                .filter(|cell| !cell.children.is_empty())
+                .and_then(|_| incomplete_parts(arguments).ok()),
+            Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
         }
+    }
+
+    /// Whether `term`, an item of a cell body, may be or hold an instance of the cell sort
+    /// `sort`. The answer follows the cell sorts `term` may have, item by item, never the one
+    /// sort [`CellModel::sort_for_term`] gives a whole rewrite (which drops the items of unknown
+    /// sort):
+    /// - a rewrite may if either side may, and an `#as` pattern if its pattern or alias may;
+    /// - an empty cell bag may not;
+    /// - a term of cell sort `sort` may;
+    /// - a term of a cell sort above `sort` may when it is not written as a cell body (a variable,
+    ///   a complete cell, a function result), when its `...` frame is open (the frame stands for
+    ///   its unwritten children), or when an item of its body may;
+    /// - a term of another cell sort may only when an item of its body may;
+    /// - every other term (a variable of `Bag`, of a cell collection sort or of no cell sort, a
+    ///   function of `Bag` sort, a matching-logic connective) has no known cell sort, and may.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only rewrites and aliases are looked into structurally"
+    )]
+    fn may_hold_instance(&self, term: &Term, sort: &Sort) -> bool {
+        let any_item = |bag: &Term| {
+            flatten_cells(bag)
+                .into_iter()
+                .any(|item| self.may_hold_instance(item, sort))
+        };
+        match term.unannotated() {
+            Term::Rewrite { left, right } => any_item(left) || any_item(right),
+            Term::As { pattern, alias } => any_item(pattern) || any_item(alias),
+            _ if is_empty_cell_bag(term) => false,
+            _ => match self.model.sort_for_term(term) {
+                None => true,
+                Some(term_sort) if term_sort == *sort => true,
+                Some(term_sort) => {
+                    let above = self.model.is_strictly_below(sort, &term_sort);
+                    match self.cell_body(term) {
+                        Some((open_left, body, open_right)) => {
+                            (above && (open_left || open_right)) || any_item(body)
+                        }
+                        None => above,
+                    }
+                }
+            },
+        }
+    }
+
+    /// The items of `term` when it is a cell that cells placed beside it continue into on their
+    /// way to an instance of `sort`: a cell written as a cell body, of a sort strictly above
+    /// `sort` that is not `multiplicity="*"`, hence the only cell of its sort where it is
+    /// written. The placed cells go inside it, beside its `...` frame, as cells written there do.
+    fn continuation<'t>(&self, term: &'t Term, sort: &Sort) -> Option<Vec<&'t Term>> {
+        let term_sort = self.model.sort_for_term(term)?;
+        if !self.model.is_strictly_below(sort, &term_sort) || self.model.is_repeated(&term_sort) {
+            return None;
+        }
+        self.cell_body(term).map(|(_, body, _)| flatten_cells(body))
+    }
+
+    /// Whether an item of `items`, the body of a written cell that cells written elsewhere are
+    /// placed into, may be or hold an instance of `sort` in the collection those cells join:
+    /// a cell they continue into ([`Self::continuation`]) is looked into, without its frame,
+    /// which is the rest of that collection, after the placed cells; every other item is decided
+    /// by [`Self::may_hold_instance`].
+    fn body_may_hold(&self, items: &[&Term], sort: &Sort) -> bool {
+        items
+            .iter()
+            .any(|item| match self.continuation(item, sort) {
+                Some(body) => self.body_may_hold(&body, sort),
+                None => self.may_hold_instance(item, sort),
+            })
+    }
+
+    /// Whether the cell `term` (with the cells `riders` riding with it), moved into a written
+    /// cell, may be, hold or be completed into an instance of the repeated cell sort `sort`
+    /// there.
+    fn may_become_instance(&self, term: &Term, riders: &[MovedCell], sort: &Sort) -> bool {
+        self.model
+            .sort_for_term(term)
+            .is_some_and(|term_sort| self.model.is_strictly_below(&term_sort, sort))
+            || self.may_hold_instance(term, sort)
+            || riders
+                .iter()
+                .any(|rider| self.may_become_instance(&rider.term, &rider.riders, sort))
     }
 
     /// Lift the cell `item` of sort `sort`, written inside `cell` (labelled `label`) with the
@@ -1536,9 +1664,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ///
     /// The instances of an ordered (`type="List"`) repeated cell are concatenated in body order,
     /// and the rule states that order only among instances written as siblings in one cell body.
-    /// A lifted instance is therefore inserted only when every other term of its list in `body`
-    /// is an instance lifted out of the same written parent (inserted in written order); it is
-    /// rejected otherwise.
+    /// A lifted cell that may be or hold an instance of such a list ([`Self::may_hold_instance`])
+    /// is therefore inserted only when every other item of `body` that may is a cell lifted out of
+    /// the same written parent (inserted in written order); it is rejected otherwise.
     fn insert_lifted(
         &self,
         holder: &Cell,
@@ -1547,7 +1675,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ) -> Result<Vec<MovedCell>, String> {
         let mut pending = std::collections::VecDeque::from(riders);
         let mut remaining = Vec::new();
-        // The written parent of the instances of each ordered sort inserted so far.
+        let lists = holder
+            .children
+            .iter()
+            .filter(|child| child.multiplicity == Multiplicity::Star && child.ordered)
+            .collect::<Vec<_>>();
+        // The written parent of the lifted cells inserted so far that may hold items of each list.
         let mut ordered_origins = BTreeMap::<Sort, usize>::new();
         // Invariant: every lifted cell seen so far is in `body` or `remaining`, or still in `pending`; each cell is dequeued once, and a rider is enqueued only when the cell it rides with is inserted.
         while let Some(rider) = pending.pop_front() {
@@ -1555,20 +1688,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 remaining.push(rider);
                 continue;
             }
-            let child = holder
-                .children
-                .iter()
-                .find(|child| child.sort == rider.sort);
-            let repeatable = child.is_some_and(|child| child.multiplicity == Multiplicity::Star);
-            if let Some(child) = child.filter(|child| repeatable && child.ordered) {
-                let stated = match ordered_origins.get(&rider.sort) {
+            // Invariant: for each list before `list` that `rider` may hold items of, every other item of `body` that may hold one came out of `rider`'s written parent; each list is visited once, with at most one walk of `body`.
+            for list in &lists {
+                if !self.may_hold_instance(&rider.term, &list.sort) {
+                    continue;
+                }
+                let stated = match ordered_origins.get(&list.sort) {
                     Some(origin) => *origin == rider.origin,
-                    // A term whose cell sort is unknown may be part of the list.
-                    None => body.iter().all(|item| {
-                        self.model
-                            .sort_for_term(item)
-                            .is_some_and(|sort| sort != child.sort)
-                    }),
+                    None => !body
+                        .iter()
+                        .any(|item| self.may_hold_instance(item, &list.sort)),
                 };
                 if !stated {
                     return Err(format!(
@@ -1577,11 +1706,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         rider.written_in,
                         holder.label.name,
                         rider.written_in,
-                        rider.cell
+                        self.model.cells[&list.sort].label.name
                     ));
                 }
-                ordered_origins.insert(rider.sort.clone(), rider.origin);
+                ordered_origins.insert(list.sort.clone(), rider.origin);
             }
+            let child = holder
+                .children
+                .iter()
+                .find(|child| child.sort == rider.sort);
+            let repeatable = child.is_some_and(|child| child.multiplicity == Multiplicity::Star);
             if !repeatable
                 && body
                     .iter()
