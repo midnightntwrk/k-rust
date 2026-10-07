@@ -63,27 +63,24 @@
 //! Each axiom quantifies its variables on its own, and so does the pattern being read. A term
 //! these facts build from two of them (an overlapped instance whose bindings come from another
 //! left-hand side, a reduct whose bindings come from the read term, a stored representative
-//! narrowed against a left-hand side) must denote every instance of the combination; were two
-//! independent variables to share a name, it would denote only the instances where they are
-//! equal, and the readers that see variable identity (instance normality's unification, which
-//! binds consistently, and the joins' matching and equality) would answer for those only.
-//! So every variable a narrowing brings in from a second source is renamed fresh
-//! ([`fresh_names`]) at each use, and what is stored or compared across uses is compared up
-//! to those names ([`canonical`], [`renamed_from`]).
+//! narrowed against a left-hand side) must denote every instance of the combination, so its
+//! variables are either the read term's or minted for that one use. [`hygiene`] is the only
+//! place that makes such names: a term from a second source enters a built term only as an
+//! [`Apart`] copy, a reduct only through a [`Completion`] of the narrowing's bindings, and a
+//! term kept across uses only as a [`Stored`] term, which is read through a fresh copy.
+
+mod hygiene;
 
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    hash::{Hash, Hasher},
     rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
 };
 
-use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet};
 
+use self::hygiene::{Apart, Completion, Stored, minted, renamed_from, shape_hash};
 use super::{
     SCAN, Scan, ScanScope, ValueQuestion, bounds, compared_by_root, facts_work_spent, separated,
     sorts_differ, take_work, token, work_spent,
@@ -113,7 +110,7 @@ pub(crate) struct PatternFacts {
     /// right-hand sides of the equations indexed there, and transitively those indexed by their
     /// roots. `None` when some such right-hand side has an open root. An index with no equations
     /// has none besides the term's own root.
-    value_roots: Arc<BTreeMap<TermIndex, Option<Vec<Term>>>>,
+    value_roots: Arc<BTreeMap<TermIndex, Option<Vec<Stored>>>>,
     /// Some equation is indexed by a bare variable, so it may rewrite a term of any root to
     /// anything: no reduct's root is bounded.
     unbounded: bool,
@@ -127,12 +124,12 @@ pub(crate) struct PatternFacts {
 /// What the instances of an equation's left-hand side that have a step besides the equation's
 /// own root step reach ([`BackendDefinition::overlaps_miss`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Overlaps {
+enum Overlaps {
     /// No instance of the left-hand side has another step.
     Absent,
     /// Terms that cover every reduct of every such instance, as the representatives of
     /// [`BackendDefinition::value_representatives`] cover the reducts of a pattern.
-    Reaching(Arc<[Term]>),
+    Reaching(Arc<[Stored]>),
     /// The reducts are not bounded.
     Unbounded,
 }
@@ -287,7 +284,7 @@ impl BackendDefinition {
             return false;
         };
         reaching.iter().all(|representative| {
-            self.representative_misses(representative, subject, subject_roots)
+            self.representative_misses(representative.fresh().term(), subject, subject_roots)
         })
     }
 
@@ -438,17 +435,12 @@ impl BackendDefinition {
                 let Some(bindings) = self.narrow(&equation.lhs, &term, depth - 1, reading) else {
                     continue;
                 };
-                for mut binding in bindings {
+                for binding in bindings {
                     // A variable narrowing leaves unbound stands for any value, independent of
                     // the term's variables of the same name.
-                    binding.extend(fresh_names(
-                        right
-                            .attributes()
-                            .variables
-                            .iter()
-                            .filter(|variable| !binding.contains_key(*variable)),
-                    ));
-                    let reduct = substitute(right, &binding);
+                    let reduct = Completion::of(binding, &right.attributes().variables)
+                        .apply(right)
+                        .into_term();
                     if !within_size(&reduct, bounds().representative_size) {
                         return self.reachable_representatives(pattern);
                     }
@@ -474,11 +466,17 @@ impl BackendDefinition {
     }
 
     /// The pattern and every right-hand side the equations of its root reach
-    /// (`PatternFacts::value_roots`): representatives without bindings.
+    /// (`PatternFacts::value_roots`): representatives without bindings, each a fresh copy, so
+    /// that the representatives of two argument positions share no variable.
     fn reachable_representatives(&self, pattern: &Term) -> Option<Vec<Term>> {
         let mut representatives =
             self.with_pattern_facts(|facts| match facts.value_roots.get(&term_index(pattern)) {
-                Some(roots) => roots.clone(),
+                Some(roots) => roots.as_ref().map(|roots| {
+                    roots
+                        .iter()
+                        .map(|root| root.fresh().into_term())
+                        .collect::<Vec<_>>()
+                }),
                 None => (!facts.unbounded).then(Vec::new),
             })?;
         representatives.push(pattern.clone());
@@ -728,24 +726,17 @@ impl BackendDefinition {
                     ) else {
                         continue;
                     };
-                    for instance in &instances {
-                        for reduct in &reducts {
-                            // The equation's variables that the reduct leaves unbound stand
-                            // for any value, apart from the term's and `left`'s.
-                            let mut reduct = reduct.clone();
-                            reduct.extend(fresh_names(
-                                equation
-                                    .lhs
-                                    .attributes()
-                                    .variables
-                                    .iter()
-                                    .filter(|variable| !reduct.contains_key(*variable)),
-                            ));
+                    for reduct in &reducts {
+                        // The equation's variables that the reduct leaves unbound stand for
+                        // any value, apart from the term's and `left`'s.
+                        let completion =
+                            Completion::of(reduct.clone(), &equation.lhs.attributes().variables);
+                        for instance in &instances {
                             alternatives.push(
                                 instance
                                     .iter()
                                     .map(|(variable, bound)| {
-                                        (variable.clone(), substitute(bound, &reduct))
+                                        (variable.clone(), completion.apply(bound).into_term())
                                     })
                                     .collect(),
                             );
@@ -760,7 +751,7 @@ impl BackendDefinition {
                     for normal_form in identified.iter() {
                         if let Some(found) = self.narrow(
                             left,
-                            &renamed_fresh(normal_form),
+                            normal_form.fresh().term(),
                             depth - 1,
                             LeftReading::Checked,
                         ) {
@@ -972,12 +963,12 @@ impl BackendDefinition {
     /// result covers every reduct of every such instance by its representatives
     /// ([`Self::value_representatives`]), which follow every equation, this one included.
     ///
-    /// The other left-hand side and the other equation's normal forms are renamed fresh before
-    /// they are narrowed against ([`fresh_names`]): an instance is read through its variables'
-    /// identity (the joins match the other left-hand side against it and compare the two sides,
-    /// instance normality binds variables consistently), so a variable of `l` must not be
-    /// merged with an independent one of the same name. The instances and the stored
-    /// representatives are compared up to the fresh names ([`canonical`]).
+    /// The other left-hand side and the other equation's normal forms are narrowed against as
+    /// fresh copies ([`Apart`]): an instance is read through its variables' identity (the joins
+    /// match the other left-hand side against it and compare the two sides, instance normality
+    /// binds variables consistently), so a variable of `l` must not be merged with an
+    /// independent one of the same name. The instances and the representatives are kept as
+    /// [`Stored`] terms, compared up to their variables' names.
     fn overlaps_of(&self, rule: &RewriteRule) -> Overlaps {
         let mut alternatives = Vec::new();
         let mut every = false;
@@ -1059,7 +1050,7 @@ impl BackendDefinition {
                             overlap(
                                 self.narrow(
                                     subterm,
-                                    &renamed_fresh(normal_form),
+                                    normal_form.fresh().term(),
                                     bounds().narrowing_depth,
                                     LeftReading::Values,
                                 ),
@@ -1085,22 +1076,22 @@ impl BackendDefinition {
                     instances.clear();
                     break;
                 }
-                let instance = canonical(&instance, &|variable| !minted(variable));
+                let instance = Stored::new(&instance);
                 if !instances.contains(&instance) {
                     instances.push(instance);
                 }
             }
         }
         if instances.is_empty() {
-            instances.push(left.clone());
+            instances.push(Stored::new(left));
         }
         let mut reaching = Vec::new();
         for instance in &instances {
-            let Some(representatives) = self.value_representatives(instance) else {
+            let Some(representatives) = self.value_representatives(instance.fresh().term()) else {
                 return Overlaps::Unbounded;
             };
             for representative in representatives {
-                let representative = canonical(&representative, &|variable| !minted(variable));
+                let representative = Stored::new(&representative);
                 if !reaching.contains(&representative) {
                     reaching.push(representative);
                 }
@@ -1118,8 +1109,8 @@ impl BackendDefinition {
     /// The proof is built from real steps: both sides (`rσ`, and `other`'s reduct in place) are
     /// reduced by up to [`JOIN_STEPS`] steps of unconditional equations (no `requires`, no
     /// `ensures`), innermost first, and must meet. A side that does not meet within them leaves
-    /// the peak counted, which only keeps more terms from being certified. The terms are
-    /// renamed apart from the equations (`!apart-peak`, which no KORE identifier spells), as
+    /// the peak counted, which only keeps more terms from being certified. The instance and its
+    /// two sides are read as one fresh copy ([`Apart::copies`]), apart from every equation, as
     /// matching needs.
     fn peak_joins(
         &self,
@@ -1133,39 +1124,14 @@ impl BackendDefinition {
         };
         let valuation = &bind_aliases(&rule.lhs, valuation);
         let instance = instantiate(&rule.lhs, valuation);
-        let apart = instance
-            .attributes()
-            .variables
-            .iter()
-            .map(|variable| {
-                let renamed = Variable {
-                    name: format!("{}!apart-peak", variable.name).into(),
-                    ..variable.clone()
-                };
-                (variable.clone(), Term::variable(renamed))
-            })
-            .collect::<Substitution>();
-        let instance = substitute(&instance, &apart);
-        let reduct = substitute(
-            right,
-            &rule
-                .lhs
-                .attributes()
-                .variables
-                .iter()
-                .map(|variable| {
-                    let bound = valuation
-                        .get(variable)
-                        .cloned()
-                        .unwrap_or_else(|| Term::variable(variable.clone()));
-                    (variable.clone(), substitute(&bound, &apart))
-                })
-                .collect(),
-        );
+        // The variables of `l` that the valuation leaves unbound are the instance's own.
+        let reduct = substitute(right, valuation);
         let redex = match inner {
-            Some(inner) => substitute(&substitute(inner, valuation), &apart),
+            Some(inner) => substitute(inner, valuation),
             None => instance.clone(),
         };
+        let [instance, reduct, redex] =
+            Apart::copies([&instance, &reduct, &redex]).map(Apart::into_term);
         let Some(other_reduct) = self.step_with(other, &redex, other_right) else {
             return false;
         };
@@ -1332,7 +1298,7 @@ impl BackendDefinition {
         Some(
             self.narrow(
                 pattern,
-                &renamed_fresh(&other.lhs),
+                Apart::copy(&other.lhs).term(),
                 bounds().narrowing_depth,
                 LeftReading::Values,
             )
@@ -1495,210 +1461,6 @@ fn replace_subterm(term: &Term, from: &Term, to: &Term) -> Term {
     .unwrap_or_else(|never| match never {})
 }
 
-/// The counter of the names [`fresh_names`] mints. One counter for the process, so no two
-/// uses mint the same name, however the terms they build are later nested into one another.
-static MINTED: AtomicU64 = AtomicU64::new(0);
-
-/// The marker between the base and the counter of a name [`fresh_names`] mints.
-const MINTED_MARKER: &str = "!narrow";
-
-/// Each of `variables` mapped to a variable of its kind and sort named `{base}!narrow{n}`, `base`
-/// its name before any `!` and `n` drawn from [`MINTED`]: a name no KORE identifier spells (they
-/// have no `!`) and no other use of this function mints.
-fn fresh_names<'a>(variables: impl IntoIterator<Item = &'a Variable>) -> Substitution {
-    variables
-        .into_iter()
-        .map(|variable| {
-            let base = variable.name.split('!').next().unwrap_or_default();
-            let counter = MINTED.fetch_add(1, Ordering::Relaxed);
-            let fresh = variable.with_name(format!("{base}{MINTED_MARKER}{counter}"));
-            (variable.clone(), Term::variable(fresh))
-        })
-        .collect()
-}
-
-/// `term` with every variable renamed fresh ([`fresh_names`]): an independent copy.
-fn renamed_fresh(term: &Term) -> Term {
-    substitute(term, &fresh_names(&term.attributes().variables))
-}
-
-/// `term` with each variable that `kept` does not keep renamed `{base}!rep{i}`, `i` numbering
-/// them in order of first occurrence, outermost and leftmost first: one term for all the copies
-/// of a term that differ only in those variables' names (the names [`fresh_names`] mints), so
-/// that the rounds of [`pattern_facts`] settle and the overlap representatives are counted once.
-/// A term renamed so is read on its own, or renamed fresh before it is combined with another.
-fn canonical(term: &Term, kept: &dyn Fn(&Variable) -> bool) -> Term {
-    fn visit(term: &Term, kept: &dyn Fn(&Variable) -> bool, order: &mut Vec<Variable>) {
-        match term.kind() {
-            TermKind::Variable(variable) => {
-                if !kept(variable) && !order.contains(variable) {
-                    order.push(variable.clone());
-                }
-            }
-            _ => {
-                token::every_immediate_subterm(term, |subterm| {
-                    visit(subterm, kept, order);
-                    true
-                });
-            }
-        }
-    }
-    if term.attributes().variables.iter().all(kept) {
-        return term.clone();
-    }
-    let mut order = Vec::new();
-    visit(term, kept, &mut order);
-    let renaming = order
-        .into_iter()
-        .enumerate()
-        .map(|(index, variable)| {
-            let base = variable.name.split('!').next().unwrap_or_default();
-            let renamed = variable.with_name(format!("{base}!rep{index}"));
-            (variable, Term::variable(renamed))
-        })
-        .collect::<Substitution>();
-    substitute(term, &renaming)
-}
-
-/// A hash of `term` that two terms differing only in the names of the variables `kept` does not
-/// keep share: those variables count by their sort and the order of their first occurrence.
-/// A collection counts by its own hash, so collections that differ in such names hash apart,
-/// which only makes [`renamed_from`] asked less often.
-fn shape_hash(term: &Term, kept: &dyn Fn(&Variable) -> bool) -> u64 {
-    fn walk<'a>(
-        term: &'a Term,
-        kept: &dyn Fn(&Variable) -> bool,
-        order: &mut Vec<&'a Variable>,
-        hasher: &mut FxHasher,
-    ) {
-        match term.kind() {
-            TermKind::Variable(variable) if kept(variable) => {
-                0u8.hash(hasher);
-                variable.hash(hasher);
-            }
-            TermKind::Variable(variable) => {
-                1u8.hash(hasher);
-                variable.kind.hash(hasher);
-                variable.sort.hash(hasher);
-                match order.iter().position(|known| *known == variable) {
-                    Some(index) => index.hash(hasher),
-                    None => {
-                        order.len().hash(hasher);
-                        order.push(variable);
-                    }
-                }
-            }
-            TermKind::Application {
-                symbol,
-                sort_arguments,
-                arguments,
-            } => {
-                2u8.hash(hasher);
-                symbol.name.hash(hasher);
-                sort_arguments.hash(hasher);
-                arguments.len().hash(hasher);
-                for argument in arguments {
-                    walk(argument, kept, order, hasher);
-                }
-            }
-            TermKind::Injection {
-                source,
-                target,
-                term,
-            } => {
-                3u8.hash(hasher);
-                source.hash(hasher);
-                target.hash(hasher);
-                walk(term, kept, order, hasher);
-            }
-            TermKind::And(first, second) => {
-                4u8.hash(hasher);
-                walk(first, kept, order, hasher);
-                walk(second, kept, order, hasher);
-            }
-            TermKind::DomainValue { .. }
-            | TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. } => {
-                5u8.hash(hasher);
-                term.hash(hasher);
-            }
-        }
-    }
-    let mut hasher = FxHasher::default();
-    walk(term, kept, &mut Vec::new(), &mut hasher);
-    hasher.finish()
-}
-
-/// Whether `second` is `first` with the variables `kept` does not keep renamed one-to-one. A
-/// collection is compared as written, which only answers `false` more often.
-fn renamed_from(first: &Term, second: &Term, kept: &dyn Fn(&Variable) -> bool) -> bool {
-    fn walk<'a>(
-        first: &'a Term,
-        second: &'a Term,
-        kept: &dyn Fn(&Variable) -> bool,
-        renaming: &mut Vec<(&'a Variable, &'a Variable)>,
-    ) -> bool {
-        match (first.kind(), second.kind()) {
-            (TermKind::Variable(left), TermKind::Variable(right)) => {
-                if kept(left) || kept(right) {
-                    return left == right;
-                }
-                match renaming.iter().find(|(from, _)| *from == left) {
-                    Some((_, to)) => *to == right,
-                    None if renaming.iter().any(|(_, to)| *to == right) => false,
-                    None => {
-                        renaming.push((left, right));
-                        true
-                    }
-                }
-            }
-            (
-                TermKind::Application {
-                    symbol: first_symbol,
-                    sort_arguments: first_sorts,
-                    arguments: first_arguments,
-                },
-                TermKind::Application {
-                    symbol: second_symbol,
-                    sort_arguments: second_sorts,
-                    arguments: second_arguments,
-                },
-            ) => {
-                first_symbol.name == second_symbol.name
-                    && first_sorts == second_sorts
-                    && first_arguments.len() == second_arguments.len()
-                    && first_arguments
-                        .iter()
-                        .zip(second_arguments)
-                        .all(|(first, second)| walk(first, second, kept, renaming))
-            }
-            (
-                TermKind::Injection {
-                    source: first_source,
-                    target: first_target,
-                    term: first,
-                },
-                TermKind::Injection {
-                    source: second_source,
-                    target: second_target,
-                    term: second,
-                },
-            ) => {
-                first_source == second_source
-                    && first_target == second_target
-                    && walk(first, second, kept, renaming)
-            }
-            (TermKind::And(first_left, first_right), TermKind::And(second_left, second_right)) => {
-                walk(first_left, second_left, kept, renaming)
-                    && walk(first_right, second_right, kept, renaming)
-            }
-            _ => first == second,
-        }
-    }
-    walk(first, second, kept, &mut Vec::new())
-}
-
 /// The scan memo's key of `term` when it holds names minted for copies: equal for two terms
 /// that differ only in those names ([`same_up_to_minted_names`]); `None` for any other term,
 /// which is looked up as it is.
@@ -1713,11 +1475,6 @@ pub(super) fn copy_key(term: &Term) -> Option<u64> {
 /// Whether `second` is `first` with the names minted for copies renamed one-to-one.
 pub(super) fn same_up_to_minted_names(first: &Term, second: &Term) -> bool {
     first == second || renamed_from(first, second, &|variable| !minted(variable))
-}
-
-/// Whether `variable` is one [`fresh_names`] minted.
-fn minted(variable: &Variable) -> bool {
-    variable.name.contains(MINTED_MARKER)
 }
 
 /// Calls `visit` on every subterm of the left-hand side `left` below its root that is not a
@@ -1868,7 +1625,10 @@ fn has_fixed_root(left: &Term) -> bool {
 pub(super) const PATTERN_FACT_ROUNDS: usize = 64;
 
 /// [`PatternFacts::value_roots`] for every index of `theories` with a fixed root.
-fn value_roots(theories: &[&Theory; 2], unbounded: bool) -> BTreeMap<TermIndex, Option<Vec<Term>>> {
+fn value_roots(
+    theories: &[&Theory; 2],
+    unbounded: bool,
+) -> BTreeMap<TermIndex, Option<Vec<Stored>>> {
     theories
         .iter()
         .flat_map(|theory| theory.keys())
@@ -1888,7 +1648,7 @@ fn value_roots(theories: &[&Theory; 2], unbounded: bool) -> BTreeMap<TermIndex, 
 
 /// The right-hand sides of the equations indexed by `start`, and of those indexed by the roots
 /// of the right-hand sides met, transitively; `None` when one has an open root.
-fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Term>> {
+fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Stored>> {
     let mut visited = BTreeSet::from([start.clone()]);
     let mut pending = vec![start.clone()];
     let mut roots = Vec::new();
@@ -1906,7 +1666,7 @@ fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Ter
                 | Shape::Injection
                 | Shape::Collection(_)
                 | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead) => {
-                    roots.push(right.clone());
+                    roots.push(Stored::new(right));
                     let next = term_index(right);
                     if visited.insert(next.clone()) {
                         pending.push(next);

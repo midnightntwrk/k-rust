@@ -1054,3 +1054,180 @@ fn a_composed_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_le
         assert_ceil_kept(&definition, CHAINED_SUBJECT, "SortS{}", CHAINED_SUBJECT);
     }
 }
+
+const EQ_INT: [&str; 2] = [
+    r#"hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]"#,
+    r#"hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]"#,
+];
+
+/// `f(m(X), c) = mk(X /Int 0) requires X ==Int 3` (or `f(m(X)) = …` for a unary `f`), with `m`'s
+/// argument and `f`'s other arguments given.
+fn conditional_f_m(arguments: &str, sorts: &str) -> String {
+    format!(
+        r#"axiom{{R}} \implies{{R}}(
+            \and{{R}}(\equals{{SortBool{{}}, R}}(eqInt{{}}(VarX:SortInt{{}}, \dv{{SortInt{{}}}}("3")), \dv{{SortBool{{}}}}("true")), {arguments}),
+            \equals{{SortS{{}}, R}}(f{{}}({sorts}), \and{{SortS{{}}}}(mk{{}}(divInt{{}}(VarX:SortInt{{}}, \dv{{SortInt{{}}}}("0"))), \top{{SortS{{}}}}()))
+        ) [anywhere{{}}()]"#
+    )
+}
+
+/// Review 5, F1. `n, k : A -> A`, `j : A x A -> A`, `m : Int -> A` and `c, d : A` constructors;
+/// `q : A x A x A -> Int` and `f : A x A -> S` value productions; `q(c, n(n(c)), d) = 0`,
+/// `f(V, k(Y)) = f(V, j(V, Y))`, `f(n(Y), k(W)) = mk(1 /Int 0)` and `f(n(n({name})), j(W, Y2)) =
+/// f(m(q({name}, W, Y2)), c)`, and with `discharge` also `f(m(X), c) = mk(X /Int 0) requires
+/// X ==Int 3`. By the axioms `f(m(0), c) = f(m(q(c, n(n(c)), d)), c) = f(n(n(c)), j(n(n(c)), d)) =
+/// f(n(n(c)), k(d)) = mk(1 /Int 0)`, undefined. The overlap representative of the `f(n(Y), k(W))`
+/// equation that reaches `f(m(q(Y', W', Y2)), c)` holds variables of three copies; stored apart,
+/// they cover `f(m(q(c, n(n(c)), d)), c)`, whose `q` the first equation rewrites.
+fn stored_names_definition(name: &str, discharge: bool) -> BackendDefinition {
+    let mut rest = EQ_INT
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect::<Vec<_>>();
+    rest.extend(
+        [
+            "sort SortA{} []",
+            "symbol n{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol j{}(SortA{}, SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol m{}(SortInt{}) : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol d{}() : SortA{} [constructor{}(), functional{}(), injective{}()]",
+            "symbol q{}(SortA{}, SortA{}, SortA{}) : SortInt{} [anywhere{}(), function{}(), value-production{}()]",
+            "symbol f{}(SortA{}, SortA{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]",
+        ]
+        .map(String::from),
+    );
+    rest.push(
+        r#"axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, c{}()), \and{R}(\in{SortA{}, R}(X1:SortA{}, n{}(n{}(c{}()))), \and{R}(\in{SortA{}, R}(X2:SortA{}, d{}()), \top{R}())))),
+            \equals{SortInt{}, R}(q{}(X0:SortA{}, X1:SortA{}, X2:SortA{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+        ) [anywhere{}()]"#
+            .into(),
+    );
+    let f = |first: &str, second: &str, right: &str| {
+        binary_anywhere_equation(
+            "f",
+            ("SortA{}", "SortA{}"),
+            "SortS{}",
+            (first, second),
+            right,
+        )
+    };
+    rest.push(f(
+        "VarV:SortA{}",
+        "k{}(VarY:SortA{})",
+        "f{}(VarV:SortA{}, j{}(VarV:SortA{}, VarY:SortA{}))",
+    ));
+    rest.push(f("n{}(VarY:SortA{})", "k{}(VarW:SortA{})", UNDEFINED_MK));
+    rest.push(f(
+        &format!("n{{}}(n{{}}({name}:SortA{{}}))"),
+        "j{}(VarW:SortA{}, VarY2:SortA{})",
+        &format!("f{{}}(m{{}}(q{{}}({name}:SortA{{}}, VarW:SortA{{}}, VarY2:SortA{{}})), c{{}}())"),
+    ));
+    if discharge {
+        rest.push(conditional_f_m(
+            r"\and{R}(\in{SortA{}, R}(X0:SortA{}, m{}(VarX:SortInt{})), \and{R}(\in{SortA{}, R}(X1:SortA{}, c{}()), \top{R}()))",
+            "X0:SortA{}, X1:SortA{}",
+        ));
+    }
+    narrowing_definition(&rest)
+}
+
+/// Review 5, F1: a stored overlap representative keeps every variable it holds apart, whatever
+/// the equations name them, with or without the conditional equation the discharge reads.
+#[test]
+fn a_stored_representative_keeps_apart_the_variables_of_every_copy_it_holds() {
+    let subject = r#"f{}(m{}(\dv{SortInt{}}("0")), c{}())"#;
+    for name in ["VarY", "VarU"] {
+        for discharge in [false, true] {
+            let definition = stored_names_definition(name, discharge);
+            assert_ceil_kept(&definition, subject, "SortS{}", subject);
+        }
+    }
+}
+
+/// Review 5, F2. `n_i, s_i : A -> A` for `i < count`, `m : Int -> A` and `c1, c2 : A`
+/// constructors; `v : A -> A`, `p : A x A -> A`, `r : A x A -> Int` and `f : A -> S` value
+/// productions; `v(n_i(Z)) = s_i(Z)`, `p(s0(A), s0(B)) = m(r(A, B))`, `r(c1, c2) = 0` and
+/// `f(p(v(W1), v(W2))) = mk(1 /Int 0)`, and with `discharge` also `f(m(X)) = mk(X /Int 0) requires
+/// X ==Int 3`. By the axioms `f(m(0)) = f(m(r(c1, c2))) = f(p(s0(c1), s0(c2))) =
+/// f(p(v(n0(c1)), v(n0(c2)))) = mk(1 /Int 0)`, undefined. With 70 `v` equations each `v(Wi)` has
+/// more reducts than the representatives kept, and both fall back to every right-hand side `v`
+/// reaches; read as one copy, the `s0(Z)` of the two positions would share `Z`.
+fn bound_fallback_definition(count: usize, discharge: bool) -> BackendDefinition {
+    let constructor = |name: &str, arguments: &str| {
+        format!(
+            "symbol {name}{{}}({arguments}) : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+        )
+    };
+    let mut rest = EQ_INT
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect::<Vec<_>>();
+    rest.push("sort SortA{} []".into());
+    rest.push(constructor("m", "SortInt{}"));
+    rest.push(constructor("c1", ""));
+    rest.push(constructor("c2", ""));
+    for index in 0..count {
+        rest.push(constructor(&format!("n{index}"), "SortA{}"));
+        rest.push(constructor(&format!("s{index}"), "SortA{}"));
+        rest.push(anywhere_equation(
+            "v",
+            "SortA{}",
+            "SortA{}",
+            &format!("n{index}{{}}(VarZ:SortA{{}})"),
+            &format!("s{index}{{}}(VarZ:SortA{{}})"),
+        ));
+    }
+    rest.extend(
+        [
+            "symbol v{}(SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]",
+            "symbol p{}(SortA{}, SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]",
+            "symbol r{}(SortA{}, SortA{}) : SortInt{} [anywhere{}(), function{}(), value-production{}()]",
+            "symbol f{}(SortA{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]",
+        ]
+        .map(String::from),
+    );
+    rest.push(binary_anywhere_equation(
+        "p",
+        ("SortA{}", "SortA{}"),
+        "SortA{}",
+        ("s0{}(VarA:SortA{})", "s0{}(VarB:SortA{})"),
+        "m{}(r{}(VarA:SortA{}, VarB:SortA{}))",
+    ));
+    rest.push(binary_anywhere_equation(
+        "r",
+        ("SortA{}", "SortA{}"),
+        "SortInt{}",
+        ("c1{}()", "c2{}()"),
+        r#"\dv{SortInt{}}("0")"#,
+    ));
+    rest.push(anywhere_equation(
+        "f",
+        "SortA{}",
+        "SortS{}",
+        "p{}(v{}(VarW1:SortA{}), v{}(VarW2:SortA{}))",
+        UNDEFINED_MK,
+    ));
+    if discharge {
+        rest.push(conditional_f_m(
+            r"\and{R}(\in{SortA{}, R}(X0:SortA{}, m{}(VarX:SortInt{})), \top{R}())",
+            "X0:SortA{}",
+        ));
+    }
+    narrowing_definition(&rest)
+}
+
+/// Review 5, F2: past the bound on representatives, each argument position reads the
+/// right-hand sides it falls back to as fresh copies, so two positions do not share a variable.
+#[test]
+fn the_representatives_past_the_bound_are_fresh_copies_of_the_right_hand_sides() {
+    let subject = r#"f{}(m{}(\dv{SortInt{}}("0")))"#;
+    for count in [3, 70] {
+        for discharge in [false, true] {
+            let definition = bound_fallback_definition(count, discharge);
+            assert_ceil_kept(&definition, subject, "SortS{}", subject);
+        }
+    }
+}
