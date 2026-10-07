@@ -20,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts; the retry makes every prediction and, before the last chart the filtered attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes that chain's quadratic p"
+//! bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 //! ```
 //!
 //! ```toml algorithm
@@ -198,9 +198,10 @@ struct ParseContext {
 /// scanner's winner there. A prediction whose production cannot begin with that token, and a
 /// completion whose callers can continue neither with it nor through a nullable rest to a
 /// caller that can, are part of no parse of the input. Skipping them leaves every parse, and
-/// so the forest of a successful attempt, as it is; it does change what a failed attempt's
-/// diagnostic reads (the items of its last chart), so a failed attempt that skipped anything is
-/// retried with `Retry` (`Grammar::parse_with_context_and_diagnostic_provenance`).
+/// so the forest and every error computed from it, as it is; it does change what the
+/// diagnostic of an attempt that finds no derivation reads (the items of its last chart), so
+/// such an attempt that skipped anything is retried with `Retry`
+/// (`Grammar::parse_with_context_and_diagnostic_provenance`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PredictionMode {
     /// Skip predictions and completions that cannot contribute to a parse.
@@ -287,7 +288,8 @@ pub(super) struct Pruning {
     /// Whether the attempt skipped a prediction or a completion an unfiltered attempt makes.
     pub(super) pruned: bool,
     /// The last non-empty chart of the attempt's recognition of the whole input under the
-    /// priority and associativity relations, when it found no parse.
+    /// priority and associativity relations, when it found no derivation of the input; `None`
+    /// when it found one, or when recognition itself failed (a cycle).
     pub(super) furthest: Option<usize>,
 }
 
@@ -1148,13 +1150,16 @@ impl Grammar {
             PredictionMode::Filtered,
             &mut pruning,
         );
-        // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
-        // pipeline so every error, including inference and ambiguity errors, stays unchanged.
+        // A failure without a derivation is explained from the chart, whose items the skipped
+        // work changes: retry it with the skipped work restored where the diagnostic reads it.
+        // A failure after recognition (an ambiguity, sort inference, a relation error of the
+        // forest, a cycle) is computed from the forest, which skipping leaves as it is
+        // (`PredictionMode`), so it is already the error of an unfiltered recognition.
         // Invariant: a retry occurs exactly when the filtered recognizer pruned at least one
-        // prediction or completion, and it reruns the complete pipeline with the same context,
-        // skipping completions only before the last chart the filtered recognition reached.
-        if result.is_err() && pruning.pruned {
-            let horizon = pruning.furthest.unwrap_or(0);
+        // prediction or completion and found no derivation of the input, and it reruns the
+        // complete pipeline with the same context, skipping completions only before the last
+        // chart the filtered recognition reached.
+        if let (Err(_), true, Some(horizon)) = (&result, pruning.pruned, pruning.furthest) {
             self.parse_attempt(
                 start,
                 input,
@@ -1214,7 +1219,12 @@ impl Grammar {
             &priority_memos,
         )?;
         if parses.is_empty() {
-            pruning.furthest = charts.iter().rposition(|chart| !chart.states.is_empty());
+            pruning.furthest = Some(
+                charts
+                    .iter()
+                    .rposition(|chart| !chart.states.is_empty())
+                    .unwrap_or(0),
+            );
             return Err(match first_violation {
                 None => self.no_parse(
                     input,
@@ -2702,7 +2712,7 @@ mod chart_tests {
         }
 
         #[test]
-        fn retries_errors_after_forest_construction() {
+        fn reports_errors_after_forest_construction_without_a_retry() {
             let grammar = Grammar::from_sentences(&[
                 production("Start", vec![nonterminal("Choice")], "start"),
                 production(
@@ -2729,7 +2739,7 @@ mod chart_tests {
             ));
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
-            assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
         }
 
         #[test]

@@ -292,3 +292,35 @@ fn long_programs_parse_in_chart_work_linear_in_their_length() {
         );
     }
 }
+
+/// A chain that every reading parses but that is ambiguous (`0+1+...+x`, with two productions
+/// of `x`) is reported in chart work linear in its length: the ambiguity is read from the
+/// forest of the first recognition, which skipping completions leaves as it is. The parser once
+/// recognized such an input a second time without skipping anything, as it does for an input
+/// with no derivation, whose diagnostic reads the chart: a chain of 600 operands then completed
+/// four times the items one of 300 does (183,907 against 46,957; now 1,804 against 904).
+#[test]
+fn ambiguous_chains_are_reported_in_chart_work_linear_in_their_length() {
+    let _measuring = measuring();
+    let parser = parser(
+        "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax E ::= Int | E \"+\" E [left] | \"x\" [symbol(x1)] | \"x\" [symbol(x2)]\nendmodule\n",
+    );
+    let [small, large] = [300, 600].map(|length: usize| {
+        let program = (0..length)
+            .map(|operand| operand.to_string())
+            .collect::<Vec<_>>()
+            .join("+")
+            + "+x";
+        let before = measure::snapshot();
+        let error = parser.parse(&Sort::new("E"), &program).unwrap_err();
+        assert!(error.to_string().contains("Parsing ambiguity"), "{error}");
+        measure::snapshot()
+            .delta(&before)
+            .get(Counter::ParserChartCompletionCandidates)
+    });
+    println!("ambiguous chain: {small} completions at 300 operands, {large} at 600");
+    assert!(
+        large <= small * 9 / 4,
+        "{small} completions at 300 operands, {large} at 600"
+    );
+}

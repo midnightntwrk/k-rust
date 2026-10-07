@@ -1593,7 +1593,7 @@ mod tests {
             assert!(cycle.empty.is_empty());
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), input), Err(error));
-            assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
         }
     }
 

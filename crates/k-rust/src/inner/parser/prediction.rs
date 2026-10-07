@@ -983,6 +983,23 @@ mod tests {
             unfiltered(&behind_a_token, ""),
             Err(ParseError::CyclicDerivation(_))
         ));
+        // The same dead cycle beside an ambiguity: the error is the ambiguity of the two empty
+        // readings, which the forest decides, not the cycle that no reading of the input contains.
+        let ambiguous_beside_it = grammar(&[
+            ("S1", vec![nt("S2"), terminal("a")]),
+            ("S0", vec![nt("S1")]),
+            ("S0", vec![]),
+            ("S2", vec![nt("S2")]),
+            ("S2", vec![]),
+            ("S0", vec![]),
+        ]);
+        PARSE_ATTEMPTS.set(0);
+        let ambiguity = filtered(&ambiguous_beside_it, "");
+        assert!(
+            matches!(&ambiguity, Err(ParseError::Ambiguous { parses: 2, .. })),
+            "{ambiguity:?}"
+        );
+        assert_eq!(PARSE_ATTEMPTS.get(), 1);
 
         let behind_a_dead_item = grammar(&[
             ("S1", vec![nt("S1")]),
@@ -1099,7 +1116,7 @@ mod tests {
         PARSE_ATTEMPTS.set(0);
         assert_eq!(filtered(&grammar, "x"), Err(error));
         assert_eq!(NONTERMINAL_PREDICTIONS_SKIPPED.get(), 1);
-        assert_eq!(PARSE_ATTEMPTS.get(), 2);
+        assert_eq!(PARSE_ATTEMPTS.get(), 1);
     }
 
     #[test]
