@@ -74,7 +74,7 @@ Phases:
     - kompile.sort_injections.insert — O(N x (P + S)) +1 mode — at k-rust/kompile/sort_injections.rs `SortInjector::inject_sentence`
   - 50 remove units
   - 51 minimize term construction
-    - kompile.terms.minimize — O(N x h) subtree clones plus O(N log N)… — at k-rust/kompile/passes/minimize_term_construction.rs `minimize_term_construction`
+    - kompile.terms.minimize — O(N log N): each subterm is numbered once from… — at k-rust/kompile/passes/minimize_term_construction.rs `minimize_term_construction`
 - `EMISSION_PHASES` 52–62, table order:
   - 52 collect execution rewrite order · 53 resolve transformed definition · 54 singleton overload checks · 55 collect configuration variables · 56 hook namespace checks · 57 emit KORE · 58 print definition.kore · 59 print syntaxDefinition.kore · 60 print macros.kore · 61 generate bison parser · 62 write artifacts
 

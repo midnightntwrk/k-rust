@@ -5478,7 +5478,7 @@ symbol = "Minimizer::transform"
 
 [[node.cost]]
 mode = "one rule"
-bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by whole subterms"
+bound = "O(N log N): each subterm is numbered once from its head and its children's numbers (equal numbers exactly for equal subterms), and the reused subterms are found by number"
 
 [[node]]
 kind = "algorithm"
