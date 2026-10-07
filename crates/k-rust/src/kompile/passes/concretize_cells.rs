@@ -198,6 +198,9 @@ enum Multiplicity {
 struct Child {
     sort: Sort,
     multiplicity: Multiplicity,
+    /// Whether the instances of a repeated child are ordered: its collection's concatenation is
+    /// not commutative (`type="List"`).
+    ordered: bool,
     value_sort: Sort,
     unit: Option<Label>,
     concat: Option<Label>,
@@ -296,6 +299,7 @@ impl CellModel {
                     sort.clone(),
                     label.clone(),
                     attributes.string(AttributeKey::Unit).map(Label::new),
+                    !attributes.has(AttributeKey::Comm),
                 )),
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
@@ -380,6 +384,7 @@ impl CellModel {
                     children.push(Child {
                         sort: child_sort.clone(),
                         multiplicity,
+                        ordered: false,
                         value_sort: child_sort.clone(),
                         unit: child_attributes.string(AttributeKey::Unit).map(Label::new),
                         concat: None,
@@ -387,7 +392,7 @@ impl CellModel {
                     });
                     continue;
                 }
-                if let Some((collection_sort, concat, unit)) = collections
+                if let Some((collection_sort, concat, unit, ordered)) = collections
                     .iter()
                     .find(|(collection_sort, ..)| collection_sort == &child_sort)
                 {
@@ -406,6 +411,7 @@ impl CellModel {
                         children.push(Child {
                             sort: member.clone(),
                             multiplicity: Multiplicity::Star,
+                            ordered: *ordered,
                             value_sort: collection_sort.clone(),
                             unit: unit.clone(),
                             concat: concat.clone(),
@@ -652,6 +658,9 @@ struct Concretizer<'use_, 'definition> {
     /// The cells of the last sentence moved out of the parent they were written in, as
     /// "`<cell>` written inside `<parent>`", named in an error of that sentence.
     moved_cells: RefCell<Vec<String>>,
+    /// The number of incomplete parent cells completed so far in the last sentence, which
+    /// identifies the written parent a lifted cell comes from ([`MovedCell::origin`]).
+    completed_parents: std::cell::Cell<usize>,
 }
 
 /// A cell written inside a parent cell that the configuration does not place it under, lifted
@@ -671,6 +680,9 @@ struct MovedCell {
     written_in: String,
     /// The cells moved out of this one, which ride with it.
     riders: Vec<MovedCell>,
+    /// Which written parent cell it was lifted out of: cells lifted out of one written parent
+    /// share it, and were written as siblings there.
+    origin: usize,
 }
 
 impl MovedCell {
@@ -699,6 +711,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             fragments: BTreeMap::new(),
             conjoins_fragment: false,
             moved_cells: RefCell::new(Vec::new()),
+            completed_parents: std::cell::Cell::new(0),
         }
     }
 
@@ -1148,6 +1161,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         open_right: bool,
         items: Vec<(Term, Vec<MovedCell>)>,
     ) -> Result<(Term, Vec<MovedCell>), String> {
+        let origin = self.completed_parents.get();
+        self.completed_parents.set(origin + 1);
         let mut completion = Vec::new();
         let mut others = Vec::new();
         let mut riders = Vec::new();
@@ -1158,7 +1173,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     completion.push((item, item_riders));
                 }
                 Some(sort) => {
-                    moved.push(self.lift(item, sort, label, cell, item_riders)?);
+                    moved.push(self.lift(item, sort, label, cell, item_riders, origin)?);
                 }
                 None => {
                     others.push(item);
@@ -1229,7 +1244,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     /// Lift the cell `item` of sort `sort`, written inside `cell` (labelled `label`) with the
-    /// cells `riders` lifted out of it, out of `cell`, or reject it.
+    /// cells `riders` lifted out of it, out of `cell`, or reject it. `origin` identifies that
+    /// written `cell`.
     fn lift(
         &self,
         item: Term,
@@ -1237,6 +1253,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         label: &Label,
         cell: &Cell,
         riders: Vec<MovedCell>,
+        origin: usize,
     ) -> Result<MovedCell, String> {
         let name = &self.model.cells[&sort].label.name;
         if sort == cell.sort {
@@ -1271,6 +1288,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             cell: name.clone(),
             written_in: label.name.clone(),
             riders,
+            origin,
         })
     }
 
@@ -1278,6 +1296,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// `riders` whose configured parent is `holder`, with the cells riding with it in turn, and
     /// return the others. A lifted cell of a sort that is not `multiplicity="*"` whose place in
     /// that instance is already taken is rejected: the rule gives it no other instance.
+    ///
+    /// The instances of an ordered (`type="List"`) repeated cell are concatenated in body order,
+    /// and the rule states that order only among instances written as siblings in one cell body.
+    /// A lifted instance is therefore inserted only when every other term of its list in `body`
+    /// is an instance lifted out of the same written parent (inserted in written order); it is
+    /// rejected otherwise.
     fn insert_lifted(
         &self,
         holder: &Cell,
@@ -1286,16 +1310,41 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ) -> Result<Vec<MovedCell>, String> {
         let mut pending = std::collections::VecDeque::from(riders);
         let mut remaining = Vec::new();
+        // The written parent of the instances of each ordered sort inserted so far.
+        let mut ordered_origins = BTreeMap::<Sort, usize>::new();
         // Invariant: every lifted cell seen so far is in `body` or `remaining`, or still in `pending`; each cell is dequeued once, and a rider is enqueued only when the cell it rides with is inserted.
         while let Some(rider) = pending.pop_front() {
             if rider.parent != holder.sort {
                 remaining.push(rider);
                 continue;
             }
-            let repeatable = holder
+            let child = holder
                 .children
                 .iter()
-                .any(|child| child.sort == rider.sort && child.multiplicity == Multiplicity::Star);
+                .find(|child| child.sort == rider.sort);
+            let repeatable = child.is_some_and(|child| child.multiplicity == Multiplicity::Star);
+            if let Some(child) = child.filter(|child| repeatable && child.ordered) {
+                let stated = match ordered_origins.get(&rider.sort) {
+                    Some(origin) => *origin == rider.origin,
+                    // A term whose cell sort is unknown may be part of the list.
+                    None => body.iter().all(|item| {
+                        self.model
+                            .sort_for_term(item)
+                            .is_some_and(|sort| sort != child.sort)
+                    }),
+                };
+                if !stated {
+                    return Err(format!(
+                        "Cell {} written inside {} belongs in the {} that holds {}, whose {} cells form a list, and the rule does not state its position among the other items of that list",
+                        rider.cell,
+                        rider.written_in,
+                        holder.label.name,
+                        rider.written_in,
+                        rider.cell
+                    ));
+                }
+                ordered_origins.insert(rider.sort.clone(), rider.origin);
+            }
             if !repeatable
                 && body
                     .iter()

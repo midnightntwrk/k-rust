@@ -7146,6 +7146,86 @@ fn rejects_a_misplaced_cell_that_would_have_to_leave_a_complete_cell() {
     );
 }
 
+const LIST_FRAMES: &str = r#"<top> <k> 0 </k> <stack> <cur> <x> 0 </x> </cur> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#;
+
+// The instances of a `type="List"` cell are ordered, and the order is part of what the rule
+// matches. The <fr> lifted out of <cur> has no written position among the other <fr> cells of
+// its <stack>: <cur> and <fr> are of different sorts, whose written order carries no meaning.
+#[test]
+fn rejects_a_misplaced_list_cell_whose_position_among_written_instances_is_unstated() {
+    for rule in [
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> <fr> <v> 1 </v> </fr> </stack>",
+        "<stack> <fr> <v> 1 </v> </fr> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> </stack>",
+    ] {
+        let errors = concretized_cell_rule(LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(
+            errors,
+            [
+                "Cell <fr> written inside <cur> belongs in the <stack> that holds <cur>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list"
+            ],
+            "{rule}"
+        );
+    }
+}
+
+// Two <fr> cells written as siblings in <cur> have a stated order, which they keep.
+#[test]
+fn places_misplaced_list_cells_lifted_out_of_one_parent_in_their_written_order() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> <fr> <v> 3 </v> </fr> </cur> ... </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellList_`(`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),`<fr>`(`<v>`(#token("3","Int")))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// The <fr> lifted out of <y>, which rides out of <cur> with <y>, and the one lifted out of <cur>
+// were not written as siblings, so their order is not stated.
+#[test]
+fn rejects_misplaced_list_cells_lifted_out_of_different_parents_into_one_instance() {
+    let errors = concretized_cell_rule(
+        r#"<top> <k> 0 </k> <stack> <cur> <x> 0 </x> <y> <z> 0 </z> </y> </cur> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#,
+        "<stack> <cur> <y> <z> Z </z> <fr> <v> 3 </v> </fr> </y> <fr> <v> 2 </v> </fr> ... </cur> ... </stack>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <fr> written inside <y> belongs in the <stack> that holds <y>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list"
+        ]
+    );
+}
+
+#[test]
+fn places_a_misplaced_list_cell_that_is_the_only_instance_written_in_its_parent() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<stack> <cur> <x> X => 1 </x> <fr> <v> 2 </v> </fr> </cur> ... </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X=>#token("1","Int"))),`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// Bag instances are unordered, so the lifted <fr> is placed beside the written one.
+#[test]
+fn places_a_misplaced_bag_cell_beside_written_instances() {
+    let body = concretized_cell_rule(
+        &LIST_FRAMES.replace(r#"type="List""#, r#"type="Bag""#),
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> <fr> <v> 1 </v> </fr> </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellBag_`(`<fr>`(`<v>`(#token("1","Int"))),`<fr>`(`<v>`(#token("2","Int")))))),_DotVar0)"#
+    );
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
