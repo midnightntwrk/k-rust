@@ -192,16 +192,6 @@ impl VariableProvenance {
             Self::Existential => "Ex#",
         }
     }
-
-    /// The marker without its `#` (`Rule`, `Eq`, `Ex`), for consumers that name a provenance
-    /// family. The printer writes the whole marker through [`encode_variable_name`].
-    pub const fn external_prefix(self) -> &'static str {
-        match self {
-            Self::Rule => "Rule",
-            Self::Equation => "Eq",
-            Self::Existential => "Ex",
-        }
-    }
 }
 
 /// Split `name` at the first accepted marker it starts with, in the order given, after the

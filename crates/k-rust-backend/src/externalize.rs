@@ -343,20 +343,13 @@ pub fn booster_predicate_pattern(
     )
 }
 
-/// Externalize the predicate attached to an applied rule in an execute response.
+/// Externalize the predicate attached to an applied rule in an execute response, using the
+/// definition's declared `BOOL.Bool` sort.
 ///
 /// Booster reports rule provenance as a logical KORE predicate even though the same condition is
 /// retained on the successor state as a Boolean K term. This conversion is intentionally only a
 /// projection: execution keeps the original Boolean term so unresolved `KEQUAL` applications are
 /// not mistaken for semantic equality during simplification.
-pub fn booster_rule_predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
-    predicate_pattern(
-        &logical_rule_predicate(&Sort::builtin(BuiltinSort::Bool), predicate),
-        result_sort,
-    )
-}
-
-/// Externalize applied-rule provenance using the definition's declared `BOOL.Bool` sort.
 pub fn booster_rule_predicate_pattern_in_definition(
     definition: &BackendDefinition,
     predicate: &Predicate,
