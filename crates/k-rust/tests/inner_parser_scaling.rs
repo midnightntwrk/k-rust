@@ -248,13 +248,11 @@ fn chart_work_at_two_sizes(
     })
 }
 
+/// A program of a given length.
+type Program = Box<dyn Fn(usize) -> String>;
+
 /// A program shape: its name, its definition, its sort and its program of a given length.
-type Shape = (
-    &'static str,
-    &'static str,
-    &'static str,
-    Box<dyn Fn(usize) -> String>,
-);
+type Shape = (&'static str, &'static str, &'static str, Program);
 
 /// A statement sequence, a list literal and a chain of a binary operator are as deep as they
 /// are long, and their chart work is linear in their length: a sequence of 600 statements
@@ -385,7 +383,7 @@ fn operator_chains_parse_in_chart_work_linear_in_their_length_under_the_prelude(
     let one_operator = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num | E \"+\" E [left]\nendmodule\n";
     let arithmetic = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num\n             | E \"*\" E [left]\n             > E \"+\" E [left]\nendmodule\n";
     let below_a_rewrite = "module MAIN\n  syntax Num ::= r\"[0-9]+\" [token]\n  syntax E ::= Num | E \"+\" E [left, symbol(plus)] | E \"=>\" E [symbol(rw)]\n  syntax priority plus > rw\nendmodule\n";
-    let shapes: [(&str, &str, Box<dyn Fn(usize) -> String>); 5] = [
+    let shapes: [(&str, &str, Program); 5] = [
         ("E \"+\" E [left]", one_operator, Box::new(numbers(" + "))),
         (
             "`+` chain under `*` > `+`",
