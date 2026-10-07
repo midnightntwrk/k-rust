@@ -654,14 +654,23 @@ struct Concretizer<'use_, 'definition> {
     moved_cells: RefCell<Vec<String>>,
 }
 
-/// A cell written inside a parent cell that the configuration does not place it under, on its
-/// way to the enclosing cell that places it.
+/// A cell written inside a parent cell that the configuration does not place it under, lifted
+/// out of that parent. It rides with the subterm it was moved out of (its anchor) until the
+/// completion of an enclosing cell reaches the instance of its configured parent that holds the
+/// anchor, and is inserted there (see [`Concretizer::complete_parent`]).
 struct MovedCell {
     term: Term,
+    /// The sort of the moved cell.
+    sort: Sort,
+    /// The configured parent sort of the moved cell, a strict ancestor of its written parent's
+    /// sort.
+    parent: Sort,
     /// The label of the moved cell.
     cell: String,
     /// The label of the cell it was written in.
     written_in: String,
+    /// The cells moved out of this one, which ride with it.
+    riders: Vec<MovedCell>,
 }
 
 impl MovedCell {
@@ -961,11 +970,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// Complete every incomplete parent cell of `term` with its missing intermediate cells.
     ///
     /// A cell written inside a parent cell whose sort is not an ancestor of the cell's sort in
-    /// the configuration is moved out of that parent into the cell bag holding the parent, so
-    /// that the enclosing cell places it where the configuration declares it (see
-    /// [`Self::complete_parent`]). A moved cell that reaches anything other than the body of an
-    /// enclosing cell (a rewrite, an alias, a sequence, a non-cell symbol or the top of `term`)
-    /// has no place in the rule, which is rejected.
+    /// the configuration is lifted out of that parent and placed in the instance of its
+    /// configured parent that holds the written parent, when that configured parent is an
+    /// ancestor of the written one (see [`Self::complete_parent`]); otherwise the rule is
+    /// rejected. A lifted cell that would have to leave the body of an enclosing cell (through a
+    /// rewrite, an alias, a sequence, a non-cell symbol or the top of `term`) has no place in the
+    /// rule, which is rejected.
     fn add_parents(&self, term: Term) -> Result<Term, String> {
         let (term, moved) = self.place_cells(term)?;
         match moved.first() {
@@ -987,6 +997,19 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     .model
                     .cell_for_label(&label)
                     .filter(|cell| !cell.children.is_empty());
+                if let Some(cell) = parent
+                    && let Ok((open_left, body, open_right)) = incomplete_parts(&arguments)
+                {
+                    // Each item of the body keeps the cells lifted out of it, so that its
+                    // completion can place them in the instances that hold it.
+                    let items = flatten_cells(body)
+                        .into_iter()
+                        .map(|item| self.place_cells(item.clone()))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let (completed, moved) =
+                        self.complete_parent(&label, cell, open_left, open_right, items)?;
+                    return Ok((with_metadata(completed, metadata), moved));
+                }
                 let mut moved = Vec::new();
                 let mut placed = Vec::with_capacity(arguments.len());
                 for argument in arguments {
@@ -1005,29 +1028,26 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         moved,
                     )
                 } else if let Some(cell) = parent {
+                    // Not an incomplete cell (handled above): a complete cell, whose arguments
+                    // are its children in declared order, or a malformed one.
                     if let Some(first) = moved.first() {
-                        if incomplete_parts(&placed).is_err() {
-                            return Err(format!(
-                                "{}, and moving it there would cross the complete cell {}",
-                                first.describe(),
-                                label.name
-                            ));
-                        }
-                        let body = &mut placed[1];
-                        let mut items =
-                            flatten_cells(body).into_iter().cloned().collect::<Vec<_>>();
-                        items.extend(moved.into_iter().map(|moved| moved.term));
-                        *body = make_body(items);
+                        return Err(format!(
+                            "{}, and moving it there would cross the complete cell {}",
+                            first.describe(),
+                            label.name
+                        ));
                     }
-                    let application = Term::Apply {
-                        label,
-                        arguments: placed,
-                    };
-                    if self.is_complete_cell(&application, cell) {
-                        (application, Vec::new())
-                    } else {
-                        self.complete_parent(application, cell)?
+                    if !self.complete_cell_arguments(&placed, cell) {
+                        incomplete_parts(&placed)?;
+                        unreachable!("an incomplete cell is completed above");
                     }
+                    (
+                        Term::Apply {
+                            label,
+                            arguments: placed,
+                        },
+                        Vec::new(),
+                    )
                 } else if let Some(moved) = moved.first() {
                     return Err(format!(
                         "{}, and moving it there would cross {}",
@@ -1104,65 +1124,68 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         Ok((with_metadata(rebuilt, metadata), moved))
     }
 
-    /// Complete an incomplete parent `cell`: each cell item written inside it whose sort the
-    /// configuration places below `cell` is wrapped in its missing intermediate cells, grouped
-    /// with its siblings by [`Self::make_parents`]. Each other cell item is returned unchanged
-    /// as moved out of `cell`, for the enclosing cell to place: the configuration puts it
-    /// outside `cell`, beside it or elsewhere, and it is placed with the cells written around
-    /// `cell`.
+    /// Complete an incomplete parent `cell` (written with label `label`) whose body items,
+    /// already placed, are `items`, each with the cells lifted out of it.
+    ///
+    /// Each cell item whose sort the configuration places below `cell` is wrapped in its missing
+    /// intermediate cells, grouped with its siblings by [`Self::make_parents`]. A cell lifted out
+    /// of an item is inserted into the instance of its configured parent that holds the item:
+    /// the wrapper of that sort built around the item, or `cell` itself.
+    ///
+    /// Each other cell item `C` is lifted out of `cell` and returned, to be placed the same way
+    /// by an enclosing cell. Lifting keeps every containment the rule states about `C` except
+    /// the ones the configuration makes impossible (`C` inside `cell`, and inside any written
+    /// cell below `C`'s configured parent), and adds none: every cell that holds `C` in the
+    /// compiled rule also holds `cell`. It is therefore allowed only when `C`'s configured
+    /// parent is a strict ancestor of `cell`; a `C` of `cell`'s own sort or an ancestor sort
+    /// (an inverted nesting) or one whose place is in another branch of the configuration (a
+    /// relocation into cells the rule does not write) is rejected.
     fn complete_parent(
         &self,
-        application: Term,
+        label: &Label,
         cell: &Cell,
+        open_left: bool,
+        open_right: bool,
+        items: Vec<(Term, Vec<MovedCell>)>,
     ) -> Result<(Term, Vec<MovedCell>), String> {
-        let Term::Apply { label, arguments } = application.unannotated() else {
-            unreachable!()
-        };
-        let (open_left, contents, open_right) = incomplete_parts(arguments)?;
         let mut completion = Vec::new();
         let mut others = Vec::new();
+        let mut riders = Vec::new();
         let mut moved = Vec::new();
-        for item in flatten_cells(contents) {
-            match self.model.sort_for_term(item) {
+        for (item, item_riders) in items {
+            match self.model.sort_for_term(&item) {
                 Some(sort) if self.model.is_strictly_below(&sort, &cell.sort) => {
-                    completion.push(item.clone());
+                    completion.push((item, item_riders));
                 }
                 Some(sort) => {
-                    let moved_cell = MovedCell {
-                        term: item.clone(),
-                        cell: self.model.cells[&sort].label.name.clone(),
-                        written_in: label.name.clone(),
-                    };
-                    self.moved_cells.borrow_mut().push(format!(
-                        "{} written inside {}",
-                        moved_cell.cell, moved_cell.written_in
-                    ));
-                    moved.push(moved_cell);
+                    moved.push(self.lift(item, sort, label, cell, item_riders)?);
                 }
-                None => others.push(item.clone()),
+                None => {
+                    others.push(item);
+                    riders.extend(item_riders);
+                }
             }
         }
         let target_level = self.model.levels[&cell.sort] + 1;
-        // Invariant: `completion` holds the terms still to be placed under `cell`, all of sorts strictly below `cell.sort`; each iteration replaces every item at the `deepest` level by `make_parents` cells one level up, so the deepest level above `target_level` decreases, and the loop ends with every item a child of `cell`.
-        while completion.iter().any(|item| {
+        let level = |(item, _): &(Term, Vec<MovedCell>)| {
             self.model
                 .sort_for_term(item)
                 .and_then(|sort| self.model.levels.get(&sort).copied())
-                .is_some_and(|level| level > target_level)
-        }) {
+        };
+        // Invariant: `completion` holds the terms still to be placed under `cell`, all of sorts strictly below `cell.sort`, each with the lifted cells whose configured parent is an ancestor of its sort; each iteration replaces every item at the `deepest` level by `make_parents` cells one level up, so the deepest level above `target_level` decreases, and the loop ends with every item a child of `cell`.
+        while completion
+            .iter()
+            .any(|item| level(item).is_some_and(|level| level > target_level))
+        {
             let deepest = completion
                 .iter()
-                .filter_map(|item| {
-                    self.model
-                        .sort_for_term(item)
-                        .and_then(|sort| self.model.levels.get(&sort).copied())
-                })
+                .filter_map(level)
                 .max()
                 .expect("completion terms have levels");
-            let mut grouped = BTreeMap::<Sort, Vec<Term>>::new();
+            let mut grouped = BTreeMap::<Sort, Vec<(Term, Vec<MovedCell>)>>::new();
             let mut retained = Vec::new();
             for item in completion {
-                let Some(sort) = self.model.sort_for_term(&item) else {
+                let Some(sort) = self.model.sort_for_term(&item.0) else {
                     retained.push(item);
                     continue;
                 };
@@ -1181,7 +1204,21 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
             completion = retained;
         }
-        others.extend(completion);
+        for (item, item_riders) in completion {
+            others.push(item);
+            riders.extend(item_riders);
+        }
+        for rider in self.insert_lifted(cell, &mut others, riders)? {
+            if !self.model.is_strictly_below(&cell.sort, &rider.parent) {
+                // Unreachable for a lifted cell: its configured parent is an ancestor of the cell
+                // it was lifted out of, so it is `cell`, a wrapper built above, or above `cell`.
+                return Err(format!(
+                    "Cell {} written inside {} has no place under {}",
+                    rider.cell, rider.written_in, label.name
+                ));
+            }
+            moved.push(rider);
+        }
         Ok((
             Term::Apply {
                 label: label.clone(),
@@ -1191,12 +1228,125 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         ))
     }
 
+    /// Lift the cell `item` of sort `sort`, written inside `cell` (labelled `label`) with the
+    /// cells `riders` lifted out of it, out of `cell`, or reject it.
+    fn lift(
+        &self,
+        item: Term,
+        sort: Sort,
+        label: &Label,
+        cell: &Cell,
+        riders: Vec<MovedCell>,
+    ) -> Result<MovedCell, String> {
+        let name = &self.model.cells[&sort].label.name;
+        if sort == cell.sort {
+            return Err(format!(
+                "Cell {name} written inside another {}: the configuration never nests a cell in a cell of its own sort",
+                label.name
+            ));
+        }
+        if self.model.is_strictly_below(&cell.sort, &sort) {
+            return Err(format!(
+                "Cell {name} written inside {}: the configuration places {} inside {name}",
+                label.name, label.name
+            ));
+        }
+        let parent =
+            self.model.parents.get(&sort).ok_or_else(|| {
+                format!("Cell {name} written inside {} has no parent", label.name)
+            })?;
+        if !self.model.is_strictly_below(&cell.sort, parent) {
+            return Err(format!(
+                "Cell {name} written inside {} belongs in {} in the configuration, which does not contain {}",
+                label.name, self.model.cells[parent].label.name, label.name
+            ));
+        }
+        self.moved_cells
+            .borrow_mut()
+            .push(format!("{name} written inside {}", label.name));
+        Ok(MovedCell {
+            term: item,
+            parent: parent.clone(),
+            sort,
+            cell: name.clone(),
+            written_in: label.name.clone(),
+            riders,
+        })
+    }
+
+    /// Insert into `body`, the children of one instance of `holder`, each lifted cell of
+    /// `riders` whose configured parent is `holder`, with the cells riding with it in turn, and
+    /// return the others. A lifted cell of a sort that is not `multiplicity="*"` whose place in
+    /// that instance is already taken is rejected: the rule gives it no other instance.
+    fn insert_lifted(
+        &self,
+        holder: &Cell,
+        body: &mut Vec<Term>,
+        riders: Vec<MovedCell>,
+    ) -> Result<Vec<MovedCell>, String> {
+        let mut pending = std::collections::VecDeque::from(riders);
+        let mut remaining = Vec::new();
+        // Invariant: every lifted cell seen so far is in `body` or `remaining`, or still in `pending`; each cell is dequeued once, and a rider is enqueued only when the cell it rides with is inserted.
+        while let Some(rider) = pending.pop_front() {
+            if rider.parent != holder.sort {
+                remaining.push(rider);
+                continue;
+            }
+            let repeatable = holder
+                .children
+                .iter()
+                .any(|child| child.sort == rider.sort && child.multiplicity == Multiplicity::Star);
+            if !repeatable
+                && body
+                    .iter()
+                    .any(|item| self.model.sort_for_term(item).as_ref() == Some(&rider.sort))
+            {
+                return Err(format!(
+                    "Cell {} written inside {} belongs in the {} that holds {}, which already has a {}",
+                    rider.cell, rider.written_in, holder.label.name, rider.written_in, rider.cell
+                ));
+            }
+            body.push(rider.term);
+            pending.extend(rider.riders);
+        }
+        Ok(remaining)
+    }
+
+    /// Wrap `items`, cells whose configured parent is `parent`, in instances of `parent`, each
+    /// with the cells lifted out of its items that belong in it; return the wrappers with the
+    /// lifted cells that belong higher.
     fn make_parents(
         &self,
         parent: &Cell,
         open: bool,
-        items: Vec<Term>,
-    ) -> Result<Vec<Term>, String> {
+        items: Vec<(Term, Vec<MovedCell>)>,
+    ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
+        let groups = if self.share_parent(parent, items.iter().map(|(item, _)| item))? {
+            vec![items]
+        } else {
+            items.into_iter().map(|item| vec![item]).collect()
+        };
+        groups
+            .into_iter()
+            .map(|group| {
+                let (mut body, riders): (Vec<_>, Vec<_>) = group.into_iter().unzip();
+                let riders =
+                    self.insert_lifted(parent, &mut body, riders.into_iter().flatten().collect())?;
+                Ok((
+                    incomplete_cell(&parent.label, open, make_body(body), open),
+                    riders,
+                ))
+            })
+            .collect()
+    }
+
+    /// Whether the written cells `items`, whose configured parent is `parent`, belong in one
+    /// instance of `parent` (`true`) or each in its own (`false`).
+    fn share_parent<'t>(
+        &self,
+        parent: &Cell,
+        items: impl Iterator<Item = &'t Term>,
+    ) -> Result<bool, String> {
         // Children either fit in one parent, are forced into separate instances, or admit an
         // ambiguous partition. Optional children are nonrepeatable too.
         let nonrepeatable_sorts = |term: &Term| {
@@ -1214,7 +1364,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let mut children = Vec::new();
         let mut rewrites = Vec::new();
         // Invariant: `children` and `rewrites` hold the nonrepeatable sorts of the items before `item`, ordinary children and rewrite sides kept apart; each entry of `items` is visited once.
-        for item in &items {
+        for item in items {
             if let Term::Rewrite { left, right } = item.unannotated() {
                 rewrites.push((nonrepeatable_sorts(left), nonrepeatable_sorts(right)));
             } else {
@@ -1234,12 +1384,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             .flat_map(|(_, right)| right)
             .all(|sort| used_right.insert(sort));
         if children_fit && left_fit && right_fit {
-            return Ok(vec![incomplete_cell(
-                &parent.label,
-                open,
-                make_body(items),
-                open,
-            )]);
+            return Ok(true);
         }
 
         let children_force_separation = if let Some(first) = children.first() {
@@ -1262,10 +1407,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             })
         });
         if children_force_separation && rewrites_force_separation {
-            return Ok(items
-                .into_iter()
-                .map(|item| incomplete_cell(&parent.label, open, item, open))
-                .collect());
+            return Ok(false);
         }
         Err(format!("Ambiguous completion: {}", parent.label.name))
     }
@@ -1479,13 +1621,6 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             label,
             arguments: vec![body],
         })
-    }
-
-    fn is_complete_cell(&self, application: &Term, cell: &Cell) -> bool {
-        let Term::Apply { arguments, .. } = application.unannotated() else {
-            return false;
-        };
-        self.complete_cell_arguments(arguments, cell)
     }
 
     // A structured producer may supply a cell that already matches its expanded

@@ -6738,10 +6738,11 @@ fn concretized_cell_rule_with(
     Ok(body.clone())
 }
 
-// A cell written inside a parent that does not contain it in the configuration denotes the cell
-// where the configuration declares it: completion places it there, beside its written parent,
-// and never drops it. Dropping it would compile a rule that matches any content of that cell and
-// never updates it.
+// A cell written inside a parent that does not contain it in the configuration is never dropped:
+// dropping it would compile a rule that matches any content of that cell and never updates it.
+// When the cell's configured parent is an ancestor of its written parent, completion lifts it
+// into the instance of that ancestor which holds the written parent, so every cell that holds it
+// in the compiled rule also holds its written parent. Otherwise the rule is rejected.
 #[test]
 fn places_a_shallower_misnested_cell_beside_its_written_parent() {
     let body = concretized_cell_rule(
@@ -6828,16 +6829,127 @@ fn places_a_misplaced_cell_written_alone_inside_a_parent() {
     );
 }
 
+// Placing <c> would put it inside <x> and <d>, cells that do not hold <a>: the compiled rule
+// would state where <c> is in a part of the configuration the rule does not write.
 #[test]
-fn places_a_misplaced_cell_from_another_branch_under_its_own_parents() {
-    let body = concretized_cell_rule(
+fn rejects_a_misplaced_cell_whose_place_is_in_another_branch() {
+    let errors = concretized_cell_rule(
         "<top> <k> 0 </k> <a> <b> 0 </b> </a> <x> <d> <c> 0 </c> </d> </x> </top>",
         "<a> <b> X => 1 </b> <c> 5 => 6 </c> ... </a>",
     )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <c> written inside <a> belongs in <d> in the configuration, which does not contain <a>"
+        ]
+    );
+}
+
+// The shape of K's regression case issue-313: <foo> written inside <topCell2> belongs in
+// <topCell1>, a sibling subtree; moving it there would contradict the written <topCell2>.
+#[test]
+fn rejects_a_misplaced_cell_moved_out_of_its_written_parent_into_a_sibling_subtree() {
+    let errors = concretized_cell_rule(
+        "<k> 0 </k> <topCell1> <foo> 0 </foo> </topCell1> <topCell2> <foos> 1 </foos> </topCell2>",
+        "<k> 5 => 10 </k> <topCell2> <foo> 0 </foo> ... </topCell2>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <foo> written inside <topCell2> belongs in <topCell1> in the configuration, which does not contain <topCell2>"
+        ]
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_in_a_missing_ancestor_of_its_written_parent() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <x> <s> 0 </s> <y> <a> <b> 0 </b> </a> </y> </x> </top>",
+        "<a> <b> X => 1 </b> <s> 5 => 6 </s> ... </a>",
+    )
     .unwrap();
+    // <s> lands in the <x> completion builds around <a>, not beside the rule's top.
     assert_eq!(
         body,
-        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(`<b>`(X=>#token("1","Int"))),`<x>`(`<d>`(`<c>`(#token("5","Int")=>#token("6","Int"))))),_DotVar0)"#
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<x>`(`<s>`(#token("5","Int")=>#token("6","Int")),`<y>`(`<a>`(`<b>`(X=>#token("1","Int")))))),_DotVar0)"#
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_written_inside_another_misplaced_cell() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <s> <t> 0 </t> </s> <b> <c> 0 </c> </b> </a> </top>",
+        "<b> <c> X => 1 </c> <s> <t> 2 </t> <k> 5 => 6 </k> </s> </b>",
+    )
+    .unwrap();
+    // <s> is lifted out of <b> into <a>, and <k>, lifted out of <s>, rides with it to <top>.
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<k>`(#token("5","Int")=>#token("6","Int")),`<a>`(`<s>`(`<t>`(#token("2","Int"))),`<b>`(`<c>`(X=>#token("1","Int"))))),_DotVar0)"#
+    );
+}
+
+// A thread has one <frame>: the inner <frame> cannot share the outer one's <thread>, and the
+// rule does not write a second <thread>.
+#[test]
+fn rejects_a_misplaced_cell_written_inside_a_cell_of_its_own_sort_under_a_repeated_ancestor() {
+    let errors = concretized_cell_rule(
+        r#"<top> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <k> 0 </k> <frame> <locals> 0 </locals> </frame> <env> 0 </env> </thread> </threads> </top>"#,
+        "<frame> <locals> L => 1 </locals> <frame> <locals> M </locals> </frame> </frame>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <frame> written inside another <frame>: the configuration never nests a cell in a cell of its own sort"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_written_inside_a_cell_of_its_own_sort() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<a> <b> X => 1 </b> <a> <b> 2 </b> </a> </a>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <a> written inside another <a>: the configuration never nests a cell in a cell of its own sort"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_written_inside_one_of_its_descendants() {
+    let errors = concretized_cell_rule(
+        r#"<top> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <k> 0 </k> <frame> <locals> 0 </locals> </frame> </thread> </threads> </top>"#,
+        "<frame> <locals> L => 1 </locals> <thread> <id> 2 </id> ... </thread> </frame>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        ["Cell <thread> written inside <frame>: the configuration places <frame> inside <thread>"]
+    );
+}
+
+// <k> lifted out of <frame> belongs in the <thread> that holds that <frame>, which the rule
+// gives the explicit <k> 7 </k>.
+#[test]
+fn rejects_a_misplaced_cell_whose_place_in_its_parents_repeated_instance_is_taken() {
+    let errors = concretized_cell_rule(
+        r#"<top> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <k> 0 </k> <frame> <locals> 0 </locals> </frame> </thread> </threads> </top>"#,
+        "<threads> <frame> <locals> L => 1 </locals> <k> 5 => 6 </k> </frame> <k> 7 </k> </threads>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <frame> belongs in the <thread> that holds <frame>, which already has a <k>"
+        ]
     );
 }
 
@@ -6848,11 +6960,11 @@ fn rejects_a_misplaced_cell_whose_place_holds_an_explicit_sibling() {
         "<k> 7 </k> <a> <b> X => 1 </b> <k> 5 => 6 </k> ... </a>",
     )
     .unwrap_err();
-    // Both <k> cells belong directly under the one <top>: no completion holds them.
+    // Both <k> cells belong directly under the one <top>, which holds <a>.
     assert_eq!(
         errors,
         [
-            "Ambiguous completion: <top> (after moving <k> written inside <a> to where the configuration declares it)"
+            "Cell <k> written inside <a> belongs in the <top> that holds <a>, which already has a <k>"
         ]
     );
 }
