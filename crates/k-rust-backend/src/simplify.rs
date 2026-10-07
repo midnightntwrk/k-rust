@@ -2103,10 +2103,14 @@ fn value_production_definedness(
 /// never decides, so it answers `false`. So does an overlapped instance of the left-hand side
 /// that reaches `term` (`BackendDefinition::overlapped_instances_miss`): under `f(3, Z) =
 /// f(1, Z)`, the instance `f(3, Z)` of `f(X, Z)` reaches `f(1, Z)`, so `X = 3` denotes its value
-/// too. A collection pattern may match an instance in
-/// several ways, and a match left `Indeterminate` decides nothing, so both answer `false`, as do a
-/// match that binds a variable outside the left-hand side and one that binds an element variable
-/// to a set pattern, which equation application does not use either. A `concrete` or `symbolic`
+/// too. Where the `requires` is false the equation states nothing, so `term` is then read as an
+/// application no equation reaches, under the assumption the value certificate makes for those:
+/// the peaks the scan does not see (at an equation of another head whose normal form has
+/// `term`'s head) meet (`docs/compatibility.md`, "Anywhere rules"). A collection pattern may
+/// match an instance in several ways, and a match left `Indeterminate` decides nothing, so both
+/// answer `false`, as do a match that binds a variable outside the left-hand side and one that
+/// binds an element variable to a set pattern, which equation application does not use either.
+/// A `concrete` or `symbolic`
 /// attribute is not consulted: it selects when the evaluator uses an equation, not whether the
 /// equation holds. The diagnostics of deciding the `requires` are dropped unless the decision
 /// fails, as `scan::scan_group` drops those of an attempt that does not apply.
