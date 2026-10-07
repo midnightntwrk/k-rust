@@ -20,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
+//! bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 //! ```
 //!
 //! ```toml algorithm
@@ -1626,6 +1626,15 @@ impl Grammar {
             PredictionMode::Retry { .. } => PriorityFilter::Ignored,
             PredictionMode::Filtered | PredictionMode::Unfiltered => filter,
         };
+        // A retry recognizes a failed parse again only for its diagnostic: the items of the last
+        // chart reached and the violation met. It cuts a node that repeats itself over one span
+        // instead of reporting a cycle: the repetition adds no item (the node it repeats already
+        // completed the same state) and has passed the filter, and the first attempt, which
+        // keeps every derivation the relations allow, found none, so the repetition is part of
+        // no reading of the input that the relations allow. The recognitions with the relations
+        // ignored that explain a violation (`Grammar::explain_violation`) keep their own rule.
+        let cut_repetitions = matches!(prediction_mode, PredictionMode::Retry { .. })
+            && filter == PriorityFilter::Enforced;
         let mut instance_nodes = InstanceNodes::default();
         let root = (start_position, start_id);
         let cycles = self
@@ -1779,6 +1788,7 @@ impl Grammar {
                             filter,
                             cycles,
                             stand_in,
+                            cut_repetitions,
                         );
                         if let Some(cycle) = &completed.cycle {
                             return Err(cycle.clone());
@@ -1836,7 +1846,15 @@ impl Grammar {
                             derivation_count,
                             revisit,
                         );
-                        if self.productive_unary_cycles.contains(&state.production) {
+                        // A retry builds the node: its first lap may be the only node of its sort
+                        // over the span, and the callers it advances are items of the chart the
+                        // diagnostic reads. `SameSpanCycles` flags every such production (a
+                        // labelled unary production whose child derives its result through unary
+                        // productions), so its second lap is a repetition over one span, which
+                        // the retry cuts below (`cut_repetitions`).
+                        if self.productive_unary_cycles.contains(&state.production)
+                            && !cut_repetitions
+                        {
                             return Err(self.productive_unary_cycle_error(
                                 state.production,
                                 input,
@@ -1879,8 +1897,10 @@ impl Grammar {
                                 PriorityFilter::Ignored => Ok(Rc::clone(&term)),
                             } {
                                 Ok(term) => {
-                                    if cycles.contains(state.production) {
-                                        check_same_span_repetition(
+                                    // A repetition over one span makes the forest infinite; a
+                                    // retry cuts it (`cut_repetitions`).
+                                    let repeats = cycles.contains(state.production)
+                                        && match check_same_span_repetition(
                                             self,
                                             &charts[position],
                                             state.production,
@@ -1888,9 +1908,14 @@ impl Grammar {
                                             input,
                                             state.origin,
                                             position,
-                                        )?;
+                                        ) {
+                                            Ok(()) => false,
+                                            Err(_) if cut_repetitions => true,
+                                            Err(cycle) => return Err(cycle),
+                                        };
+                                    if !repeats {
+                                        nodes.insert(term);
                                     }
-                                    nodes.insert(term);
                                 }
                                 Err(error) => {
                                     invalid.push((term, error));
@@ -2055,6 +2080,7 @@ impl Grammar {
                 filter,
                 cycles,
                 stand_in,
+                cut_repetitions,
             );
             if let Some(cycle) = &completed.cycle {
                 return Err(cycle.clone());

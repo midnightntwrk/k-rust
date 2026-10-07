@@ -626,7 +626,9 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
 ///
 /// Repeated requests reuse the same `Rc` allocations until a completed state or derivation for
 /// that boundary changes. The chart fixes `end` and the parse attempt fixes `provenance`, so neither
-/// belongs in the memo key.
+/// belongs in the memo key; nor does `cut_repetitions`, which one recognition passes alike to
+/// every request on its charts. With `cut_repetitions` a node that repeats itself over the span
+/// is left out and is not reported as a cycle (`Grammar::recognize` in a retry).
 pub(super) fn completed_nodes(
     chart: &Chart,
     grammar: &Grammar,
@@ -639,6 +641,7 @@ pub(super) fn completed_nodes(
     filter: PriorityFilter,
     cycles: &SameSpanCycles,
     stand_in: Option<&Rc<PackedTerm>>,
+    cut_repetitions: bool,
 ) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
@@ -692,7 +695,7 @@ pub(super) fn completed_nodes(
             match filtered {
                 Ok(term) => {
                     if cycles.contains(state.production)
-                        && cycle.is_none()
+                        && (cut_repetitions || cycle.is_none())
                         && let Err(error) = check_same_span_repetition(
                             grammar,
                             chart,
@@ -703,6 +706,9 @@ pub(super) fn completed_nodes(
                             end,
                         )
                     {
+                        if cut_repetitions {
+                            continue;
+                        }
                         cycle = Some(error);
                     }
                     nodes.insert(term);
@@ -927,6 +933,7 @@ mod tests {
             PriorityFilter::Enforced,
             &cycles,
             None,
+            false,
         );
         let second = completed_nodes(
             &chart,
@@ -940,6 +947,7 @@ mod tests {
             PriorityFilter::Enforced,
             &cycles,
             None,
+            false,
         );
         assert!(Rc::ptr_eq(&first, &second));
         let first = first
@@ -974,6 +982,7 @@ mod tests {
             PriorityFilter::Enforced,
             &cycles,
             None,
+            false,
         );
         let after_other_boundary = after_other_boundary
             .nodes
@@ -997,6 +1006,7 @@ mod tests {
             PriorityFilter::Enforced,
             &cycles,
             None,
+            false,
         );
         assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(

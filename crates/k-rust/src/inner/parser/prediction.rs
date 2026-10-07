@@ -1283,6 +1283,54 @@ mod tests {
             "{ambiguity:?}"
         );
         assert_eq!(PARSE_ATTEMPTS.get(), 1);
+        // The same dead cycle where the input has no derivation: `b` fails at its first
+        // character, before which an `a` could come. The failure is recognized again for its
+        // diagnostic, making every prediction, which meets the cycle; the cycle is still part of
+        // no reading of the input.
+        PARSE_ATTEMPTS.set(0);
+        let no_parse = filtered(&behind_a_token, "b");
+        assert!(
+            matches!(
+                &no_parse,
+                Err(ParseError::NoParse {
+                    position: 0,
+                    input: NoParseInput::UnrecognizedInput { .. },
+                    expected,
+                    ..
+                }) if expected.contains(&"\"a\"".to_owned())
+            ),
+            "{no_parse:?}"
+        );
+        assert_eq!(PARSE_ATTEMPTS.get(), 2);
+        // A retry that meets a productive unary cycle still builds its first lap. Under
+        // `S1 ::= S3 "a"`, `S3 ::= S2`, `S2 ::= S3 | ""`, the only `S3` over the empty prefix is
+        // the one `S3 ::= S2` builds, and it is what lets `S1 ::= S3 "a"` expect the `a`. The
+        // first attempt does not predict `S1` before `b`, which no `S1` can begin, and fails
+        // there; the retry, which makes every prediction and reads the chart's items, must offer
+        // the `a`; the cycle's second lap is the repetition it cuts.
+        let unary_cycle_behind_a_token = grammar(&[
+            ("S1", vec![nt("S3"), terminal("a")]),
+            ("S0", vec![nt("S1")]),
+            ("S0", vec![]),
+            ("S3", vec![nt("S2")]),
+            ("S2", vec![nt("S3")]),
+            ("S2", vec![]),
+        ]);
+        PARSE_ATTEMPTS.set(0);
+        let no_parse = filtered(&unary_cycle_behind_a_token, "b");
+        assert!(
+            matches!(
+                &no_parse,
+                Err(ParseError::NoParse {
+                    position: 0,
+                    input: NoParseInput::UnrecognizedInput { .. },
+                    expected,
+                    ..
+                }) if expected.contains(&"\"a\"".to_owned())
+            ),
+            "{no_parse:?}"
+        );
+        assert_eq!(PARSE_ATTEMPTS.get(), 2);
 
         let behind_a_dead_item = grammar(&[
             ("S1", vec![nt("S1")]),

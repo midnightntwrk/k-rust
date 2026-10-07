@@ -6610,7 +6610,7 @@ bound = "two recognitions, the second with the relations ignored and every node 
 
 [[node.cost]]
 mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
+bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 
 [[node]]
 kind = "algorithm"
