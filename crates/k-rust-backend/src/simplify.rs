@@ -39,7 +39,7 @@
 //!
 //! [[cost]]
 //! mode = "value-production ceil (value_production_definedness)"
-//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one lookup of whether its left-hand side's arguments are normal patterns and one comparison of its overlap representatives with the application (instance_normal/patterns.rs pattern_arguments_normal, overlapped_instances_miss), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one lookup of whether an axiom other than the head's own equations mentions the head (definition.rs value_production_constrained_elsewhere: one traversal of the definition's axiom sentences on first use, then a set lookup), then one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one lookup of whether its left-hand side's arguments are normal patterns and one comparison of its overlap representatives with the application (instance_normal/patterns.rs pattern_arguments_normal, overlapped_instances_miss), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -2033,7 +2033,16 @@ fn apply_ceil_theory(
 /// listed by `BackendDefinition::equations_reaching`, which needs `term`'s arguments to be
 /// instance-normal and equation selection to be complete; each listed equation must have a
 /// `requires` that is refuted under `known_predicates` at the only valuation of its left-hand
-/// side denoting an instance of `term` ([`requires_refuted_at_only_match`]). The definedness
+/// side denoting an instance of `term` ([`requires_refuted_at_only_match`]).
+///
+/// That evidence shows only that `f`'s own equations leave `f(a)` unconstrained, and the marker
+/// makes `f(a)` a value only where the theory leaves it free, so `f` must also occur in no
+/// other axiom that could constrain it: nowhere but at the root of its own equations'
+/// left-hand sides and in their right-hand sides
+/// (`BackendDefinition::value_production_constrained_elsewhere`). Otherwise the answer is
+/// `None`, which keeps the obligation: under `f(m(I)) = c requires I ==Int 0` and
+/// `e(f(m(1))) = m(1 /Int 0)` with `e` total, `f(m(1))` is undefined in every model although
+/// the `requires` is false at its only match. The definedness
 /// walk (`definedness::ceil_term`) discharges an application no equation can match on any
 /// instance; this step adds the applications whose
 /// reaching equations a refuted `requires` sets aside, which needs the path condition only
@@ -2048,7 +2057,12 @@ fn value_production_definedness(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Option<Predicate>> {
-    if !definition.is_value_production_application(term) {
+    let TermKind::Application { symbol, .. } = term.kind() else {
+        return Ok(None);
+    };
+    if !definition.is_value_production_application(term)
+        || definition.value_production_constrained_elsewhere(&symbol.name)
+    {
         return Ok(None);
     }
     let Some(reaching) = definition.equations_reaching(term) else {
@@ -2103,10 +2117,12 @@ fn value_production_definedness(
 /// never decides, so it answers `false`. So does an overlapped instance of the left-hand side
 /// that reaches `term` (`BackendDefinition::overlapped_instances_miss`): under `f(3, Z) =
 /// f(1, Z)`, the instance `f(3, Z)` of `f(X, Z)` reaches `f(1, Z)`, so `X = 3` denotes its value
-/// too. Where the `requires` is false the equation states nothing, so `term` is then read as an
-/// application no equation reaches, under the assumption the value certificate makes for those:
-/// the peaks the scan does not see (at an equation of another head whose normal form has
-/// `term`'s head) meet (`docs/compatibility.md`, "Anywhere rules"). A collection pattern may
+/// too. Where the `requires` is false the equation states nothing. The caller has also checked
+/// that no axiom but `term`'s head's own equations mentions that head, so no peak at an equation
+/// of another head can reach it (a term built from another head's equations holds the head only
+/// if one of their sides does); the certificate's assumptions remain only for the applications
+/// it decides on the way, such as those in the left-hand side's arguments
+/// (`docs/compatibility.md`, "Anywhere rules"). A collection pattern may
 /// match an instance in several ways, and a match left `Indeterminate` decides nothing, so both
 /// answer `false`, as do a match that binds a variable outside the left-hand side and one that
 /// binds an element variable to a set pattern, which equation application does not use either.

@@ -1347,3 +1347,132 @@ fn an_overlap_that_holds_an_application_below_total_symbols_keeps_its_obligation
         }
     }
 }
+
+/// `c, d : A`, `k : A -> A` and `m : Int -> A` constructors; `e : A -> A` a total equation head
+/// (`anywhere`, `total`), `t : A -> A` a total function with no equation, `sz : A -> Int` a
+/// total function with no equation, and `f, q : A -> A` value productions; `f(m(I)) = c
+/// requires I ==Int 0`, and the axioms `{context}`, each of which mentions `f` elsewhere than at
+/// the root of the left-hand side of one of `f`'s own equations.
+fn held_value_production(context: &str) -> BackendDefinition {
+    let source = format!(
+        r#"[]
+        module MAIN
+        hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+        hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+        hooked-symbol divInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+            [function{{}}(), hook{{}}("INT.tdiv"), smt-hook{{}}("div")]
+        hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+            [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+        sort SortA{{}} []
+        symbol c{{}}() : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol d{{}}() : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol k{{}}(SortA{{}}) : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol m{{}}(SortInt{{}}) : SortA{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol e{{}}(SortA{{}}) : SortA{{}} [anywhere{{}}(), total{{}}()]
+        symbol t{{}}(SortA{{}}) : SortA{{}} [function{{}}(), total{{}}()]
+        symbol sz{{}}(SortA{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+        symbol f{{}}(SortA{{}}) : SortA{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+        symbol q{{}}(SortA{{}}) : SortA{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+        axiom{{R}} \implies{{R}}(\and{{R}}(\equals{{SortBool{{}}, R}}(eqInt{{}}(VarI:SortInt{{}}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("true")), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, m{{}}(VarI:SortInt{{}})), \top{{R}}())), \equals{{SortA{{}}, R}}(f{{}}(X0:SortA{{}}), \and{{SortA{{}}}}(c{{}}(), \top{{SortA{{}}}}()))) [anywhere{{}}()]
+        {context}
+        endmodule []"#
+    );
+    internalize(&source).expect("the held value-production definition should internalize")
+}
+
+/// An equation `{head}({pattern}) = {right}` of a unary head over `A`, with no `requires`.
+fn unary_a_equation(head: &str, pattern: &str, right: &str) -> String {
+    anywhere_equation(head, "SortA{}", "SortA{}", pattern, right)
+}
+
+const F_M_1: &str = r#"f{}(m{}(\dv{SortInt{}}("1")))"#;
+const M_UNDEFINED: &str = r#"m{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#;
+
+/// Review 7, F1, and the axioms of its class. `f(m(I)) = c requires I ==Int 0` is refuted at the
+/// only match of `f(m(1))`, and `f(m(1))` is undefined in every model of each theory, through an
+/// axiom that mentions `f` elsewhere than at the root of its own equations:
+///
+/// - `e(f(m(1))) = m(1 /Int 0)`, `e` total: were `f(m(1))` defined, so would `e(f(m(1)))` be;
+/// - `f(k(Y)) = c` and `f(k(f(m(1)))) = m(1 /Int 0)`: were `f(m(1))` a value `v`, both would
+///   apply at `k(v)` and equate `c` with `\bottom`;
+/// - `\ceil(t(f(m(1)))) = \bottom`, `t` total;
+/// - `q(c) = k(f(m(1)))` and `q(c) = m(1 /Int 0)`: `k(f(m(1)))` is `q(c)`, which is `\bottom`,
+///   and `k` is a constructor;
+/// - `e(c) = m(1 /Int 0) requires sz(f(m(1))) ==Int sz(f(m(1)))`, `e` and `sz` total: `e(c)` is
+///   defined, so the `requires` is false, which for a defined `f(m(1))` it is not.
+///
+/// Each theory has models (`f(m(0)) = c` and `f(m(1))` undefined), so the obligation must stay:
+/// the refuted `requires` shows only that `f`'s own equations leave `f(m(1))` unconstrained.
+#[test]
+fn a_refuted_requires_does_not_discharge_an_application_another_axiom_constrains() {
+    let contexts = [
+        unary_a_equation("e", F_M_1, M_UNDEFINED),
+        [
+            unary_a_equation("f", "k{}(VarY:SortA{})", "c{}()"),
+            unary_a_equation("f", &format!("k{{}}({F_M_1})"), M_UNDEFINED),
+        ]
+        .join("\n"),
+        format!(
+            r"axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{R, R}}(\ceil{{SortA{{}}, R}}(t{{}}({F_M_1})), \and{{R}}(\bottom{{R}}(), \top{{R}}()))) [simplification{{}}()]"
+        ),
+        [
+            unary_a_equation("q", "c{}()", &format!("k{{}}({F_M_1})")),
+            unary_a_equation("q", "c{}()", M_UNDEFINED),
+        ]
+        .join("\n"),
+        format!(
+            r#"axiom{{R}} \implies{{R}}(\and{{R}}(\equals{{SortBool{{}}, R}}(eqInt{{}}(sz{{}}({F_M_1}), sz{{}}({F_M_1})), \dv{{SortBool{{}}}}("true")), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, c{{}}()), \top{{R}}())), \equals{{SortA{{}}, R}}(e{{}}(X0:SortA{{}}), \and{{SortA{{}}}}({M_UNDEFINED}, \top{{SortA{{}}}}()))) [anywhere{{}}()]"#
+        ),
+    ];
+    let query = format!(r"\ceil{{SortA{{}}, SortA{{}}}}({F_M_1})");
+    let discharged = contexts
+        .iter()
+        .enumerate()
+        .filter(|(_, context)| {
+            let definition = held_value_production(context);
+            simplified_predicate_under(&definition, &query, &[])
+                != Predicate::Ceil(internal_term(&definition, F_M_1))
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        discharged,
+        Vec::<usize>::new(),
+        "contexts whose obligation is not kept"
+    );
+}
+
+/// The cross-head example of `docs/compatibility.md` with a conditional `wrap` equation: `g(5)
+/// = c1`, `h(c1) = wrap(1)`, `h(g(X)) = mk(1 /Int 0)` and `wrap(X) = cs requires X ==Int 0`.
+/// `h(g(5))` is `h(c1) = wrap(1)` and `mk(1 /Int 0)`, so `wrap(1)` is undefined in every model,
+/// while the `wrap` equation's `requires` is false at its only match. `wrap` occurs in the
+/// right-hand side of an `h` equation, so the refutation discharges nothing.
+#[test]
+fn a_refuted_requires_does_not_discharge_an_application_another_heads_right_hand_side_holds() {
+    let definition = internalize(
+        r#"[]
+        module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+        hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+            [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+        sort SortA{} []
+        sort SortS{} []
+        symbol c1{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol cs{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol mk{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol g{}(SortInt{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]
+        symbol h{}(SortA{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+        symbol wrap{}(SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("5")), \top{R}())), \equals{SortA{}, R}(g{}(X0:SortInt{}), \and{SortA{}}(c1{}(), \top{SortA{}}()))) [anywhere{}()]
+        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, c1{}()), \top{R}())), \equals{SortS{}, R}(h{}(X0:SortA{}), \and{SortS{}}(wrap{}(\dv{SortInt{}}("1")), \top{SortS{}}()))) [anywhere{}()]
+        axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, g{}(VarX:SortInt{})), \top{R}())), \equals{SortS{}, R}(h{}(X0:SortA{}), \and{SortS{}}(mk{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))), \top{SortS{}}()))) [anywhere{}()]
+        axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(eqInt{}(VarI:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarI:SortInt{}), \top{R}())), \equals{SortS{}, R}(wrap{}(X0:SortInt{}), \and{SortS{}}(cs{}(), \top{SortS{}}()))) [anywhere{}()]
+        endmodule []"#,
+    )
+    .expect("the cross-head definition should internalize");
+    let held = r#"wrap{}(\dv{SortInt{}}("1"))"#;
+    assert_ceil_kept(&definition, held, "SortS{}", held);
+}

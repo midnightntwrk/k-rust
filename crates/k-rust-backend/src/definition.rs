@@ -589,6 +589,9 @@ pub struct BackendDefinition {
     /// application no equation reduces is a value of its sort; read by
     /// [`Self::irreducible_application_is_defined`].
     value_productions: BTreeSet<Name>,
+    /// The value productions some axiom constrains elsewhere than their own equations do;
+    /// computed on first use by [`Self::value_production_constrained_elsewhere`].
+    constrained_value_productions: OnceLock<BTreeSet<Name>>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -1337,6 +1340,112 @@ impl BackendDefinition {
         )
     }
 
+    /// Whether `symbol`, a `value-production` symbol, occurs in an axiom of the definition other
+    /// than at the root of the left-hand side, or in the right-hand side, of one of its own
+    /// executable function or simplification term equations; aliases are unfolded and rewrite
+    /// axioms are not read.
+    ///
+    /// Such an occurrence can constrain the symbol's value at the arguments' value `ā` in a way
+    /// its own equations do not show. Changing the symbol's interpretation at `ā` alone changes
+    /// the truth only of the axiom instances that evaluate it there. At the root of one of its
+    /// own equations' left-hand sides, the equations that may apply at `ā` are what
+    /// `simplify::value_production_definedness` vets. In the right-hand side of one of its own
+    /// equations, the instance moves the symbol's value at another argument with it, which
+    /// again only its own equations constrain (their overlaps are what
+    /// `overlapped_instances_miss` reads). Any other occurrence reaches a constraint the
+    /// discharge does not read: below the root of a left-hand side (of any head, its own
+    /// included) it moves the point at which another instance applies, which totality or
+    /// another equation there may forbid (`e(f(m(1))) = m(1 /Int 0)` with `e` total makes
+    /// `f(m(1))` undefined); in a `requires` it can switch an instance on; in a ceil axiom it is
+    /// constrained directly; in another head's right-hand side it moves that head's value, which
+    /// the head's other equations may pin (`q(c) = k(f(m(1)))` beside `q(c) = m(1 /Int 0)`); and
+    /// any other axiom (a non-executable or dropped algebraic equation, an overload, functional,
+    /// subsort or constructor axiom) is read by no part of the discharge. A rewrite axiom
+    /// relates configurations, and the backend takes its step only where the right-hand side is
+    /// defined: it identifies no term with another or with `\bottom`.
+    pub(crate) fn value_production_constrained_elsewhere(&self, symbol: &Name) -> bool {
+        self.constrained_value_productions
+            .get_or_init(|| {
+                let mut constrained = BTreeSet::new();
+                for axiom in &self.axioms {
+                    self.collect_constrained_value_productions(
+                        &axiom.pattern,
+                        &axiom.attributes,
+                        &mut constrained,
+                    );
+                }
+                constrained
+            })
+            .contains(symbol)
+    }
+
+    /// Adds to `constrained` the value productions that the axiom `pattern` mentions elsewhere
+    /// than [`Self::value_production_constrained_elsewhere`] allows.
+    fn collect_constrained_value_productions(
+        &self,
+        pattern: &kore::Pattern,
+        attributes: &kore::Attributes,
+        constrained: &mut BTreeSet<Name>,
+    ) {
+        let mut collect = |pattern: &kore::Pattern, except: Option<&str>| {
+            k_rust_kore::kore::walk::for_each_post_order(pattern, |node| {
+                if let kore::Pattern::Application { symbol, .. }
+                | kore::Pattern::AssociativeApplication { symbol, .. } = node
+                    && except != Some(symbol.name.as_str())
+                {
+                    let name = Name::from(symbol.name.as_str());
+                    if self.value_productions.contains(&name) {
+                        constrained.insert(name);
+                    }
+                }
+            });
+        };
+        if matches!(pattern, kore::Pattern::Rewrites { .. }) {
+            return;
+        }
+        let executable = !attributes.has(KoreAttribute::NonExecutable)
+            && algebraic_axiom_roots(pattern, attributes).is_none();
+        // An executable term equation: `\implies(requires, \equals(head(..), right))`, or an
+        // overload equation `\equals(head(..), right)`.
+        let equation = match pattern {
+            kore::Pattern::Implies { left, right, .. } => match right.as_ref() {
+                kore::Pattern::Equals {
+                    left: equation_left,
+                    right: equation_right,
+                    ..
+                } => Some((
+                    Some(left.as_ref()),
+                    equation_left.as_ref(),
+                    equation_right.as_ref(),
+                )),
+                _ => None,
+            },
+            kore::Pattern::Equals { left, right, .. }
+                if attributes.has(KoreAttribute::SymbolOverload)
+                    || attributes.has(KoreAttribute::Overload) =>
+            {
+                Some((None, left.as_ref(), right.as_ref()))
+            }
+            _ => None,
+        };
+        match equation {
+            Some((requires, kore::Pattern::Application { symbol, arguments }, right))
+                if executable =>
+            {
+                // The `requires` holds the argument binders of a function equation, so the
+                // patterns below the root are read with it.
+                if let Some(requires) = requires {
+                    collect(requires, None);
+                }
+                for argument in arguments {
+                    collect(argument, None);
+                }
+                collect(right, Some(symbol.name.as_str()));
+            }
+            _ => collect(pattern, None),
+        }
+    }
+
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function
     /// ([`HeadRole::Function`]); a declared function that is also a macro or alias, or also a
     /// constructor or sort injection, has another role.
@@ -1746,6 +1855,7 @@ impl BackendDefinition {
             predicate_simplification_theory: PredicateTheory::new(),
             ceil_theory: Theory::new(),
             value_productions,
+            constrained_value_productions: OnceLock::new(),
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
@@ -5218,6 +5328,80 @@ mod tests {
             matches!(result, Err(DefinitionError::VariableName { .. })),
             "{:?}",
             result.err()
+        );
+    }
+
+    /// Which value productions an axiom mentions elsewhere than at the root of the left-hand
+    /// side, or in the right-hand side, of one of their own executable term equations.
+    #[test]
+    fn value_productions_are_constrained_by_every_axiom_but_their_own_equations() {
+        use std::fmt::Write as _;
+
+        let equation = |head: &str, pattern: &str, right: &str, attributes: &str| {
+            format!(
+                r"axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortA{{}}, R}}(X0:SortA{{}}, {pattern}), \top{{R}}())), \equals{{SortA{{}}, R}}({head}{{}}(X0:SortA{{}}), \and{{SortA{{}}}}({right}, \top{{SortA{{}}}}()))) [{attributes}]"
+            )
+        };
+        let heads = [
+            "own",
+            "rewritten",
+            "nonexec",
+            "below",
+            "simp",
+            "ceil",
+            "rhs",
+            "aliased",
+            "unused",
+        ];
+        let mut source = String::from(
+            r"[]
+            module MAIN
+            sort SortA{} []
+            symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+            symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+            symbol p{}(SortA{}) : SortA{} [anywhere{}(), function{}(), value-production{}()]
+            ",
+        );
+        for head in heads {
+            writeln!(
+                source,
+                "symbol {head}{{}}(SortA{{}}) : SortA{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]"
+            )
+            .unwrap();
+        }
+        source.push_str("alias al{}() : SortA{} where al{}() := aliased{}(c{}()) []\n");
+        for axiom in [
+            // Own equations: the root of the left-hand side and the right-hand side.
+            equation("own", "k{}(VarX:SortA{})", "k{}(own{}(VarX:SortA{}))", "anywhere{}()"),
+            // A rewrite axiom is not read.
+            r"axiom{} \rewrites{SortA{}}(\and{SortA{}}(rewritten{}(c{}()), \top{SortA{}}()), rewritten{}(k{}(c{}()))) []".into(),
+            // The root of a non-executable equation.
+            equation("nonexec", "c{}()", "c{}()", "anywhere{}(), non-executable{}()"),
+            // Below the root of another head's left-hand side.
+            equation("p", "below{}(c{}())", "c{}()", "anywhere{}()"),
+            // Below the root of a simplification's left-hand side.
+            r"axiom{R} \implies{R}(\top{R}(), \equals{SortA{}, R}(p{}(simp{}(VarX:SortA{})), \and{SortA{}}(c{}(), \top{SortA{}}()))) [simplification{}()]".into(),
+            // A ceil axiom.
+            r"axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortA{}, R}(ceil{}(VarX:SortA{})), \and{R}(\top{R}(), \top{R}()))) [simplification{}()]".into(),
+            // Another head's right-hand side, and an alias unfolded below another head's root.
+            equation("p", "k{}(c{}())", "rhs{}(c{}())", "anywhere{}()"),
+            equation("p", "k{}(al{}())", "c{}()", "anywhere{}()"),
+        ] {
+            source.push_str(&axiom);
+            source.push('\n');
+        }
+        source.push_str("endmodule []");
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let constrained = heads
+            .into_iter()
+            .chain(["p"])
+            .filter(|head| definition.value_production_constrained_elsewhere(&Name::from(*head)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            constrained,
+            ["nonexec", "below", "simp", "ceil", "rhs", "aliased"]
         );
     }
 }
