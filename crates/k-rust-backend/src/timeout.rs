@@ -144,7 +144,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn follows_the_reference_timeout_selection_policy() {
+    fn with_both_timeouts_the_moving_average_applies_while_below_the_manual_one() {
         let controller = StepTimeoutController::new(StepTimeoutOptions {
             manual: Some(Duration::from_secs(10)),
             moving_average: true,

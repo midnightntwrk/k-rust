@@ -78,7 +78,7 @@ mod tests {
     use crate::provenance::SourceId;
 
     #[test]
-    fn location_counts_unicode_scalars_and_every_reference_line_break() {
+    fn location_counts_unicode_scalars_and_every_unicode_line_terminator() {
         let attributes = Attributes::new(BTreeMap::from([
             ("contentStartOffset".into(), json!(100)),
             ("contentStartLine".into(), json!(4)),

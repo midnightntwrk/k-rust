@@ -32,7 +32,8 @@ impl fmt::Display for ResolveFreshConfigConstantsError {
 
 impl std::error::Error for ResolveFreshConfigConstantsError {}
 
-/// Apply Java's `ResolveFreshConfigConstants` pass and return the next unused counter value.
+/// Replace the fresh variables (`!X`) on the right-hand side of each initializer rule with
+/// compile-time integer constants, and return the next unused counter value.
 pub fn resolve_fresh_config_constants(
     definition: &Definition,
 ) -> Result<(Definition, usize), ResolveFreshConfigConstantsError> {

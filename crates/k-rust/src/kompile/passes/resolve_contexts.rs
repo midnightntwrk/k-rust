@@ -49,11 +49,11 @@ impl fmt::Display for ResolveContextsError {
 
 impl std::error::Error for ResolveContextsError {}
 
-/// Apply Java's `ResolveContexts` definition transformation.
+/// Materialize contexts as freezer productions and paired heat and cool rules.
 ///
-/// Visible contexts are materialized in the main module as a freezer production and paired heat
-/// and cool rules. Imported modules remain unchanged, matching the reference definition-level
-/// transformer.
+/// The contexts visible from the main module are materialized there. Imported modules remain
+/// unchanged: the main module sees every one of these contexts and holds what is generated for
+/// them.
 pub fn resolve_contexts(definition: &Definition) -> Result<Definition, ResolveContextsError> {
     super::super::pipeline::run_standalone(
         definition,

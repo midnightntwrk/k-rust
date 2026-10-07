@@ -20,9 +20,9 @@
 //!
 //! Sentence-local fresh variable names.
 //!
-//! Java's fresh-name passes restart their counters at the pass/sentence boundary and compare
-//! `KVariable`s by name alone. Keeping that policy here prevents two variables with the same name
-//! but different sorts from reaching one KORE axiom.
+//! A fresh name need be unique only within its sentence, so counters restart at each pass and
+//! sentence. Names are compared by name alone, whatever their sorts, which prevents two variables
+//! with the same name but different sorts from reaching one KORE axiom.
 
 use std::collections::BTreeSet;
 
@@ -52,7 +52,8 @@ impl GeneratedVariableIdentity {
     }
 }
 
-/// Whether a variable name is one of the forms that Java's fresh-name passes mark anonymous.
+/// Whether a variable name is one of the forms the fresh-name passes generate for anonymous
+/// variables.
 pub(crate) fn is_generated_anonymous(name: &str) -> bool {
     ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
         .iter()
@@ -96,7 +97,8 @@ impl FreshNames {
         self.used.contains(name)
     }
 
-    /// Mint the first unused `{prefix}{n}`, advancing past rejected candidates like Java.
+    /// Mint the first unused `{prefix}{n}` from the counter on; the counter also advances past the
+    /// rejected candidates.
     pub(crate) fn mint(&mut self, prefix: &str) -> String {
         // Invariant: every smaller suffix considered by this call was already reserved and the
         // counter increases once per attempt, so an unused name appears within |used| + 1 tries.
@@ -118,7 +120,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mint_skips_used_names_and_advances_the_counter_like_java() {
+    fn mint_skips_used_names_and_advances_the_counter_past_them() {
         let terms = [
             Term::Variable {
                 name: "_Gen0".into(),

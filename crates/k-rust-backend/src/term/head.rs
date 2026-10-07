@@ -34,7 +34,7 @@
 //! `injective` attribute) is never evidence.
 //!
 //! The decisive outcomes carry witnesses built here: [`HeadClash`] (two terms whose roots
-//! differ), [`Apart`] (two terms with disjoint denotations), [`Distinct`] (two ground terms that
+//! differ), `Apart` (two terms with disjoint denotations), `Distinct` (two ground terms that
 //! denote distinct values) and [`RigidCycle`] (a
 //! variable occurring in a term through free constructors and injections only).
 

@@ -54,7 +54,7 @@ impl<T: std::fmt::Debug + std::fmt::Display> std::error::Error for Cycle<T> {}
 
 /// A finite partial order constructed from strict `(lesser, greater)` pairs.
 ///
-/// Like K's Java `POSet`, elements which occur in no relation are not members of
+/// The order is given by its relation alone: elements which occur in no pair are not members of
 /// the set. Direct relations are retained separately from their transitive closure.
 #[derive(Clone)]
 pub struct PartialOrder<T> {
@@ -190,10 +190,6 @@ impl<T: Clone + Ord> PartialOrder<T> {
 
     pub fn greater_than(&self, greater: &T, lesser: &T) -> bool {
         self.less_than(lesser, greater)
-    }
-
-    pub fn greater_than_eq(&self, greater: &T, lesser: &T) -> bool {
-        self.less_than_eq(lesser, greater)
     }
 
     pub fn in_some_relation(&self, first: &T, second: &T) -> bool {

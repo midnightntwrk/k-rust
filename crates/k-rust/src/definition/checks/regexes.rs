@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Definition-dependent validation of K token regexes: `{Name}` references must resolve to
 //! lexical declarations without cycles, and named lexical declarations cannot carry line anchors.

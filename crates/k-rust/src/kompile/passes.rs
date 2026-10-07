@@ -215,7 +215,7 @@ impl std::error::Error for ResolveCommError {}
 
 /// Duplicate commutative simplification rules with the matched LHS arguments reversed.
 ///
-/// This is Java's first KORE backend pass. The rule-level `comm` attribute is removed because the
+/// This is the first KORE-backend pass. The rule-level `comm` attribute is removed because the
 /// backend assigns it a different meaning; the production itself must also carry `comm`.
 pub fn resolve_comm(definition: &Definition) -> Result<Definition, ResolveCommError> {
     super::pipeline::run_standalone(

@@ -138,7 +138,7 @@ impl<'a> SubsortDeclaration<'a> {
     }
 }
 
-/// Compute Scala's semantic or syntactic subsort relation.
+/// Compute the semantic or the syntactic subsort relation.
 ///
 /// Unlabeled injections participate in both relations. Labeled injections only
 /// participate in the syntactic relation, and parametric productions participate
@@ -267,7 +267,7 @@ fn user_list_subsort_pair(sentence: &Sentence) -> Option<(Sort, Sort)> {
     child.map(|child| (child.clone(), sort.clone()))
 }
 
-/// Compute Scala's priority order from adjacent syntax-priority blocks.
+/// Compute the priority order from adjacent syntax-priority blocks.
 ///
 /// For `A B > C > D E`, the direct relations are `A/C`, `B/C`, `C/D`,
 /// and `C/E`; the partial order supplies the transitive relations.
@@ -293,8 +293,8 @@ pub fn compute_priorities<'a>(
 
 /// Compute the exact tag-pair sets used for left and right associativity.
 ///
-/// A non-associative group is deliberately included in both sets, matching
-/// Scala's `buildAssoc` and allowing consumers to reject either nesting side.
+/// A non-associative group is included in both sets: it forbids the nesting on either side,
+/// where `left` and `right` each forbid it on one.
 pub fn compute_associativities<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> AssociativityRelations {
@@ -326,7 +326,8 @@ pub fn compute_associativities<'a>(
     relations
 }
 
-/// Compute Scala's combined explicit and legacy production-overload relation.
+/// Compute the production-overload relation over two kinds of groups: productions that share an
+/// `overload` attribute value, and productions that share a `klabel` (or, without one, a label).
 pub fn compute_overloads<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
     subsorts: &PartialOrder<Sort>,

@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Definition-wide checks performed by Kompile and ProofDefinitionBuilder.
 
@@ -173,7 +173,7 @@ pub(super) fn check_is_sort_predicates_with_views(
     diagnostics
 }
 
-/// Modules `DefinitionParsing.parseDefinitionAndResolveBubbles` always retains, bubbles or not.
+/// Modules the parsed definition always retains, bubbles or not.
 const FRONTEND_UTILITY_MODULES: [&str; 4] = [
     WellKnownModule::KReflection.as_str(),
     WellKnownModule::StdinStream.as_str(),
@@ -181,14 +181,13 @@ const FRONTEND_UTILITY_MODULES: [&str; 4] = [
     WellKnownModule::Map.as_str(),
 ];
 
-/// The module set of the parsed definition the reference checks: the import closures of the
-/// main module (and of the definition module in proof mode, as `ProofDefinitionBuilder.build`
-/// passes it), of the frontend utility modules, and of every loaded module whose visible
-/// sentences held no bubble before inner parsing. Backend-tag exclusion has already removed
-/// modules at load time.
+/// The module set of the parsed definition, which compilation works on: the import closures of the
+/// main module (and of the definition module in proof mode), of the frontend utility modules, and
+/// of every loaded module whose visible sentences held no bubble before inner parsing. Backend-tag
+/// exclusion has already removed modules at load time.
 ///
-/// The syntax module closure the reference also retains is not known to the checker; the CLI's
-/// `parsed_definition_for_json` reproduces the same set with it for `parsed.json`.
+/// The parsed definition also retains the syntax module's closure, which the checker does not
+/// know; the CLI's `parsed_definition_for_json` builds the same set with it for `parsed.json`.
 fn parsed_definition_modules(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,
@@ -202,8 +201,8 @@ fn parsed_definition_modules(
             .iter()
             .filter_map(|name| definition.module_id(name)),
     );
-    // `Module.sentences` is local plus transitively imported sentences; dependency order lists
-    // every import before its importer, so one pass propagates visible bubbles.
+    // A module's visible sentences are its local and transitively imported ones; dependency
+    // order lists every import before its importer, so one pass propagates visible bubbles.
     let mut with_visible_bubbles = BTreeSet::new();
     // Invariant: `with_visible_bubbles` contains every module before `module` in `definition.dependency_order()` whose local or transitively imported sentences include a bubble, and `seeds` has gained every earlier module without one; each iteration consumes one module, and imports precede their importers in that order.
     for module in definition.dependency_order().iter().copied() {

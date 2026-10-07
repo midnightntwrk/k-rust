@@ -74,7 +74,7 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
 
 /// The definedness obligations of `term`, deduplicated: the ceil of every partial application
 /// (or the instance of its ceil equation), the ceil of every set variable, and the disequalities
-/// and not-in atoms of every map and set, in the order [`ceil_term_walk`] gives.
+/// and not-in atoms of every map and set, in the order `ceil_term_walk` gives.
 pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
     let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
     ceil_term_walk(definition, term, AtCeilFree::Skip)

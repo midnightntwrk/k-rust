@@ -733,10 +733,11 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - The WASM-compatible feature set intentionally omits Z3 inference, MPFR constant folding, and
   host-clock-dependent step timeouts.
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
-  CLI. They are identity stages unless explicitly requested in Java.
+  CLI. They are identity stages here; K's `kompile` runs them only when explicitly requested.
 - LSP and `kserver` are outside the current CLI scope; Bison and Flex remain external system tools whose executable and shared-library artifacts are supported through the CLI interoperability contract.
-- Like the reference backend, AC unification remains conservative when more than one unmatched
-  opaque Set or Map chunk remains after common chunks are cancelled.
+- AC unification remains conservative when more than one unmatched opaque Set or Map chunk
+  remains after common chunks are cancelled: the remaining elements can be divided among those
+  chunks in more than one way, so no single most general unifier exists.
 - Step deadlines cooperatively interrupt native hooks and every round of the simplifier's
   fixed-point loops, so an equation loop is bounded by the deadline even when the iteration budget
   is not; a deadline that passes while a step simplifies its state or result ends the step with the

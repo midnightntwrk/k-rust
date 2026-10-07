@@ -31,7 +31,8 @@ impl fmt::Display for GuardOrPatternsError {
 
 impl std::error::Error for GuardOrPatternsError {}
 
-/// Apply Java's `GuardOrPatterns` transformation to rules and contexts.
+/// Alias every `#Or` pattern of a rule or context that lies outside its rewrites and aliases
+/// with a fresh variable, so that the right-hand side reuses the term the disjunction matched.
 pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, GuardOrPatternsError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -131,7 +132,10 @@ fn transform(
                 }),
             }
         }
-        // Java deliberately treats aliases and rewrites as traversal boundaries.
+        // A term outside every rewrite is on both sides of the rule, and on the right-hand side
+        // an `#Or` would denote the disjunction of its alternatives rather than the term it
+        // matched. Inside a rewrite a term is on one side only, and under an `#as` the alias
+        // already names the matched term, so the walk stops at both.
         boundary @ (TermParts::As { .. } | TermParts::Rewrite { .. }) => Term::from(boundary),
         TermParts::Apply { label, arguments } => Term::Apply {
             label,

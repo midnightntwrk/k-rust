@@ -58,9 +58,9 @@ use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CompilationBackend {
     Llvm,
-    /// The in-process symbolic backend. Its KORE is Java's Haskell-backend dialect (including
-    /// the map definedness axioms `kompile --backend haskell` generates) plus the plugin hook
-    /// namespaces the backend dispatches natively, so `haskell` names the same target.
+    /// The in-process symbolic backend. Its KORE is the dialect `kompile --backend haskell` emits
+    /// (including the map definedness axioms) plus the plugin hook namespaces the backend
+    /// dispatches natively, so `haskell` names the same target.
     #[default]
     Rust,
 }
@@ -69,8 +69,9 @@ impl CompilationBackend {
     /// Module attribute excluded before compilation for this backend.
     /// Plugin hook namespaces admitted as hooked symbols when `--hook-namespaces` is not given.
     ///
-    /// The Rust backend dispatches its plugin hooks natively; other backends match a default
-    /// Java `kompile`, which emits plugin hooks as ordinary symbols unless namespaces are named.
+    /// The Rust backend dispatches its plugin hooks natively. Another backend is not known to
+    /// implement a plugin hook, so a plugin hook is emitted as an ordinary symbol unless
+    /// `--hook-namespaces` names its namespace.
     pub fn default_hook_namespaces(self) -> Vec<String> {
         match self {
             Self::Rust => rust_backend_hook_namespaces(),

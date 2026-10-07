@@ -920,25 +920,6 @@ pub fn check_implication(
     )
 }
 
-/// [`check_implication`] with explicit simplification options.
-pub fn check_implication_with_options(
-    definition: &BackendDefinition,
-    antecedent: &Pattern,
-    consequent: &Pattern,
-    options: SimplificationOptions,
-    solver: &dyn SmtSolver,
-) -> Stoppable<Result<Coverage, ImplicationError>> {
-    check_implication_with_existentials_and_options(
-        definition,
-        antecedent,
-        &BTreeSet::new(),
-        consequent,
-        &BTreeSet::new(),
-        options,
-        solver,
-    )
-}
-
 /// [`check_implication`] with the existentials of both sides.
 pub fn check_implication_with_existentials(
     definition: &BackendDefinition,

@@ -59,7 +59,7 @@ impl fmt::Display for ResolveFreshConstantsError {
 
 impl std::error::Error for ResolveFreshConstantsError {}
 
-/// Apply Java's `ResolveFreshConstants` definition transformation.
+/// Resolve fresh rule variables through per-sort generators and a counter cell.
 pub fn resolve_fresh_constants(
     definition: &Definition,
     initial_fresh: usize,

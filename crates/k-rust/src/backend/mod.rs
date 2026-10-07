@@ -2517,7 +2517,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_backend_follows_the_reference_implication_matrix() {
+    fn persistent_backend_answers_implications_between_bottom_top_and_a_regular_pattern() {
         let bottom = r#"\bottom{SortS{}}()"#;
         let top = r#"\top{SortS{}}()"#;
         let regular = "a{}()";
@@ -3510,8 +3510,9 @@ endmodule
     const NODE_MAIN_STACK: usize = 8 << 20;
 
     /// Levels beyond what `NODE_MAIN_STACK` holds for the facade's passes in either build: a
-    /// state of applications overflows such a thread at about 600 levels in a debug build and
-    /// 8,000 in a release build when the passes run on it directly.
+    /// state of applications overflows such a thread at about 600 levels unoptimized (opt-level
+    /// 0, the `debugging` profile) and 8,000 in a release build when the passes run on it
+    /// directly.
     const BEYOND_THE_THREAD: usize = 10_000;
 
     fn on_thread<R: Send + 'static>(stack: usize, work: impl FnOnce() -> R + Send + 'static) -> R {
@@ -3569,8 +3570,8 @@ endmodule
     /// definition is answered on every route of the facade as a shallow one is, with the
     /// ordinary error its fault calls for where the route reads the fault, never with a refusal
     /// for want of stack: the backend provides the stack its passes need. One
-    /// 10,000-level term is held at a time; in a debug build each request touches about 120 MB
-    /// of stack, and the test takes a few seconds.
+    /// 10,000-level term is held at a time; unoptimized (opt-level 0, the `debugging` profile)
+    /// each request touches about 120 MB of stack, and the test takes a few seconds.
     #[test]
     fn deep_invalid_requests_are_ordinary_errors_on_every_route() {
         on_thread(NODE_MAIN_STACK, || {
@@ -3729,8 +3730,8 @@ endmodule
 
     /// A state of 6,000 applications, which ran on Node's main thread when the passes ran on
     /// the thread directly in a release build, still executes there: the backend provides the
-    /// stack measured for it instead of refusing it. In a debug build the request touches about
-    /// 70 MB of stack and takes well under a second.
+    /// stack measured for it instead of refusing it. Unoptimized (opt-level 0, the `debugging`
+    /// profile) the request touches about 70 MB of stack and takes well under a second.
     #[test]
     fn a_deep_state_executes_on_node_s_main_thread() {
         on_thread(NODE_MAIN_STACK, || {

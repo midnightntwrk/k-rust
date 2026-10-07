@@ -68,7 +68,7 @@ impl Selector {
     }
 }
 
-/// Extract fenced code selected by Java's Markdown selector language.
+/// Extract fenced code selected by K's Markdown selector language (`--md-selector`).
 ///
 /// Non-code text is reduced to its whitespace, preserving source line and column positions.
 pub fn extract_fenced_k_code(input: &str, selector: &str) -> Result<String, MarkdownError> {

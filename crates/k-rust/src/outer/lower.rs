@@ -47,9 +47,8 @@ pub(super) struct LowerOptions {
 
 /// Lower user-authored outer syntax into the flat definition model.
 ///
-/// This is the Rust boundary corresponding to the syntax-shaped portion of
-/// Java's `KILtoKORE`. Rule-like sentence bodies intentionally remain bubbles
-/// for the inner parser to consume later.
+/// Rule-like sentence bodies intentionally remain bubbles for the inner parser to consume
+/// later.
 pub fn lower(
     file: &SourceFile,
     main_module: impl Into<String>,

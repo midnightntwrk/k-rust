@@ -311,8 +311,8 @@ fn equation_info<'a>(
     };
     let simplification = attributes.has(AttributeKey::Simplification);
     let anywhere = attributes.has(AttributeKey::Anywhere);
-    // Java's ModuleToKORE supplies a synthetic polymorphic production for `inj`; it is part of
-    // the KORE prelude rather than the compiled K module's production catalog.
+    // `inj` is declared by the KORE prelude as a polymorphic symbol, not by a production of the
+    // compiled K module, so its equations are handled here rather than through the catalog.
     if label.is(WellKnownSymbol::Inj) {
         if !simplification && !anywhere {
             return Ok(None);

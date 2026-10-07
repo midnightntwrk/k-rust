@@ -71,12 +71,12 @@ regex_error_snapshot!(empty_character_class_error, "[]");
 regex_error_snapshot!(oversized_repetition_error, "a{999999999999}");
 
 #[test]
-fn java_compatible_printer_preserves_the_reference_anchor_bug_explicitly() {
+fn canonical_printer_drops_a_lone_end_anchor_and_source_printer_keeps_it() {
     let start = regex::parse("^a").unwrap();
     let end = regex::parse("a$").unwrap();
 
-    assert_eq!(start.to_java_string(), "^a$");
-    assert_eq!(end.to_java_string(), "a");
+    assert_eq!(start.to_canonical_string(), "^a$");
+    assert_eq!(end.to_canonical_string(), "a");
     assert_eq!(start.to_source_string(), "^a");
     assert_eq!(end.to_source_string(), "a$");
 }
@@ -156,7 +156,7 @@ fn flex_printer_groups_non_ascii_code_points_and_factors_classes() {
 }
 
 #[test]
-fn flex_printer_applies_the_reference_anchor_rule() {
+fn flex_printer_anchors_both_ends_after_a_start_anchor_and_drops_a_lone_end_anchor() {
     assert_eq!(regex::parse("a").unwrap().to_flex_string(), "a");
     assert_eq!(regex::parse("^a").unwrap().to_flex_string(), "^a$");
     assert_eq!(regex::parse("a$").unwrap().to_flex_string(), "a");
@@ -202,7 +202,7 @@ fn rust_printer_escapes_rust_metacharacters() {
 }
 
 #[test]
-fn flex_pattern_applies_the_reference_anchor_rule() {
+fn flex_pattern_anchors_both_ends_after_a_start_anchor_and_drops_a_lone_end_anchor() {
     let end_only = regex::parse("a$").unwrap().to_flex_pattern().unwrap();
     let start_only = regex::parse("^b").unwrap().to_flex_pattern().unwrap();
 
@@ -221,7 +221,7 @@ fn rust_printer_rejects_unexpanded_lexical_references() {
 }
 
 #[test]
-fn pinned_java_anchor_and_union_cases_match() {
+fn misplaced_anchors_and_empty_alternatives_are_rejected_and_anchors_are_parsed() {
     for invalid in ["^", "$", "^$", "a^b", "a$b", "$a^", "|", "a|", "|a"] {
         assert!(regex::parse(invalid).is_err(), "{invalid}");
     }
@@ -242,7 +242,7 @@ fn pinned_java_anchor_and_union_cases_match() {
 }
 
 #[test]
-fn pinned_java_reference_corpus_round_trips() {
+fn token_regex_corpus_round_trips_through_the_source_printer() {
     // Curated directly from parser/outer/RegexTest.java at the README-pinned K commit.
     let corpus = [
         "#([a-fA-F0-9][a-fA-F0-9])*",

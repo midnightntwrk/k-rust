@@ -48,7 +48,7 @@ fn lexes_trivia_and_identifiers() {
 }
 
 #[test]
-fn lexes_reference_backslash_identifiers_and_whitespace() {
+fn lexes_backslash_identifiers_ml_keywords_and_control_whitespace() {
     let cases = [
         ("\\foo", vec![TokenKind::Id]),
         ("\\@X", vec![TokenKind::SetVarId]),

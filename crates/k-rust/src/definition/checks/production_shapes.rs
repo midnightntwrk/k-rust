@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Production and configuration shape checks.
 
@@ -130,7 +130,9 @@ fn is_cell_collection(sort: &Sort, sorts: &SortCatalog<'_>) -> bool {
         .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
 }
 
-/// Java `CheckHOLE`.
+/// A `strict` or `seqstrict` position and a context's `HOLE` may not have sort `K`: heating puts
+/// the term at the hole at the front of the computation as one `KItem`, and a term of sort `K`
+/// is a sequence of them.
 pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -197,7 +199,7 @@ pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckStreams`.
+/// The content of a cell marked `stream` must be a `List`, or a sort below it.
 pub fn check_streams(
     sentences: &[&Sentence],
     subsorts: &crate::definition::PartialOrder<Sort>,
@@ -234,7 +236,8 @@ pub fn check_streams(
     diagnostics
 }
 
-/// Java `CheckConfigurationCells`.
+/// Each cell sort occurs once in the configuration, and a cell with multiplicity `*` must name a
+/// `type` other than `Bag`, the default, which is not supported.
 pub fn check_configuration_cells(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
@@ -289,7 +292,7 @@ fn strict_positions(
     if value.is_empty() {
         return Ok((1..=arity).collect());
     }
-    let components = java_split(value, ';');
+    let components = split_without_trailing_empty_pieces(value, ';');
     if components.len() == 1 {
         let component = components[0].trim();
         if component.starts_with(|character: char| character.is_ascii_digit()) {
@@ -316,7 +319,7 @@ fn parse_positions(
     arity: usize,
     sentence: &Sentence,
 ) -> Result<Vec<usize>, Diagnostic> {
-    let values = java_split(value, ',');
+    let values = split_without_trailing_empty_pieces(value, ',');
     let display = format!("[{}]", values.join(", "));
     let mut positions = Vec::new();
     for value in values {
@@ -341,7 +344,7 @@ fn parse_positions(
     Ok(positions)
 }
 
-fn java_split(value: &str, separator: char) -> Vec<&str> {
+fn split_without_trailing_empty_pieces(value: &str, separator: char) -> Vec<&str> {
     if value.is_empty() {
         return vec![""];
     }

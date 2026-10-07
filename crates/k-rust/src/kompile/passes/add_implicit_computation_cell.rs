@@ -33,7 +33,7 @@ impl fmt::Display for AddImplicitComputationCellError {
 
 impl std::error::Error for AddImplicitComputationCellError {}
 
-/// Apply Java's `AddImplicitComputationCell` definition transformation.
+/// Wrap cell-free semantic sentences in the declared computation cell.
 pub fn add_implicit_computation_cell(
     definition: &Definition,
 ) -> Result<Definition, AddImplicitComputationCellError> {
@@ -55,9 +55,9 @@ pub(crate) fn add_implicit_computation_cell_pass(
         })?;
     let views = resolved.views();
     let mut output = input.definition.clone();
-    // Java derives configuration and label information once from the definition's main-module
-    // closure. Syntax modules may contain generated strictness rules without importing the
-    // configuration themselves; those rules still use the main definition's computation cell.
+    // Configuration and label information are derived once from the main module's closure: a
+    // syntax module may contain generated strictness rules without importing the configuration
+    // itself, and those rules still run in the main definition's computation cell.
     let configuration_productions = views.production_catalog(resolved.main_module_id());
     let cell_sorts = configuration_productions
         .productions()

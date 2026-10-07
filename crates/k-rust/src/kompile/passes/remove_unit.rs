@@ -31,7 +31,7 @@ impl fmt::Display for RemoveUnitError {
 
 impl std::error::Error for RemoveUnitError {}
 
-/// Apply Java's final `RemoveUnit` transformation to rules.
+/// Remove unit applications from the associative collection terms of rules before KORE emission.
 pub fn remove_unit(definition: &Definition) -> Result<Definition, RemoveUnitError> {
     super::super::pipeline::run_standalone(
         definition,

@@ -9,13 +9,13 @@
 //! (`definedness::condition_definedness`).
 //!
 //! A [`Condition`] has no `&[Predicate]` view, so it cannot be substituted as a predicate list.
-//! Its only instance is an [`InstantiatedCondition`], whose predicates leave only with that
-//! definedness stated ([`InstantiatedCondition::with_definedness`]) or through the condition's
-//! simplification ([`InstantiatedCondition::simplify`]), which states it before anything but an
+//! Its only instance is an `InstantiatedCondition`, whose predicates leave only with that
+//! definedness stated (`InstantiatedCondition::with_definedness`) or through the condition's
+//! simplification (`InstantiatedCondition::simplify`), which states it before anything but an
 //! exact ground evaluation answers. A predicate derived from an instantiated condition therefore
 //! reaches a solver or a decision only in definedness-explicit form.
 //!
-//! [`eliminate_bindings`] is the other half: eliminating a binding `x = t` of an element variable
+//! `eliminate_bindings` is the other half: eliminating a binding `x = t` of an element variable
 //! keeps `\ceil(t)`.
 //!
 //! The conditions a simplification conjoins to its term, `t = C ∧ t'`, carry their role in
@@ -693,7 +693,7 @@ impl CarriedObligations {
 /// The role is recorded once, where the conjunct is produced (the constructors below), as an index
 /// into the one conjunct list: no copy of the assumptions exists that a transformation of the list
 /// could leave behind, and outside this module conjuncts join a result only through
-/// [`ResultConditions::append`], which keeps every role.
+/// `ResultConditions::append`, which keeps every role.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ResultConditions {
     conjuncts: Vec<Predicate>,

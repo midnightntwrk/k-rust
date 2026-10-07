@@ -19,17 +19,17 @@
 //! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1 below one renaming-apart re-entry, each split re-entering once for each of its f partial matches"
 //! ```
 //!
-//! One-rule conditional rewriting step (Booster applyRule with a Kore-style unification
-//! fallback): match, recovery ladder, condition simplification, definedness, SAT narrowing,
-//! requires, validity, applicability, RHS instantiation, the thirteen phases P1 to P13 of
-//! `apply_rule_with_match`. Cost: one matching problem per attempt; on an indeterminate match up
-//! to eleven recovery strategies, each re-entering once per split with an empty or strictly
-//! shorter remainder (recursion depth <= |remainder| + 1, below the one re-entry with the rule
-//! renamed apart from the subject); up to three SMT calls per attempt. An attempt that applies
-//! has the conditions it adds scanned once for an application above a result size bound
-//! (`refuse_carried_results_above_the_size_bound`), visiting only their unevaluated subterms.
-//! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`, `Counter::SmtQueries`;
-//! O(c) attempts per step for the c candidates the step hands over.
+//! One-rule conditional rewriting step (matching, with unification as a fallback): match, recovery
+//! ladder, condition simplification, definedness, SAT narrowing, requires, validity, applicability,
+//! RHS instantiation, the thirteen phases P1 to P13 of `apply_rule_with_match`. Cost: one matching
+//! problem per attempt; on an indeterminate match up to eleven recovery strategies, each
+//! re-entering once per split with an empty or strictly shorter remainder (recursion depth <=
+//! |remainder| + 1, below the one re-entry with the rule renamed apart from the subject); up to
+//! three SMT calls per attempt. An attempt that applies has the conditions it adds scanned once for
+//! an application above a result size bound (`refuse_carried_results_above_the_size_bound`),
+//! visiting only their unevaluated subterms. `Counter::RewriteRuleAttempts`,
+//! `Counter::RewriteMatchFailures`, `Counter::SmtQueries`; O(c) attempts per step for the c
+//! candidates the step hands over.
 
 // The phase functions return `Phase<T>` (below), whose `Err` is the `RuleAttempt` itself.
 #![allow(clippy::result_large_err)]

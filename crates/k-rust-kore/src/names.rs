@@ -124,7 +124,7 @@ impl BuiltinSort {
 
 /// Attribute symbols the frontend emits into `definition.kore` and the backend reads.
 ///
-/// `as_str` is the KORE identifier as written, including Java `ModuleToKORE`'s encoding of
+/// `as_str` is the KORE identifier as written, including K's identifier encoding of
 /// keywords and punctuation (`alias'Kywd'`, `symbol'Kywd'`, `UNIQUE'Unds'ID`,
 /// `org'Stop'kframework'Stop'attributes'Stop'Source`; `-` is an identifier character and
 /// stays); the K key each one comes from is the frontend's business
@@ -195,7 +195,7 @@ pub enum KoreAttribute {
     SortInjection,
     Subsort,
     TopCellInitializer,
-    /// Java K's spelling of `symbol-overload` in older generated definitions; the backend reads
+    /// The spelling of `symbol-overload` in older generated definitions; the backend reads
     /// it beside `SymbolOverload`, the emitter never writes it.
     Overload,
 }

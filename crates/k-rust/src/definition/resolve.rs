@@ -799,7 +799,7 @@ impl ResolvedDefinition {
         locations.into()
     }
 
-    /// Scala's `Module.signature`: local sentences plus the exported sentences
+    /// The sentences a module sees: its local sentences plus the exported sentences
     /// of every direct import, following only public imports after that first edge.
     pub fn signature_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
         let mut exported_modules = BTreeSet::new();
@@ -830,7 +830,8 @@ impl ResolvedDefinition {
         dedup_by_equivalence(sentences)
     }
 
-    /// Scala's `publicSentences`: the local sentences exported by a module signature.
+    /// The local sentences a module exports: in a `private` module those marked `public`,
+    /// otherwise those not marked `private`.
     pub fn public_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
         let module = self.module(module);
         let module_is_private = module.attributes.has(AttributeKey::Private);

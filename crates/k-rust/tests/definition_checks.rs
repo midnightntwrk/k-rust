@@ -407,10 +407,10 @@ fn i107_is_sort_conflicts(
 
 #[test]
 fn is_sort_predicate_ignores_sorts_outside_the_parsed_definition() {
-    // reference: DefinitionParsing.parseDefinitionAndResolveBubbles retains the main closure and
-    // only entry modules whose visible sentences hold no bubble; Kompile.checkIsSortPredicates
-    // never sees a rule-bearing module that nothing imports (isSortPredicateBubbleModule.k and
-    // isSortPredicateOutsideClosure.k both exit 0 under k/result/bin/kompile).
+    // reference: isSortPredicateBubbleModule.k and isSortPredicateOutsideClosure.k both exit 0
+    // under k/result/bin/kompile. The parsed definition retains the main closure and only entry
+    // modules whose visible sentences hold no bubble, so the check never sees a rule-bearing
+    // module that nothing imports.
     let definition = resolved_definition(
         "MAIN",
         vec![
@@ -793,7 +793,7 @@ fn syntax_groups_warn_when_tags_have_different_priorities() {
 }
 
 #[test]
-fn associativity_attributes_require_the_java_subsort_conditions() {
+fn associativity_attributes_are_rejected_where_the_result_sort_cannot_nest() {
     let invalid = production(
         Some("op"),
         "Expr",
@@ -853,7 +853,7 @@ fn detects_multiple_top_sorts_but_exempts_cell() {
 }
 
 #[test]
-fn token_sort_productions_allow_only_java_exceptions() {
+fn token_sort_productions_reject_only_user_sort_constructors() {
     let illegal = production(Some("ordinary"), "Int", &[], Attributes::default());
     let function = production(
         Some("function"),
@@ -1369,7 +1369,7 @@ fn semantic_cast_context_does_not_override_nested_typed_variables() {
 }
 
 #[test]
-fn fun_in_pattern_and_in_k_special_cases_match_java() {
+fn rejects_fun_in_a_pattern_position_and_binds_the_variable_of_a_k_match() {
     let fun_pattern = rule_with_body(rewrite(
         Term::apply("#fun2", vec![rewrite(token("0"), token("1")), token("2")]),
         token("3"),
@@ -1515,7 +1515,7 @@ fn simplification_rules_and_internal_labels_are_exempt() {
 }
 
 #[test]
-fn collection_hooks_visit_only_java_matching_positions() {
+fn collection_hooks_admit_functions_only_at_keys_set_elements_and_list_indices() {
     let function = production(
         Some("f"),
         "Int",
@@ -1579,7 +1579,7 @@ fn collection_hooks_visit_only_java_matching_positions() {
 }
 
 #[test]
-fn with_config_preserves_java_top_level_state() {
+fn with_config_keeps_its_first_argument_at_the_top_of_the_rule() {
     let function = production(
         Some("f"),
         "Int",
@@ -2168,7 +2168,7 @@ fn simplification_rules_reject_overlapping_concrete_and_symbolic_variables() {
 }
 
 #[test]
-fn simplification_rule_empty_attribute_overlap_preserves_java_rendering() {
+fn bare_concrete_and_symbolic_on_a_simplification_rule_overlap_in_the_empty_name() {
     let simplification = Sentence::Rule {
         body: rewrite(token("0"), token("1")),
         requires: truth(),
@@ -2428,7 +2428,7 @@ fn hooked_sort_binder_and_bracket_checks_use_visible_sort_metadata() {
 }
 
 #[test]
-fn production_format_colors_and_deprecation_checks_match_java() {
+fn production_format_colors_and_deprecation_checks_report_each_defect() {
     let missing_format = Sentence::Production {
         label: Some(Label::new("regex")),
         parameters: Vec::new(),

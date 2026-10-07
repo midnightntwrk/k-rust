@@ -328,12 +328,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
 ///
-/// Relative requirements follow K's `ParserUtils.slurp` order: the first lookup directory, the requiring file's directory, the remaining lookup directories, and finally the configured or embedded builtin source.
+/// Relative requirements are looked up in this order: the first lookup directory, the requiring file's directory, the remaining lookup directories, and finally the configured or embedded builtin source.
 /// With no lookup directory, the builtin source therefore precedes the requiring file's directory.
 #[derive(Clone, Debug)]
 pub struct FileResolver {
     builtin_directory: Option<PathBuf>,
-    project_root: Option<PathBuf>,
     working_directory: PathBuf,
     lookup_directories: Vec<PathBuf>,
     prepared_sources: BTreeSet<String>,
@@ -357,7 +356,6 @@ impl FileResolver {
             .collect();
         Self {
             builtin_directory: None,
-            project_root: None,
             working_directory,
             lookup_directories,
             prepared_sources: BTreeSet::new(),
@@ -384,11 +382,6 @@ impl FileResolver {
         self
     }
 
-    pub fn with_project_root(mut self, directory: impl Into<PathBuf>) -> Self {
-        self.project_root = Some(directory.into());
-        self
-    }
-
     /// Recognize these canonical source identities as members of a prepared definition.
     /// Existing files are still read so the loader can validate declarations under its current
     /// Markdown selector; a missing prepared source is represented by empty text and remains
@@ -401,20 +394,7 @@ impl FileResolver {
     fn read(&self, path: &Path) -> io::Result<ResolvedSource> {
         let canonical = fs::canonicalize(path)?;
         let text = fs::read_to_string(&canonical)?;
-        let source = ResolvedSource::new(canonical.to_string_lossy(), text);
-        Ok(if let Some(root) = &self.project_root {
-            canonical
-                .strip_prefix(root)
-                .ok()
-                .map(|relative| {
-                    source
-                        .clone()
-                        .with_logical(relative.to_string_lossy().replace('\\', "/"))
-                })
-                .unwrap_or(source)
-        } else {
-            source
-        })
+        Ok(ResolvedSource::new(canonical.to_string_lossy(), text))
     }
 
     fn candidates(&self, requiring_source: &str, required: &str) -> Vec<Candidate> {

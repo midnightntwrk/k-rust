@@ -375,8 +375,13 @@ impl<'a> Execution<'a> {
 
     /// E2: the substitution is normalised, the constraints simplified with `keep_partial`, and
     /// the retained substitution predicates re-added. A `False` at depth 0 with a non-empty
-    /// retained substitution is deferred (Booster applies the input substitution before the
-    /// first step); any other `False` is a `Vacuous` leaf. Returns the deferred pattern.
+    /// retained substitution is deferred: the first step is attempted from the state as given,
+    /// and the simplified state is reported as `Vacuous` only if no rule applies. Any other
+    /// `False` is a `Vacuous` leaf. Returns the deferred pattern.
+    ///
+    /// Either way the state denotes no configuration; the deferral changes only which leaf
+    /// reports that (a `Vacuous` leaf at depth 0, or the result of the first step taken from the
+    /// unsimplified state). No semantic reason selects the deferral; it is a reporting choice.
     fn normalise_constraints(
         &mut self,
         mut state: ExecutionState,
@@ -416,9 +421,9 @@ impl<'a> Execution<'a> {
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             if state.depth == 0 && !retained_substitution.is_empty() {
-                // Booster applies an input substitution before rewriting, but a contradiction
-                // exposed only by that substitution does not prevent the first rewrite attempt.
-                // If no rule applies, the simplified state below is still returned as vacuous.
+                // A contradiction exposed only by the input substitution does not prevent the
+                // first rewrite attempt (see `normalise_constraints`). If no rule applies, the
+                // simplified state below is still returned as vacuous.
                 deferred_initial_vacuity = Some(state.pattern.clone());
                 state.pattern = pattern_before_constraint_simplification;
             } else {

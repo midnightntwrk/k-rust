@@ -45,8 +45,6 @@ impl fmt::Display for ResolveFunctionWithConfigError {
 
 impl std::error::Error for ResolveFunctionWithConfigError {}
 
-/// Apply Java's `ResolveFunctionWithConfig.moduleResolve` transformation.
-///
 /// Functions whose rules inspect configuration receive one final `GeneratedTopCell` argument.
 /// The requirement propagates backwards through calls to functions and non-macro `anywhere`
 /// symbols, so callers receive and forward the same configuration value transitively.
@@ -225,9 +223,11 @@ pub(crate) fn resolve_function_with_config_pass(
     Ok(output)
 }
 
-/// Apply Java's later `resolveConfigVar` sentence transformation.
+/// Bind the configuration variable in the rules and claims that mention it: a rewrite whose
+/// left-hand side is the generated top cell gets that cell aliased (`#as`) to the variable.
 ///
-/// This remains a separate operation because the KORE pipeline deliberately runs it only after
+/// This is a separate operation from [`resolve_function_with_config`] because the left-hand side
+/// is the generated top cell only after cell concretization; the KORE pipeline runs it after
 /// cell concretization and semantics-module generation.
 pub fn resolve_config_var(definition: &Definition) -> Definition {
     super::super::pipeline::run_standalone(

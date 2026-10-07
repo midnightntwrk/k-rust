@@ -833,7 +833,7 @@ endmodule"#,
     }
 
     #[test]
-    fn presents_inferred_parametric_labels_like_reference_kast() {
+    fn presents_inferred_parametric_labels_without_parameters_in_kast() {
         let result = parse_program(
             r#"{
                 "definition": "module MAIN\n syntax Int ::= r\"[0-9]+\" [token]\n syntax K ::= Int\n syntax {S} Int ::= \"take(\" S \")\" [function, symbol(take)]\nendmodule",

@@ -1,5 +1,5 @@
-//! Concrete `MAP` hooks implemented by Booster: per-call operations on the internal map
-//! representation; a responsibility, not an algorithm; no counter of its own, no worklist.
+//! Concrete `MAP` hooks: per-call operations on the internal map representation; a
+//! responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1003,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn key_and_value_projections_use_the_reference_kitem_list() {
+    fn key_and_value_projections_are_kitem_lists_in_key_order() {
         let map = Term::map(
             definition("SortMap"),
             vec![(key("b"), value("two")), (key("a"), value("one"))],

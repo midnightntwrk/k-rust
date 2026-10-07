@@ -254,8 +254,8 @@ impl std::error::Error for FreshGeneratorError {}
 
 /// All production views derived from one module's visible sentence set.
 ///
-/// IDs follow deterministic dependency-first sentence order. Scala-same
-/// productions are collapsed before IDs are assigned.
+/// IDs follow deterministic dependency-first sentence order. Productions equal under
+/// [`sentence_equivalent`] are collapsed before IDs are assigned.
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
     productions: Vec<CatalogSentence<'a>>,
@@ -505,24 +505,12 @@ impl<'a> ProductionCatalog<'a> {
         self.local.contains(&id)
     }
 
-    pub fn productions_by_label(&self) -> &BTreeMap<LabelHead, Vec<ProductionId>> {
-        &self.by_label
-    }
-
     pub fn productions_for(&self, label: &LabelHead) -> &[ProductionId] {
         self.by_label.get(label).map_or(&[], Vec::as_slice)
     }
 
-    pub fn productions_by_sort(&self) -> &BTreeMap<SortHead, Vec<ProductionId>> {
-        &self.by_sort
-    }
-
     pub fn productions_for_sort(&self, sort: &SortHead) -> &[ProductionId] {
         self.by_sort.get(sort).map_or(&[], Vec::as_slice)
-    }
-
-    pub fn token_productions_by_sort(&self) -> &BTreeMap<Sort, Vec<ProductionId>> {
-        &self.token_by_sort
     }
 
     pub fn token_productions_for(&self, sort: &Sort) -> &[ProductionId] {

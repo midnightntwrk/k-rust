@@ -31,7 +31,7 @@ impl fmt::Display for ResolveHeatCoolError {
 
 impl std::error::Error for ResolveHeatCoolError {}
 
-/// Apply Java's `ResolveHeatCoolAttribute` transformation.
+/// Lower `heat` and `cool` attributes into explicit side conditions.
 pub fn resolve_heat_cool_attributes(
     definition: &Definition,
 ) -> Result<Definition, ResolveHeatCoolError> {

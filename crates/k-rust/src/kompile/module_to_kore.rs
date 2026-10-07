@@ -24,7 +24,7 @@
 //! Complexity: the declaration, axiom, rule, and owise cards state the bounds of their parts.
 //! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop, and label dependency closure has a shared home.
 //!
-//! The declaration-producing prefix of Java's `ModuleToKORE`.
+//! KORE emission of one compiled K module.
 
 mod axioms;
 mod equations;
@@ -76,8 +76,8 @@ use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
 
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
-// Java `Hooks.namespaces`: hooks outside this set are only emitted as hooked symbols when the
-// compilation admits their namespace through `ModuleToKoreOptions::hook_namespaces`.
+// K's builtin hook namespaces: a hook outside them is emitted as a hooked symbol only when the
+// compilation admits its namespace through `ModuleToKoreOptions::hook_namespaces`.
 pub(crate) const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
     "BOOL",
     "BUFFER",
@@ -100,11 +100,11 @@ pub(crate) const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
     "TIMER",
 ];
 
-/// The declaration views and standalone macro axioms produced by `ModuleToKORE`.
+/// The declaration views and standalone macro axioms produced by KORE emission.
 ///
 /// `semantics` carries backend-facing symbol attributes. `syntax` carries the
 /// same declarations plus concrete-syntax formatting metadata. `macros` is the
-/// bare sentence list written to Java's `macros.kore`; it deliberately has no
+/// bare sentence list written to `macros.kore`; it deliberately has no
 /// enclosing KORE module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclarationModules {
@@ -119,18 +119,17 @@ pub struct DeclarationModules {
 pub struct ModuleToKoreOptions {
     /// Consumer of the emitted declarations, including its reading of irreducible value heads.
     pub backend: CompilationBackend,
-    /// Generate the hooked-map definedness axioms Java's Haskell backend emits
-    /// (`ModuleToKORE.genMapCeilAxioms`), which the symbolic Rust backend also relies on.
+    /// Generate the definedness axioms of hooked map constructions, which the symbolic Rust
+    /// backend relies on.
     pub generate_map_ceil_axioms: bool,
     /// Treat otherwise-unqualified claims as all-path reachability claims.
     pub default_claims_to_all_path: bool,
     /// Plugin hook namespaces admitted as hooked symbols in addition to K's builtin set, the
     /// counterpart of `kompile --hook-namespaces`.
     pub hook_namespaces: Vec<String>,
-    /// The kompiled definition module of a proof compilation. Java's
-    /// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`, so
-    /// the claims of every module the specification imports are emitted unless the definition
-    /// module's import closure already contains that module; without a definition module (or
+    /// The kompiled definition module of a proof compilation. The claims of every module the
+    /// specification imports are emitted unless the definition module's import closure already
+    /// contains that module; without a definition module (or
     /// when it is the emitted module itself) only the module's local claims are emitted.
     pub definition_module: Option<String>,
 }
@@ -162,17 +161,12 @@ impl DeclarationModules {
         self.definition_with(self.semantics.clone())
     }
 
-    /// Wrap the concrete-syntax module in K's standard KORE prelude.
-    pub fn syntax_definition(&self) -> KoreDefinition {
-        self.definition_with(self.syntax.clone())
-    }
-
     /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
     pub fn print_semantics_definition(&self, printer: crate::kore::printer::Printer) -> String {
         self.print_definition_with(printer, &self.semantics)
     }
 
-    /// Print [`Self::syntax_definition`] without cloning the syntax module into it.
+    /// Print the concrete-syntax module wrapped in K's standard KORE prelude.
     pub fn print_syntax_definition(&self, printer: crate::kore::printer::Printer) -> String {
         self.print_definition_with(printer, &self.syntax)
     }
@@ -796,7 +790,8 @@ fn definition_attributes(
 
 /// Emit declarations plus the ordinary semantic rules and local claims of one module.
 ///
-/// Reachability claims use Java's `weakExistsFinally` and `weakAlwaysFinally` wrappers. Macro and
+/// Reachability claims are wrapped in the prelude aliases `weakExistsFinally` (one-path) and
+/// `weakAlwaysFinally` (all-path). Macro and
 /// alias rules are routed to the standalone `macros.kore` sentence list.
 pub fn module_to_kore(
     definition: &KDefinition,
@@ -942,7 +937,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     Ok((modules, emitted_sources))
 }
 
-/// Scala's `Module.sentencesExcept(definition)` restricted to claims: the module's local claims
+/// The claims a specification module emits: the module's local claims
 /// plus the local claims of every transitively imported module outside the definition module's
 /// import closure. Without a distinct definition module every import is inside that closure and
 /// only the local claims remain.
@@ -1866,7 +1861,8 @@ fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
     if valued.contains(AttributeKey::Token.as_str()) {
         valued.remove(AttributeKey::HasDomainValues.as_str());
     }
-    // Java uses this frontend-only typed attribute solely to declare axiom sort variables.
+    // This frontend-only typed attribute serves only to declare an axiom's sort variables, so it
+    // is not counted among the valued attributes.
     valued.remove(AttributeKey::SortParams.as_str());
     valued
 }

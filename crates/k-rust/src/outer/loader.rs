@@ -96,7 +96,7 @@ impl ResolvedSource {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadOptions {
     pub markdown_selector: String,
-    /// Additional roots loaded before the entry source, such as Java's implicit prelude.
+    /// Additional roots loaded before the entry source, such as K's implicit prelude.
     pub implicit_sources: Vec<ResolvedSource>,
     /// Module attributes excluded by the selected backend before configuration and rule parsing.
     pub excluded_module_attributes: Vec<String>,
@@ -444,12 +444,12 @@ pub struct LoadedDefinition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InputAddressing {
     /// Positions in the argument of [`load_structured`]
-    /// ([`InputSpace::Structured`](crate::provenance::InputSpace::Structured)): the value is the
+    /// ([`InputSpace::Structured`]): the value is the
     /// unedited result of that call.
     Structured,
     /// Compilation addresses each sentence by its position in
     /// [`LoadedDefinition::definition`]
-    /// ([`InputSpace::Compile`](crate::provenance::InputSpace::Compile)).
+    /// ([`InputSpace::Compile`]).
     Compile,
 }
 
@@ -1027,14 +1027,14 @@ fn load_impl(
 /// That label names the bracket's `syntaxDefinition.kore` symbol and the tag priority and associativity blocks refer to it by; it never names a term symbol, because every parser erases the bracket before a term exists.
 /// A bracket without a label may instead carry a `bracketLabel` attribute naming its syntax-module symbol.
 ///
-/// Every sentence of `definition` is stamped with its [`InputAddress`](crate::provenance::InputAddress)
-/// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
-/// already carried) before configurations are expanded, so compilation relates what it emits to
-/// the caller's own sentence positions.
-/// The result's [`addressing()`](LoadedDefinition::addressing) is
-/// [`InputAddressing::Structured`], so compilation keeps those addresses; a value rebuilt from its
-/// parts ([`LoadedDefinition::from_loaded_parts`], [`LoadedDefinition::with_definition`]) is
-/// addressed in the compile space.
+/// Every sentence of `definition` is stamped with its
+/// [`InputAddress`](crate::provenance::InputAddress) in [`InputSpace::Structured`] (its module and
+/// index in `definition`, replacing any address it already carried) before configurations are
+/// expanded, so compilation relates what it emits to the caller's own sentence positions. The
+/// result's [`addressing()`](LoadedDefinition::addressing) is [`InputAddressing::Structured`], so
+/// compilation keeps those addresses; a value rebuilt from its parts
+/// ([`LoadedDefinition::from_loaded_parts`], [`LoadedDefinition::with_definition`]) is addressed in
+/// the compile space.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,

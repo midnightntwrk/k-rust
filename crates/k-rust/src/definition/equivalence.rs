@@ -153,7 +153,9 @@ fn encode_length(payload: &mut Vec<u8>, length: usize) {
     payload.extend_from_slice(&length.to_be_bytes());
 }
 
-/// Scala sentence equality, including `Production`'s custom equality override.
+/// Whether two sentences are the same declaration: structural equality, except that two
+/// productions are compared by label, parameters, sort, items, `klabel` (or, without one,
+/// label), and `function` and `symbol` attributes only.
 pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
     measure::bump(Counter::KompileSentenceEquivalenceChecks);
     match (left, right) {
@@ -655,7 +657,7 @@ pub(crate) const COMPARISON_RECURSION_LIMIT: usize = 64;
 /// which never carry the parser's metadata annotations.
 ///
 /// Terms of any depth are compared in constant stack: the first
-/// [`COMPARISON_RECURSION_LIMIT`] levels recurse, and the subterms below are compared with an
+/// `COMPARISON_RECURSION_LIMIT` levels recurse, and the subterms below are compared with an
 /// explicit work list.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     term_equivalent_at(left, right, 0)

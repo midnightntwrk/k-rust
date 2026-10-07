@@ -167,7 +167,7 @@ fn rejects_invalid_module_graphs_with_specific_errors() {
 }
 
 #[test]
-fn applies_scala_public_sentence_rules() {
+fn applies_public_and_private_sentence_visibility() {
     let mut public = marker("public");
     let Sentence::Bubble { attributes, .. } = &mut public else {
         unreachable!()
@@ -300,7 +300,7 @@ fn deduplicates_flat_sets_only_during_resolution() {
 }
 
 #[test]
-fn deduplicates_productions_using_scala_equality() {
+fn deduplicates_productions_by_sentence_equivalence() {
     let production = |line| Sentence::Production {
         label: Some(Label::new("label")),
         parameters: Vec::new(),

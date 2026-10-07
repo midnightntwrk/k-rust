@@ -13,7 +13,8 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-/// Apply Java's `ResolveAnonVar` transformation to rules, claims, and contexts.
+/// Give every anonymous variable occurrence of rules, claims and contexts a collision-free
+/// sentence-local name.
 pub fn resolve_anon_vars(definition: &Definition) -> Definition {
     super::super::pipeline::run_standalone(
         definition,

@@ -384,7 +384,7 @@ pub struct ComputedRuleAttributes {
     pub unbound_variables: BTreeSet<Variable>,
     /// For an equation (function, simplification or ceil), the free variables of its
     /// right-hand side and `ensures` that its left-hand side does not bind, in the definition's
-    /// spelling ([`equation_unbound_result_variables`]); empty for a rewrite rule. An instance
+    /// spelling (`equation_unbound_result_variables`); empty for a rewrite rule. An instance
     /// of such an equation is not used (`ConditionIndeterminacy::UnboundResultVariables`).
     pub unbound_result_variables: Vec<String>,
 }
@@ -4181,7 +4181,7 @@ mod tests {
     }
 
     #[test]
-    fn classifies_simplifications_with_the_reference_default_priority() {
+    fn classifies_a_simplification_without_a_priority_at_priority_fifty() {
         let classified = classify(
             r#"axiom{R} \implies{R}(
                 \top{R}(),
@@ -4909,12 +4909,12 @@ mod tests {
         assert!(candidate_labels(&definition, &open_key).contains(&"w0".to_owned()));
     }
 
-    /// A wide pattern is distributed in time proportional to the patterns it distributes into:
-    /// a conjunction of a disjunction of two constants and 20,000 further constants becomes two
-    /// conjunctions of 20,001 constants each. Copying each growing prefix of the argument list
-    /// once per argument took 400 million copies of a constant here, which is about a minute in
-    /// a debug build; building each list once takes 40,000 copies. The patterns are flat and
-    /// take a few MB.
+    /// A wide pattern is distributed in time proportional to the patterns it distributes into: a
+    /// conjunction of a disjunction of two constants and 20,000 further constants becomes two
+    /// conjunctions of 20,001 constants each. Copying each growing prefix of the argument list once
+    /// per argument took 400 million copies of a constant here, which is about a minute unoptimized
+    /// (opt-level 0); building each list once takes 40,000 copies. The patterns are flat and take a
+    /// few MB.
     #[test]
     fn wide_disjunctions_are_distributed_in_linear_time() {
         let sort = || kore::Sort::Application {

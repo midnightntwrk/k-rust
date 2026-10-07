@@ -244,7 +244,7 @@ pub(crate) fn height(pattern: &kore::Pattern, unfolding: &impl Unfolding) -> usi
 }
 
 /// Levels of a pattern or sort measured by recursion before the rest is measured with explicit
-/// work lists. A recursive level takes well under 1 KiB of stack in a debug build, so the
+/// work lists. A recursive level takes well under 1 KiB of stack even unoptimized, so the
 /// recursion stays within a small fraction of `STACK_RED_ZONE`, and almost every pattern and
 /// sort a definition holds is measured without allocating.
 const RECURSION_LIMIT: usize = 64;
@@ -1131,8 +1131,8 @@ mod tests {
 
     /// A definition whose rule is 6,000 levels deep is loaded and dropped on a thread whose
     /// stack holds neither: the internal rule's destruction recurses once per level, and the
-    /// definition provides the stack for it when it is dropped. In a debug build the load
-    /// touches about 80 MB of stack and takes a second or two.
+    /// definition provides the stack for it when it is dropped. Unoptimized (opt-level 0, the
+    /// `debugging` profile), the load touches about 80 MB of stack and takes a second or two.
     #[test]
     fn deep_definitions_are_dropped_on_the_stack_they_need() {
         on_stack(SMALL_STACK, || {
@@ -1179,8 +1179,9 @@ mod tests {
 
     /// A chain of 20 aliases, each body 100 levels deep, unfolds into 2,000 levels: it loads,
     /// and a request applying it, alone or under 100 further levels, internalizes, on a thread
-    /// whose stack holds about 20 levels in a debug build. The modules take well under
-    /// 1 MB of heap; the unfolding touches about 25 MB of stack in a debug build.
+    /// whose stack holds about 20 levels unoptimized (opt-level 0, the `debugging` profile). The
+    /// modules take well under 1 MB of heap; the unfolding touches about 25 MB of stack
+    /// unoptimized.
     #[test]
     fn alias_chains_get_the_stack_of_their_unfolding() {
         on_stack(SMALL_STACK, || {

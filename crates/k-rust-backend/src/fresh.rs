@@ -1043,7 +1043,7 @@ pub(crate) fn fresh_name_apart(
 /// caller treats as one), and the spellings of the request's variables.
 ///
 /// Every name a rewrite introduces into a state, and every claim variable a proof renames, is
-/// minted by [`FreshCounter::mint`], which takes the next value of one counter that only grows:
+/// minted by `FreshCounter::mint`, which takes the next value of one counter that only grows:
 /// two mints of a request differ in their counter, so no name is reused along a path, even
 /// after its first variable left the state. A candidate spelled like a variable of the request
 /// is skipped, so no mint prints like a name of the request, free or bound. Requests built

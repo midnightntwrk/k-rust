@@ -94,7 +94,8 @@ pub fn concretize_cells_in_sentence(
     Ok((transformed, concretizer.generated))
 }
 
-/// Apply Java's `ConcretizeCells` definition transformation.
+/// Complete the configuration abstractions of rules, claims and contexts into fixed-arity cell
+/// applications.
 pub fn concretize_cells(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -461,9 +462,10 @@ impl CellModel {
             .filter(|sort| !parents.contains_key(*sort))
             .cloned()
             .collect::<Vec<_>>();
-        // AddTopCellToRules uses the generated top label, independently of separately
-        // callable configuration initializers. Root uniqueness is required earlier when
-        // ResolveFreshConstants must synthesize that wrapper, not for this cell forest.
+        // Rules are completed under the generated top cell when the forest has one, whatever
+        // roots separately callable configuration initializers add. A unique root is required
+        // only where fresh-constant resolution must synthesize that wrapper
+        // (`resolve_fresh_constants`), not for this cell forest.
         let root = if let Some(root) = roots
             .iter()
             .find(|sort| cells[*sort].label.name == GeneratedCell::Top.label())
@@ -485,8 +487,8 @@ impl CellModel {
                 }
             }
         };
-        // ConfigurationInfoFromModule assigns level zero to every top cell, including
-        // auxiliary roots whose initializers still need their own children concretized.
+        // Every top cell is at level zero, including auxiliary roots whose initializers still
+        // need their own children concretized.
         let mut levels = roots
             .into_iter()
             .map(|root| (root, 0))
@@ -997,11 +999,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
             completion = retained;
         }
-        // Java's AddParentCells retains only the deepest remaining completion
-        // level here. Besides being the normal direct-child level, this also
-        // means that a shallower, accidentally nested sibling is discarded when
-        // valid direct children are present. Some real definitions (notably
-        // KMIR) rely on that compatibility quirk.
+        // Only the remaining completion items of the deepest level are kept. That is normally
+        // the direct-child level, but it also discards a shallower, accidentally nested sibling
+        // when valid direct children are present, which drops a cell the rule wrote rather than
+        // reporting it. Some real definitions (notably KMIR) depend on this.
         let deepest_remaining = completion
             .iter()
             .filter_map(|item| {
@@ -1030,9 +1031,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         open: bool,
         items: Vec<Term>,
     ) -> Result<Vec<Term>, String> {
-        // AddParentCells.makeParents distinguishes children that fit in one
-        // parent, children forced into separate instances, and an ambiguous
-        // partition. Optional children are nonrepeatable too.
+        // Children either fit in one parent, are forced into separate instances, or admit an
+        // ambiguous partition. Optional children are nonrepeatable too.
         let nonrepeatable_sorts = |term: &Term| {
             flatten_cells(term)
                 .into_iter()
@@ -1079,9 +1079,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let children_force_separation = if let Some(first) = children.first() {
             if let [sort] = first.as_slice() {
                 children.iter().all(|child| child.as_slice() == first)
-                    // Pinned Java tests the left side twice in this check.
-                    // Preserve that mixed ordinary-child/rewrite boundary;
-                    // rewrite pairs below must still check both sides.
+                    // Only the left side of each rewrite is compared with the ordinary
+                    // children's sort here; the rewrite pairs below compare both sides.
                     && rewrites.iter().all(|(left, _)| left.contains(sort))
             } else {
                 false
@@ -1674,9 +1673,9 @@ fn collect_fragment_observations(
                 }
                 // Invariant: `observations` has one entry for every variable of `variables` before `name` that carries no cell-sort annotation; each such variable scans `parent.children` once, O(|variables| * |parent.children|).
                 for (name, annotated_sort) in variables {
-                    // Java tracks variables explicitly annotated with a cell sort separately from
-                    // cell-fragment variables. They already identify one complete child and must
-                    // remain unchanged at non-cell occurrences.
+                    // A variable annotated with a cell sort is not a cell-fragment variable: it
+                    // already denotes one complete child and remains unchanged at non-cell
+                    // occurrences.
                     if annotated_sort
                         .as_ref()
                         .is_some_and(|sort| model.cells.contains_key(sort))

@@ -432,7 +432,7 @@ files = [
   "crates/k-rust/src/definition/checks/term_position.rs",
 ]
 classification = "responsibility-only"
-reason = "Java-compatible checks composed by definition.checks.run; no submodule states a distinct asymptotic bound"
+reason = "checks composed by definition.checks.run; no submodule states a distinct asymptotic bound"
 
 [[without_primary_card]]
 files = ["crates/k-rust/src/definition/checks/label_parameters.rs"]

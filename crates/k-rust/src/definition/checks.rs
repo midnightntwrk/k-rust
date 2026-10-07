@@ -11,11 +11,11 @@
 //! bound = "O(M x (S x (P + 1) + catalog work))"
 //! ```
 //!
-//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs.
+//! Structural definition checking composes per-module checks over resolved catalogs.
 //! Complexity: O(M(S(P + 1) + catalog work)) over modules and their sentences.
 //! Token admission can match each token against visible parametric token declarations; no dedicated counter.
 //!
-//! Dependency-light structural checks ported from the Java frontend.
+//! Each check reads the sentences of one module and reports diagnostics; none changes them.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -187,9 +187,9 @@ fn check_module_with_options_and_catalog(
             overloads,
         ))
         .chain(check_deprecated_productions(&sentences, production_catalog))
-        // Java validates SMT lemmas from `ExpandMacros`, after aliases and macros have been
-        // removed from rule bodies. Checking here rejects valid lemmas that still contain an
-        // alias whose expansion uses only SMT-backed symbols.
+        // SMT lemmas are validated by macro expansion (`expand_macros`), after aliases and
+        // macros have been removed from rule bodies: checking them here would reject a valid
+        // lemma that still contains an alias whose expansion uses only SMT-backed symbols.
         .chain(check_regexes(&sentences, &definition.sentences(module)))
         .collect::<Vec<_>>();
     diagnostics.sort();
@@ -292,7 +292,7 @@ fn check_compiled_view_productions(views: &DefinitionViews<'_>) -> Vec<Diagnosti
     diagnostics
 }
 
-/// Java `CheckK`: the alias of an `#as` pattern must be a variable.
+/// The alias of an `#as` pattern must be a variable, possibly under a semantic cast.
 pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -314,7 +314,9 @@ pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckRewrite`.
+/// Where rewrites and `#as` may occur: a rule and a `#fun` have at least one rewrite, a rewrite is
+/// not nested in another, nor under a function rule's context or an `#as` pattern, `#as` is not
+/// on a right-hand side, and an existential variable is not on a left-hand side.
 pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -346,7 +348,8 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckAnonymous`.
+/// A named variable that occurs once is reported as unused, and an anonymous-named variable that
+/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -366,9 +369,10 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             if count == 1
                 && !named_anonymous
                 && !anonymous_variable_exempt(sentence, &name)
-                // Java suppresses this warning for generated variables, identified by
-                // missing term locations. Until retained relative spans are mapped back to
-                // absolute source locations, the sentence location is the closest proxy.
+                // A generated sentence has no source location and its variables were not
+                // written by the user, so the warning would point at nothing to fix. Until
+                // retained relative spans are mapped back to absolute source locations, the
+                // sentence location stands in for the variable's.
                 && sentence.attributes().location().is_some()
             {
                 diagnostics.push(Diagnostic::warning(
@@ -392,7 +396,9 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckLabels`: context aliases are deliberately exempt.
+/// Two sentences of one module may not carry the same `label`. Context aliases are exempt:
+/// several may share a label, which names the template that `strict` and `seqstrict` instantiate
+/// (K user manual, "Context aliases").
 pub fn check_duplicate_labels(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut labels = HashSet::new();
     let mut diagnostics = Vec::new();
@@ -414,7 +420,8 @@ pub fn check_duplicate_labels(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// Java `CheckSyntaxGroups`.
+/// Warn when two tags of one associativity group are related by the priority order: the group's
+/// associativity decides only between productions that priority leaves unordered.
 pub fn check_syntax_groups(
     sentences: &[&Sentence],
     priorities: &PartialOrder<String>,
@@ -490,7 +497,7 @@ fn grammar_admits(
 /// the result sort of `p` is admitted at that argument, so the attribute has an effect exactly when
 /// the result sort is below the argument sort in `admission`: the order the grammar the production
 /// is parsed in admits terms by, which for a module is its rule grammar's order
-/// ([`sorts::rule_grammar_subsorts`]), where every sort of K items is below `KItem` and `K`.
+/// (`sorts::rule_grammar_subsorts`), where every sort of K items is below `KItem` and `K`.
 pub fn check_associativity(
     sentences: &[&Sentence],
     admission: &PartialOrder<Sort>,
@@ -562,7 +569,8 @@ fn check_associativity_by(
     diagnostics
 }
 
-/// Java `CheckSortTopUniqueness`.
+/// A sort other than `Cell` that is below both `KList` and `Bag` has two top sorts, which is an
+/// error.
 pub fn check_sort_top_uniqueness(
     sentences: &[&Sentence],
     subsorts: &PartialOrder<Sort>,
@@ -596,7 +604,11 @@ pub fn check_sort_top_uniqueness(
     diagnostics
 }
 
-/// Java `CheckTokens`.
+/// A production of a sort that has domain values (a token sort, or a sort whose literals the
+/// compiler writes) must be a `token`, `function` or `bracket` production or a macro. The sort's
+/// values are its domain values: a function denotes one of them, and a bracket or a macro is gone
+/// after parsing or expansion, while any other production would construct a value of the sort
+/// that is not a domain value.
 pub fn check_tokens(
     sentences: &[&Sentence],
     sorts: &SortCatalog<'_>,

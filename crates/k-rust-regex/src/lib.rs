@@ -46,12 +46,13 @@ impl Regex {
         }
     }
 
-    /// Match Java `RegexSyntax.K.print`, including its asymmetric-anchor bug.
-    pub fn to_java_string(&self) -> String {
+    /// The canonical form, which `Display` prints: a start anchor is printed on both ends and a
+    /// lone end anchor is dropped, the same anchor rule as [`Self::to_flex_pattern`].
+    pub fn to_canonical_string(&self) -> String {
         print_regex(self, self.start_line)
     }
 
-    /// Print both anchors represented by the AST without Java's anchor-loss bug.
+    /// Print the regex as written, with exactly the anchors the AST holds.
     pub fn to_source_string(&self) -> String {
         print_regex(self, self.end_line)
     }
@@ -68,8 +69,8 @@ impl Regex {
         Ok(FlexPattern {
             body: self.body.to_rust_string()?,
             start_line: self.start_line,
-            // Match `RegexSyntax.print`: Java prints both anchors when the source
-            // has a start anchor and drops a lone end anchor.
+            // A start anchor anchors both ends and a lone end anchor is dropped. This is not what
+            // the anchors say (`$` alone should anchor the end); see `to_canonical_string`.
             end_line: self.start_line,
         })
     }
@@ -77,7 +78,7 @@ impl Regex {
 
 impl Display for Regex {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.to_java_string())
+        formatter.write_str(&self.to_canonical_string())
     }
 }
 
@@ -747,8 +748,8 @@ fn print_flex_regex(regex: &Regex) -> String {
     }
     print_flex_union(&transform_flex_body(&regex.body), &mut output)
         .expect("writing to a string cannot fail");
-    // Match RegexSyntax.Flex.print: K emits both anchors for a start-anchored
-    // regex and omits a lone end anchor.
+    // The anchor rule of `Regex::to_flex_pattern`: both anchors for a start-anchored regex, and
+    // none for a lone end anchor.
     if regex.start_line {
         output.push('$');
     }

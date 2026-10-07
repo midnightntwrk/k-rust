@@ -97,13 +97,14 @@ impl fmt::Display for ResolveFunError {
 
 impl std::error::Error for ResolveFunError {}
 
-/// Resolve Java's local-function and K-matching constructs.
+/// Lower local `#fun`, `#let` and K-matching expressions into generated functions.
 ///
 /// Each occurrence gets a definition-wide-unused `#lambda...` label, a generated function
 /// production, and one or more defining rules. Variables used only on the pattern RHS become
 /// explicit closure arguments. A generated production is declared `total` only when its pattern
 /// is a variable and its body is defined for every value of its variables. Generated sentences remain local to the module containing the
-/// expression, exactly as in Java's `ResolveFun` module transformer.
+/// expression: the label is unused elsewhere in the definition, so the expression's sentence is
+/// the generated function's only user.
 pub fn resolve_fun(definition: &Definition) -> Result<Definition, ResolveFunError> {
     super::super::pipeline::run_standalone(
         definition,
