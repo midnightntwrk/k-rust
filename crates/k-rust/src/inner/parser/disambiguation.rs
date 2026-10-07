@@ -1065,24 +1065,14 @@ impl Grammar {
                 child: child_label.clone(),
             });
         }
-        if side == Side::Right
-            && self
-                .associativities
-                .left
-                .contains(&(parent_label.clone(), child_label.clone()))
-        {
+        if side == Side::Right && self.associativity_forbids(parent_label, child_label, false) {
             return Some(ParseError::Associativity {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
                 side: "right",
             });
         }
-        if side == Side::Left
-            && self
-                .associativities
-                .right
-                .contains(&(parent_label.clone(), child_label.clone()))
-        {
+        if side == Side::Left && self.associativity_forbids(parent_label, child_label, true) {
             return Some(ParseError::Associativity {
                 parent: parent_label.clone(),
                 child: child_label.clone(),

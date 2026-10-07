@@ -1213,6 +1213,8 @@ pub struct Grammar {
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
+    // Invariant: when set, this indexes `associativities`; cleared whenever they change.
+    associativity_index: OnceLock<AssociativityIndex>,
     subsort_relations: SubsortRelations,
     syntactic_subsort_relations: SubsortRelations,
     overloads: PartialOrder<ProductionIdentity>,
@@ -1227,6 +1229,35 @@ pub struct Grammar {
     placeholders: BTreeMap<Sort, Placeholder>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,
+}
+
+/// The associativity relations by parent label, so that a pair of labels is looked up without
+/// copying either.
+#[derive(Clone, Debug, Default)]
+struct AssociativityIndex {
+    /// The labels each label may not have as its right child (`left` associativity).
+    left: HashMap<String, HashSet<String>>,
+    /// The labels each label may not have as its left child (`right` associativity).
+    right: HashMap<String, HashSet<String>>,
+}
+
+impl AssociativityIndex {
+    fn new(relations: &AssociativityRelations) -> Self {
+        let index = |pairs: &BTreeSet<(String, String)>| {
+            let mut by_parent = HashMap::<String, HashSet<String>>::new();
+            for (parent, child) in pairs {
+                by_parent
+                    .entry(parent.clone())
+                    .or_default()
+                    .insert(child.clone());
+            }
+            by_parent
+        };
+        Self {
+            left: index(&relations.left),
+            right: index(&relations.right),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1252,6 +1283,7 @@ impl Default for Grammar {
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
+            associativity_index: OnceLock::new(),
             subsort_relations: SubsortRelations::default(),
             syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
@@ -2581,17 +2613,38 @@ impl Grammar {
         let Some(parent) = production.parse_label.as_deref() else {
             return true;
         };
-        let relation = if caller.dot == 0 {
-            &self.associativities.right
+        let left_child = if caller.dot == 0 {
+            true
         } else if caller.dot + 1 == production.items.len() {
-            &self.associativities.left
+            false
         } else {
             return true;
         };
         let Some(child) = self.productions[child].parse_label.as_deref() else {
             return true;
         };
-        !relation.contains(&(parent.to_owned(), child.to_owned()))
+        !self.associativity_forbids(parent, child, left_child)
+    }
+
+    /// Whether the associativity relations forbid a node labelled `child` as the leftmost
+    /// (`left_child`) or the rightmost child of one labelled `parent`.
+    pub(super) fn associativity_forbids(
+        &self,
+        parent: &str,
+        child: &str,
+        left_child: bool,
+    ) -> bool {
+        let index = self
+            .associativity_index
+            .get_or_init(|| AssociativityIndex::new(&self.associativities));
+        let by_parent = if left_child {
+            &index.right
+        } else {
+            &index.left
+        };
+        by_parent
+            .get(parent)
+            .is_some_and(|children| children.contains(child))
     }
 
     /// Whether the priority filter's check of the edge between `caller`'s node and a node built
@@ -2631,16 +2684,16 @@ impl Grammar {
         if filter == PriorityFilter::Ignored {
             return Cow::Borrowed(nodes);
         }
-        let (relation, side) = if caller.dot == 0 {
-            (&self.associativities.right, "left")
+        let (left_child, side) = if caller.dot == 0 {
+            (true, "left")
         } else if caller.dot + 1 == production.items.len() {
-            (&self.associativities.left, "right")
+            (false, "right")
         } else {
             return Cow::Borrowed(nodes);
         };
         let violates = |node: &PackedTerm| {
             self.packed_top_parse_label(node)
-                .is_some_and(|child| relation.contains(&(parent.to_owned(), child.to_owned())))
+                .is_some_and(|child| self.associativity_forbids(parent, child, left_child))
         };
         // Most boundaries reject nothing; they pass the caller's set through without copying it.
         if !nodes.iter().any(|node| violates(node)) {
@@ -2653,7 +2706,7 @@ impl Grammar {
                     let Some(child) = self.packed_top_parse_label(node) else {
                         return true;
                     };
-                    if !relation.contains(&(parent.to_owned(), child.to_owned())) {
+                    if !self.associativity_forbids(parent, child, left_child) {
                         return true;
                     }
                     first_violation.get_or_insert_with(|| ParseError::Associativity {
@@ -3510,10 +3563,7 @@ mod chart_tests {
                 false,
             )
             .unwrap();
-        grammar
-            .associativities
-            .left
-            .insert(("plus".to_owned(), "plus".to_owned()));
+        grammar.add_left_associative("plus");
         let operands = 30;
         let input = std::iter::repeat_n("x:S", operands)
             .collect::<Vec<_>>()

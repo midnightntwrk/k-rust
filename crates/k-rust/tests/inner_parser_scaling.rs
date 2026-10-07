@@ -488,6 +488,12 @@ type RuleShape = (&'static str, &'static str, fn(&str) -> String);
 /// The completion candidates of loading `rule` beside a left- or right-associative `+` chain
 /// syntax, at the chain lengths 50, 100 and 200 that `rule` builds its body from.
 fn rule_chain_work(associativity: &str, rule: impl Fn(&str) -> String) -> [u64; 3] {
+    rule_chain_counts(associativity, rule)
+        .map(|counts| counts.get(Counter::ParserChartCompletionCandidates))
+}
+
+/// The work counters and allocations of loading `rule` (as [`rule_chain_work`]).
+fn rule_chain_counts(associativity: &str, rule: impl Fn(&str) -> String) -> [Snapshot; 3] {
     [50, 100, 200].map(|length| {
         let chain = (0..length)
             .map(|number| (number % 10).to_string())
@@ -501,11 +507,17 @@ fn rule_chain_work(associativity: &str, rule: impl Fn(&str) -> String) -> [u64; 
              configuration <k> $PGM:K </k>\n  {}\nendmodule\n",
             rule(&chain)
         );
-        let before = measure::snapshot();
+        let allocated = || {
+            let mut totals = Snapshot::default();
+            measure::set_allocation_counters(&mut totals);
+            totals
+        };
+        let before = (measure::snapshot(), allocated());
         drop(load_with_prelude(&source));
-        measure::snapshot()
-            .delta(&before)
-            .get(Counter::ParserChartCompletionCandidates)
+        let mut work = measure::snapshot().delta(&before.0);
+        let bytes = allocated().delta(&before.1);
+        work.0[Counter::Allocations as usize] = bytes.get(Counter::Allocations);
+        work
     })
 }
 
@@ -552,18 +564,32 @@ fn chains_beside_a_rules_only_rewrite_parse_in_chart_work_linear_in_their_length
 /// be read by the preference among the readings of the root, so its edges are kept: the
 /// completion candidates grow about four times per doubling of the chain (and the time, which
 /// reads the callers waiting for each completion, about eight times). The test pins that the
-/// candidates grow no faster than that, with a margin, so that a worse regression fails.
+/// candidates grow no faster than that, with a margin, so that a worse regression fails. The
+/// associativity relation that every caller of every completion is checked against is read
+/// without copying the labels compared: the allocations grow about four times per doubling,
+/// where a copy of both labels for each check made them grow about eight times (1.0 million
+/// more from 50 to 100 operands, 7.6 million more from 100 to 200).
 #[test]
 fn chains_beside_a_rewrite_and_a_sequence_keep_their_doomed_readings_within_a_bound() {
     let _measuring = measuring();
-    let [at_50, at_100, at_200] = rule_chain_work("left", |chain| {
+    let counts = rule_chain_counts("left", |chain| {
         format!("rule <k> {chain} => .K ~> foo(0) ... </k>")
     });
+    let [at_50, at_100, at_200] = counts
+        .each_ref()
+        .map(|work| work.get(Counter::ParserChartCompletionCandidates));
     let (first, second) = (at_100 - at_50, at_200 - at_100);
     println!("`=>` and `~>`: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200");
     assert!(
         second <= first * 10,
         "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
+    );
+    let [allocated_50, allocated_100, allocated_200] =
+        counts.each_ref().map(|work| work.get(Counter::Allocations));
+    let (first, second) = (allocated_100 - allocated_50, allocated_200 - allocated_100);
+    assert!(
+        second <= first * 5,
+        "{allocated_50}, {allocated_100} and {allocated_200} allocations at 50, 100 and 200 operands"
     );
 }
 
