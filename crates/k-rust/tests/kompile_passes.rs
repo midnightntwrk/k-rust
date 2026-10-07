@@ -6680,54 +6680,212 @@ fn complete_cells_are_rejected_with_a_typed_error() {
     }
 }
 
-#[test]
-fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
-    let source = indoc! {r#"
+/// Concretize `rule` (labelled `probe`, with any further `attributes`) under `configuration` and
+/// render its body, or return the cell-concretization error messages.
+fn concretized_cell_rule(configuration: &str, rule: &str) -> Result<String, Vec<String>> {
+    concretized_cell_rule_with(configuration, rule, "")
+}
+
+fn concretized_cell_rule_with(
+    configuration: &str,
+    rule: &str,
+    attributes: &str,
+) -> Result<String, Vec<String>> {
+    let source = format!(
+        r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
-          configuration
-            <top>
-              <left>
-                <value> 0 </value>
-              </left>
-              <right> 1 </right>
-            </top>
-          rule
-            <left>
-              <value> 0 => 2 </value>
-              <right> 1 => 3 </right>
-              ...
-            </left>
+          configuration {configuration}
+          rule {rule} [label(probe){attributes}]
+          syntax K
+          syntax Map
         endmodule
-    "#};
-    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+        "#,
+    );
+    let definition = resolve_semantic_casts(&parsed(&source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
-    let transformed = concretize_cells(&definition).unwrap();
-    let body = transformed
+    let transformed = concretize_cells(&definition).map_err(|error| {
+        error
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| {
+                assert!(
+                    diagnostic.location.is_some(),
+                    "the error should be located at the rule: {diagnostic:?}"
+                );
+                diagnostic.message
+            })
+            .collect::<Vec<_>>()
+    })?;
+    let bodies = transformed
         .main_module()
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match &**sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
-            } if attributes.get("initializer").is_none()
-                && Printer::new().print_term(body).contains("#token(\"2\"") =>
-            {
+            } if attributes.get_str("label") == Some("probe") => {
                 Some(Printer::new().print_term(body))
             }
             _ => None,
         })
-        .expect("the labeled rule should remain");
+        .collect::<Vec<_>>();
+    let [body] = bodies.as_slice() else {
+        panic!("expected one rule labelled probe, found {bodies:?}")
+    };
+    Ok(body.clone())
+}
 
-    assert!(
-        body.contains("<value>"),
-        "the direct child was lost: {body}"
+// A cell written inside a parent that does not contain it in the configuration denotes the cell
+// where the configuration declares it: completion places it there, beside its written parent,
+// and never drops it. Dropping it would compile a rule that matches any content of that cell and
+// never updates it.
+#[test]
+fn places_a_shallower_misnested_cell_beside_its_written_parent() {
+    let body = concretized_cell_rule(
+        "<top> <left> <value> 0 </value> </left> <right> 1 </right> </top>",
+        "<left> <value> 0 => 2 </value> <right> 1 => 3 </right> ... </left>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<left>`(`<value>`(#token("0","Int")=>#token("2","Int"))),`<right>`(#token("1","Int")=>#token("3","Int"))),_DotVar0)"#
     );
+}
+
+#[test]
+fn places_a_misplaced_cell_beside_its_written_parent_with_other_cells_unmentioned() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> <c> 0 </c> </a> </top>",
+        "<a> <b> X => 1 </b> <k> 5 => 6 </k> ... </a>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<k>`(#token("5","Int")=>#token("6","Int")),`<a>`(`<b>`(X=>#token("1","Int")),_DotVar2)),_DotVar0)"#
+    );
+}
+
+#[test]
+fn places_two_misplaced_cells_beside_their_written_parent() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <s> 0 </s> <a> <b> 0 </b> </a> </top>",
+        "<a> <b> X => 1 </b> <k> 5 => 6 </k> <s> 1 => 2 </s> ... </a>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<k>`(#token("5","Int")=>#token("6","Int")),`<s>`(#token("1","Int")=>#token("2","Int")),`<a>`(`<b>`(X=>#token("1","Int")))),_DotVar0)"#
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_written_inside_a_repeated_cell() {
+    let body = concretized_cell_rule(
+        r#"<top> <k> 0 </k> <as> <a multiplicity="*" type="Map"> <id> 0 </id> <b> 0 </b> </a> </as> </top>"#,
+        "<a> <id> 1 </id> <b> X => 1 </b> <k> 5 => 6 </k> ... </a>",
+    )
+    .unwrap();
+    assert_eq!(body.matches("`<a>`(").count(), 1, "{body}");
+    assert_eq!(body.matches("`<k>`(").count(), 1, "{body}");
     assert!(
-        !body.contains("<right>"),
-        "the shallower sibling should match Java's discarded level: {body}"
+        body.starts_with(
+            r#"`<generatedTop>`(`<top>`(`<k>`(#token("5","Int")=>#token("6","Int")),`<as>`("#
+        ),
+        "the <k> cell belongs beside <as> under <top>: {body}"
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_in_the_repeated_ancestor_instance_of_its_written_parent() {
+    let body = concretized_cell_rule(
+        r#"<top> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <k> 0 </k> <frame> <locals> 0 </locals> </frame> <env> 0 </env> </thread> </threads> </top>"#,
+        "<frame> <locals> L => 1 </locals> <env> 5 => 6 </env> </frame>",
+    )
+    .unwrap();
+    // One <thread> holds both the written <frame> and the <env> written inside it.
+    assert_eq!(body.matches("`<thread>`(").count(), 1, "{body}");
+    assert!(
+        body.contains(
+            r#"`<frame>`(`<locals>`(L=>#token("1","Int"))),`<env>`(#token("5","Int")=>#token("6","Int"))"#
+        ),
+        "{body}"
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_written_alone_inside_a_parent() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<a> <k> 5 => 6 </k> ... </a>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<k>`(#token("5","Int")=>#token("6","Int")),`<a>`(_DotVar2)),_DotVar0)"#
+    );
+}
+
+#[test]
+fn places_a_misplaced_cell_from_another_branch_under_its_own_parents() {
+    let body = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> <x> <d> <c> 0 </c> </d> </x> </top>",
+        "<a> <b> X => 1 </b> <c> 5 => 6 </c> ... </a>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(`<b>`(X=>#token("1","Int"))),`<x>`(`<d>`(`<c>`(#token("5","Int")=>#token("6","Int"))))),_DotVar0)"#
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_whose_place_holds_an_explicit_sibling() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<k> 7 </k> <a> <b> X => 1 </b> <k> 5 => 6 </k> ... </a>",
+    )
+    .unwrap_err();
+    // Both <k> cells belong directly under the one <top>: no completion holds them.
+    assert_eq!(
+        errors,
+        [
+            "Ambiguous completion: <top> (after moving <k> written inside <a> to where the configuration declares it)"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_cross_a_rewrite() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<a> <b> X </b> <k> 5 </k> </a> => <a> <b> 1 </b> <k> 6 </k> </a>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would take it across a rewrite"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_with_no_enclosing_cell_to_hold_it() {
+    let errors = concretized_cell_rule_with(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<a> <b> X => 1 </b> <k> 5 </k> ... </a>",
+        ", anywhere",
+    )
+    .unwrap_err();
+    // An `anywhere` rule is not completed to the top cell: its outermost cell is <a>.
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and the rule has no enclosing cell to hold it"
+        ]
     );
 }
 

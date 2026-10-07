@@ -22,6 +22,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
@@ -569,6 +570,21 @@ impl CellModel {
         })
     }
 
+    /// Whether the configuration places cells of sort `sort` strictly below cells of sort
+    /// `ancestor`.
+    fn is_strictly_below(&self, sort: &Sort, ancestor: &Sort) -> bool {
+        let mut current = sort;
+        // Invariant: `current` is `sort` or one of its ancestors, reached by at most `self.cells.len()` parent links; a well-formed configuration is a forest, whose chains are shorter than that, and the bound stops a cyclic parent chain.
+        for _ in 0..self.cells.len() {
+            match self.parents.get(current) {
+                Some(parent) if parent == ancestor => return true,
+                Some(parent) => current = parent,
+                None => return false,
+            }
+        }
+        false
+    }
+
     fn cell_for_label(&self, label: &Label) -> Option<&Cell> {
         self.by_label
             .get(&LabelHead::from(label))
@@ -633,6 +649,28 @@ struct Concretizer<'use_, 'definition> {
     /// Whether a fragment test of the last sentence became a conjunction (`_andBool_`) of the
     /// sort predicates of two or more cells.
     conjoins_fragment: bool,
+    /// The cells of the last sentence moved out of the parent they were written in, as
+    /// "`<cell>` written inside `<parent>`", named in an error of that sentence.
+    moved_cells: RefCell<Vec<String>>,
+}
+
+/// A cell written inside a parent cell that the configuration does not place it under, on its
+/// way to the enclosing cell that places it.
+struct MovedCell {
+    term: Term,
+    /// The label of the moved cell.
+    cell: String,
+    /// The label of the cell it was written in.
+    written_in: String,
+}
+
+impl MovedCell {
+    fn describe(&self) -> String {
+        format!(
+            "Cell {} written inside {} belongs outside {} in the configuration",
+            self.cell, self.written_in, self.written_in
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -651,6 +689,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             generated: BTreeSet::new(),
             fragments: BTreeMap::new(),
             conjoins_fragment: false,
+            moved_cells: RefCell::new(Vec::new()),
         }
     }
 
@@ -662,6 +701,22 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.generated.clear();
         self.fragments.clear();
         self.conjoins_fragment = false;
+        self.moved_cells.borrow_mut().clear();
+        self.concretize_sentence(sentence).map_err(|message| {
+            let moved = self.moved_cells.borrow();
+            // A placement error already names the moved cell it is about.
+            if moved.is_empty() || moved.iter().any(|moved| message.contains(moved.as_str())) {
+                message
+            } else {
+                format!(
+                    "{message} (after moving {} to where the configuration declares it)",
+                    moved.join(", ")
+                )
+            }
+        })
+    }
+
+    fn concretize_sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
         match sentence {
             Sentence::Rule {
                 body,
@@ -903,65 +958,192 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         Ok(Some(recurse))
     }
 
+    /// Complete every incomplete parent cell of `term` with its missing intermediate cells.
+    ///
+    /// A cell written inside a parent cell whose sort is not an ancestor of the cell's sort in
+    /// the configuration is moved out of that parent into the cell bag holding the parent, so
+    /// that the enclosing cell places it where the configuration declares it (see
+    /// [`Self::complete_parent`]). A moved cell that reaches anything other than the body of an
+    /// enclosing cell (a rewrite, an alias, a sequence, a non-cell symbol or the top of `term`)
+    /// has no place in the rule, which is rejected.
     fn add_parents(&self, term: Term) -> Result<Term, String> {
-        let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated().into_parts() {
-            TermParts::Apply { label, arguments } => {
-                let arguments = arguments
-                    .into_iter()
-                    .map(|argument| self.add_parents(argument))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let application = Term::Apply {
-                    label: label.clone(),
-                    arguments,
-                };
-                if let Some(cell) = self.model.cell_for_label(&label)
-                    && !cell.children.is_empty()
-                    && !self.is_complete_cell(&application, cell)
-                {
-                    self.complete_parent(application, cell)?
-                } else {
-                    application
-                }
-            }
-            TermParts::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.add_parents(*left)?),
-                right: Box::new(self.add_parents(*right)?),
-            },
-            TermParts::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.add_parents(*pattern)?),
-                alias: Box::new(self.add_parents(*alias)?),
-            },
-            TermParts::Sequence(items) => Term::Sequence(
-                items
-                    .into_iter()
-                    .map(|item| self.add_parents(item))
-                    .collect::<Result<_, _>>()?,
-            ),
-            leaf @ (TermParts::InjectedLabel(_)
-            | TermParts::Variable { .. }
-            | TermParts::Token { .. }) => Term::from(leaf),
-            TermParts::Annotated { .. } => unreachable!(),
-        };
-        Ok(with_metadata(rebuilt, metadata))
+        let (term, moved) = self.place_cells(term)?;
+        match moved.first() {
+            None => Ok(term),
+            Some(moved) => Err(format!(
+                "{}, and the rule has no enclosing cell to hold it",
+                moved.describe()
+            )),
+        }
     }
 
-    fn complete_parent(&self, application: Term, cell: &Cell) -> Result<Term, String> {
+    /// [`Self::add_parents`] on one subterm, returning the cells moved out of it that the
+    /// enclosing cell bag must place.
+    fn place_cells(&self, term: Term) -> Result<(Term, Vec<MovedCell>), String> {
+        let metadata = term.metadata().cloned();
+        let (rebuilt, moved) = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
+                let parent = self
+                    .model
+                    .cell_for_label(&label)
+                    .filter(|cell| !cell.children.is_empty());
+                let mut moved = Vec::new();
+                let mut placed = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let (argument, argument_moved) = self.place_cells(argument)?;
+                    placed.push(argument);
+                    moved.extend(argument_moved);
+                }
+                if label.is(InternalLabel::Cells) {
+                    // A cell concatenation is transparent: the moved cells become siblings of
+                    // its items in the same enclosing bag.
+                    (
+                        Term::Apply {
+                            label,
+                            arguments: placed,
+                        },
+                        moved,
+                    )
+                } else if let Some(cell) = parent {
+                    if let Some(first) = moved.first() {
+                        if incomplete_parts(&placed).is_err() {
+                            return Err(format!(
+                                "{}, and moving it there would cross the complete cell {}",
+                                first.describe(),
+                                label.name
+                            ));
+                        }
+                        let body = &mut placed[1];
+                        let mut items =
+                            flatten_cells(body).into_iter().cloned().collect::<Vec<_>>();
+                        items.extend(moved.into_iter().map(|moved| moved.term));
+                        *body = make_body(items);
+                    }
+                    let application = Term::Apply {
+                        label,
+                        arguments: placed,
+                    };
+                    if self.is_complete_cell(&application, cell) {
+                        (application, Vec::new())
+                    } else {
+                        self.complete_parent(application, cell)?
+                    }
+                } else if let Some(moved) = moved.first() {
+                    return Err(format!(
+                        "{}, and moving it there would cross {}",
+                        moved.describe(),
+                        if self.model.cell_for_label(&label).is_some() {
+                            format!("the contents of the leaf cell {}", label.name)
+                        } else {
+                            format!("the symbol {}", label.name)
+                        }
+                    ));
+                } else {
+                    (
+                        Term::Apply {
+                            label,
+                            arguments: placed,
+                        },
+                        Vec::new(),
+                    )
+                }
+            }
+            TermParts::Rewrite { left, right } => {
+                let (left, left_moved) = self.place_cells(*left)?;
+                let (right, right_moved) = self.place_cells(*right)?;
+                if let Some(moved) = left_moved.first().or(right_moved.first()) {
+                    return Err(format!(
+                        "{}, and moving it there would take it across a rewrite",
+                        moved.describe()
+                    ));
+                }
+                (
+                    Term::Rewrite {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    Vec::new(),
+                )
+            }
+            TermParts::As { pattern, alias } => {
+                let (pattern, pattern_moved) = self.place_cells(*pattern)?;
+                let (alias, alias_moved) = self.place_cells(*alias)?;
+                if let Some(moved) = pattern_moved.first().or(alias_moved.first()) {
+                    return Err(format!(
+                        "{}, and moving it there would take it out of an alias pattern (#as)",
+                        moved.describe()
+                    ));
+                }
+                (
+                    Term::As {
+                        pattern: Box::new(pattern),
+                        alias: Box::new(alias),
+                    },
+                    Vec::new(),
+                )
+            }
+            TermParts::Sequence(items) => {
+                let mut placed = Vec::with_capacity(items.len());
+                for item in items {
+                    let (item, moved) = self.place_cells(item)?;
+                    if let Some(moved) = moved.first() {
+                        return Err(format!(
+                            "{}, and moving it there would take it out of a K sequence",
+                            moved.describe()
+                        ));
+                    }
+                    placed.push(item);
+                }
+                (Term::Sequence(placed), Vec::new())
+            }
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => (Term::from(leaf), Vec::new()),
+            TermParts::Annotated { .. } => unreachable!(),
+        };
+        Ok((with_metadata(rebuilt, metadata), moved))
+    }
+
+    /// Complete an incomplete parent `cell`: each cell item written inside it whose sort the
+    /// configuration places below `cell` is wrapped in its missing intermediate cells, grouped
+    /// with its siblings by [`Self::make_parents`]. Each other cell item is returned unchanged
+    /// as moved out of `cell`, for the enclosing cell to place: the configuration puts it
+    /// outside `cell`, beside it or elsewhere, and it is placed with the cells written around
+    /// `cell`.
+    fn complete_parent(
+        &self,
+        application: Term,
+        cell: &Cell,
+    ) -> Result<(Term, Vec<MovedCell>), String> {
         let Term::Apply { label, arguments } = application.unannotated() else {
             unreachable!()
         };
         let (open_left, contents, open_right) = incomplete_parts(arguments)?;
         let mut completion = Vec::new();
         let mut others = Vec::new();
+        let mut moved = Vec::new();
         for item in flatten_cells(contents) {
-            if self.model.sort_for_term(item).is_some() {
-                completion.push(item.clone());
-            } else {
-                others.push(item.clone());
+            match self.model.sort_for_term(item) {
+                Some(sort) if self.model.is_strictly_below(&sort, &cell.sort) => {
+                    completion.push(item.clone());
+                }
+                Some(sort) => {
+                    let moved_cell = MovedCell {
+                        term: item.clone(),
+                        cell: self.model.cells[&sort].label.name.clone(),
+                        written_in: label.name.clone(),
+                    };
+                    self.moved_cells.borrow_mut().push(format!(
+                        "{} written inside {}",
+                        moved_cell.cell, moved_cell.written_in
+                    ));
+                    moved.push(moved_cell);
+                }
+                None => others.push(item.clone()),
             }
         }
         let target_level = self.model.levels[&cell.sort] + 1;
-        // Invariant: `completion` holds the terms still to be placed under `cell`; each iteration replaces every item at the `deepest` level by `make_parents` cells one level up, so the deepest level above `target_level` decreases.
+        // Invariant: `completion` holds the terms still to be placed under `cell`, all of sorts strictly below `cell.sort`; each iteration replaces every item at the `deepest` level by `make_parents` cells one level up, so the deepest level above `target_level` decreases, and the loop ends with every item a child of `cell`.
         while completion.iter().any(|item| {
             self.model
                 .sort_for_term(item)
@@ -999,30 +1181,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
             completion = retained;
         }
-        // Only the remaining completion items of the deepest level are kept. That is normally
-        // the direct-child level, but it also discards a shallower, accidentally nested sibling
-        // when valid direct children are present, which drops a cell the rule wrote rather than
-        // reporting it. Some real definitions (notably KMIR) depend on this.
-        let deepest_remaining = completion
-            .iter()
-            .filter_map(|item| {
-                self.model
-                    .sort_for_term(item)
-                    .and_then(|sort| self.model.levels.get(&sort).copied())
-            })
-            .max();
-        others.extend(completion.into_iter().filter(|item| {
-            deepest_remaining.is_none_or(|deepest| {
-                self.model
-                    .sort_for_term(item)
-                    .and_then(|sort| self.model.levels.get(&sort).copied())
-                    == Some(deepest)
-            })
-        }));
-        Ok(Term::Apply {
-            label: label.clone(),
-            arguments: vec![dot(open_left), make_body(others), dot(open_right)],
-        })
+        others.extend(completion);
+        Ok((
+            Term::Apply {
+                label: label.clone(),
+                arguments: vec![dot(open_left), make_body(others), dot(open_right)],
+            },
+            moved,
+        ))
     }
 
     fn make_parents(
