@@ -33,7 +33,7 @@
 //!
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
 //! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ; origin unions O(k) expected per visited node.
-//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions. A receipt's destination path shares its parent's (`AnchorPath`), a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack.
+//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions. A receipt's destination path shares its parent's (`AnchorPath`), a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack. A term a pass places unchanged under a node it builds is compared with the term it was, so it adds no receipt. The links a generated node holds are its own and those of the generated node above it, so where a pass rebuilds a deep term whose nodes carry spans of their own and that has no counterpart to compare with, `k` grows with the depth of the rebuilt part and the insertions with its square.
 //! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
@@ -1956,12 +1956,29 @@ fn annotate_level(
         });
     }
 
-    if let Some(before) = before
-        && let Some(child) = only_child_mut(term)
-        && same_term(child, before, context)
-    {
-        annotate_child(child, Some(before), 0, context, &own_origins, &path);
-        return;
+    // A pass that builds a node above the term it was given (a cell around a rule body, an `#as`
+    // around a reused subterm) leaves that term, unchanged, as one of the node's children: that
+    // child is compared with the term it was, and only the node and its other children are new.
+    // Compared position by position instead, the moved term would be taken as generated, every
+    // node of it receipted and each receipt's origins holding those of the nodes above it.
+    if let Some(before) = before {
+        let mut children = children_mut(term);
+        if let Some(moved) = children
+            .iter()
+            .position(|child| same_term(child, before, context))
+        {
+            for (index, child) in children.iter_mut().enumerate() {
+                annotate_child(
+                    child,
+                    (index == moved).then_some(before),
+                    u32::try_from(index).expect("term arity fits u32"),
+                    context,
+                    &own_origins,
+                    &path,
+                );
+            }
+            return;
+        }
     }
 
     let before = before.map(Term::unannotated);
@@ -2098,17 +2115,17 @@ fn term_origin_links(
     }
 }
 
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Term is not a sentence kind; only the listed variants are special here"
-)]
-fn only_child_mut(term: &mut Term) -> Option<&mut Term> {
+/// The children of `term`, its annotations removed, in order.
+fn children_mut(term: &mut Term) -> Vec<&mut Term> {
     match unannotated_mut(term) {
+        Term::Rewrite { left, right } => vec![&mut **left, &mut **right],
+        Term::As { pattern, alias } => vec![&mut **pattern, &mut **alias],
         Term::Sequence(items)
         | Term::Apply {
             arguments: items, ..
-        } if items.len() == 1 => items.first_mut(),
-        _ => None,
+        } => items.iter_mut().collect(),
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
+        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
     }
 }
 
@@ -2690,6 +2707,88 @@ mod tests {
             module_origin_links(&sentences, GeneratingPass::MacroExpansion),
             vec![link("z"), link("a"), link("m"), link("c"), link("b")]
         );
+    }
+
+    /// A pass that places the term it was given, unchanged, under a node it builds (here an
+    /// `#as` around a reused subterm, as term-construction minimization does) changes that node
+    /// and its parent, not the term: only they are receipted. Compared position by position, the
+    /// moved term was taken as generated, each of its nodes receipted with the origins of the
+    /// nodes above it: link insertions quadratic in its depth.
+    #[test]
+    fn a_term_moved_under_a_new_node_is_not_receipted() {
+        const DEPTH: u32 = 2_000;
+        let spanned = |term: Term, start: u32| {
+            term.with_metadata(TermMetadata {
+                span: Some(TermSpan {
+                    source: SourceId(0),
+                    start: start as usize,
+                    end: start as usize + 1,
+                }),
+                ..TermMetadata::default()
+            })
+        };
+        let chain = (1..DEPTH).fold(spanned(Term::apply("z", Vec::new()), 0), |term, level| {
+            spanned(Term::apply("s", vec![term]), level)
+        });
+        let before = definition(Term::apply("foo", vec![chain.clone()]));
+        let alias = Term::Variable {
+            name: "_Gen0".into(),
+            sort: Some(Sort::new("Nat")),
+        };
+        let probes = measure::snapshot();
+        let after = record_generated_origins(
+            &before,
+            definition(Term::apply(
+                "foo",
+                vec![Term::As {
+                    pattern: Box::new(chain),
+                    alias: Box::new(alias),
+                }],
+            )),
+            GeneratingPass::MinimizeTermConstruction,
+        );
+        let probes = measure::snapshot()
+            .delta(&probes)
+            .get(Counter::ProvenanceLinkDedupProbes);
+        let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
+            panic!("expected rule");
+        };
+        assert!(
+            body.metadata()
+                .and_then(|metadata| metadata.origin.as_ref())
+                .is_some()
+        );
+        let Term::Apply { arguments, .. } = body.unannotated() else {
+            panic!("{body:?}");
+        };
+        assert!(
+            arguments[0]
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_ref())
+                .is_some()
+        );
+        let Term::As { pattern, .. } = arguments[0].unannotated() else {
+            panic!("{:?}", arguments[0]);
+        };
+        let mut receipted = 0;
+        let mut pending = vec![&**pattern];
+        while let Some(term) = pending.pop() {
+            if term
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_ref())
+                .is_some()
+            {
+                receipted += 1;
+            }
+            if let Term::Apply { arguments, .. } = term.unannotated() {
+                pending.extend(arguments);
+            }
+        }
+        assert!(
+            probes <= 4 * u64::from(DEPTH),
+            "{probes} link insertions, {receipted} receipted nodes"
+        );
+        assert_eq!(receipted, 0);
     }
 
     #[test]
