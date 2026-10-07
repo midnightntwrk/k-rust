@@ -1856,9 +1856,11 @@ impl Grammar {
     /// [`Self::filter_associative_boundary`], decided from the production's parse label; a
     /// production without its own label is admitted) and its advanced item is useful
     /// ([`Self::advanced_item_useful`]). A production that can take part in a same-span or
-    /// productive unary cycle is useful, so that a recognition raises the cycle errors an
-    /// unfiltered one raises. An item that can continue with `winner` counts only when its
-    /// node can be part of a parse of the whole input ([`Self::node_reaches_root`]).
+    /// productive unary cycle is useful, so that a node it repeats is built and the cycle is
+    /// reported; a cycle that only items the input cannot continue would reach is part of no
+    /// parse of the input (whose forest is then finite) and is not met, as with a skipped
+    /// prediction. An item that can continue with `winner` counts only when its node can be part
+    /// of a parse of the whole input ([`Self::node_reaches_root`]).
     ///
     /// The answer depends only on `(origin, production, winner)` and the final chart `origin`,
     /// so it is memoized in `memo`. The search over the chain of callers uses an explicit

@@ -414,7 +414,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::{
-        CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, PARSE_ATTEMPTS,
+        CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput, PARSE_ATTEMPTS,
         PREDICTION_ANALYSIS_BUILDS, ParseContext, ParseError, ParseProvenance, PredictionMode,
         Pruning, ScanWinner, SourceId, Term, TermMetadata,
     };
@@ -481,6 +481,29 @@ mod tests {
 
     fn filtered(grammar: &Grammar, input: &str) -> Result<Term, ParseError> {
         grammar.parse_with_provenance(&Sort::new("Start"), input, SourceId(7), 100)
+    }
+
+    /// A parse (filtered, and retried when it fails having skipped anything) gives what one
+    /// unfiltered recognition gives: the forest, its metadata and the error alike. The one
+    /// exception is a same-span cycle the unfiltered recognition meets: it builds every item,
+    /// also those no parse of the input contains, and stops at the first cycle among them,
+    /// while a recognition that skips those items meets only the cycles of items the input can
+    /// continue (as skipped predictions already did), so it may succeed or fail otherwise.
+    /// Conversely, a cycle the filtered parse reports is one the unfiltered recognition meets.
+    fn pruning_agrees_with_unfiltered_recognition(
+        grammar: &Grammar,
+        input: &str,
+    ) -> Result<(), TestCaseError> {
+        let filtered = filtered(grammar, input);
+        let unfiltered = unfiltered(grammar, input);
+        if matches!(unfiltered, Err(ParseError::CyclicDerivation(_))) {
+            return Ok(());
+        }
+        if let (Ok(filtered), Ok(unfiltered)) = (&filtered, &unfiltered) {
+            prop_assert_eq!(metadata(filtered), metadata(unfiltered));
+        }
+        prop_assert_eq!(filtered, unfiltered);
+        Ok(())
     }
 
     fn metadata(term: &Term) -> Vec<Option<TermMetadata>> {
@@ -712,12 +735,7 @@ mod tests {
             let Ok(grammar) = Grammar::from_sentences(&sentences) else {
                 return Ok(());
             };
-            let filtered = filtered(&grammar, &input);
-            let unfiltered = unfiltered(&grammar, &input);
-            if let (Ok(filtered), Ok(unfiltered)) = (&filtered, &unfiltered) {
-                prop_assert_eq!(metadata(filtered), metadata(unfiltered));
-            }
-            prop_assert_eq!(filtered, unfiltered);
+            pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
         }
 
         #[test]
@@ -728,6 +746,71 @@ mod tests {
             let grammar = indexed_grammar(&kinds);
             prop_assert_eq!(filtered(&grammar, &input), unfiltered(&grammar, &input));
         }
+    }
+
+    /// A same-span cycle is reported when an item the input can continue reaches it, and not
+    /// when only items no parse contains do: under `S1 ::= S1 | ""`, the empty input as an
+    /// `S1` has infinitely many parses; the empty input as an `S0` whose only route to the
+    /// cycle needs an `a` has one; and `caa`, whose only route to the cycle is an item that
+    /// cannot be continued by the `a` that follows, has none, and fails where its longest
+    /// viable prefix ends.
+    #[test]
+    fn a_cycle_is_reported_only_where_the_input_can_reach_it() {
+        let grammar = |productions: &[(&str, Vec<ProductionItem>)]| {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items)) in productions.iter().enumerate() {
+                sentences.push(production(result, items.clone(), &format!("p{index}")));
+            }
+            Grammar::from_sentences(&sentences).unwrap()
+        };
+
+        let in_the_parse = grammar(&[("S0", vec![nt("S0")]), ("S0", vec![])]);
+        assert!(matches!(
+            filtered(&in_the_parse, ""),
+            Err(ParseError::CyclicDerivation(_))
+        ));
+        assert_eq!(filtered(&in_the_parse, ""), unfiltered(&in_the_parse, ""));
+
+        let behind_a_token = grammar(&[
+            ("S1", vec![nt("S2"), terminal("a")]),
+            ("S0", vec![nt("S1")]),
+            ("S0", vec![]),
+            ("S2", vec![nt("S2")]),
+            ("S2", vec![]),
+        ]);
+        assert_eq!(
+            filtered(&behind_a_token, "").map(|term| term.to_string()),
+            Ok("start(p2(.KList))".to_owned())
+        );
+        assert!(matches!(
+            unfiltered(&behind_a_token, ""),
+            Err(ParseError::CyclicDerivation(_))
+        ));
+
+        let behind_a_dead_item = grammar(&[
+            ("S1", vec![nt("S1")]),
+            ("S0", vec![nt("S2"), nt("S2"), nt("S2")]),
+            ("S1", vec![]),
+            ("S0", vec![terminal("c"), nt("S2"), nt("S1")]),
+            ("S2", vec![terminal("a"), nt("S0")]),
+            ("S0", vec![]),
+        ]);
+        let no_parse = filtered(&behind_a_dead_item, "caa");
+        assert!(
+            matches!(
+                &no_parse,
+                Err(ParseError::NoParse {
+                    position: 3,
+                    input: NoParseInput::EndOfInput,
+                    ..
+                })
+            ),
+            "{no_parse:?}"
+        );
+        assert!(matches!(
+            unfiltered(&behind_a_dead_item, "caa"),
+            Err(ParseError::CyclicDerivation(_))
+        ));
     }
 
     #[test]
