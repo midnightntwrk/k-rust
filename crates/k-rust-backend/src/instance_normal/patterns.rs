@@ -28,9 +28,9 @@ use std::{
     sync::Arc,
 };
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
-use super::{SCAN, ScanScope, compared_by_root, separated, token};
+use super::{SCAN, Scan, ScanScope, ValueQuestion, compared_by_root, separated, token};
 use crate::substitution::{Substitution, substitute};
 use crate::{
     definition::BackendDefinition,
@@ -125,7 +125,22 @@ impl BackendDefinition {
     /// ([`Self::values_apart`]). `subject_roots` fixes the roots of the subject's equation-head
     /// subterms. Positions are compared one at a time, so variables shared between positions are
     /// not followed: that only answers `false` more often.
+    ///
+    /// The question is answered `false` when [`super::VALUE_QUESTIONS`] are already open on the
+    /// thread (`super::ValueQuestion`).
     pub(super) fn misses_values(
+        &self,
+        pattern: &Term,
+        subject: &Term,
+        subject_roots: &mut dyn NormalForms,
+    ) -> bool {
+        let Some(_question) = ValueQuestion::open() else {
+            return false;
+        };
+        self.misses_values_at(pattern, subject, subject_roots)
+    }
+
+    fn misses_values_at(
         &self,
         pattern: &Term,
         subject: &Term,
@@ -133,8 +148,8 @@ impl BackendDefinition {
     ) -> bool {
         match (pattern.kind(), subject.kind()) {
             (TermKind::And(left, right), _) => {
-                self.misses_values(left, subject, subject_roots)
-                    || self.misses_values(right, subject, subject_roots)
+                self.misses_values_at(left, subject, subject_roots)
+                    || self.misses_values_at(right, subject, subject_roots)
             }
             (
                 TermKind::Application {
@@ -613,9 +628,16 @@ fn contains_conjunction(pattern: &Term) -> bool {
 /// (`BackendDefinition::excluded`). Every equation in a round's set has normal arguments, so
 /// every answer given during the round is sound, and so is every equation the round adds. Each
 /// round's set is a function of the previous one and the rounds only add, so they stop when one
-/// adds nothing, and the result does not depend on the order of the equations. Instance
-/// normality during a round recurses only into subterms of the term asked, since an exclusion
-/// reads the set instead of deciding another left-hand side.
+/// adds nothing, and the result does not depend on the order of the equations: each left-hand
+/// side is tested in a scan scope of its own, from an empty memo.
+///
+/// The exclusion of an equation outside the set decides the instance normality of terms that are
+/// not subterms of the term asked: the arguments of other left-hand sides and right-hand sides
+/// instantiated by narrowing ([`BackendDefinition::misses_values`]). Those decisions can come back
+/// to a term being decided (`f(f(inj(k(X)))) = c` asks about `f(inj(k(X)))` while deciding it),
+/// and narrowing builds new terms at each level. A term asked while being decided is answered
+/// "not instance-normal", and at most `super::VALUE_QUESTIONS` such exclusions are open at once
+/// (`super::ValueQuestion`); both answers are conservative, so every answer stays sound.
 ///
 /// The computation starts its own scan memo (and restores the caller's afterwards): it runs on
 /// first use, which may be inside a scan whose memo was filled before the facts existed.
@@ -720,7 +742,7 @@ fn reachable_roots(theories: &[&Theory; 2], start: &TermIndex) -> Option<Vec<Ter
 /// [`pattern_facts`] in progress on this thread: holds the caller's scan memo, and on drop
 /// (also when the computation unwinds) clears the approximation and restores the memo.
 struct Computing {
-    caller_scan: (usize, FxHashMap<Term, Option<super::InstanceNormal>>),
+    caller_scan: Scan,
 }
 
 impl Computing {

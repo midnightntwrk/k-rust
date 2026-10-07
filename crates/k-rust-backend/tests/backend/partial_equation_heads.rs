@@ -454,3 +454,73 @@ fn a_refuted_requires_does_not_discharge_definedness_through_a_reducible_pattern
     );
     assert_w_h_keeps_its_obligation(&definition);
 }
+
+/// The anywhere equation `{head}(X0) = {right}` with `X0 \in {pattern}`, of argument sort
+/// `{argument}` and result sort `{result}`.
+fn anywhere_equation(
+    head: &str,
+    argument: &str,
+    result: &str,
+    pattern: &str,
+    right: &str,
+) -> String {
+    format!(
+        r"axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{{argument}, R}}(X0:{argument}, {pattern}), \top{{R}}())),
+            \equals{{{result}, R}}({head}{{}}(X0:{argument}), \and{{{result}}}({right}, \top{{{result}}}()))
+        ) [anywhere{{}}()]"
+    )
+}
+
+fn subsort(sub: &str, sup: &str) -> String {
+    format!(
+        r"axiom{{R}} \exists{{R}}(Value:{sup}, \equals{{{sup}, R}}(Value:{sup}, inj{{{sub}, {sup}}}(From:{sub}))) [subsort{{{sub}, {sup}}}()]"
+    )
+}
+
+fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept: &str) {
+    let query = format!(r"\ceil{{{sort}, {sort}}}({term})");
+    assert_eq!(
+        simplified_predicate_under(definition, &query, &[]),
+        Predicate::Ceil(internal_term(definition, kept)),
+        "{query}"
+    );
+}
+
+/// `f(f(inj{K,F}(k(X)))) = c`: deciding whether the equation's argument `f(inj{K,F}(k(X)))` is
+/// normal scans the equation itself against that argument, which asks the same question of the
+/// same term. The decision must end, and does: the argument is normal (the equation needs an
+/// `f` application inside `f`, and an instance of the argument has an injection there).
+///
+/// `\ceil(f(inj{K,F}(k(c))))` is `\top` by the axioms (an instance of the equation's argument is
+/// an `f` application, never the injection `inj{K,F}(k(c))`, so no equation reaches the value
+/// production's application), but the obligation is kept: the syntactic unification test reads
+/// the equation's `f(…)` argument up to equations, which leaves its root open. That is a sound
+/// loss of precision; this test pins that the decision ends with a sound answer.
+#[test]
+fn a_self_nested_left_hand_side_is_decided_without_unbounded_recursion() {
+    let source = format!(
+        r#"[]
+    module MAIN
+        sort SortK{{}} []
+        sort SortF{{}} []
+        symbol inj{{From, To}}(From) : To [sortInjection{{}}()]
+        {}
+        symbol c{{}}() : SortF{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol k{{}}(SortF{{}}) : SortK{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol f{{}}(SortF{{}}) : SortF{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+        {}
+    endmodule []"#,
+        subsort("SortK{}", "SortF{}"),
+        anywhere_equation(
+            "f",
+            "SortF{}",
+            "SortF{}",
+            "f{}(inj{SortK{}, SortF{}}(k{}(VarX:SortF{})))",
+            "c{}()",
+        ),
+    );
+    let definition = internalize(&source).expect("the self-nested definition should internalize");
+    let term = "f{}(inj{SortK{}, SortF{}}(k{}(c{}())))";
+    assert_ceil_kept(&definition, term, "SortF{}", term);
+}

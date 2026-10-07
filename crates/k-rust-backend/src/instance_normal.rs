@@ -104,12 +104,21 @@ impl BackendDefinition {
         self.instance_normal_memoized(term)
     }
 
+    /// The memoized decision. A term asked again while it is being decided (the exclusion of a
+    /// non-normal-argument equation decides terms that are not subterms of the scanned one,
+    /// `patterns.rs`, and can come back to it) is answered "not instance-normal": the decision
+    /// then assumes nothing it has not shown, and every reader of the answer is monotone in it
+    /// (a term not shown normal gets more representatives, an equation not excluded leaves
+    /// more applications non-normal), so the outer answer stays sound.
     fn instance_normal_memoized(&self, term: &Term) -> Option<InstanceNormal> {
-        if let Some(known) = ScanScope::known(term) {
-            return known;
+        match ScanScope::known(term) {
+            Some(Decision::Decided(normal)) => return normal,
+            Some(Decision::Deciding) => return None,
+            None => {}
         }
+        ScanScope::record(term, Decision::Deciding);
         let normal = self.instance_normal_uncached(term);
-        ScanScope::record(term, normal);
+        ScanScope::record(term, Decision::Decided(normal));
         normal
     }
 
@@ -182,12 +191,30 @@ impl BackendDefinition {
 }
 
 thread_local! {
-    /// The instance normality of the terms decided during the outermost
-    /// [`BackendDefinition::instance_normal`] call on this thread, if one is open. Equation
+    /// The state of the outermost [`BackendDefinition::instance_normal`] call on this thread,
+    /// if one is open.
+    static SCAN: RefCell<Scan> = RefCell::new(Scan::default());
+}
+
+/// The state one outermost scan shares with the scans nested in it.
+#[derive(Default)]
+struct Scan {
+    /// The open [`ScanScope`]s.
+    scopes: usize,
+    /// The instance normality of the terms decided or being decided during the call. Equation
     /// matching inside the scan asks about the subterms of the scanned term again; the answer
     /// is a function of the term and the definition, so it is kept for the call.
-    static SCAN: RefCell<(usize, FxHashMap<Term, Option<InstanceNormal>>)> =
-        RefCell::new((0, FxHashMap::default()));
+    memo: FxHashMap<Term, Decision>,
+    /// The value questions (`patterns.rs` `misses_values`) open on this thread.
+    open_value_questions: usize,
+}
+
+/// A term's entry in the scan memo.
+#[derive(Clone, Copy)]
+enum Decision {
+    /// The term is being decided further up this thread's stack.
+    Deciding,
+    Decided(Option<InstanceNormal>),
 }
 
 /// One outermost [`BackendDefinition::instance_normal`] call; nested calls share its memo.
@@ -195,17 +222,17 @@ struct ScanScope(());
 
 impl ScanScope {
     fn enter() -> Self {
-        SCAN.with(|scan| scan.borrow_mut().0 += 1);
+        SCAN.with(|scan| scan.borrow_mut().scopes += 1);
         Self(())
     }
 
-    fn known(term: &Term) -> Option<Option<InstanceNormal>> {
-        SCAN.with(|scan| scan.borrow().1.get(term).copied())
+    fn known(term: &Term) -> Option<Decision> {
+        SCAN.with(|scan| scan.borrow().memo.get(term).copied())
     }
 
-    fn record(term: &Term, normal: Option<InstanceNormal>) {
+    fn record(term: &Term, decision: Decision) {
         SCAN.with(|scan| {
-            scan.borrow_mut().1.insert(term.clone(), normal);
+            scan.borrow_mut().memo.insert(term.clone(), decision);
         });
     }
 }
@@ -214,13 +241,43 @@ impl Drop for ScanScope {
     fn drop(&mut self) {
         SCAN.with(|scan| {
             let mut scan = scan.borrow_mut();
-            scan.0 -= 1;
-            if scan.0 == 0 {
-                scan.1.clear();
+            scan.scopes -= 1;
+            if scan.scopes == 0 {
+                scan.memo.clear();
             }
         });
     }
 }
+
+/// One open value question (`patterns.rs` `misses_values`): while it is open, the questions
+/// nested in it count against [`VALUE_QUESTIONS`].
+struct ValueQuestion(());
+
+impl ValueQuestion {
+    /// Opens a question, unless [`VALUE_QUESTIONS`] are already open on this thread.
+    fn open() -> Option<Self> {
+        SCAN.with(|scan| {
+            let mut scan = scan.borrow_mut();
+            (scan.open_value_questions < VALUE_QUESTIONS).then(|| {
+                scan.open_value_questions += 1;
+                Self(())
+            })
+        })
+    }
+}
+
+impl Drop for ValueQuestion {
+    fn drop(&mut self) {
+        SCAN.with(|scan| scan.borrow_mut().open_value_questions -= 1);
+    }
+}
+
+/// The most value questions open at once on a thread. A question decides the instance
+/// normality of terms built from left-hand sides and right-hand sides (not subterms of the
+/// scanned term), whose scans can ask further questions; the memo's in-progress entries end
+/// every chain that comes back to a term, and this bound ends every other chain. A question
+/// asked past it answers "not excluded".
+const VALUE_QUESTIONS: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Side {
