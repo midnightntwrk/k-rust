@@ -269,6 +269,11 @@ impl ExecutionEvaluationContext {
         self.state = snapshot;
     }
 
+    /// The position of the next byte a read takes from the input.
+    pub(crate) const fn cursor(&self) -> usize {
+        self.state.cursor
+    }
+
     /// Whether nothing was read or written since `snapshot`: input is only consumed and the
     /// transcript only grows.
     pub(crate) fn unchanged_since(&self, snapshot: &ExecutionIoState) -> bool {

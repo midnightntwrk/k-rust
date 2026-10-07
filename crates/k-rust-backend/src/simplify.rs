@@ -4053,13 +4053,11 @@ fn simplify_root(
         cut = true;
         TheoryScan::NotCacheable
     } else {
-        let recorded = UnspecifiedValues::recorded(
-            term,
-            assumptions,
-            options,
-            active_conditions,
-            execution.is_some(),
-        );
+        // The console the evaluation would read: its position, when there is one. A failed
+        // attempt's reads are undone, so an evaluation that ends unevaluated ends where it began.
+        let console = execution.as_deref().map(ExecutionEvaluationContext::cursor);
+        let recorded =
+            UnspecifiedValues::recorded(term, assumptions, options, active_conditions, console);
         // A recorded value is the value an evaluation now would give; a recorded failure is where
         // its evaluation would end, so only its last scan is repeated (`UnspecifiedValues`). A
         // retry continues the application's evaluation.
@@ -4176,7 +4174,7 @@ fn simplify_root(
                 assumptions,
                 options,
                 active_conditions,
-                execution.is_some(),
+                console,
             );
         }
         contingent = history.contingent;
@@ -4348,7 +4346,8 @@ const READS_BOUND: usize = 256;
 ///   reused a record for).
 /// - `active`: the rule-condition keys it found active, whose condition it left unsimplified;
 ///   `inserted`: those it found inactive, and evaluated.
-/// - `console`: whether it reached a console hook, which reads the console when there is one.
+/// - `console`: whether it reached a console hook, which reads the console when there is one: a
+///   read takes the input from the console's position.
 ///
 /// `absent` and `inserted` together hold at most [`READS_BOUND`] entries; past that `unbounded`
 /// is set and they are dropped, and a record keeps only the sufficient check that nothing is open
@@ -4954,7 +4953,8 @@ struct Record {
     outcome: RecordedOutcome,
     assumptions: AssumptionContent,
     options: SimplificationOptions,
-    execution: bool,
+    /// The console's read position when the evaluation began, if there was a console.
+    console: Option<usize>,
     reads: Reads,
     /// The stack up to `reads.reached`.
     reached: Option<Arc<StackPrefix>>,
@@ -4972,10 +4972,10 @@ impl Record {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         active: &BTreeSet<ConditionKey>,
-        execution: bool,
+        console: Option<usize>,
     ) -> bool {
         if self.options != options
-            || (self.reads.console && self.execution != execution)
+            || (self.reads.console && self.console != console)
             || !self.assumptions.holds(assumptions)
         {
             return false;
@@ -5050,13 +5050,14 @@ struct RecordTable {
 /// Reuse is memoization: a record is served ([`Self::recorded`]) only where an evaluation of the
 /// application would read of its surroundings what the recorded one read ([`Reads`]): the open
 /// attempts it reached at the same depths, none of the applications it found not open, the
-/// rule-condition keys it found active and none of those it inserted, the console if it reached
-/// a console hook, the same options and assumptions by content (`\top` being no assumption). The
-/// evaluation is a function of those reads, so it would compute the recorded outcome; a served
-/// value is that evaluation's value, and a served failure starts the evaluation as its last
-/// retry, the failed equations excluded and the same contingency handed on. The one difference
-/// is the budget: a reused outcome does not spend what the evaluation would. What the record
-/// read is added to the evaluation that serves it ([`UnspecifiedEvaluation::reach`]).
+/// rule-condition keys it found active and none of those it inserted, the console at the same
+/// position (or no console) if it reached a console hook, the same options and assumptions by
+/// content (`\top` being no assumption). The evaluation is a function of those reads, so it
+/// would compute the recorded outcome; a served value is that evaluation's value, and a served
+/// failure starts the evaluation as its last retry, the failed equations excluded and the same
+/// contingency handed on. The one difference is the budget: a reused outcome does not spend what
+/// the evaluation would. What the record read is added to the evaluation that serves it
+/// ([`UnspecifiedEvaluation::reach`]).
 struct UnspecifiedValues;
 
 impl UnspecifiedValues {
@@ -5072,7 +5073,7 @@ impl UnspecifiedValues {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         active: &BTreeSet<ConditionKey>,
-        execution: bool,
+        console: Option<usize>,
     ) -> Option<(RecordedOutcome, Reads)> {
         if !unspecified_reuse() {
             return None;
@@ -5082,7 +5083,7 @@ impl UnspecifiedValues {
             UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
                 records
                     .iter()
-                    .find(|record| record.holds(stack, assumptions, options, active, execution))
+                    .find(|record| record.holds(stack, assumptions, options, active, console))
                     .map(|record| (record.outcome.clone(), record.reads.clone()))
             })
         })
@@ -5097,7 +5098,7 @@ impl UnspecifiedValues {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         active: &BTreeSet<ConditionKey>,
-        execution: bool,
+        console: Option<usize>,
     ) {
         if !unspecified_reuse() || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes == 0) {
             return;
@@ -5127,7 +5128,7 @@ impl UnspecifiedValues {
             outcome,
             assumptions: AssumptionContent::of(assumptions),
             options,
-            execution,
+            console,
             reads,
             reached,
             stack,
@@ -5150,7 +5151,7 @@ impl UnspecifiedValues {
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         active: &BTreeSet<ConditionKey>,
-        execution: bool,
+        console: Option<usize>,
     ) {
         let depth = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| stack.entries.len());
         Self::record(
@@ -5164,7 +5165,7 @@ impl UnspecifiedValues {
             assumptions,
             options,
             active,
-            execution,
+            console,
         );
     }
 
@@ -5216,7 +5217,8 @@ impl UnspecifiedValues {
             assumptions,
             options,
             active,
-            execution.is_some(),
+            // Effect-free: the console is where it was when the evaluation began.
+            execution.map(ExecutionEvaluationContext::cursor),
         );
     }
 }
@@ -6414,6 +6416,117 @@ mod tests {
         let fresh = without_unspecified_reuse(run);
         assert_eq!(reused, term(&definition, r#"g{}(\dv{SortString{}}(""))"#));
         assert_eq!(reused, fresh);
+    }
+
+    /// A failed evaluation that read the console is not reused once the console has moved on:
+    /// its attempts read input that a later evaluation would not read. `F = substr("abc", 4, 1)
+    /// = g(read())` with `g("x") = F ++ ""` (no value) and `g("y") = "v"`, inside `T =
+    /// substr("abc", 5, 1) = F ++ read() ++ F` on the input `"xy"`: the first `F` reads `"x"`
+    /// and fails (its read undone), `T` reads `"x"`, and the second `F` reads `"y"` and is `"v"`,
+    /// as it is with reuse turned off.
+    #[cfg(feature = "test-switches")]
+    #[test]
+    fn a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on() {
+        let guard = |index: &str| {
+            format!(
+                r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), eqInt{{}}(J:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+            )
+        };
+        let f = r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#;
+        let read = r#"readConsole{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#;
+        let equation = |lhs: &str, requires: &str, rhs: &str, label: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                            \top{{R}}()
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}({lhs}, \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}()))
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let substr = "substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})";
+        let is = |value: &str| {
+            format!(r#"eqString{{}}(Z:SortString{{}}, \dv{{SortString{{}}}}("{value}"))"#)
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
+                hooked-symbol eqString{{}}(SortString{{}}, SortString{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.eq")]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+                hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+                hooked-symbol readConsole{{}}(SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), hook{{}}("IO.read"), impure{{}}()]
+                symbol g{{}}(SortString{{}}) : SortString{{}} [function{{}}()]
+                {g_x}
+                {g_y}
+                {f_is_g}
+                {t_reads}
+            endmodule []"#,
+            g_x = equation(
+                "g{}(Z:SortString{})",
+                &is("x"),
+                &format!(r#"concatString{{}}({f}, \dv{{SortString{{}}}}(""))"#),
+                "g-x"
+            ),
+            g_y = equation(
+                "g{}(Z:SortString{})",
+                &is("y"),
+                r#"\dv{SortString{}}("v")"#,
+                "g-y"
+            ),
+            f_is_g = equation(substr, &guard("4"), &format!("g{{}}({read})"), "f"),
+            t_reads = equation(
+                substr,
+                &guard("5"),
+                &format!("concatString{{}}({f}, concatString{{}}({read}, {f}))"),
+                "t"
+            ),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let t = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("5"), \dv{SortInt{}}("1"))"#,
+        );
+        let run = || {
+            let mut execution =
+                crate::transition::ExecutionIoState::new(b"xy".to_vec()).begin_evaluation();
+            let (result, _) = diagnostic::collect(|| {
+                simplify_in_execution_with_solver(
+                    &definition,
+                    &t,
+                    &[],
+                    SimplificationOptions::default(),
+                    &NoSolver,
+                    &mut execution,
+                )
+            });
+            unstopped(result).expect("no error").term
+        };
+        let reused = run();
+        let fresh = without_unspecified_reuse(run);
+        let expected = term(
+            &definition,
+            &format!(r#"concatString{{}}({f}, \dv{{SortString{{}}}}("xv"))"#),
+        );
+        assert_eq!(reused, expected);
+        assert_eq!(fresh, expected);
     }
 
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
