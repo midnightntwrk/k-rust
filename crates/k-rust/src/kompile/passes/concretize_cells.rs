@@ -198,6 +198,9 @@ enum Multiplicity {
 struct Child {
     sort: Sort,
     multiplicity: Multiplicity,
+    /// Whether the instances of a repeated child are ordered: its collection's concatenation is
+    /// not commutative (`type="List"`).
+    ordered: bool,
     value_sort: Sort,
     unit: Option<Label>,
     concat: Option<Label>,
@@ -296,6 +299,7 @@ impl CellModel {
                     sort.clone(),
                     label.clone(),
                     attributes.string(AttributeKey::Unit).map(Label::new),
+                    !attributes.has(AttributeKey::Comm),
                 )),
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
@@ -380,6 +384,7 @@ impl CellModel {
                     children.push(Child {
                         sort: child_sort.clone(),
                         multiplicity,
+                        ordered: false,
                         value_sort: child_sort.clone(),
                         unit: child_attributes.string(AttributeKey::Unit).map(Label::new),
                         concat: None,
@@ -387,7 +392,7 @@ impl CellModel {
                     });
                     continue;
                 }
-                if let Some((collection_sort, concat, unit)) = collections
+                if let Some((collection_sort, concat, unit, ordered)) = collections
                     .iter()
                     .find(|(collection_sort, ..)| collection_sort == &child_sort)
                 {
@@ -406,6 +411,7 @@ impl CellModel {
                         children.push(Child {
                             sort: member.clone(),
                             multiplicity: Multiplicity::Star,
+                            ordered: *ordered,
                             value_sort: collection_sort.clone(),
                             unit: unit.clone(),
                             concat: concat.clone(),
@@ -585,6 +591,16 @@ impl CellModel {
         false
     }
 
+    /// Whether cells of sort `sort` are a `multiplicity="*"` child of their configured parent.
+    fn is_repeated(&self, sort: &Sort) -> bool {
+        self.parents.get(sort).is_some_and(|parent| {
+            self.cells[parent]
+                .children
+                .iter()
+                .any(|child| child.sort == *sort && child.multiplicity == Multiplicity::Star)
+        })
+    }
+
     fn cell_for_label(&self, label: &Label) -> Option<&Cell> {
         self.by_label
             .get(&LabelHead::from(label))
@@ -652,6 +668,9 @@ struct Concretizer<'use_, 'definition> {
     /// The cells of the last sentence moved out of the parent they were written in, as
     /// "`<cell>` written inside `<parent>`", named in an error of that sentence.
     moved_cells: RefCell<Vec<String>>,
+    /// The number of incomplete parent cells completed so far in the last sentence, which
+    /// identifies the written parent a lifted cell comes from ([`MovedCell::origin`]).
+    completed_parents: std::cell::Cell<usize>,
 }
 
 /// A cell written inside a parent cell that the configuration does not place it under, lifted
@@ -671,6 +690,9 @@ struct MovedCell {
     written_in: String,
     /// The cells moved out of this one, which ride with it.
     riders: Vec<MovedCell>,
+    /// Which written parent cell it was lifted out of: cells lifted out of one written parent
+    /// share it, and were written as siblings there.
+    origin: usize,
 }
 
 impl MovedCell {
@@ -699,6 +721,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             fragments: BTreeMap::new(),
             conjoins_fragment: false,
             moved_cells: RefCell::new(Vec::new()),
+            completed_parents: std::cell::Cell::new(0),
         }
     }
 
@@ -1140,6 +1163,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// parent is a strict ancestor of `cell`; a `C` of `cell`'s own sort or an ancestor sort
     /// (an inverted nesting) or one whose place is in another branch of the configuration (a
     /// relocation into cells the rule does not write) is rejected.
+    ///
+    /// A cell item below `cell` written beside the only instance of one of its ancestors that
+    /// `cell` can hold is placed inside that instance (see [`Self::place_in_written_ancestors`]).
     fn complete_parent(
         &self,
         label: &Label,
@@ -1148,6 +1174,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         open_right: bool,
         items: Vec<(Term, Vec<MovedCell>)>,
     ) -> Result<(Term, Vec<MovedCell>), String> {
+        let origin = self.completed_parents.get();
+        self.completed_parents.set(origin + 1);
         let mut completion = Vec::new();
         let mut others = Vec::new();
         let mut riders = Vec::new();
@@ -1158,7 +1186,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     completion.push((item, item_riders));
                 }
                 Some(sort) => {
-                    moved.push(self.lift(item, sort, label, cell, item_riders)?);
+                    moved.push(self.lift(item, sort, label, cell, item_riders, origin)?);
                 }
                 None => {
                     others.push(item);
@@ -1166,6 +1194,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 }
             }
         }
+        let mut completion = self.place_in_written_ancestors(cell, completion)?;
         let target_level = self.model.levels[&cell.sort] + 1;
         let level = |(item, _): &(Term, Vec<MovedCell>)| {
             self.model
@@ -1228,8 +1257,163 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         ))
     }
 
+    /// Move each of `items`, the cell items written in one instance of `cell` and below it,
+    /// into the item of an ancestor sort written beside it, when that instance of `cell` holds
+    /// only one cell of the ancestor's sort (no cell on the configuration's path from the
+    /// ancestor up to `cell` is `multiplicity="*"`) and only one item of that sort is written:
+    /// the configuration then makes that written cell the one that holds the item. The closest
+    /// such ancestor is used, and it is completed again with the items moved into it.
+    ///
+    /// Without this, completion would wrap the item in a fresh instance of the ancestor, a second
+    /// instance where the configuration allows one. An ancestor written closed (no `...`) or not
+    /// as a cell body cannot take the item, and the rule is rejected.
+    fn place_in_written_ancestors(
+        &self,
+        cell: &Cell,
+        items: Vec<(Term, Vec<MovedCell>)>,
+    ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
+        let sorts = items
+            .iter()
+            .map(|(item, _)| self.model.sort_for_term(item))
+            .collect::<Vec<_>>();
+        let mut written = BTreeMap::<&Sort, Vec<usize>>::new();
+        // Invariant: `written` maps each sort to the indices of the items before `index` of that sort; each item is visited once.
+        for (index, sort) in sorts.iter().enumerate() {
+            if let Some(sort) = sort {
+                written.entry(sort).or_default().push(index);
+            }
+        }
+        let holder = |sort: &Sort| {
+            let mut ancestors = Vec::new();
+            let mut current = sort;
+            // Invariant: `ancestors` holds the strict ancestors of `sort` below `cell.sort`, closest first, reached by at most `self.model.cells.len()` parent links (the bound of `is_strictly_below`).
+            for _ in 0..self.model.cells.len() {
+                match self.model.parents.get(current) {
+                    Some(parent) if *parent != cell.sort => {
+                        ancestors.push(parent);
+                        current = parent;
+                    }
+                    _ => break,
+                }
+            }
+            let mut holder = None;
+            // Invariant: `holder` is the index of the written item of the closest ancestor so far (from `cell` down) of which `cell` holds one instance and the rule writes one item; each ancestor is visited once.
+            for ancestor in ancestors.into_iter().rev() {
+                if self.model.is_repeated(ancestor) {
+                    break;
+                }
+                if let Some([index]) = written.get(ancestor).map(Vec::as_slice) {
+                    holder = Some(*index);
+                }
+            }
+            holder
+        };
+        let mut incoming = vec![Vec::new(); items.len()];
+        let mut any = false;
+        // Invariant: `incoming[holder]` lists, in written order, the items before `index` that move into item `holder`; each item is visited once, O(D) each.
+        for (index, sort) in sorts.iter().enumerate() {
+            if let Some(into) = sort.as_ref().and_then(holder) {
+                incoming[into].push(index);
+                any = true;
+            }
+        }
+        if !any {
+            return Ok(items);
+        }
+        let mut order = (0..items.len()).collect::<Vec<_>>();
+        order.sort_by_key(|index| {
+            std::cmp::Reverse(
+                sorts[*index]
+                    .as_ref()
+                    .map_or(0, |sort| self.model.levels[sort]),
+            )
+        });
+        let mut slots = items.into_iter().map(Some).collect::<Vec<_>>();
+        // Invariant: the items deeper than `into` are complete with everything moved into them; an item moves only into a strictly shallower one, so it is taken from its slot after its own turn and before its holder is completed again.
+        for into in order {
+            if incoming[into].is_empty() {
+                continue;
+            }
+            let added = incoming[into]
+                .iter()
+                .map(|index| slots[*index].take().expect("an item moves into one holder"))
+                .collect();
+            let ancestor = slots[into].take().expect("a holder is completed once");
+            slots[into] = Some(self.place_in_written_cell(ancestor, added)?);
+        }
+        Ok(slots.into_iter().flatten().collect())
+    }
+
+    /// Complete the written cell `ancestor` again with `added`, cell items written beside it
+    /// that belong inside it.
+    fn place_in_written_cell(
+        &self,
+        (ancestor, mut ancestor_riders): (Term, Vec<MovedCell>),
+        added: Vec<(Term, Vec<MovedCell>)>,
+    ) -> Result<(Term, Vec<MovedCell>), String> {
+        let name = |term: &Term| {
+            self.model
+                .sort_for_term(term)
+                .map(|sort| self.model.cells[&sort].label.name.clone())
+                .unwrap_or_default()
+        };
+        let (item, holder) = (
+            added
+                .first()
+                .map(|(item, _)| name(item))
+                .unwrap_or_default(),
+            name(&ancestor),
+        );
+        let reason = || {
+            format!(
+                "Cell {item} written beside {holder} belongs inside it: the configuration allows only one {holder} there"
+            )
+        };
+        let incomplete = match ancestor.unannotated() {
+            Term::Apply { label, arguments } => self
+                .model
+                .cell_for_label(label)
+                .filter(|cell| !cell.children.is_empty())
+                .zip(incomplete_parts(arguments).ok()),
+            Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        };
+        let Some((cell, (open_left, body, open_right))) = incomplete else {
+            return Err(format!(
+                "{}, and that {holder} is not written as a cell body {item} can be added to",
+                reason()
+            ));
+        };
+        if !open_left && !open_right {
+            return Err(format!(
+                "{}, and it is written closed (without ...), so it has no other children",
+                reason()
+            ));
+        }
+        let Term::Apply { label, .. } = ancestor.unannotated() else {
+            unreachable!("an incomplete cell is an application")
+        };
+        let items = flatten_cells(body)
+            .into_iter()
+            .map(|child| (child.clone(), Vec::new()))
+            .chain(added)
+            .collect();
+        let (completed, moved) = self.complete_parent(label, cell, open_left, open_right, items)?;
+        ancestor_riders.extend(moved);
+        Ok((
+            with_metadata(completed, ancestor.metadata().cloned()),
+            ancestor_riders,
+        ))
+    }
+
     /// Lift the cell `item` of sort `sort`, written inside `cell` (labelled `label`) with the
-    /// cells `riders` lifted out of it, out of `cell`, or reject it.
+    /// cells `riders` lifted out of it, out of `cell`, or reject it. `origin` identifies that
+    /// written `cell`.
     fn lift(
         &self,
         item: Term,
@@ -1237,6 +1421,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         label: &Label,
         cell: &Cell,
         riders: Vec<MovedCell>,
+        origin: usize,
     ) -> Result<MovedCell, String> {
         let name = &self.model.cells[&sort].label.name;
         if sort == cell.sort {
@@ -1271,6 +1456,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             cell: name.clone(),
             written_in: label.name.clone(),
             riders,
+            origin,
         })
     }
 
@@ -1278,6 +1464,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// `riders` whose configured parent is `holder`, with the cells riding with it in turn, and
     /// return the others. A lifted cell of a sort that is not `multiplicity="*"` whose place in
     /// that instance is already taken is rejected: the rule gives it no other instance.
+    ///
+    /// The instances of an ordered (`type="List"`) repeated cell are concatenated in body order,
+    /// and the rule states that order only among instances written as siblings in one cell body.
+    /// A lifted instance is therefore inserted only when every other term of its list in `body`
+    /// is an instance lifted out of the same written parent (inserted in written order); it is
+    /// rejected otherwise.
     fn insert_lifted(
         &self,
         holder: &Cell,
@@ -1286,16 +1478,41 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ) -> Result<Vec<MovedCell>, String> {
         let mut pending = std::collections::VecDeque::from(riders);
         let mut remaining = Vec::new();
+        // The written parent of the instances of each ordered sort inserted so far.
+        let mut ordered_origins = BTreeMap::<Sort, usize>::new();
         // Invariant: every lifted cell seen so far is in `body` or `remaining`, or still in `pending`; each cell is dequeued once, and a rider is enqueued only when the cell it rides with is inserted.
         while let Some(rider) = pending.pop_front() {
             if rider.parent != holder.sort {
                 remaining.push(rider);
                 continue;
             }
-            let repeatable = holder
+            let child = holder
                 .children
                 .iter()
-                .any(|child| child.sort == rider.sort && child.multiplicity == Multiplicity::Star);
+                .find(|child| child.sort == rider.sort);
+            let repeatable = child.is_some_and(|child| child.multiplicity == Multiplicity::Star);
+            if let Some(child) = child.filter(|child| repeatable && child.ordered) {
+                let stated = match ordered_origins.get(&rider.sort) {
+                    Some(origin) => *origin == rider.origin,
+                    // A term whose cell sort is unknown may be part of the list.
+                    None => body.iter().all(|item| {
+                        self.model
+                            .sort_for_term(item)
+                            .is_some_and(|sort| sort != child.sort)
+                    }),
+                };
+                if !stated {
+                    return Err(format!(
+                        "Cell {} written inside {} belongs in the {} that holds {}, whose {} cells form a list, and the rule does not state its position among the other items of that list",
+                        rider.cell,
+                        rider.written_in,
+                        holder.label.name,
+                        rider.written_in,
+                        rider.cell
+                    ));
+                }
+                ordered_origins.insert(rider.sort.clone(), rider.origin);
+            }
             if !repeatable
                 && body
                     .iter()

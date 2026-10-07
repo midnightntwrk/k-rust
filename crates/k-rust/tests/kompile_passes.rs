@@ -6691,10 +6691,21 @@ fn concretized_cell_rule_with(
     rule: &str,
     attributes: &str,
 ) -> Result<String, Vec<String>> {
+    concretized_cell_rule_in("", configuration, rule, attributes)
+}
+
+/// [`concretized_cell_rule_with`] in a module that also declares `syntax`.
+fn concretized_cell_rule_in(
+    syntax: &str,
+    configuration: &str,
+    rule: &str,
+    attributes: &str,
+) -> Result<String, Vec<String>> {
     let source = format!(
         r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
+          {syntax}
           configuration {configuration}
           rule {rule} [label(probe){attributes}]
           syntax K
@@ -6997,6 +7008,281 @@ fn rejects_a_misplaced_cell_with_no_enclosing_cell_to_hold_it() {
         errors,
         [
             "Cell <k> written inside <a> belongs outside <a> in the configuration, and the rule has no enclosing cell to hold it"
+        ]
+    );
+}
+
+// A lifted cell leaves its written parent only through cell bags. Crossing anything else would
+// change what the term denotes, so each of these rules is rejected rather than compiled with the
+// cell dropped or moved.
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_function_argument() {
+    let errors = concretized_cell_rule_in(
+        "syntax Int ::= f(ACell) [function]",
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "f(<a> <b> X </b> <k> 5 </k> </a>) => X",
+        "",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the symbol f(_)_MAIN_Int_ACell"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_function_argument_in_a_cell_bag() {
+    let errors = concretized_cell_rule_in(
+        "syntax Bag ::= g(ACell) [function]",
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<top> g(<a> <b> X </b> <k> 5 </k> </a>) ... </top>",
+        "",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the symbol g(_)_MAIN_Bag_ACell"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_an_alias_pattern() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <a> <b> 0 </b> </a> </top>",
+        "<top> (<a> <b> X => 1 </b> <k> 5 </k> ... </a> #as A) ... </top>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <k> written inside <a> belongs outside <a> in the configuration, and moving it there would take it out of an alias pattern (#as)"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_k_sequence() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <s> 0 </s> <a> <b> 0 </b> </a> </top>",
+        "<k> <a> <b> X </b> <s> 5 </s> ... </a> ~> K => K </k>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <s> written inside <a> belongs outside <a> in the configuration, and moving it there would take it out of a K sequence"
+        ]
+    );
+}
+
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_the_contents_of_a_leaf_cell() {
+    let errors = concretized_cell_rule(
+        "<top> <k> 0 </k> <s> 0 </s> <a> <b> 0 </b> </a> </top>",
+        "<k> <a> <b> X </b> <s> 5 </s> ... </a> </k>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <s> written inside <a> belongs outside <a> in the configuration, and moving it there would cross the contents of the leaf cell <k>"
+        ]
+    );
+}
+
+// A complete cell (one argument per declared child, no `#dots`/`#noDots`) states all of its
+// children, so a cell lifted out of one of them has no place inside it.
+#[test]
+fn rejects_a_misplaced_cell_that_would_have_to_leave_a_complete_cell() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> <a> <b> <c> 0 </c> </b> </a> </top>
+          rule <a> <b> <c> X => 1 </c> <k> 5 </k> </b> </a> [label(probe)]
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let mut definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let rule = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| {
+            matches!(&***sentence, Sentence::Rule { attributes, .. }
+                if attributes.get_str("label") == Some("probe"))
+        })
+        .expect("fixture has the probe rule");
+    let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(rule) else {
+        unreachable!()
+    };
+    // Make the written <a> complete: its one argument is the written <b>.
+    let Term::Apply { label, arguments } = body.unannotated() else {
+        panic!("the probe body should be the written <a>: {body:?}")
+    };
+    assert_eq!(label.name, "<a>");
+    let written_b = arguments[1].clone();
+    *body = application("<a>", vec![written_b]);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let error = concretize_cells(&definition).unwrap_err();
+    let messages = error
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        messages,
+        [
+            "Cell <k> written inside <b> belongs outside <b> in the configuration, and moving it there would cross the complete cell <a>"
+        ]
+    );
+}
+
+const LIST_FRAMES: &str = r#"<top> <k> 0 </k> <stack> <cur> <x> 0 </x> </cur> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#;
+
+// The instances of a `type="List"` cell are ordered, and the order is part of what the rule
+// matches. The <fr> lifted out of <cur> has no written position among the other <fr> cells of
+// its <stack>: <cur> and <fr> are of different sorts, whose written order carries no meaning.
+#[test]
+fn rejects_a_misplaced_list_cell_whose_position_among_written_instances_is_unstated() {
+    for rule in [
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> <fr> <v> 1 </v> </fr> </stack>",
+        "<stack> <fr> <v> 1 </v> </fr> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> </stack>",
+    ] {
+        let errors = concretized_cell_rule(LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(
+            errors,
+            [
+                "Cell <fr> written inside <cur> belongs in the <stack> that holds <cur>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list"
+            ],
+            "{rule}"
+        );
+    }
+}
+
+// Two <fr> cells written as siblings in <cur> have a stated order, which they keep.
+#[test]
+fn places_misplaced_list_cells_lifted_out_of_one_parent_in_their_written_order() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> <fr> <v> 3 </v> </fr> </cur> ... </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellList_`(`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),`<fr>`(`<v>`(#token("3","Int")))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// The <fr> lifted out of <y>, which rides out of <cur> with <y>, and the one lifted out of <cur>
+// were not written as siblings, so their order is not stated.
+#[test]
+fn rejects_misplaced_list_cells_lifted_out_of_different_parents_into_one_instance() {
+    let errors = concretized_cell_rule(
+        r#"<top> <k> 0 </k> <stack> <cur> <x> 0 </x> <y> <z> 0 </z> </y> </cur> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </top>"#,
+        "<stack> <cur> <y> <z> Z </z> <fr> <v> 3 </v> </fr> </y> <fr> <v> 2 </v> </fr> ... </cur> ... </stack>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <fr> written inside <y> belongs in the <stack> that holds <y>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list"
+        ]
+    );
+}
+
+#[test]
+fn places_a_misplaced_list_cell_that_is_the_only_instance_written_in_its_parent() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<stack> <cur> <x> X => 1 </x> <fr> <v> 2 </v> </fr> </cur> ... </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X=>#token("1","Int"))),`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// Bag instances are unordered, so the lifted <fr> is placed beside the written one.
+#[test]
+fn places_a_misplaced_bag_cell_beside_written_instances() {
+    let body = concretized_cell_rule(
+        &LIST_FRAMES.replace(r#"type="List""#, r#"type="Bag""#),
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> <fr> <v> 1 </v> </fr> </stack>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellBag_`(`<fr>`(`<v>`(#token("1","Int"))),`<fr>`(`<v>`(#token("2","Int")))))),_DotVar0)"#
+    );
+}
+
+const BESIDE_PARENT: &str = "<top> <a> <x> 0 </x> </a> <c> <d> 0 </d> <e> 0 </e> </c> </top>";
+
+// <top> has one <c>, so a <d> written beside the written <c> is inside that <c>.
+#[test]
+fn places_a_cell_written_beside_its_only_possible_parent_inside_it() {
+    let body = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <e> 1 </e> ... </c>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<a>`(`<x>`(X)),`<c>`(`<d>`(#token("5","Int")=>#token("6","Int")),`<e>`(#token("1","Int")))),_DotVar0)"#
+    );
+}
+
+// The <c> written beside <d> is completed again with <d>, which goes into the <m> written in it.
+#[test]
+fn places_a_cell_written_beside_its_only_possible_ancestor_in_the_closest_written_one() {
+    let body = concretized_cell_rule(
+        "<top> <a> <x> 0 </x> </a> <c> <m> <d> 0 </d> <n> 0 </n> </m> <e> 0 </e> </c> </top>",
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <m> <n> 1 </n> ... </m> ... </c>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(`<a>`(`<x>`(X)),`<c>`(`<m>`(`<d>`(#token("5","Int")=>#token("6","Int")),`<n>`(#token("1","Int"))),_DotVar2)),_DotVar0)"#
+    );
+}
+
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_parent_written_closed() {
+    let errors = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 => 6 </d> <c> <e> 1 </e> </c>",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <d> written beside <c> belongs inside it: the configuration allows only one <c> there, and it is written closed (without ...), so it has no other children"
+        ]
+    );
+}
+
+// The written <c> is a rewrite: adding <d> to it would put <d> on both of its sides.
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_parent_written_as_a_rewrite() {
+    let errors = concretized_cell_rule(
+        BESIDE_PARENT,
+        "<a> <x> X </x> </a> <d> 5 </d> (<c> <e> 1 </e> ... </c> => <c> <e> 2 </e> ... </c>)",
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [
+            "Cell <d> written beside <c> belongs inside it: the configuration allows only one <c> there, and that <c> is not written as a cell body <d> can be added to"
         ]
     );
 }
