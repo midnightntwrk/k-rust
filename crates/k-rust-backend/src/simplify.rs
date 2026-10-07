@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt and one in the values recorded for the lineage's context; per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once; a failed attempt is undone and its application retried without that equation, so at most once per equation of the application, and the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage. At any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt, one in the values and one in the failed evaluations recorded for the lineage's context, a failed evaluation compared by the applications on the stack up to the deepest open attempt it reached (one pointer comparison while that prefix stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); an evaluation that ends unevaluated after a failed attempt is recorded in the innermost scope of its context open when it began and is not repeated in that scope while the stack holds the same applications up to the deepest open attempt it reached (a later evaluation re-decides only the other equations' conditions); the value a nested lineage computed for an Unspecified application is reused for the rest of the enclosing lineage. At any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -3406,8 +3406,7 @@ fn simplify_with_budget(
                     evaluation: step.evaluation,
                     application: children.term.clone(),
                     rule,
-                    excluded: step.excluded,
-                    contingent: step.contingent,
+                    history: step.history,
                     before: LineageState {
                         accumulated: before,
                         total_step: total_step.clone(),
@@ -3476,10 +3475,13 @@ fn simplify_with_budget(
             evaluation,
             application,
             rule,
-            mut excluded,
-            contingent,
+            mut history,
             before,
         } = frame;
+        // What the failed attempt reached and whether its lineage ran out of budget stay facts
+        // of the application's evaluation after the attempt is undone.
+        history.reached = max_depth(history.reached, evaluation.reached_below());
+        history.exhausted |= accumulated.exhausted.is_some();
         drop(evaluation);
         accumulated.rewind(&before.accumulated);
         total_step = before.total_step;
@@ -3488,11 +3490,9 @@ fn simplify_with_budget(
             execution.restore(io);
         }
         diagnostic::discard_since(before.diagnostics);
-        excluded.push(rule);
-        retry = Some(UnspecifiedRetry {
-            excluded,
-            contingent: min_depth(contingent, failed.contingent),
-        });
+        history.excluded.push(rule);
+        history.contingent = min_depth(history.contingent, failed.contingent);
+        retry = Some(history);
         term = application;
     }
 }
@@ -4049,18 +4049,42 @@ fn simplify_root(
         };
         return Ok((result, step, Some(rule), None));
     } else {
-        let UnspecifiedRetry {
-            mut excluded,
-            contingent: inherited,
-        } = retry.unwrap_or_default();
-        contingent = inherited;
+        let context =
+            EvaluationContext::of(assumptions, options, active_conditions, execution.is_some());
+        // A retry continues the application's evaluation. A new one starts where an evaluation
+        // of the same application that failed under the same open attempts ended, if one is
+        // recorded (`UnspecifiedValues::failed`): what its attempts found failing would fail
+        // again, so only its last scan is repeated.
+        let mut history = retry.unwrap_or_else(|| {
+            let scopes = UnspecifiedValues::open_scopes();
+            match UnspecifiedValues::failed(context, term) {
+                Some(failed) => {
+                    UnspecifiedEvaluation::reach(failed.reached);
+                    UnspecifiedRetry {
+                        excluded: failed.excluded,
+                        contingent: failed.contingent,
+                        reached: failed.reached,
+                        scopes,
+                        exhausted: false,
+                    }
+                }
+                None => UnspecifiedRetry {
+                    scopes,
+                    ..UnspecifiedRetry::default()
+                },
+            }
+        });
         let diagnostics = diagnostic::mark();
         let mut opened = None;
         let scan =
             scan_term_theory::<FunctionTheory>(definition, term, &mut indeterminate, |rule| {
                 // An equation whose attempt failed on this application is not tried again; it was
                 // not refuted, so it keeps lower-priority equations from applying in its place.
-                if excluded.iter().any(|failed| Arc::ptr_eq(failed, rule)) {
+                if history
+                    .excluded
+                    .iter()
+                    .any(|failed| Arc::ptr_eq(failed, rule))
+                {
                     return Ok(EquationAttempt::Recurred);
                 }
                 let evaluation = UnspecifiedEvaluation::enter(term);
@@ -4089,12 +4113,17 @@ fn simplify_root(
                     // was an application below this one on the stack, that is contingent on the
                     // attempt that application is in.
                     EquationAttempt::Indeterminate(reason) => {
-                        contingent = min_depth(contingent, evaluation.contingent_cut());
+                        history.contingent =
+                            min_depth(history.contingent, evaluation.contingent_cut());
+                        history.reached = max_depth(history.reached, evaluation.reached_below());
                         Ok(EquationAttempt::Indeterminate(reason))
                     }
                     // A refuted `requires` was refuted with whatever it reached left as it is, so it
                     // is refuted for every value of it.
-                    attempt => Ok(attempt),
+                    attempt => {
+                        history.reached = max_depth(history.reached, evaluation.reached_below());
+                        Ok(attempt)
+                    }
                 }
             })?;
         if let TheoryScan::Applied(result, rule) = scan {
@@ -4105,12 +4134,17 @@ fn simplify_root(
             };
             let unspecified = opened.map(|evaluation| UnspecifiedStep {
                 evaluation,
-                excluded: std::mem::take(&mut excluded),
-                contingent,
+                history,
                 diagnostics,
             });
             return Ok((result, step, Some(rule), unspecified));
         }
+        // The evaluation ends with the application unevaluated. If an attempt failed in it, it is
+        // recorded for later evaluations under the same open attempts.
+        if !history.excluded.is_empty() && !history.exhausted {
+            UnspecifiedValues::record_failed(context, term, &history);
+        }
+        contingent = history.contingent;
         scan
     };
     if let TheoryScan::Applied(result, rule) = function_scan {
@@ -4237,23 +4271,32 @@ fn simplify_root(
 
 /// A function equation applied to an `Unspecified` application by `simplify_root`, with what the
 /// lineage needs to keep it as an [`UnspecifiedFrame`]: the application's entry on the
-/// evaluation stack, the equations of the application whose attempts failed before this one,
-/// the lowest stack depth any of those failures was contingent on, and the extent of the
-/// diagnostics before the attempt.
+/// evaluation stack, the application's evaluation so far ([`UnspecifiedRetry`]), and the extent
+/// of the diagnostics before the attempt.
 struct UnspecifiedStep {
     evaluation: UnspecifiedEvaluation,
-    excluded: Vec<Arc<RewriteRule>>,
-    contingent: Option<usize>,
+    history: UnspecifiedRetry,
     diagnostics: diagnostic::EmissionMark,
 }
 
-/// An `Unspecified` application whose attempt failed, tried again by `simplify_root` without the
-/// equations that failed on it (`excluded`), with the lowest stack depth any failure was
-/// contingent on.
+/// The evaluation of an `Unspecified` application so far, from its first scan: what a retry
+/// after a failed attempt continues from, and what a failed evaluation leaves recorded
+/// ([`UnspecifiedValues::record_failed`]).
+///
+/// `excluded` are the equations whose attempts failed, `contingent` the lowest stack depth any
+/// failure, or any undecided `requires`, was contingent on, and `reached` the deepest depth below
+/// the application's own of an open attempt that any of its attempts reached: the stack up to
+/// there is what the evaluation read of it. `scopes` is the number of value scopes open when the
+/// evaluation began, among which a failed evaluation is recorded, and `exhausted` whether an
+/// attempt's lineage ran out of iteration budget, in which case its failure may be the budget's
+/// and it is not recorded.
 #[derive(Default)]
 struct UnspecifiedRetry {
     excluded: Vec<Arc<RewriteRule>>,
     contingent: Option<usize>,
+    reached: Option<usize>,
+    scopes: usize,
+    exhausted: bool,
 }
 
 /// One attempt of a function equation `rule` on an `Unspecified` `application`, which a lineage
@@ -4273,14 +4316,13 @@ struct UnspecifiedRetry {
 /// one open. A failed attempt is undone entirely: the lineage returns to `before`, the state it
 /// had before the step (its result so far, the provenance of an undefined term, the budget, the
 /// console, the diagnostics), so a discarded attempt has no effect, and the application is
-/// tried again without `rule` (`UnspecifiedRetry`), which, as it applied, still keeps
-/// lower-priority equations from applying in its place.
+/// tried again without `rule`, continuing its evaluation `history` (`UnspecifiedRetry`); as it
+/// applied, `rule` still keeps lower-priority equations from applying in its place.
 struct UnspecifiedFrame {
     evaluation: UnspecifiedEvaluation,
     application: Term,
     rule: Arc<RewriteRule>,
-    excluded: Vec<Arc<RewriteRule>>,
-    contingent: Option<usize>,
+    history: UnspecifiedRetry,
     before: LineageState,
 }
 
@@ -4361,6 +4403,10 @@ fn min_depth(left: Option<usize>, right: Option<usize>) -> Option<usize> {
     }
 }
 
+fn max_depth(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    left.max(right)
+}
+
 thread_local! {
     /// The applications whose hook left them `Unspecified` and on which this thread has an
     /// equation attempt open, outermost first.
@@ -4378,6 +4424,9 @@ struct UnspecifiedStack {
     /// The depth of each entry's application; an application is entered only when it is not on
     /// the stack, so each has one depth.
     depths: FxHashMap<Term, usize>,
+    /// At each depth, the prefix of the entry last removed there, which an entry for the same
+    /// application on the same prefix shares, so that equal prefixes are mostly one object.
+    vacated: Vec<Option<Arc<StackPrefix>>>,
     /// The equation attempts that note the lowest depth of an occurrence cut while they run,
     /// innermost last ([`CutWatch`]).
     watches: Vec<CutWatchState>,
@@ -4385,9 +4434,44 @@ struct UnspecifiedStack {
 
 /// An open attempt's application, with the occurrences evaluation cut while that attempt was the
 /// innermost one open: each occurrence with the depth of the stack entry it was cut for.
+/// `prefix` is the applications of this entry and every entry below it, and `reached` the deepest
+/// depth of an open attempt reached while this entry was open (by a cut for it, a record reused
+/// for it, or an entry above it that was removed).
 struct StackEntry {
     application: Term,
     cuts: Vec<(Term, usize)>,
+    prefix: Arc<StackPrefix>,
+    reached: Option<usize>,
+}
+
+/// The applications on the evaluation stack from the bottom up to one entry, as a list sharing
+/// its tail with the entries below.
+struct StackPrefix {
+    application: Term,
+    below: Option<Arc<StackPrefix>>,
+}
+
+impl StackPrefix {
+    /// Whether the two prefixes hold the same applications at the same depths.
+    fn same(left: &Arc<Self>, right: &Arc<Self>) -> bool {
+        let (mut left, mut right) = (left, right);
+        loop {
+            if Arc::ptr_eq(left, right) {
+                return true;
+            }
+            if left.application != right.application {
+                return false;
+            }
+            match (&left.below, &right.below) {
+                (Some(below_left), Some(below_right)) => {
+                    left = below_left;
+                    right = below_right;
+                }
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
 }
 
 /// An `Unspecified` application with an equation attempt open on it, from the equation's
@@ -4416,9 +4500,28 @@ impl UnspecifiedEvaluation {
     fn enter(application: &Term) -> Self {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
             let depth = stack.entries.len();
+            let below = stack.entries.last().map(|entry| Arc::clone(&entry.prefix));
+            let prefix = match stack.vacated.get(depth) {
+                Some(Some(vacated))
+                    if vacated.application == *application
+                        && match (&vacated.below, &below) {
+                            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                            (None, None) => true,
+                            _ => false,
+                        } =>
+                {
+                    Arc::clone(vacated)
+                }
+                _ => Arc::new(StackPrefix {
+                    application: application.clone(),
+                    below,
+                }),
+            };
             stack.entries.push(StackEntry {
                 application: application.clone(),
                 cuts: Vec::new(),
+                prefix,
+                reached: None,
             });
             stack.depths.insert(application.clone(), depth);
             Self { depth }
@@ -4441,6 +4544,16 @@ impl UnspecifiedEvaluation {
     /// `depth` is computing: it is cut, at that depth, for the innermost open attempt.
     fn cut(application: &Term, depth: usize) {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| record_cut(stack, application, depth));
+    }
+
+    /// Record that the innermost open attempt reached the open attempt at `depth`, through a
+    /// failed evaluation it reused ([`UnspecifiedValues::failed`]).
+    fn reach(depth: Option<usize>) {
+        UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
+            if let Some(innermost) = stack.entries.last_mut() {
+                innermost.reached = max_depth(innermost.reached, depth);
+            }
+        });
     }
 
     /// Whether any attempt is open.
@@ -4467,6 +4580,17 @@ impl UnspecifiedEvaluation {
             .filter(|&depth| depth < self.depth)
             .min()
     }
+
+    /// The deepest depth below this attempt's own of an open attempt reached while it was open.
+    fn reached_below(&self) -> Option<usize> {
+        UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+            stack
+                .entries
+                .get(self.depth)
+                .and_then(|entry| entry.reached)
+                .filter(|&depth| depth < self.depth)
+        })
+    }
 }
 
 fn record_cut(stack: &mut UnspecifiedStack, application: &Term, depth: usize) {
@@ -4476,18 +4600,38 @@ fn record_cut(stack: &mut UnspecifiedStack, application: &Term, depth: usize) {
     {
         watch.lowest = min_depth(watch.lowest, Some(depth));
     }
-    if let Some(innermost) = stack.entries.last_mut()
-        && !innermost.cuts.iter().any(|(cut, _)| cut == application)
-    {
-        innermost.cuts.push((application.clone(), depth));
+    if let Some(innermost) = stack.entries.last_mut() {
+        innermost.reached = max_depth(innermost.reached, Some(depth));
+        if !innermost.cuts.iter().any(|(cut, _)| cut == application) {
+            innermost.cuts.push((application.clone(), depth));
+        }
     }
 }
 
 impl Drop for UnspecifiedEvaluation {
     fn drop(&mut self) {
         UNSPECIFIED_EVALUATIONS.with_borrow_mut(|stack| {
-            for entry in stack.entries.drain(self.depth.min(stack.entries.len())..) {
-                stack.depths.remove(&entry.application);
+            let UnspecifiedStack {
+                entries,
+                depths,
+                vacated,
+                ..
+            } = stack;
+            let start = self.depth.min(entries.len());
+            let mut reached = None;
+            for (depth, entry) in entries.drain(start..).enumerate() {
+                let depth = start + depth;
+                depths.remove(&entry.application);
+                if vacated.len() <= depth {
+                    vacated.resize(depth + 1, None);
+                }
+                vacated[depth] = Some(entry.prefix);
+                // What a removed attempt reached below this one was reached by the work of the
+                // attempt now innermost.
+                reached = max_depth(reached, entry.reached.filter(|&reached| reached < start));
+            }
+            if let Some(innermost) = entries.last_mut() {
+                innermost.reached = max_depth(innermost.reached, reached);
             }
         });
     }
@@ -4567,6 +4711,19 @@ impl EvaluationContext {
 struct ValueScope {
     context: EvaluationContext,
     values: FxHashMap<Term, (Simplification, Arc<RewriteRule>)>,
+    failures: FxHashMap<Term, FailedEvaluation>,
+}
+
+/// An evaluation of an `Unspecified` application that ended with the application unevaluated
+/// after some attempt failed ([`UnspecifiedRetry`]): the equations that failed, the contingency
+/// it handed on, and the deepest open attempt it reached, with the applications on the stack up
+/// to that depth (`prefix`).
+#[derive(Clone)]
+struct FailedEvaluation {
+    excluded: Vec<Arc<RewriteRule>>,
+    contingent: Option<usize>,
+    reached: Option<usize>,
+    prefix: Option<Arc<StackPrefix>>,
 }
 
 /// The values that lineages nested in one lineage computed for `Unspecified` applications, kept
@@ -4584,6 +4741,15 @@ struct ValueScope {
 /// whatever was on the evaluation stack when it was computed. Only a value whose derivation had
 /// no console effect, no exhausted budget and no undefined term is recorded, so reusing it
 /// neither drops an effect nor a report.
+///
+/// A scope also keeps the evaluations of `Unspecified` applications that failed
+/// ([`Self::record_failed`]), recorded in the innermost scope of their context that was open when
+/// the evaluation began. Unlike a value, a failure depends on the open attempts it reached, so it
+/// is served ([`Self::failed`]) only while the stack holds the same applications up to the
+/// deepest one; a new evaluation then starts as the failed one's last retry, its failed
+/// equations excluded. Excluding an equation never gives a value (it keeps the application
+/// unevaluated, or leaves another equation to give one in its own attempt), and the contingency
+/// depth it hands on names the same open attempt.
 struct UnspecifiedValues {
     depth: usize,
     context: EvaluationContext,
@@ -4595,12 +4761,79 @@ impl UnspecifiedValues {
             scopes.push(ValueScope {
                 context,
                 values: FxHashMap::default(),
+                failures: FxHashMap::default(),
             });
             Self {
                 depth: scopes.len() - 1,
                 context,
             }
         })
+    }
+
+    /// How many scopes are open.
+    fn open_scopes() -> usize {
+        UNSPECIFIED_VALUES.with_borrow(Vec::len)
+    }
+
+    /// The failed evaluation of `application` recorded under `context` that still holds: the
+    /// stack has the same applications as when it was recorded, up to the deepest open attempt
+    /// it reached.
+    fn failed(context: EvaluationContext, application: &Term) -> Option<FailedEvaluation> {
+        UNSPECIFIED_VALUES.with_borrow(|scopes| {
+            UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+                scopes
+                    .iter()
+                    .rev()
+                    .filter(|scope| scope.context == context)
+                    .filter_map(|scope| scope.failures.get(application))
+                    .find(|failed| match (failed.reached, &failed.prefix) {
+                        (Some(depth), Some(prefix)) => stack
+                            .entries
+                            .get(depth)
+                            .is_some_and(|entry| StackPrefix::same(&entry.prefix, prefix)),
+                        (None, None) => true,
+                        _ => false,
+                    })
+                    .cloned()
+            })
+        })
+    }
+
+    /// Record the evaluation `history` of `application` under `context`, which ended with the
+    /// application unevaluated, in the innermost scope of that context open when it began.
+    fn record_failed(context: EvaluationContext, application: &Term, history: &UnspecifiedRetry) {
+        let prefix = match history.reached {
+            Some(depth) => {
+                let Some(prefix) = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
+                    stack
+                        .entries
+                        .get(depth)
+                        .map(|entry| Arc::clone(&entry.prefix))
+                }) else {
+                    return;
+                };
+                Some(prefix)
+            }
+            None => None,
+        };
+        UNSPECIFIED_VALUES.with_borrow_mut(|scopes| {
+            let enclosing = history.scopes.min(scopes.len());
+            if let Some(scope) = scopes[..enclosing]
+                .iter_mut()
+                .rev()
+                .find(|scope| scope.context == context)
+            {
+                scope.failures.insert(
+                    application.clone(),
+                    FailedEvaluation {
+                        excluded: history.excluded.clone(),
+                        contingent: history.contingent,
+                        reached: history.reached,
+                        prefix,
+                    },
+                );
+            }
+        });
     }
 
     /// The value recorded for `application` under `context`, with the equation of the step that
