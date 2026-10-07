@@ -13055,6 +13055,29 @@ fn kcompile_source(source: &str) -> Output {
     output
 }
 
+/// `kcompile` compiles and writes out a rule body 5,000 levels deep, an operator chain inside
+/// an application: every compile stage and the writing of the artifacts (the definition's KORE,
+/// JSON and provenance) run on a stack measured from the deepest term. The first compile pass
+/// that recursed per level overflowed the 8 MiB main thread at 4,000 levels.
+#[test]
+fn kcompile_compiles_a_rule_body_thousands_of_levels_deep() {
+    let chain = (0..5_000)
+        .map(|operand| (operand % 10).to_string())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let source = format!(
+        "module MAIN\n  imports INT\n  syntax E ::= Int | E \"+\" E [left, symbol(plus)]\n  \
+         syntax KItem ::= foo(E) [symbol(foo)]\n  rule foo({chain}) => .K\nendmodule\n"
+    );
+    let output = kcompile_source(&source);
+    assert!(
+        output.status.success(),
+        "{}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn anywhere_rules_needing_the_configuration_are_rejected_at_the_rule() {
     // An anywhere rule applies to its left-hand side wherever that term occurs, with no

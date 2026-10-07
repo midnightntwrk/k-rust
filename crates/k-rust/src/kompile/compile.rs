@@ -51,7 +51,7 @@ use crate::{
 use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::module_to_kore::{BUILTIN_HOOK_NAMESPACES, is_real_hook};
 use super::passes::number_sentence;
-use super::pipeline::{emission_phase, prologue_phase};
+use super::pipeline::{DeepestTerm, emission_phase, prologue_phase};
 use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
 
 /// Backend whose KORE input should be generated.
@@ -277,9 +277,64 @@ pub fn compile_loaded_definition_timed(
 ) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
     let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
+    let (execution_definition, definition, diagnostics, resolved) =
+        transform_loaded_definition(loaded, &options, &mut timings)?;
+    // Emission walks the transformed definitions (KORE conversion, printing, provenance): it
+    // runs on a stack that holds their deepest term.
+    DeepestTerm::of_all([&execution_definition, &definition]).run(
+        emission_phase::EMIT_KORE,
+        || {
+            emit_compiled(
+                loaded,
+                &options,
+                timings,
+                span_started,
+                Transformed {
+                    execution_definition,
+                    definition,
+                    diagnostics,
+                    resolved,
+                },
+            )
+        },
+    )?
+}
+
+/// Run `work`, which walks the terms of `definitions` (writing a compiled definition out, for
+/// instance), on a stack that holds their deepest term; refused as `stage`'s error, located at
+/// that term's sentence, when no stack this build maps holds it.
+pub fn on_definitions_stack<'a, T>(
+    definitions: impl IntoIterator<Item = &'a Definition>,
+    stage: &'static str,
+    work: impl FnOnce() -> T,
+) -> Result<T, CompileError> {
+    DeepestTerm::of_all(definitions).run(stage, work)
+}
+
+/// What the transformation stages give emission.
+struct Transformed {
+    execution_definition: Definition,
+    definition: Definition,
+    diagnostics: Vec<Diagnostic>,
+    resolved: ResolvedDefinition,
+}
+
+/// The emission half of [`compile_loaded_definition_timed`]: the checks of the transformed
+/// definition, its KORE, and the provenance of the emitted sentences.
+fn emit_compiled(
+    loaded: &LoadedDefinition,
+    options: &CompileOptions,
+    mut timings: PhaseTimings,
+    span_started: web_time::Instant,
+    transformed: Transformed,
+) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
+    let Transformed {
+        execution_definition,
+        definition,
+        mut diagnostics,
+        resolved,
+    } = transformed;
     let timings = &mut timings;
-    let (execution_definition, definition, mut diagnostics, resolved) =
-        transform_loaded_definition(loaded, &options, timings)?;
     measure::add(
         Counter::KompileSentencesTransformed,
         definition
@@ -795,7 +850,10 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
-    let (definition, resolved, diagnostics) = checked_input(loaded, options, timings)?;
+    let (definition, resolved, diagnostics) = DeepestTerm::of(loaded.definition())
+        .run(prologue_phase::DEFINITION_CHECKS, || {
+            checked_input(loaded, options, timings)
+        })??;
 
     // Checkpoint: every later transformation receives a resolved, structurally checked definition.
     let mut state = super::pipeline::PipelineState::default();

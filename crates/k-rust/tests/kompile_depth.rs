@@ -14,7 +14,9 @@ const _: () = assert!(cfg!(feature = "measure"));
 use std::sync::{Mutex, MutexGuard};
 
 use k_rust::builtin::embedded;
-use k_rust::kompile::{CompilationBackend, minimize_term_construction};
+use k_rust::kompile::{
+    CompilationBackend, CompileOptions, compile_loaded_definition, minimize_term_construction,
+};
 use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options};
 use k_rust_kore::measure::{self, Counter, CountingAllocator, Snapshot};
 
@@ -58,6 +60,11 @@ fn chain(n: usize) -> String {
         .join(" + ")
 }
 
+/// The numeral `s(s(...(z)))` of `n` levels.
+fn numeral(n: usize) -> String {
+    format!("{}z{}", "s(".repeat(n), ")".repeat(n))
+}
+
 /// Load module `MAIN` of `source` as `kcompile` does, with the K prelude.
 fn load(source: &str) -> LoadedDefinition {
     let mut resolver = |_: &str, required: &str| {
@@ -76,6 +83,33 @@ fn load(source: &str) -> LoadedDefinition {
         },
     )
     .unwrap_or_else(|error| panic!("the definition does not load: {error:?}"))
+}
+
+/// Rule bodies 4,000 levels deep (a chain in an application, a numeral on the left and on the
+/// right of the rewrite) load and compile on a thread of 256 KiB: the parser guards its own
+/// levels, and every compile stage runs on a stack measured from the deepest term of the
+/// definition it reads. Each overflowed the 8 MiB main thread of `kcompile` before, in the first
+/// pass that recursed per level (`concretize_cells`).
+#[test]
+fn rule_bodies_thousands_of_levels_deep_compile_on_a_small_stack() {
+    const LEVELS: usize = 4_000;
+    let sources = [
+        definition(&format!("rule foo({}) => .K", chain(LEVELS))),
+        definition(&format!("rule bar({}) => .K", numeral(LEVELS))),
+        definition(&format!("rule bar(z) => bar({})", numeral(LEVELS))),
+    ];
+    std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            for source in &sources {
+                let loaded = load(source);
+                let compiled = compile_loaded_definition(&loaded, CompileOptions::default());
+                assert!(compiled.is_ok(), "{:?}", compiled.err());
+            }
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
 }
 
 /// The bytes the term-construction minimization of `rule foo(C) => foo(C)`, with `C` a chain of

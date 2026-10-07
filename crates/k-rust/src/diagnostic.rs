@@ -203,6 +203,7 @@ diagnostic_codes! {
     UnrecognizedAttribute => "UnrecognizedAttribute",
     UnsupportedParametricSort => "UnsupportedParametricSort",
     UnusedSymbol => "UnusedSymbol",
+    TermTooDeep => "TermTooDeep",
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -279,7 +280,8 @@ impl DiagnosticCode {
             | Self::UndeclaredTag
             | Self::UndefinedSort
             | Self::UnrecognizedAttribute
-            | Self::UnsupportedParametricSort => None,
+            | Self::UnsupportedParametricSort
+            | Self::TermTooDeep => None,
         }
     }
 }

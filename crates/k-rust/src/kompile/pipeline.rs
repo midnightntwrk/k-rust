@@ -15,7 +15,7 @@ use k_rust_kore::measure;
 // Read only by the stage-boundary identity check, which exists in builds with debug assertions.
 use crate::{
     definition::{Definition, ResolveError, ResolvedDefinition},
-    diagnostic::Diagnostic,
+    diagnostic::{Diagnostic, DiagnosticCode},
     provenance::{GeneratingPass, record_generated_origins},
     timings::PhaseTimings,
 };
@@ -919,42 +919,21 @@ fn run_stages_seeded_current(
         |resolved| Current::with_resolved(start.clone(), resolved),
     );
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-    measure::without_counting(|| state.checks.start(&current.definition, options));
+    DeepestTerm::of(&current.definition).run("check stage input", || {
+        measure::without_counting(|| state.checks.start(&current.definition, options));
+    })?;
     for stage in stages {
+        let deepest = DeepestTerm::of(&current.definition);
         let (output, next_resolved) = timings.time(stage.name, || {
-            let input = PassInput::new(&current);
-            let output = (stage.run)(&input, state).map_err(|error| CompileError {
-                stage: stage.name,
-                message: error.message,
-                diagnostics: options.diagnostics.apply(error.diagnostics),
-            })?;
-            let output = match output {
-                PassOutcome::Unchanged => return Ok((None, None)),
-                PassOutcome::Changed(definition) => definition,
-            };
-            let output = match stage.provenance {
-                Provenance::Driver(pass) => {
-                    record_generated_origins(&current.definition, output, pass)
-                }
-                Provenance::None | Provenance::Internal(_) => output,
-            };
-            #[cfg(debug_assertions)]
-            assert_no_dangling_application_identities(&output);
-            let next_resolved = match current.resolved.get() {
-                Some(Ok(previous)) => Some(previous.update(&current.definition, &output)),
-                Some(Err(error)) => Some(Err(error.clone())),
-                None => None,
-            };
-            Ok((Some(output), next_resolved))
+            deepest.run(stage.name, || run_stage(stage, &current, state, options))?
         })?;
         #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-        measure::without_counting(|| {
-            state.checks.after(
-                stage,
-                output.as_ref().unwrap_or(&current.definition),
-                options,
-            )
-        });
+        {
+            let checked = output.as_ref().unwrap_or(&current.definition);
+            DeepestTerm::of(checked).run(stage.name, || {
+                measure::without_counting(|| state.checks.after(stage, checked, options));
+            })?;
+        }
         if let Some(output) = output {
             current = Current::new(output);
             if let Some(resolved) = next_resolved {
@@ -964,6 +943,112 @@ fn run_stages_seeded_current(
     }
     Ok(current)
 }
+
+/// The depth of the deepest term of some definitions, as [`crate::stack::term_depth`] counts
+/// levels, and where that term is.
+pub(crate) struct DeepestTerm {
+    depth: usize,
+    /// A diagnostic located at the sentence that holds the deepest term.
+    at: Option<Diagnostic>,
+}
+
+impl DeepestTerm {
+    /// The deepest term of `definition`.
+    pub(crate) fn of(definition: &Definition) -> Self {
+        Self::of_all([definition])
+    }
+
+    /// The deepest term of any of `definitions`.
+    pub(crate) fn of_all<'a>(definitions: impl IntoIterator<Item = &'a Definition>) -> Self {
+        let mut depth = 0;
+        let mut deepest = None;
+        for definition in definitions {
+            for module in &definition.modules {
+                for sentence in &module.local_sentences {
+                    for (_, term) in sentence.terms() {
+                        let term_depth = crate::stack::term_depth(term);
+                        if term_depth > depth {
+                            depth = term_depth;
+                            deepest = Some(sentence);
+                        }
+                    }
+                }
+            }
+        }
+        Self {
+            depth,
+            at: deepest
+                .map(|sentence| Diagnostic::error(DiagnosticCode::TermTooDeep, "", sentence)),
+        }
+    }
+
+    /// Run `work`, a stage over the definitions this term is the deepest of, on a stack that
+    /// holds its recursions ([`crate::stack::with_depth`]). A stage may build terms deeper than
+    /// its input before it walks them (an injection above each argument of a chain doubles its
+    /// depth), so it is given twice the depth. Refused at the deepest term's sentence when no
+    /// stack this build maps holds that depth.
+    pub(crate) fn run<T>(
+        &self,
+        stage: &'static str,
+        work: impl FnOnce() -> T,
+    ) -> Result<T, CompileError> {
+        crate::stack::with_depth(self.depth.saturating_mul(2), work).map_err(|mut too_deep| {
+            too_deep.depth = self.depth;
+            let message = format!("cannot compile a term this deep: {too_deep}");
+            CompileError {
+                stage,
+                message: message.clone(),
+                diagnostics: self
+                    .at
+                    .clone()
+                    .map(|mut diagnostic| {
+                        diagnostic.message = message;
+                        diagnostic
+                    })
+                    .into_iter()
+                    .collect(),
+            }
+        })
+    }
+}
+
+/// Run one stage on `current`, recording the origins of what it generated.
+fn run_stage(
+    stage: &Stage,
+    current: &Current,
+    state: &mut PipelineState,
+    options: &CompileOptions,
+) -> Result<StageOutput, CompileError> {
+    let input = PassInput::new(current);
+    let output = (stage.run)(&input, state).map_err(|error| CompileError {
+        stage: stage.name,
+        message: error.message,
+        diagnostics: options.diagnostics.apply(error.diagnostics),
+    })?;
+    let output = match output {
+        PassOutcome::Unchanged => return Ok((None, None)),
+        PassOutcome::Changed(definition) => definition,
+    };
+    let output = match stage.provenance {
+        Provenance::Driver(pass) => record_generated_origins(&current.definition, output, pass),
+        Provenance::None | Provenance::Internal(_) => output,
+    };
+    #[cfg(debug_assertions)]
+    assert_no_dangling_application_identities(&output);
+    let next_resolved = match current.resolved.get() {
+        Some(Ok(previous)) => Some(previous.update(&current.definition, &output)),
+        Some(Err(error)) => Some(Err(error.clone())),
+        None => None,
+    };
+    Ok((Some(output), next_resolved))
+}
+
+/// What one stage gives: its output when it changed the definition, and the resolution of that
+/// output when the input's was known.
+type StageOutput = (
+    Option<Definition>,
+    Option<Result<ResolvedDefinition, ResolveError>>,
+);
 
 #[cfg(debug_assertions)]
 fn assert_no_dangling_application_identities(definition: &Definition) {
@@ -1066,6 +1151,64 @@ mod tests {
             }],
             attributes: Default::default(),
         }
+    }
+
+    /// A stage over a definition whose deepest term no stack segment holds is refused before it
+    /// runs, as an error of that stage located at the sentence that holds the term.
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn a_stage_too_deep_for_any_stack_is_refused_at_the_deepest_sentence() {
+        use crate::definition::{AttributeKey, Attributes, Sentence};
+        use crate::kast::{Label, Term};
+        let depth = crate::stack::STACK_LIMIT / (2 * crate::stack::STACK_PER_LEVEL) + 1;
+        let mut deep = Term::Variable {
+            name: "X".to_owned(),
+            sort: None,
+        };
+        for _ in 1..depth {
+            deep = Term::Apply {
+                label: Label::new("s"),
+                arguments: vec![deep],
+            };
+        }
+        let mut attributes = Attributes::default();
+        attributes.set(AttributeKey::Source, "deep.k".into());
+        attributes.set(AttributeKey::Location, serde_json::json!([3, 1, 3, 9]));
+        let mut definition = definition();
+        definition.modules[0]
+            .local_sentences
+            .push(std::sync::Arc::new(Sentence::Rule {
+                body: deep,
+                requires: Term::Variable {
+                    name: "B".to_owned(),
+                    sort: None,
+                },
+                ensures: Term::Variable {
+                    name: "C".to_owned(),
+                    sort: None,
+                },
+                attributes,
+            }));
+        let mut ran = false;
+        let refused = DeepestTerm::of(&definition)
+            .run("deep stage", || ran = true)
+            .unwrap_err();
+        assert!(!ran);
+        assert_eq!(refused.stage, "deep stage");
+        let [diagnostic] = refused.diagnostics.as_slice() else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(diagnostic.code, DiagnosticCode::TermTooDeep);
+        assert_eq!(diagnostic.source.as_deref(), Some("deep.k"));
+        assert_eq!(
+            diagnostic.location.map(|location| location.start_line),
+            Some(3)
+        );
+        assert!(
+            diagnostic.message.contains(&format!("{depth} levels deep")),
+            "{}",
+            diagnostic.message
+        );
     }
 
     #[test]

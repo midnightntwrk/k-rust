@@ -27,6 +27,7 @@ mod view;
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
     EmittedSentenceProvenance, compile_loaded_definition, compile_loaded_definition_timed,
+    on_definitions_stack,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{

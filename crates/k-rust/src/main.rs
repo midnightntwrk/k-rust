@@ -1958,93 +1958,112 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             )
         })?;
     }
-    write_timings.time(emission_phase::WRITE_ARTIFACTS, || {
-        if options.emit_json || options.for_proving {
-            let definition = if options.compiled_definition.is_some() {
-                parsed_definition_for_json(&loaded, &syntax_module.name)?
-            } else {
-                // Fresh compilation already selected its modules before parsing. Keep that exact
-                // graph, including any distinct configuration root, in the parsed artifact.
-                let mut definition = loaded.definition().clone();
-                definition.attributes.set(
-                    AttributeKey::SyntaxModule,
-                    serde_json::Value::String(syntax_module.name.clone()),
-                );
-                definition
-            };
-            definition_json::write_pretty_file(
-                &definition,
-                &options.output_directory.join("parsed.json"),
-            )?;
-            // `parsed.json` is the KAST interchange artifact and marks sentences that vocabulary
-            // cannot hold, such as context aliases, as `badsentence`. A later specification
-            // compiles against this definition, so the bundle also carries it losslessly, with
-            // the source table its spans and origin receipts index.
-            if options.for_proving {
+    // Writing walks the loaded and the compiled definitions (their JSON and provenance): it runs
+    // on a stack that holds their deepest term.
+    let written = k_rust::kompile::on_definitions_stack(
+        [loaded.definition(), &artifacts.execution_definition],
+        emission_phase::WRITE_ARTIFACTS,
+        || {
+            write_timings.time(emission_phase::WRITE_ARTIFACTS, || {
+                if options.emit_json || options.for_proving {
+                    let definition = if options.compiled_definition.is_some() {
+                        parsed_definition_for_json(&loaded, &syntax_module.name)?
+                    } else {
+                        // Fresh compilation already selected its modules before parsing. Keep that exact
+                        // graph, including any distinct configuration root, in the parsed artifact.
+                        let mut definition = loaded.definition().clone();
+                        definition.attributes.set(
+                            AttributeKey::SyntaxModule,
+                            serde_json::Value::String(syntax_module.name.clone()),
+                        );
+                        definition
+                    };
+                    definition_json::write_pretty_file(
+                        &definition,
+                        &options.output_directory.join("parsed.json"),
+                    )?;
+                    // `parsed.json` is the KAST interchange artifact and marks sentences that vocabulary
+                    // cannot hold, such as context aliases, as `badsentence`. A later specification
+                    // compiles against this definition, so the bundle also carries it losslessly, with
+                    // the source table its spans and origin receipts index.
+                    if options.for_proving {
+                        fs::write(
+                            options.output_directory.join(PREPARED_DEFINITION),
+                            definition_json::to_provenance_string(
+                                &definition,
+                                loaded.source_table(),
+                            )?,
+                        )?;
+                    }
+                }
+                if options.for_proving {
+                    let (mut sources, mut modules) =
+                        if let Some(prepared) = &options.compiled_definition {
+                            let manifest = load_prepared_manifest(prepared)?;
+                            (manifest.sources, manifest.modules)
+                        } else {
+                            (Vec::new(), Vec::new())
+                        };
+                    sources.extend(loaded.files().iter().map(|file| file.source.clone()));
+                    sources.sort();
+                    sources.dedup();
+                    modules.extend(prepared_module_declarations(
+                        loaded.files(),
+                        loaded.definition(),
+                    ));
+                    modules.sort();
+                    modules.dedup();
+                    let manifest = PreparedDefinitionManifest {
+                        format: PREPARED_FORMAT.into(),
+                        version: PREPARED_VERSION,
+                        definition: Some(PREPARED_DEFINITION.into()),
+                        sources,
+                        modules,
+                    };
+                    fs::write(
+                        options.output_directory.join(PREPARED_MANIFEST),
+                        serde_json::to_string_pretty(&manifest)?,
+                    )?;
+                }
                 fs::write(
-                    options.output_directory.join(PREPARED_DEFINITION),
-                    definition_json::to_provenance_string(&definition, loaded.source_table())?,
+                    options.output_directory.join("definition.kore"),
+                    &artifacts.definition_kore,
                 )?;
-            }
+                fs::write(
+                    options.output_directory.join("syntaxDefinition.kore"),
+                    &artifacts.syntax_definition_kore,
+                )?;
+                fs::write(
+                    options.output_directory.join("macros.kore"),
+                    &artifacts.macros_kore,
+                )?;
+                // Proof preparation has its own parsed-definition contract and can combine source tables
+                // from a prepared semantics and a new specification. It is not an executable definition
+                // compilation, so publish the krun payload only for ordinary Rust definitions.
+                if options.backend == CompilationBackend::Rust && !options.for_proving {
+                    write_runnable_artifact(
+                        &options.output_directory,
+                        &options.common.module,
+                        &syntax_module.name,
+                        loaded.definition(),
+                        loaded.source_table(),
+                        &artifacts.execution_definition,
+                        &artifacts.configuration_variables,
+                        &artifacts.execution_rewrite_order,
+                        &artifacts.definition_kore,
+                    )?;
+                }
+                Ok::<_, Box<dyn Error>>(())
+            })
+        },
+    );
+    match written {
+        Ok(written) => written?,
+        Err(error) => {
+            emit_diagnostics(&error.diagnostics);
+            return Err(error.into());
         }
-        if options.for_proving {
-            let (mut sources, mut modules) = if let Some(prepared) = &options.compiled_definition {
-                let manifest = load_prepared_manifest(prepared)?;
-                (manifest.sources, manifest.modules)
-            } else {
-                (Vec::new(), Vec::new())
-            };
-            sources.extend(loaded.files().iter().map(|file| file.source.clone()));
-            sources.sort();
-            sources.dedup();
-            modules.extend(prepared_module_declarations(
-                loaded.files(),
-                loaded.definition(),
-            ));
-            modules.sort();
-            modules.dedup();
-            let manifest = PreparedDefinitionManifest {
-                format: PREPARED_FORMAT.into(),
-                version: PREPARED_VERSION,
-                definition: Some(PREPARED_DEFINITION.into()),
-                sources,
-                modules,
-            };
-            fs::write(
-                options.output_directory.join(PREPARED_MANIFEST),
-                serde_json::to_string_pretty(&manifest)?,
-            )?;
-        }
-        fs::write(
-            options.output_directory.join("definition.kore"),
-            &artifacts.definition_kore,
-        )?;
-        fs::write(
-            options.output_directory.join("syntaxDefinition.kore"),
-            &artifacts.syntax_definition_kore,
-        )?;
-        fs::write(
-            options.output_directory.join("macros.kore"),
-            &artifacts.macros_kore,
-        )?;
-        // Proof preparation has its own parsed-definition contract and can combine source tables
-        // from a prepared semantics and a new specification. It is not an executable definition
-        // compilation, so publish the krun payload only for ordinary Rust definitions.
-        if options.backend == CompilationBackend::Rust && !options.for_proving {
-            write_runnable_artifact(
-                &options.output_directory,
-                &options.common.module,
-                &syntax_module.name,
-                loaded.definition(),
-                loaded.source_table(),
-                &artifacts.execution_definition,
-                &artifacts.configuration_variables,
-                &artifacts.execution_rewrite_order,
-                &artifacts.definition_kore,
-            )?;
-        }
-        Ok::<_, Box<dyn Error>>(())
-    })?;
+    }
     write_timings.set_span_seconds(write_span_started.elapsed().as_secs_f64());
     CompileTimings::new(load_timings, compile_timings, write_timings)
         .write(options.timings.as_deref())?;
