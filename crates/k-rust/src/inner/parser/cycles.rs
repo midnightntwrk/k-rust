@@ -163,6 +163,11 @@ impl SameSpanCycles {
     pub(super) fn contains(&self, production: usize) -> bool {
         self.flagged.get(production).copied().unwrap_or(false)
     }
+
+    /// Whether no production is flagged.
+    pub(super) fn is_empty(&self) -> bool {
+        !self.flagged.contains(&true)
+    }
 }
 
 /// Component ids of the directed graph on `0..vertices` with the given `(_, from, to)` edges;

@@ -638,6 +638,7 @@ pub(super) fn completed_nodes(
     priority_memos: &RefCell<PackedPriorityMemos>,
     filter: PriorityFilter,
     cycles: &SameSpanCycles,
+    stand_in: Option<&Rc<PackedTerm>>,
 ) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
@@ -668,15 +669,20 @@ pub(super) fn completed_nodes(
             update_chart_work_counters(|counters| {
                 counters.helper_completion_candidates += 1;
             });
-            let term = build_packed_term(
-                state.production,
-                production,
-                children,
-                input,
-                state.origin,
-                end,
-                provenance,
-            );
+            // A recognition with a stand-in node decides which items exist without building a
+            // forest (`Grammar::recognize`).
+            let term = match stand_in {
+                Some(stand_in) => Rc::clone(stand_in),
+                None => build_packed_term(
+                    state.production,
+                    production,
+                    children,
+                    input,
+                    state.origin,
+                    end,
+                    provenance,
+                ),
+            };
             let filtered = match filter {
                 PriorityFilter::Enforced => {
                     grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos)
@@ -920,6 +926,7 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
         );
         let second = completed_nodes(
             &chart,
@@ -932,6 +939,7 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
         );
         assert!(Rc::ptr_eq(&first, &second));
         let first = first
@@ -965,6 +973,7 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
         );
         let after_other_boundary = after_other_boundary
             .nodes
@@ -987,6 +996,7 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
         );
         assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(

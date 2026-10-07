@@ -415,8 +415,9 @@ mod tests {
 
     use super::super::{
         CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput, PARSE_ATTEMPTS,
-        PREDICTION_ANALYSIS_BUILDS, ParseContext, ParseError, ParseProvenance, PredictionMode,
-        Pruning, ScanWinner, SourceId, Term, TermMetadata,
+        PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext, ParseError,
+        ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition, SameSpanCycles,
+        ScanWinner, SourceId, Term, TermMetadata,
     };
     use super::*;
     use crate::definition::{
@@ -791,6 +792,88 @@ mod tests {
                 return Ok(());
             };
             pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
+        }
+
+        /// With the relations ignored, a recognition whose every node is one stand-in node has
+        /// the items of the forest-building recognition in every chart, and finds a derivation
+        /// of the whole input exactly when it does: a failed parse's explanation reads only
+        /// that (`Grammar::explain_violation`).
+        #[test]
+        fn a_stand_in_recognition_has_the_items_of_the_forest_building_one(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..7, 0..5)),
+                1..9,
+            ),
+            input in "[abc ]{0,11}",
+            filtered in any::<bool>(),
+        ) {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            for (index, (result, items)) in productions.iter().enumerate() {
+                let items = items
+                    .iter()
+                    .map(|item| match item {
+                        0..=2 => nt(&format!("S{item}")),
+                        3 => terminal("a"),
+                        4 => terminal("b"),
+                        5 => terminal("c"),
+                        _ => nt("S0"),
+                    })
+                    .collect();
+                sentences.push(production(&format!("S{result}"), items, &format!("p{index}")));
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            if !SameSpanCycles::new(&grammar).is_empty() {
+                return Ok(());
+            }
+            let start_sort = Sort::new("Start");
+            let start = grammar.sort_denotations.denote(&start_sort);
+            let start_id = grammar.sort_id(start).unwrap();
+            let mode = if filtered {
+                PredictionMode::Filtered
+            } else {
+                PredictionMode::Unfiltered
+            };
+            let stand_in = PackedTerm::leaf(Term::Token {
+                token: String::new(),
+                sort: Sort::new("K"),
+            });
+            let recognize = |stand_in: Option<&std::rc::Rc<PackedTerm>>| {
+                let mut scanner_cache = vec![None; input.len() + 1];
+                let start_position = grammar.canonical_position(&input, 0, &mut scanner_cache);
+                grammar.recognize(
+                    start_id,
+                    start_position,
+                    &input,
+                    ParseProvenance {
+                        source: SourceId(0),
+                        base_offset: 0,
+                    },
+                    mode,
+                    PriorityFilter::Ignored,
+                    stand_in,
+                    &mut false,
+                    &mut scanner_cache,
+                    &std::cell::RefCell::new(PackedPriorityMemos::default()),
+                )
+            };
+            let items = |recognition: &Recognition| {
+                recognition
+                    .charts
+                    .iter()
+                    .map(|chart| chart.states.keys().copied().collect::<BTreeSet<_>>())
+                    .collect::<Vec<_>>()
+            };
+            match (recognize(Some(&stand_in)), recognize(None)) {
+                (Ok(stood_in), Ok(built)) => {
+                    prop_assert_eq!(items(&stood_in), items(&built));
+                    prop_assert_eq!(stood_in.parses.is_empty(), built.parses.is_empty());
+                }
+                (stood_in, built) => {
+                    prop_assert_eq!(stood_in.err(), built.err());
+                }
+            }
         }
 
         #[test]

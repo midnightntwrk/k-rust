@@ -150,6 +150,55 @@ fn parametric_nestings_parse_in_work_linear_in_their_depth() {
     }
 }
 
+/// A chain of a left-associative operator that fails at its end (`0+1+...+`) is recognized
+/// again with the relations ignored, to tell whether the grammar derives it (the error would then
+/// be the relation every derivation breaks) or where its longest viable prefix ends. That
+/// recognition reads only which items exist, so it does not build the parse forest of the
+/// ambiguous grammar, which grows far faster than its chart: twice the operands take at most
+/// about six times the completions and bytes (the chart of an ambiguous chain is quadratic in its
+/// length). Building the forest took sixteen times the completions and eighteen times the bytes
+/// (3.4 million and 3 GB at 80 operands).
+#[test]
+fn failed_associativity_chains_are_explained_without_their_forest() {
+    let _measuring = measuring();
+    let parser = parser(
+        "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax E ::= Int | E \"+\" E [left]\nendmodule\n",
+    );
+    let allocated = || {
+        let mut totals = Snapshot::default();
+        measure::set_allocation_counters(&mut totals);
+        totals
+    };
+    let [small, large] = [40, 80].map(|length: usize| {
+        let program = (0..length)
+            .map(|operand| operand.to_string())
+            .collect::<Vec<_>>()
+            .join("+")
+            + "+";
+        let before = (measure::snapshot(), allocated());
+        let error = parser.parse(&Sort::new("E"), &program).unwrap_err();
+        assert!(
+            error.to_string().contains("unexpected end of file"),
+            "{error}"
+        );
+        let mut work = measure::snapshot().delta(&before.0);
+        work.0[Counter::AllocatedBytes as usize] =
+            allocated().delta(&before.1).get(Counter::AllocatedBytes);
+        work
+    });
+    for counter in [
+        Counter::ParserChartCompletionCandidates,
+        Counter::AllocatedBytes,
+    ] {
+        let (small, large) = (small.get(counter), large.get(counter));
+        println!("{counter:?}: {small} at 40 operands, {large} at 80");
+        assert!(
+            large <= small * 6,
+            "{counter:?}: {small} at 40 operands, {large} at 80"
+        );
+    }
+}
+
 /// The Earley chart's completions and the bytes of parsing one shape at two lengths.
 fn chart_work_at_two_sizes(
     source: &str,

@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second"
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
@@ -1208,6 +1208,7 @@ impl Grammar {
             provenance,
             prediction_mode,
             PriorityFilter::Enforced,
+            None,
             &mut pruning.pruned,
             &mut scanner_cache,
             &priority_memos,
@@ -1276,6 +1277,16 @@ impl Grammar {
     /// with the relations ignored: when that recognition also fails, the input has no derivation
     /// at all and the error is the place where it stops; otherwise the error is a violation of a
     /// derivation of the whole input.
+    ///
+    /// Whether a derivation exists, and the items of the last chart where none does, do not
+    /// depend on the parse forest, which for an ambiguous grammar (every chain of a binary
+    /// operator) grows far faster than its chart. So the input is first recognized with every
+    /// node replaced by one stand-in node: each item then has one derivation and is processed
+    /// once, and with the relations ignored nothing is filtered by a node's structure, so the
+    /// items of every chart and the start items spanning the input are those of the
+    /// forest-building recognition. Only a derivation of the whole input needs the forest. A
+    /// grammar with a production on a same-span cycle, whose detection reads node structure,
+    /// always builds it.
     #[allow(clippy::too_many_arguments)]
     fn explain_violation(
         &self,
@@ -1289,8 +1300,40 @@ impl Grammar {
         scanner_cache: &mut [ScanCacheEntry],
     ) -> ParseError {
         let priority_memos = RefCell::new(PackedPriorityMemos::default());
-        // A recognition error (a cycle) that only the ignored relations let through says nothing
-        // about this input's failure.
+        let cycles = self
+            .same_span_cycles
+            .get_or_init(|| SameSpanCycles::new(self));
+        if cycles.is_empty() {
+            let stand_in = PackedTerm::leaf(Term::Token {
+                token: String::new(),
+                sort: Sort::new("K"),
+            });
+            // A recognition error (a cycle) that only the ignored relations let through says
+            // nothing about this input's failure.
+            let Ok(Recognition { charts, parses, .. }) = self.recognize(
+                start_id,
+                start_position,
+                input,
+                context.provenance,
+                prediction_mode,
+                PriorityFilter::Ignored,
+                Some(&stand_in),
+                pruned,
+                scanner_cache,
+                &priority_memos,
+            ) else {
+                return first_violation;
+            };
+            if parses.is_empty() {
+                return self.no_parse(
+                    input,
+                    context.provenance,
+                    context.diagnostic_provenance,
+                    &charts,
+                    scanner_cache,
+                );
+            }
+        }
         let Ok(Recognition { charts, parses, .. }) = self.recognize(
             start_id,
             start_position,
@@ -1298,6 +1341,7 @@ impl Grammar {
             context.provenance,
             prediction_mode,
             PriorityFilter::Ignored,
+            None,
             pruned,
             scanner_cache,
             &priority_memos,
@@ -1322,7 +1366,10 @@ impl Grammar {
 
     /// The recognition phase of a parse attempt: the Earley chart of `input` from the start sort
     /// and the completed start productions spanning it, dropping the derivations that violate the
-    /// priority and associativity relations when `filter` enforces them.
+    /// priority and associativity relations when `filter` enforces them. With a `stand_in`,
+    /// every completed node is that node, so the recognition decides which items exist without
+    /// building a forest (`Grammar::explain_violation`); it is used only with the relations
+    /// ignored, and only for a grammar without same-span cycles.
     #[allow(clippy::too_many_arguments)]
     fn recognize(
         &self,
@@ -1332,6 +1379,7 @@ impl Grammar {
         provenance: ParseProvenance,
         prediction_mode: PredictionMode,
         filter: PriorityFilter,
+        stand_in: Option<&Rc<PackedTerm>>,
         pruned: &mut bool,
         scanner_cache: &mut [ScanCacheEntry],
         priority_memos: &RefCell<PackedPriorityMemos>,
@@ -1509,6 +1557,7 @@ impl Grammar {
                             priority_memos,
                             filter,
                             cycles,
+                            stand_in,
                         );
                         if let Some(cycle) = &completed.cycle {
                             return Err(cycle.clone());
@@ -1583,19 +1632,23 @@ impl Grammar {
                             update_chart_work_counters(|counters| {
                                 counters.primary_completion_candidates += 1;
                             });
-                            let term = build_packed_term(
-                                state.production,
-                                production,
-                                children,
-                                input,
-                                state.origin,
-                                position,
-                                provenance,
-                            );
-                            let term = if production.term_production.is_some() {
-                                instance_nodes.intern(term, state.origin, position)
+                            let term = if let Some(stand_in) = stand_in {
+                                Rc::clone(stand_in)
                             } else {
-                                term
+                                let term = build_packed_term(
+                                    state.production,
+                                    production,
+                                    children,
+                                    input,
+                                    state.origin,
+                                    position,
+                                    provenance,
+                                );
+                                if production.term_production.is_some() {
+                                    instance_nodes.intern(term, state.origin, position)
+                                } else {
+                                    term
+                                }
                             };
                             match match filter {
                                 PriorityFilter::Enforced => self.filter_or_defer_packed_priority(
@@ -1764,6 +1817,7 @@ impl Grammar {
                 priority_memos,
                 filter,
                 cycles,
+                stand_in,
             );
             if let Some(cycle) = &completed.cycle {
                 return Err(cycle.clone());
