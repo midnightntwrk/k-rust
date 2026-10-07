@@ -394,7 +394,7 @@ fn compile_k_regex(
         regex: source.to_owned(),
         message: error.to_string(),
     })?;
-    let canonical = parsed.to_java_string();
+    let canonical = parsed.to_canonical_string();
     let expanded = KRegex {
         start_line: parsed.start_line,
         body: expand_regex_body(&parsed.body, lexical, &mut Vec::new())?,
