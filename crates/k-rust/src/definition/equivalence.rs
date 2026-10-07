@@ -655,7 +655,7 @@ pub(crate) const COMPARISON_RECURSION_LIMIT: usize = 64;
 /// which never carry the parser's metadata annotations.
 ///
 /// Terms of any depth are compared in constant stack: the first
-/// [`COMPARISON_RECURSION_LIMIT`] levels recurse, and the subterms below are compared with an
+/// `COMPARISON_RECURSION_LIMIT` levels recurse, and the subterms below are compared with an
 /// explicit work list.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     term_equivalent_at(left, right, 0)

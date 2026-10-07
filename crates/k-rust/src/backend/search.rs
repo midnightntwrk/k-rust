@@ -238,7 +238,7 @@ pub struct MatchCondition {
 /// The printed pattern is the disjunction, at `result_sort`, of one conjunction per match: its
 /// bindings (as equalities, by name and then sort) followed by its constraints. That condition
 /// is then split into disjuncts at `result_sort`; each disjunct loses the equalities that only
-/// bind a generated anonymous variable (see [`MatchOutput::kept_conjuncts`]); and the
+/// bind a generated anonymous variable (see `MatchOutput::kept_conjuncts`); and the
 /// disjuncts are ordered by the structural order of their KORE and deduplicated.
 ///
 /// Each step reads the externalized pattern through [`External`] sources, one node at a time, so

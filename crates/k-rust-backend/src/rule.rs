@@ -384,7 +384,7 @@ pub struct ComputedRuleAttributes {
     pub unbound_variables: BTreeSet<Variable>,
     /// For an equation (function, simplification or ceil), the free variables of its
     /// right-hand side and `ensures` that its left-hand side does not bind, in the definition's
-    /// spelling ([`equation_unbound_result_variables`]); empty for a rewrite rule. An instance
+    /// spelling (`equation_unbound_result_variables`); empty for a rewrite rule. An instance
     /// of such an equation is not used (`ConditionIndeterminacy::UnboundResultVariables`).
     pub unbound_result_variables: Vec<String>,
 }

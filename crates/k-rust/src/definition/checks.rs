@@ -490,7 +490,7 @@ fn grammar_admits(
 /// the result sort of `p` is admitted at that argument, so the attribute has an effect exactly when
 /// the result sort is below the argument sort in `admission`: the order the grammar the production
 /// is parsed in admits terms by, which for a module is its rule grammar's order
-/// ([`sorts::rule_grammar_subsorts`]), where every sort of K items is below `KItem` and `K`.
+/// (`sorts::rule_grammar_subsorts`), where every sort of K items is below `KItem` and `K`.
 pub fn check_associativity(
     sentences: &[&Sentence],
     admission: &PartialOrder<Sort>,

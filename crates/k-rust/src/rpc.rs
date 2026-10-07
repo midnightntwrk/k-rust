@@ -2344,9 +2344,10 @@ fn serve_connection(
 
 use session::ConnectionSession;
 
-/// A connection's requests and the worker that runs them. A [`RequestControl`] exists only as
-/// a request admitted by a [`ConnectionSession`] (its constructor is private to this module), so
-/// every request is in the queue of the session that ends it.
+/// A connection's requests and the worker that runs them. A
+/// [`RequestControl`](session::RequestControl) exists only as a request admitted by a
+/// [`ConnectionSession`] (its constructor is private to this module), so every request is in the
+/// queue of the session that ends it.
 mod session {
     use std::{
         collections::VecDeque,

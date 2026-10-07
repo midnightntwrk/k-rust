@@ -478,7 +478,7 @@ pub fn match_terms(
 /// value of its normal form under the equations, and distinct normal forms are distinct values.
 /// Such a subject application (other than the `Evaluate` root) is compared by its head and
 /// arguments, and refuted against a different head, only when it is instance-normal
-/// ([`BackendDefinition::instance_normal`]): an equation may rewrite some instance of any other
+/// (`BackendDefinition::instance_normal`): an equation may rewrite some instance of any other
 /// one to a term with other arguments or another head (`wrap(s(z)) = wrap(z)` for `wrap(s(X))`
 /// at `X = z`). Such a pair is left in the remainder. The pattern side keeps its reading: the
 /// left-hand side of a rule or equation is matched as written.
