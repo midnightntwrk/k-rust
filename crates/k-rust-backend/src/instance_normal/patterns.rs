@@ -25,7 +25,9 @@
 //! reduct of a pattern, by matching the equation's left-hand side against the pattern. It reads
 //! that left-hand side by its values as well: a subterm's syntax counts only where the subterm's
 //! instances are normal forms (every subterm of a normal-argument equation's left-hand side, and
-//! otherwise a subterm shown normal), and any other subterm stands for any value.
+//! otherwise a subterm shown normal), and any other subterm stands for any value. Injections are
+//! compared up to the subsort axioms, under which they compose: `inj{B,T}(t)` with `B < A` is the
+//! value `inj{A,T}(inj{B,A}(t))`, an instance of `inj{A,T}(X:A)`.
 
 use std::{
     cell::RefCell,
@@ -42,7 +44,7 @@ use crate::{
     definition::BackendDefinition,
     rule::{RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     term::{
-        HeadRole, Term, TermKind,
+        HeadRole, Sort, Term, TermKind,
         head::{
             Fixed, Head, NormalForms, PatternReading, Shape, classify_pattern, classify_value,
             compare_roots,
@@ -375,30 +377,54 @@ impl BackendDefinition {
                 },
             ) if left_target == term_target => {
                 if left_source == term_source {
-                    self.narrow_argument(left_operand, term_operand, depth, reading)
-                } else {
-                    // A reduct of an injection from `term_source` is one from that sort or, its
-                    // operand having reduced to an injection, from a sort below it: one from
-                    // `left_source` only when that is below, through an operand that reduces to
-                    // an injection from it.
-                    match self
-                        .sort_graph()
-                        .check_subsort(left_source, term_source)
-                        .ok()
-                    {
-                        Some(false) => None,
-                        Some(true) => self.narrow_argument(
-                            &Term::injection(
-                                left_source.clone(),
-                                term_source.clone(),
-                                left_operand.clone(),
-                            ),
+                    return self.narrow_argument(left_operand, term_operand, depth, reading);
+                }
+                // By the subsort axioms injections compose: for `C < B < A`,
+                // `inj{C,A}(x) = inj{B,A}(inj{C,B}(x))`. A reduct of `inj{S,T}(t)` is
+                // `inj{S,T}(t')`, which is `inj{C,T}(u)` when `t'` is `inj{C,S}(u)`; it is
+                // the value of an instance of `inj{L,T}(p)` exactly when it is
+                // `inj{C,T}(u)` for a sort `C` below or equal to both `L` and `S`.
+                let sorts = self.sort_graph();
+                let below = |sub, sup| sorts.check_subsort(sub, sup).ok();
+                match (
+                    below(left_source, term_source),
+                    below(term_source, left_source),
+                ) {
+                    // The reduct of `t` must be an injection from `L` or below.
+                    (Some(true), _) => self.narrow_argument(
+                        &Term::injection(
+                            left_source.clone(),
+                            term_source.clone(),
+                            left_operand.clone(),
+                        ),
+                        term_operand,
+                        depth,
+                        reading,
+                    ),
+                    // Every reduct `inj{S,T}(t')` is `inj{L,T}(inj{S,L}(t'))`.
+                    (_, Some(true)) => self.narrow_argument(
+                        left_operand,
+                        &Term::injection(
+                            term_source.clone(),
+                            left_source.clone(),
+                            term_operand.clone(),
+                        ),
+                        depth,
+                        reading,
+                    ),
+                    (Some(false), Some(false)) => {
+                        if sorts.known_overlap(left_source, term_source) == Some(false) {
+                            return None;
+                        }
+                        self.narrow_through_lower_injections(
+                            left,
+                            term_target,
                             term_operand,
                             depth,
                             reading,
-                        ),
-                        None => unknown(),
+                        )
                     }
+                    _ => unknown(),
                 }
             }
             (
@@ -458,6 +484,56 @@ impl BackendDefinition {
         for representative in &representatives {
             if let Some(found) = self.narrow(left, representative, depth, LeftReading::Values) {
                 alternatives.extend(found);
+            }
+        }
+        bounded_alternatives(alternatives)
+    }
+
+    /// [`Self::narrow`] of the injection pattern `left`, from a sort `L`, against
+    /// `inj{S,target}(operand)` where neither of `L` and `S` is below the other: a reduct is the
+    /// value of an instance of `left` only through a reduct of `operand` that is an injection
+    /// `inj{C,S}(u)` from a sort below `S`, which composes to `inj{C,target}(u)`. So each
+    /// representative of `operand` that is an injection is narrowed in that composed form, one
+    /// with another fixed root (an application of a constructor or equation head, a domain value,
+    /// a collection: its reducts keep that root) gives nothing, and any other leaves the bindings
+    /// unknown. Each step lowers the injection source strictly, so this ends.
+    fn narrow_through_lower_injections(
+        &self,
+        left: &Term,
+        target: &Sort,
+        operand: &Term,
+        depth: usize,
+        reading: LeftReading,
+    ) -> Option<Vec<Substitution>> {
+        let unknown = || Some(vec![Substitution::new()]);
+        let Some(representatives) = self.representatives(operand, depth) else {
+            return unknown();
+        };
+        let mut alternatives = Vec::new();
+        for representative in &representatives {
+            match representative.shape() {
+                Shape::Injection => {
+                    let TermKind::Injection {
+                        source,
+                        term: inner,
+                        ..
+                    } = representative.kind()
+                    else {
+                        unreachable!("an injection shape is an injection")
+                    };
+                    let composed = Term::injection(source.clone(), target.clone(), inner.clone());
+                    if let Some(found) = self.narrow(left, &composed, depth, reading) {
+                        alternatives.extend(found);
+                    }
+                }
+                Shape::DomainValue
+                | Shape::Collection(_)
+                | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead) => {}
+                Shape::Variable
+                | Shape::And
+                | Shape::Application(
+                    HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual,
+                ) => return unknown(),
             }
         }
         bounded_alternatives(alternatives)

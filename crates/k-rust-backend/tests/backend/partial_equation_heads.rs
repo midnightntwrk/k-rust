@@ -518,6 +518,79 @@ fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept
     );
 }
 
+/// Sorts `B < A < T`, `h(inj{A,T}(X:A)) = k(X)` and `w(h(inj{B,T}(b0))) = mk(1 /Int 0)`. The
+/// subsort axioms make `inj{B,T}(b0)` the value `inj{A,T}(inj{B,A}(b0))`, an instance of the
+/// `h` equation's argument at `X = inj{B,A}(b0)`. So `h(inj{B,T}(b0)) = k(inj{B,A}(b0))`, and
+/// `w(k(inj{B,A}(b0)))` is the undefined `w(h(inj{B,T}(b0)))`: neither `\ceil` may simplify to
+/// `\top`. The right-hand side `k(X)` is a reduct of `h(inj{B,T}(b0))` although the equation's
+/// injection source `A` lies above the term's `B`.
+#[test]
+fn narrowing_reads_an_injection_from_a_lower_sort_as_one_from_the_pattern_sort() {
+    let definition = narrowing_definition(&[
+        "sort SortB{} []".into(),
+        "sort SortA{} []".into(),
+        "sort SortT{} []".into(),
+        subsort("SortB{}", "SortA{}"),
+        subsort("SortA{}", "SortT{}"),
+        subsort("SortB{}", "SortT{}"),
+        "symbol b0{}() : SortB{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol k{}(SortA{}) : SortH{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol h{}(SortT{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        anywhere_equation(
+            "h",
+            "SortT{}",
+            "SortH{}",
+            "inj{SortA{}, SortT{}}(VarX:SortA{})",
+            "k{}(VarX:SortA{})",
+        ),
+        undefined_w("h{}(inj{SortB{}, SortT{}}(b0{}()))"),
+    ]);
+    let kept = "w{}(k{}(inj{SortB{}, SortA{}}(b0{}())))";
+    for term in [kept, "w{}(h{}(inj{SortB{}, SortT{}}(b0{}())))"] {
+        assert_ceil_kept(&definition, term, "SortS{}", kept);
+    }
+}
+
+/// Sorts `C < A < T` and `C < B < T`, with `A` and `B` unrelated; `h(inj{A,T}(X:A)) = k(X)`,
+/// `g() = inj{C,B}(c0)` and `w(h(inj{B,T}(g()))) = mk(1 /Int 0)`. Injections compose, so
+/// `inj{B,T}(g()) = inj{C,T}(c0) = inj{A,T}(inj{C,A}(c0))`: `h(inj{B,T}(g())) = k(inj{C,A}(c0))`,
+/// and `w(k(inj{C,A}(c0)))` is undefined. The `h` equation's injection from `A` reaches the
+/// injection from the unrelated `B` through the reduct of its operand, an injection from the
+/// common subsort `C`.
+#[test]
+fn narrowing_reads_an_injection_from_an_unrelated_sort_through_a_common_subsort() {
+    let definition = narrowing_definition(&[
+        "sort SortC{} []".into(),
+        "sort SortA{} []".into(),
+        "sort SortB{} []".into(),
+        "sort SortT{} []".into(),
+        subsort("SortC{}", "SortA{}"),
+        subsort("SortC{}", "SortB{}"),
+        subsort("SortA{}", "SortT{}"),
+        subsort("SortB{}", "SortT{}"),
+        subsort("SortC{}", "SortT{}"),
+        "symbol c0{}() : SortC{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol k{}(SortA{}) : SortH{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol g{}() : SortB{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol h{}(SortT{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        r"axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \top{R}()),
+            \equals{SortB{}, R}(g{}(), \and{SortB{}}(inj{SortC{}, SortB{}}(c0{}()), \top{SortB{}}()))
+        ) [anywhere{}()]"
+            .into(),
+        anywhere_equation(
+            "h",
+            "SortT{}",
+            "SortH{}",
+            "inj{SortA{}, SortT{}}(VarX:SortA{})",
+            "k{}(VarX:SortA{})",
+        ),
+        undefined_w("h{}(inj{SortB{}, SortT{}}(g{}()))"),
+    ]);
+    let kept = "w{}(k{}(inj{SortC{}, SortA{}}(c0{}())))";
+    assert_ceil_kept(&definition, kept, "SortS{}", kept);
+}
+
 /// `g(5) = f(0)`, `h(g(X)) = k2(X)` and `w(h(f(0))) = mk(1 /Int 0)`. Then
 /// `h(f(0)) = h(g(5)) = k2(5)`, so `w(k2(5))` is the undefined `w(h(f(0)))`. The `h` equation's
 /// argument `g(X)` is not normal on every instance, so that `g(X)` and `f(0)` differ as terms
