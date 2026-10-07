@@ -5103,10 +5103,16 @@ impl UnspecifiedValues {
         if !unspecified_reuse() || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes == 0) {
             return;
         }
-        // A key it found active that it had inserted itself is a read of its own work.
+        // A key it found active that it had inserted itself, and that was not active when it
+        // began, is a read of its own work: it was active only inside its own evaluation of that
+        // condition. A key active when it began is a read of its surroundings wherever it was
+        // found active, even if the evaluation also met it where it was not (a condition decided
+        // with no rule condition active).
         if !reads.unbounded {
             let inserted = std::mem::take(&mut reads.inserted);
-            reads.active.retain(|key| !inserted.contains(key));
+            reads
+                .active
+                .retain(|key| !inserted.contains(key) || active.contains(key));
             reads.inserted = inserted;
         }
         let (reached, stack) = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
