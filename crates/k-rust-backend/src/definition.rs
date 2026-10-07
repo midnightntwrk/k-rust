@@ -589,6 +589,9 @@ pub struct BackendDefinition {
     /// application no equation reduces is a value of its sort; read by
     /// [`Self::irreducible_application_is_defined`].
     value_productions: BTreeSet<Name>,
+    /// The symbols declared with the KORE `impure` attribute, K's mark of an operation with an
+    /// effect; read by [`Self::is_impure`].
+    impure_symbols: BTreeSet<Name>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -1294,6 +1297,12 @@ impl BackendDefinition {
         &self.ceil_theory
     }
 
+    /// Whether the definition declares `symbol` `impure`: its applications are effects, which
+    /// must be performed in order, not values that may be computed whenever they are needed.
+    pub(crate) fn is_impure(&self, symbol: &Name) -> bool {
+        self.impure_symbols.contains(symbol)
+    }
+
     /// Whether `term` is an application of a `value-production` symbol that no equation of the
     /// definition reduces, on any instance, so that the application is defined wherever its
     /// arguments are.
@@ -1688,22 +1697,26 @@ impl BackendDefinition {
             }
         }
         let overloads = OverloadGraph::from_relations(overloads)?;
-        let value_productions = ordered
-            .iter()
-            .flat_map(|module| &module.sentences)
-            .filter_map(|sentence| match sentence {
-                kore::Sentence::SymbolDeclaration {
-                    symbol, attributes, ..
-                } => attributes
-                    .has(KoreAttribute::ValueProduction)
-                    .then(|| Name::from(symbol.name.as_str())),
-                kore::Sentence::Import { .. }
-                | kore::Sentence::SortDeclaration { .. }
-                | kore::Sentence::AliasDeclaration { .. }
-                | kore::Sentence::Axiom { .. }
-                | kore::Sentence::Claim { .. } => None,
-            })
-            .collect();
+        let declared_with = |attribute: KoreAttribute| -> BTreeSet<Name> {
+            ordered
+                .iter()
+                .flat_map(|module| &module.sentences)
+                .filter_map(|sentence| match sentence {
+                    kore::Sentence::SymbolDeclaration {
+                        symbol, attributes, ..
+                    } => attributes
+                        .has(attribute)
+                        .then(|| Name::from(symbol.name.as_str())),
+                    kore::Sentence::Import { .. }
+                    | kore::Sentence::SortDeclaration { .. }
+                    | kore::Sentence::AliasDeclaration { .. }
+                    | kore::Sentence::Axiom { .. }
+                    | kore::Sentence::Claim { .. } => None,
+                })
+                .collect()
+        };
+        let value_productions = declared_with(KoreAttribute::ValueProduction);
+        let impure_symbols = declared_with(KoreAttribute::Impure);
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -1725,6 +1738,7 @@ impl BackendDefinition {
             predicate_simplification_theory: PredicateTheory::new(),
             ceil_theory: Theory::new(),
             value_productions,
+            impure_symbols,
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),

@@ -95,7 +95,7 @@ use crate::{
     stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{
-        FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind,
+        FunctionType, HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{
             CertifiedOnly, Head, NormalFormCertificate, RootComparison, classify_value,
             compare_roots,
@@ -2110,8 +2110,99 @@ fn size_bound_refusal(
     )
 }
 
+/// Whether the backend leaves an application of the hooked `symbol` on constructor-like
+/// arguments, which neither its evaluator nor an equation reduced, unevaluated with the
+/// `UnsupportedHookUnevaluated` warning and refuses it only where a run uses its value
+/// ([`refuse_uncomputed_applications`]), instead of failing with the unsupported-hook error at
+/// once.
+///
+/// It does when the application denotes a value whatever the arguments and is not an effect:
+/// the symbol is `total`, it is not declared `impure` (K's mark of an effect), and its hook is not
+/// an `IO` operation (K's console and file operations, which this backend performs as effects
+/// whatever the declaration says). Such an application is a value the backend does not compute,
+/// as a result above a size bound is, and an error where the simplifier reaches it bottom-up
+/// would fail a run on a subterm the semantics never consults (`false andBool B` is `false` for
+/// every `B`). A partial hook's application is the error at once: its definedness is unknown
+/// too, and every hook is strict, so even a discarded one would leave its `\ceil` as an undecided
+/// condition the run refuses in the end. An effect is the error at once: left unevaluated, later
+/// steps would run before it.
+fn defers_uncomputed(definition: &BackendDefinition, symbol: &Symbol, hook: &str) -> bool {
+    symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+        && !definition.is_impure(&symbol.name)
+        && !hook.starts_with("IO.")
+}
+
+/// Why a hooked application on constructor-like arguments that neither its evaluator (whose
+/// `outcome` is `None` for `NotApplicable`) nor an equation reduced has a value this backend
+/// does not compute: no evaluator and no equations (`NotImplemented`), arguments the evaluator
+/// does not support (`ArgumentOutOfRange`), an evaluator that did not reduce constructor-like
+/// arguments, or a result above a size bound (`ResultTooLarge`). `None` when the definition
+/// leaves the value open (`Unspecified`) or the symbol's equations define it (a hook without an
+/// evaluator but with equations is an ordinary function).
+fn uncomputed_reason(
+    outcome: Option<UnsupportedHookReason>,
+    has_equations: bool,
+) -> Option<UnsupportedHookReason> {
+    match outcome {
+        Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
+        Some(UnsupportedHookReason::Unspecified { .. }) => None,
+        Some(reason) => Some(reason),
+        None => Some(UnsupportedHookReason::ArgumentOutOfRange {
+            detail: "the evaluator did not reduce constructor-like arguments".into(),
+        }),
+    }
+}
+
+/// Whether the definition has function or simplification equations for `term`'s head.
+fn has_equations(definition: &BackendDefinition, term: &Term) -> bool {
+    let index = term_index(term);
+    definition.function_theory().contains_key(&index)
+        || definition.simplification_theory().contains_key(&index)
+}
+
+/// The reason to refuse `term`, a hooked application on constructor-like arguments that term
+/// simplification left unevaluated although its value is determined: a result above a size
+/// bound, or an uncomputed application the backend defers ([`defers_uncomputed`]). `None` for
+/// any other term.
+fn uncomputed_refusal(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> SimplifyResult<Option<UnsupportedHookReason>> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    let Some(hook) = symbol.attributes.hook.as_deref() else {
+        return Ok(None);
+    };
+    if !arguments
+        .iter()
+        .all(|argument| argument.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    let outcome = match evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)? {
+        BuiltinResult::NotApplicable => None,
+        BuiltinResult::Unsupported(reason) => Some(reason),
+        BuiltinResult::Value(_) | BuiltinResult::Bottom | BuiltinResult::Effect(_) => {
+            return Ok(None);
+        }
+    };
+    Ok(
+        match uncomputed_reason(outcome, has_equations(definition, term)) {
+            Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => Some(reason),
+            Some(reason) if defers_uncomputed(definition, symbol, hook) => Some(reason),
+            _ => None,
+        },
+    )
+}
+
 /// Fail with the unsupported-hook error of the first application in `term` or `predicates` whose
-/// result is above a result size bound ([`UnsupportedHookReason::ResultTooLarge`]).
+/// value is determined but not computed ([`uncomputed_refusal`]): a result above a result size
+/// bound ([`UnsupportedHookReason::ResultTooLarge`]), or an application of a `total` pure hook
+/// that neither an evaluator nor an equation reduced ([`defers_uncomputed`]).
 ///
 /// Term simplification leaves such an application unevaluated without an error, so that a
 /// subterm the simplification discards (`false andBool B`) neither costs nor fails anything,
@@ -2124,14 +2215,15 @@ fn size_bound_refusal(
 /// (`rewrite::stuck`); each halts the state with the error. A condition the solver decided is not
 /// carried and so never reaches this check.
 ///
-/// The `\ceil` of such an application is not a use of its value: it holds
-/// (`size_bound_refusal`), and term simplification leaves it as the obligation of a discarded
-/// partial subterm (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
+/// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
+/// a size bound only where the hook is defined, `size_bound_refusal`, and the other kind is
+/// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
+/// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
 /// Only subterms that are not `evaluated` are visited: an `evaluated` term is built from
 /// constructors and domain values, or is certified a normal form, and neither holds such an
 /// application. A state that is a value costs one look at its root.
-pub(crate) fn refuse_results_above_the_size_bound(
+pub(crate) fn refuse_uncomputed_applications(
     definition: &BackendDefinition,
     term: Option<&Term>,
     predicates: &[Predicate],
@@ -2145,7 +2237,7 @@ pub(crate) fn refuse_results_above_the_size_bound(
             if term.attributes().evaluated {
                 continue;
             }
-            if let Some(reason) = size_bound_refusal(definition, &term)? {
+            if let Some(reason) = uncomputed_refusal(definition, &term)? {
                 let TermKind::Application { symbol, .. } = term.kind() else {
                     unreachable!("only a hooked application is refused");
                 };
@@ -2169,7 +2261,8 @@ pub(crate) fn refuse_results_above_the_size_bound(
 }
 
 /// Push the terms `predicate` carries onto `pending`, except the term of a `\ceil` that is itself
-/// an application above a result size bound, whose `\ceil` holds.
+/// an application whose `\ceil` holds although its value is not computed: one above a result
+/// size bound, or one of a `total` symbol.
 fn push_predicate_terms(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -2177,7 +2270,9 @@ fn push_predicate_terms(
 ) -> SimplifyResult<()> {
     match predicate {
         Predicate::Ceil(term) => {
-            if size_bound_refusal(definition, term)?.is_none() {
+            let total = matches!(term.kind(), TermKind::Application { symbol, .. }
+                if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
+            if !total && size_bound_refusal(definition, term)?.is_none() {
                 pending.push(term.clone());
             }
         }
@@ -3950,39 +4045,41 @@ fn simplify_root(
             None,
         ));
     };
-    let builtin_supported = unsupported.is_none();
+    let mut builtin_supported = unsupported.is_none();
     if let Some(hook) = symbol.attributes.hook.as_deref() {
         if arguments
             .iter()
             .all(|argument| argument.attributes().constructor_like)
         {
-            let index = term_index(term);
-            let has_equations = definition.function_theory().contains_key(&index)
-                || definition.simplification_theory().contains_key(&index);
+            let has_equations = has_equations(definition, term);
+            // The application denotes a value the backend does not compute, and stays as that
+            // unevaluated application, with a warning: a value the definition leaves open (no
+            // implementation could compute it), one above a result size bound (a resource limit,
+            // not a gap to fix), or one of a `total` pure hook neither an evaluator nor an
+            // equation reduced (`defers_uncomputed`). Arguments are simplified bottom-up whether
+            // or not their values are used, so an error here would fail a run on a subterm the
+            // semantics never consults (`false andBool B` is `false` for every `B`). A run never
+            // decides a condition over the last two kinds, nor ends stuck on them; see
+            // `refuse_uncomputed_applications`. Any other uncomputed application is the error.
+            let unevaluated = |reason| {
+                diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
+                    hook: hook.to_owned(),
+                    reason,
+                });
+                None
+            };
             let reason = match unsupported {
-                Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
-                // The application denotes a value the backend does not compute, and stays as
-                // that unevaluated application: a value the definition leaves open (no
-                // implementation could compute it), or one above a result size bound (a
-                // resource limit, not a gap to fix). Arguments are simplified bottom-up whether
-                // or not their values are used, so an error here would fail a run on a subterm
-                // the semantics never consults (`false andBool B` is `false` for every `B`). A
-                // run never decides a condition over the second kind, nor ends stuck on it; see
-                // `refuse_results_above_the_size_bound`.
-                Some(
-                    reason @ (UnsupportedHookReason::Unspecified { .. }
-                    | UnsupportedHookReason::ResultTooLarge { .. }),
-                ) => {
-                    diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
-                        hook: hook.to_owned(),
-                        reason,
-                    });
-                    None
-                }
-                Some(reason) => Some(reason),
-                None => Some(UnsupportedHookReason::ArgumentOutOfRange {
-                    detail: "the evaluator did not reduce constructor-like arguments".into(),
-                }),
+                Some(reason @ UnsupportedHookReason::Unspecified { .. }) => unevaluated(reason),
+                outcome => match uncomputed_reason(outcome, has_equations) {
+                    Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
+                        unevaluated(reason)
+                    }
+                    Some(reason) if defers_uncomputed(definition, symbol, hook) => {
+                        builtin_supported = false;
+                        unevaluated(reason)
+                    }
+                    reason => reason,
+                },
             };
             if let Some(reason) = reason {
                 return Err(SimplificationError::UnsupportedHook {

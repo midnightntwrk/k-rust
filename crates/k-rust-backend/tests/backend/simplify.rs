@@ -854,6 +854,76 @@ fn an_unspecified_hook_value_stays_unevaluated_without_an_error() {
     );
 }
 
+/// A `total` hook without an evaluator or equations denotes a value whatever its arguments, which
+/// this backend does not compute: on constructor-like arguments the application stays
+/// unevaluated with the diagnostic, and a context that does not depend on it simplifies
+/// (`false andBool _` is `false`). An effect is the error at once, so that later steps never run
+/// before it: a symbol declared `impure`, and an `IO` hook whatever its declaration. So is a
+/// partial hook, whose definedness is unknown too (`missingHook`).
+#[test]
+fn a_total_pure_hook_without_an_evaluator_stays_unevaluated_and_an_effect_does_not() {
+    let definition = definition(
+        r#"
+            hooked-symbol totalMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), hook{}("TEST.totalMissing")]
+            hooked-symbol impureMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), impure{}(), hook{}("TEST.impureMissing")]
+            hooked-symbol ioMissing{}(SortS{}) : SortS{}
+                [function{}(), total{}(), hook{}("IO.time")]
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            symbol isS{}(SortS{}) : SortBool{} [function{}(), total{}()]
+        "#,
+    );
+    let application = |symbol: &str| format!(r#"{symbol}{{}}(\dv{{SortS{{}}}}("value"))"#);
+    let total = term(&definition, &application("totalMissing"));
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&definition, &total, SimplificationOptions::default()));
+    assert_eq!(result.expect("no error").term, total);
+    assert!(
+        matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UnsupportedHookUnevaluated {
+                hook,
+                reason: UnsupportedHookReason::NotImplemented,
+            }] if hook == "TEST.totalMissing"
+        ),
+        "{diagnostics:?}"
+    );
+    let discarded = term(
+        &definition,
+        &format!(
+            r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), isS{{}}({}))"#,
+            application("totalMissing")
+        ),
+    );
+    let (result, _) =
+        diagnostic::collect(|| simplify(&definition, &discarded, SimplificationOptions::default()));
+    assert_eq!(
+        result.expect("no error").term,
+        term(&definition, r#"\dv{SortBool{}}("false")"#)
+    );
+
+    for (symbol, hook) in [
+        ("impureMissing", "TEST.impureMissing"),
+        ("ioMissing", "IO.time"),
+        ("missingHook", "TEST.missing"),
+    ] {
+        let input = term(
+            &definition,
+            &format!(
+                r#"andBool{{}}(\dv{{SortBool{{}}}}("false"), isS{{}}({}))"#,
+                application(symbol)
+            ),
+        );
+        let error = simplify(&definition, &input, SimplificationOptions::default())
+            .expect_err("the application is the unsupported-hook error");
+        let message = format!("{error:?}");
+        assert!(message.contains("UnsupportedHook"), "{message}");
+        assert!(message.contains(hook), "{message}");
+    }
+}
+
 /// An `Unspecified` verdict comes from the builtin documentation alone; a function equation of
 /// the definition being run is an axiom about the symbol, and where one applies the application
 /// has the value it states.

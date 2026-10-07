@@ -118,7 +118,7 @@ pub enum UnsupportedHookReason {
     /// constructor-like arguments, so that a subterm whose value is never used fails nothing. A
     /// run never decides a condition over one and never ends stuck or final on one: the step or
     /// search match that would is the unsupported-hook error
-    /// (`simplify::refuse_results_above_the_size_bound`).
+    /// (`simplify::refuse_uncomputed_applications`).
     ///
     /// An evaluator reports it only where the hook is defined (after its undefinedness checks),
     /// so the simplifier takes the application's `\ceil` to hold.

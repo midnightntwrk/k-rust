@@ -4240,6 +4240,105 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// An application on constructor-like arguments of a `total` hook this backend has no evaluator
+/// for (`expFloat`) has a value the backend does not compute. Term simplification leaves it
+/// unevaluated with a warning, so a run whose result does not depend on it ends with that result
+/// (`false andBool B` is `false`, a discarded `#if` branch is discarded), while a run that would
+/// decide a condition over it, or end on a configuration holding it, halts with the
+/// unsupported-hook error. A partial hook without an evaluator (`logFloat`) is the error where
+/// the simplifier reaches it: its definedness is unknown too, so even a discarded application
+/// leaves an undecided condition. `i` and `fl` hide the constants from the constant folder.
+#[test]
+fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() {
+    const SOURCE: &str = r#"
+module NOEVAL
+  imports INT
+  imports BOOL
+  imports FLOAT
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "unused" | "branch" | "used" | "decide" | "partial"
+  syntax KItem ::= r(K) | f(Float) | "pos" | "nonpos"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  syntax Float ::= fl(Float) [function, total]
+  rule fl(X) => X
+  rule <k> unused => r(false andBool (Float2Int(expFloat(fl(1.0))) ==Int 2)) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else Float2Int(expFloat(fl(1.0))) #fi) </k>
+  rule <k> used => r(expFloat(fl(1.0))) </k>
+  rule <k> decide => f(expFloat(fl(1.0))) </k>
+  rule <k> partial => r(false andBool (Float2Int(logFloat(fl(2.0))) ==Int 0)) </k>
+  rule <k> f(X) => r(pos) </k> requires X >Float 0.0
+  rule <k> f(X) => r(nonpos) </k> requires X <=Float 0.0
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let run = |program: &str| {
+        let input = root.join(format!("{program}.noeval"));
+        fs::write(&input, program).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NOEVAL",
+                "--syntax-module",
+                "NOEVAL",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for (program, value) in [
+        (
+            "unused",
+            r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#,
+        ),
+        (
+            "branch",
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#,
+        ),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(success, "{program}: {stdout}{stderr}");
+        assert!(stdout.contains(value), "{program}: {stdout}");
+        assert!(
+            stderr.contains("hook FLOAT.exp was left unevaluated"),
+            "{program}: {stderr}"
+        );
+    }
+    for (program, hook) in [
+        ("used", "FLOAT.exp"),
+        ("decide", "FLOAT.exp"),
+        ("partial", "FLOAT.log"),
+    ] {
+        let (success, stdout, stderr) = run(program);
+        assert!(!success, "{program}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "unsupported hook '{hook}' on constructor-like arguments"
+            )),
+            "{program}: {stderr}"
+        );
+        assert!(
+            !stdout.contains("pos") && !stdout.contains("nonpos"),
+            "{program}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `^Int` and `<<Int` results above the backend's result size bound are not computed. A run
 /// that does not use them still ends with its value (the application is left unevaluated with a
 /// warning wherever the simplifier reaches it, and a discarded one leaves no definedness
