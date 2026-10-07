@@ -1132,3 +1132,32 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
     let counted = score(&statuses(&reports));
     assert_eq!((counted.killed, counted.denominator), (1, 1));
 }
+
+/// Representation admission fails before execution and never contributes to the score.
+#[test]
+fn representation_refusal_is_unknown_before_execution() {
+    let declared = manifest(&[("t1", 2)]);
+    for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+        let refused = MutantPlan {
+            mutant_failure: Some(MutantScopeFailure::RepresentationRefused),
+            ..plan(Vec::new())
+        };
+        let actual = report(&refused, &declared, schedule);
+        assert_eq!(actual.status, Unknown);
+        assert!(actual.executed_test_ids.is_empty());
+        assert!(actual.killing_test_ids.is_empty());
+        assert_eq!(score(&[actual.status]).denominator, 0);
+        for outcomes in [&[Agree][..], &[Distinguish][..]] {
+            let inconsistent = MutantPlan {
+                tests: one_test(outcomes),
+                ..refused.clone()
+            };
+            assert_eq!(
+                derive_mutant_report(&inconsistent, &declared, schedule)
+                    .expect_err("representation refusal cannot carry executed tests")
+                    .kind(),
+                CampaignFailureKind::InvalidManifest
+            );
+        }
+    }
+}

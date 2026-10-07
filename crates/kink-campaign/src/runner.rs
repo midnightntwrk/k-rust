@@ -67,6 +67,7 @@ use kink_native::execution::{
     SteppedExecution,
 };
 use kink_native::feasibility::{BackendRelations, TestInitialState};
+use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
@@ -348,9 +349,21 @@ pub fn run_campaign(
     // predicates. Refuse unsafe input through the existing declaration admission gate,
     // before any baseline or mutant execution (TV-01, R2-F1).
     for test in campaign.tests {
-        validate_test_initial_state(&mut runtime.backend, &test.initial_state)
-            .map_err(|_| admission_failure(BaselineAdmission::OracleFailed))?;
+        validate_test_initial_state(&mut runtime.backend, &test.initial_state).map_err(
+            |failure| {
+                CampaignFailure::new(
+                    CampaignFailureKind::BaselineOracleFailed,
+                    format!("{failure:?}"),
+                )
+            },
+        )?;
     }
+    validate_representation(&baseline).map_err(|failure| {
+        CampaignFailure::new(
+            CampaignFailureKind::BaselineOracleFailed,
+            failure.to_string(),
+        )
+    })?;
     let observation = StepObservation::new(&mut runtime.backend, campaign.observation.to_vec())
         .map_err(|failure| {
             CampaignFailure::new(
@@ -511,6 +524,7 @@ fn prepare_mutant(
         .validator
         .validate(patch)
         .map_err(|rejection| MutantScopeFailure::from(&rejection))?;
+    validate_representation(&side).map_err(|_| MutantScopeFailure::RepresentationRefused)?;
     match kink_native::equivalent_compilation(compiled_baseline, &side) {
         Ok(true) => return Err(MutantScopeFailure::EquivalentCompilation),
         Ok(false) => {}
@@ -536,10 +550,14 @@ fn prepare_mutant(
         SymbolicSide::Unsupported
     } else if let Some(withdrawing) = claims.patch() {
         match campaign.validator.validate(withdrawing) {
-            Ok(side) => SymbolicSide::Withdrawn(Box::new(
-                Runtime::prepare(campaign, &side)
-                    .map_err(|_| MutantScopeFailure::Infrastructure)?,
-            )),
+            Ok(side) => {
+                validate_representation(&side)
+                    .map_err(|_| MutantScopeFailure::RepresentationRefused)?;
+                SymbolicSide::Withdrawn(Box::new(
+                    Runtime::prepare(campaign, &side)
+                        .map_err(|_| MutantScopeFailure::Infrastructure)?,
+                ))
+            }
             Err(_) => SymbolicSide::Unsupported,
         }
     } else {

@@ -68,6 +68,8 @@ pub enum MutantScopeFailure {
     LoweringTimeLimit,
     /// A declared resource bound was reached while lowering the mutant.
     LoweringResourceLimit,
+    /// Token representation admission refused the compiled side before execution (VI-T12).
+    RepresentationRefused,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -81,7 +83,7 @@ impl MutantScopeFailure {
             Self::EquivalentCompilation => MutantStatus::Equivalent,
             Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
-            Self::LoweringResourceLimit => MutantStatus::Unknown,
+            Self::LoweringResourceLimit | Self::RepresentationRefused => MutantStatus::Unknown,
             Self::Infrastructure => MutantStatus::Error,
         }
     }

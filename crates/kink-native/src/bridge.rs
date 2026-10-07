@@ -146,6 +146,51 @@ pub fn validate_test_initial_state(
                         .into(),
                 ));
             }
+            if let Pattern::DomainValue { sort, .. } = node
+                && matches!(sort, Sort::Application { name, .. }
+                    if definition.sorts().get(name.as_str()).is_some_and(|sort|
+                        sort.hook.as_deref() == Some("MINT.MInt")))
+            {
+                return Err(ExecutionAdapterFailure::InvalidState(
+                    "test state contains a MInt domain value without canonical token identity"
+                        .into(),
+                ));
+            }
+            if let Pattern::Application { symbol, .. }
+            | Pattern::AssociativeApplication { symbol, .. } = node
+                && let Some(declaration) = definition.symbols().get(symbol.name.as_str())
+            {
+                // Resolve the instantiated result head, including polymorphic constructors
+                // and inj's target parameter. Only FLOAT hooks supply the output premise.
+                let result_name = match &declaration.result_sort {
+                    BackendSort::Application { name, .. } => Some(name.as_ref()),
+                    BackendSort::Variable(name) => declaration
+                        .sort_variables
+                        .iter()
+                        .zip(&symbol.sort_parameters)
+                        .find_map(|(formal, actual)| match actual {
+                            Sort::Application {
+                                name: actual_name, ..
+                            } if formal.as_ref() == name.as_ref() => Some(actual_name.as_ref()),
+                            _ => None,
+                        }),
+                };
+                if result_name.is_some_and(|name| {
+                    definition.sorts().get(name).is_some_and(|sort| {
+                        matches!(sort.hook.as_deref(), Some("FLOAT.Float" | "MINT.MInt"))
+                    })
+                }) && !declaration
+                    .attributes
+                    .hook
+                    .as_deref()
+                    .is_some_and(|hook| hook.starts_with("FLOAT."))
+                {
+                    return Err(ExecutionAdapterFailure::InvalidState(format!(
+                        "test state contains {} with a Float/MInt result outside the FLOAT hook namespace",
+                        symbol.name
+                    )));
+                }
+            }
             // Only a Bytes value is a byte sequence. STRING.token2string copies any token
             // sort's bytes into a String, so every other domain value must be UTF-8 text
             // (TB-02 review 3, F1); an unknown or variable sort is not Bytes.

@@ -8060,3 +8060,631 @@ fn audit_vi_t11_review2_float_domain_values_are_refused() {
         assert!(failures.is_empty(), "unsafe Float inputs: {failures:?}");
     });
 }
+
+// ---------------------------------------------------------------- TB-03 representation boundary
+
+/// Locate a spelling in an authored rule without relying on the compiler's token paths.
+fn t12_token_path(baseline: &Baseline, rule: &str, text: &str) -> Vec<u32> {
+    fn walk(
+        baseline: &Baseline,
+        rule: &str,
+        path: &mut Vec<u32>,
+        text: &str,
+        out: &mut Vec<Vec<u32>>,
+    ) {
+        let at = TermRef::new(support::rule(baseline, rule), path.as_slice());
+        let Some(here) = baseline.term(&at) else {
+            return;
+        };
+        if matches!(here.unannotated(), Term::Token { token, .. } if token == text) {
+            out.push(path.clone());
+        }
+        for child in 0.. {
+            path.push(child);
+            let exists = baseline
+                .term(&TermRef::new(
+                    support::rule(baseline, rule),
+                    path.as_slice(),
+                ))
+                .is_some();
+            if exists {
+                walk(baseline, rule, path, text, out);
+            }
+            path.pop();
+            if !exists {
+                break;
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    for root in [0, 1] {
+        walk(baseline, rule, &mut vec![root], text, &mut paths);
+    }
+    assert_eq!(paths.len(), 1, "{rule}: token {text:?}: {paths:?}");
+    paths.pop().expect("one token")
+}
+
+enum T12Edit {
+    Guard(&'static str),
+    Respell(&'static str, &'static str),
+    Equality(&'static str),
+}
+
+fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
+    let term = |path: &[u32]| {
+        baseline
+            .term(&TermRef::new(support::rule(baseline, rule), path))
+            .expect("term")
+            .clone()
+    };
+    let edits = match *edit {
+        T12Edit::Guard(spelling) => {
+            let path = t12_token_path(baseline, rule, spelling);
+            let original = term(&path);
+            vec![
+                replaced(baseline, rule, &path, so_var("V", "Float")),
+                replaced(
+                    baseline,
+                    rule,
+                    &[1],
+                    Term::apply("_==Float_", vec![so_var("V", "Float"), original]),
+                ),
+            ]
+        }
+        T12Edit::Respell(from, to) => {
+            let path = t12_token_path(baseline, rule, from);
+            let Term::Token { sort, .. } = term(&path).unannotated().clone() else {
+                panic!("token")
+            };
+            vec![replaced(
+                baseline,
+                rule,
+                &path,
+                Term::Token {
+                    token: to.into(),
+                    sort,
+                },
+            )]
+        }
+        T12Edit::Equality(head) => {
+            let Term::Apply { arguments, .. } = term(&[1]).unannotated().clone() else {
+                panic!("requires")
+            };
+            vec![replaced(baseline, rule, &[1], Term::apply(head, arguments))]
+        }
+    };
+    Patch::new(edits).expect("representation patch")
+}
+
+/// Deliverable 1: every previously measured equivalent kill is refused before execution.
+/// Accumulate every row before asserting, so failing-first logs contain the complete matrix.
+#[test]
+fn audit_vi_t12_definition_spelling_routes_are_refused() {
+    with_stack(|| {
+        use T12Edit::{Equality as Eq, Guard as G, Respell as R};
+        let rows = [
+            (
+                "A1",
+                "tb02float.k",
+                "TB02FLOAT",
+                "point",
+                G("1.0"),
+                "start",
+                1,
+            ),
+            (
+                "A2",
+                "tb02float.k",
+                "TB02FLOAT",
+                "point",
+                R("1.0", "1.0000000000000000e+00p53x11"),
+                "start",
+                1,
+            ),
+            ("F1", "t12probe.k", "T12PROBE", "f1p", G("1.0e0"), "f1s", 1),
+            (
+                "F2",
+                "t12probe.k",
+                "T12PROBE",
+                "f2p",
+                G("1.0p53x11"),
+                "f2s",
+                1,
+            ),
+            ("F4", "t12probe.k", "T12PROBE", "f4p", G("2.0"), "f4s", 1),
+            ("F5", "t12probe.k", "T12PROBE", "f5p", G("0.1"), "f5s", 1),
+            (
+                "F6",
+                "t12probe.k",
+                "T12PROBE",
+                "f6p",
+                R("0.0", "0e+00p53x11"),
+                "f6s",
+                0,
+            ),
+            (
+                "F7",
+                "t12probe.k",
+                "T12PROBE",
+                "f7p",
+                R("-0.0", "-0e+00p53x11"),
+                "f7s",
+                0,
+            ),
+            (
+                "F8",
+                "t12probe.k",
+                "T12PROBE",
+                "f8p",
+                R("NaN", "NaNp53x11"),
+                "f8s",
+                0,
+            ),
+            (
+                "F9",
+                "t12probe.k",
+                "T12PROBE",
+                "f9p",
+                R("Infinity", "Infinityp53x11"),
+                "f9s",
+                1,
+            ),
+            (
+                "F10",
+                "t12probe.k",
+                "T12PROBE",
+                "f10p",
+                Eq("_==Float_"),
+                "f10s",
+                1,
+            ),
+            (
+                "F11",
+                "t12probe.k",
+                "T12PROBE",
+                "f11p",
+                Eq("_==K_"),
+                "f11s",
+                1,
+            ),
+            (
+                "F12",
+                "t12probe.k",
+                "T12PROBE",
+                "f12e",
+                R("1.0", "1.0000000000000000e+00p53x11"),
+                "f12s",
+                1,
+            ),
+            ("F13", "t12probe.k", "T12PROBE", "f13e", G("1.0"), "f13s", 1),
+            (
+                "F15",
+                "t12probe.k",
+                "T12PROBE",
+                "f15s",
+                R("1.0", "1.0e0"),
+                "f15s",
+                1,
+            ),
+            (
+                "V2",
+                "t12probe.k",
+                "T12PROBE",
+                "cpoint",
+                G("1.0"),
+                "fstart",
+                1,
+            ),
+            (
+                "V4",
+                "t12probe.k",
+                "T12PROBE",
+                "eqkyes",
+                Eq("_==Float_"),
+                "gostart",
+                1,
+            ),
+            (
+                "V5a",
+                "t12probe.k",
+                "T12PROBE",
+                "eqkyes",
+                Eq("_==Float_"),
+                "lstart",
+                0,
+            ),
+            (
+                "V5b",
+                "t12probe.k",
+                "T12PROBE",
+                "lstart",
+                R("1.00", "1.0"),
+                "lstart",
+                0,
+            ),
+            (
+                "M1",
+                "z3/t12mint.k",
+                "T12MINT",
+                "m1s",
+                R("1p8", "01p8"),
+                "m1s",
+                1,
+            ),
+        ];
+        let profile = if cfg!(feature = "z3") {
+            "z3"
+        } else {
+            "portable"
+        };
+        let mut failures = Vec::new();
+        for (id, fixture, module, label, edit, start, arg) in rows {
+            if id == "M1" && !cfg!(feature = "z3") {
+                let path = std::path::Path::new(support::DIR).join(fixture);
+                let mut resolver = |_: &str, required: &str| {
+                    k_rust::builtin::embedded(required)
+                        .ok_or_else(|| format!("{required} is not embedded"))
+                };
+                let error = Baseline::load(
+                    k_rust::outer::ResolvedSource::new(
+                        fixture,
+                        std::fs::read_to_string(path).expect("MInt fixture"),
+                    ),
+                    module,
+                    None,
+                    &mut resolver,
+                    &support::options(),
+                )
+                .expect_err("portable MInt fixture is not loadable");
+                assert!(
+                    format!("{error:?}").contains("Z3InferenceRequired"),
+                    "{error:?}"
+                );
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    eprintln!("TB03 {profile} M1 {mode:?}: NotLoadable(Z3InferenceRequired)");
+                }
+                continue;
+            }
+            let validator = NativeValidator::bind(
+                support::load_path(&std::path::Path::new(support::DIR).join(fixture), module),
+                CompileOptions::default(),
+            );
+            let baseline = validator.baseline();
+            let label = format!("{module}.{label}");
+            let patch = t12_patch(baseline, &label, &edit);
+            let generation = fixed(baseline, &[(&label, &[0])], "tb03-representation", &patch);
+            let tests = [case(
+                id,
+                support::initial_state(app(start, vec![support::int(arg)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module,
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let failure = run_campaign(&campaign, &generation, mode)
+                    .expect_err("representation gate refuses the baseline");
+                let detail = failure.to_string();
+                for text in [
+                    if id == "M1" { "G-M" } else { "G-F" },
+                    if id == "M1" { "SortMInt" } else { "SortFloat" },
+                    "sentence UNIQUE_ID=",
+                    "source",
+                    "k-rust compares Float/MInt tokens by spelling (VI-T12); respelling does not help",
+                ] {
+                    assert!(detail.contains(text), "{id}: {detail}");
+                }
+                let result = ViResult::Refused(failure.kind());
+                eprintln!("TB03 {profile} {id} {mode:?}: {result:?}");
+                let expected = ViResult::Refused(CampaignFailureKind::BaselineOracleFailed);
+                if result != expected {
+                    failures.push(format!("{id} {mode:?}: {result:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "representation routes: {failures:?}");
+    });
+}
+
+/// T-REPR: hook outputs for one value have one spelling, even for NaN and signed zero.
+/// The rules restrict the inputs so replacing one computation with the other is equivalent.
+#[test]
+fn audit_vi_t12_hook_only_computations_agree() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("t12hook.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        for (head, arg) in [("square", 1), ("widen", 1), ("nan", 0), ("negzero", 0)] {
+            let label = format!("T12HOOK.{head}");
+            let alternative = baseline
+                .term(&TermRef::new(support::rule(baseline, &label), [0, 1, 0, 1]))
+                .expect("second computation")
+                .clone();
+            let patch = Patch::new(vec![replaced(baseline, &label, &[0, 1, 0, 0], alternative)])
+                .expect("hook-equivalent patch");
+            let generation = fixed(baseline, &[(&label, &[0])], "tb03-hooks", &patch);
+            let tests = [case(
+                head,
+                support::initial_state(app(head, vec![support::int(arg)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "T12HOOK",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, mode)
+                    .expect("hook-only baseline admitted");
+                eprintln!(
+                    "TB03-HOOK {head} {mode:?}: {:?} {:?}",
+                    outcomes(&run),
+                    run.mutants[0].report.status
+                );
+                assert_eq!(outcomes(&run), vec![vec![A]], "T-REPR {head} {mode:?}");
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+                let expected =
+                    support::initial_state(app("done", vec![support::int(7)]), "SortProg");
+                assert_eq!(
+                    run.baseline[0].run,
+                    SideRun::Sides {
+                        sides: vec![OracleSide::Normal(OracleValue::FinalResult(
+                            FinalResult::WholeTerm([expected].into())
+                        ))]
+                    },
+                    "hook spellings agree, {head}"
+                );
+            }
+        }
+    });
+}
+
+/// Strict G-F refuses symbolic unevaluated calls too; no definite separation becomes a kill.
+#[test]
+fn audit_vi_t12_unevaluated_hook_controls_are_refused() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("t12unev.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        for (id, head, label, path, spelling) in [
+            ("U1", "u1s", "T12UNEV.u1", vec![1, 0, 1], "1.00"),
+            ("U3", "u3s", "T12UNEV.u3", vec![0, 1, 1, 1], "3.0"),
+        ] {
+            let original = baseline
+                .term(&TermRef::new(
+                    support::rule(baseline, label),
+                    path.as_slice(),
+                ))
+                .expect("hook argument");
+            let Term::Token { sort, .. } = original.unannotated() else {
+                panic!("literal")
+            };
+            let patch = Patch::new(vec![replaced(
+                baseline,
+                label,
+                &path,
+                Term::Token {
+                    token: spelling.into(),
+                    sort: sort.clone(),
+                },
+            )])
+            .expect("respelling");
+            let generation = fixed(baseline, &[(label, &[0])], "tb03-unevaluated", &patch);
+            let tests = [case(
+                id,
+                support::initial_state(app(head, vec![support::int(1)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "T12UNEV",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB03 {id} {mode:?}: {result:?}");
+                assert_eq!(
+                    result,
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                );
+            }
+        }
+    });
+}
+
+/// T1 is already refused by TB-02's token-hook rule, including when parseF is never applied.
+#[test]
+fn audit_vi_t12_token_creation_is_refused() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("t12token.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let label = "T12TOKEN.tp";
+        let original = baseline
+            .term(&TermRef::new(support::rule(baseline, label), [1]))
+            .expect("guard");
+        let mut replacement = original.clone();
+        fn round(term: &mut Term) {
+            match term {
+                Term::Apply {
+                    label, arguments, ..
+                } if label.name.starts_with("_==K_") => {
+                    let first = arguments[0].clone();
+                    arguments[0] = Term::apply(
+                        "roundFloat(_,_,_)_FLOAT_Float_Float_Int_Int",
+                        vec![first, int_token(53), int_token(11)],
+                    );
+                }
+                Term::Apply { arguments, .. } => {
+                    for argument in arguments {
+                        round(argument);
+                    }
+                }
+                Term::Annotated { term, .. } => round(term),
+                _ => {}
+            }
+        }
+        round(&mut replacement);
+        let patch = Patch::new(vec![replaced(baseline, label, &[1], replacement)])
+            .expect("round-equivalent patch");
+        let generation = fixed(baseline, &[(label, &[0])], "tb03-token", &patch);
+        for (id, program) in [
+            (
+                "T1",
+                app(
+                    "chk",
+                    vec![
+                        support::int(1),
+                        app(
+                            "parseF",
+                            vec![
+                                k_rust::kore::parser::parse_pattern(r#"\dv{SortString{}}("1.0")"#)
+                                    .expect("String"),
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+            ("T1-unapplied", app("done", vec![support::int(1)])),
+        ] {
+            let tests = [case(
+                id,
+                support::initial_state(program, "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "T12TOKEN",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let failure = run_campaign(&campaign, &generation, mode)
+                    .expect_err("token-hook input definition rule refuses first");
+                assert!(
+                    failure
+                        .to_string()
+                        .contains("token hook over a builtin or hooked sort")
+                );
+                let result = ViResult::Refused(failure.kind());
+                eprintln!("TB03 {id} {mode:?}: {result:?}");
+                assert_eq!(
+                    result,
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                );
+            }
+        }
+    });
+}
+
+/// A literal inserted only by the mutant is Unknown, without executing the refused side.
+#[test]
+fn audit_vi_t12_mutant_only_literal_is_unknown() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("t12hook.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let label = "T12HOOK.square";
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            label,
+            &[0, 1, 0, 0],
+            Term::Token {
+                token: "1.0".into(),
+                sort: Sort::new("Float"),
+            },
+        )])
+        .expect("Float literal patch");
+        let generation = fixed(baseline, &[(label, &[0])], "tb03-mutant-literal", &patch);
+        let tests = [case(
+            "mutant-only",
+            support::initial_state(app("square", vec![support::int(1)]), "SortProg"),
+            &[whole_term()],
+        )];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "T12HOOK",
+            observation: &[],
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = ViResult::of(&campaign, &generation, mode);
+            eprintln!("TB03 mutant-only {mode:?}: {result:?}");
+            assert_eq!(
+                result,
+                ViResult::Ran {
+                    tests: vec![],
+                    status: MutantStatus::Unknown,
+                    killing: vec![]
+                }
+            );
+        }
+    });
+}
+
+/// VI-T13 D6: declared totality on a naturally sorted partial hook remains a VI-T10 residue.
+#[test]
+fn audit_vi_t12_declared_total_partial_hook_is_never_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("t12hook.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let label = "T12HOOK.square";
+        let alternative = baseline
+            .term(&TermRef::new(support::rule(baseline, label), [0, 1, 0, 1]))
+            .expect("alternative")
+            .clone();
+        let patch = Patch::new(vec![replaced(baseline, label, &[0, 1, 0, 0], alternative)])
+            .expect("unused equivalent patch");
+        let generation = fixed(baseline, &[(label, &[0])], "tb03-total-partial", &patch);
+        let initial = Pattern::And {
+            sort: kore_sort("SortGeneratedTopCell"),
+            arguments: vec![
+                support::initial_state(app("done", vec![support::int(1)]), "SortProg"),
+                Pattern::Not {
+                    sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(Pattern::Ceil {
+                        operand_sort: Box::new(kore_sort("SortInt")),
+                        result_sort: kore_sort("SortGeneratedTopCell"),
+                        argument: Box::new(app(
+                            "totalQuotient",
+                            vec![support::int(1), support::int(0)],
+                        )),
+                    }),
+                },
+            ],
+        };
+        let tests = [case("total-partial", initial, &[whole_term()])];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "T12HOOK",
+            observation: &[],
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = ViResult::of(&campaign, &generation, mode);
+            eprintln!("TB03-TOTAL-PARTIAL {mode:?}: {result:?}");
+            assert!(
+                !result.killed(),
+                "VI-T10 declared-total partial hook: {result:?}"
+            );
+        }
+    });
+}

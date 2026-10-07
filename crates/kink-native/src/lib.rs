@@ -15,6 +15,7 @@ pub mod execution;
 pub mod feasibility;
 pub mod observation;
 pub mod report;
+pub mod representation;
 pub mod signature;
 pub mod step_events;
 #[cfg(test)]
