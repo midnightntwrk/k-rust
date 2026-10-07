@@ -6784,18 +6784,23 @@ module HALF
   imports INT
   imports BOOL
   configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= go(Int)
+  syntax Pgm ::= go(Int) | go2(Int)
   syntax KItem ::= "yes" | "no"
   syntax Int ::= half(Int) [function, smt-hook((div #1 2)), symbol(half)]
   rule half(X) => X /Int 2 requires X %Int 2 ==Int 0
   rule <k> go(X) => yes </k> requires half(X) ==Int 0
   rule <k> go(_) => no </k> [owise]
+  rule <k> go2(X) => yes </k> requires half(half(X)) ==Int 0
+  rule <k> go2(_) => no </k> [owise]
 endmodule
 module HALF-SPEC
   imports HALF
   claim [symbolic-yes]: <k> go(X) => yes </k> requires 0 <Int X andBool X <Int 2
   claim [concrete-yes]: <k> go(1) => yes </k>
   claim [even-yes]: <k> go(X) => yes </k> requires X ==Int 0
+  claim [range-yes]: <k> go(X) => yes </k> requires half(X) <=Int 0 andBool half(X) >=Int 0
+  claim [nested-yes]: <k> go2(X) => yes </k> requires 1 <Int X andBool X <Int 3
+  claim [nested-range-yes]: <k> go2(X) => yes </k> requires half(half(X)) <=Int 0 andBool half(half(X)) >=Int 0
 endmodule
 "#;
 
@@ -6806,6 +6811,10 @@ endmodule
 /// must not be proven from that reading. The definedness of `half(X)` is stated next to the
 /// condition `half(X) = 0` and not discharged through it, so the solver decides the condition
 /// only under it. At an even argument the equations give the value, and the claim is proven.
+/// A claim whose `requires` holds of `half(X)` (`range-yes`) states that `half(X)` is defined,
+/// since every symbol is strict, so the claim is proven; at any depth too (`nested-range-yes`,
+/// with `half(X)` under the partial `half`), while `go2(2)` (`half(2)` is 1, `half(1)` has no
+/// value the definition gives) is not.
 #[test]
 fn kprove_decides_a_partial_smt_hook_only_under_its_definedness() {
     let (root, definition) = fixture();
@@ -6838,6 +6847,9 @@ fn kprove_decides_a_partial_smt_hook_only_under_its_definedness() {
     assert_ne!(verdict("symbolic-yes"), "proven", "{stdout}");
     assert_ne!(verdict("concrete-yes"), "proven", "{stdout}");
     assert_eq!(verdict("even-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("range-yes"), "proven", "{stdout}");
+    assert_ne!(verdict("nested-yes"), "proven", "{stdout}");
+    assert_eq!(verdict("nested-range-yes"), "proven", "{stdout}");
     fs::remove_dir_all(root).unwrap();
 }
 

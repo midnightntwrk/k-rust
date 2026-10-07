@@ -27,7 +27,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
 //! counters = ["SimplifyInvocations"]
 //! span = "per call"
@@ -36,6 +36,10 @@
 //! [[cost]]
 //! mode = "one round"
 //! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+//!
+//! [[cost]]
+//! mode = "ceil conjunct (known_defined_subterms)"
+//! bound = "only in a round with a \\ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \\ceil conjunct"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -561,6 +565,91 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
     }
 }
 
+/// The subterms of the terms that `known` states defined, as far as their definedness can be an
+/// open obligation (`ceil_free` subterms are left out, since no `\ceil` of one is ever open).
+///
+/// Every KORE application is strict (`σ(.., \bottom, ..)` is `\bottom`), and so is a term-level
+/// `\and` and a collection, so a term that denotes an element has defined subterms at every depth,
+/// under partial symbols too. A known predicate states its term defined when it asserts that term
+/// equal to a defined value: a Boolean term read as `true = P`, an equality one side of which is
+/// provably defined (both sides then are), or `\ceil` of the term. A negation or a disjunction
+/// states no term defined (`\not(t = 0)` holds where `t` is undefined), nor does a predicate
+/// under a binder, whose variable it does not fix.
+fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -> FxHashSet<Term> {
+    fn collect(term: &Term, subterms: &mut FxHashSet<Term>) {
+        if term.attributes().ceil_free() || !subterms.insert(term.clone()) {
+            return;
+        }
+        match term.kind() {
+            TermKind::Application { arguments, .. } => {
+                arguments
+                    .iter()
+                    .for_each(|argument| collect(argument, subterms));
+            }
+            TermKind::Injection { term, .. } => collect(term, subterms),
+            TermKind::And(left, right) => {
+                collect(left, subterms);
+                collect(right, subterms);
+            }
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    collect(key, subterms);
+                    collect(value, subterms);
+                }
+                if let Some(rest) = rest {
+                    collect(rest, subterms);
+                }
+            }
+            TermKind::List { heads, rest, .. } => {
+                heads.iter().for_each(|head| collect(head, subterms));
+                if let Some((middle, tails)) = rest {
+                    collect(middle, subterms);
+                    tails.iter().for_each(|tail| collect(tail, subterms));
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                elements
+                    .iter()
+                    .for_each(|element| collect(element, subterms));
+                if let Some(rest) = rest {
+                    collect(rest, subterms);
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+
+    fn visit(
+        definition: &BackendDefinition,
+        known: &[Predicate],
+        predicate: &Predicate,
+        subterms: &mut FxHashSet<Term>,
+    ) {
+        let defined = |term: &Term| {
+            term_is_provably_defined(definition, term, |obligation| known.contains(obligation))
+        };
+        match predicate {
+            Predicate::And(conjuncts) => {
+                for conjunct in conjuncts {
+                    visit(definition, known, conjunct, subterms);
+                }
+            }
+            Predicate::Term(term) | Predicate::Ceil(term) => collect(term, subterms),
+            Predicate::Equals(left, right) if defined(left) || defined(right) => {
+                collect(left, subterms);
+                collect(right, subterms);
+            }
+            _ => {}
+        }
+    }
+
+    let mut subterms = FxHashSet::default();
+    for predicate in known {
+        visit(definition, known, predicate, &mut subterms);
+    }
+    subterms
+}
+
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
 /// axioms make valid, and collapse the constraints to `\bottom` when the solver refutes one.
 ///
@@ -902,6 +991,10 @@ fn simplify_predicates_with_budget(
     // stated beside it. The known predicates are kept by the caller, so their equalities may
     // rewrite it.
     let mut known_path_condition = None;
+    // The terms the known predicates state defined, with their subterms, built at the first
+    // `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). The
+    // known predicates are kept by the caller, so the definedness stays stated by them.
+    let mut known_defined = None;
     // The conjunct parts of the additional conjuncts simplified so far.
     let mut simplified_conjuncts = FxHashSet::default();
     let mut simplified = Vec::with_capacity(conjuncts.len());
@@ -910,7 +1003,13 @@ fn simplify_predicates_with_budget(
         if let Some(position) = additional_positions[index] {
             assumptions[position] = Predicate::True;
         }
-        let result = {
+        let result = if let Predicate::Ceil(subject) = predicate
+            && known_defined
+                .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
+                .contains(subject)
+        {
+            Ok(Predicate::True)
+        } else {
             let excluded_path_condition = (!conjunct_equalities[index].is_empty())
                 .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
             let path_condition = if matches!(predicate, Predicate::Ceil(_)) {

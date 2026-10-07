@@ -1835,6 +1835,80 @@ fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
     );
 }
 
+/// Every application is strict, so a known predicate that states a term defined (a Boolean term
+/// read as `true = P`, an equality with a defined side, a `\ceil`) states every subterm of it
+/// defined, under partial symbols too, and a `\ceil` conjunct over one holds. A negated known
+/// predicate states nothing defined (`\not(t = 0)` holds where `t` is undefined), and a sibling
+/// conjunct is not known.
+#[test]
+fn a_ceil_conjunct_is_discharged_by_a_known_predicate_that_states_its_term_defined() {
+    let definition = definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           symbol p{}(SortInt{}) : SortInt{} [function{}()]
+           symbol le{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}()]"#,
+    );
+    const APPLIED: &str = "p{}(X:SortInt{})";
+    const NESTED: &str = "p{}(p{}(X:SortInt{}))";
+    let applied = term(&definition, APPLIED);
+    let nested = term(&definition, NESTED);
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let truth = term(&definition, r#"\dv{SortBool{}}("true")"#);
+    let bounded = |subject: &str| {
+        term(
+            &definition,
+            &format!(r#"le{{}}({subject}, \dv{{SortInt{{}}}}("0"))"#),
+        )
+    };
+    let defined = Predicate::Ceil(applied.clone());
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    for known in [
+        Predicate::Equals(bounded(APPLIED), truth.clone()),
+        Predicate::Equals(truth.clone(), bounded(NESTED)),
+        Predicate::Term(bounded(NESTED)),
+        Predicate::Ceil(nested.clone()),
+        Predicate::And(vec![
+            Predicate::Term(bounded(APPLIED)),
+            Predicate::Not(Box::new(Predicate::Equals(zero.clone(), applied.clone()))),
+        ]),
+    ] {
+        assert!(
+            simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)).is_empty(),
+            "{known:?}"
+        );
+    }
+    for known in [
+        Predicate::Not(Box::new(Predicate::Equals(applied.clone(), zero.clone()))),
+        Predicate::Or(vec![
+            Predicate::Term(bounded(APPLIED)),
+            Predicate::Equals(zero.clone(), term(&definition, "X:SortInt{}")),
+        ]),
+    ] {
+        assert_eq!(
+            simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)),
+            vec![defined.clone()],
+            "{known:?}"
+        );
+    }
+    let siblings = simplified(
+        &[
+            defined.clone(),
+            Predicate::Equals(bounded(APPLIED), truth.clone()),
+        ],
+        &[],
+    );
+    assert!(siblings.contains(&defined), "{siblings:?}");
+}
+
 /// Each conjunct may be simplified under the others, but not under conjuncts that were
 /// themselves simplified under it: the result must stay equivalent to the conjunction. Two
 /// conjuncts that restate one another (`X = v` and `v = X`, `X = Y` and `Y = X`) leave one of

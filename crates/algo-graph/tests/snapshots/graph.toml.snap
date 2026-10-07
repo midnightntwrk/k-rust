@@ -2470,11 +2470,20 @@ symbol = "simplify_predicates_with_budget"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "known_defined_subterms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_predicate_with_budget"
 
 [[node.cost]]
 mode = "one round"
 bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+
+[[node.cost]]
+mode = "ceil conjunct (known_defined_subterms)"
+bound = '''only in a round with a \ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \ceil conjunct'''
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
