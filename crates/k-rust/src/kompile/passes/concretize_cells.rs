@@ -1259,14 +1259,17 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
 
     /// Move each of `items`, the cell items written in one instance of `cell` and below it,
     /// into the item of an ancestor sort written beside it, when that instance of `cell` holds
-    /// only one cell of the ancestor's sort (no cell on the configuration's path from the
-    /// ancestor up to `cell` is `multiplicity="*"`) and only one item of that sort is written:
-    /// the configuration then makes that written cell the one that holds the item. The closest
-    /// such ancestor is used, and it is completed again with the items moved into it.
+    /// only one cell of each sort on the configuration's path from `cell` down to the item's
+    /// configured parent (no cell on that path is `multiplicity="*"`) and only one item of the
+    /// ancestor's sort is written: the configuration then makes that written cell, and the one
+    /// instance of the item's parent inside it, the ones that hold the item. The closest such
+    /// ancestor is used, and it is completed again with the items moved into it.
     ///
     /// Without this, completion would wrap the item in a fresh instance of the ancestor, a second
     /// instance where the configuration allows one. An ancestor written closed (no `...`) or not
-    /// as a cell body cannot take the item, and the rule is rejected.
+    /// as a cell body cannot take the item, and the rule is rejected. When a `multiplicity="*"`
+    /// cell lies on the path, the rule does not state which of its instances holds the item, and
+    /// the item is left where it is written.
     fn place_in_written_ancestors(
         &self,
         cell: &Cell,
@@ -1297,10 +1300,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 }
             }
             let mut holder = None;
-            // Invariant: `holder` is the index of the written item of the closest ancestor so far (from `cell` down) of which `cell` holds one instance and the rule writes one item; each ancestor is visited once.
+            // Invariant: `holder` is the index of the written item of the closest ancestor so far (from `cell` down) of which the rule writes one item, and no ancestor visited so far is repeated; each ancestor is visited once.
             for ancestor in ancestors.into_iter().rev() {
                 if self.model.is_repeated(ancestor) {
-                    break;
+                    // An instance of `cell` may hold many instances of `ancestor`, and the
+                    // rule does not state which of them holds the item.
+                    return None;
                 }
                 if let Some([index]) = written.get(ancestor).map(Vec::as_slice) {
                     holder = Some(*index);

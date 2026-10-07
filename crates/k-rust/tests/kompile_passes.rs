@@ -7287,6 +7287,30 @@ fn rejects_a_cell_written_beside_its_only_possible_parent_written_as_a_rewrite()
     );
 }
 
+// <top> holds one <threads>, but that <threads> holds many <thread> cells, and the rule does not
+// state which of them holds the <env> written beside <threads>: thread 1 or another one. Likewise
+// for the <d> of some <a2> in some <r> of the one <a>. Such a rule stays rejected.
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_ancestor_through_a_repeated_cell() {
+    for (configuration, rule) in [
+        (
+            r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
+        ),
+        (
+            r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="List"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E </env>",
+        ),
+        (
+            r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#,
+            "<k> 0 => 1 </k> <a> <x> X </x> ... </a> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d>",
+        ),
+    ] {
+        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
+        assert_eq!(errors, ["Ambiguous completion: <top>"], "{rule}");
+    }
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
