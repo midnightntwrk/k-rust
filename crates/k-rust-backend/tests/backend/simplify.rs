@@ -1820,6 +1820,347 @@ fn a_failed_evaluation_is_not_reused_once_the_attempts_it_reached_are_closed() {
     );
 }
 
+/// `substr("abc", index, 1)`'s guard in an equation of `substr(S, I, J)`.
+fn at_index(index: i64) -> String {
+    format!(
+        r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), eqInt{{}}(J:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+    )
+}
+
+/// `substr(S, index, 1)` in an equation of `substr(S, I, J)`.
+fn sibling(index: i64) -> String {
+    format!(
+        r#"substr{{}}(S:SortString{{}}, \dv{{SortInt{{}}}}("{index}"), \dv{{SortInt{{}}}}("1"))"#
+    )
+}
+
+/// An equation whose result is the application itself (`A = A`) states it through itself and
+/// gives no value, as `A = A ++ ""` does: it is a failed attempt, and the application's other
+/// equations still give their value, in either order.
+#[test]
+fn an_equation_whose_result_is_its_application_gives_no_value() {
+    let itself = substr_equation(&sibling(2), &at_index(2), r#"label{}("itself")"#);
+    let value = substr_equation(r#"\dv{SortString{}}("v")"#, &at_index(2), r#"label{}("v")"#);
+    for equations in [[itself.clone(), value.clone()], [value, itself]] {
+        let definition = substr_definition(&equations);
+        let input = term(&definition, &substr_of_abc(2, 1));
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result.expect("no error").term,
+            term(&definition, r#"\dv{SortString{}}("v")"#),
+            "{equations:?}"
+        );
+        assert_eq!(diagnostics, [], "{equations:?}");
+    }
+}
+
+/// A failed evaluation recorded for reuse is served only where an evaluation now would read
+/// what it read: review 5's `ord1`/`hist`. `A = substr("abc", 2, 1) = A ++ X` gives no value;
+/// `X = substr("abc", 3, 1)` is `substr(A, 0, 0)` or `""`, and the first fails for want of `A`
+/// (inside `X`'s attempt, `A` needs `X`); `U = substr("abc", 5, 1)` first fails through
+/// `keep(A, U)`, which records `A`'s evaluation with `X` not open, then is `X`. Inside `X`'s
+/// attempt that record does not hold (its evaluation entered `X`), so `X`, and `U`, are `""`;
+/// `T = substr("abc", 6, 1) = A ++ "|" ++ X` holds `A` and `"|"`.
+#[test]
+fn a_failed_evaluation_is_not_reused_where_an_application_it_evaluated_is_open() {
+    let concat = |left: &str, right: &str| format!("concatString{{}}({left}, {right})");
+    let definition = substr_definition(&[
+        substr_equation(
+            &format!("keep{{}}({}, {})", sibling(2), sibling(5)),
+            &at_index(5),
+            r#"label{}("u-again")"#,
+        ),
+        substr_equation(&sibling(3), &at_index(5), r#"label{}("u-is-x")"#),
+        substr_equation(
+            &concat(&sibling(2), &sibling(3)),
+            &at_index(2),
+            r#"label{}("a")"#,
+        ),
+        substr_equation(
+            &format!(
+                r#"substr{{}}({}, \dv{{SortInt{{}}}}("0"), \dv{{SortInt{{}}}}("0"))"#,
+                sibling(2)
+            ),
+            &at_index(3),
+            r#"label{}("x-through-a")"#,
+        ),
+        substr_equation(r#"\dv{SortString{}}("")"#, &at_index(3), r#"label{}("x")"#),
+        substr_equation(
+            &concat(
+                &sibling(2),
+                &concat(r#"\dv{SortString{}}("|")"#, &sibling(3)),
+            ),
+            &at_index(6),
+            r#"label{}("t")"#,
+        ),
+    ]);
+    let a = substr_of_abc(2, 1);
+    for (index, expected) in [
+        (5, r#"\dv{SortString{}}("")"#.to_owned()),
+        (3, r#"\dv{SortString{}}("")"#.to_owned()),
+        (6, concat(&a, r#"\dv{SortString{}}("|")"#)),
+    ] {
+        let input = term(&definition, &substr_of_abc(index, 1));
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result.expect("no error").term,
+            term(&definition, &expected),
+            "substr(abc, {index}, 1)"
+        );
+    }
+}
+
+/// Review 5 F2 (`wrap{T}`): a ring of `Unspecified` applications `A_I = substr("abc", I, 0) =
+/// w(A_{I-1})` by two equations, with `w(S) = "a" ++ S requires lengthString(S) > 100`. Every
+/// level's `requires` of `w` asks for `A_{I-1}`, which the lineage evaluated just before as
+/// `w`'s argument; the evaluation of `A_{I-1}` never met that condition's key, so the records the
+/// lineage made serve the condition too, and the work grows linearly with the depth.
+#[test]
+fn a_cycle_through_a_functions_condition_reuses_what_the_lineage_evaluated() {
+    let w = r#"
+        symbol w{}(SortString{}) : SortString{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        gtInt{}(lengthString{}(X:SortString{}), \dv{SortInt{}}("100")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \top{R}()
+                )
+            ),
+            \equals{SortString{}, R}(
+                w{}(X:SortString{}),
+                \and{SortString{}}(
+                    concatString{}(\dv{SortString{}}("a"), X:SortString{}),
+                    \top{SortString{}}()
+                )
+            )
+        ) [label{}("w")]
+        "#
+    .to_owned();
+    let smaller = r#"w{}(substr{}(S:SortString{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")), J:SortInt{}))"#;
+    let step = r#"ltInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#;
+    let attempts = |depth: i64| {
+        let definition = substr_definition(&[
+            w.clone(),
+            substr_equation(smaller, step, r#"label{}("down")"#),
+            substr_equation(
+                smaller,
+                &format!(r#"andBool{{}}({step}, ltInt{{}}(J:SortInt{{}}, I:SortInt{{}}))"#),
+                r#"label{}("down-again")"#,
+            ),
+            substr_equation(
+                &format!(
+                    r#"substr{{}}(S:SortString{{}}, \dv{{SortInt{{}}}}("{depth}"), J:SortInt{{}})"#
+                ),
+                r#"eqInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#,
+                r#"label{}("around")"#,
+            ),
+        ]);
+        let input = term(&definition, &substr_of_abc(depth, 0));
+        let before = snapshot();
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        let attempts = snapshot()
+            .delta(&before)
+            .get(Counter::SimplifyEquationAttempts);
+        assert_eq!(result.expect("no error").term, input, "depth {depth}");
+        attempts
+    };
+    let shallow = attempts(4);
+    let deep = attempts(8);
+    eprintln!("equation attempts: depth 4 {shallow}, depth 8 {deep}");
+    assert!(
+        deep <= 3 * shallow,
+        "doubling the depth multiplied the equation attempts from {shallow} to {deep}"
+    );
+}
+
+/// The result of `input` with and without the reuse of `Unspecified` evaluations, which must
+/// agree.
+fn with_and_without_reuse(definition: &BackendDefinition, input: &Term) -> (Term, Term) {
+    let run = || {
+        diagnostic::collect(|| simplify(definition, input, SimplificationOptions::default()))
+            .0
+            .expect("no error")
+            .term
+    };
+    let reused = run();
+    let fresh = without_unspecified_reuse(run);
+    (reused, fresh)
+}
+
+/// A function `g` whose only equation asks for `X = substr("abc", 3, 1)`: `g(Z) = "v" requires
+/// X ==String "v"`, and `X = g("") ++ ""` or `X = "v"`. Inside the condition of `g("")`, the
+/// evaluation of `X` meets that condition again, which it leaves undecided, so there `X` is
+/// `g("") ++ ""`; outside it, `g("")` waits for `X`, whose attempt is open, and `X` is `"v"`. A
+/// recorded evaluation of `X` carries which of the two it read, and is reused only where the
+/// condition is in the same state: `keep(g(""), X)` and `keep(X, g(""))` evaluate `X` in both
+/// orders and give what they give without reuse.
+#[test]
+fn an_evaluation_reused_meets_the_rule_conditions_it_met() {
+    let g = format!(
+        r#"
+        symbol g{{}}(SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \top{{R}}(),
+                \and{{R}}(
+                    \equals{{SortBool{{}}, R}}(
+                        eqString{{}}({x}, \dv{{SortString{{}}}}("v")),
+                        \dv{{SortBool{{}}}}("true")
+                    ),
+                    \top{{R}}()
+                )
+            ),
+            \equals{{SortString{{}}, R}}(
+                g{{}}(Z:SortString{{}}),
+                \and{{SortString{{}}}}(\dv{{SortString{{}}}}("v"), \top{{SortString{{}}}}())
+            )
+        ) [label{{}}("g")]
+        hooked-symbol eqString{{}}(SortString{{}}, SortString{{}}) : SortBool{{}}
+            [function{{}}(), total{{}}(), hook{{}}("STRING.eq")]
+        "#,
+        x = substr_of_abc(3, 1)
+    );
+    let g_empty = r#"g{}(\dv{SortString{}}(""))"#;
+    let definition = substr_definition(&[
+        g,
+        substr_equation(
+            &format!(r#"concatString{{}}({g_empty}, \dv{{SortString{{}}}}(""))"#),
+            &at_index(3),
+            r#"label{}("x-through-g")"#,
+        ),
+        substr_equation(r#"\dv{SortString{}}("v")"#, &at_index(3), r#"label{}("x")"#),
+        substr_equation(
+            &format!("keep{{}}({g_empty}, {})", sibling(3)),
+            &at_index(5),
+            r#"label{}("t")"#,
+        ),
+        substr_equation(
+            &format!("keep{{}}({}, {g_empty})", sibling(3)),
+            &at_index(6),
+            r#"label{}("t-swapped")"#,
+        ),
+    ]);
+    for index in [5, 6] {
+        let input = term(&definition, &substr_of_abc(index, 1));
+        let (reused, fresh) = with_and_without_reuse(&definition, &input);
+        assert_eq!(reused, fresh, "substr(abc, {index}, 1)");
+    }
+}
+
+/// A value computed under an assumption is not reused where the assumption is not made. Inside
+/// the condition of `k`, whose first conjunct states `lengthString(Y) = 1` for `Y = substr("abc",
+/// 4, 1)`, `X = substr("abc", 3, 1) = "x" requires lengthString(Y) == 1` has its value; outside,
+/// `Y` has none and `X` stays unevaluated: `T = keep(k(""), X)` is `X`.
+#[test]
+fn a_value_computed_under_an_assumption_is_not_reused_without_it() {
+    let k = format!(
+        r#"
+        symbol k{{}}(SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \top{{R}}(),
+                \and{{R}}(
+                    \and{{R}}(
+                        \equals{{SortInt{{}}, R}}(lengthString{{}}({y}), \dv{{SortInt{{}}}}("1")),
+                        \equals{{SortBool{{}}, R}}(
+                            eqString{{}}({x}, \dv{{SortString{{}}}}("x")),
+                            \dv{{SortBool{{}}}}("true")
+                        )
+                    ),
+                    \top{{R}}()
+                )
+            ),
+            \equals{{SortString{{}}, R}}(
+                k{{}}(Z:SortString{{}}),
+                \and{{SortString{{}}}}(\dv{{SortString{{}}}}("z"), \top{{SortString{{}}}}())
+            )
+        ) [label{{}}("k")]
+        hooked-symbol eqString{{}}(SortString{{}}, SortString{{}}) : SortBool{{}}
+            [function{{}}(), total{{}}(), hook{{}}("STRING.eq")]
+        "#,
+        x = substr_of_abc(3, 1),
+        y = substr_of_abc(4, 1)
+    );
+    let definition = substr_definition(&[
+        k,
+        substr_equation(
+            r#"\dv{SortString{}}("x")"#,
+            &format!(
+                r#"andBool{{}}({}, eqInt{{}}(lengthString{{}}({}), \dv{{SortInt{{}}}}("1")))"#,
+                at_index(3),
+                sibling(4)
+            ),
+            r#"label{}("x")"#,
+        ),
+        substr_equation(
+            &format!(
+                r#"keep{{}}(k{{}}(\dv{{SortString{{}}}}("")), {})"#,
+                sibling(3)
+            ),
+            &at_index(5),
+            r#"label{}("t")"#,
+        ),
+    ]);
+    let input = term(&definition, &substr_of_abc(5, 1));
+    let (reused, fresh) = with_and_without_reuse(&definition, &input);
+    assert_eq!(reused, term(&definition, &substr_of_abc(3, 1)));
+    assert_eq!(reused, fresh);
+}
+
+/// A condition that is refuted with an open attempt's occurrence in it is refuted whatever that
+/// attempt computes, so the application it leaves unevaluated is settled, not waiting for that
+/// attempt (review 5 seed N10). `A = substr("abc", 2, 1) = C`, `C = substr("abc", 3, 1) =
+/// k("")`, and `k`'s only equation requires `false andBool lengthString(A) == 7`, refuted after
+/// reaching `A` inside `A`'s own attempt: `k("")` is a result, so `C` and `A` are `k("")`.
+#[test]
+fn an_application_whose_condition_was_refuted_after_reaching_an_open_attempt_is_settled() {
+    let k = format!(
+        r#"
+        symbol k{{}}(SortString{{}}) : SortString{{}} [function{{}}(), total{{}}()]
+        axiom{{R}} \implies{{R}}(
+            \equals{{SortBool{{}}, R}}(
+                andBool{{}}(
+                    \dv{{SortBool{{}}}}("false"),
+                    eqInt{{}}(lengthString{{}}({a}), \dv{{SortInt{{}}}}("7"))
+                ),
+                \dv{{SortBool{{}}}}("true")
+            ),
+            \equals{{SortString{{}}, R}}(
+                k{{}}(X:SortString{{}}),
+                \and{{SortString{{}}}}(\dv{{SortString{{}}}}("z"), \top{{SortString{{}}}}())
+            )
+        ) [label{{}}("k"), simplification{{}}()]
+        "#,
+        a = substr_of_abc(2, 1)
+    );
+    let definition = substr_definition(&[
+        k,
+        substr_equation(&sibling(3), &at_index(2), r#"label{}("a-is-c")"#),
+        substr_equation(
+            r#"k{}(\dv{SortString{}}(""))"#,
+            &at_index(3),
+            r#"label{}("c-is-k")"#,
+        ),
+    ]);
+    for index in [2, 3] {
+        let input = term(&definition, &substr_of_abc(index, 1));
+        let (result, _) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result.expect("no error").term,
+            term(&definition, r#"k{}(\dv{SortString{}}(""))"#),
+            "substr(abc, {index}, 1)"
+        );
+    }
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not
