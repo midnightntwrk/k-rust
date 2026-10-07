@@ -705,3 +705,158 @@ fn a_self_nested_left_hand_side_is_decided_without_unbounded_recursion() {
     let term = "f{}(inj{SortK{}, SortF{}}(k{}(c{}())))";
     assert_ceil_kept(&definition, term, "SortF{}", term);
 }
+
+/// The anywhere equation `{head}(X0, X1) = {right}` with `X0 \in {first}` and `X1 \in {second}`,
+/// of argument sorts `{sorts}` and result sort `{result}`.
+fn binary_anywhere_equation(
+    head: &str,
+    sorts: (&str, &str),
+    result: &str,
+    (first, second): (&str, &str),
+    right: &str,
+) -> String {
+    let (first_sort, second_sort) = sorts;
+    format!(
+        r"axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{{first_sort}, R}}(X0:{first_sort}, {first}), \and{{R}}(\in{{{second_sort}, R}}(X1:{second_sort}, {second}), \top{{R}}()))),
+            \equals{{{result}, R}}({head}{{}}(X0:{first_sort}, X1:{second_sort}), \and{{{result}}}({right}, \top{{{result}}}()))
+        ) [anywhere{{}}()]"
+    )
+}
+
+/// `g : Int -> G` and `f : G x Int -> S` value productions, `c1, c2, c3 : G` constructors, the
+/// equation `g(5) = c1`, and the `f` equations `{equations}`.
+fn overlap_definition(equations: &[(&str, &str)]) -> BackendDefinition {
+    let mut rest = vec![
+        "sort SortG{} []".to_string(),
+        "symbol c1{}() : SortG{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol c2{}() : SortG{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol c3{}() : SortG{} [constructor{}(), functional{}(), injective{}()]".into(),
+        "symbol g{}(SortInt{}) : SortG{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        "symbol f{}(SortG{}, SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]"
+            .into(),
+        anywhere_equation(
+            "g",
+            "SortInt{}",
+            "SortG{}",
+            r#"\dv{SortInt{}}("5")"#,
+            "c1{}()",
+        ),
+    ];
+    rest.extend(equations.iter().map(|(first, right)| {
+        binary_anywhere_equation(
+            "f",
+            ("SortG{}", "SortInt{}"),
+            "SortS{}",
+            (first, "VarZ:SortInt{}"),
+            right,
+        )
+    }));
+    narrowing_definition(&rest)
+}
+
+const UNDEFINED_MK: &str = r#"mk{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#;
+
+/// `g(5) = c1`, `f(c1, Z) = f(c2, Z)` and `f(g(X), Z) = mk(1 /Int 0)` (review 3, F1). Then
+/// `f(c2, Y) = f(c1, Y) = f(g(5), Y) = mk(1 /Int 0)`, which is undefined. No reduct of `g(X)`
+/// is `c2`, so the `f(g(X), Z)` equation's argument misses `f(c2, Y)`'s; the instance
+/// `f(g(5), Z)` reaches it only through a step below the root followed by a root step of the
+/// other equation. So `\ceil(f(c2, Y))` keeps its obligation, while `f(c3, Y)`, which no
+/// reduct of an instance of either left-hand side is, is defined.
+#[test]
+fn a_root_step_by_another_equation_leads_an_overlapped_instance_back_to_the_application() {
+    let definition = overlap_definition(&[
+        ("c1{}()", "f{}(c2{}(), VarZ:SortInt{})"),
+        ("g{}(VarX:SortInt{})", UNDEFINED_MK),
+    ]);
+    let kept = "f{}(c2{}(), Y:SortInt{})";
+    assert_ceil_kept(&definition, kept, "SortS{}", kept);
+    assert_eq!(
+        simplified_predicate_under(
+            &definition,
+            r"\ceil{SortS{}, SortS{}}(f{}(c3{}(), Y:SortInt{}))",
+            &[]
+        ),
+        Predicate::True
+    );
+}
+
+/// The ground instance of [`a_root_step_by_another_equation_leads_an_overlapped_instance_back_to_the_application`]:
+/// every equation fails to match `f(c2, 0)`, but those failures do not certify it as a value.
+#[test]
+fn a_root_step_by_another_equation_leads_an_overlapped_ground_instance_back_to_the_application() {
+    let definition = overlap_definition(&[
+        ("c1{}()", "f{}(c2{}(), VarZ:SortInt{})"),
+        ("g{}(VarX:SortInt{})", UNDEFINED_MK),
+    ]);
+    let kept = r#"f{}(c2{}(), \dv{SortInt{}}("0"))"#;
+    assert_ceil_kept(&definition, kept, "SortS{}", kept);
+}
+
+/// `g(5) = c1`, `f(g(X), Z) = f(c2, Z)` and `f(c1, Z) = mk(1 /Int 0)`. Then
+/// `f(c2, Y) = f(g(5), Y) = f(c1, Y)`, undefined. `f(c2, Y)` is reached from `f(g(5), Y)` only
+/// through the first equation's own root step, but `f(g(5), Y)` has a second step (`g(5) = c1`)
+/// whose normal form is not `f(c2, Y)`: an equation's own root step counts at an instance that
+/// another step also rewrites.
+#[test]
+fn an_equations_own_root_step_from_an_overlapped_instance_reaches_its_normal_forms() {
+    let definition = overlap_definition(&[
+        ("g{}(VarX:SortInt{})", "f{}(c2{}(), VarZ:SortInt{})"),
+        ("c1{}()", UNDEFINED_MK),
+    ]);
+    for kept in [
+        "f{}(c2{}(), Y:SortInt{})",
+        r#"f{}(c2{}(), \dv{SortInt{}}("0"))"#,
+    ] {
+        assert_ceil_kept(&definition, kept, "SortS{}", kept);
+    }
+    assert_eq!(
+        simplified_predicate_under(
+            &definition,
+            r"\ceil{SortS{}, SortS{}}(f{}(c3{}(), Y:SortInt{}))",
+            &[]
+        ),
+        Predicate::True
+    );
+}
+
+/// `f(X, Z) = mk(X /Int 0) requires X ==Int 3` and `f(3, Z) = f(1, Z)` overlap at the root
+/// (review 3, F2): `f(1, Y) = f(3, Y) = mk(3 /Int 0)`, undefined. Matching the conditional
+/// equation against `f(1, Y)` succeeds only at `X = 1`, where its `requires` is false, but the
+/// instance `f(3, Z)` of its left-hand side, which the other equation also rewrites, reaches
+/// `f(1, Y)`: the refuted `requires` discharges nothing. `f(2, Y)` is reached by neither.
+#[test]
+fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
+    let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+    let definition = narrowing_definition(&[
+        r#"hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]"#.into(),
+        r#"hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]"#.into(),
+        "symbol f{}(SortInt{}, SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]".into(),
+        binary_anywhere_equation(
+            "f",
+            ("SortInt{}", "SortInt{}"),
+            "SortS{}",
+            (&int("3"), "VarZ:SortInt{}"),
+            &format!("f{{}}({}, VarZ:SortInt{{}})", int("1")),
+        ),
+        r#"axiom{R} \implies{R}(
+            \and{R}(\equals{SortBool{}, R}(eqInt{}(VarX:SortInt{}, \dv{SortInt{}}("3")), \dv{SortBool{}}("true")),
+              \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarZ:SortInt{}), \top{R}()))),
+            \equals{SortS{}, R}(f{}(X0:SortInt{}, X1:SortInt{}), \and{SortS{}}(mk{}(divInt{}(VarX:SortInt{}, \dv{SortInt{}}("0"))), \top{SortS{}}()))
+        ) [anywhere{}()]"#
+            .into(),
+    ]);
+    let kept = format!("f{{}}({}, Y:SortInt{{}})", int("1"));
+    assert_ceil_kept(&definition, &kept, "SortS{}", &kept);
+    assert_eq!(
+        simplified_predicate_under(
+            &definition,
+            &format!(
+                r"\ceil{{SortS{{}}, SortS{{}}}}(f{{}}({}, Y:SortInt{{}}))",
+                int("2")
+            ),
+            &[]
+        ),
+        Predicate::True
+    );
+}

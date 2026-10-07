@@ -21,13 +21,36 @@
 //! unbounded. This keeps FUN's overloaded application `P1 P2`, whose overload equation rewrites
 //! some instances to an injection from `Val`, apart from an injected `Name`.
 //!
+//! Neither test covers the normal forms an equation identifies through its *overlaps*. A normal
+//! form `s` is a value distinct from every other normal form when every term that reduces to `s`
+//! has `s` as its only normal form (each term of a conversion between two normal forms then
+//! reduces to both). A term with two normal forms contains a peak of two steps that do not
+//! meet, and such a peak (steps at disjoint positions, or inside a variable's value, meet) is an
+//! overlap at an instance `lσ` of some equation: its root step against another equation's root
+//! step, or against a step at a non-variable position below the root. Every reduct of an
+//! overlapped instance, through the equation's own root step as much as through the other step,
+//! may be identified with another normal form; a reduct of an instance with no other step is
+//! not identified through it, since there the equation's root step is the only step. So each
+//! equation is also set aside only where no reduct of an overlapped instance of `l` is the
+//! subject ([`BackendDefinition::overlaps_miss`], computed with the pattern facts). Peaks that
+//! meet identify nothing and are not counted: an overload equation's step, which matching reads
+//! through, and a peak whose two sides meet under a few unconditional steps.
+//!
+//! The scan of an application asks the equations offered at its index, so it sees the overlaps
+//! of equations with that head. The certificate assumes that a peak at an instance of an
+//! equation of another head, one of whose sides has the application's head, meets, and that so
+//! do peaks at terms that equation matching matches up to the subsort or overload axioms
+//! without being syntactic instances of `l`: under `g(5) = c1; f(c1) = k(0); f(g(X)) = mk(1 /Int
+//! 0)`, `k(0)` is undefined while no `k` equation exists.
+//!
 //! Narrowing ([`BackendDefinition::narrow`]) asks which right-hand sides an equation gives a
 //! reduct of a pattern, by matching the equation's left-hand side against the pattern. It reads
 //! that left-hand side by its values as well: a subterm's syntax counts only where the subterm's
 //! instances are normal forms (every subterm of a normal-argument equation's left-hand side, and
-//! otherwise a subterm shown normal), and any other subterm stands for any value. Injections are
-//! compared up to the subsort axioms, under which they compose: `inj{B,T}(t)` with `B < A` is the
-//! value `inj{A,T}(inj{B,A}(t))`, an instance of `inj{A,T}(X:A)`.
+//! otherwise a subterm shown normal); any other subterm is read through the reducts of its own
+//! instances ([`BackendDefinition::narrow_through_values`]). Injections are compared up to the
+//! subsort axioms, under which they compose: `inj{B,T}(t)` with `B < A` is the value
+//! `inj{A,T}(inj{B,A}(t))`, an instance of `inj{A,T}(X:A)`.
 
 use std::{
     cell::RefCell,
@@ -36,18 +59,21 @@ use std::{
     sync::Arc,
 };
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{SCAN, Scan, ScanScope, ValueQuestion, compared_by_root, separated, token};
+use super::{
+    SCAN, Scan, ScanScope, ValueQuestion, compared_by_root, separated, sorts_differ, token,
+};
 use crate::substitution::{Substitution, substitute};
 use crate::{
     definition::BackendDefinition,
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     term::{
-        HeadRole, Sort, Term, TermKind,
+        HeadRole, Sort, Term, TermKind, Variable,
         head::{
-            Fixed, Head, NormalForms, PatternReading, Shape, classify_pattern, classify_value,
-            compare_roots,
+            Fixed, Head, NormalForms, PatternReading, Scanned, Shape, classify_pattern,
+            classify_value, compare_roots,
         },
     },
 };
@@ -67,6 +93,24 @@ pub(crate) struct PatternFacts {
     /// Some equation is indexed by a bare variable, so it may rewrite a term of any root to
     /// anything: no reduct's root is bounded.
     unbounded: bool,
+    /// What the overlapped instances of each equation's left-hand side reach, by the equation's
+    /// address ([`BackendDefinition::overlaps_miss`]); `None` before the first round has
+    /// computed them, when every equation's are [`Overlaps::Unbounded`]. An equation without an
+    /// entry (one headed by a function, or a bare variable) has unbounded ones too.
+    overlaps: Option<Arc<FxHashMap<usize, Overlaps>>>,
+}
+
+/// What the instances of an equation's left-hand side that have a step besides the equation's
+/// own root step reach ([`BackendDefinition::overlaps_miss`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Overlaps {
+    /// No instance of the left-hand side has another step.
+    Absent,
+    /// Terms that cover every reduct of every such instance, as the representatives of
+    /// [`BackendDefinition::value_representatives`] cover the reducts of a pattern.
+    Reaching(Arc<[Term]>),
+    /// The reducts are not bounded.
+    Unbounded,
 }
 
 thread_local! {
@@ -108,23 +152,33 @@ impl BackendDefinition {
     }
 
     /// Whether a failed match of the equation `equation` on `subject`, a ground term whose
-    /// arguments the simplifier has evaluated, shows that no valuation of the equation's
-    /// left-hand side denotes the subject's value: its left-hand side's arguments are normal
-    /// patterns, or its values miss the subject at some argument ([`Self::misses_values`], with
-    /// the simplifier's value certificate as the evidence for the subject's roots).
+    /// arguments the simplifier has evaluated, shows that the equation does not identify the
+    /// subject's value with another normal form: its left-hand side's arguments are normal
+    /// patterns, or its values miss the subject at some argument ([`Self::misses_values`]), and
+    /// no overlapped instance of its left-hand side reaches the subject
+    /// ([`Self::overlaps_miss`]); the simplifier's value certificate is the evidence for the
+    /// subject's roots.
     pub(crate) fn failed_match_is_about_values(
         &self,
         equation: &RewriteRule,
         subject: &Term,
     ) -> bool {
-        self.pattern_arguments_normal(equation) || {
+        let roots = &mut crate::term::head::CertifiedOnly;
+        (self.pattern_arguments_normal(equation) || {
             let _scope = ScanScope::enter();
-            self.misses_values(
-                &equation.lhs,
-                subject,
-                &mut crate::term::head::CertifiedOnly,
-            )
+            self.misses_values(&equation.lhs, subject, roots)
+        }) && {
+            let _scope = ScanScope::enter();
+            self.overlaps_miss(equation, subject, roots)
         }
+    }
+
+    /// Whether no overlapped instance of the left-hand side of `rule`, a function or
+    /// simplification equation of this definition, reaches `term`, an application whose
+    /// immediate subterms are instance-normal ([`Self::overlaps_miss`]).
+    pub(crate) fn overlapped_instances_miss(&self, rule: &RewriteRule, term: &Term) -> bool {
+        let _scope = ScanScope::enter();
+        self.overlaps_miss(rule, term, &mut Scanned(self))
     }
 
     /// Whether no instance of the left-hand side `pattern` has `subject`, an application with the
@@ -132,7 +186,9 @@ impl BackendDefinition {
     /// argument position no reduct of the pattern's argument is the subject's argument
     /// ([`Self::values_apart`]). `subject_roots` fixes the roots of the subject's equation-head
     /// subterms. Positions are compared one at a time, so variables shared between positions are
-    /// not followed: that only answers `false` more often.
+    /// not followed: that only answers `false` more often. Reducts that leave the root, or come
+    /// back to it through other equations' root steps, are the overlaps' part
+    /// ([`Self::overlaps_miss`]).
     ///
     /// The question is answered `false` when [`super::VALUE_QUESTIONS`] are already open on the
     /// thread (`super::ValueQuestion`).
@@ -178,6 +234,76 @@ impl BackendDefinition {
                     .zip(subject_arguments)
                     .any(|(pattern, subject)| self.values_apart(pattern, subject, subject_roots))
             }
+            _ => false,
+        }
+    }
+
+    /// Whether no reduct of an *overlapped* instance of the left-hand side of `rule` is `subject`,
+    /// a term whose root `subject_roots` must fix: one at which another step than the
+    /// equation's own root step applies (a step at a non-variable position below the root, or
+    /// another equation's root step). That is where an equation can identify two normal forms:
+    /// at an instance with no other step, its root step is the only one, so the instance's
+    /// normal forms are those of the right-hand side and nothing else; at an overlapped one, the
+    /// two steps may lead to different normal forms, each of which the equation then identifies
+    /// with the other, whichever path (the equation's own root step included) reaches it. The
+    /// reducts are the definition's `Overlaps` of the equation ([`overlaps_of`], computed with
+    /// the pattern facts); `false` when they are unbounded or past [`super::VALUE_QUESTIONS`].
+    pub(super) fn overlaps_miss(
+        &self,
+        rule: &RewriteRule,
+        subject: &Term,
+        subject_roots: &mut dyn NormalForms,
+    ) -> bool {
+        let reaching = match self.previous_overlaps(rule) {
+            Overlaps::Absent => return true,
+            Overlaps::Unbounded => return false,
+            Overlaps::Reaching(reaching) => reaching,
+        };
+        let Some(_question) = ValueQuestion::open() else {
+            return false;
+        };
+        reaching.iter().all(|representative| {
+            self.representative_misses(representative, subject, subject_roots)
+        })
+    }
+
+    /// Whether no reduct of an instance of `representative` that keeps its root is `subject`, a
+    /// term whose immediate subterms `subject_roots` must fix: a representative with the
+    /// subject's symbol when some pair of arguments is apart ([`Self::values_apart`]), and one
+    /// with another fixed root always (a reduct that changes the root is another
+    /// representative).
+    fn representative_misses(
+        &self,
+        representative: &Term,
+        subject: &Term,
+        subject_roots: &mut dyn NormalForms,
+    ) -> bool {
+        match (representative.kind(), subject.kind()) {
+            (
+                TermKind::Application {
+                    symbol: representative_symbol,
+                    sort_arguments: representative_sorts,
+                    arguments: representative_arguments,
+                },
+                TermKind::Application {
+                    symbol: subject_symbol,
+                    sort_arguments: subject_sorts,
+                    arguments: subject_arguments,
+                },
+            ) if representative_symbol.name == subject_symbol.name => {
+                representative_sorts == subject_sorts
+                    && representative_arguments.len() == subject_arguments.len()
+                    && representative_arguments.iter().zip(subject_arguments).any(
+                        |(pattern, subject)| self.values_apart(pattern, subject, subject_roots),
+                    )
+            }
+            (_, TermKind::Application { .. }) => matches!(
+                representative.shape(),
+                Shape::DomainValue
+                    | Shape::Injection
+                    | Shape::Collection(_)
+                    | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead)
+            ),
             _ => false,
         }
     }
@@ -461,9 +587,8 @@ impl BackendDefinition {
     /// [`Self::narrow`] for an argument position: the argument `term` is read up to reducts, so
     /// each of its representatives is matched. Under [`LeftReading::Checked`] the left-hand side
     /// subterm `left` is compared by its syntax only when it is a normal pattern
-    /// ([`Self::normal_pattern`]), and then so is every subterm below it; otherwise its value is
-    /// any reduct of any of its instances, which this does not compute: it stands for any value
-    /// and binds none of its variables.
+    /// ([`Self::normal_pattern`]), and then so is every subterm below it; otherwise it is read
+    /// through its own values ([`Self::narrow_through_values`]).
     fn narrow_argument(
         &self,
         left: &Term,
@@ -474,16 +599,104 @@ impl BackendDefinition {
         if let TermKind::Variable(variable) = left.kind() {
             return Some(vec![Substitution::from([(variable.clone(), term.clone())])]);
         }
-        if reading == LeftReading::Checked && !self.normal_pattern(left) {
-            return Some(vec![Substitution::new()]);
-        }
+        let checked = reading == LeftReading::Checked && !self.normal_pattern(left);
         let Some(representatives) = self.representatives(term, depth) else {
             return Some(vec![Substitution::new()]);
         };
+        if checked {
+            return self.narrow_through_values(left, &representatives, depth);
+        }
         let mut alternatives = Vec::new();
         for representative in &representatives {
             if let Some(found) = self.narrow(left, representative, depth, LeftReading::Values) {
                 alternatives.extend(found);
+            }
+        }
+        bounded_alternatives(alternatives)
+    }
+
+    /// The bindings of the variables of `left`, a left-hand side subterm that is not a normal
+    /// pattern, under which the value of an instance of `left` may be the value of a reduct of an
+    /// instance of a term whose representatives are `representatives`. An instance of `left`
+    /// denotes the value of its normal forms, which are reached in three ways, each read here
+    /// through narrowing:
+    /// - keeping `left`'s root, with its arguments reduced: `left` against each representative,
+    ///   its own arguments read the same way;
+    /// - through a root step by an equation `e` offered at `left`'s index: the bindings under
+    ///   which an instance of `left` is one of `e`'s left-hand side, composed with those under
+    ///   which `e`'s right-hand side may have the term's value;
+    /// - as one of the normal forms such an equation identifies with another (its `Overlaps`):
+    ///   the bindings under which an instance of `left` is one of them.
+    ///
+    /// Any other reading (a function or bare-variable equation, unbounded overlaps, the nesting
+    /// bound) binds nothing, so `left` stands for any value.
+    fn narrow_through_values(
+        &self,
+        left: &Term,
+        representatives: &[Term],
+        depth: usize,
+    ) -> Option<Vec<Substitution>> {
+        let any = || Some(vec![Substitution::new()]);
+        if depth == 0
+            || !matches!(
+                left.shape(),
+                Shape::Application(HeadRole::EquationHead) | Shape::Collection(_)
+            )
+            || self.with_pattern_facts(|facts| facts.unbounded)
+        {
+            return any();
+        }
+        let mut alternatives = Vec::new();
+        for representative in representatives {
+            if let Some(found) = self.narrow(left, representative, depth, LeftReading::Checked) {
+                alternatives.extend(found);
+            }
+        }
+        for equation in self.offered_equations(left) {
+            let RuleRhs::Term(right) = &equation.rhs else {
+                return any();
+            };
+            if matches!(equation.lhs.kind(), TermKind::Variable(_)) {
+                return any();
+            }
+            if let Some(instances) =
+                self.narrow(left, &equation.lhs, depth - 1, LeftReading::Checked)
+            {
+                for representative in representatives {
+                    let Some(reducts) = self.narrow_argument(
+                        right,
+                        representative,
+                        depth - 1,
+                        LeftReading::Checked,
+                    ) else {
+                        continue;
+                    };
+                    for instance in &instances {
+                        for reduct in &reducts {
+                            alternatives.push(
+                                instance
+                                    .iter()
+                                    .map(|(variable, bound)| {
+                                        (variable.clone(), substitute(bound, reduct))
+                                    })
+                                    .collect(),
+                            );
+                        }
+                    }
+                }
+            }
+            match self.previous_overlaps(equation) {
+                Overlaps::Absent => {}
+                Overlaps::Unbounded => return any(),
+                Overlaps::Reaching(identified) => {
+                    for normal_form in identified.iter() {
+                        if let Some(found) =
+                            self.narrow(left, normal_form, depth - 1, LeftReading::Checked)
+                        {
+                            alternatives.extend(found);
+                        }
+                    }
+                }
             }
         }
         bounded_alternatives(alternatives)
@@ -673,6 +886,379 @@ impl BackendDefinition {
         }
     }
 
+    /// The [`Overlaps`] of `rule`, a function or simplification equation whose left-hand side
+    /// has a fixed root, under the facts of the current round ([`pattern_facts`]).
+    ///
+    /// An instance `lσ` of the left-hand side `l` is overlapped when it is an instance of
+    /// another equation's left-hand side offered at its index (that equation also rewrites it at
+    /// the root), or when, at some position below the root that is not a variable, the subterm
+    /// `q` of `l` has an instance `qσ` that is not a value: a redex of an equation offered at
+    /// `q`'s index, or one of the normal forms such an equation identifies with another (its own
+    /// `Overlaps`, from the previous round). Either set of valuations is found by narrowing `l`
+    /// (or `q`) against the other left-hand side (or normal form), which binds the variables of
+    /// `l`; a subterm that is not a value for other reasons (a function application, a
+    /// bare-variable equation of its sort, unbounded overlaps) makes every valuation count. The
+    /// result covers every reduct of every such instance by its representatives
+    /// ([`Self::value_representatives`]), which follow every equation, this one included.
+    ///
+    /// Variable names never constrain the comparisons that read these terms (each position is
+    /// compared on its own), so the other equation's variables are not renamed apart.
+    fn overlaps_of(&self, rule: &RewriteRule) -> Overlaps {
+        let mut alternatives = Vec::new();
+        let mut every = false;
+        let mut overlap = |found: Option<Vec<Substitution>>, every: &mut bool| {
+            if let Some(found) = found {
+                if found.iter().any(Substitution::is_empty) {
+                    *every = true;
+                } else {
+                    alternatives.extend(found);
+                }
+            }
+        };
+        let left = &rule.lhs;
+        for other in self.offered_equations(left) {
+            if std::ptr::eq(other, rule) {
+                continue;
+            }
+            match self.overlap_with(left, other) {
+                Some(found) => {
+                    let found = found
+                        .into_iter()
+                        .filter(|valuation| !self.peak_joins(rule, valuation, None, other))
+                        .collect();
+                    overlap(Some(found), &mut every);
+                }
+                None => every = true,
+            }
+        }
+        for_each_subterm_below_root(left, &mut |subterm| {
+            if every || self.normal_pattern(subterm) {
+                return;
+            }
+            match subterm.shape() {
+                Shape::Application(HeadRole::EquationHead) | Shape::Collection(_) => {}
+                // Not a value only through a subterm, which is visited on its own.
+                Shape::DomainValue
+                | Shape::Injection
+                | Shape::Application(HeadRole::FreeConstructor) => return,
+                Shape::Variable
+                | Shape::And
+                | Shape::Application(
+                    HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual,
+                ) => {
+                    every = true;
+                    return;
+                }
+            }
+            for other in self.offered_equations(subterm) {
+                // A step matching reads through rewrites no value (`reads_through`); the normal
+                // forms `other` identifies below are still asked about.
+                let redexes = if self.reads_through(subterm, other) {
+                    Some(Vec::new())
+                } else {
+                    self.overlap_with(subterm, other)
+                };
+                match redexes {
+                    Some(found) => {
+                        let found = found
+                            .into_iter()
+                            .filter(|valuation| {
+                                !self.peak_joins(rule, valuation, Some(subterm), other)
+                            })
+                            .collect();
+                        overlap(Some(found), &mut every);
+                    }
+                    None => {
+                        every = true;
+                        return;
+                    }
+                }
+                match self.previous_overlaps(other) {
+                    Overlaps::Absent => {}
+                    Overlaps::Unbounded => {
+                        every = true;
+                        return;
+                    }
+                    Overlaps::Reaching(reaching) => {
+                        for normal_form in reaching.iter() {
+                            overlap(
+                                self.narrow(
+                                    subterm,
+                                    normal_form,
+                                    NARROWING_DEPTH,
+                                    LeftReading::Values,
+                                ),
+                                &mut every,
+                            );
+                        }
+                    }
+                }
+            }
+        });
+        if !every && alternatives.is_empty() {
+            return Overlaps::Absent;
+        }
+        let mut instances = Vec::new();
+        if every || alternatives.len() > REPRESENTATIVES {
+            instances.push(left.clone());
+        } else {
+            for alternative in &alternatives {
+                let instance = instantiate(left, &bind_aliases(left, alternative));
+                if !instances.contains(&instance) {
+                    instances.push(instance);
+                }
+            }
+        }
+        let mut reaching = Vec::new();
+        for instance in &instances {
+            let Some(representatives) = self.value_representatives(instance) else {
+                return Overlaps::Unbounded;
+            };
+            for representative in representatives {
+                if !reaching.contains(&representative) {
+                    reaching.push(representative);
+                }
+            }
+        }
+        Overlaps::Reaching(reaching.into())
+    }
+
+    /// Whether the peak at `lσ` (`l` the left-hand side of `rule`, `σ` the valuation
+    /// `valuation`) between `rule`'s root step and the step of `other` joins: at the subterm
+    /// `inner` of `l` when given (its instance is a redex of `other`), at the root otherwise
+    /// (`lσ` is an instance of `other`'s left-hand side too). A joining peak sends both of its
+    /// sides to one term, so the instance identifies no two normal forms through it.
+    ///
+    /// The proof is built from real steps: both sides (`rσ`, and `other`'s reduct in place) are
+    /// reduced by up to [`JOIN_STEPS`] steps of unconditional equations (no `requires`, no
+    /// `ensures`), innermost first, and must meet. A side that does not meet within them leaves
+    /// the peak counted, which only keeps more terms from being certified. The terms are
+    /// renamed apart from the equations (`!apart-peak`, which no KORE identifier spells), as
+    /// matching needs.
+    fn peak_joins(
+        &self,
+        rule: &RewriteRule,
+        valuation: &Substitution,
+        inner: Option<&Term>,
+        other: &RewriteRule,
+    ) -> bool {
+        let (RuleRhs::Term(right), RuleRhs::Term(other_right)) = (&rule.rhs, &other.rhs) else {
+            return false;
+        };
+        let valuation = &bind_aliases(&rule.lhs, valuation);
+        let instance = instantiate(&rule.lhs, valuation);
+        let apart = instance
+            .attributes()
+            .variables
+            .iter()
+            .map(|variable| {
+                let renamed = Variable {
+                    name: format!("{}!apart-peak", variable.name).into(),
+                    ..variable.clone()
+                };
+                (variable.clone(), Term::variable(renamed))
+            })
+            .collect::<Substitution>();
+        let instance = substitute(&instance, &apart);
+        let reduct = substitute(
+            right,
+            &rule
+                .lhs
+                .attributes()
+                .variables
+                .iter()
+                .map(|variable| {
+                    let bound = valuation
+                        .get(variable)
+                        .cloned()
+                        .unwrap_or_else(|| Term::variable(variable.clone()));
+                    (variable.clone(), substitute(&bound, &apart))
+                })
+                .collect(),
+        );
+        let redex = match inner {
+            Some(inner) => substitute(&substitute(inner, valuation), &apart),
+            None => instance.clone(),
+        };
+        let Some(other_reduct) = self.step_with(other, &redex, other_right) else {
+            return false;
+        };
+        let other_side = match inner {
+            Some(_) => replace_subterm(&instance, &redex, &other_reduct),
+            None => other_reduct.clone(),
+        };
+        self.reduce_unconditionally(&reduct) == self.reduce_unconditionally(&other_side)
+    }
+
+    /// Whether equation matching reads through the steps of `other` at the left-hand side
+    /// subterm `subterm`: `other` is an overload equation `g(inj(K1), …, inj(Kn)) =
+    /// inj(s(K1, …, Kn))` (or without the outer injection) of a production `g` that the
+    /// definition's overload relation makes overload `s`, and `subterm` is headed by `g`. Its
+    /// step only rewrites how a value of `g` is written, and matching lifts `inj(s(a1, …, an))`
+    /// back to `g(inj(a1), …, inj(an))` when it compares it with a `g` pattern (the
+    /// overload resolution of `matching`). So wherever the left-hand side matched before the
+    /// step it matches after it, at the valuation with the step done inside the values bound,
+    /// and the peak with the equation's root step joins: it identifies no two normal forms.
+    fn reads_through(&self, subterm: &Term, other: &RewriteRule) -> bool {
+        let (
+            TermKind::Application { symbol: head, .. },
+            TermKind::Application {
+                symbol: general, ..
+            },
+        ) = (subterm.kind(), other.lhs.kind())
+        else {
+            return false;
+        };
+        let RuleRhs::Term(right) = &other.rhs else {
+            return false;
+        };
+        let specific = match right.kind() {
+            TermKind::Injection { term, .. } => term,
+            _ => right,
+        };
+        let (
+            TermKind::Application {
+                symbol: specific,
+                arguments: specific_arguments,
+                ..
+            },
+            TermKind::Application {
+                arguments: general_arguments,
+                ..
+            },
+        ) = (specific.kind(), other.lhs.kind())
+        else {
+            return false;
+        };
+        // The overload equation's own shape: each argument of `g` is a variable, or one under
+        // an injection, and `s` takes those variables in order.
+        let lifted = general_arguments.len() == specific_arguments.len()
+            && general_arguments
+                .iter()
+                .zip(specific_arguments)
+                .all(|(general, specific)| {
+                    let general = match general.kind() {
+                        TermKind::Injection { term, .. } => term,
+                        _ => general,
+                    };
+                    matches!(general.kind(), TermKind::Variable(_)) && general == specific
+                });
+        head.name == general.name
+            && lifted
+            && other.requires.is_empty()
+            && self
+                .overloads()
+                .is_overloading(&general.name, &specific.name)
+    }
+
+    /// `rule`'s step at the root of `term`, whose right-hand side is `right`: the instance of
+    /// `right` at the valuation equation matching finds, when it succeeds and binds every
+    /// variable of `right`.
+    fn step_with(&self, rule: &RewriteRule, term: &Term, right: &Term) -> Option<Term> {
+        if !rule
+            .lhs
+            .attributes()
+            .variables
+            .is_disjoint(&term.attributes().variables)
+        {
+            return None;
+        }
+        let MatchResult::Success(valuation) =
+            match_terms_in_definition(MatchMode::Evaluate, self, &rule.lhs, term)
+        else {
+            return None;
+        };
+        right
+            .attributes()
+            .variables
+            .iter()
+            .all(|variable| valuation.contains_key(variable))
+            .then(|| substitute(right, &valuation))
+    }
+
+    /// `term` after up to [`JOIN_STEPS`] steps of unconditional equations, each at the
+    /// innermost, leftmost position one applies.
+    fn reduce_unconditionally(&self, term: &Term) -> Term {
+        let mut term = term.clone();
+        for _ in 0..JOIN_STEPS {
+            match self.unconditional_step(&term) {
+                Some(next) => term = next,
+                None => break,
+            }
+        }
+        term
+    }
+
+    fn unconditional_step(&self, term: &Term) -> Option<Term> {
+        let mut stepped = false;
+        let mapped = term
+            .try_map_children(|child| {
+                Ok::<_, std::convert::Infallible>(if stepped {
+                    child.clone()
+                } else if let Some(next) = self.unconditional_step(child) {
+                    stepped = true;
+                    next
+                } else {
+                    child.clone()
+                })
+            })
+            .unwrap_or_else(|never| match never {});
+        if stepped {
+            return Some(mapped);
+        }
+        if matches!(term.kind(), TermKind::Variable(_)) {
+            return None;
+        }
+        self.offered_equations(term).into_iter().find_map(|rule| {
+            let RuleRhs::Term(right) = &rule.rhs else {
+                return None;
+            };
+            (rule.requires.is_empty()
+                && rule.ensures.is_empty()
+                && !matches!(rule.lhs.kind(), TermKind::Variable(_)))
+            .then(|| self.step_with(rule, term, right))
+            .flatten()
+        })
+    }
+
+    /// The function and simplification equations equation selection offers a term with the
+    /// index of `pattern`, and those indexed by a bare variable.
+    fn offered_equations(&self, pattern: &Term) -> Vec<&RewriteRule> {
+        let index = term_index(pattern);
+        [self.function_theory(), self.simplification_theory()]
+            .into_iter()
+            .flat_map(|theory| [theory.get(&index), theory.get(&TermIndex::Variable)])
+            .flatten()
+            .flat_map(|groups| groups.values().flatten().map(AsRef::as_ref))
+            .collect()
+    }
+
+    /// The valuations of the variables of `pattern` under which an instance of it is also an
+    /// instance of the left-hand side of `other` (narrowing; `Some(vec![])` when there is none);
+    /// `None` when every valuation may be: `other` is a bare variable of `pattern`'s sort.
+    fn overlap_with(&self, pattern: &Term, other: &RewriteRule) -> Option<Vec<Substitution>> {
+        if let TermKind::Variable(variable) = other.lhs.kind() {
+            return sorts_differ(&variable.sort, &pattern.sort()).then(Vec::new);
+        }
+        Some(
+            self.narrow(pattern, &other.lhs, NARROWING_DEPTH, LeftReading::Values)
+                .unwrap_or_default(),
+        )
+    }
+
+    /// The [`Overlaps`] of `rule` in the facts the current round reads.
+    fn previous_overlaps(&self, rule: &RewriteRule) -> Overlaps {
+        let key = rule_key(rule);
+        self.with_pattern_facts(|facts| {
+            facts
+                .overlaps
+                .as_ref()
+                .and_then(|overlaps| overlaps.get(&key))
+                .cloned()
+                .unwrap_or(Overlaps::Unbounded)
+        })
+    }
+
     fn with_pattern_facts<R>(&self, read: impl FnOnce(&PatternFacts) -> R) -> R {
         match APPROXIMATION.with(|approximation| approximation.borrow().clone()) {
             Some(facts) => read(&facts),
@@ -708,6 +1294,9 @@ fn bounded_alternatives(alternatives: Vec<Substitution>) -> Option<Vec<Substitut
 /// and the most alternatives one narrowing keeps, before falling back to coarser ones.
 const REPRESENTATIVES: usize = 64;
 
+/// The most steps each side of a peak takes in [`BackendDefinition::peak_joins`].
+const JOIN_STEPS: usize = 8;
+
 /// The levels of nested patterns whose representatives narrowing computes before falling back
 /// to coarser ones.
 const NARROWING_DEPTH: usize = 3;
@@ -740,6 +1329,92 @@ fn combine(first: Vec<Substitution>, second: Vec<Substitution>) -> Option<Vec<Su
     )
 }
 
+/// `valuation` extended to the as-pattern variables of the left-hand side `left` that it leaves
+/// unbound: `p #as V` binds `V` to the instance of `p`.
+fn bind_aliases(left: &Term, valuation: &Substitution) -> Substitution {
+    fn walk(term: &Term, valuation: &mut Substitution) {
+        token::every_immediate_subterm(term, |subterm| {
+            walk(subterm, valuation);
+            true
+        });
+        if let TermKind::And(first, second) = term.kind() {
+            for (pattern, alias) in [(first, second), (second, first)] {
+                if let TermKind::Variable(variable) = alias.kind()
+                    && !matches!(pattern.kind(), TermKind::Variable(_))
+                    && !valuation.contains_key(variable)
+                {
+                    let bound = instantiate(pattern, valuation);
+                    valuation.insert(variable.clone(), bound);
+                }
+            }
+        }
+    }
+    let mut extended = valuation.clone();
+    walk(left, &mut extended);
+    extended
+}
+
+/// The instance of the pattern `pattern` at `valuation`, a conjunction of two equal instances
+/// (an as-pattern whose variable is bound to its pattern's instance) written once.
+fn instantiate(pattern: &Term, valuation: &Substitution) -> Term {
+    fn collapse(term: &Term) -> Term {
+        let term = term
+            .try_map_children(|child| Ok::<_, std::convert::Infallible>(collapse(child)))
+            .unwrap_or_else(|never| match never {});
+        match term.kind() {
+            TermKind::And(first, second) if first == second => first.clone(),
+            _ => term,
+        }
+    }
+    collapse(&substitute(pattern, valuation))
+}
+
+/// `term` with every occurrence of `from` replaced by `to`.
+fn replace_subterm(term: &Term, from: &Term, to: &Term) -> Term {
+    if term == from {
+        return to.clone();
+    }
+    term.try_map_children(|child| {
+        Ok::<_, std::convert::Infallible>(replace_subterm(child, from, to))
+    })
+    .unwrap_or_else(|never| match never {})
+}
+
+/// Calls `visit` on every subterm of the left-hand side `left` below its root that is not a
+/// variable, outermost first; a conjunction (an as-pattern) is visited through its conjuncts,
+/// at the root as below it.
+fn for_each_subterm_below_root(left: &Term, visit: &mut dyn FnMut(&Term)) {
+    match left.kind() {
+        TermKind::And(first, second) => {
+            for_each_subterm_below_root(first, visit);
+            for_each_subterm_below_root(second, visit);
+        }
+        _ => {
+            token::every_immediate_subterm(left, |subterm| {
+                for_each_subterm(subterm, visit);
+                true
+            });
+        }
+    }
+}
+
+fn for_each_subterm(term: &Term, visit: &mut dyn FnMut(&Term)) {
+    match term.kind() {
+        TermKind::Variable(_) => {}
+        TermKind::And(first, second) => {
+            for_each_subterm(first, visit);
+            for_each_subterm(second, visit);
+        }
+        _ => {
+            visit(term);
+            token::every_immediate_subterm(term, |subterm| {
+                for_each_subterm(subterm, visit);
+                true
+            });
+        }
+    }
+}
+
 /// Whether `pattern`, a left-hand side subterm of the definition, has a conjunction at or
 /// below its root.
 fn contains_conjunction(pattern: &Term) -> bool {
@@ -750,15 +1425,18 @@ fn contains_conjunction(pattern: &Term) -> bool {
 /// The [`PatternFacts`] of `definition`.
 ///
 /// The value roots come first: they read only the equations' right-hand sides. The equations
-/// with normal left-hand side arguments are then found in rounds. Starting from the empty set,
-/// each round adds the equations whose left-hand side's immediate subterms are normal patterns
-/// when instance normality reads the previous round's set: an equation in the set is excluded
-/// from a scan by its syntax, any other by the reducts of its arguments
-/// (`BackendDefinition::excluded`). Every equation in a round's set has normal arguments, so
-/// every answer given during the round is sound, and so is every equation the round adds. Each
-/// round's set is a function of the previous one and the rounds only add, so they stop when one
-/// adds nothing, and the result does not depend on the order of the equations: each left-hand
-/// side is tested in a scan scope of its own, from an empty memo.
+/// with normal left-hand side arguments and the overlaps of every equation with a fixed root
+/// ([`Overlaps`]) are then found in rounds. The first round reads the empty set and unbounded
+/// overlaps; each round adds the equations whose left-hand side's immediate subterms are normal
+/// patterns, and recomputes every equation's overlaps, when instance normality reads the
+/// previous round's facts: an equation in the set is excluded from a scan by its syntax, any
+/// other by the reducts of its arguments, and either only where its overlaps miss the subject
+/// (`BackendDefinition::excluded`). Every answer given during a round reads sound facts, so
+/// every fact the round derives is sound, and the set keeps every equation once added. Each
+/// round's facts are a function of the previous round's, so the result does not depend on the
+/// order of the equations (each left-hand side is tested, and each equation's overlaps computed,
+/// in a scan scope of its own, from an empty memo). The rounds stop when one changes nothing, or
+/// after [`PATTERN_FACT_ROUNDS`], whose facts are sound too.
 ///
 /// The exclusion of an equation outside the set decides the instance normality of terms that are
 /// not subterms of the term asked: the arguments of other left-hand sides and right-hand sides
@@ -792,8 +1470,9 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
         normal_rules: FxHashSet::default(),
         value_roots,
         unbounded,
+        overlaps: None,
     };
-    loop {
+    for _ in 0..PATTERN_FACT_ROUNDS {
         let approximation = Rc::new(facts.clone());
         APPROXIMATION.with(|slot| *slot.borrow_mut() = Some(approximation));
         let added = rules
@@ -805,12 +1484,46 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
             })
             .map(|rule| rule_key(rule))
             .collect::<Vec<_>>();
-        if added.is_empty() {
-            return facts;
-        }
+        let overlaps = rules
+            .iter()
+            .filter(|rule| has_fixed_root(&rule.lhs))
+            .map(|rule| {
+                let _scope = ScanScope::enter();
+                (rule_key(rule), definition.overlaps_of(rule))
+            })
+            .collect::<FxHashMap<_, _>>();
+        let unchanged = added.is_empty()
+            && facts
+                .overlaps
+                .as_deref()
+                .is_some_and(|known| *known == overlaps);
         facts.normal_rules.extend(added);
+        facts.overlaps = Some(Arc::new(overlaps));
+        if unchanged {
+            break;
+        }
+    }
+    facts
+}
+
+/// Whether the left-hand side `left` has a root its instances keep: one whose equations the
+/// instance-normal scan and the value certificate ask about.
+fn has_fixed_root(left: &Term) -> bool {
+    match left.kind() {
+        TermKind::And(first, second) => has_fixed_root(first) || has_fixed_root(second),
+        _ => matches!(
+            left.shape(),
+            Shape::DomainValue
+                | Shape::Injection
+                | Shape::Collection(_)
+                | Shape::Application(HeadRole::FreeConstructor | HeadRole::EquationHead)
+        ),
     }
 }
+
+/// The most rounds [`pattern_facts`] computes. Each round's facts are sound, so stopping before
+/// they settle loses precision only.
+const PATTERN_FACT_ROUNDS: usize = 64;
 
 /// [`PatternFacts::value_roots`] for every index of `theories` with a fixed root.
 fn value_roots(theories: &[&Theory; 2], unbounded: bool) -> BTreeMap<TermIndex, Option<Vec<Term>>> {

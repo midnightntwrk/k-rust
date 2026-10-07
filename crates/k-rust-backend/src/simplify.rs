@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
-//! bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations, each deciding instance normality of the immediate subterms of the left-hand sides not yet shown, until a round adds none (at most e + 1 rounds); afterwards, per failed match, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have, which decides the instance normality of the terms it builds (each term at most once per scan, a term in progress answered at once) with at most VALUE_QUESTIONS (8) such walks nested on a thread (instance_normal.rs)"
+//! bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations (at most PATTERN_FACT_ROUNDS (64), stopping at the first round that changes nothing), each deciding instance normality of the immediate subterms of the left-hand sides not yet shown and, for each equation with a fixed root, its overlaps: one narrowing against each other equation offered at its index and, per subterm below the root that is not a normal pattern, against each equation offered there and its overlap representatives, each found peak tried for a join by up to JOIN_STEPS (8) unconditional steps per side, then the representatives of the overlapped instances; afterwards, per failed match or exclusion, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have, plus one comparison of the term with each of the equation's overlap representatives, which decide the instance normality of the terms they build (each term at most once per scan, a term in progress answered at once) with at most VALUE_QUESTIONS (8) such walks nested on a thread (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -39,7 +39,7 @@
 //!
 //! [[cost]]
 //! mode = "value-production ceil (value_production_definedness)"
-//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one instance-normality decision of its left-hand side's arguments (instance_normal.rs pattern_arguments_normal), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
+//! bound = "for a ceil of a value-production application that no ceil equation rewrites: one exclusion scan of the candidate equations (instance_normal.rs equations_reaching), then, per candidate the scan leaves, one lookup of whether its left-hand side's arguments are normal patterns and one comparison of its overlap representatives with the application (instance_normal/patterns.rs pattern_arguments_normal, overlapped_instances_miss), one matching problem and, when it succeeds, one nested rule-condition simplification, stopping at the first candidate not refuted"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -2100,7 +2100,10 @@ fn value_production_definedness(
 /// side denotes an instance of `term` only by being that instance as a term, which is the
 /// instance of `σ`. A reducible argument (`w(h(X))` under `h(3) = h(1)`) lets another valuation
 /// (`X = 3`) denote the value of the matched instance (`w(h(1))`) with a `requires` this match
-/// never decides, so it answers `false`. A collection pattern may match an instance in
+/// never decides, so it answers `false`. So does an overlapped instance of the left-hand side
+/// that reaches `term` (`BackendDefinition::overlapped_instances_miss`): under `f(3, Z) =
+/// f(1, Z)`, the instance `f(3, Z)` of `f(X, Z)` reaches `f(1, Z)`, so `X = 3` denotes its value
+/// too. A collection pattern may match an instance in
 /// several ways, and a match left `Indeterminate` decides nothing, so both answer `false`, as do a
 /// match that binds a variable outside the left-hand side and one that binds an element variable
 /// to a set pattern, which equation application does not use either. A `concrete` or `symbolic`
@@ -2120,6 +2123,7 @@ fn requires_refuted_at_only_match(
     if rule.requires.is_empty()
         || has_collection_pattern(&rule.lhs)
         || !definition.pattern_arguments_normal(rule)
+        || !definition.overlapped_instances_miss(rule, term)
     {
         return Ok(false);
     }

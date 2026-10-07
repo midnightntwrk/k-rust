@@ -22,7 +22,10 @@
 //!   left-hand side has instance-normal arguments and either does not syntactically unify with
 //!   the application or is refuted on it by equation matching, or, for a left-hand side with
 //!   another argument, no reduct of that argument can be the application's at some position
-//!   (`patterns.rs`). An equation constrains the value its left-hand side denotes; with
+//!   (`patterns.rs`); and in either case no reduct of an overlapped instance of its left-hand
+//!   side (one that another step also rewrites, so that the equation may identify two normal
+//!   forms) is the application (`patterns.rs`, which also states the peaks the scan assumes
+//!   meet). An equation constrains the value its left-hand side denotes; with
 //!   instance-normal arguments on both sides, a valuation of the left-hand side denotes an
 //!   instance of the application only by being that instance as a term, an instance is one only
 //!   if the two terms unify, and a refutation by equation matching holds for every instance. A
@@ -166,13 +169,19 @@ impl BackendDefinition {
     /// instance-normal ([`Self::pattern_arguments_normal`]). For any other equation the test is
     /// whether the values its left-hand side's arguments can denote miss the subject's at some
     /// position ([`Self::misses_values`]), whatever the syntax says.
+    ///
+    /// Either way the equation must also not identify the subject with another normal form: no
+    /// reduct of an overlapped instance of its left-hand side, one another step also rewrites,
+    /// is the subject ([`Self::overlaps_miss`]).
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
-        if self.pattern_arguments_normal(rule) {
+        let subject = arguments.subject();
+        let not_an_instance = if self.pattern_arguments_normal(rule) {
             !may_unify(self.sort_graph(), &rule.lhs, arguments)
-                || self.matching_refutes(&rule.lhs, arguments.subject())
+                || self.matching_refutes(&rule.lhs, subject)
         } else {
-            self.misses_values(&rule.lhs, arguments.subject(), &mut Scanned(self))
-        }
+            self.misses_values(&rule.lhs, subject, &mut Scanned(self))
+        };
+        not_an_instance && self.overlaps_miss(rule, subject, &mut Scanned(self))
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
@@ -708,9 +717,15 @@ mod tests {
     /// `cur(app(P1, P2), B) = cur(P1, B)` is not excluded from a scan by its syntax alone. The reducts of `app(P1, P2)` are `app`
     /// applications and injections from `V` of `appV` applications, so none is `inj{N, E}(n)`
     /// when `N` and `V` have no common subsort, nor when `N` is below `V` (an injection from `V`
-    /// of something other than an injection is not one from `N`): `cur(inj{N, E}(n), B)` is
-    /// instance-normal in both. When the equation's right-hand side is `inj{V, E}(K0)` instead
-    /// and `N` is below `V`, `K0 = inj{N, V}(n)` gives the reduct `inj{N, E}(n)`, and it is not.
+    /// of something other than an injection is not one from `N`). The instances that both
+    /// equations rewrite, `cur(app(inj{V, E}(k0), inj{V, E}(k1)), b)`, have the two normal forms
+    /// `cur(inj{V, E}(k0), b)` and `cur(inj{V, E}(appV(k0, k1)), b)`, which the equations
+    /// identify. With `N` and `V` unrelated neither is `cur(inj{N, E}(n), B)`, which is
+    /// instance-normal. With `N` below `V`, `k0 = inj{N, V}(n)` makes the first one
+    /// `cur(inj{N, E}(n), b)` (injections compose), equal to
+    /// `cur(inj{V, E}(appV(inj{N, V}(n), k1)), b)`: it is not instance-normal. When the `app`
+    /// equation's right-hand side is `inj{V, E}(K0)` instead and `N` is below `V`,
+    /// `K0 = inj{N, V}(n)` gives the reduct `inj{N, E}(n)`, and it is not either.
     #[test]
     fn a_reducible_pattern_argument_misses_the_roots_its_values_cannot_have() {
         let definition = |subsort: &str, right: &str| {
@@ -778,7 +793,7 @@ mod tests {
         ));
         let n_below_v = r"axiom{R} \exists{R}(V:SortV{}, \equals{SortV{}, R}(V:SortV{}, inj{SortN{}, SortV{}}(F:SortN{})))
                 [subsort{SortN{}, SortV{}}()]";
-        assert!(normal(&definition(n_below_v, constructed), subject));
+        assert!(!normal(&definition(n_below_v, constructed), subject));
         assert!(!normal(&definition(n_below_v, "K0:SortV{}"), subject));
     }
 
@@ -855,6 +870,114 @@ mod tests {
             &definition,
             "w{}(inj{SortNs{}, SortEs{}}(consN{}(n{}(), consN{}(n{}(), nilN{}()))))"
         ));
+    }
+
+    /// `w(s(X)) = w(X)` and `w(s(s(X))) = {right}` both rewrite `w(s(s(X)))` at the root. With
+    /// `{right}` = `w(X)` the two steps meet (`w(s(X))` reaches `w(X)` in one more step), so the
+    /// overlap identifies no two normal forms and `w(z)` is instance-normal. With `{right}` =
+    /// `w(c)` they do not: `w(z) = w(s(s(z))) = w(c)` identifies two normal forms, and neither
+    /// `w(z)` nor `w(c)` is.
+    #[test]
+    fn a_root_overlap_identifies_normal_forms_only_when_its_steps_do_not_meet() {
+        let definition = |right: &str| {
+            let equation = |pattern: &str, right: &str| {
+                format!(
+                    r"axiom{{R}} \implies{{R}}(
+                        \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, {pattern}), \top{{R}}())),
+                        \equals{{SortAddress{{}}, R}}(w{{}}(X0:SortNat{{}}), \and{{SortAddress{{}}}}({right}, \top{{SortAddress{{}}}}()))
+                    ) [anywhere{{}}()]"
+                )
+            };
+            let source = format!(
+                r"[]
+            module MAIN
+                sort SortNat{{}} []
+                sort SortAddress{{}} []
+                symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol c{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol w{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                {}
+                {}
+            endmodule []",
+                equation("s{}(X:SortNat{})", "w{}(X:SortNat{})"),
+                equation("s{}(s{}(X:SortNat{}))", right),
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        };
+        let joining = definition("w{}(X:SortNat{})");
+        assert!(normal(&joining, "w{}(z{}())"));
+        assert!(normal(&joining, "w{}(c{}())"));
+        assert!(!normal(&joining, "w{}(s{}(z{}()))"));
+        let apart = definition("w{}(c{}())");
+        assert!(!normal(&apart, "w{}(z{}())"));
+        assert!(!normal(&apart, "w{}(c{}())"));
+    }
+
+    /// `cur(app(P1, P2), B) = cur(P1, B)` with `app(inj{V, E}(K0), inj{V, E}(K1)) =
+    /// inj{V, E}(appV(K0, K1))`. As a plain anywhere equation, the `app` step and the `cur` step
+    /// at `cur(app(inj{V, E}(k0), inj{V, E}(k1)), b)` lead to the distinct normal forms
+    /// `cur(inj{V, E}(k0), b)` and `cur(inj{V, E}(appV(k0, k1)), b)`, so `cur(inj{V, E}(v), B)` is
+    /// not instance-normal. Declared as the overload equation of `app` over `appV`, it only
+    /// rewrites how a value of `app` is written, and matching reads `inj{V, E}(appV(k0, k1))` as
+    /// `app(inj{V, E}(k0), inj{V, E}(k1))` again: the `cur` equation applies after the step too,
+    /// the two steps meet, and `cur(inj{V, E}(v), B)` is instance-normal.
+    #[test]
+    fn an_overload_step_below_a_left_hand_side_identifies_no_normal_forms() {
+        let definition = |app: &str| {
+            let source = format!(
+                r#"[]
+            module MAIN
+                sort SortE{{}} []
+                sort SortV{{}} []
+                sort SortS{{}} []
+                symbol inj{{From, To}}(From) : To [sortInjection{{}}(), injective{{}}()]
+                symbol v{{}}() : SortV{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol appV{{}}(SortV{{}}, SortV{{}}) : SortV{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol app{{}}(SortE{{}}, SortE{{}}) : SortE{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                symbol cur{{}}(SortE{{}}, SortE{{}}) : SortS{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                axiom{{R}} \exists{{R}}(V:SortE{{}}, \equals{{SortE{{}}, R}}(V:SortE{{}}, inj{{SortV{{}}, SortE{{}}}}(F:SortV{{}})))
+                    [subsort{{SortV{{}}, SortE{{}}}}()]
+                {app}
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \in{{SortE{{}}, R}}(X0:SortE{{}}, app{{}}(P1:SortE{{}}, P2:SortE{{}})),
+                            \and{{R}}(\in{{SortE{{}}, R}}(X1:SortE{{}}, B:SortE{{}}), \top{{R}}())
+                        )
+                    ),
+                    \equals{{SortS{{}}, R}}(
+                        cur{{}}(X0:SortE{{}}, X1:SortE{{}}),
+                        \and{{SortS{{}}}}(cur{{}}(P1:SortE{{}}, B:SortE{{}}), \top{{SortS{{}}}}())
+                    )
+                ) [anywhere{{}}()]
+            endmodule []"#
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        };
+        let subject = "cur{}(inj{SortV{}, SortE{}}(v{}()), B:SortE{})";
+        let anywhere = r"axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortE{}, R}(X0:SortE{}, inj{SortV{}, SortE{}}(K0:SortV{})),
+                            \and{R}(\in{SortE{}, R}(X1:SortE{}, inj{SortV{}, SortE{}}(K1:SortV{})), \top{R}())
+                        )
+                    ),
+                    \equals{SortE{}, R}(
+                        app{}(X0:SortE{}, X1:SortE{}),
+                        \and{SortE{}}(inj{SortV{}, SortE{}}(appV{}(K0:SortV{}, K1:SortV{})), \top{SortE{}}())
+                    )
+                ) [anywhere{}()]";
+        let overload = r"axiom{} \equals{SortE{}, SortE{}}(
+                    app{}(inj{SortV{}, SortE{}}(K0:SortV{}), inj{SortV{}, SortE{}}(K1:SortV{})),
+                    inj{SortV{}, SortE{}}(appV{}(K0:SortV{}, K1:SortV{}))
+                ) [symbol-overload{}(app{}(), appV{}())]";
+        assert!(!normal(&definition(anywhere), subject));
+        assert!(normal(&definition(overload), subject));
     }
 
     /// 5104f81b: the ground `wrap(s(z))` is concrete after normalization but not a normal form,
