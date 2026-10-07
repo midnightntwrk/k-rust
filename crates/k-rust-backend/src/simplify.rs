@@ -6634,6 +6634,77 @@ mod tests {
         assert_eq!(evaluate(&NoSolver), fresh);
     }
 
+    /// A rule-condition key that was active around an evaluation stays among what it read, even
+    /// if the evaluation also found it inactive (in a nested simplification with no rule
+    /// condition active, as a ceil equation's predicates are): where that key is not active, a
+    /// fresh evaluation decides the condition it left unsimplified, so the record is not served.
+    /// A key it found active only inside its own evaluation of that condition is its own work.
+    #[test]
+    fn a_record_keeps_a_rule_condition_key_active_around_it_among_its_reads() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("application")"#);
+        let around: ConditionKey = (
+            "around".to_owned(),
+            term(&definition, r#"\dv{SortString{}}("k")"#),
+        );
+        let own: ConditionKey = (
+            "own".to_owned(),
+            term(&definition, r#"\dv{SortString{}}("k")"#),
+        );
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let given = |active: &BTreeSet<ConditionKey>| {
+            UnspecifiedValues::recorded(
+                &application,
+                &EvaluationGiven {
+                    assumptions: &assumptions,
+                    options: SimplificationOptions::default(),
+                    active,
+                    console: None,
+                    solver: &NoSolver,
+                },
+            )
+            .is_some()
+        };
+        let _scope = UnspecifiedValues::open();
+        // It found both keys inactive, then both active; `around` was active when it began.
+        let mut reads = Reads::default();
+        reads.key(&around, false);
+        reads.key(&own, false);
+        reads.key(&around, true);
+        reads.key(&own, true);
+        let began = BTreeSet::from([around.clone()]);
+        UnspecifiedValues::record(
+            &application,
+            RecordedOutcome::Failed {
+                excluded: Vec::new(),
+                contingent: None,
+            },
+            reads,
+            0,
+            &EvaluationGiven {
+                assumptions: &assumptions,
+                options: SimplificationOptions::default(),
+                active: &began,
+                console: None,
+                solver: &NoSolver,
+            },
+        );
+        assert!(given(&began));
+        assert!(!given(&BTreeSet::new()));
+    }
+
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
     /// the evaluation that serves it. `Z = substr("abc", 4, 1) = "z"` is evaluated, and so read
     /// not open, by `X = keep(Z, "x")` (a value, in its attempt), by `X2 = keep(Z, X2)` (a
