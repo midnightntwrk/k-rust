@@ -273,9 +273,9 @@ fn deep_annotation_child() {
     let mut after = before.clone();
     *after.modules[0].local_sentences.last_mut().unwrap() = rule("y");
     // `record_generated_origins` compares each sentence with its counterpart by `Term` equality,
-    // which recurses per level (the documented bound of the KAST term traits), hence 64 MiB.
+    // which runs each level with stack for one more, so a small thread is enough.
     let bottom_path = std::thread::Builder::new()
-        .stack_size(64 << 20)
+        .stack_size(256 << 10)
         .spawn(move || {
             let annotated = k_rust::provenance::record_generated_origins(
                 &before,

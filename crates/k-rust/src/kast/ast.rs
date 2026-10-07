@@ -195,10 +195,10 @@ pub struct TermMetadata {
 
 /// A K term. Semantic variant order follows the Scala frontend's total ordering.
 ///
-/// A term is dropped with an explicit work list, so a term nested to any depth is dropped on
-/// any thread. Because of that `Drop`, a term cannot be destructured by move: match on
-/// [`Term::into_parts`] to take a term apart by value.
-#[derive(Clone)]
+/// A term is dropped with an explicit work list, and copied and compared one level at a time
+/// with stack for one more level ([`crate::stack::guarded`]), so a term nested to any depth is
+/// dropped, copied and compared on any thread. Because of that `Drop`, a term cannot be
+/// destructured by move: match on [`Term::into_parts`] to take a term apart by value.
 pub enum Term {
     InjectedLabel(Label),
     Rewrite {
@@ -261,6 +261,41 @@ pub enum TermParts {
         term: Box<Term>,
         metadata: TermMetadata,
     },
+}
+
+/// A term copies one level at a time, each with stack for one more level, so the copy of a term
+/// of any depth does not overflow the thread it runs on.
+impl Clone for Term {
+    fn clone(&self) -> Self {
+        crate::stack::guarded(|| match self {
+            Self::InjectedLabel(label) => Self::InjectedLabel(label.clone()),
+            Self::Rewrite { left, right } => Self::Rewrite {
+                left: left.clone(),
+                right: right.clone(),
+            },
+            Self::As { pattern, alias } => Self::As {
+                pattern: pattern.clone(),
+                alias: alias.clone(),
+            },
+            Self::Variable { name, sort } => Self::Variable {
+                name: name.clone(),
+                sort: sort.clone(),
+            },
+            Self::Sequence(items) => Self::Sequence(items.clone()),
+            Self::Apply { label, arguments } => Self::Apply {
+                label: label.clone(),
+                arguments: arguments.clone(),
+            },
+            Self::Token { token, sort } => Self::Token {
+                token: token.clone(),
+                sort: sort.clone(),
+            },
+            Self::Annotated { term, metadata } => Self::Annotated {
+                term: term.clone(),
+                metadata: metadata.clone(),
+            },
+        })
+    }
 }
 
 impl From<TermParts> for Term {
@@ -683,8 +718,17 @@ impl PartialOrd for Term {
     }
 }
 
+/// Two terms are compared one level at a time, each with stack for one more level, so the
+/// comparison of terms of any depth does not overflow the thread it runs on.
 impl Ord for Term {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        crate::stack::guarded(|| self.cmp_level(other))
+    }
+}
+
+impl Term {
+    /// One level of [`Term::cmp`], which runs it with stack for one more level.
+    fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
         let left = self.unannotated();
@@ -997,6 +1041,23 @@ mod tests {
             .expect("the worker should spawn")
             .join()
             .expect("the worker should finish");
+    }
+
+    /// Copying and comparing run each level of a term with stack for one more, so a term of any
+    /// depth through its children (applications, sequences, rewrites, `#as` patterns and
+    /// annotations) is copied and compared with its copy on a thread of 64 KiB of stack. (The
+    /// sorts and labels a term carries are copied by their own derived traits.)
+    #[test]
+    fn terms_of_any_depth_are_copied_and_compared_on_a_small_stack() {
+        for (shape, term) in deep_terms().into_iter().take(8) {
+            eprintln!("copying and comparing a term deep through {shape}");
+            on_stack(64 << 10, move || {
+                let copy = term.clone();
+                assert_eq!(copy.cmp(&term), std::cmp::Ordering::Equal);
+                assert!(copy == term);
+                drop((copy, term));
+            });
+        }
     }
 
     /// Dropping takes a term apart level by level, so a term of any depth, through any kind of
