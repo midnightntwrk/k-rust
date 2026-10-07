@@ -1150,6 +1150,175 @@ fn an_equation_that_needs_its_own_application_does_not_discard_another_equations
     }
 }
 
+/// A function equation of `substr`, whose hook leaves reversed indices `Unspecified`:
+/// `substr(S, I, J) = rhs requires condition`, with `attributes`.
+fn substr_equation(rhs: &str, condition: &str, attributes: &str) -> String {
+    format!(
+        r#"
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \top{{R}}(),
+                \and{{R}}(
+                    \equals{{SortBool{{}}, R}}({condition}, \dv{{SortBool{{}}}}("true")),
+                    \top{{R}}()
+                )
+            ),
+            \equals{{SortString{{}}, R}}(
+                substr{{}}(S:SortString{{}}, I:SortInt{{}}, J:SortInt{{}}),
+                \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+            )
+        ) [{attributes}]"#
+    )
+}
+
+/// A definition of `substr` (hooked `STRING.substr`) with `equations`, the hooks they use, and
+/// `keep(X, Y) = Y`.
+fn substr_definition(equations: &[String]) -> BackendDefinition {
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+            hooked-symbol concatString{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                [function{{}}(), total{{}}(), hook{{}}("STRING.concat")]
+            hooked-symbol lengthString{{}}(SortString{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+            hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.lt")]
+            hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.gt")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+            hooked-symbol minusInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.sub")]
+            hooked-symbol andBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.and")]
+            hooked-symbol orBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("BOOL.or")]
+            symbol keep{{}}(SortString{{}}, SortString{{}}) : SortString{{}}
+                [function{{}}(), total{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\top{{R}}(), \top{{R}}())),
+                \equals{{SortString{{}}, R}}(
+                    keep{{}}(X:SortString{{}}, Y:SortString{{}}),
+                    \and{{SortString{{}}}}(Y:SortString{{}}, \top{{SortString{{}}}}())
+                )
+            ) [label{{}}("keep")]
+            {}
+        endmodule []"#,
+        equations.concat()
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// `substr("abc", I, J)` for the integers `i` and `j`.
+fn substr_of_abc(i: i64, j: i64) -> String {
+    format!(
+        r#"substr{{}}(\dv{{SortString{{}}}}("abc"), \dv{{SortInt{{}}}}("{i}"), \dv{{SortInt{{}}}}("{j}"))"#
+    )
+}
+
+/// An attempt that reaches an application whose own attempt encloses it fails for want of that
+/// value, not the enclosing attempt: its application's other equations are still tried. With
+/// `A = substr("abc", 2, 1)` and `C = substr("abc", 3, 1)`, the equations `A = C`, `C = A` and
+/// `C = "c"` give both the value `"c"`, whichever order `C`'s equations are listed in and
+/// whichever of the two is evaluated.
+#[test]
+fn an_attempt_that_needs_an_enclosing_application_does_not_discard_its_others() {
+    let guard = |index: i64| {
+        format!(
+            r#"andBool{{}}(eqInt{{}}(I:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")), ltInt{{}}(J:SortInt{{}}, I:SortInt{{}}))"#
+        )
+    };
+    let at = |index: i64| {
+        format!(r#"substr{{}}(S:SortString{{}}, \dv{{SortInt{{}}}}("{index}"), J:SortInt{{}})"#)
+    };
+    let a_is_c = substr_equation(&at(3), &guard(2), r#"label{}("a-is-c")"#);
+    let c_is_a = substr_equation(&at(2), &guard(3), r#"label{}("c-is-a")"#);
+    let c_value = substr_equation(r#"\dv{SortString{}}("c")"#, &guard(3), r#"label{}("c")"#);
+    for equations in [
+        [a_is_c.clone(), c_is_a.clone(), c_value.clone()],
+        [a_is_c.clone(), c_value.clone(), c_is_a.clone()],
+        [c_is_a.clone(), c_value.clone(), a_is_c.clone()],
+    ] {
+        let definition = substr_definition(&equations);
+        for (i, j) in [(2, 1), (3, 1)] {
+            let input = term(&definition, &substr_of_abc(i, j));
+            let (result, diagnostics) = diagnostic::collect(|| {
+                simplify(&definition, &input, SimplificationOptions::default())
+            });
+            assert_eq!(
+                result.expect("no error").term,
+                term(&definition, r#"\dv{SortString{}}("c")"#),
+                "substr(abc, {i}, {j}) under {equations:?}"
+            );
+            assert_eq!(diagnostics, [], "substr(abc, {i}, {j}) under {equations:?}");
+        }
+    }
+}
+
+/// An attempt fails only when its outcome still needs the application's value. A result that
+/// drops the occurrence it reached (`A = keep(A, "v")`, `keep(X, Y) = Y`) and a `requires` that
+/// holds with that occurrence as it is (`J < I orBool lengthString(A) > 5`) hold whatever the
+/// application's value is, so the equation gives its value.
+#[test]
+fn an_attempt_that_reaches_its_application_without_needing_it_gives_its_value() {
+    let own = r#"substr{}(S:SortString{}, I:SortInt{}, J:SortInt{})"#;
+    let reversed = r#"ltInt{}(J:SortInt{}, I:SortInt{})"#;
+    let dropped = substr_equation(
+        &format!(r#"keep{{}}({own}, \dv{{SortString{{}}}}("v"))"#),
+        reversed,
+        r#"label{}("dropped")"#,
+    );
+    let holds = substr_equation(
+        r#"\dv{SortString{}}("w")"#,
+        &format!(
+            r#"orBool{{}}({reversed}, gtInt{{}}(lengthString{{}}({own}), \dv{{SortInt{{}}}}("5")))"#
+        ),
+        r#"label{}("holds")"#,
+    );
+    for (equation, value) in [(dropped, "v"), (holds, "w")] {
+        let definition = substr_definition(std::slice::from_ref(&equation));
+        let input = term(&definition, &substr_of_abc(2, 1));
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+        assert_eq!(
+            result.expect("no error").term,
+            term(&definition, &format!(r#"\dv{{SortString{{}}}}("{value}")"#)),
+            "{equation}"
+        );
+        assert_eq!(diagnostics, [], "{equation}");
+    }
+}
+
+/// A chain of steps on `Unspecified` applications at the root (`substr(S, I, J) = substr(S,
+/// I - 1, J)` down to `""`) is a loop of the lineage, as for any function, not a recursion: it
+/// runs to its value at a depth far beyond what the native stack of the test thread holds for
+/// nested evaluations.
+#[test]
+fn a_chain_of_unspecified_steps_at_the_root_runs_in_constant_stack() {
+    let definition = substr_definition(&[
+        substr_equation(
+            r#"substr{}(S:SortString{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")), J:SortInt{})"#,
+            r#"ltInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#,
+            r#"label{}("step")"#,
+        ),
+        substr_equation(
+            r#"\dv{SortString{}}("")"#,
+            r#"eqInt{}(J:SortInt{}, minusInt{}(I:SortInt{}, \dv{SortInt{}}("1")))"#,
+            r#"label{}("base")"#,
+        ),
+    ]);
+    let input = term(&definition, &substr_of_abc(5_000, 0));
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the chain runs to its value");
+    assert_eq!(result.term, term(&definition, r#"\dv{SortString{}}("")"#));
+}
+
 /// A hook application whose result is defined but above the backend's result size bound is
 /// not computed, and it is not an error either: the application still denotes its value, and the
 /// simplifier reaches it bottom-up whether or not the value is used, so a context that does not

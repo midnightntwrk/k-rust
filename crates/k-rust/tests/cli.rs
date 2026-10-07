@@ -4240,6 +4240,76 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// An equation attempt on an `Unspecified` application that fails is undone entirely, its
+/// console effects included: what it read is unread and what it wrote unwritten. Here the first
+/// equation writes, reads a byte, then needs the application's own value; the second reads a
+/// byte and gives its code. Whichever is listed first, the run reads `A` once, gives `"65"`, and
+/// writes nothing, the one outcome an evaluation of the definition has.
+#[test]
+fn krun_undoes_the_console_effects_of_a_failed_unspecified_attempt() {
+    const RECURRING: &str = r#"rule substrString(S, I, J) => keep(#write(2, "E1 wrote\n"), keep(#getc(#stdin), substrString(S, I, J))) requires J <Int I"#;
+    const READING: &str = r#"rule substrString(_, I, J) => code(#getc(#stdin)) requires J <Int I"#;
+    let (root, definition) = fixture();
+    let input = root.join("a.attempt");
+    fs::write(&input, "a").unwrap();
+    for (order, equations) in [
+        ("recurring first", [RECURRING, READING]),
+        ("reading first", [READING, RECURRING]),
+    ] {
+        fs::write(
+            &definition,
+            format!(
+                r#"
+module ATTEMPT
+  imports DOMAINS
+  imports K-IO
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "a"
+  syntax KItem ::= r(K)
+  syntax Int ::= n(Int) [function]
+  rule n(I) => I
+  syntax String ::= keep(K, String) [function]
+  rule keep(_, X) => X
+  syntax String ::= code(IOInt) [function]
+  rule code(I:Int) => Int2String(I)
+  {}
+  {}
+  rule <k> a => r(substrString("abc", n(2), n(1))) </k>
+endmodule
+"#,
+                equations[0], equations[1]
+            ),
+        )
+        .unwrap();
+        let output = output_with_stdin(
+            Command::new(env!("CARGO_BIN_EXE_krust")).args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "ATTEMPT",
+                "--syntax-module",
+                "ATTEMPT",
+                "--sort",
+                "Pgm",
+                input.to_str().unwrap(),
+                "--io",
+                "on",
+            ]),
+            b"AB",
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{order}: {stdout}{stderr}");
+        assert!(
+            stdout.contains(r#"inj{SortString{}, SortKItem{}}(\dv{SortString{}}("65"))"#),
+            "{order}: {stdout}"
+        );
+        assert!(!stderr.contains("E1 wrote"), "{order}: {stderr}");
+        assert!(!stderr.contains("warning"), "{order}: {stderr}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An application on constructor-like arguments of a `total` hook this backend has no evaluator
 /// for (`expFloat`) has a value the backend does not compute. Term simplification leaves it
 /// unevaluated with a warning, so a run whose result does not depend on it ends with that result

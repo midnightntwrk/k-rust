@@ -132,9 +132,9 @@ pub enum UnsupportedHookReason {
     /// arguments, since there is no value for an implementation to compute. The verdict reads
     /// the hook's documentation only: the symbol's function equations, axioms of the definition
     /// being run, still give the application the value they state. An equation whose evaluation
-    /// needs the value of the same application again gives none, and the application stays
-    /// unevaluated only if none of its equations gives one
-    /// (`simplify::unspecified_equation_attempt`).
+    /// still needs the value of the same application, or of one whose evaluation encloses it,
+    /// gives none and is undone, and the application stays unevaluated only if none of its
+    /// equations gives one (`simplify::UnspecifiedFrame`).
     Unspecified {
         detail: String,
     },

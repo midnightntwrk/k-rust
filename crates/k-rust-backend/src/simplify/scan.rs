@@ -157,11 +157,11 @@ pub(super) enum EquationAttempt<T, N> {
     /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
     Unused,
     Indeterminate(ConditionIndeterminacy),
-    /// The equation applied, but evaluating it (its conditions or the lineage of its result)
-    /// reached the subject again, so it gives the subject a value only through that value
-    /// itself and evaluation gives it none (`simplify::unspecified_equation_attempt`). The
-    /// equation is not refuted: like `Indeterminate`, this keeps lower-priority groups from
-    /// firing, while the other equations of its group are still tried.
+    /// The equation applied to the subject, an `Unspecified` application, in an attempt that
+    /// failed: its outcome still needed a value being computed, so the attempt was undone and
+    /// the subject is tried again without it (`simplify::UnspecifiedFrame`). The equation is not
+    /// refuted: like `Indeterminate`, this keeps lower-priority groups from firing, while the
+    /// other equations of its group are still tried.
     Recurred,
     Applied(T),
 }
