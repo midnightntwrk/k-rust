@@ -153,9 +153,10 @@ impl NormalEvidence {
         Self(Source::Given)
     }
 
-    /// The simplifier's certificate: `Some` exactly for an equation-head application that
-    /// carries the `evaluated` mark (`Term::with_evaluated_cache`), whose root is then fixed
-    /// without the equation scan of `BackendDefinition::instance_normal`.
+    /// The simplifier's certificate: `Some` exactly for an equation-head application whose
+    /// `evaluated` mark (`Term::with_evaluated_cache`) certifies its value
+    /// (`TermAttributes::certified_value`), whose root is then fixed without the equation scan
+    /// of `BackendDefinition::instance_normal`.
     ///
     /// Only `simplify::simplify_root` sets the `evaluated` bit on an application that is not a
     /// free constructor. It does so on a ground term whose arguments carry the bit, and only when
@@ -171,8 +172,12 @@ impl NormalEvidence {
     /// predicate right-hand side) also withholds it.
     ///
     /// A failed `Evaluate` match holds on every instance, which is the test `instance_normal`
-    /// applies. A ground term is its own only instance, and the matcher reads no path condition,
-    /// so the certificate is independent of the path the term is met on. It is a property of the
+    /// applies. It is about the term's value as well when the equation's left-hand side has
+    /// instance-normal arguments or its arguments' reducts miss the term's
+    /// (`BackendDefinition::failed_match_is_about_values`); the mark certifies the value only
+    /// when every failed match is, and the term's arguments' values are certified too. A ground
+    /// term is its own only instance, and the matcher reads no path condition, so the
+    /// certificate is independent of the path the term is met on. It is a property of the
     /// term's structure, and it survives any later substitution that keeps the term by pointer.
     ///
     /// The arguments carry the bit as well. So every equation-head subterm was certified the same
@@ -185,8 +190,9 @@ impl NormalEvidence {
     /// matcher's own arm for its kind when the parent is decomposed.
     #[must_use]
     pub(crate) fn certified(term: &Term) -> Option<Self> {
-        (term.shape() == Shape::Application(HeadRole::EquationHead) && term.attributes().evaluated)
-            .then_some(Self(Source::Certified))
+        (term.shape() == Shape::Application(HeadRole::EquationHead)
+            && term.attributes().certified_value())
+        .then_some(Self(Source::Certified))
     }
 
     /// An instance-normal token: the term, or a term it is a subterm of, is a normal form on
@@ -212,7 +218,10 @@ impl NormalEvidence {
 ///   (`simplify::scan::scan_term_theory`, one scan per theory).
 ///
 /// Together they say that every term equation of the definition failed to match the application.
-/// A failed match reads no path condition, so the statement holds on every path. A caller
+/// A failed match reads no path condition, so the statement holds on every path. The scans also
+/// record whether every failure is about the application's value
+/// (`simplify::scan::FailedMatch`), which the certificate carries to
+/// `TermAttributes::certified_value`. A caller
 /// outside the crate can name the type but not build a value:
 ///
 /// ```compile_fail
@@ -229,16 +238,28 @@ impl NormalEvidence {
 /// }
 /// ```
 #[derive(Debug)]
-pub struct NormalFormCertificate(());
+pub struct NormalFormCertificate {
+    /// Whether every equation that failed to match has a left-hand side with instance-normal
+    /// arguments, so that no valuation of it denotes the application's value either
+    /// (`term::TermAttributes::certified_value`).
+    values: bool,
+}
 
 impl NormalFormCertificate {
     #[must_use]
     pub(crate) fn new(
         _selection: SelectionComplete,
-        _function_scan: NoOfferedEquationMatched<FunctionTheory>,
-        _simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+        function_scan: NoOfferedEquationMatched<FunctionTheory>,
+        simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
     ) -> Self {
-        Self(())
+        Self {
+            values: function_scan.certifies_values() && simplification_scan.certifies_values(),
+        }
+    }
+
+    /// Whether the certificate is evidence about the application's value as well.
+    pub(crate) fn certifies_values(&self) -> bool {
+        self.values
     }
 }
 
@@ -879,7 +900,7 @@ fn occurs_rigidly(variable: &Variable, term: &Term) -> bool {
 /// sets only with its certificate. The one definition of the test.
 #[must_use]
 pub(crate) fn certified_ground_normal_form(term: &Term) -> bool {
-    term.concrete_after_normalization() && term.attributes().evaluated
+    term.concrete_after_normalization() && term.attributes().certified_value()
 }
 
 #[cfg(test)]
@@ -1449,7 +1470,7 @@ mod tests {
         let certified_normal_application = |term: &Term| match term.kind() {
             TermKind::Application { symbol, .. } => {
                 symbol.attributes.head_role() == HeadRole::FreeConstructor
-                    || term.attributes().evaluated
+                    || term.attributes().certified_value()
             }
             _ => false,
         };
