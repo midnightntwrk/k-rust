@@ -994,9 +994,9 @@ struct Peak {
     /// directly ([`Universe::exposed_heads`]).
     exposed: BTreeSet<u32>,
     /// The heads of the applications in the values its two steps, and the steps its sides
-    /// take, bind (and the two redexes' arguments, where its sides are proven one defined and
-    /// one undefined), and in what those values reach: the equation instances of the two paths
-    /// cannot all hold, so one of those values may be undefined.
+    /// take, bind (and those steps' redexes' arguments, where its sides are proven one defined
+    /// and one undefined), and in what those values reach: the equation instances of the two
+    /// paths cannot all hold, so one of those values may be undefined.
     bound: BTreeSet<u32>,
 }
 
@@ -1314,8 +1314,9 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                 // them binds may be undefined: every application in the values the two steps
                 // bind, and the steps their sides take, or in what those values reach. An
                 // equation also binds its head's arguments, by membership; where one side is
-                // proven defined and the other undefined, the instances of the two steps cannot
-                // both hold, so one of the redex's arguments is undefined, and they count too.
+                // proven defined and the other undefined, the instances of the two steps and of
+                // the steps their sides take cannot all hold, so one of their redexes' arguments
+                // may be undefined, and they count too.
                 let contradict = |one: &HashSet<Id>, other: &HashSet<Id>| {
                     one.iter().any(|id| defined[*id as usize])
                         && other.iter().any(|id| undefined[*id as usize])
@@ -1340,6 +1341,9 @@ fn oracle(definition: &Definition, extra: &[Pat], queries: &[Pat], rng: &mut Rng
                         .flat_map(|steps| steps.iter())
                     {
                         values.extend(&step.valuation);
+                        if arguments_bound {
+                            values.extend(&step.arguments);
+                        }
                     }
                 }
                 for value in values {
