@@ -1452,6 +1452,11 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             ));
         }
         let body_items = flatten_cells(body);
+        let beside = body_items
+            .iter()
+            .copied()
+            .chain(added.iter().map(|(term, _)| term))
+            .collect::<Vec<_>>();
         // Invariant: for every ordered sort below `cell` before `list`, the added items or the items of `body_items` hold no item of that list; each ordered sort is visited once, with one walk of the added items and one of `ancestor`'s body.
         for list in self
             .model
@@ -1464,7 +1469,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 self.model
                     .sort_for_term(term)
                     .is_none_or(|sort| !self.model.is_strictly_below(list, &sort))
-                    && self.may_hold_instance(term, list)
+                    && self.moved_may_hold(term, list, &cell.sort, &beside)
             });
             if let Some((term, _)) = joining
                 && self.body_may_hold(&body_items, list)
@@ -1536,36 +1541,108 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// - a term of a cell sort above `sort` may when it is not written as a cell body (a variable,
     ///   a complete cell, a function result), when its `...` frame is open (the frame stands for
     ///   its unwritten children), or when an item of its body may;
-    /// - a term of another cell sort may only when an item of its body may;
+    /// - a term of another cell sort may not, whatever its body: after completion a cell holds
+    ///   only the cells the configuration places in it (a misplaced cell has been lifted out of
+    ///   it), and none of those is `sort` or above it;
     /// - every other term (a variable of `Bag`, of a cell collection sort or of no cell sort, a
     ///   function of `Bag` sort, a matching-logic connective) has no known cell sort, and may.
+    fn may_hold_instance(&self, term: &Term, sort: &Sort) -> bool {
+        self.item_may_hold(term, sort, true)
+    }
+
+    /// [`Self::may_hold_instance`], where `unknown` is the answer for a term of unknown cell
+    /// sort that is `term` or a part of a rewrite or an alias `term` is (not one inside a cell
+    /// body of `term`, which is always `true`).
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only rewrites and aliases are looked into structurally"
     )]
-    fn may_hold_instance(&self, term: &Term, sort: &Sort) -> bool {
-        let any_item = |bag: &Term| {
+    fn item_may_hold(&self, term: &Term, sort: &Sort, unknown: bool) -> bool {
+        let any_item = |bag: &Term, unknown: bool| {
             flatten_cells(bag)
                 .into_iter()
-                .any(|item| self.may_hold_instance(item, sort))
+                .any(|item| self.item_may_hold(item, sort, unknown))
         };
         match term.unannotated() {
-            Term::Rewrite { left, right } => any_item(left) || any_item(right),
-            Term::As { pattern, alias } => any_item(pattern) || any_item(alias),
+            Term::Rewrite { left, right } => any_item(left, unknown) || any_item(right, unknown),
+            Term::As { pattern, alias } => any_item(pattern, unknown) || any_item(alias, unknown),
             _ if is_empty_cell_bag(term) => false,
             _ => match self.model.sort_for_term(term) {
-                None => true,
+                None => unknown,
                 Some(term_sort) if term_sort == *sort => true,
-                Some(term_sort) => {
-                    let above = self.model.is_strictly_below(sort, &term_sort);
-                    match self.cell_body(term) {
-                        Some((open_left, body, open_right)) => {
-                            (above && (open_left || open_right)) || any_item(body)
-                        }
-                        None => above,
+                // After completion a cell holds only cells the configuration places in it (a
+                // misplaced one has been lifted out), so one not above `sort` holds none.
+                Some(term_sort) if !self.model.is_strictly_below(sort, &term_sort) => false,
+                Some(_) => match self.cell_body(term) {
+                    Some((open_left, body, open_right)) => {
+                        open_left || open_right || any_item(body, true)
                     }
-                }
+                    None => true,
+                },
             },
+        }
+    }
+
+    /// Whether `term`, a cell item written beside the written cell `holder` (of sort
+    /// `holder_sort`) and moved into it, may be or hold an instance of `list` there, among the
+    /// items `beside` (`holder`'s body and the other moved items).
+    ///
+    /// A term of unknown cell sort in `term` is a sibling of `term`'s cells, so it stands for
+    /// children of an instance of their parent `P`: it may hold instances of `list` only when
+    /// `list` is below `P` and the child `C` of `holder` on the path to `list` is not already
+    /// written beside it, once (`C` not `multiplicity="*"`). When `P` is `holder`, a written `C`
+    /// is the only one, and the term cannot stand for another. When `P` is below `holder`,
+    /// `term` continues into the written `C` and is decided again there, as `C`'s added item.
+    fn moved_may_hold(
+        &self,
+        term: &Term,
+        list: &Sort,
+        holder_sort: &Sort,
+        beside: &[&Term],
+    ) -> bool {
+        let unknown = self
+            .model
+            .sort_for_term(term)
+            .and_then(|sort| self.model.parents.get(&sort))
+            .is_none_or(|parent| self.model.is_strictly_below(list, parent))
+            && self.child_toward(holder_sort, list).is_none_or(|child| {
+                self.model.is_repeated(&child)
+                    || !beside.iter().any(|item| self.is_written_cell(item, &child))
+            });
+        self.item_may_hold(term, list, unknown)
+    }
+
+    /// The child sort of `ancestor` on the configured path down to `sort` (`sort` itself when
+    /// it is a child of `ancestor`), or `None` when `sort` is not below `ancestor`.
+    fn child_toward(&self, ancestor: &Sort, sort: &Sort) -> Option<Sort> {
+        let mut current = sort;
+        // Invariant: `current` is `sort` or one of its ancestors below `ancestor`, reached by at most `self.model.cells.len()` parent links (the bound of `is_strictly_below`).
+        for _ in 0..self.model.cells.len() {
+            match self.model.parents.get(current) {
+                Some(parent) if parent == ancestor => return Some(current.clone()),
+                Some(parent) => current = parent,
+                None => return None,
+            }
+        }
+        None
+    }
+
+    /// Whether `item`, an item of a cell body, is a cell of sort `sort` on every side: a term of
+    /// that sort, a rewrite each side of which holds one, or an alias that does.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only rewrites and aliases are looked into structurally"
+    )]
+    fn is_written_cell(&self, item: &Term, sort: &Sort) -> bool {
+        let side = |bag: &Term| {
+            flatten_cells(bag)
+                .into_iter()
+                .any(|item| self.is_written_cell(item, sort))
+        };
+        match item.unannotated() {
+            Term::Rewrite { left, right } => side(left) && side(right),
+            Term::As { pattern, alias } => side(pattern) || side(alias),
+            _ => self.model.sort_for_term(item).as_ref() == Some(sort),
         }
     }
 
