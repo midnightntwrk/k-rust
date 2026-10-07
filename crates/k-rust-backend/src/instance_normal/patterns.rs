@@ -41,7 +41,13 @@
 //! equation of another head, one of whose sides has the application's head, meets, and that so
 //! do peaks at terms that equation matching matches up to the subsort or overload axioms
 //! without being syntactic instances of `l`: under `g(5) = c1; f(c1) = k(0); f(g(X)) = mk(1 /Int
-//! 0)`, `k(0)` is undefined while no `k` equation exists.
+//! 0)`, `k(0)` is undefined while no `k` equation exists. It also reads a peak only for the
+//! normal forms it identifies, not for what it says about the values its equations bind: the
+//! variables range over values, so where the two instances' steps do not meet, one of the bound
+//! values is undefined (`h(q(3, Y)) = 1 /Int 0` and `h(X) = 3` at `h(q(3, c))` make `q(3, c)`,
+//! and so `g(d)` under `q(I, X) = g(d)`, undefined, while the scan of `g(d)` sees no `h`
+//! equation). The certificate assumes no peak that does not meet binds a value in which the
+//! application occurs.
 //!
 //! The questions nest: deciding a left-hand side's argument decides the instance normality of
 //! the terms its reducts build, whose own equations are decided the same way. Their depth is
