@@ -7723,6 +7723,32 @@ fn places_a_cell_written_beside_its_only_possible_ancestor_in_a_fresh_commutativ
         });
         assert_eq!(bodies[0], bodies[1], "{collection}");
         assert_eq!(bodies[0], bodies[2], "{collection}");
+        // With a <p> between <a> and <r>, the fresh <r> is built in the one <p> of <a>, written
+        // or not, beside that <p>'s `...`, which stands for its other children (other <r> cells
+        // among them) and is not an <r> the <d> could be in.
+        let configuration = format!(
+            r#"<top> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multiplicity="*" type="{collection}"> <rid> 0 </rid> <d> 0 </d> <e> 0 </e> </r> </p> </a> </top>"#
+        );
+        for (rule, written) in [
+            (
+                "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+                "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+            ),
+            (
+                "<a> <p> <y> 1 </y> ... </p> ... </a> <d> 5 => 6 </d>",
+                "<a> <p> <y> 1 </y> <d> 5 => 6 </d> ... </p> ... </a>",
+            ),
+            (
+                "<a> <x> X </x> ... </a> <p> <y> 1 </y> ... </p> <d> 5 => 6 </d>",
+                "<a> <x> X </x> <p> <y> 1 </y> <d> 5 => 6 </d> ... </p> ... </a>",
+            ),
+        ] {
+            let placed = concretized_cell_rule(&configuration, rule)
+                .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+            let in_place = concretized_cell_rule(&configuration, written)
+                .unwrap_or_else(|errors| panic!("{written}: {errors:?}"));
+            assert_eq!(placed, in_place, "{collection}: {rule}");
+        }
     }
     let body = concretized_cell_rule(
         r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#,
