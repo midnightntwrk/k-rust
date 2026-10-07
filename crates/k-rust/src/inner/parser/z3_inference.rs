@@ -205,7 +205,7 @@ struct Encoding<'a> {
     reading_indicators: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     anywhere: bool,
-    top_rewrite_paths: HashSet<String>,
+    top_rewrite_paths: TopRewrites,
     top_rewrite_ids: HashSet<*const PackedTerm>,
     /// Whether a token leaf was constrained against a ground sort it cannot satisfy, so a term
     /// without variables must still be solved and rejected.
@@ -861,10 +861,10 @@ impl Grammar {
     fn body_function_lhs<'t>(
         &self,
         child: &'t ParsedTerm,
-        child_path: &str,
+        child_path: &NodePath,
         anywhere: bool,
-    ) -> Option<(&'t ParsedTerm, String)> {
-        let mut path = child_path.to_owned();
+    ) -> Option<(&'t ParsedTerm, NodePath)> {
+        let mut path = child_path.clone();
         let mut term = self.strip_brackets_with_path(child, &mut path);
         if let ParsedTerm::Production {
             production,
@@ -877,7 +877,7 @@ impl Grammar {
                 .is_some_and(|label| label.is(InternalLabel::KRewrite))
             && children.len() == 2
         {
-            path.push_str("_c0");
+            path = path.child(0);
             term = self.strip_brackets_with_path(&children[0], &mut path);
         }
         match term {
@@ -893,7 +893,7 @@ impl Grammar {
     fn strip_brackets_with_path<'t>(
         &self,
         mut term: &'t ParsedTerm,
-        path: &mut String,
+        path: &mut NodePath,
     ) -> &'t ParsedTerm {
         while let ParsedTerm::Production {
             production,
@@ -903,7 +903,7 @@ impl Grammar {
             && self.productions[*production].bracket
             && children.len() == 1
         {
-            path.push_str("_c0");
+            *path = path.child(0);
             term = &children[0];
         }
         term
@@ -976,7 +976,13 @@ impl Grammar {
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models.into_iter().flatten() {
-            match encoding.apply_model(term.clone(), top_sort, root_context, "root", &model) {
+            match encoding.apply_model(
+                term.clone(),
+                top_sort,
+                root_context,
+                &NodePath::root(),
+                &model,
+            ) {
                 Ok(candidate) => {
                     #[cfg(debug_assertions)]
                     encoding.assert_candidate_of_module(&candidate);
@@ -1347,7 +1353,8 @@ impl<'a> Encoding<'a> {
         } else {
             CastContext::None
         };
-        let (constraint, root) = self.constraint_node(term, &expected, root_context, "root")?;
+        let (constraint, root) =
+            self.constraint_node(term, &expected, root_context, &NodePath::root())?;
         self.reading_indicators = self.liveness.indicators(root);
         Ok((constraint, expected, root_context))
     }
@@ -1390,7 +1397,7 @@ impl<'a> Encoding<'a> {
             reading_indicators: Vec::new(),
             packed_ids: HashMap::new(),
             anywhere,
-            top_rewrite_paths: HashSet::new(),
+            top_rewrite_paths: TopRewrites::default(),
             top_rewrite_ids: HashSet::new(),
             ill_sorted_ground: false,
             incremental: false,
@@ -1403,7 +1410,7 @@ impl<'a> Encoding<'a> {
         term: &ParsedTerm,
         expected: &Datatype,
         cast_context: CastContext,
-        path: &str,
+        path: &NodePath,
     ) -> Result<Bool, ParseError> {
         self.constraint_node(term, expected, cast_context, path)
             .map(|(constraint, _)| constraint)
@@ -1415,7 +1422,7 @@ impl<'a> Encoding<'a> {
         term: &ParsedTerm,
         expected: &Datatype,
         cast_context: CastContext,
-        path: &str,
+        path: &NodePath,
     ) -> Result<(Bool, usize), ParseError> {
         crate::stack::guarded(|| {
             match term {
@@ -1437,7 +1444,7 @@ impl<'a> Encoding<'a> {
                                 alternative,
                                 expected,
                                 cast_context,
-                                &format!("{path}_a{index}"),
+                                &path.alternative(index),
                             )
                         })
                         .collect::<Result<Vec<_>, _>>()?
@@ -1519,7 +1526,7 @@ impl<'a> Encoding<'a> {
                     for (index, (child, child_sort)) in
                         children.iter().zip(expected_children).enumerate()
                     {
-                        let child_path = format!("{path}_c{index}");
+                        let child_path = path.child(index);
                         let function_child_sort = (index == 0
                             && is_top_sort_production(descriptor))
                         .then(|| {
@@ -1538,7 +1545,7 @@ impl<'a> Encoding<'a> {
                             && index == 1
                             && children.len() == 2
                         {
-                            self.actual_sort(&children[0], &format!("{path}_c0"))?
+                            self.actual_sort(&children[0], &path.child(0))?
                         } else if is_cast(descriptor) {
                             self.sort_value(production_result(descriptor), &parameters)?
                         } else {
@@ -1866,7 +1873,7 @@ impl<'a> Encoding<'a> {
             .expect("every reachable packed term received a stable inference identity")
     }
 
-    fn actual_sort(&mut self, term: &ParsedTerm, path: &str) -> Result<Datatype, ParseError> {
+    fn actual_sort(&mut self, term: &ParsedTerm, path: &NodePath) -> Result<Datatype, ParseError> {
         match term {
             ParsedTerm::Production {
                 production,
@@ -1897,7 +1904,7 @@ impl<'a> Encoding<'a> {
         production_index: usize,
         production: &Production,
         metadata: &super::TermMetadata,
-        path: &str,
+        path: &NodePath,
     ) -> BTreeMap<Sort, Datatype> {
         let Some(origin) = &production.parametric_origin else {
             return BTreeMap::new();
@@ -1914,7 +1921,7 @@ impl<'a> Encoding<'a> {
             .collect()
     }
 
-    fn term_variable(&mut self, term: &Term, name: &str, path: &str) -> Datatype {
+    fn term_variable(&mut self, term: &Term, name: &str, path: &NodePath) -> Datatype {
         let key = inference_variable_key(term, name, path);
         self.unknown(key, UnknownKind::Variable)
     }
@@ -2195,7 +2202,7 @@ impl<'a> Encoding<'a> {
         self.incremental = true;
         self.replay.clear();
         let explained = self
-            .constraint(term, expected, root_context, "root")
+            .constraint(term, expected, root_context, &NodePath::root())
             .and_then(|_| self.replay_constraints());
         self.incremental = false;
         explained.unwrap_or_else(|_| z3_error(UNSAT_MESSAGE))
@@ -3332,7 +3339,7 @@ impl<'a> Encoding<'a> {
         term: ParsedTerm,
         expected: &Sort,
         cast_context: CastContext,
-        path: &str,
+        path: &NodePath,
         model: &BTreeMap<String, Sort>,
     ) -> Result<ParsedTerm, ParseError> {
         crate::stack::guarded(|| {
@@ -3345,7 +3352,7 @@ impl<'a> Encoding<'a> {
                             alternative,
                             expected,
                             cast_context,
-                            &format!("{path}_a{index}"),
+                            &path.alternative(index),
                             model,
                         ) {
                             Ok(alternative) => {
@@ -3447,18 +3454,13 @@ impl<'a> Encoding<'a> {
                             .is_some_and(|label| label.is(InternalLabel::KRewrite))
                         && children.len() == 2)
                         .then(|| {
-                            declared_model_sort(
-                                self.grammar,
-                                &children[0],
-                                model,
-                                &format!("{path}_c0"),
-                            )
+                            declared_model_sort(self.grammar, &children[0], model, &path.child(0))
                         });
                     let function_body_sort = is_top_sort_production(descriptor)
                         .then(|| {
                             children.first().and_then(|child| {
                                 self.grammar
-                                    .body_function_lhs(child, &format!("{path}_c0"), self.anywhere)
+                                    .body_function_lhs(child, &path.child(0), self.anywhere)
                                     .map(|(lhs, lhs_path)| {
                                         declared_model_sort(self.grammar, lhs, model, &lhs_path)
                                     })
@@ -3502,7 +3504,7 @@ impl<'a> Encoding<'a> {
                                 child,
                                 &child_expected,
                                 child_context,
-                                &format!("{path}_c{index}"),
+                                &path.child(index),
                                 model,
                             )
                         })
@@ -3694,7 +3696,7 @@ fn declared_model_sort(
     grammar: &Grammar,
     term: &ParsedTerm,
     model: &BTreeMap<String, Sort>,
-    path: &str,
+    path: &NodePath,
 ) -> Sort {
     match term {
         ParsedTerm::Production {
@@ -3878,12 +3880,12 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
 
 /// Locate each rewrite at a rule body's top level. An ambiguous root can contain several such
 /// nodes, so identities are collected per branch while nested rewrites remain excluded.
-fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
-    fn visit(grammar: &Grammar, term: &ParsedTerm, path: String, targets: &mut HashSet<String>) {
+fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> TopRewrites {
+    fn visit(grammar: &Grammar, term: &ParsedTerm, path: NodePath, targets: &mut TopRewrites) {
         crate::stack::guarded(|| match term {
             ParsedTerm::Ambiguity(alternatives) => {
                 for (index, alternative) in alternatives.iter().enumerate() {
-                    visit(grammar, alternative, format!("{path}_a{index}"), targets);
+                    visit(grammar, alternative, path.alternative(index), targets);
                 }
             }
             ParsedTerm::Production {
@@ -3901,7 +3903,7 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
                             .is_some_and(|label| label.is(InternalLabel::WithConfig)))
                 {
                     if let Some(child) = children.first() {
-                        visit(grammar, child, format!("{path}_c0"), targets);
+                        visit(grammar, child, path.child(0), targets);
                     }
                 } else if descriptor
                     .label
@@ -3909,14 +3911,14 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
                     .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2
                 {
-                    targets.insert(path);
+                    targets.insert(&path);
                 }
             }
             ParsedTerm::Term(_) | ParsedTerm::InstantiatedProduction { .. } => {}
         })
     }
-    let mut targets = HashSet::new();
-    visit(grammar, root, "root".to_owned(), &mut targets);
+    let mut targets = TopRewrites::default();
+    visit(grammar, root, NodePath::root(), &mut targets);
     targets
 }
 
@@ -4006,7 +4008,96 @@ fn is_anonymous(name: &str) -> bool {
         || name.starts_with("@_")
 }
 
-fn inference_variable_key(term: &Term, name: &str, path: &str) -> String {
+/// The path of a node of the tree being encoded: `root`, then `_c{i}` for its i-th child and
+/// `_a{i}` for its i-th ambiguity alternative. A path is its parent's, shared, and one step, so
+/// extending it costs constant time and memory whatever its depth; it is rendered as text only
+/// where it names a constant (a variable or a parameter without a source span), and it is
+/// dropped one step at a time.
+#[derive(Clone)]
+pub(super) struct NodePath(Option<std::rc::Rc<NodeStep>>);
+
+struct NodeStep {
+    parent: NodePath,
+    alternative: bool,
+    index: usize,
+    len: usize,
+}
+
+impl NodePath {
+    pub(super) fn root() -> Self {
+        Self(None)
+    }
+
+    fn step(&self, alternative: bool, index: usize) -> Self {
+        Self(Some(std::rc::Rc::new(NodeStep {
+            parent: self.clone(),
+            alternative,
+            index,
+            len: self.len() + 1,
+        })))
+    }
+
+    pub(super) fn child(&self, index: usize) -> Self {
+        self.step(false, index)
+    }
+
+    pub(super) fn alternative(&self, index: usize) -> Self {
+        self.step(true, index)
+    }
+
+    fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, |step| step.len)
+    }
+
+    /// The path as text: `root_c0_a1`.
+    pub(super) fn render(&self) -> String {
+        let mut steps = Vec::with_capacity(self.len());
+        let mut path = self;
+        while let Some(step) = &path.0 {
+            steps.push((step.alternative, step.index));
+            path = &step.parent;
+        }
+        let mut text = String::from("root");
+        for (alternative, index) in steps.into_iter().rev() {
+            text.push_str(if alternative { "_a" } else { "_c" });
+            text.push_str(&index.to_string());
+        }
+        text
+    }
+}
+
+impl Drop for NodePath {
+    fn drop(&mut self) {
+        let mut next = self.0.take();
+        while let Some(step) = next {
+            next = match std::rc::Rc::try_unwrap(step) {
+                Ok(mut step) => step.parent.0.take(),
+                Err(_) => None,
+            };
+        }
+    }
+}
+
+/// The paths of the rewrites at a rule body's top level, by length then text: a node deeper
+/// than every one of them is told apart by its length alone.
+#[derive(Clone, Debug, Default)]
+struct TopRewrites {
+    paths: HashSet<String>,
+    lengths: HashSet<usize>,
+}
+
+impl TopRewrites {
+    fn insert(&mut self, path: &NodePath) {
+        self.lengths.insert(path.len());
+        self.paths.insert(path.render());
+    }
+
+    fn contains(&self, path: &NodePath) -> bool {
+        self.lengths.contains(&path.len()) && self.paths.contains(&path.render())
+    }
+}
+
+fn inference_variable_key(term: &Term, name: &str, path: &NodePath) -> String {
     if !is_anonymous(name) {
         return format!("variable_{name}");
     }
@@ -4016,7 +4107,7 @@ fn inference_variable_key(term: &Term, name: &str, path: &str) -> String {
         // preserves the same identity after our value-based forest representation is factored.
         format!("anonymous_{}_{}", span.start, span.end)
     } else {
-        format!("anonymous_{path}")
+        format!("anonymous_{}", path.render())
     }
 }
 
@@ -4034,7 +4125,7 @@ fn packed_inference_variable_key(term: &Term, name: &str, identity: usize) -> St
 fn inference_parameter_key(
     production: usize,
     metadata: &super::TermMetadata,
-    path: &str,
+    path: &NodePath,
     parameter: usize,
 ) -> String {
     if let Some(span) = metadata.span {
@@ -4043,7 +4134,7 @@ fn inference_parameter_key(
             production, span.start, span.end, parameter
         )
     } else {
-        format!("parameter_{path}_{parameter}")
+        format!("parameter_{}_{parameter}", path.render())
     }
 }
 
@@ -5635,7 +5726,7 @@ mod tests {
     fn variable_key(term: &ParsedTerm, name: &str) -> Option<String> {
         match term {
             ParsedTerm::Term(leaf) => (inferred_variable_name(leaf) == Some(name))
-                .then(|| inference_variable_key(leaf, name, "")),
+                .then(|| inference_variable_key(leaf, name, &NodePath::root())),
             ParsedTerm::Production { children, .. }
             | ParsedTerm::InstantiatedProduction { children, .. } => {
                 children.iter().find_map(|child| variable_key(child, name))
@@ -6447,7 +6538,7 @@ endmodule
         };
 
         assert_eq!(
-            top_rewrite_paths(&grammar, &term),
+            top_rewrite_paths(&grammar, &term).paths,
             HashSet::from(["root_c0".to_owned()])
         );
     }
@@ -6541,7 +6632,7 @@ endmodule
         let term = ParsedTerm::Ambiguity(BTreeSet::from([alternative("L1"), alternative("L2")]));
 
         assert_eq!(
-            top_rewrite_paths(&grammar, &term),
+            top_rewrite_paths(&grammar, &term).paths,
             HashSet::from(["root_a0".to_owned(), "root_a1".to_owned()])
         );
     }
