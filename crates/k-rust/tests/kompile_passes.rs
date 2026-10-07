@@ -7287,6 +7287,168 @@ fn rejects_a_cell_written_beside_its_only_possible_parent_written_as_a_rewrite()
     );
 }
 
+// The <fr> written beside the one <stack> belongs in that <stack>'s list of <fr> cells, but the
+// rule does not state its position relative to the <fr> cells written inside <stack>: they were
+// not written as siblings in one body, and the text order of <stack> and <fr> carries no meaning.
+#[test]
+fn rejects_a_list_cell_written_beside_its_only_possible_parent_holding_written_instances() {
+    for rule in [
+        "<stack> <fr> <v> 1 </v> </fr> ... </stack> <fr> <v> 2 </v> </fr>",
+        "<fr> <v> 2 </v> </fr> <stack> <fr> <v> 1 </v> </fr> ... </stack>",
+        "<stack> <fr> <v> 1 </v> </fr> ... </stack> (.Bag => <fr> <v> 2 </v> </fr>)",
+        "<fr> <v> 0 </v> </fr> <stack> <fr> <v> 1 </v> </fr> ... </stack> <fr> <v> 2 </v> </fr>",
+    ] {
+        let errors = concretized_cell_rule(LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(
+            errors,
+            [
+                "Cell <fr> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list"
+            ],
+            "{rule}"
+        );
+    }
+}
+
+// The <fr> lifted out of <cur> is in <stack>'s list; the one written beside <stack> has no stated
+// position relative to it.
+#[test]
+fn rejects_a_list_cell_written_beside_its_only_possible_parent_holding_a_lifted_instance() {
+    for rule in [
+        "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> ... </stack> <fr> <v> 1 </v> </fr>",
+        "<fr> <v> 1 </v> </fr> <stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> ... </stack>",
+    ] {
+        let errors = concretized_cell_rule(LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(
+            errors,
+            [
+                "Cell <fr> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list (after moving <fr> written inside <cur> to where the configuration declares it)"
+            ],
+            "{rule}"
+        );
+    }
+}
+
+// A variable of an unknown cell sort in <stack> may stand for <fr> cells of its list, so neither
+// a <fr> written beside <stack> nor one lifted out of <cur> has a stated position.
+#[test]
+fn rejects_a_list_cell_placed_beside_a_term_of_unknown_cell_sort() {
+    for (rule, written) in [
+        (
+            "<stack> <cur> <x> X </x> </cur> F:Bag ... </stack> <fr> <v> 2 </v> </fr>",
+            "Cell <fr> written beside <stack> belongs inside it: the configuration allows only one <stack> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list",
+        ),
+        (
+            "<stack> <cur> <x> X </x> <fr> <v> 2 </v> </fr> </cur> F:Bag ... </stack>",
+            "Cell <fr> written inside <cur> belongs in the <stack> that holds <cur>, whose <fr> cells form a list, and the rule does not state its position among the other items of that list",
+        ),
+    ] {
+        let errors = concretized_cell_rule(LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(errors, [written], "{rule}");
+    }
+}
+
+const NESTED_LIST_FRAMES: &str = r#"<top> <k> 0 </k> <a> <z> 0 </z> <p> <y> 0 </y> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </top>"#;
+
+// The <fr> written beside <a> belongs in the one <p> of the one <a>, whose list already holds the
+// <fr> written in <a> (directly, or moved into the <p> written there).
+#[test]
+fn rejects_a_list_cell_written_beside_its_only_possible_ancestor_holding_written_instances() {
+    for rule in [
+        "<a> <fr> <v> 1 </v> </fr> ... </a> <fr> <v> 2 </v> </fr>",
+        "<a> <p> <y> 1 </y> ... </p> <fr> <v> 1 </v> </fr> ... </a> <fr> <v> 2 </v> </fr>",
+    ] {
+        let errors = concretized_cell_rule(NESTED_LIST_FRAMES, rule).unwrap_err();
+        assert_eq!(
+            errors,
+            [
+                "Cell <fr> written beside <a> belongs inside it: the configuration allows only one <a> there, the <fr> cells in it form a list, and the rule does not state its position among the other items of that list"
+            ],
+            "{rule}"
+        );
+    }
+}
+
+// With no other item of its list in <stack>, the <fr> written beside <stack> is placed as a <fr>
+// written alone inside it would be.
+#[test]
+fn places_a_list_cell_written_beside_its_only_possible_parent_holding_no_other_instance() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<stack> <cur> <x> X </x> </cur> ... </stack> <fr> <v> 2 </v> </fr>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// Two <fr> cells written as siblings beside <stack> keep their written order.
+#[test]
+fn places_list_cells_written_beside_their_only_possible_parent_in_their_written_order() {
+    let body = concretized_cell_rule(
+        LIST_FRAMES,
+        "<fr> <v> 0 </v> </fr> <stack> <cur> <x> X </x> </cur> ... </stack> <fr> <v> 2 </v> </fr>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(`<cur>`(`<x>`(X)),`_FrCellList_`(`_FrCellList_`(`<fr>`(`<v>`(#token("0","Int"))),`<fr>`(`<v>`(#token("2","Int")))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// The <fr> goes into the <a> written beside it and then into the <p> written in that <a>.
+#[test]
+fn places_a_list_cell_written_beside_its_only_possible_ancestor_in_the_written_parent() {
+    let body = concretized_cell_rule(
+        NESTED_LIST_FRAMES,
+        "<a> <p> <y> 1 </y> ... </p> ... </a> <fr> <v> 2 </v> </fr>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(_DotVar2,`<p>`(`<y>`(#token("1","Int")),`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_DotVar3)))),_DotVar0)"#
+    );
+}
+
+// Bag instances are unordered, so the <fr> written beside <stack> joins the written one.
+#[test]
+fn places_a_bag_cell_written_beside_its_only_possible_parent_beside_written_instances() {
+    let body = concretized_cell_rule(
+        &LIST_FRAMES.replace(r#"type="List""#, r#"type="Bag""#),
+        "<stack> <fr> <v> 1 </v> </fr> ... </stack> <fr> <v> 2 </v> </fr>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<stack>`(_Gen3,`_FrCellBag_`(`_FrCellBag_`(`<fr>`(`<v>`(#token("1","Int"))),`<fr>`(`<v>`(#token("2","Int")))),_Gen4))),_DotVar0)"#
+    );
+}
+
+// <top> holds one <threads>, but that <threads> holds many <thread> cells, and the rule does not
+// state which of them holds the <env> written beside <threads>: thread 1 or another one. Likewise
+// for the <d> of some <a2> in some <r> of the one <a>. Such a rule stays rejected.
+#[test]
+fn rejects_a_cell_written_beside_its_only_possible_ancestor_through_a_repeated_cell() {
+    for (configuration, rule) in [
+        (
+            r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
+        ),
+        (
+            r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="List"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E </env>",
+        ),
+        (
+            r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#,
+            "<k> 0 => 1 </k> <a> <x> X </x> ... </a> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d>",
+        ),
+    ] {
+        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
+        assert_eq!(errors, ["Ambiguous completion: <top>"], "{rule}");
+    }
+}
+
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
     let source = format!(
         r#"
