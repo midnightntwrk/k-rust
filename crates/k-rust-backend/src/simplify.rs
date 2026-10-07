@@ -3466,10 +3466,15 @@ fn simplify_with_budget(
                     first,
                     &end,
                     &accumulated,
-                    assumptions,
-                    options,
-                    active_conditions,
                     execution.as_deref(),
+                    &EvaluationGiven {
+                        assumptions,
+                        options,
+                        active: active_conditions,
+                        // Effect-free: the console is where it was when the evaluation began.
+                        console: execution.as_deref().map(ExecutionEvaluationContext::cursor),
+                        solver,
+                    },
                 );
             }
             return Ok(accumulated.finish(end));
@@ -4055,9 +4060,14 @@ fn simplify_root(
     } else {
         // The console the evaluation would read: its position, when there is one. A failed
         // attempt's reads are undone, so an evaluation that ends unevaluated ends where it began.
-        let console = execution.as_deref().map(ExecutionEvaluationContext::cursor);
-        let recorded =
-            UnspecifiedValues::recorded(term, assumptions, options, active_conditions, console);
+        let given = EvaluationGiven {
+            assumptions,
+            options,
+            active: active_conditions,
+            console: execution.as_deref().map(ExecutionEvaluationContext::cursor),
+            solver,
+        };
+        let recorded = UnspecifiedValues::recorded(term, &given);
         // A recorded value is the value an evaluation now would give; a recorded failure is where
         // its evaluation would end, so only its last scan is repeated (`UnspecifiedValues`). A
         // retry continues the application's evaluation.
@@ -4168,14 +4178,7 @@ fn simplify_root(
         // The evaluation ends with the application unevaluated. If an attempt failed in it, it is
         // recorded with what it read, for later evaluations that would read the same.
         if !history.excluded.is_empty() && !history.exhausted {
-            UnspecifiedValues::record_failed(
-                term,
-                &history,
-                assumptions,
-                options,
-                active_conditions,
-                console,
-            );
+            UnspecifiedValues::record_failed(term, &history, &given);
         }
         contingent = history.contingent;
         scan
@@ -4947,12 +4950,31 @@ enum RecordedOutcome {
     },
 }
 
+/// What an evaluation of an `Unspecified` application is given besides the application and the
+/// definition: the assumptions, the options and the active rule-condition keys it runs under,
+/// the console's read position (if there is a console) and the solver that decides its
+/// conditions.
+struct EvaluationGiven<'a> {
+    assumptions: &'a TermAssumptions<'a>,
+    options: SimplificationOptions,
+    active: &'a BTreeSet<ConditionKey>,
+    console: Option<usize>,
+    solver: &'a dyn SmtSolver,
+}
+
+/// The solver by address: a nested simplification (a ceil equation's predicates) decides its
+/// conditions with another solver than the evaluation around it, which may decide fewer.
+fn solver_address(solver: &dyn SmtSolver) -> usize {
+    std::ptr::from_ref(solver).cast::<()>().addr()
+}
+
 /// One recorded evaluation, with everything a fresh evaluation at another point would read
 /// differently ([`UnspecifiedValues`]).
 struct Record {
     outcome: RecordedOutcome,
     assumptions: AssumptionContent,
     options: SimplificationOptions,
+    solver: usize,
     /// The console's read position when the evaluation began, if there was a console.
     console: Option<usize>,
     reads: Reads,
@@ -4966,20 +4988,15 @@ struct Record {
 impl Record {
     /// Whether an evaluation of the application now would read what this one read at every step,
     /// and so compute the same outcome.
-    fn holds(
-        &self,
-        stack: &UnspecifiedStack,
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
-        console: Option<usize>,
-    ) -> bool {
-        if self.options != options
-            || (self.reads.console && self.console != console)
-            || !self.assumptions.holds(assumptions)
+    fn holds(&self, stack: &UnspecifiedStack, given: &EvaluationGiven<'_>) -> bool {
+        if self.options != given.options
+            || self.solver != solver_address(given.solver)
+            || (self.reads.console && self.console != given.console)
+            || !self.assumptions.holds(given.assumptions)
         {
             return false;
         }
+        let active = given.active;
         // The open attempts it reached are open at the same depths.
         let same_reached = match (self.reads.reached, &self.reached) {
             (Some(depth), Some(prefix)) => stack
@@ -5070,10 +5087,7 @@ impl UnspecifiedValues {
     /// read.
     fn recorded(
         application: &Term,
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
-        console: Option<usize>,
+        given: &EvaluationGiven<'_>,
     ) -> Option<(RecordedOutcome, Reads)> {
         if !unspecified_reuse() {
             return None;
@@ -5083,22 +5097,18 @@ impl UnspecifiedValues {
             UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
                 records
                     .iter()
-                    .find(|record| record.holds(stack, assumptions, options, active, console))
+                    .find(|record| record.holds(stack, given))
                     .map(|record| (record.outcome.clone(), record.reads.clone()))
             })
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn record(
         application: &Term,
         outcome: RecordedOutcome,
         mut reads: Reads,
         begun_below: usize,
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
-        console: Option<usize>,
+        given: &EvaluationGiven<'_>,
     ) {
         if !unspecified_reuse() || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes == 0) {
             return;
@@ -5112,7 +5122,7 @@ impl UnspecifiedValues {
             let inserted = std::mem::take(&mut reads.inserted);
             reads
                 .active
-                .retain(|key| !inserted.contains(key) || active.contains(key));
+                .retain(|key| !inserted.contains(key) || given.active.contains(key));
             reads.inserted = inserted;
         }
         let (reached, stack) = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| {
@@ -5132,13 +5142,14 @@ impl UnspecifiedValues {
         }
         let record = Record {
             outcome,
-            assumptions: AssumptionContent::of(assumptions),
-            options,
-            console,
+            assumptions: AssumptionContent::of(given.assumptions),
+            options: given.options,
+            solver: solver_address(given.solver),
+            console: given.console,
             reads,
             reached,
             stack,
-            active: active.clone(),
+            active: given.active.clone(),
         };
         UNSPECIFIED_VALUES.with_borrow_mut(|table| {
             table
@@ -5151,14 +5162,7 @@ impl UnspecifiedValues {
 
     /// Record the evaluation `history` of `application`, which ended with the application
     /// unevaluated, begun on the stack as it is now.
-    fn record_failed(
-        application: &Term,
-        history: &UnspecifiedRetry,
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
-        console: Option<usize>,
-    ) {
+    fn record_failed(application: &Term, history: &UnspecifiedRetry, given: &EvaluationGiven<'_>) {
         let depth = UNSPECIFIED_EVALUATIONS.with_borrow(|stack| stack.entries.len());
         Self::record(
             application,
@@ -5168,25 +5172,19 @@ impl UnspecifiedValues {
             },
             history.reads.clone(),
             depth,
-            assumptions,
-            options,
-            active,
-            console,
+            given,
         );
     }
 
     /// Record the value this lineage gave the application of its first `Unspecified` step
     /// `first`: the outcome `end` with what was accumulated since that step.
-    #[allow(clippy::too_many_arguments)]
     fn record_in_enclosing(
         &self,
         first: &UnspecifiedFrame,
         end: &Term,
         accumulated: &Accumulated,
-        assumptions: &TermAssumptions<'_>,
-        options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
         execution: Option<&ExecutionEvaluationContext>,
+        given: &EvaluationGiven<'_>,
     ) {
         if !unspecified_reuse() {
             return;
@@ -5220,11 +5218,7 @@ impl UnspecifiedValues {
             ),
             reads,
             depth,
-            assumptions,
-            options,
-            active,
-            // Effect-free: the console is where it was when the evaluation began.
-            execution.map(ExecutionEvaluationContext::cursor),
+            given,
         );
     }
 }
@@ -6533,6 +6527,111 @@ mod tests {
         );
         assert_eq!(reused, expected);
         assert_eq!(fresh, expected);
+    }
+
+    /// A value recorded under one solver is not reused under another, which may decide fewer of
+    /// its conditions. `U = substr("abc", 4, 1)` is `"a"` if `g(3) > 0` (first priority), else
+    /// `"v"`, with `g` given no equation: a solver that refutes every condition gives `"v"`; with
+    /// none, the first equation's condition is undecided and `U` stays unevaluated, as it does
+    /// when nothing was recorded before.
+    #[test]
+    fn a_value_computed_with_a_solver_is_not_reused_without_it() {
+        /// Refutes every condition; not zero-sized, so it has an address of its own.
+        struct Refuting(#[allow(dead_code)] u8);
+        impl SmtSolver for Refuting {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<crate::smt::Satisfiability, SmtError>> {
+                unreachable!()
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Refuted))
+            }
+        }
+        let equation = |requires: &str, rhs: &str, priority: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(
+                            \in{{SortString{{}}, R}}(X0:SortString{{}}, S:SortString{{}}),
+                            \and{{R}}(
+                                \in{{SortInt{{}}, R}}(X1:SortInt{{}}, \dv{{SortInt{{}}}}("4")),
+                                \and{{R}}(
+                                    \in{{SortInt{{}}, R}}(X2:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                                    \top{{R}}()
+                                )
+                            )
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}(
+                        substr{{}}(X0:SortString{{}}, X1:SortInt{{}}, X2:SortInt{{}}),
+                        \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                    )
+                ) [priority{{}}("{priority}")]"#
+            )
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                {}
+                {}
+            endmodule []"#,
+            equation(
+                r#"gtInt{}(g{}(\dv{SortInt{}}("3")), \dv{SortInt{}}("0"))"#,
+                r#"\dv{SortString{}}("a")"#,
+                "10"
+            ),
+            equation(
+                r#"\dv{SortBool{}}("true")"#,
+                r#"\dv{SortString{}}("v")"#,
+                "20"
+            ),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let u = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#,
+        );
+        let evaluate = |solver: &dyn SmtSolver| {
+            let (result, _) = diagnostic::collect(|| {
+                simplify_with_solver(
+                    &definition,
+                    &u,
+                    &[],
+                    SimplificationOptions::default(),
+                    solver,
+                )
+            });
+            unstopped(result).expect("no error").term
+        };
+        let fresh = evaluate(&NoSolver);
+        assert_eq!(fresh, u);
+        let _scope = UnspecifiedValues::open();
+        assert_eq!(
+            evaluate(&Refuting(0)),
+            term(&definition, r#"\dv{SortString{}}("v")"#)
+        );
+        assert_eq!(evaluate(&NoSolver), fresh);
     }
 
     /// A recorded evaluation carries everything its evaluation read, and serving it adds that to
