@@ -908,6 +908,10 @@ impl StructuredTermBuilder<'_> {
                     super::overload::sort_name(&semantic),
                 ))
             }
+            SemanticSortRef::Cell(_) => Some(format!(
+                "`k::lexeme!({}, {text:?})` names a generated cell sort, which is not a token sort",
+                super::overload::sort_name(&semantic),
+            )),
             SemanticSortRef::Declared(_) => None,
         };
         match reason {

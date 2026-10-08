@@ -275,11 +275,7 @@ impl fmt::Display for DescriptorLoweringError {
                 formatter,
                 "cell declaration `{}` is the content of more than one cell field ({}), so its K cell sort is ambiguous; declare one struct per nested cell",
                 declaration.item_name(),
-                fields
-                    .iter()
-                    .map(|field| format!("`{field}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                quoted_fields(fields)
             ),
             Self::AlwaysEnabledRule { rule, .. } => write!(
                 formatter,
@@ -293,6 +289,15 @@ impl fmt::Display for DescriptorLoweringError {
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
     }
+}
+
+/// Backquotes each Rust field name and joins them with commas.
+fn quoted_fields(fields: &[String]) -> String {
+    fields
+        .iter()
+        .map(|field| format!("`{field}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl ToDiagnostic for DescriptorLoweringError {

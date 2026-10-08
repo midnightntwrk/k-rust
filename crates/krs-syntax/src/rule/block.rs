@@ -461,15 +461,15 @@ impl RuleClause {
             }
         }
         match &self.head_result {
-            RuleHeadResult::Replace(term) => {
+            Some(RuleHeadResult::Replace(term)) => {
                 push_lexeme_anchors(anchors, term.nodes(), &mut ordinal)?;
             }
-            RuleHeadResult::Splice { items, .. } => {
+            Some(RuleHeadResult::Splice { items, .. }) => {
                 for item in items {
                     push_lexeme_anchors(anchors, item.nodes(), &mut ordinal)?;
                 }
             }
-            RuleHeadResult::Erase(_) => {}
+            Some(RuleHeadResult::Erase(_)) | None => {}
         }
         for extra in &self.extras {
             match extra {

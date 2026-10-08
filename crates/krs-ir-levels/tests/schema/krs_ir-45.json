@@ -265,6 +265,16 @@
       }
     }
   },
+  "CellClauseKind": {
+    "ENUM": {
+      "0": {
+        "content": "UNIT"
+      },
+      "1": {
+        "whole": "UNIT"
+      }
+    }
+  },
   "CellCollectionType": {
     "ENUM": {
       "0": {
