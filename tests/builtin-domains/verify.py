@@ -16,12 +16,19 @@ operation, and a corpus of programs that apply them to concrete values:
   from K's `COLLECTIONS` module;
 - `map-ops`: MAP operations over a map held in a configuration cell, because K
   has no MAP-SYNTAX module and a program cannot contain a map;
+- `k-equal`: `kequal::eq`, `ne`, and `ite` (KF-024) after K's tutorial
+  `1_basic/18`, with every branch defined; the instances KRS infers for `ite`
+  must be the ones in k-rust's KORE;
 - `strings`: String literals (KF-008) in equations, readable patterns, results,
   and programs, including the Latin-1 code point `\xc1`, and the STRING
   operations with `bytes::from_string`/`to_string`.
 
-`known_divergences` in `pins.json` pins the `\xc1` programs on which the routes
-disagree. k-rust stores a `\xHH` escape as the raw byte, so its `ordChar`,
+`known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
+program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
+function that has no equations: Java K's LLVM backend evaluates only the taken
+branch and ends in `1`, while k-rust, strict in both branches, splits on whether
+`Undef()` is defined and ends in two leaves. It also pins the `\xc1` programs
+on which the routes disagree. k-rust stores a `\xHH` escape as the raw byte, so its `ordChar`,
 `chrChar` (which yields UTF-8), and `String2Bytes` disagree with K's Latin-1
 code points; and Java K's LLVM backend does not match the rule literal
 `"\xc1"` against the same program literal, which k-rust does. The gate fails
@@ -40,10 +47,12 @@ replaying the per-user reference cache.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError, entry, krs_gate  # noqa: E402
@@ -196,16 +205,68 @@ STRINGS = (
     case("match-latin-1", r'greet("\xc1")', r'"\xc1!"'),
 )
 
+K_EQUAL = (
+    case("if-true", "if (true) 1 else 2", "1"),
+    case("if-false", "if (false) 1 else 2", "2"),
+    case("if-nested", "if (true) if (false) 1 else 2 else 3", "2"),
+    case("same-terms", "same(if (true) 1 else 2, if (true) 1 else 2)", "true"),
+    case("same-values", "same(1, 2)", "false"),
+    case("differ", "differ(if (true) 1 else 2, if (false) 1 else 2)", "true"),
+    case("pick-true", "pick(true)", "1"),
+    case("pick-false", "pick(false)", "2"),
+    # The pinned known divergence (see pins.json and the module documentation).
+    case("ite-undefined-branch", "go()", "1"),
+)
+
 CASES = (
     ("krs-builtin-int-ops", INT_OPS),
     ("krs-builtin-int-sign", INT_SIGN),
     ("krs-builtin-int-sign-unsigned", INT_SIGN_UNSIGNED),
+    ("krs-builtin-k-equal", K_EQUAL),
     ("krs-builtin-bool-ops", BOOL_OPS),
     ("krs-builtin-bytes-ops", BYTES_OPS),
     ("krs-builtin-set-ops", SET_OPS),
     ("krs-builtin-map-ops", MAP_OPS),
     ("krs-builtin-strings", STRINGS),
 )
+
+
+def ite_instances(harness: FixtureGate, emitted) -> None:
+    """Require KRS's `kequal::ite` instances to be the ones k-rust compiles.
+
+    KRS infers each instance by k-rust's rule (the least sort of the branches
+    below the position) and lowers `ite` with no sort parameter, so k-rust's
+    solver picks the instance itself; `krs-gate` reads the instances its native
+    definition applies `ite` at.
+    """
+
+    definition = json.loads(emitted.definition_ir.read_text(encoding="utf-8"))
+    names: dict[str, str] = {}
+    instances: list[dict[str, str]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("id"), str) and isinstance(node.get("emitted_name"), str):
+                names[node["id"]] = node["emitted_name"]
+            if node.get("application") == {"application_source": "builtin", "application": "k_equal_ite"}:
+                instances.append(node["sort"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(definition)
+    krs = sorted(
+        names[sort["sort"]] if sort["sort_source"] == "declared" else sort["sort"].capitalize()
+        for sort in instances
+    )
+    if krs != ["Exp", "Int", "Int"]:
+        raise GateError(f"KRS inferred kequal::ite instances {krs}, expected Exp, Int, and Int")
+    native_definition = harness.build(emitted.fixture) / "definition.kore"
+    native = krs_gate.kore_instances(harness.gate, native_definition, ["ite"], environment=harness.environment)
+    if sorted({instance for (instance,) in native["ite"]} & set(krs)) != sorted(set(krs)):
+        raise GateError(f"k-rust instantiates ite at {native['ite']}, not at KRS's {sorted(set(krs))}")
 
 
 def main() -> int:
@@ -236,6 +297,8 @@ def main() -> int:
             harness.expand(fixture)
             emitted = harness.emit(fixture)
             harness.compare(emitted, programs, sort="Exp")
+            if package == "krs-builtin-k-equal":
+                ite_instances(harness, emitted)
             pinned = len(harness.divergences.get(package, {}))
             print(
                 f"PASS {package}: {len(programs) - pinned} programs agree natively and on Java K"

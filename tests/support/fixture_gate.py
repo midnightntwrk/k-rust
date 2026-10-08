@@ -15,7 +15,8 @@ A feature gate checks small KRS fixture packages end to end:
 Outcomes are normalized. A parse is `accepted` or `rejected`; a run is the final
 computation cell, or `undefined` when the result is undefined: an LLVM
 partial-function abort (krun exit 113 with an unevaluated function in the
-computation) and a native `#Bottom` both normalize to `undefined`.
+computation) and a native `#Bottom` both normalize to `undefined`. A native run
+that ends in several leaves is `branches:` followed by their sorted reasons.
 
 A fixture may pin a named divergence in its ledger's `known_divergences` table,
 with the native and Java outcomes recorded separately. The gate fails closed when
@@ -252,6 +253,11 @@ class FixtureGate:
                 leaves = session.execute(pattern).get("leaves") or []
                 if not leaves or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves):
                     outcomes[program.name] = {"parse": ACCEPTED, "run": UNDEFINED}
+                    continue
+                if len(leaves) > 1:
+                    # A branching run has no single final computation cell.
+                    reasons = sorted(str(leaf.get("reason", "")) for leaf in leaves)
+                    outcomes[program.name] = {"parse": ACCEPTED, "run": "branches: " + ", ".join(reasons)}
                     continue
                 session.execute(pattern, keep=program.name)
                 try:

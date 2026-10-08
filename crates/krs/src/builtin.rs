@@ -666,6 +666,34 @@ pub mod bytes {
     pub use Update as update;
 }
 
+/// Operations from K's pinned `K-EQUAL` module, on terms of any sort.
+pub mod kequal {
+    use super::bool::Bool;
+
+    /// Marker for `==K`: syntactic equality of two terms of any sort, like a
+    /// derived `PartialEq` on a closed enum of terms. It differs from `int::eq`
+    /// only on symbolic terms.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Eq<A = (), B = ()>(pub A, pub B);
+
+    /// Marker for `=/=K`, the negation of `==K`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ne<A = (), B = ()>(pub A, pub B);
+
+    /// Marker for K's sort-parametric function `#if c #then t #else e #fi`.
+    ///
+    /// It is a function, not control flow: k-rust and the Haskell backend
+    /// evaluate both branches, while Java K's LLVM backend evaluates only the
+    /// taken one, so keep both branches defined. Its sort is the least sort of
+    /// the two branches that fits where it occurs.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ite<T = ()>(pub Bool, pub T, pub T);
+
+    pub use self::Eq as eq;
+    pub use Ite as ite;
+    pub use Ne as ne;
+}
+
 /// Convenient root spelling of the builtin Boolean sort marker.
 pub use bool::Bool;
 /// Convenient root spelling of the builtin byte-string sort marker.

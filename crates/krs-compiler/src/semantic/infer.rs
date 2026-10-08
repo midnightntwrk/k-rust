@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CollectionApplication, CollectionOperandSort,
     CollectionResultSort, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, ProductionFieldId,
-    ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
+    DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, OperationSort,
+    ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
 };
 use krs_ir_levels::{
     ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
@@ -149,6 +149,9 @@ impl StructuredTermBuilder<'_> {
                     ))
                 })?
             }
+            DescriptorApplicationRef::Builtin(operation) if operation.is_sort_generic() => {
+                return self.infer_generic_builtin(*operation, arguments, expected_sort, subject);
+            }
             DescriptorApplicationRef::Builtin(operation) => {
                 builtin_production_signature(*operation)
                     .ok_or_else(|| self.sort_generic_builtin(*operation))?
@@ -182,6 +185,107 @@ impl StructuredTermBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The sort each argument of a sort-generic builtin is inferred and lowered
+    /// at: its builtin sort, nothing for `K`, and for `Parameter` the sort
+    /// expected of a `Parameter` result, an upper bound of the instance.
+    fn generic_argument_sorts(
+        &self,
+        operation: BuiltinOperation,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<Vec<Option<SemanticSortRef>>, DescriptorLoweringError> {
+        let spec = operation.spec();
+        if arguments.len() != spec.argument_sorts.len() || arguments.is_named() {
+            return Err(self.invalid_term(format!(
+                "the {operation} operation expects {} positional arguments",
+                spec.argument_sorts.len()
+            )));
+        }
+        let parameter_bound = match spec.result_sort {
+            OperationSort::Parameter => expected_sort.cloned(),
+            OperationSort::Builtin(_) | OperationSort::K => None,
+        };
+        Ok(spec
+            .argument_sorts
+            .iter()
+            .map(|sort| match sort {
+                OperationSort::Builtin(sort) => Some(SemanticSortRef::Builtin(*sort)),
+                OperationSort::K => None,
+                OperationSort::Parameter => parameter_bound.clone(),
+            })
+            .collect())
+    }
+
+    fn infer_generic_builtin(
+        &mut self,
+        operation: BuiltinOperation,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        if let OperationSort::Builtin(result) = operation.result_sort()
+            && let Some(expected) = expected_sort
+            && !semantic_is_subsort(
+                &SemanticSortRef::Builtin(result),
+                expected,
+                self.sort_parents,
+            )
+        {
+            return Err(self.invalid_term(format!(
+                "application result sort {} is not admissible at sort {expected}",
+                SemanticSortRef::Builtin(result)
+            )));
+        }
+        let sorts = self.generic_argument_sorts(operation, arguments, expected_sort)?;
+        for (argument, sort) in arguments.iter().zip(&sorts) {
+            if let krs_ir::TermArgumentRef::Positional { value } = argument {
+                self.infer(value, sort.as_ref(), subject)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn lower_generic_builtin(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        operation: BuiltinOperation,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let sorts = self.generic_argument_sorts(operation, arguments, expected_sort)?;
+        let mut lowered = Vec::with_capacity(sorts.len());
+        for (argument, sort) in arguments.iter().zip(&sorts) {
+            if let krs_ir::TermArgumentRef::Positional { value } = argument {
+                lowered.push(self.lower(value, sort.as_ref(), subject)?);
+            }
+        }
+        let result_sort = match operation.result_sort() {
+            OperationSort::Builtin(sort) => SemanticSortRef::Builtin(sort),
+            OperationSort::Parameter => {
+                let branches = lowered
+                    .iter()
+                    .zip(operation.argument_sorts())
+                    .filter(|(_, sort)| **sort == OperationSort::Parameter)
+                    .map(|(argument, _)| argument.sort().clone())
+                    .collect::<Vec<_>>();
+                least_instance(&branches, expected_sort, self.sort_parents)
+                    .map_err(|error| self.invalid_term(error.message(operation, &branches)))?
+            }
+            OperationSort::K => {
+                return Err(
+                    self.invalid_term(format!("builtin operation {operation} has no result sort"))
+                );
+            }
+        };
+        Ok(SemanticTerm::application(
+            semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
+            result_sort,
+            ApplicationRef::Builtin(operation),
+            lowered,
+        ))
     }
 
     fn infer_collection_operation<O: CollectionApplication>(
@@ -462,6 +566,15 @@ impl StructuredTermBuilder<'_> {
                 })?;
                 (ApplicationRef::Declared(id.clone()), signature)
             }
+            DescriptorApplicationRef::Builtin(operation) if operation.is_sort_generic() => {
+                return self.lower_generic_builtin(
+                    reference,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
+            }
             DescriptorApplicationRef::Builtin(operation) => (
                 ApplicationRef::Builtin(*operation),
                 builtin_production_signature(*operation)
@@ -734,6 +847,82 @@ impl StructuredTermBuilder<'_> {
     }
 }
 
+/// Why a sort-parametric application has no instance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum InstanceError {
+    /// The argument sorts have no common supersort within the bound.
+    NoCommonSort { bound: Option<Box<SemanticSortRef>> },
+    /// Several common supersorts are minimal, so none is least.
+    Ambiguous(Vec<SemanticSortRef>),
+}
+
+impl InstanceError {
+    fn message(&self, operation: BuiltinOperation, arguments: &[SemanticSortRef]) -> String {
+        let spec = operation.spec();
+        let sorts = arguments
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" and ");
+        let name = format!("{}::{}", spec.rust_module, spec.rust_name);
+        match self {
+            Self::NoCommonSort { bound: None } => format!(
+                "branches of {name} have sorts {sorts} with no common sort; narrow one with a typed binder or `where`"
+            ),
+            Self::NoCommonSort { bound: Some(bound) } => format!(
+                "branches of {name} have sorts {sorts} with no common sort admissible at sort {bound}; narrow one with a typed binder or `where`"
+            ),
+            Self::Ambiguous(candidates) => format!(
+                "branches of {name} have sorts {sorts} with no least common sort (candidates {}); narrow one with a typed binder or `where`",
+                candidates
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+}
+
+/// The instance of a sort-parametric application, by k-rust's rule (X9.1):
+/// the least sort that every argument sort is a subsort of, with the sort
+/// expected at the position, when there is one, as an upper bound. A result
+/// that is not unique is an error rather than a guess.
+pub(super) fn least_instance(
+    arguments: &[SemanticSortRef],
+    bound: Option<&SemanticSortRef>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<SemanticSortRef, InstanceError> {
+    let mut common: Option<BTreeSet<SemanticSortRef>> = None;
+    for sort in arguments {
+        let closure = semantic_sort_closure(sort, parents);
+        common = Some(match common {
+            None => closure,
+            Some(common) => common.intersection(&closure).cloned().collect(),
+        });
+    }
+    let mut common = common.unwrap_or_default();
+    if let Some(bound) = bound {
+        common.retain(|candidate| semantic_is_subsort(candidate, bound, parents));
+    }
+    let least = common
+        .iter()
+        .filter(|candidate| {
+            !common
+                .iter()
+                .any(|other| other != *candidate && semantic_is_subsort(other, candidate, parents))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    match least.as_slice() {
+        [instance] => Ok(instance.clone()),
+        [] => Err(InstanceError::NoCommonSort {
+            bound: bound.cloned().map(Box::new),
+        }),
+        _ => Err(InstanceError::Ambiguous(least)),
+    }
+}
+
 pub(super) fn initial_binding_constraints(
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> BTreeMap<String, BTreeSet<SemanticSortRef>> {
@@ -898,4 +1087,103 @@ fn order_structured_arguments<'a>(
         ));
     }
     Ok(ordered)
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use krs_ir::{BuiltinSort, ItemKind};
+    use krs_ir_levels::SemanticSortRef;
+
+    use super::{InstanceError, least_instance};
+
+    fn declared(name: &str) -> SemanticSortRef {
+        SemanticSortRef::Declared(krs_ir::testing::item("sorts", name, ItemKind::Sort))
+    }
+
+    /// `Int, Bool < Value < Exp < KItem`, and `Left, Right < Both1, Both2`.
+    fn graph() -> BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>> {
+        let int = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let boolean = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        BTreeMap::from([
+            (int, BTreeSet::from([declared("Value")])),
+            (boolean, BTreeSet::from([declared("Value")])),
+            (declared("Value"), BTreeSet::from([declared("Exp")])),
+            (declared("Exp"), BTreeSet::from([declared("KItem")])),
+            (
+                declared("Left"),
+                BTreeSet::from([declared("Both1"), declared("Both2")]),
+            ),
+            (
+                declared("Right"),
+                BTreeSet::from([declared("Both1"), declared("Both2")]),
+            ),
+        ])
+    }
+
+    #[test]
+    fn the_instance_is_the_least_sort_of_the_branches_below_the_position() {
+        let parents = graph();
+        let int = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let boolean = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        // Two Int branches at an Exp position: the instance is Int, then injected.
+        assert_eq!(
+            least_instance(
+                &[int.clone(), int.clone()],
+                Some(&declared("Exp")),
+                &parents
+            ),
+            Ok(int.clone())
+        );
+        assert_eq!(
+            least_instance(
+                &[declared("Exp"), declared("Exp")],
+                Some(&declared("Exp")),
+                &parents
+            ),
+            Ok(declared("Exp"))
+        );
+        assert_eq!(
+            least_instance(&[int.clone(), boolean.clone()], None, &parents),
+            Ok(declared("Value"))
+        );
+        assert_eq!(
+            least_instance(
+                &[int.clone(), declared("Exp")],
+                Some(&declared("KItem")),
+                &parents
+            ),
+            Ok(declared("Exp"))
+        );
+    }
+
+    #[test]
+    fn branches_without_a_unique_least_sort_are_rejected() {
+        let parents = graph();
+        let int = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let map = SemanticSortRef::Builtin(BuiltinSort::Map);
+        assert_eq!(
+            least_instance(&[int.clone(), map], None, &parents),
+            Err(InstanceError::NoCommonSort { bound: None })
+        );
+        // The least common sort Value is above the Int position.
+        assert_eq!(
+            least_instance(
+                &[int.clone(), SemanticSortRef::Builtin(BuiltinSort::Bool)],
+                Some(&int),
+                &parents
+            ),
+            Err(InstanceError::NoCommonSort {
+                bound: Some(Box::new(int.clone()))
+            })
+        );
+        assert_eq!(
+            least_instance(&[declared("Left"), declared("Right")], None, &parents),
+            Err(InstanceError::Ambiguous(vec![
+                declared("Both1"),
+                declared("Both2")
+            ]))
+        );
+    }
 }

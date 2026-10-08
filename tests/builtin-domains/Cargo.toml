@@ -5,6 +5,7 @@ members = [
     "packages/int-ops",
     "packages/int-sign",
     "packages/int-sign-unsigned",
+    "packages/k-equal",
     "packages/map-ops",
     "packages/set-ops",
     "packages/strings",

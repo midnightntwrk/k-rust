@@ -1528,6 +1528,46 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: String,
                 functional: true
             }
+            /// `_==K_`, syntactic equality of terms of any sort (`KEQUAL.eq`).
+            KEqualEq {
+                rust_module: kequal,
+                rust_name: eq,
+                description: "term equality",
+                k_label: "_==K_",
+                k_hook: Some("KEQUAL.eq"),
+                k_module: "K-EQUAL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ==K ", ""] },
+                argument_sorts: [K, K],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_=/=K_`, syntactic inequality of terms of any sort (`KEQUAL.ne`).
+            KEqualNe {
+                rust_module: kequal,
+                rust_name: ne,
+                description: "term inequality",
+                k_label: "_=/=K_",
+                k_hook: Some("KEQUAL.ne"),
+                k_module: "K-EQUAL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " =/=K ", ""] },
+                argument_sorts: [K, K],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `#if _ #then _ #else _ #fi` with symbol `ite`, sort-parametric in its
+            /// branches (`KEQUAL.ite`). The symbolic backends evaluate both branches.
+            KEqualIte {
+                rust_module: kequal,
+                rust_name: ite,
+                description: "sort-parametric conditional",
+                k_label: "ite",
+                k_hook: Some("KEQUAL.ite"),
+                k_module: "K-EQUAL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["#if ", " #then ", " #else ", " #fi"] },
+                argument_sorts: [Bool, Parameter, Parameter],
+                result_sort: Parameter,
+                functional: true
+            }
         }
     };
 }

@@ -134,6 +134,9 @@ const BUILTIN_OPERATIONS: &[Production] = &[
     production("String2Bool(_)_STRING-COMMON_Bool_String", Some("String2Bool"), None, None, "STRING-COMMON", ("string", "to_bool")),
     production("String2Bytes(_)_BYTES-HOOKED_Bytes_String", Some("String2Bytes"), None, Some("BYTES.string2bytes"), "BYTES-HOOKED", ("bytes", "from_string")),
     production("Bytes2String(_)_BYTES-HOOKED_String_Bytes", Some("Bytes2String"), None, Some("BYTES.bytes2string"), "BYTES-HOOKED", ("bytes", "to_string")),
+    production("_==K_", Some("==K"), Some("_==K_"), Some("KEQUAL.eq"), "K-EQUAL-SYNTAX", ("kequal", "eq")),
+    production("_=/=K_", Some("=/=K"), Some("_=/=K_"), Some("KEQUAL.ne"), "K-EQUAL-SYNTAX", ("kequal", "ne")),
+    production("ite", Some("#if"), Some("ite"), Some("KEQUAL.ite"), "K-EQUAL-SYNTAX", ("kequal", "ite")),
 ];
 
 #[rustfmt::skip]

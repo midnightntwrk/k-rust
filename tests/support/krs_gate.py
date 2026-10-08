@@ -96,6 +96,16 @@ def kore_attributes(
         return session.kore_attributes(kore, list(labels), list(attributes))
 
 
+def kore_instances(
+    krs_gate: Path, kore: Path, labels: Sequence[str], *,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, list[list[str]]]:
+    """Read the sort instances of the named labels' symbol applications in one unloaded session."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return session.kore_instances(kore, list(labels))
+
+
 def ir_query(
     krs_gate: Path, artifacts: Path, query: Mapping[str, Any], *,
     environment: Mapping[str, str] | None = None,
@@ -335,6 +345,11 @@ class Session:
         return self.request(
             "kore.attributes", kore=os.fspath(kore), labels=labels, attributes=attributes,
         )["symbols"]
+
+    def kore_instances(self, kore: Path, labels: list[str]) -> dict[str, list[list[str]]]:
+        """Read the sort instances at which a KORE definition's axioms apply each label's symbol."""
+
+        return self.request("kore.instances", kore=os.fspath(kore), labels=labels)["instances"]
 
     def observe(self, state: str, cells: list[str]) -> dict[str, Any]:
         """Read canonical cell contents and collection sizes."""

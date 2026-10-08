@@ -29,6 +29,7 @@ const CATALOG_MODULES: &[&str] = &[
     "BYTES",
     "COLLECTIONS",
     "INT",
+    "K-EQUAL",
     "LIST",
     "MAP",
     "SET",
@@ -241,6 +242,11 @@ fn string(value: &str) -> String {
     format!("\\dv{{SortString{{}}}}(\"{value}\")")
 }
 
+/// The one-item computation `value ~> .K`, a ground term of sort `K`.
+fn sequence(value: i64) -> String {
+    format!("kseq{{}}({}, dotk{{}}())", item(value))
+}
+
 fn item(value: i64) -> String {
     format!("inj{{SortInt{{}}, SortKItem{{}}}}({})", int(value))
 }
@@ -367,6 +373,8 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
         Op::StringFromInt => vec![int(-42)],
         Op::StringToInt => vec![string("42")],
         Op::BytesFromString => vec![string("hi")],
+        Op::KEqualEq | Op::KEqualNe => vec![sequence(1), sequence(2)],
+        Op::KEqualIte => vec![boolean(false), int(1), int(2)],
     }
 }
 
@@ -447,11 +455,18 @@ fn one_ground_application_of_every_exposed_operation_evaluates_natively() {
     let mut cases = Vec::new();
     for operation in BuiltinOperation::ALL {
         let spec = operation.spec();
-        cases.push((
-            spec.k_label,
-            spec.functional,
-            apply(spec.k_label, &builtin_arguments(operation)),
-        ));
+        let arguments = builtin_arguments(operation);
+        // A sort-parametric symbol takes its instance as a KORE sort parameter.
+        let pattern = if spec.result_sort == OperationSort::Parameter {
+            format!(
+                "{}{{SortInt{{}}}}({})",
+                encode_label(spec.k_label),
+                arguments.join(", ")
+            )
+        } else {
+            apply(spec.k_label, &arguments)
+        };
+        cases.push((spec.k_label, spec.functional, pattern));
     }
     for operation in MapOperation::ALL {
         let label = operation.spec().k_label;

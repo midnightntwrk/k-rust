@@ -216,6 +216,15 @@
       },
       "71": {
         "bytes_to_string": "UNIT"
+      },
+      "72": {
+        "k_equal_eq": "UNIT"
+      },
+      "73": {
+        "k_equal_ne": "UNIT"
+      },
+      "74": {
+        "k_equal_ite": "UNIT"
       }
     }
   },

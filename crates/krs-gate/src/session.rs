@@ -237,6 +237,7 @@ impl Session {
                 | "kore.read"
                 | "kore.digest"
                 | "kore.attributes"
+                | "kore.instances"
                 | "ir.query"
                 | "registration.table"
                 | "kast.normalize"
@@ -254,6 +255,7 @@ impl Session {
                 "definition.load"
                     | "kore.digest"
                     | "kore.attributes"
+                    | "kore.instances"
                     | "ir.query"
                     | "registration.table"
                     | "kast.normalize"
@@ -283,6 +285,7 @@ impl Session {
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
             "kore.attributes" => Self::attributes(request),
+            "kore.instances" => Self::instances(request),
             "ir.query" => crate::ir_query::dispatch(request),
             "registration.table" => crate::registration::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
@@ -543,6 +546,24 @@ impl Session {
             &strings("attributes")?,
         )?;
         Ok(json!({"symbols": symbols}))
+    }
+
+    fn instances(request: &Value) -> Result<Value, Box<dyn Error>> {
+        let kore = Path::new(required_string(request, "kore")?);
+        let labels = request
+            .get("labels")
+            .and_then(Value::as_array)
+            .ok_or("request field `labels` must be an array")?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "request field `labels` must contain strings".into())
+            })
+            .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+        let instances = crate::kore_attributes::symbol_instances(kore, &labels)?;
+        Ok(json!({"instances": instances}))
     }
 
     fn state(&self, request: &Value) -> Result<&Pattern, Box<dyn Error>> {

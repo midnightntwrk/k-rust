@@ -93,9 +93,98 @@ pub(crate) fn symbol_attributes(
     Ok(serde_json::Value::Object(rows))
 }
 
+/// The sort parameters with which each named label's symbol is applied in the
+/// definition's axioms, as sorted lists of K sort names.
+///
+/// A sort-parametric symbol such as `ite` is applied at one instance per
+/// application; this returns the instances the KORE uses, so a gate can compare
+/// them with the sorts Definition IR records. Sort variables, which the
+/// prelude's own parametric axioms use, are omitted.
+///
+/// # Errors
+///
+/// Fails for unreadable or invalid KORE and for a sort name that is not
+/// encoded.
+pub(crate) fn symbol_instances(
+    kore: &std::path::Path,
+    labels: &[String],
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    use k_rust::kast::identifier::{decode_sort_name, encode_label};
+    use k_rust::kore::ast::{Sentence, Sort};
+    use k_rust::kore::{parser::parse_definition, walk::for_each_post_order};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let definition = parse_definition(&std::fs::read_to_string(kore)?)?;
+    let symbols = labels
+        .iter()
+        .map(|label| (encode_label(label), label.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut instances = labels
+        .iter()
+        .map(|label| (label.clone(), BTreeSet::new()))
+        .collect::<BTreeMap<_, BTreeSet<Vec<String>>>>();
+    let mut failure = None;
+    for sentence in definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        let Sentence::Axiom { pattern, .. } = sentence else {
+            continue;
+        };
+        for_each_post_order(pattern, |node| {
+            if let Pattern::Application { symbol, .. } = node
+                && let Some(label) = symbols.get(&symbol.name)
+            {
+                let mut names = Vec::new();
+                for sort in &symbol.sort_parameters {
+                    match sort {
+                        Sort::Application { name, .. } => match decode_sort_name(name) {
+                            Ok(name) => names.push(name),
+                            Err(error) => failure = Some(error.to_string()),
+                        },
+                        Sort::Variable(_) => return,
+                    }
+                }
+                if let Some(set) = instances.get_mut(label) {
+                    set.insert(names);
+                }
+            }
+        });
+    }
+    if let Some(failure) = failure {
+        return Err(failure.into());
+    }
+    Ok(serde_json::to_value(instances)?)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::symbol_attributes;
+    use super::{symbol_attributes, symbol_instances};
+
+    #[test]
+    fn reads_the_instances_a_parametric_symbol_is_applied_at() {
+        let directory =
+            std::env::temp_dir().join(format!("krs-gate-kore-instances-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("definition.kore");
+        std::fs::write(
+            &path,
+            "[]\nmodule M\n  sort SortInt{} []\n  sort SortExp{} []\n  \
+             symbol Lblite{S}(SortBool{}, S, S) : S []\n  \
+             axiom{R} \\equals{SortInt{}, R}(Lblite{SortInt{}}(X:SortBool{}, A:SortInt{}, B:SortInt{}), A:SortInt{}) []\n  \
+             axiom{R, S} \\equals{S, R}(Lblite{S}(X:SortBool{}, A:S, B:S), A:S) []\n  \
+             axiom{R} \\equals{SortExp{}, R}(Lblite{SortExp{}}(X:SortBool{}, E:SortExp{}, F:SortExp{}), E:SortExp{}) []\n\
+             endmodule []\n",
+        )
+        .unwrap();
+        let rows = symbol_instances(&path, &["ite".to_owned(), "absent".to_owned()]).unwrap();
+        assert_eq!(
+            rows,
+            serde_json::json!({"ite": [["Exp"], ["Int"]], "absent": []})
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn reads_named_string_attributes_by_k_label() {
