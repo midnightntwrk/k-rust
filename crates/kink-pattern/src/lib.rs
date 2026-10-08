@@ -5,7 +5,13 @@
 //! paths from k-rust executions. Mutation sites and candidate selection live
 //! in kink-patch.
 
+mod monitor;
 mod pattern;
+
+pub use monitor::{
+    DEFAULT_PARTIAL_CAP, Monitor, MonitorError, MonitorOptions, MonitorVerdict, NodeId, PathTree,
+    TreeError, TreeOptions, TreeStats, evaluate_tree, evaluate_tree_with_stats,
+};
 
 pub use pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EmptySearchDecision,
