@@ -143,13 +143,27 @@ impl OriginSet {
     }
 
     /// The parts of the set's node, none for the empty set.
+    ///
+    /// This hands the sets the node names to its caller, so it is counted as [`OriginSet::links`]
+    /// counts a node it enters: one for the node and one per part. A walk over the DAG through it
+    /// shows in `provenance.links_steps` wherever it is written (design §14.3); the walks of this
+    /// module read nodes through `node_parts`, which counts nothing, and count their own steps.
     pub(crate) fn parts(&self) -> &[OriginPart] {
+        let parts = self.node_parts();
+        if !parts.is_empty() {
+            measure::add(Counter::ProvenanceLinksSteps, 1 + parts.len() as u64);
+        }
+        parts
+    }
+
+    fn node_parts(&self) -> &[OriginPart] {
         self.0.as_deref().unwrap_or_default()
     }
 
-    /// Whether every part of the set's node is a link, so that its parts are its links.
+    /// Whether every part of the set's node is a link, so that its parts are its links. It reads
+    /// one node and hands out none of the sets it names.
     pub fn is_flat(&self) -> bool {
-        self.parts()
+        self.node_parts()
             .iter()
             .all(|part| matches!(part, OriginPart::Link(_)))
     }
@@ -165,7 +179,7 @@ impl OriginSet {
     /// reached through an earlier one. The walk enters each reachable node once and examines
     /// each part of an entered node once, whatever the number of paths through the DAG.
     pub fn links(&self) -> Vec<ProvenanceLink> {
-        let parts = self.parts();
+        let parts = self.node_parts();
         if self.is_flat() {
             measure::add(Counter::ProvenanceLinksSteps, 1 + parts.len() as u64);
             return parts
@@ -203,7 +217,7 @@ impl OriginSet {
                     steps += 1;
                     if entered.insert(set.address()) {
                         steps += 1;
-                        stack.push((set.parts(), 0));
+                        stack.push((set.node_parts(), 0));
                     }
                 }
             }

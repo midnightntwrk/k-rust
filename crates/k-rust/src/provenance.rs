@@ -801,8 +801,16 @@ impl AnchorPath {
     }
 
     /// The path without its last step, and that step; `None` for the empty path.
+    ///
+    /// This hands one step of the chain to its caller, so it is counted like a step visited by
+    /// [`AnchorPath::to_vec`]: a walk up a path through it shows in
+    /// `provenance.anchor_path_steps` wherever it is written.
     pub(crate) fn split_last(&self) -> Option<(&AnchorPath, u32)> {
-        self.0.as_ref().map(|step| (&step.parent, step.step))
+        let split = self.0.as_ref().map(|step| (&step.parent, step.step));
+        if split.is_some() {
+            measure::bump(Counter::ProvenanceAnchorPathSteps);
+        }
+        split
     }
 
     /// The address of the path's last step, null for the empty path: an identity for memo
@@ -813,9 +821,11 @@ impl AnchorPath {
 
     /// The steps of the path, from the field down.
     ///
-    /// Every walk over a path's steps (comparison, ordering, formatting) goes through here, and
-    /// every step is created by [`AnchorPath::child`]: both count their steps, so any work that
-    /// reads or rebuilds paths step by step shows in `provenance.anchor_path_steps`.
+    /// The path's steps are reached only through here, through [`AnchorPath::split_last`] and
+    /// through the comparisons and formatting built on this, and created only by
+    /// [`AnchorPath::child`]; each counts the steps it creates, visits or hands out, so any work
+    /// that reads or rebuilds paths step by step shows in `provenance.anchor_path_steps`
+    /// (design §14.3). `len`, `is_empty` and `address` read no step.
     pub fn to_vec(&self) -> Vec<u32> {
         measure::add(Counter::ProvenanceAnchorPathSteps, self.len() as u64);
         let mut steps = Vec::with_capacity(self.len());

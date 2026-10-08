@@ -385,7 +385,9 @@ pub enum Counter {
     ProvenanceSetNodesBuilt,
     /// Parts (links and named sets) of the origin-set nodes the recorder builds.
     ProvenanceSetPartsBuilt,
-    /// Work of flattening origin sets into link lists: set nodes entered plus parts examined.
+    /// Work of walking origin sets: set nodes entered plus parts examined, by flattening a set
+    /// into its link list and by every other read of a node's parts, which is where any walk
+    /// over a set's nodes starts.
     ProvenanceLinksSteps,
     /// Flattenings of an origin set that names another set.
     ProvenanceNonflatFlattens,
@@ -403,7 +405,8 @@ pub enum Counter {
     /// encoder and reader: one per earlier part compared directly, or one per hash-set probe.
     ProvenanceNormalPartComparisons,
     /// Steps of destination-anchor paths created or walked: one per step a path is extended by,
-    /// and one per step that flattening, comparing or formatting a path visits.
+    /// one per step that flattening, comparing or formatting a path visits, and one per step
+    /// handed to a caller that walks a path itself.
     ProvenanceAnchorPathSteps,
     /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
     KompileSentenceCopies,

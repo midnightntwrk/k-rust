@@ -778,9 +778,10 @@ impl ProvenanceEncoder {
     /// any other key is the entry with that key, written on its first occurrence.
     fn intern_set(&mut self, node: &OriginSet) -> Result<Option<u32>, Error> {
         measure::bump(Counter::ProvenanceEncoderSetKeys);
-        let mut key = Vec::with_capacity(node.parts().len());
-        let mut kept = KeptParts::new(node.parts().len());
-        for part in node.parts() {
+        let parts = node.parts();
+        let mut key = Vec::with_capacity(parts.len());
+        let mut kept = KeptParts::new(parts.len());
+        for part in parts {
             let normal = match part {
                 OriginPart::Link(link) => NormalPart::Link(link.clone()),
                 OriginPart::Set(set) => match self.set_memo[&set.address()].0 {
@@ -3292,11 +3293,15 @@ mod tests {
             reach.root_triples as u64,
             "roots interned by value"
         );
+        // The encoder reads a path's steps through `split_last`, which counts each: one per step
+        // not yet resolved under its root, and one per receipt for the step its walk stops at.
         assert!(
-            encoding.get(Counter::ProvenanceAnchorPathSteps) <= reach.steps as u64,
-            "{} path steps walked to encode {} step allocations",
+            encoding.get(Counter::ProvenanceAnchorPathSteps)
+                <= (reach.steps + reach.receipts) as u64,
+            "{} path steps walked to encode {} step allocations of {} receipts",
             encoding.get(Counter::ProvenanceAnchorPathSteps),
-            reach.steps
+            reach.steps,
+            reach.receipts
         );
         let internings = encoding.get(Counter::ProvenanceEncoderAnchorInternings);
         assert!(
